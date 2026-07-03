@@ -1,49 +1,26 @@
-cannot access local variable 'TrainingStoppedError' where it is not associated with a value
+Invalid frequency: 1m. Failed to parse with error message: ValueError("'m' is no longer supported for offsets. Please use 'ME' instead.")
 Traceback (most recent call last):
-  File "C:\Users\shun0\.gemini\antigravity\scratch\mars_lite\mars_lite\server\training_manager.py", line 582, in _run_evolution_training
-    history = get_metrics_history()
-              ^^^^^^^^^^^^^^^^^^^
-UnboundLocalError: cannot access local variable 'get_metrics_history' where it is not associated with a value
+  File "/home/user/trade_rl/mars_lite/server/training_manager.py", line 404, in _run_training
+    raise FileNotFoundError("No data loaded successfully.")
+FileNotFoundError: No data loaded successfully.
 
 During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
-  File "pandas/_libs/tslibs/timestamps.pyx", line 2476, in pandas._libs.tslibs.timestamps.Timestamp.replace
-OverflowError: Overflow occurred in npy_datetimestruct_to_datetime
+  File "pandas/_libs/tslibs/offsets.pyx", line 6313, in pandas._libs.tslibs.offsets.to_offset
+  File "pandas/_libs/tslibs/offsets.pyx", line 6180, in pandas._libs.tslibs.offsets._validate_to_offset_alias
+ValueError: 'm' is no longer supported for offsets. Please use 'ME' instead.
 
-The above exception was the direct cause of the following exception:
+During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
-  File "C:\Users\shun0\.gemini\antigravity\scratch\mars_lite\mars_lite\server\training_manager.py", line 617, in _run_evolution_training
+  File "/home/user/trade_rl/mars_lite/server/training_manager.py", line 438, in _run_training
     "timestamp": pd.date_range("2024-01-01", periods=n_samples, freq="1m"),
-                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\shun0\AppData\Local\Programs\Python\Python314\Lib\site-packages\pandas\core\indexes\datetimes.py", line 1008, in date_range
-    dtarr = DatetimeArray._generate_range(
-        start=start,
-    ...<7 lines>...
-        **kwargs,
-    )
-  File "C:\Users\shun0\AppData\Local\Programs\Python\Python314\Lib\site-packages\pandas\core\arrays\datetimes.py", line 470, in _generate_range
-    i8values = np.array([x._value for x in xdr], dtype=np.int64)
-                                           ^^^
-  File "C:\Users\shun0\AppData\Local\Programs\Python\Python314\Lib\site-packages\pandas\core\arrays\datetimes.py", line 2797, in _generate_range
-    end = start + (periods - 1) * offset  # type: ignore[operator]
-          ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~
-  File "pandas/_libs/tslibs/offsets.pyx", line 468, in pandas._libs.tslibs.offsets.BaseOffset.__radd__
-  File "pandas/_libs/tslibs/offsets.pyx", line 463, in pandas._libs.tslibs.offsets.BaseOffset.__add__
-  File "pandas/_libs/tslibs/offsets.pyx", line 141, in pandas._libs.tslibs.offsets.apply_wraps.wrapper
-  File "pandas/_libs/tslibs/offsets.pyx", line 2920, in pandas._libs.tslibs.offsets.MonthOffset._apply
-  File "pandas/_libs/tslibs/offsets.pyx", line 5231, in pandas._libs.tslibs.offsets.shift_month
-  File "pandas/_libs/tslibs/timestamps.pyx", line 2479, in pandas._libs.tslibs.timestamps.Timestamp.replace
-pandas._libs.tslibs.np_datetime.OutOfBoundsDatetime: Out of bounds timestamp: 3690-08-31 00:00:00 with frequency 'ns'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "C:\Users\shun0\.gemini\antigravity\scratch\mars_lite\mars_lite\server\training_manager.py", line 283, in _run_training
-    self._run_evolution_training(config, output_path)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\shun0\.gemini\antigravity\scratch\mars_lite\mars_lite\server\training_manager.py", line 711, in _run_evolution_training
-    except TrainingStoppedError:
-           ^^^^^^^^^^^^^^^^^^^^
-UnboundLocalError: cannot access local variable 'TrainingStoppedError' where it is not associated with a value
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/pandas/core/indexes/datetimes.py", line 1442, in date_range
+    freq = to_offset(freq)
+           ^^^^^^^^^^^^^^^
+  File "pandas/_libs/tslibs/offsets.pyx", line 6229, in pandas._libs.tslibs.offsets.to_offset
+  File "pandas/_libs/tslibs/offsets.pyx", line 6352, in pandas._libs.tslibs.offsets.to_offset
+  File "pandas/_libs/tslibs/offsets.pyx", line 6137, in pandas._libs.tslibs.offsets.raise_invalid_freq
+ValueError: Invalid frequency: 1m. Failed to parse with error message: ValueError("'m' is no longer supported for offsets. Please use 'ME' instead.")

@@ -15,6 +15,17 @@ from pathlib import Path
 import numpy as np
 from mars_lite.learning.training_callback import get_metrics_history
 
+# データディレクトリはリポジトリルート基準で解決（CWD非依存）
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_data_dir() -> Path:
+    """dataディレクトリを解決（CWD直下 → リポジトリルートの順）"""
+    cwd_data = Path("data")
+    if cwd_data.exists():
+        return cwd_data
+    return _REPO_ROOT / "data"
+
 
 class TrainingStatus(Enum):
     """学習状態"""
@@ -348,24 +359,23 @@ class TrainingManager:
             
             # === 通常の PPO Training ===
             # 必要なモジュールをインポート
-            from mars_lite.env.mars_lite_env import MarsLiteEnv
+            from mars_lite.env.trading_env import MarsLiteTradingEnv
             from mars_lite.learning.agent import create_ppo_agent
             from mars_lite.learning.training_callback import (
-                TrainingMetricsCallback, 
-                CheckpointCallback,
-                TrainingMetricsCallback, 
+                TrainingMetricsCallback,
                 CheckpointCallback,
                 get_metrics_history
             )
             from mars_lite.learning.curriculum_callback import CurriculumCallback # Import Curriculum Callback
+            from stable_baselines3 import PPO
             from stable_baselines3.common.vec_env import DummyVecEnv
             from stable_baselines3.common.monitor import Monitor
             
             # データ読み込み（MultiSymbolLoader使用）
             from mars_lite.data.multi_timeframe_loader import MultiSymbolLoader
             
-            data_dir = Path("data")
-            
+            data_dir = resolve_data_dir()
+
             # 利用可能なシンボルをスキャン
             symbols_to_load = []
             if data_dir.exists():
@@ -404,15 +414,10 @@ class TrainingManager:
                     raise FileNotFoundError("No data loaded successfully.")
                 
                 # ===== Train/Val/Test 分割 =====
-                from mars_lite.data.data_utils import split_data_by_time, summarize_data_split
-                
-                print("[TrainingManager] Splitting data by time...")
-                train_dict, val_dict, test_dict = split_data_by_time(
-                    data_dict,
-                    train_end="2023-12-31",
-                    val_end="2024-06-30",
-                    test_end="2024-12-31"
-                )
+                from mars_lite.data.data_utils import split_nested_by_ratio, summarize_data_split
+
+                print("[TrainingManager] Splitting data by ratio (70/15/15)...")
+                train_dict, val_dict, test_dict = split_nested_by_ratio(data_dict)
                 summarize_data_split(train_dict, val_dict, test_dict)
                 
                 # Train データを使用
@@ -433,21 +438,20 @@ class TrainingManager:
                 
                 # ダミーデータ生成（辞書形式）
                 import pandas as pd
+                from mars_lite.data.preprocessing import preprocess_ohlcv
                 n_samples = 20000 # 7日分(10080)以上確保
+                base = 40000 + np.random.randn(n_samples).cumsum()
+                spread_noise = np.abs(np.random.randn(n_samples)) * 10
                 dummy_df = pd.DataFrame({
-                    "timestamp": pd.date_range("2024-01-01", periods=n_samples, freq="1m"),
-                    "open": 40000 + np.random.randn(n_samples).cumsum(),
-                    "high": 40500 + np.random.randn(n_samples).cumsum(),
-                    "low": 39500 + np.random.randn(n_samples).cumsum(),
-                    "close": 40000 + np.random.randn(n_samples).cumsum(),
+                    "timestamp": pd.date_range("2024-01-01", periods=n_samples, freq="1min"),
+                    "open": base,
+                    "high": base + spread_noise,
+                    "low": base - spread_noise,
+                    "close": base + np.random.randn(n_samples),
                     "volume": np.random.uniform(100, 1000, n_samples),
                 })
-                # 必要カラム
-                dummy_df["log_return"] = dummy_df["close"].pct_change().fillna(0)
-                dummy_df["vol_gk"] = 0.002
-                dummy_df["spread_cs"] = 0.0001
-                dummy_df["v_expected"] = 500.0
-                
+                dummy_df = preprocess_ohlcv(dummy_df)
+
                 # 全TF、全Symbolに同じダミーをセット
                 data_dict = {}
                 val_dict = {} # Dummy Val
@@ -457,7 +461,7 @@ class TrainingManager:
 
             # 環境作成（Train）
             def make_env():
-                env = MarsLiteEnv(
+                env = MarsLiteTradingEnv(
                     data_dict=data_dict,
                     initial_capital=config.initial_inventory, # Use inventory field as capital
                     max_steps=config.max_steps,
@@ -539,8 +543,7 @@ class TrainingManager:
                         "MlpPolicy",
                         env, 
                         verbose=1,
-                        **policy_kwargs,
-                        
+                        policy_kwargs=policy_kwargs,
                         learning_rate=lr_schedule,
                         n_steps=config.n_steps, 
                         batch_size=config.batch_size,
@@ -557,8 +560,7 @@ class TrainingManager:
                     "MlpPolicy",
                     env, 
                     verbose=1,
-                    **policy_kwargs,
-                    
+                    policy_kwargs=policy_kwargs,
                     learning_rate=lr_schedule,
                     n_steps=config.n_steps, 
                     batch_size=config.batch_size,
@@ -573,7 +575,7 @@ class TrainingManager:
             
             # Validation 環境作成
             def make_val_env():
-                val_env = MarsLiteEnv(
+                val_env = MarsLiteTradingEnv(
                     data_dict=val_dict,
                     initial_capital=config.initial_inventory,
                     max_steps=config.max_steps,
@@ -607,7 +609,11 @@ class TrainingManager:
             # Callbacks
             callbacks = [
                 eval_callback,
-                TrainingMetricsCallback(check_freq=10),
+                TrainingMetricsCallback(
+                    total_timesteps=config.total_timesteps,
+                    log_freq=1,
+                    verbose=1,
+                ),
                 CheckpointCallback(
                     save_freq=config.checkpoint_freq,
                     save_path=Path(config.output_dir) / "checkpoints",
@@ -637,7 +643,7 @@ class TrainingManager:
             self._agent.learn(
                 total_timesteps=config.total_timesteps,
                 callback=all_callbacks,
-                progress_bar=True
+                progress_bar=False  # 進捗はTrainingMetricsCallback経由でUIへ配信
             )
             
             # 最終モデル保存
@@ -669,9 +675,9 @@ class TrainingManager:
         """
         try:
             from mars_lite.evolution import EvolutionTrainer
-            from mars_lite.env.mars_lite_env import MarsLiteEnv
+            from mars_lite.env.trading_env import MarsLiteTradingEnv
             from mars_lite.data.multi_timeframe_loader import MultiSymbolLoader
-            from mars_lite.data.data_utils import split_data_by_time
+            from mars_lite.data.data_utils import split_nested_by_ratio
             from stable_baselines3.common.vec_env import DummyVecEnv
             from stable_baselines3.common.monitor import Monitor
             
@@ -715,12 +721,8 @@ class TrainingManager:
                 )
                 data_dict = ms_loader.load_all(limit_days=None, callback=log_callback)
                 
-                # Train/Val 分割
-                train_dict, val_dict, _ = split_data_by_time(
-                    data_dict,
-                    train_end="2023-12-31",
-                    val_end="2024-06-30"
-                )
+                # Train/Val 分割（比率ベース）
+                train_dict, val_dict, _ = split_nested_by_ratio(data_dict)
                 
                 print(f"[EvolutionTrainer] Train: {len(train_dict)} symbols")
                 print(f"[EvolutionTrainer] Val: {len(val_dict)} symbols")
@@ -748,7 +750,7 @@ class TrainingManager:
             
             # 環境作成関数
             def make_train_env():
-                env = MarsLiteEnv(
+                env = MarsLiteTradingEnv(
                     data_dict=train_dict,
                     initial_capital=config.initial_inventory,
                     max_steps=10080,
@@ -759,7 +761,7 @@ class TrainingManager:
                 return DummyVecEnv([lambda: Monitor(env)])
             
             def make_eval_env():
-                env = MarsLiteEnv(
+                env = MarsLiteTradingEnv(
                     data_dict=val_dict,
                     initial_capital=config.initial_inventory,
                     max_steps=10080,

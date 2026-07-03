@@ -29,13 +29,14 @@ from mars_lite.learning.training_callback import MetricsHistory, get_metrics_his
 class NumpyJSONEncoder(json.JSONEncoder):
     """NumPy型をJSONシリアライズ可能にするエンコーダ"""
     def default(self, obj):
-        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8,
-                            np.int16, np.int32, np.int64, np.uint8,
-                            np.uint16, np.uint32, np.uint64)):
+        # NumPy 2.0でnp.float_/np.int_は削除されたため抽象型で判定
+        if isinstance(obj, np.integer):
             return int(obj)
-        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        elif isinstance(obj, np.floating):
             return float(obj)
-        elif isinstance(obj, (np.ndarray,)):
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, np.ndarray):
             return obj.tolist()
         return super().default(obj)
 
@@ -230,7 +231,8 @@ def create_app(
         Returns:
             available: {symbol: [intervals]} の辞書
         """
-        data_dir = Path("data")
+        from mars_lite.server.training_manager import resolve_data_dir
+        data_dir = resolve_data_dir()
         available = {}
         
         if not data_dir.exists():
@@ -453,6 +455,118 @@ def create_app(
         
         return TrainingConfig().to_dict()
     
+    # ==================== Backtest Endpoint ====================
+
+    @app.post("/api/backtest")
+    def run_backtest_endpoint(body: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        保存済みモデルでバックテストを実行（BacktestPanel用）
+
+        同期defで宣言しFastAPIのthreadpoolで実行する
+        （イベントループ／WebSocket配信をブロックしないため）。
+
+        Args:
+            body: {model_id, symbol, n_episodes}
+
+        Returns:
+            {"metrics": {...}, "episode_rewards": [...]}
+        """
+        from mars_lite.server.training_manager import get_training_manager, resolve_data_dir
+
+        manager_tm = get_training_manager()
+        if manager_tm.is_running:
+            raise HTTPException(
+                status_code=409, detail="Training is running. Stop it before backtesting."
+            )
+
+        model_id = body.get("model_id")
+        symbol = body.get("symbol", "BTCUSDT")
+        n_episodes = int(body.get("n_episodes", 5))
+
+        if not model_id:
+            raise HTTPException(status_code=400, detail="model_id is required")
+
+        # モデルパス解決（models/ と checkpoints/ の両方に対応）
+        if str(model_id).startswith("checkpoint/"):
+            model_path = output_path / "checkpoints" / f"{str(model_id).split('/', 1)[1]}.zip"
+        else:
+            model_path = output_path / "models" / f"{model_id}.zip"
+        if not model_path.exists():
+            raise HTTPException(status_code=404, detail=f"Model not found: {model_id}")
+
+        from stable_baselines3 import PPO
+        from mars_lite.env.trading_env import MarsLiteTradingEnv
+        from mars_lite.data.multi_timeframe_loader import MultiTimeframeLoader
+        from mars_lite.data.data_utils import split_nested_by_ratio
+
+        # データ読み込み（テストスライス = 後半15%）
+        timeframes = ["1m", "15m", "1h", "4h", "1d"]
+        data_dir = resolve_data_dir()
+        try:
+            loader = MultiTimeframeLoader(
+                data_dir=data_dir,
+                timeframes=timeframes,
+                symbol=symbol,
+                days=3650,
+                preprocess=True,
+            )
+            tf_data = loader.load_all()
+            _, _, test_dict = split_nested_by_ratio({symbol: tf_data})
+            if not test_dict:
+                test_dict = {symbol: tf_data}
+        except (FileNotFoundError, ValueError) as e:
+            raise HTTPException(status_code=404, detail=f"Data not found for {symbol}: {e}")
+
+        try:
+            env = MarsLiteTradingEnv(
+                data_dict=test_dict,
+                timeframes=timeframes,
+                n_lookback=100,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Not enough test data: {e}")
+
+        agent = PPO.load(str(model_path), device="cpu")
+
+        episode_rewards: List[float] = []
+        final_infos: List[Dict[str, Any]] = []
+        for _ in range(max(n_episodes, 1)):
+            obs, _ = env.reset()
+            done = False
+            total_reward = 0.0
+            info: Dict[str, Any] = {}
+            while not done:
+                action, _ = agent.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                total_reward += float(reward)
+            episode_rewards.append(total_reward)
+            final_infos.append(info)
+
+        rewards = np.array(episode_rewards)
+        metrics: Dict[str, Any] = {
+            "n_episodes": len(episode_rewards),
+            "mean_reward": float(np.mean(rewards)),
+            "std_reward": float(np.std(rewards)),
+        }
+        if len(rewards) > 1 and float(np.std(rewards)) > 0:
+            metrics["sharpe_ratio"] = float(np.mean(rewards) / np.std(rewards))
+        if final_infos:
+            metrics["max_drawdown"] = float(
+                np.mean([i.get("max_drawdown", 0.0) for i in final_infos])
+            )
+            metrics["win_rate"] = float(
+                np.mean([i.get("win_rate", 0.0) for i in final_infos])
+            )
+            metrics["n_trades"] = int(
+                np.sum([i.get("n_trades", 0) for i in final_infos])
+            )
+            metrics["mean_portfolio_value"] = float(
+                np.mean([i.get("portfolio_value", 0.0) for i in final_infos])
+            )
+
+        return {"metrics": metrics, "episode_rewards": episode_rewards}
+
     @app.post("/api/training/clear")
     async def clear_metrics() -> Dict[str, Any]:
         """

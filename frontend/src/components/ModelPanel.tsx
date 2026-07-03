@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FolderOpen, Trash2, Download, RefreshCw, Clock, HardDrive } from 'lucide-react';
+import { FolderOpen, Trash2, RefreshCw, Clock, HardDrive } from 'lucide-react';
 
 interface ModelInfo {
     id: string;

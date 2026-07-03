@@ -50,10 +50,53 @@ graph TD
 
 ## インストール
 
+Python **3.12推奨**（3.13/3.14はtorchのwheel提供状況を確認してください）。
+
 ```bash
-cd mars_lite
+# リポジトリルートで実行
+python -m venv .venv
+# Windows: .venv\Scripts\activate  /  Linux・Mac: source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
+```
+
+## クイックスタート（Windows・全機能）
+
+```bat
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
+
+REM 1. データ取得（Binanceに繋がらない場合は下の「サンプルデータ生成」へ）
+python scripts\fetch_binance.py --symbol BTCUSDT --output .\data
+
+REM 2. CLI学習・評価・バックテスト
+python scripts\train.py --data .\data --symbol BTCUSDT --multi-tf --timesteps 100000 --output .\output
+python scripts\evaluate.py --model .\output\final_model.zip --episodes 10
+python scripts\backtest.py --model .\output\final_model.zip --data .\data --symbol BTCUSDT
+
+REM 3. ダッシュボード（ターミナル1: APIサーバー、必ずリポジトリルートから起動）
+python scripts\run_server.py
+
+REM ターミナル2: フロントエンド（Node 20以上）
+cd frontend
+npm install
+npm run dev
+REM → http://localhost:5173 を開く
+```
+
+注意点:
+- `run_server.py` はリポジトリルートから起動してください（`data/`・`output/` はルート基準）
+- Windowsでは学習設定の `num_envs` は `1` を推奨（SubprocVecEnvのspawnで大きなデータのpickleが遅い/失敗するため）
+- pandas 2.2以降では頻度文字列は `"1min"` 形式です（`"1m"` は月と解釈されます）。時間軸ラベルの変換は `mars_lite/data/data_utils.py` の `TF_TO_PANDAS_FREQ` に一元化されています
+
+### サンプルデータ生成（オフライン環境用）
+
+Binance APIに接続できない環境では、合成データで全パイプラインを検証できます:
+
+```bash
+python scripts/generate_sample_data.py --symbols BTCUSDT ETHUSDT --days 14 --output ./data
 ```
 
 ## 使い方
@@ -88,8 +131,39 @@ python scripts/train.py --data ./data --symbol BTCUSDT --multi-tf
 
 ### 評価
 ```bash
-python scripts/evaluate.py --model ./output/best_model.zip --episodes 20
+python scripts/evaluate.py --model ./output/final_model.zip --episodes 20
 ```
+
+### バックテスト
+```bash
+python scripts/backtest.py --model ./output/final_model.zip --data ./data --symbol BTCUSDT --episodes 10
+```
+
+### 進化学習（PBT-MAP-Elites）
+```bash
+python scripts/run_evolution.py --generations 10 --population 25 --steps-per-gen 10000 --data-dir data
+```
+
+### ダッシュボード
+
+FastAPIサーバー + React UIで学習の開始/停止・メトリクス可視化・モデル管理・バックテストが行えます。
+
+```bash
+# ターミナル1（リポジトリルートから）
+python scripts/run_server.py     # http://localhost:8001
+
+# ターミナル2
+cd frontend
+npm install
+npm run dev                      # http://localhost:5173
+```
+
+APIのURLを変える場合は `frontend/.env.example` を `.env` にコピーして編集してください。
+
+主なAPI:
+- `POST /api/training/start` / `POST /api/training/stop` / `GET /api/training/status`
+- `GET /api/models` / `POST /api/backtest` （`{model_id, symbol, n_episodes}`）
+- `WS /ws/metrics` （学習メトリクス・取引データのリアルタイム配信）
 
 ### Pythonから直接使用
 ```python

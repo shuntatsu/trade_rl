@@ -218,3 +218,9 @@ __marimo__/
 data/
 *.parquet
 *.zip
+# 学習出力
+output/
+outputs/
+eval_output/
+crash_log.txt
+elites_memo.txt

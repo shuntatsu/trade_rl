@@ -16,7 +16,7 @@ from mars_lite.data.preprocessing import preprocess_ohlcv
 from mars_lite.data.multi_timeframe_loader import MultiTimeframeLoader, MultiSymbolLoader
 from mars_lite.data.data_split import split_temporal, split_temporal_multi_tf, get_split_info
 from mars_lite.env.mars_lite_env import MarsLiteEnv
-# from mars_lite.env.multi_tf_env import MarsLiteMultiTFEnv
+from mars_lite.env.multi_tf_env import MarsLiteMultiTFEnv
 from mars_lite.env.cross_symbol_env import CrossSymbolEnv, SequentialSymbolEnv
 from mars_lite.learning.agent import create_ppo_agent, train_agent, evaluate_agent
 from mars_lite.learning.random_sampler import RandomEpisodeSampler, MultiModeEpisodeSampler
@@ -214,54 +214,34 @@ def create_env_with_sampler(
     sampler: RandomEpisodeSampler = None,
 ) -> MarsLiteEnv:
     """
-    環境を作成（MarsLiteEnvに統一）
-    
+    執行環境を作成（上位TFデータがあればMarsLiteMultiTFEnv）
+
     Args:
         data: ベース時間軸データ
         higher_tf_data: 上位時間軸データ
         config: 設定
         sampler: エピソードサンプラー（オプション）
-        
+
     Returns:
         環境インスタンス
     """
     env_kwargs = create_env_kwargs(config)
-    
-    # data_dictを再構築
-    # MarsLiteEnvは {symbol: {tf: df}} を期待するが、
-    # ここでは単一通貨のデータを渡されている前提（CrossSymbolEnvでラップされる前）
-    # しかし、MarsLiteEnvは内部で `data_dict[current_symbol]` にアクセスする。
-    # ここでは便宜上、config.symbolをキーとして data_dict を作成する。
-    
-    symbol = config.symbol or "UNKNOWN"
-    
-    # higher_tf_data には '15m', '1h' などが入っている。
-    # base_timeframe ('1m') も含める必要がある。
-    tf_data = {config.base_timeframe: data}
+
     if higher_tf_data:
-        tf_data.update(higher_tf_data)
-        
-    data_dict = {symbol: tf_data}
-    
-    # タイムフレームリストの構築
-    # config.timeframes があればそれを使うが、data_dictにあるものを優先すべきか？
-    # MarsLiteEnvは config.timeframes の順序を期待する。
-    # 欠損チェックはEnv内で行われる。
-    
-    # higher_tf_lookback パラメータは MarsLiteEnv にはない（obs構成が違うため無視されるか、統合済み）
-    # MarsLiteEnvの __init__ を確認すると:
-    # n_lookback, y_impact, lambda_risk などを受け取る。
-    # higher_tf_lookback は受け取らない（固定長か、内部ロジック）。
-    # なので不要なkwargsを除去する。
-    
-    safe_kwargs = {k: v for k, v in env_kwargs.items() if k not in ["higher_tf_lookback"]}
-    
-    env = MarsLiteEnv(
-        data_dict=data_dict,
-        timeframes=list(config.timeframes),
-        **safe_kwargs
-    )
-    
+        env = MarsLiteMultiTFEnv(
+            data_1m=data,
+            higher_tf_data=higher_tf_data,
+            sampler=sampler,
+            **env_kwargs,
+        )
+    else:
+        safe_kwargs = {k: v for k, v in env_kwargs.items() if k != "higher_tf_lookback"}
+        env = MarsLiteEnv(
+            data=data,
+            sampler=sampler,
+            **safe_kwargs,
+        )
+
     return env
 
 
@@ -367,7 +347,7 @@ def main():
         
         if data_path.is_dir():
             # ディレクトリ指定: 多時間軸/日別データ
-            print(f"\\nデータ読み込み中: {data_path}")
+            print(f"\nデータ読み込み中: {data_path}")
             config.data_dir = str(data_path)
             
             if multi_symbol_mode:
@@ -437,11 +417,13 @@ def main():
             )
             train_higher = {}
             val_higher = {}
-        
+            test_base_for_info = test_base
+
+        if config.use_multi_tf and higher_tf_data:
+            test_base_for_info = test_data.get(config.base_timeframe, pd.DataFrame())
+
         # 分割情報表示
-        split_info = get_split_info(train_base, val_base, 
-                                    test_data.get(config.base_timeframe, pd.DataFrame()) 
-                                    if config.use_multi_tf else test_base)
+        split_info = get_split_info(train_base, val_base, test_base_for_info)
         print(f"  Train: {split_info['train']['bars']:,}バー ({split_info['train']['ratio']*100:.1f}%)")
         print(f"  Val: {split_info['val']['bars']:,}バー ({split_info['val']['ratio']*100:.1f}%)")
         print(f"  Test: {split_info['test']['bars']:,}バー ({split_info['test']['ratio']*100:.1f}%)")

@@ -175,7 +175,7 @@ def main():
     
     # 設定読み込み
     if args.config:
-        config = MarsLiteConfig.from_file(args.config)
+        config = MarsLiteConfig.load(args.config)
     else:
         config = MarsLiteConfig()
     
@@ -285,7 +285,8 @@ def main():
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    result_path = output_dir / f"backtest_{args.model}_{args.symbol}.json"
+    model_name = Path(args.model).stem or "model"
+    result_path = output_dir / f"backtest_{model_name}_{args.symbol}.json"
     
     # NumPy型をPython型に変換
     def convert_numpy(obj):

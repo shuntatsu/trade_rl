@@ -17,9 +17,9 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from mars_lite.evolution import EvolutionTrainer
-from mars_lite.env import MarsLiteEnv
+from mars_lite.env import MarsLiteTradingEnv
 from mars_lite.data import MultiSymbolLoader
-from mars_lite.data.data_utils import split_data_by_time
+from mars_lite.data.data_utils import split_nested_by_ratio
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
 
@@ -31,7 +31,7 @@ def main():
     parser.add_argument("--steps-per-gen", type=int, default=10000, help="Training steps per generation")
     parser.add_argument("--grid-bins", type=int, default=5, help="Grid bins (5x5 = 25 cells)")
     parser.add_argument("--output-dir", type=str, default="outputs/evolution", help="Output directory")
-    parser.add_argument("--data-dir", type=str, default="data/binance", help="Data directory")
+    parser.add_argument("--data-dir", type=str, default="data", help="Data directory")
     
     args = parser.parse_args()
     
@@ -69,12 +69,8 @@ def main():
         )
         data_dict = loader.load_all(limit_days=None)
         
-        # Train/Val 分割
-        train_dict, val_dict, _ = split_data_by_time(
-            data_dict,
-            train_end="2023-12-31",
-            val_end="2024-06-30"
-        )
+        # Train/Val 分割（比率ベース: 70/15/15）
+        train_dict, val_dict, _ = split_nested_by_ratio(data_dict)
         
         print(f"  Train: {len(train_dict)} symbols")
         print(f"  Val: {len(val_dict)} symbols")
@@ -86,26 +82,27 @@ def main():
         import pandas as pd
         import numpy as np
         
+        from mars_lite.data import preprocess_ohlcv
+
         n_samples = 20000
+        base = 40000 + np.random.randn(n_samples).cumsum()
+        spread_noise = np.abs(np.random.randn(n_samples)) * 10
         dummy_df = pd.DataFrame({
             "timestamp": pd.date_range("2024-01-01", periods=n_samples, freq="1min"),
-            "open": 40000 + np.random.randn(n_samples).cumsum(),
-            "high": 40500 + np.random.randn(n_samples).cumsum(),
-            "low": 39500 + np.random.randn(n_samples).cumsum(),
-            "close": 40000 + np.random.randn(n_samples).cumsum(),
+            "open": base,
+            "high": base + spread_noise,
+            "low": base - spread_noise,
+            "close": base + np.random.randn(n_samples),
             "volume": np.random.uniform(100, 1000, n_samples),
-            "log_return": np.random.randn(n_samples) * 0.001,
-            "vol_gk": np.full(n_samples, 0.002),
-            "spread_cs": np.full(n_samples, 0.0001),
-            "v_expected": np.full(n_samples, 500.0)
         })
+        dummy_df = preprocess_ohlcv(dummy_df)
         
         train_dict = {"BTCUSDT": {tf: dummy_df.copy() for tf in ["1m", "15m", "1h", "4h", "1d"]}}
         val_dict = {"BTCUSDT": {tf: dummy_df.copy() for tf in ["1m", "15m", "1h", "4h", "1d"]}}
     
     # 環境作成関数
     def make_train_env():
-        env = MarsLiteEnv(
+        env = MarsLiteTradingEnv(
             data_dict=train_dict,
             initial_capital=10000.0,
             max_steps=10080,
@@ -116,7 +113,7 @@ def main():
         return DummyVecEnv([lambda: Monitor(env)])
     
     def make_eval_env():
-        env = MarsLiteEnv(
+        env = MarsLiteTradingEnv(
             data_dict=val_dict,
             initial_capital=10000.0,
             max_steps=10080,

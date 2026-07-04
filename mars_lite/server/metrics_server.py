@@ -490,10 +490,13 @@ def create_app(
             )
 
         symbols = None
+        pp_cfg = None
         if meta_path.exists():
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
-                    symbols = json.load(f).get("symbols")
+                    meta = json.load(f)
+                    symbols = meta.get("symbols")
+                    pp_cfg = meta.get("post_processor")
             except Exception:
                 pass
 
@@ -520,26 +523,56 @@ def create_app(
         if not symbols:
             raise HTTPException(status_code=404, detail="No data available")
 
+        from mars_lite.trading.post_processor import (
+            PortfolioPostProcessor, PostProcessConfig, make_default_processor,
+        )
+
         source = create_source("csv", symbols, data_dir=data_dir)
         fs = FeaturePipeline(symbols).build(source)
+
+        # データ鮮度チェック（古いデータでシグナルを出さない）
+        import pandas as pd
+        last_ts = pd.Timestamp(fs.timestamps[-1])
+        if last_ts.tzinfo is not None:
+            last_ts = last_ts.tz_localize(None)
+        age_hours = (pd.Timestamp.utcnow().tz_localize(None) - last_ts).total_seconds() / 3600
+        # 合成/過去データでの検証を妨げないため、鮮度は警告フラグとして返す（拒否はしない）
+        stale = age_hours > 2.0
 
         env = PortfolioTradingEnv(fs, episode_bars=10)
         # 最終バーの観測でフラット状態からの推奨ウェイトを推論
         obs, _ = env.reset(options={"start_idx": max(fs.n_bars - 3, 0)})
         agent = PPO.load(str(model_path), device="cpu")
         action, _ = agent.predict(obs, deterministic=True)
-        weights = PortfolioTradingEnv.project_weights(
+        raw_weights = PortfolioTradingEnv.project_weights(
             np.asarray(action, dtype=np.float64).flatten()
+        )
+
+        # 学習時と同一の後処理を適用（train/serve一致）
+        if pp_cfg:
+            pp = PortfolioPostProcessor(PostProcessConfig(**pp_cfg))
+        else:
+            pp = make_default_processor()
+        recent = env._recent_returns()
+        processed, pp_info = pp.process(
+            raw_weights=raw_weights,
+            prev_weights=np.zeros(len(symbols)),  # 現ポジションはPlatform側が持つ
+            recent_returns=recent,
         )
 
         return {
             "timestamp": time.time(),
             "symbols": symbols,
-            "weights": {s: float(w) for s, w in zip(symbols, weights)},
-            "net_exposure": float(weights.sum()),
-            "gross_exposure": float(np.abs(weights).sum()),
+            "raw_weights": {s: float(w) for s, w in zip(symbols, raw_weights)},
+            "weights": {s: float(w) for s, w in zip(symbols, processed)},
+            "net_exposure": float(processed.sum()),
+            "gross_exposure": float(np.abs(processed).sum()),
             "model_id": "portfolio_model",
             "data_timestamp": str(fs.timestamps[-1]),
+            "data_age_hours": round(float(age_hours), 2),
+            "stale": bool(stale),
+            "vol_scale": round(float(pp_info.vol_scale), 3),
+            "est_annual_vol": round(float(pp_info.est_port_vol), 3),
         }
 
     # ==================== Backtest Endpoint ====================

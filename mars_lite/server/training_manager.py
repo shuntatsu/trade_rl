@@ -748,6 +748,11 @@ class TrainingManager:
             )
             callbacks = CallbackList([StopCallback(self._stop_event), metrics_cb])
 
+            # 推奨後処理器（学習・運用で同一に適用）
+            from mars_lite.trading.post_processor import make_default_processor
+            pp = make_default_processor()
+            ekw = {"post_processor": pp}
+
             log(f"Training PPO for {config.total_timesteps:,} steps...")
             agent = train_ppo(
                 fs=train_fs,
@@ -756,10 +761,11 @@ class TrainingManager:
                 n_envs=max(config.num_envs, 1),
                 learning_rate=config.learning_rate,
                 callbacks=callbacks,
+                **ekw,
             )
 
             # ---- OOS評価 + ベースライン比較 ----
-            agent_res = evaluate_agent_on_slice(agent, test_fs)
+            agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
             agent_res.pop("equity_curve", None)
             baselines = {k: v.to_dict() for k, v in run_all_baselines(test_fs).items()}
             log(f"OOS: agent return={agent_res['total_return']:+.2%} "
@@ -776,6 +782,7 @@ class TrainingManager:
                 _json.dump({
                     "mode": "portfolio",
                     "symbols": symbols,
+                    "post_processor": pp.cfg.to_dict(),
                     "signal_gate": ic.to_dict(),
                     "oos_agent": agent_res,
                     "oos_baselines": baselines,

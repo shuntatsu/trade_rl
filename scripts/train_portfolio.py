@@ -130,6 +130,18 @@ def report_comparison(agent_res: dict, baselines: dict, label: str) -> None:
               f"{d['turnover_total']:>9.1f}")
 
 
+def build_post_processor(args):
+    """CLIフラグから後処理器を構築（デフォルトは推奨フル後処理）"""
+    from mars_lite.trading.post_processor import (
+        make_default_processor, make_legacy_processor,
+    )
+    mode = getattr(args, "postproc", "full")
+    if mode == "legacy":
+        return make_legacy_processor()
+    tv = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
+    return make_default_processor(target_vol=tv)
+
+
 def build_feature_set(args) -> FeatureSet:
     if args.source == "synthetic":
         source = SyntheticSource(
@@ -167,10 +179,12 @@ def phase_p0(args, output_dir: Path) -> None:
 
         print(f"\nTraining PPO: {args.timesteps:,} steps "
               f"(train {train_fs.n_bars} bars, test {test_fs.n_bars} bars)...")
+        pp = build_post_processor(args)
+        ekw = {"post_processor": pp}
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                          gamma=args.gamma, verbose=args.verbose)
+                          gamma=args.gamma, verbose=args.verbose, **ekw)
 
-        agent_res = evaluate_agent_on_slice(agent, test_fs)
+        agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
         baselines = run_all_baselines(test_fs)
         report_comparison(agent_res, baselines, f"OOS comparison: {label}")
 
@@ -230,10 +244,12 @@ def phase_train(args, output_dir: Path) -> None:
     test_fs = fs.slice(split + 24, fs.n_bars)
 
     print(f"Training PPO: {args.timesteps:,} steps...")
+    pp = build_post_processor(args)
+    ekw = {"post_processor": pp}
     agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                      gamma=args.gamma, verbose=args.verbose)
+                      gamma=args.gamma, verbose=args.verbose, **ekw)
 
-    agent_res = evaluate_agent_on_slice(agent, test_fs)
+    agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     baselines = run_all_baselines(test_fs)
     report_comparison(agent_res, baselines, "OOS comparison")
     plot_comparison(agent_res, baselines, output_dir / "train_equity.png")
@@ -253,9 +269,12 @@ def phase_wf(args, output_dir: Path) -> None:
     fs = build_feature_set(args)
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
 
+    pp = build_post_processor(args)
+    ekw = {"post_processor": pp}
+
     def train_fn(train_fs: FeatureSet, seed: int):
         return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed,
-                         gamma=args.gamma)
+                         gamma=args.gamma, **ekw)
 
     for cost_mult in [1.0, 2.0]:
         print(f"\n--- Walk-forward (cost x{cost_mult}) ---")
@@ -264,6 +283,7 @@ def phase_wf(args, output_dir: Path) -> None:
             n_folds=args.folds,
             seeds=list(range(args.n_seeds)),
             cost_multiplier=cost_mult,
+            env_kwargs=ekw,
         )
         path = output_dir / f"walk_forward_cost{cost_mult:.0f}x.json"
         report.save(path)
@@ -290,6 +310,10 @@ def main():
     parser.add_argument("--output", type=str, default="./output/portfolio")
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--skip-gate", action="store_true")
+    parser.add_argument("--postproc", choices=["full", "legacy"], default="full",
+                        help="後処理: full=推奨(平滑/バンド/ボラ目標/DDデリスク), legacy=射影のみ")
+    parser.add_argument("--target-vol", type=float, default=0.5,
+                        help="年率ボラ目標。0以下で無効")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

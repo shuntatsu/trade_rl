@@ -498,11 +498,25 @@ def create_app(
                 pass
 
         data_dir = resolve_data_dir()
+        available = set(
+            d.name for d in data_dir.iterdir()
+            if d.is_dir() and (d / "1m").is_dir()
+        ) if data_dir.exists() else set()
+
         if symbols is None:
-            symbols = sorted(
-                d.name for d in data_dir.iterdir()
-                if d.is_dir() and (d / "1m").is_dir()
-            ) if data_dir.exists() else []
+            symbols = sorted(available)
+        else:
+            # モデルは学習時の銘柄数・順序に依存するため、全銘柄のデータが必要
+            missing = [s for s in symbols if s not in available]
+            if missing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Model was trained on {symbols} but data is missing for "
+                        f"{missing}. Fetch data for all trained symbols "
+                        f"(fetch_futures.py) or retrain with available data."
+                    ),
+                )
         if not symbols:
             raise HTTPException(status_code=404, detail="No data available")
 

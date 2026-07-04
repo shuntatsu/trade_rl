@@ -54,7 +54,7 @@ def train_ppo(
     n_envs: int = 8,
     learning_rate: float = 3e-4,
     ent_coef: float = 0.002,
-    gamma: float = 0.995,
+    gamma: float = 0.5,
     verbose: int = 0,
     callbacks=None,
     val_fs: FeatureSet = None,
@@ -94,7 +94,7 @@ def train_ppo(
         policy_kwargs=policy_kwargs,
         learning_rate=lr_schedule,
         n_steps=256, batch_size=256, n_epochs=6,
-        gamma=gamma, gae_lambda=0.95,
+        gamma=gamma, gae_lambda=0.9,
         ent_coef=ent_coef, vf_coef=0.5, max_grad_norm=0.5,
         seed=seed, device="cpu", verbose=verbose,
     )
@@ -168,7 +168,7 @@ def phase_p0(args, output_dir: Path) -> None:
         print(f"\nTraining PPO: {args.timesteps:,} steps "
               f"(train {train_fs.n_bars} bars, test {test_fs.n_bars} bars)...")
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                          verbose=args.verbose)
+                          gamma=args.gamma, verbose=args.verbose)
 
         agent_res = evaluate_agent_on_slice(agent, test_fs)
         baselines = run_all_baselines(test_fs)
@@ -231,7 +231,7 @@ def phase_train(args, output_dir: Path) -> None:
 
     print(f"Training PPO: {args.timesteps:,} steps...")
     agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                      verbose=args.verbose)
+                      gamma=args.gamma, verbose=args.verbose)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs)
     baselines = run_all_baselines(test_fs)
@@ -254,7 +254,8 @@ def phase_wf(args, output_dir: Path) -> None:
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
 
     def train_fn(train_fs: FeatureSet, seed: int):
-        return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed)
+        return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed,
+                         gamma=args.gamma)
 
     for cost_mult in [1.0, 2.0]:
         print(f"\n--- Walk-forward (cost x{cost_mult}) ---")
@@ -281,6 +282,8 @@ def main():
     parser.add_argument("--alpha", default="cross", choices=["none", "cross", "meanrev"])
     parser.add_argument("--alpha-strength", type=float, default=0.002)
     parser.add_argument("--timesteps", type=int, default=300_000)
+    parser.add_argument("--gamma", type=float, default=0.5,
+                        help="割引率。行動効果が即時のため低い値が有効")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--folds", type=int, default=3)
     parser.add_argument("--n-seeds", type=int, default=3)

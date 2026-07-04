@@ -87,6 +87,11 @@ class TrainingConfig:
     policy_layers: list = field(default_factory=lambda: [128, 128])
     value_layers: list = field(default_factory=lambda: [128, 128])
     
+    # 学習モード: "trading"（単一銘柄トレード） / "portfolio"（多銘柄配分）
+    mode: str = "trading"
+    # portfolioモード用データソース: "csv" / "postgres" / "synthetic"
+    data_source: str = "csv"
+
     # Evolution Training 設定
     use_evolution: bool = False          # Evolution Training を使用
     population_size: int = 25            # 集団サイズ
@@ -118,6 +123,8 @@ class TrainingConfig:
     def to_dict(self) -> Dict[str, Any]:
         """辞書に変換"""
         return {
+            "mode": self.mode,
+            "data_source": self.data_source,
             "total_timesteps": self.total_timesteps,
             "learning_rate": self.learning_rate,
             "n_steps": self.n_steps,
@@ -356,7 +363,13 @@ class TrainingManager:
                 print("[TrainingManager] Evolution Training Mode Enabled")
                 self._run_evolution_training(config, output_path)
                 return
-            
+
+            # Portfolio Mode チェック
+            if config.mode == "portfolio":
+                print("[TrainingManager] Portfolio Training Mode Enabled")
+                self._run_portfolio_training(config, output_path)
+                return
+
             # === 通常の PPO Training ===
             # 必要なモジュールをインポート
             from mars_lite.env.trading_env import MarsLiteTradingEnv
@@ -669,6 +682,125 @@ class TrainingManager:
         finally:
             self._thread = None
     
+    def _run_portfolio_training(self, config: TrainingConfig, output_path: Path) -> None:
+        """
+        ポートフォリオ配分RLの学習を実行（mode="portfolio"）
+
+        データはdata_sourceに従い、csvならdata/配下の全USDT銘柄
+        （orderflow/fundingがあれば自動で特徴に取り込み）。
+        メトリクスは既存のTrainingMetricsCallback経由でUIへ配信される。
+        """
+        try:
+            from stable_baselines3.common.callbacks import CallbackList
+            from mars_lite.data.sources import create_source, SyntheticSource
+            from mars_lite.features.feature_pipeline import FeaturePipeline
+            from mars_lite.features.signal_check import run_signal_check
+            from mars_lite.learning.training_callback import (
+                TrainingMetricsCallback, get_metrics_history,
+            )
+            from mars_lite.learning.baselines import run_all_baselines
+            from mars_lite.eval.walk_forward import evaluate_agent_on_slice
+
+            history = get_metrics_history()
+
+            def log(msg: str):
+                print(f"[PortfolioTraining] {msg}")
+                history.add({"type": "log", "message": msg, "timestamp": time.time()})
+
+            # ---- データソース ----
+            if config.data_source == "synthetic":
+                source = SyntheticSource(n_days=90, alpha="cross")
+                symbols = source.symbols
+            else:
+                data_dir = resolve_data_dir()
+                symbols = sorted(
+                    d.name for d in data_dir.iterdir()
+                    if d.is_dir() and (d / "1m").is_dir()
+                ) if data_dir.exists() else []
+                if not symbols:
+                    log("No CSV data found. Falling back to synthetic (alpha=cross).")
+                    source = SyntheticSource(n_days=90, alpha="cross")
+                    symbols = source.symbols
+                elif config.data_source == "postgres":
+                    source = create_source("postgres", symbols)
+                else:
+                    source = create_source("csv", symbols, data_dir=data_dir)
+
+            log(f"Building features for {len(symbols)} symbols...")
+            fs = FeaturePipeline(symbols).build(source)
+            log(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols x {fs.n_features} features")
+
+            # ---- ゲート1（記録のみ、学習は続行） ----
+            ic = run_signal_check(fs)
+            log(ic.summary())
+
+            split = int(fs.n_bars * 0.8)
+            train_fs = fs.slice(0, split)
+            test_fs = fs.slice(min(split + 24, fs.n_bars - 10), fs.n_bars)
+
+            # ---- 学習 ----
+            import sys
+            sys.path.insert(0, str(_REPO_ROOT / "scripts"))
+            from train_portfolio import train_ppo
+
+            metrics_cb = TrainingMetricsCallback(
+                total_timesteps=config.total_timesteps, log_freq=1, verbose=1,
+            )
+            callbacks = CallbackList([StopCallback(self._stop_event), metrics_cb])
+
+            log(f"Training PPO for {config.total_timesteps:,} steps...")
+            agent = train_ppo(
+                fs=train_fs,
+                timesteps=config.total_timesteps,
+                seed=0,
+                n_envs=max(config.num_envs, 1),
+                learning_rate=config.learning_rate,
+                callbacks=callbacks,
+            )
+
+            # ---- OOS評価 + ベースライン比較 ----
+            agent_res = evaluate_agent_on_slice(agent, test_fs)
+            agent_res.pop("equity_curve", None)
+            baselines = {k: v.to_dict() for k, v in run_all_baselines(test_fs).items()}
+            log(f"OOS: agent return={agent_res['total_return']:+.2%} "
+                f"sharpe={agent_res['sharpe']:.2f} | "
+                f"B&H={baselines['equal_weight_bh']['total_return']:+.2%} "
+                f"momentum={baselines['cross_momentum']['total_return']:+.2%}")
+
+            # ---- 保存 ----
+            models_dir = output_path / "models"
+            models_dir.mkdir(parents=True, exist_ok=True)
+            agent.save(str(models_dir / "portfolio_model"))
+            import json as _json
+            with open(models_dir / "portfolio_model.json", "w", encoding="utf-8") as f:
+                _json.dump({
+                    "mode": "portfolio",
+                    "symbols": symbols,
+                    "signal_gate": ic.to_dict(),
+                    "oos_agent": agent_res,
+                    "oos_baselines": baselines,
+                    "timestamp": time.time(),
+                }, f, indent=2, ensure_ascii=False)
+
+            if self._stop_event.is_set():
+                self._status = TrainingStatus.IDLE
+                log("Portfolio training stopped by user.")
+            else:
+                self._status = TrainingStatus.COMPLETED
+                log("Portfolio training completed.")
+
+        except TrainingStoppedError:
+            self._status = TrainingStatus.IDLE
+            print("[PortfolioTraining] Stopped by user.")
+        except Exception as e:
+            if self._stop_event.is_set():
+                self._status = TrainingStatus.IDLE
+            else:
+                self._status = TrainingStatus.ERROR
+                self._error_message = str(e)
+                import traceback
+                traceback.print_exc()
+
     def _run_evolution_training(self, config: TrainingConfig, output_path: Path) -> None:
         """
         Evolution Training (PBT-MAP-Elites) を実行

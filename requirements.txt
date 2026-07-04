@@ -24,3 +24,6 @@ websockets>=11.0
 
 # テスト
 pytest>=7.0.0
+
+# Trade Platform (PostgreSQL) 連携（任意: --source postgres を使う場合のみ）
+# psycopg[binary]>=3.1

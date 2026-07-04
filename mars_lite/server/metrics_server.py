@@ -455,6 +455,79 @@ def create_app(
         
         return TrainingConfig().to_dict()
     
+    # ==================== Signal Endpoint (Platform連携) ====================
+
+    @app.get("/api/signal/latest")
+    def get_latest_signal() -> Dict[str, Any]:
+        """
+        ポートフォリオモデルの最新推奨ウェイトを返す（Trade Platform連携用）
+
+        Platform側はこのエンドポイントをポーリングするだけで
+        RLエージェントのシグナルをBots画面等に統合できる。
+
+        Returns:
+            {
+              "timestamp": ...,
+              "symbols": [...],
+              "weights": {symbol: weight},     # -1〜1、Σ|w|<=1
+              "net_exposure": float,
+              "model_id": "portfolio_model",
+              "data_timestamp": 最終バー時刻
+            }
+        """
+        from stable_baselines3 import PPO
+        from mars_lite.server.training_manager import resolve_data_dir
+        from mars_lite.data.sources import create_source
+        from mars_lite.features.feature_pipeline import FeaturePipeline
+        from mars_lite.env.portfolio_env import PortfolioTradingEnv
+
+        model_path = output_path / "models" / "portfolio_model.zip"
+        meta_path = output_path / "models" / "portfolio_model.json"
+        if not model_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="portfolio_model not found. Train with mode='portfolio' first.",
+            )
+
+        symbols = None
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    symbols = json.load(f).get("symbols")
+            except Exception:
+                pass
+
+        data_dir = resolve_data_dir()
+        if symbols is None:
+            symbols = sorted(
+                d.name for d in data_dir.iterdir()
+                if d.is_dir() and (d / "1m").is_dir()
+            ) if data_dir.exists() else []
+        if not symbols:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        source = create_source("csv", symbols, data_dir=data_dir)
+        fs = FeaturePipeline(symbols).build(source)
+
+        env = PortfolioTradingEnv(fs, episode_bars=10)
+        # 最終バーの観測でフラット状態からの推奨ウェイトを推論
+        obs, _ = env.reset(options={"start_idx": max(fs.n_bars - 3, 0)})
+        agent = PPO.load(str(model_path), device="cpu")
+        action, _ = agent.predict(obs, deterministic=True)
+        weights = PortfolioTradingEnv.project_weights(
+            np.asarray(action, dtype=np.float64).flatten()
+        )
+
+        return {
+            "timestamp": time.time(),
+            "symbols": symbols,
+            "weights": {s: float(w) for s, w in zip(symbols, weights)},
+            "net_exposure": float(weights.sum()),
+            "gross_exposure": float(np.abs(weights).sum()),
+            "model_id": "portfolio_model",
+            "data_timestamp": str(fs.timestamps[-1]),
+        }
+
     # ==================== Backtest Endpoint ====================
 
     @app.post("/api/backtest")

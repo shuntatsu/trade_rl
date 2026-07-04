@@ -99,7 +99,59 @@ Binance APIに接続できない環境では、合成データで全パイプラ
 python scripts/generate_sample_data.py --symbols BTCUSDT ETHUSDT --days 14 --output ./data
 ```
 
-## 使い方
+## ポートフォリオ配分RL（v2・推奨ワークフロー）
+
+7銘柄（btc/xrp/sui/bnb/eth/paxg/ethbtc）の目標ウェイトを1時間ごとに決定する
+ポートフォリオRLエージェント。多時間軸（15m/1h/4h/1d）特徴・オーダーフロー・
+funding rateを観測に使い、コスト控除後リターンを最大化する。
+
+**合否ゲート方式**: 各フェーズに定量的な通過条件を設け、「儲かるか」を証拠付きで判定する。
+
+### P0: 健全性試験（どこでも実行可、データ不要）
+
+アルファを注入した合成データ（陽性対照）と純ノイズ（陰性対照）で
+「学習システムが正しく機能しているか」を検証する:
+
+```bash
+python scripts/train_portfolio.py --phase p0 --timesteps 300000 --output ./output/portfolio_p0
+```
+
+通過条件: ①陽性でRLが等ウェイトB&Hとフラット両方に勝つ ②陰性でほぼ取引しない。
+レポートは `p0_report.json`、エクイティカーブ図も出力される。
+
+### P1〜P3: 実データ（ローカルPCで実行）
+
+```bash
+# 1. 先物データ取得（kline + funding rate + オーダーフロー集計）
+python scripts/fetch_futures.py --symbols BTCUSDT ETHUSDT XRPUSDT BNBUSDT SUIUSDT PAXGUSDT --days 180 --to csv
+
+# （Trade PlatformのPostgreSQLと同居させる場合）
+pip install "psycopg[binary]"
+set PLATFORM_DB_URL=postgresql://postgres:postgres@localhost:5432/trade
+python scripts/fetch_futures.py --symbols BTCUSDT --days 180 --to csv postgres
+
+# 2. P1: シグナルICゲート + P2: RL学習（ゲート不合格なら自動停止）
+python scripts/train_portfolio.py --phase train --source csv --data ./data --timesteps 2000000
+
+# 3. P3: ウォークフォワード検証（複数シード・コスト2倍感度込み）
+python scripts/train_portfolio.py --phase wf --source csv --data ./data --timesteps 500000
+```
+
+ゲート1はOOSランクIC≥0.02。不合格なら特徴量・データを変えるまでRL学習に進まない
+（`--skip-gate`で強制続行可）。評価は常にベースライン4種
+（フラット/等ウェイトB&H/ボラ逆数/クロスモメンタムルール）と並記される。
+
+### ダッシュボード・Platform連携
+
+- ダッシュボードからは学習設定で `mode: "portfolio"` を指定して起動可能
+- **`GET /api/signal/latest`**: 学習済みモデルの最新推奨ウェイトを返す。
+  Trade Platform 側はこのAPIをポーリングするだけでBots画面に統合できる
+
+```json
+{"weights": {"BTCUSDT": 0.31, "ETHUSDT": -0.12, ...}, "net_exposure": 0.4, ...}
+```
+
+## 使い方（v1: 執行エージェント）
 
 ### データ取得
 ```bash

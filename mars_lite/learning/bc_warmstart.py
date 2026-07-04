@@ -106,7 +106,7 @@ def bc_pretrain(
             opt.zero_grad()
             loss.backward()
             opt.step()
-            total += float(loss) * len(idx)
+            total += float(loss.detach()) * len(idx)
         if verbose:
             print(f"[BC] epoch {ep + 1}/{epochs} mse={total / n:.5f}")
 

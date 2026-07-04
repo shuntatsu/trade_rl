@@ -68,6 +68,11 @@ class ValSelectionCallback(BaseCallback):
             self.model.save(buf)
             self.best_params = buf.getvalue()
 
+    def _on_training_start(self) -> None:
+        # 初期方策（mean≈0 = ほぼ無取引）も選択候補に含める。
+        # 予測力のないデータではこれが最良となり「取引しない」が選ばれる。
+        self._evaluate_and_maybe_save()
+
     def _on_step(self) -> bool:
         if self.num_timesteps % self.eval_freq < self.training_env.num_envs:
             self._evaluate_and_maybe_save()

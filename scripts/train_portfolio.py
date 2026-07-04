@@ -198,8 +198,11 @@ def phase_p0(args, output_dir: Path) -> None:
               f"(train {train_fs.n_bars} bars, test {test_fs.n_bars} bars)...")
         pp = build_post_processor(args)
         ekw = {"post_processor": pp}
+        # BCウォームスタートはICゲート合格時のみ（信号なきデータで教師を
+        # 模倣するとノイズを刷り込み、陰性対照の安全性を壊すため）
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                          gamma=args.gamma, verbose=args.verbose, **ekw)
+                          gamma=args.gamma, verbose=args.verbose,
+                          bc_warmstart=ic.passed, **ekw)
 
         agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
         baselines = run_all_baselines(test_fs)
@@ -294,14 +297,15 @@ def phase_train(args, output_dir: Path) -> None:
 
         def _train(train_fs_, seed):
             return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=seed,
-                             gamma=args.gamma, **ekw)
+                             gamma=args.gamma, bc_warmstart=ic.passed, **ekw)
         agent = train_ensemble(_train, train_fs, seeds=list(range(args.ensemble)),
                                verbose=1)
         agent.save(str(output_dir / "portfolio_ensemble"))
     else:
         print(f"Training PPO: {args.timesteps:,} steps...")
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                          gamma=args.gamma, verbose=args.verbose, **ekw)
+                          gamma=args.gamma, verbose=args.verbose,
+                          bc_warmstart=ic.passed, **ekw)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     baselines = run_all_baselines(test_fs)

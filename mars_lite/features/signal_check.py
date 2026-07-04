@@ -105,6 +105,59 @@ def _ridge_predict(X: np.ndarray, w: np.ndarray) -> np.ndarray:
     return np.hstack([X, np.ones((len(X), 1))]) @ w
 
 
+def compute_feature_mask(
+    fs: FeatureSet,
+    horizon: int = 4,
+    n_folds: int = 4,
+    min_abs_ic: float = 0.01,
+    min_sign_agreement: float = 0.75,
+) -> Dict[str, object]:
+    """
+    IC安定性による特徴マスクを計算（時間軸の自動取捨選択）
+
+    学習スライスを時間順にn_folds分割し、特徴ごとにfold別ランクICを計算。
+    「平均|IC|がしきい値以上」かつ「ICの符号がfold間で一致」する特徴のみ残す。
+    予測力のないTFブロックはここで自動的に落ちるため、多時間軸観測を
+    「シグナルがあるTFだけ使う」形に縮退させられる。
+
+    注意: fsには**学習スライスのみ**を渡すこと（選択リーク防止）。
+    マスクは推論時にも同一適用が必要（モデルメタデータに保存する）。
+
+    Returns:
+        {mask: np.ndarray(bool, n_features), kept: [names], dropped: [names],
+         per_feature: {name: {mean_abs_ic, sign_agreement}}}
+    """
+    X, y, bar_idx = _pool(fs, horizon)
+    n_bars = int(bar_idx.max()) + 1
+    edges = np.linspace(0, n_bars, n_folds + 1).astype(int)
+
+    n_feat = X.shape[1]
+    fold_ics = np.zeros((n_folds, n_feat))
+    for k in range(n_folds):
+        m = (bar_idx >= edges[k]) & (bar_idx < edges[k + 1])
+        if m.sum() < 50:
+            continue
+        for j in range(n_feat):
+            fold_ics[k, j] = _rank_ic(X[m][:, j], y[m])
+
+    mean_abs = np.abs(fold_ics.mean(axis=0))
+    signs = np.sign(fold_ics)
+    dominant = np.sign(fold_ics.mean(axis=0))[None, :]
+    agreement = (signs == dominant).mean(axis=0)
+
+    mask = (mean_abs >= min_abs_ic) & (agreement >= min_sign_agreement)
+    names = fs.feature_names
+    return {
+        "mask": mask,
+        "kept": [n for n, m in zip(names, mask) if m],
+        "dropped": [n for n, m in zip(names, mask) if not m],
+        "per_feature": {
+            n: {"mean_abs_ic": float(a), "sign_agreement": float(g)}
+            for n, a, g in zip(names, mean_abs, agreement)
+        },
+    }
+
+
 def run_leak_self_test(fs: FeatureSet, horizon: int = 4) -> Dict[str, object]:
     """
     リーク検出器自体の健全性を検査する自己テスト

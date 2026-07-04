@@ -52,7 +52,7 @@ def main():
     parser.add_argument("--start-date", type=str, default=None, help="開始日 YYYY-MM-DD")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--alpha", type=str, default="none", choices=["none", "cross", "meanrev"],
+        "--alpha", type=str, default="none", choices=["none", "cross", "meanrev", "multi"],
         help="注入するアルファの種類"
     )
     parser.add_argument(

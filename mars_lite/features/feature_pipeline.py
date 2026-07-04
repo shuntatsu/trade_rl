@@ -72,6 +72,32 @@ class FeatureSet:
     def n_features(self) -> int:
         return self.features.shape[2]
 
+    def apply_mask(self, mask) -> "FeatureSet":
+        """
+        特徴マスクを適用した新しいFeatureSetを返す（マスク外はゼロ埋め）
+
+        次元・レイアウトは維持されるため、モデル構造は変わらない。
+        学習時に使ったマスクは推論時にも同一適用すること。
+        """
+        mask = np.asarray(mask, dtype=bool)
+        if mask.shape[0] != self.n_features:
+            raise ValueError(
+                f"mask length {mask.shape[0]} != n_features {self.n_features}"
+            )
+        masked = self.features.copy()
+        masked[:, :, ~mask] = 0.0
+        return FeatureSet(
+            symbols=self.symbols,
+            timestamps=self.timestamps,
+            features=masked,
+            global_features=self.global_features,
+            close=self.close,
+            open_next=self.open_next,
+            funding_rate=self.funding_rate,
+            feature_names=self.feature_names,
+            global_feature_names=self.global_feature_names,
+        )
+
     def slice(self, start_idx: int, end_idx: int) -> "FeatureSet":
         """バー範囲でスライスした新しいFeatureSetを返す"""
         return FeatureSet(

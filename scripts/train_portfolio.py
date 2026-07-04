@@ -62,6 +62,7 @@ def train_ppo(
     bc_warmstart: bool = True,
     bc_epochs: int = 15,
     bc_teacher: str = "ridge",
+    extractor: str = "tfgated",
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -86,11 +87,31 @@ def train_ppo(
     env = DummyVecEnv(make_env_fns(fs, n_envs, seed, **env_kwargs))
     probe = PortfolioTradingEnv(fs, **env_kwargs)
 
-    policy_kwargs = {
-        "features_extractor_class": PortfolioExtractor,
-        "features_extractor_kwargs": probe.obs_layout,
-        "net_arch": dict(pi=[64, 64], vf=[64, 64]),
-    }
+    # TFブロック構造を特徴名から導出（例: "15m_ret_z1" → TFプレフィックス）
+    from mars_lite.features.feature_pipeline import TF_BLOCK_FEATURES
+    tf_prefixes = []
+    for name in fs.feature_names:
+        p = name.split("_")[0]
+        if p in ("15m", "30m", "1h", "4h", "1d") and p not in tf_prefixes:
+            tf_prefixes.append(p)
+
+    if extractor == "tfgated" and tf_prefixes:
+        from mars_lite.models.portfolio_extractor import TFGatedPortfolioExtractor
+        policy_kwargs = {
+            "features_extractor_class": TFGatedPortfolioExtractor,
+            "features_extractor_kwargs": {
+                **probe.obs_layout,
+                "n_tf_blocks": len(tf_prefixes),
+                "tf_block_size": len(TF_BLOCK_FEATURES),
+            },
+            "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+        }
+    else:
+        policy_kwargs = {
+            "features_extractor_class": PortfolioExtractor,
+            "features_extractor_kwargs": probe.obs_layout,
+            "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+        }
 
     def lr_schedule(progress_remaining: float) -> float:
         return learning_rate * progress_remaining
@@ -290,6 +311,18 @@ def phase_train(args, output_dir: Path) -> None:
     train_fs = fs.slice(0, split)
     test_fs = fs.slice(split + 24, fs.n_bars)
 
+    # IC安定性マスク（時間軸・特徴の自動取捨選択。学習スライスのみで算出）
+    feature_mask = None
+    if not args.no_feature_mask:
+        from mars_lite.features.signal_check import compute_feature_mask
+        mask_rep = compute_feature_mask(train_fs)
+        feature_mask = mask_rep["mask"]
+        print(f"[Feature mask] kept {len(mask_rep['kept'])}/{fs.n_features} features "
+              f"(dropped: {', '.join(mask_rep['dropped'][:8])}"
+              f"{'...' if len(mask_rep['dropped']) > 8 else ''})")
+        train_fs = train_fs.apply_mask(feature_mask)
+        test_fs = test_fs.apply_mask(feature_mask)
+
     pp = build_post_processor(args)
     ekw = {"post_processor": pp}
 
@@ -319,6 +352,8 @@ def phase_train(args, output_dir: Path) -> None:
     with open(output_dir / "train_report.json", "w", encoding="utf-8") as f:
         json.dump({
             "signal_gate": ic.to_dict(),
+            "feature_mask": ([bool(x) for x in feature_mask]
+                             if feature_mask is not None else None),
             "agent": {k: v for k, v in agent_res.items() if k != "equity_curve"},
             "baselines": {k: v.to_dict() for k, v in baselines.items()},
         }, f, indent=2, ensure_ascii=False)
@@ -377,6 +412,8 @@ def main():
                         help="年率ボラ目標。0以下で無効")
     parser.add_argument("--ensemble", type=int, default=1,
                         help="シードアンサンブルの個体数（1で単一モデル）")
+    parser.add_argument("--no-feature-mask", action="store_true",
+                        help="IC安定性による特徴マスクを無効化")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

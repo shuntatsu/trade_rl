@@ -738,6 +738,14 @@ class TrainingManager:
             train_fs = fs.slice(0, split)
             test_fs = fs.slice(min(split + 24, fs.n_bars - 10), fs.n_bars)
 
+            # IC安定性マスク（学習スライスのみで算出し、推論用に保存）
+            from mars_lite.features.signal_check import compute_feature_mask
+            mask_rep = compute_feature_mask(train_fs)
+            feature_mask = mask_rep["mask"]
+            log(f"Feature mask: kept {len(mask_rep['kept'])}/{fs.n_features}")
+            train_fs = train_fs.apply_mask(feature_mask)
+            test_fs = test_fs.apply_mask(feature_mask)
+
             # ---- 学習 ----
             import sys
             sys.path.insert(0, str(_REPO_ROOT / "scripts"))
@@ -782,6 +790,7 @@ class TrainingManager:
                 _json.dump({
                     "mode": "portfolio",
                     "symbols": symbols,
+                    "feature_mask": [bool(x) for x in feature_mask],
                     "post_processor": pp.cfg.to_dict(),
                     "signal_gate": ic.to_dict(),
                     "oos_agent": agent_res,

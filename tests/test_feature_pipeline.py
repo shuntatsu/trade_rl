@@ -121,3 +121,31 @@ class TestCsvSource:
         fs = FeaturePipeline(["BTCUSDT", "ETHUSDT"]).build(src)
         assert fs.n_symbols == 2
         assert fs.n_bars > 200
+
+
+class TestFeatureMask:
+
+    def test_mask_zeroes_dropped_features(self, feature_set):
+        import numpy as np
+        mask = np.ones(feature_set.n_features, dtype=bool)
+        mask[0] = False
+        masked = feature_set.apply_mask(mask)
+        assert (masked.features[:, :, 0] == 0).all()
+        # 他の特徴は不変
+        np.testing.assert_array_equal(masked.features[:, :, 1], feature_set.features[:, :, 1])
+        # 形状・レイアウトは維持
+        assert masked.n_features == feature_set.n_features
+
+    def test_compute_mask_keeps_signal_features(self, feature_set):
+        from mars_lite.features.signal_check import compute_feature_mask
+        rep = compute_feature_mask(feature_set)
+        # crossアルファではret_rank等の主要特徴が残る
+        assert "ret_rank" in rep["kept"]
+        assert len(rep["kept"]) >= 5
+        assert rep["mask"].shape[0] == feature_set.n_features
+
+    def test_mask_length_validation(self, feature_set):
+        import numpy as np
+        import pytest as _pt
+        with _pt.raises(ValueError):
+            feature_set.apply_mask(np.ones(3, dtype=bool))

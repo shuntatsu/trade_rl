@@ -491,12 +491,14 @@ def create_app(
 
         symbols = None
         pp_cfg = None
+        feature_mask = None
         if meta_path.exists():
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
                     meta = json.load(f)
                     symbols = meta.get("symbols")
                     pp_cfg = meta.get("post_processor")
+                    feature_mask = meta.get("feature_mask")
             except Exception:
                 pass
 
@@ -529,6 +531,10 @@ def create_app(
 
         source = create_source("csv", symbols, data_dir=data_dir)
         fs = FeaturePipeline(symbols).build(source)
+
+        # 学習時と同一の特徴マスクを適用（train/serve一致）
+        if feature_mask is not None and len(feature_mask) == fs.n_features:
+            fs = fs.apply_mask(np.asarray(feature_mask, dtype=bool))
 
         # データ鮮度チェック（古いデータでシグナルを出さない）
         import pandas as pd

@@ -311,9 +311,9 @@ def phase_train(args, output_dir: Path) -> None:
     train_fs = fs.slice(0, split)
     test_fs = fs.slice(split + 24, fs.n_bars)
 
-    # IC安定性マスク（時間軸・特徴の自動取捨選択。学習スライスのみで算出）
+    # IC安定性マスク（オプトイン。時間軸の冗長性はTFゲート構造が既定で処理する）
     feature_mask = None
-    if not args.no_feature_mask:
+    if args.feature_mask:
         from mars_lite.features.signal_check import compute_feature_mask
         mask_rep = compute_feature_mask(train_fs)
         feature_mask = mask_rep["mask"]
@@ -412,8 +412,9 @@ def main():
                         help="年率ボラ目標。0以下で無効")
     parser.add_argument("--ensemble", type=int, default=1,
                         help="シードアンサンブルの個体数（1で単一モデル）")
-    parser.add_argument("--no-feature-mask", action="store_true",
-                        help="IC安定性による特徴マスクを無効化")
+    parser.add_argument("--feature-mask", action="store_true",
+                        help="IC安定性による特徴マスクを有効化（実験では中立〜微減。"
+                             "実データでジャンク特徴が多い場合のオプション）")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

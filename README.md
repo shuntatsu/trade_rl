@@ -99,7 +99,12 @@ Binance APIに接続できない環境では、合成データで全パイプラ
 python scripts/generate_sample_data.py --symbols BTCUSDT ETHUSDT --days 14 --output ./data
 ```
 
-## ポートフォリオ配分RL（v2・推奨ワークフロー）
+## ポートフォリオ配分RL（v3・推奨ワークフロー）
+
+> **設計の正典は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
+> 全既定値（γ=0.5、TFゲート抽出器、Ridge教師BC、後処理、ゲート体系）の
+> 根拠となる測定値・ベンチマーク台帳・ロードマップを記載。
+> 仕様変更時は同ベンチマークで上回る証拠を示すこと。
 
 7銘柄（btc/xrp/sui/bnb/eth/paxg/ethbtc）の目標ウェイトを1時間ごとに決定する
 ポートフォリオRLエージェント。多時間軸（15m/1h/4h/1d）特徴・オーダーフロー・

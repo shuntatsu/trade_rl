@@ -105,6 +105,50 @@ def _ridge_predict(X: np.ndarray, w: np.ndarray) -> np.ndarray:
     return np.hstack([X, np.ones((len(X), 1))]) @ w
 
 
+def run_leak_self_test(fs: FeatureSet, horizon: int = 4) -> Dict[str, object]:
+    """
+    リーク検出器自体の健全性を検査する自己テスト
+
+    - shuffle検査: ターゲットを時間シャッフルするとIC≈0 になるべき
+      （ならなければ評価コード側のバグ）
+    - future-shift検査: 特徴を意図的に1バー未来へずらすとICが跳ね上がるべき
+      （＝リーク検出器が実際にリークを捕捉できる証明）
+
+    Returns:
+        {shuffle_ic, base_ic, future_shift_ic, healthy: bool}
+    """
+    X, y, bar_idx = _pool(fs, horizon)
+
+    # ベースIC（全特徴平均の素のIC）
+    base_ic = float(np.mean([abs(_rank_ic(X[:, j], y)) for j in range(X.shape[1])]))
+
+    # shuffle: yをシャッフル → 相関消失を期待
+    rng = np.random.default_rng(0)
+    y_shuf = rng.permutation(y)
+    shuffle_ic = float(np.mean([abs(_rank_ic(X[:, j], y_shuf)) for j in range(X.shape[1])]))
+
+    # future-shift: 特徴を未来方向へずらす（バー単位）→ リーク混入 → IC増大を期待
+    n_bars = int(bar_idx.max()) + 1
+    n_sym = fs.n_symbols
+    fwd = _forward_returns(fs, horizon)
+    valid = n_bars
+    # 特徴を1バー未来にシフト（先読み）
+    feat_shift = np.roll(fs.features, -1, axis=0)
+    Xs = feat_shift[:valid].reshape(valid * n_sym, -1)
+    ys = fwd[:valid].reshape(valid * n_sym)
+    mask = np.isfinite(ys)
+    Xs, ys = Xs[mask], ys[mask]
+    future_ic = float(np.mean([abs(_rank_ic(Xs[:, j], ys)) for j in range(Xs.shape[1])]))
+
+    healthy = shuffle_ic < 0.02 and future_ic > base_ic
+    return {
+        "shuffle_ic": shuffle_ic,
+        "base_ic": base_ic,
+        "future_shift_ic": future_ic,
+        "healthy": bool(healthy),
+    }
+
+
 def run_signal_check(
     fs: FeatureSet,
     horizon: int = 4,

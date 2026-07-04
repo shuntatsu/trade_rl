@@ -59,6 +59,8 @@ def train_ppo(
     callbacks=None,
     val_fs: FeatureSet = None,
     val_eval_freq: int = 20_000,
+    bc_warmstart: bool = True,
+    bc_epochs: int = 15,
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -66,6 +68,7 @@ def train_ppo(
     val_fs を渡すと検証スライスで定期評価し、最良時点のパラメータを
     最終モデルとして採用する（小データへの過学習対策）。
     val_fs 省略時は fs の末尾15%を自動で検証に割く。
+    bc_warmstart=True でクロスモメンタム教師によるBC事前学習を行う。
     """
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -98,6 +101,15 @@ def train_ppo(
         ent_coef=ent_coef, vf_coef=0.5, max_grad_norm=0.5,
         seed=seed, device="cpu", verbose=verbose,
     )
+
+    # BCウォームスタート（クロスモメンタム教師の模倣で方策を初期化）
+    if bc_warmstart:
+        from mars_lite.learning.bc_warmstart import (
+            soft_momentum_teacher, generate_teacher_dataset, bc_pretrain,
+        )
+        X, A = generate_teacher_dataset(fs, soft_momentum_teacher(), env_kwargs)
+        bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
+
     val_cb = None
     if val_fs is not None:
         val_cb = ValSelectionCallback(
@@ -228,9 +240,34 @@ def phase_p0(args, output_dir: Path) -> None:
 
 
 def phase_train(args, output_dir: Path) -> None:
-    """P2: 指定ソースで学習・評価"""
-    fs = build_feature_set(args)
+    """P2: 指定ソースで学習・評価（品質ゲート → リーク自己検査 → ICゲート → 学習）"""
+    from mars_lite.data.quality import run_quality_gate
+    from mars_lite.features.signal_check import run_leak_self_test
+
+    # --- 品質ゲート（実データソースのみ。不合格銘柄は除外） ---
+    symbols = args.symbols or DEFAULT_SYMBOLS
+    if args.source != "synthetic":
+        kwargs = {"data_dir": args.data} if args.source == "csv" else {}
+        source = create_source(args.source, symbols, **kwargs)
+        qrep = run_quality_gate(source, symbols, base_timeframe="1h")
+        print(qrep.summary())
+        symbols = qrep.passing_symbols
+        with open(output_dir / "data_quality_report.json", "w", encoding="utf-8") as f:
+            json.dump(qrep.to_dict(), f, indent=2, ensure_ascii=False)
+        if len(symbols) < 2:
+            print("\n[STOP] 品質ゲート通過銘柄が2未満。データを確認してください。")
+            return
+        fs = FeaturePipeline(symbols).build(source)
+    else:
+        fs = build_feature_set(args)
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols x {fs.n_features} features")
+
+    # --- リーク検出器の自己検査（評価コードの健全性確認） ---
+    leak = run_leak_self_test(fs)
+    print(f"[Leak self-test] shuffle_ic={leak['shuffle_ic']:.4f} "
+          f"future_shift_ic={leak['future_shift_ic']:.4f} healthy={leak['healthy']}")
+    if not leak["healthy"]:
+        print("[WARN] リーク検出器の自己検査に失敗。評価結果を信用しないこと。")
 
     ic = run_signal_check(fs)
     print(ic.summary())
@@ -243,18 +280,31 @@ def phase_train(args, output_dir: Path) -> None:
     train_fs = fs.slice(0, split)
     test_fs = fs.slice(split + 24, fs.n_bars)
 
-    print(f"Training PPO: {args.timesteps:,} steps...")
     pp = build_post_processor(args)
     ekw = {"post_processor": pp}
-    agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                      gamma=args.gamma, verbose=args.verbose, **ekw)
+
+    if args.ensemble > 1:
+        from mars_lite.learning.policy_ensemble import train_ensemble
+        print(f"Training {args.ensemble}-seed ensemble x {args.timesteps:,} steps...")
+
+        def _train(train_fs_, seed):
+            return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=seed,
+                             gamma=args.gamma, **ekw)
+        agent = train_ensemble(_train, train_fs, seeds=list(range(args.ensemble)),
+                               verbose=1)
+        agent.save(str(output_dir / "portfolio_ensemble"))
+    else:
+        print(f"Training PPO: {args.timesteps:,} steps...")
+        agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
+                          gamma=args.gamma, verbose=args.verbose, **ekw)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     baselines = run_all_baselines(test_fs)
     report_comparison(agent_res, baselines, "OOS comparison")
     plot_comparison(agent_res, baselines, output_dir / "train_equity.png")
 
-    agent.save(str(output_dir / "portfolio_model"))
+    if args.ensemble <= 1:
+        agent.save(str(output_dir / "portfolio_model"))
     with open(output_dir / "train_report.json", "w", encoding="utf-8") as f:
         json.dump({
             "signal_gate": ic.to_dict(),
@@ -314,6 +364,8 @@ def main():
                         help="後処理: full=推奨(平滑/バンド/ボラ目標/DDデリスク), legacy=射影のみ")
     parser.add_argument("--target-vol", type=float, default=0.5,
                         help="年率ボラ目標。0以下で無効")
+    parser.add_argument("--ensemble", type=int, default=1,
+                        help="シードアンサンブルの個体数（1で単一モデル）")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

@@ -560,17 +560,30 @@ def create_app(
             recent_returns=recent,
         )
 
+        # ガードレール評価（データ鮮度・NaN・過大ウェイト等）
+        from mars_lite.trading.guardrails import evaluate_guardrails, apply_guardrails
+        guard = evaluate_guardrails(
+            weights=processed,
+            portfolio_value=1.0,
+            turnover=float(np.abs(processed).sum()),
+            data_age_hours=age_hours,
+            features=fs.features[-1].flatten(),
+        )
+        final = apply_guardrails(processed, guard)
+
         return {
             "timestamp": time.time(),
             "symbols": symbols,
             "raw_weights": {s: float(w) for s, w in zip(symbols, raw_weights)},
-            "weights": {s: float(w) for s, w in zip(symbols, processed)},
-            "net_exposure": float(processed.sum()),
-            "gross_exposure": float(np.abs(processed).sum()),
+            "weights": {s: float(w) for s, w in zip(symbols, final)},
+            "processed_weights": {s: float(w) for s, w in zip(symbols, processed)},
+            "net_exposure": float(final.sum()),
+            "gross_exposure": float(np.abs(final).sum()),
             "model_id": "portfolio_model",
             "data_timestamp": str(fs.timestamps[-1]),
             "data_age_hours": round(float(age_hours), 2),
             "stale": bool(stale),
+            "guardrail": guard.to_dict(),
             "vol_scale": round(float(pp_info.vol_scale), 3),
             "est_annual_vol": round(float(pp_info.est_port_vol), 3),
         }

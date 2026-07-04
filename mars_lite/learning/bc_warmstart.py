@@ -43,6 +43,34 @@ def soft_momentum_teacher(lookback: int = 24) -> TeacherFn:
     return teacher
 
 
+def ridge_teacher(train_fs, horizon: int = 4, lam: float = 10.0) -> TeacherFn:
+    """
+    データ駆動のRidge教師（アルファの型を仮定しない）
+
+    ゲート1と同じRidge回帰を**学習スライスのみ**で当てはめ、
+    その予測値のクロスセクショナル中心化ウェイトを教師とする。
+    モメンタム型・平均回帰型どちらのアルファでも、ICゲートを通る
+    信号があれば自動的にそれを模倣の出発点にできる。
+
+    注意: train_fs には学習用スライスだけを渡すこと（リーク防止）。
+    """
+    from mars_lite.features.signal_check import _pool, _ridge_fit
+
+    X, y, _ = _pool(train_fs, horizon)
+    w_ridge = _ridge_fit(X, y, lam)
+
+    def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
+        feats = fs.features[t]  # (n_symbols, n_features)
+        preds = np.hstack([feats, np.ones((len(feats), 1))]) @ w_ridge
+        centered = preds - preds.mean()
+        denom = np.abs(centered).sum()
+        if denom < 1e-12:
+            return np.zeros(fs.n_symbols)
+        return centered / denom
+
+    return teacher
+
+
 def generate_teacher_dataset(
     fs, teacher_fn: TeacherFn, env_kwargs: Optional[dict] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:

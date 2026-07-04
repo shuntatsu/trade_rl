@@ -61,6 +61,7 @@ def train_ppo(
     val_eval_freq: int = 20_000,
     bc_warmstart: bool = True,
     bc_epochs: int = 15,
+    bc_teacher: str = "momentum",
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -102,12 +103,16 @@ def train_ppo(
         seed=seed, device="cpu", verbose=verbose,
     )
 
-    # BCウォームスタート（クロスモメンタム教師の模倣で方策を初期化）
+    # BCウォームスタート（教師方策の模倣で方策を初期化）
+    # momentum: クロスモメンタム固定教師 / ridge: 学習スライスで当てはめた
+    # Ridge予測を教師にする（アルファの型を仮定しない、汎用版）
     if bc_warmstart:
         from mars_lite.learning.bc_warmstart import (
-            soft_momentum_teacher, generate_teacher_dataset, bc_pretrain,
+            soft_momentum_teacher, ridge_teacher, generate_teacher_dataset, bc_pretrain,
         )
-        X, A = generate_teacher_dataset(fs, soft_momentum_teacher(), env_kwargs)
+        teacher = (ridge_teacher(fs) if bc_teacher == "ridge"
+                   else soft_momentum_teacher())
+        X, A = generate_teacher_dataset(fs, teacher, env_kwargs)
         bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
 
     val_cb = None

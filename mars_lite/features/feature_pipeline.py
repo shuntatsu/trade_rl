@@ -38,8 +38,11 @@ def _ns(x):
 # TFブロックの特徴（各TF上で計算）
 TF_BLOCK_FEATURES = ["ret_z1", "ret_z5", "ret_z20", "vol_ratio", "rsi", "bb_pos", "adx"]
 # 基準TFのみの追加特徴
+# ret_z48/ret_z168: 多時間軸実験の知見（多スケール情報はTFブロックの積み増しより
+# 基準TF上の多ホライズン特徴が効率的に運ぶ）に基づく長期ホライズンリターン
 BASE_FEATURES = [
     "vol_anom", "rci",
+    "ret_z48", "ret_z168",
     "of_imbalance", "of_count_z", "of_size_z",
     "funding_bps", "funding_cum_bps", "time_to_funding",
     "btc_rel_z", "ret_rank",
@@ -192,6 +195,12 @@ class FeaturePipeline:
             (df["volume"] / vol_ma.replace(0, np.nan)).clip(0.05, 20)
         ).fillna(0.0)
         base["rci"] = (calc_rci(df["close"], 9) / 100).clip(-1, 1).fillna(0.0)
+
+        # 長期ホライズンの累積リターンz（2日・1週間）
+        base["ret_z48"] = _z(base["log_ret"].rolling(48, min_periods=48).sum(),
+                             self.z_window)
+        base["ret_z168"] = _z(base["log_ret"].rolling(168, min_periods=168).sum(),
+                              max(self.z_window, 200))
         return base
 
     def _align_tf_features(
@@ -341,6 +350,8 @@ class FeaturePipeline:
             base_feats = pd.DataFrame(index=common)
             base_feats["vol_anom"] = bases[sym]["vol_anom"]
             base_feats["rci"] = bases[sym]["rci"]
+            base_feats["ret_z48"] = bases[sym]["ret_z48"]
+            base_feats["ret_z168"] = bases[sym]["ret_z168"]
 
             of = self._orderflow_features(source, sym, common, start, end)
             fund_feats, per_bar_funding = self._funding_features(source, sym, common, start, end)

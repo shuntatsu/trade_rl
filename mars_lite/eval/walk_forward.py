@@ -99,8 +99,12 @@ def evaluate_agent_on_slice(
     done = False
     equity = [env.portfolio_value]
     info: Dict = {}
+    # SeedEnsembleなら不一致度を毎ステップ後処理へ渡す（不確実時にグロス縮小）
+    has_disagreement = hasattr(agent, "disagreement")
     while not done:
         action, _ = agent.predict(obs, deterministic=True)
+        if has_disagreement:
+            env.disagreement = agent.disagreement(obs)
         obs, _, term, trunc, info = env.step(action)
         equity.append(env.portfolio_value)
         done = term or trunc

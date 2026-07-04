@@ -61,7 +61,7 @@ def train_ppo(
     val_eval_freq: int = 20_000,
     bc_warmstart: bool = True,
     bc_epochs: int = 15,
-    bc_teacher: str = "momentum",
+    bc_teacher: str = "ridge",
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -69,7 +69,9 @@ def train_ppo(
     val_fs を渡すと検証スライスで定期評価し、最良時点のパラメータを
     最終モデルとして採用する（小データへの過学習対策）。
     val_fs 省略時は fs の末尾15%を自動で検証に割く。
-    bc_warmstart=True でクロスモメンタム教師によるBC事前学習を行う。
+    bc_warmstart=True でBC事前学習を行う。教師はbc_teacherで選択:
+    ridge（デフォルト）= 学習スライスのRidge予測（アルファの型を仮定しない）、
+    momentum = クロスモメンタム固定教師。
     """
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv

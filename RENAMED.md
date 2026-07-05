@@ -58,18 +58,40 @@ python scripts/train_portfolio.py --phase p0 --timesteps 300000
 - 出力: `output/portfolio/p0_report.json`、エクイティカーブ図
 - 所要: CPUで約20〜30分
 
-## 本番ワークフロー（実データ・ローカルPCで実行）
+## 本番ワークフロー（実データ）
 
-Binanceは一部地域からブロックされるため、データ取得はローカルPCで。
+### 最短ルート: Hyperliquid（認証不要・この環境からも取得可）
+
+Hyperliquid公開APIは上位足（15m/1h/4h/1d）と funding をネイティブ配信する。
+`--source hyperliquid` はデータを自動取得・キャッシュするため、取得と学習を
+1コマンドで繋げられる（`data/hyperliquid/` にCSVキャッシュ）。
 
 ```bash
-# 1. 先物データ取得（kline + funding rate + オーダーフロー集計）
+# 任意: 事前取得（キャッシュを温める。省略しても学習時に自動取得）
+python scripts/fetch_hyperliquid.py --symbols BTCUSDT ETHUSDT SOLUSDT XRPUSDT BNBUSDT SUIUSDT DOGEUSDT --days 180
+
+# P1 シグナル検証 → 合格なら学習（ICゲートは自動）
+python scripts/train_portfolio.py --phase train --source hyperliquid \
+    --symbols BTCUSDT ETHUSDT SOLUSDT XRPUSDT BNBUSDT SUIUSDT DOGEUSDT --days 180 --timesteps 2000000
+
+# ウォークフォワード検証（多シード・コスト2倍感度・オラクル対比）
+python scripts/train_portfolio.py --phase wf --source hyperliquid \
+    --symbols BTCUSDT ETHUSDT SOLUSDT XRPUSDT BNBUSDT SUIUSDT DOGEUSDT --days 180
+```
+
+銘柄は `BTCUSDT` でも `BTC` でも可（末尾USDT/USDを自動でコイン名へ正規化）。
+
+> **実測（180日・7銘柄の生特徴）**: OOSランクIC ≈ 0.006 で**ICゲート不合格**。
+> 素の価格・テクニカル特徴だけでは実データに予測力がほぼ無く、システムは
+> RL学習に進まず停止する（これが正しい撤退動作）。ボトルネックはRL機構では
+> なく**データのアルファ量**。ここを超えるには建玉残高/清算/L・S比率/funding
+> 予測などの追加アルファ（`--source` 側で供給）や独自シグナルが要る。
+
+### Binance先物（funding + aggTradesオーダーフローも必要な場合）
+
+```bash
 python scripts/fetch_futures.py --symbols BTCUSDT ETHUSDT XRPUSDT BNBUSDT SUIUSDT PAXGUSDT --days 180 --to csv
-
-# 2. 学習（品質ゲート → リーク自己検査 → ICゲート → 学習を自動実行）
 python scripts/train_portfolio.py --phase train --source csv --data ./data --timesteps 2000000 --ensemble 3
-
-# 3. ウォークフォワード検証（多シード・コスト2倍感度）
 python scripts/train_portfolio.py --phase wf --source csv --data ./data --timesteps 500000
 ```
 
@@ -124,7 +146,13 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 3. **ゲート1（IC）**: 特徴に予測力があるか。**ここが実データでの本当の勝負**
 4. **ベースライン比較**: RL成績は常に4種（フラット/B&H/ボラ逆数/クロスモメンタム則）と並記。
    **クロスモメンタム則に勝てて初めてRLの意味がある**
-5. **ウォークフォワード**: コスト2倍でも中央値がプラスか（頑健性）
+5. **オラクル則（手数料込みDP上限）**: `oracle_dp` は「未来を完全に知った上で、
+   手数料を払ってでもポジションを持つ/反転する価値があるか」を動的計画法で厳密に
+   解いた**理論上限**（各銘柄を1/N等資本の独立サブアカウントとし、状態{-1,0,+1}上で
+   Viterbi型の最適経路を探索。微小な山谷は手数料に負けて取らない＝閾値超えの山と谷
+   だけを取る）。`capture rate = RL収益 / oracle収益` が捕捉率。同一コスト・同一
+   レバレッジ制約下での分母なので、RLの伸びしろが一目でわかる。
+6. **ウォークフォワード**: コスト2倍でも中央値がプラスか（頑健性）
 
 ## ダッシュボード（学習の可視化・バックテスト）
 

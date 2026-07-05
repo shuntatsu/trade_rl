@@ -66,7 +66,9 @@ def ts_momentum_teacher(lookback: int = 48) -> TeacherFn:
     return teacher
 
 
-def ridge_teacher(train_fs, horizon: int = 4, lam: float = 10.0) -> TeacherFn:
+def ridge_teacher(
+    train_fs, horizon: int = 4, lam: float = 10.0, target: str = "raw",
+) -> TeacherFn:
     """
     データ駆動のRidge教師（アルファの型を仮定しない）
 
@@ -75,11 +77,15 @@ def ridge_teacher(train_fs, horizon: int = 4, lam: float = 10.0) -> TeacherFn:
     モメンタム型・平均回帰型どちらのアルファでも、ICゲートを通る
     信号があれば自動的にそれを模倣の出発点にできる。
 
+    target="cs_demean" で学習すると、Ridge自体が市場中立な相対アルファ
+    だけを当てにいく（予測後のクロスセクショナル中心化と整合する）。
+    狭いユニバースでは市場全体の方向がフィットを汚染しうるため有効。
+
     注意: train_fs には学習用スライスだけを渡すこと（リーク防止）。
     """
     from mars_lite.features.signal_check import _pool, _ridge_fit
 
-    X, y, _ = _pool(train_fs, horizon)
+    X, y, _ = _pool(train_fs, horizon, target=target)
     w_ridge = _ridge_fit(X, y, lam)
 
     def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
@@ -96,6 +102,7 @@ def ridge_teacher(train_fs, horizon: int = 4, lam: float = 10.0) -> TeacherFn:
 
 def combined_teacher(
     train_fs, use_ridge: bool, use_trend: bool, horizon: int = 4,
+    ridge_target: str = "raw",
 ) -> TeacherFn:
     """
     合成教師: Ridge（相対アルファ・ゼロサム）＋ 時系列モメンタム（方向性ベータ）
@@ -106,8 +113,11 @@ def combined_teacher(
       use_trend: 方向性トレンドが有意
     上昇相場では use_trend が effいてベータを捕捉、相対アルファ市場では
     use_ridge が効いて相対ベットを取る。両方でも自然に合算される。
+
+    ridge_target="cs_demean" にすると、Ridge成分が方向性ベータ（ts_fn側で
+    別途捕捉）と重複しない、純粋な相対アルファだけを学習する。
     """
-    ridge_fn = ridge_teacher(train_fs, horizon) if use_ridge else None
+    ridge_fn = ridge_teacher(train_fs, horizon, target=ridge_target) if use_ridge else None
     ts_fn = ts_momentum_teacher() if use_trend else None
 
     def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:

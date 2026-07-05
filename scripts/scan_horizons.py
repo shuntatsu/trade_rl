@@ -44,6 +44,11 @@ def main():
                     help="各ホライズンについて、意思決定頻度"
                          "（既定 max(1,horizon//2)）込みで黒字化する"
                          "最小の目標ICをノイズオラクルで推定して併記する")
+    ap.add_argument("--cs-demean", action="store_true",
+                    help="raw（絶対リターン）に加えcs_demean（市場中立の"
+                         "相対アルファ）でもスキャンし併記する。狭い"
+                         "ユニバースでは市場全体の方向がICを汚染しうるため、"
+                         "両者を比較すると相対アルファの実力が見える")
     args = ap.parse_args()
 
     if args.source == "synthetic":
@@ -63,10 +68,20 @@ def main():
     print(f"Scanning on train slice only: {train_fs.n_bars}/{fs.n_bars} bars "
           f"(test-leak防止のため残り{100 - args.train_fraction * 100:.0f}%は使わない)")
 
-    report = run_horizon_scan(train_fs, horizons=tuple(args.horizons), n_folds=args.n_folds)
+    report = run_horizon_scan(train_fs, horizons=tuple(args.horizons), n_folds=args.n_folds,
+                              target="raw")
     print(report.summary())
 
     payload = report.to_dict()
+    payload["target"] = "raw"
+
+    if args.cs_demean:
+        cs_report = run_horizon_scan(train_fs, horizons=tuple(args.horizons),
+                                     n_folds=args.n_folds, target="cs_demean")
+        print("\n[Horizon Scan: cs_demean（市場中立の相対アルファ）]")
+        print(cs_report.summary())
+        payload["cs_demean"] = cs_report.to_dict()
+
     if args.breakeven:
         print("\n[Breakeven IC] (decision_every = max(1, horizon//2) 込みでコスト後に黒字化する最小の目標IC)")
         breakeven = {}

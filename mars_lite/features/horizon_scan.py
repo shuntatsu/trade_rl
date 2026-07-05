@@ -95,6 +95,7 @@ def run_horizon_scan(
     min_positive_ratio: float = 0.6,
     threshold: float = 0.0,
     feature_groups: Optional[Dict[str, List[str]]] = None,
+    target: str = "raw",
 ) -> HorizonScanReport:
     """
     複数ホライズンでウォークフォワードOOS ICをスキャンする
@@ -107,6 +108,7 @@ def run_horizon_scan(
                    使わず比較のみに使うため実質的に無視してよい）
         feature_groups: name -> [feature_names] のグループ定義
                         （省略時は default_feature_groups で自動導出）
+        target: "raw"|"cs_demean"|"vol_norm"（signal_check._pool参照）
     """
     groups = feature_groups or default_feature_groups(fs)
     name_to_idx = {n: i for i, n in enumerate(fs.feature_names)}
@@ -117,6 +119,7 @@ def run_horizon_scan(
         report: SignalReport = run_signal_check(
             fs, horizon=h, n_folds=n_folds, purge_bars=purge,
             threshold=threshold, min_positive_ratio=min_positive_ratio,
+            target=target,
         )
         group_ic = {}
         for gname, fnames in groups.items():

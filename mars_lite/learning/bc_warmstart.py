@@ -134,6 +134,10 @@ def generate_teacher_dataset(
     from mars_lite.env.portfolio_env import PortfolioTradingEnv
 
     env_kwargs = dict(env_kwargs or {})
+    # 教師データはスライス全体を1エピソードで走査する。呼び出し側の
+    # episode_bars / regime_start_pool（レジーム専門家用）は無視する。
+    env_kwargs.pop("episode_bars", None)
+    env_kwargs.pop("regime_start_pool", None)
     env = PortfolioTradingEnv(fs, episode_bars=fs.n_bars - 2, **env_kwargs)
     obs, _ = env.reset(options={"start_idx": 0})
 

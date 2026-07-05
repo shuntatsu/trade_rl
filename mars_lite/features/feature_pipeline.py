@@ -49,7 +49,8 @@ BASE_FEATURES = [
     "oi_z", "oi_change", "ls_ratio_z", "liq_z",
     "btc_rel_z", "ret_rank",
 ]
-GLOBAL_FEATURES = ["hour_sin", "hour_cos", "dow_sin", "dow_cos", "btc_vol_regime"]
+GLOBAL_FEATURES = ["hour_sin", "hour_cos", "dow_sin", "dow_cos", "btc_vol_regime",
+                   "btc_trend"]
 
 
 @dataclass
@@ -413,10 +414,17 @@ class FeaturePipeline:
             ).rolling(24, min_periods=4).mean(),
             self.z_window,
         )
+        # BTCトレンド: 24本トレーリングリターンのz-score（過去窓のみ=look-ahead無し）
+        # レジーム判定（強気/弱気/レンジ）の基準。観測に含めることで
+        # RegimeEnsembleが obs から直接レジームを読める。
+        btc_close = bases[btc_col]["close"]
+        btc_ret24 = np.log(btc_close / btc_close.shift(24))
+        btc_trend = _z(btc_ret24, self.z_window)
         global_features = np.stack([
             np.sin(2 * np.pi * hours / 24), np.cos(2 * np.pi * hours / 24),
             np.sin(2 * np.pi * dows / 7), np.cos(2 * np.pi * dows / 7),
             btc_vol.to_numpy(),
+            btc_trend.to_numpy(),
         ], axis=1).astype(np.float32)
 
         return FeatureSet(

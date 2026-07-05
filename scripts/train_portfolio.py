@@ -185,6 +185,17 @@ def train_ppo(
     return agent
 
 
+def _as_baseline(res: dict, name: str = "generalist") -> dict:
+    """エージェント評価結果を report_comparison が読める baseline 風dictに整形"""
+    return {
+        "name": name,
+        "total_return": res.get("total_return", 0.0),
+        "sharpe": res.get("sharpe", 0.0),
+        "max_drawdown": res.get("max_drawdown", 0.0),
+        "turnover_total": res.get("turnover_total", 0.0),
+    }
+
+
 def report_comparison(agent_res: dict, baselines: dict, label: str) -> None:
     print(f"\n=== {label} ===")
     print(f"{'strategy':<18} {'return':>9} {'sharpe':>8} {'maxDD':>7} {'turnover':>9}")
@@ -423,6 +434,83 @@ def phase_pbt(args, output_dir: Path) -> None:
     print(f"Result -> {output_dir / 'pbt_result.json'}")
 
 
+def phase_regime(args, output_dir: Path) -> None:
+    """項目3: レジーム特化アンサンブル（bull/bear/range専門家 + ルーティング）"""
+    from mars_lite.learning.regime_ensemble import (
+        regime_labels, regime_start_pools, RegimeEnsemble, REGIMES,
+    )
+
+    fs = build_feature_set(args)
+    print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
+    split = int(fs.n_bars * 0.8)
+    train_fs = fs.slice(0, split)
+    test_fs = fs.slice(split + 24, fs.n_bars)
+
+    pp = build_post_processor(args)
+    ekw = {"post_processor": pp}
+
+    # 専門家は短いエピソード（レジームが一貫する長さ）で学習する。
+    # 30日窓では強気/弱気/レンジが混在し「純粋な」エピソードが作れないため、
+    # 5日窓（120本）でレジーム優勢な開始位置プールを作る。
+    spec_horizon = min(args.regime_bars, train_fs.n_bars // 4)
+    pools = regime_start_pools(train_fs, horizon=spec_horizon, min_fraction=0.45)
+    labels = regime_labels(train_fs)
+    dist = {r: int((labels == r).sum()) for r in REGIMES}
+    print(f"Regime bar distribution (train): {dist}")
+    print(f"Specialist episode horizon: {spec_horizon} bars")
+    for r in REGIMES:
+        print(f"  pool[{r}] = {len(pools[r])} start positions")
+
+    # 汎用方策（フォールバック兼、専門家プールが薄いレジーム用）
+    print(f"\nTraining generalist: {args.timesteps:,} steps...")
+    generalist = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
+                           gamma=args.gamma, bc_warmstart=True, **ekw)
+
+    # 十分なプールがあるレジームのみ専門家を学習（少数は汎用にフォールバック）
+    spec_ekw = {**ekw, "episode_bars": spec_horizon}
+    min_pool = 20
+    specialists = {}
+    for r in REGIMES:
+        if len(pools[r]) < min_pool:
+            print(f"[skip] specialist[{r}]: pool too small "
+                  f"({len(pools[r])}<{min_pool}) -> generalistで代替")
+            continue
+        print(f"\nTraining specialist[{r}]: {args.timesteps:,} steps "
+              f"(pool={len(pools[r])})...")
+        specialists[r] = train_ppo(
+            fs=train_fs, timesteps=args.timesteps, seed=args.seed + 1,
+            gamma=args.gamma, bc_warmstart=True,
+            regime_start_pool=pools[r], **spec_ekw,
+        )
+
+    ensemble = RegimeEnsemble(
+        specialists=specialists, generalist=generalist,
+        obs_layout=PortfolioTradingEnv(train_fs, **ekw).obs_layout,
+        n_raw_globals=fs.global_features.shape[1],
+    )
+
+    # 評価: レジームアンサンブル vs 汎用単体 vs ベースライン
+    ens_res = evaluate_agent_on_slice(ensemble, test_fs, **ekw)
+    gen_res = evaluate_agent_on_slice(generalist, test_fs, **ekw)
+    baselines = run_all_baselines(test_fs)
+    report_comparison(ens_res, {"generalist": _as_baseline(gen_res), **baselines},
+                      "OOS: RegimeEnsemble vs generalist vs baselines")
+    print(f"Route counts (test): {ensemble.route_counts}")
+
+    plot_comparison(ens_res, baselines, output_dir / "regime_equity.png")
+    with open(output_dir / "regime_report.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "regime_distribution": dist,
+            "pool_sizes": {r: len(pools[r]) for r in REGIMES},
+            "specialists_trained": list(specialists.keys()),
+            "route_counts": ensemble.route_counts,
+            "ensemble": {k: v for k, v in ens_res.items() if k != "equity_curve"},
+            "generalist": {k: v for k, v in gen_res.items() if k != "equity_curve"},
+            "baselines": {k: v.to_dict() for k, v in baselines.items()},
+        }, f, indent=2, ensure_ascii=False)
+    print(f"Regime ensemble report -> {output_dir}")
+
+
 def phase_wf(args, output_dir: Path) -> None:
     """P3: ウォークフォワード検証（複数シード、コスト感度）"""
     fs = build_feature_set(args)
@@ -452,7 +540,8 @@ def phase_wf(args, output_dir: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="ポートフォリオRL学習")
-    parser.add_argument("--phase", choices=["p0", "train", "wf", "pbt"], default="p0")
+    parser.add_argument("--phase", choices=["p0", "train", "wf", "pbt", "regime"],
+                        default="p0")
     parser.add_argument("--source", choices=["synthetic", "csv", "postgres"],
                         default="synthetic")
     parser.add_argument("--data", type=str, default="./data")
@@ -485,6 +574,8 @@ def main():
                         help="PBT世代数（--phase pbt）")
     parser.add_argument("--pbt-steps", type=int, default=40_000,
                         help="PBT各個体の学習ステップ数（--phase pbt）")
+    parser.add_argument("--regime-bars", type=int, default=120,
+                        help="レジーム専門家のエピソード長（--phase regime、5日=120本）")
     args = parser.parse_args()
 
     output_dir = Path(args.output)
@@ -496,6 +587,8 @@ def main():
         phase_train(args, output_dir)
     elif args.phase == "pbt":
         phase_pbt(args, output_dir)
+    elif args.phase == "regime":
+        phase_regime(args, output_dir)
     else:
         phase_wf(args, output_dir)
 

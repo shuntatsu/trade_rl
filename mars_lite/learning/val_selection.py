@@ -20,6 +20,10 @@ def quick_evaluate(agent, fs: FeatureSet, **env_kwargs) -> float:
     """検証スライス全体を1エピソード決定的に走らせ、リスク調整後スコアを返す"""
     from mars_lite.env.portfolio_env import PortfolioTradingEnv
 
+    # 検証はスライス全体を1エピソードで走査。学習側の episode_bars /
+    # regime_start_pool（レジーム専門家用）はここでは無視する。
+    env_kwargs = {k: v for k, v in env_kwargs.items()
+                  if k not in ("episode_bars", "regime_start_pool")}
     env = PortfolioTradingEnv(fs, episode_bars=fs.n_bars - 2, **env_kwargs)
     obs, _ = env.reset(options={"start_idx": 0})
     done = False

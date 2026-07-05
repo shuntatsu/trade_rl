@@ -192,3 +192,50 @@ class TestTrendGateAndTeachers:
         cs_w = soft_momentum_teacher()(fs, fs.n_bars - 1, np.zeros(fs.n_symbols))
         assert abs(ts_w.sum()) > 0.05                # ネット方向性あり
         assert abs(cs_w.sum()) < 1e-9                # クロスはゼロサム
+
+
+class TestDerivativeFeatures:
+
+    def test_derivatives_flow_and_carry_signal(self):
+        """OI/L/S比率/清算がパイプラインを通り、cross alphaで予測力を持つ"""
+        from mars_lite.data.sources import SyntheticSource
+        from mars_lite.features.signal_check import run_signal_check
+        src = SyntheticSource(n_days=90, alpha="cross", seed=0)
+        fs = FeaturePipeline(src.symbols).build(src)
+        for f in ["oi_z", "oi_change", "ls_ratio_z", "liq_z"]:
+            assert f in fs.feature_names
+        assert not np.isnan(fs.features).any()
+        ic = run_signal_check(fs)
+        # OIは正のIC、L/S比率は逆張り（負のIC）
+        assert ic.per_feature_ic["oi_z"] > 0.05
+        assert ic.per_feature_ic["ls_ratio_z"] < -0.05
+
+    def test_missing_derivatives_zeroed(self):
+        """デリバティブ無しソース（株式等）でも動く（ゼロ埋め）"""
+        from mars_lite.data.sources import DataSource
+        import pandas as pd
+
+        class NoDerivSource(DataSource):
+            def __init__(self):
+                super().__init__(["A", "B"])
+                rng = np.random.default_rng(0)
+                n = 60 * 1440
+                ts = pd.date_range("2024-01-01", periods=n, freq="1min")
+                self._k = {}
+                for s in ["A", "B"]:
+                    c = 100 * np.exp(np.cumsum(rng.normal(0, 0.0009, n)))
+                    o = np.concatenate([[100], c[:-1]])
+                    self._k[s] = pd.DataFrame({"timestamp": ts, "open": o,
+                        "high": np.maximum(o, c) * 1.001, "low": np.minimum(o, c) * 0.999,
+                        "close": c, "volume": rng.uniform(100, 1000, n)})
+            def load_klines(self, symbol, timeframe="1m", start=None, end=None):
+                df = self._k[symbol]
+                if timeframe != "1m":
+                    from mars_lite.data.data_utils import resample_ohlcv
+                    df = resample_ohlcv(df, timeframe)
+                return df
+
+        fs = FeaturePipeline(["A", "B"]).build(NoDerivSource())
+        oi_idx = fs.feature_names.index("oi_z")
+        assert (fs.features[:, :, oi_idx] == 0).all()
+        assert not np.isnan(fs.features).any()

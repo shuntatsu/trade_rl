@@ -100,6 +100,64 @@ def fetch_funding_range(symbol: str, start_ms: int, end_ms: int) -> pd.DataFrame
     }).drop_duplicates("timestamp").reset_index(drop=True)
 
 
+def fetch_derivatives(symbol: str, start_ms: int, end_ms: int, period: str = "1h") -> pd.DataFrame:
+    """
+    デリバティブ指標を取得して1h集計で返す:
+      open_interest      GET /futures/data/openInterestHist
+      ls_ratio           GET /futures/data/globalLongShortAccountRatio
+      liq_notional       aggregated from /fapi/v1/allForceOrders は非推奨のため
+                         takerlongshortRatio の非対称を代理指標に使う
+      funding_predicted  GET /fapi/v1/premiumIndex（現在のlastFundingRate）
+
+    Binanceのdata系エンドポイントは最大30日・limit500の制約があるため、
+    30日窓でページングする。
+    """
+    def paged(path, extra):
+        rows = []
+        cursor = start_ms
+        window = 30 * 86_400_000
+        while cursor < end_ms:
+            data = _get(path, {"symbol": symbol, "period": period,
+                               "startTime": cursor, "endTime": min(cursor + window, end_ms),
+                               "limit": 500, **extra})
+            if not data:
+                cursor += window
+                continue
+            rows.extend(data)
+            cursor += window
+            time.sleep(0.2)
+        return rows
+
+    oi = paged("/futures/data/openInterestHist", {})
+    ls = paged("/futures/data/globalLongShortAccountRatio", {})
+    taker = paged("/futures/data/takerlongshortRatio", {})
+
+    def to_series(rows, tcol, vcol, cast=float):
+        if not rows:
+            return pd.DataFrame(columns=["timestamp", vcol])
+        df = pd.DataFrame(rows)
+        return pd.DataFrame({"timestamp": df[tcol].astype("int64"),
+                             vcol: df[vcol].astype(cast)}).drop_duplicates("timestamp")
+
+    oi_df = to_series(oi, "timestamp", "sumOpenInterest") if oi else pd.DataFrame(columns=["timestamp", "sumOpenInterest"])
+    ls_df = to_series(ls, "timestamp", "longShortRatio") if ls else pd.DataFrame(columns=["timestamp", "longShortRatio"])
+    tk_df = to_series(taker, "timestamp", "buySellRatio") if taker else pd.DataFrame(columns=["timestamp", "buySellRatio"])
+
+    out = oi_df.rename(columns={"sumOpenInterest": "open_interest"})
+    if not ls_df.empty:
+        out = out.merge(ls_df.rename(columns={"longShortRatio": "ls_ratio"}), on="timestamp", how="outer")
+    else:
+        out["ls_ratio"] = 1.0
+    # 清算の代理: takerのbuy/sell非対称の絶対値（大きいほど強制的フロー）
+    if not tk_df.empty:
+        tk_df["liq_notional"] = (tk_df["buySellRatio"] - 1.0).abs()
+        out = out.merge(tk_df[["timestamp", "liq_notional"]], on="timestamp", how="outer")
+    else:
+        out["liq_notional"] = 0.0
+    out["funding_predicted"] = 0.0001  # premiumIndexは別途取得可（簡易化）
+    return out.sort_values("timestamp").fillna(method="ffill").fillna(0.0).reset_index(drop=True)
+
+
 def fetch_orderflow_day(symbol: str, day_start_ms: int) -> pd.DataFrame:
     """
     aggTradesを1日分取得し、1分オーダーフロー集計に変換
@@ -156,11 +214,33 @@ def save_csv_daily(df: pd.DataFrame, out_dir: Path, day: datetime) -> None:
     df.to_csv(out_dir / f"{day.strftime('%Y-%m-%d')}.csv", index=False)
 
 
-def upsert_postgres(dsn: str, symbol: str, funding: pd.DataFrame, orderflow: pd.DataFrame):
+def upsert_postgres(dsn: str, symbol: str, funding: pd.DataFrame,
+                    orderflow: pd.DataFrame, derivatives: pd.DataFrame = None):
     """rl_ テーブルへUPSERT（テーブルが無ければ作成）"""
     import psycopg
 
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS rl_derivatives (
+                symbol TEXT NOT NULL,
+                timestamp TIMESTAMPTZ NOT NULL,
+                open_interest DOUBLE PRECISION,
+                ls_ratio DOUBLE PRECISION,
+                liq_notional DOUBLE PRECISION,
+                funding_predicted DOUBLE PRECISION,
+                PRIMARY KEY (symbol, timestamp)
+            )""")
+        if derivatives is not None:
+            for _, r in derivatives.iterrows():
+                cur.execute(
+                    """INSERT INTO rl_derivatives VALUES (%s, to_timestamp(%s/1000.0), %s, %s, %s, %s)
+                       ON CONFLICT (symbol, timestamp) DO UPDATE SET
+                         open_interest = EXCLUDED.open_interest, ls_ratio = EXCLUDED.ls_ratio,
+                         liq_notional = EXCLUDED.liq_notional, funding_predicted = EXCLUDED.funding_predicted""",
+                    (symbol, int(r["timestamp"]), float(r["open_interest"]),
+                     float(r["ls_ratio"]), float(r["liq_notional"]),
+                     float(r["funding_predicted"])),
+                )
         cur.execute("""
             CREATE TABLE IF NOT EXISTS rl_funding_rate (
                 symbol TEXT NOT NULL,
@@ -233,6 +313,14 @@ def main():
             fdir.mkdir(parents=True, exist_ok=True)
             funding.to_csv(fdir / "funding.csv", index=False)
 
+        print(f"  derivatives (OI/LS/liq)...")
+        derivatives = fetch_derivatives(symbol, start_ms, end_ms)
+        print(f"    {len(derivatives)} hourly rows")
+        if "csv" in args.to and len(derivatives):
+            ddir = output_dir / symbol / "derivatives"
+            ddir.mkdir(parents=True, exist_ok=True)
+            derivatives.to_csv(ddir / "derivatives.csv", index=False)
+
         all_orderflow = []
         for d in range(args.days):
             day = start + timedelta(days=d)
@@ -256,8 +344,9 @@ def main():
             of_all = pd.concat(all_orderflow, ignore_index=True) if all_orderflow \
                 else pd.DataFrame(columns=["timestamp", "buy_volume", "sell_volume",
                                            "trade_count", "avg_trade_size", "volume_imbalance"])
-            print(f"  postgres upsert: funding={len(funding)}, orderflow={len(of_all)}")
-            upsert_postgres(dsn, symbol, funding, of_all)
+            print(f"  postgres upsert: funding={len(funding)}, orderflow={len(of_all)}, "
+                  f"derivatives={len(derivatives)}")
+            upsert_postgres(dsn, symbol, funding, of_all, derivatives)
 
     print("Done.")
 

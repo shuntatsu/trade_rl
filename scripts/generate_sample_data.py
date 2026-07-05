@@ -40,7 +40,7 @@ START_PRICES = {
 }
 
 from mars_lite.data.synthetic import (  # noqa: E402
-    generate_market, build_ohlcv, build_orderflow, build_funding,
+    generate_market, build_ohlcv, build_orderflow, build_funding, build_derivatives,
 )
 
 
@@ -87,6 +87,7 @@ def main():
         kline_df = build_ohlcv(rng, returns[:, i], price, base_volume, start)
         of_df = build_orderflow(rng, kline_df, latent[:, i], args.alpha)
         funding_df = build_funding(rng, latent[:, i], start, args.days, args.alpha)
+        deriv_df = build_derivatives(rng, kline_df, latent[:, i], args.alpha)
 
         # 日別ファイルに分割保存（fetch系スクリプトと同一レイアウト）
         for name, df in [("1m", kline_df), ("orderflow_1m", of_df)]:
@@ -100,6 +101,10 @@ def main():
         funding_dir = output_dir / symbol / "funding"
         funding_dir.mkdir(parents=True, exist_ok=True)
         funding_df.to_csv(funding_dir / "funding.csv", index=False)
+
+        deriv_dir = output_dir / symbol / "derivatives"
+        deriv_dir.mkdir(parents=True, exist_ok=True)
+        deriv_df.to_csv(deriv_dir / "derivatives.csv", index=False)
 
         print(f"  {symbol}: klines + orderflow + funding -> {output_dir / symbol}")
 

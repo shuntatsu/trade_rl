@@ -40,11 +40,13 @@ TF_BLOCK_FEATURES = ["ret_z1", "ret_z5", "ret_z20", "vol_ratio", "rsi", "bb_pos"
 # 基準TFのみの追加特徴
 # ret_z48/ret_z168: 多時間軸実験の知見（多スケール情報はTFブロックの積み増しより
 # 基準TF上の多ホライズン特徴が効率的に運ぶ）に基づく長期ホライズンリターン
+# oi_*/ls_*/liq_*: デリバティブ指標（建玉残高・ロングショート比率・清算）
 BASE_FEATURES = [
     "vol_anom", "rci",
     "ret_z48", "ret_z168",
     "of_imbalance", "of_count_z", "of_size_z",
     "funding_bps", "funding_cum_bps", "time_to_funding",
+    "oi_z", "oi_change", "ls_ratio_z", "liq_z",
     "btc_rel_z", "ret_rank",
 ]
 GLOBAL_FEATURES = ["hour_sin", "hour_cos", "dow_sin", "dow_cos", "btc_vol_regime"]
@@ -257,6 +259,31 @@ class FeaturePipeline:
         out["of_size_z"] = _z(agg["avg_trade_size"], self.z_window)
         return out.reindex(bar_index).fillna(0.0)
 
+    def _derivative_features(
+        self, source: DataSource, symbol: str,
+        bar_index: pd.DatetimeIndex, start, end,
+    ) -> pd.DataFrame:
+        """デリバティブ指標（OI・L/S比率・清算）を基準TFに整列して特徴化"""
+        cols = ["oi_z", "oi_change", "ls_ratio_z", "liq_z"]
+        d = source.load_derivatives(symbol, start, end)
+        if d.empty:
+            return pd.DataFrame(0.0, index=bar_index, columns=cols)
+
+        d = d.set_index("timestamp").sort_index()
+        freq = f"{TF_TO_MINUTES[self.base_tf]}min"
+        # 基準TFにリサンプル（最終値/合計）
+        agg = pd.DataFrame(index=None)
+        oi = d["open_interest"].resample(freq).last()
+        ls = d["ls_ratio"].resample(freq).last()
+        liq = d["liq_notional"].resample(freq).sum()
+
+        out = pd.DataFrame(index=oi.index)
+        out["oi_z"] = _z(np.log(oi.clip(lower=1e-9)), self.z_window)
+        out["oi_change"] = _z(np.log(oi.clip(lower=1e-9)).diff(), self.z_window)
+        out["ls_ratio_z"] = _z(np.log(ls.clip(lower=1e-9)), self.z_window)
+        out["liq_z"] = _z(np.log1p(liq.clip(lower=0)), self.z_window)
+        return out.reindex(bar_index).fillna(0.0)
+
     def _funding_features(
         self, source: DataSource, symbol: str,
         bar_index: pd.DatetimeIndex, start, end,
@@ -355,9 +382,10 @@ class FeaturePipeline:
 
             of = self._orderflow_features(source, sym, common, start, end)
             fund_feats, per_bar_funding = self._funding_features(source, sym, common, start, end)
+            deriv = self._derivative_features(source, sym, common, start, end)
             rel = _z(bases[sym]["log_ret"] - btc_ret, self.z_window)
 
-            base_feats = pd.concat([base_feats, of, fund_feats], axis=1)
+            base_feats = pd.concat([base_feats, of, fund_feats, deriv], axis=1)
             base_feats["btc_rel_z"] = rel
             base_feats["ret_rank"] = rank[sym]
 

@@ -110,13 +110,13 @@ def train_ppo(
                 "n_tf_blocks": len(tf_prefixes),
                 "tf_block_size": len(TF_BLOCK_FEATURES),
             },
-            "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+            "net_arch": dict(pi=[256, 256, 128], vf=[256, 256, 128]),
         }
     else:
         policy_kwargs = {
             "features_extractor_class": PortfolioExtractor,
             "features_extractor_kwargs": probe.obs_layout,
-            "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+            "net_arch": dict(pi=[256, 256, 128], vf=[256, 256, 128]),
         }
 
     def lr_schedule(progress_remaining: float) -> float:

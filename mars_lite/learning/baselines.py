@@ -15,6 +15,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
+from mars_lite.trading.execution import make_execution_model
 
 WeightFn = Callable[[FeatureSet, int, np.ndarray], np.ndarray]
 
@@ -124,7 +125,15 @@ def simulate_strategy(
     PortfolioTradingEnvと同一のコストモデルで戦略をバックテスト
     """
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
-    cost_per_turnover = (fee_rate + spread_rate + impact_rate) * cost_multiplier
+    # 環境（PortfolioTradingEnv）・oracle_dp と厳密に同一の sqrt-impact + TWAP
+    # 執行モデルを使う。以前は線形コスト（turnover×固定率）だったが、大きな
+    # リバランスをするベースライン（cross_momentum/trend_following は ±0.5 の
+    # ジャンプ）が RL/oracle より 7〜27% 安いコストしか払わず、ゲート2の
+    # 「RL は全ベースラインに勝てるか」判定をベースライン有利に歪めていた。
+    exec_model = make_execution_model(
+        fee_rate=fee_rate, spread_rate=spread_rate,
+        impact_rate=impact_rate, cost_multiplier=cost_multiplier,
+    )
 
     value = 1.0
     weights = np.zeros(fs.n_symbols)
@@ -147,7 +156,8 @@ def simulate_strategy(
 
         r_vec = fs.close[t + 1] / fs.close[t] - 1.0
         funding = float(np.sum(weights * fs.funding_rate[t + 1]))
-        net = float(np.dot(weights, r_vec)) - turnover * cost_per_turnover - funding
+        cost = exec_model.cost_fraction(delta)
+        net = float(np.dot(weights, r_vec)) - cost - funding
 
         value *= (1.0 + net)
         rets.append(net)

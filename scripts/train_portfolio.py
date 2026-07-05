@@ -279,7 +279,16 @@ def build_feature_set(args) -> FeatureSet:
         symbols = source.symbols
     else:
         symbols = args.symbols or DEFAULT_SYMBOLS
-        kwargs = {"data_dir": args.data} if args.source == "csv" else {}
+        if args.source == "csv":
+            kwargs = {"data_dir": args.data}
+        elif args.source == "hyperliquid":
+            kwargs = {"days": args.days}
+        elif args.source == "postgres":
+            kwargs = {"dsn": args.pg_dsn, "source": args.pg_source,
+                     "derivatives_source": args.pg_derivatives_source,
+                     "orderflow_source": args.pg_derivatives_source}
+        else:
+            kwargs = {}
         source = create_source(args.source, symbols, **kwargs)
     return FeaturePipeline(symbols).build(source)
 
@@ -367,7 +376,16 @@ def phase_train(args, output_dir: Path) -> None:
     # --- 品質ゲート（実データソースのみ。不合格銘柄は除外） ---
     symbols = args.symbols or DEFAULT_SYMBOLS
     if args.source != "synthetic":
-        kwargs = {"data_dir": args.data} if args.source == "csv" else {}
+        if args.source == "csv":
+            kwargs = {"data_dir": args.data}
+        elif args.source == "hyperliquid":
+            kwargs = {"days": args.days}
+        elif args.source == "postgres":
+            kwargs = {"dsn": args.pg_dsn, "source": args.pg_source,
+                     "derivatives_source": args.pg_derivatives_source,
+                     "orderflow_source": args.pg_derivatives_source}
+        else:
+            kwargs = {}
         source = create_source(args.source, symbols, **kwargs)
         qrep = run_quality_gate(source, symbols, base_timeframe="1h")
         print(qrep.summary())
@@ -608,7 +626,7 @@ def main():
     parser = argparse.ArgumentParser(description="ポートフォリオRL学習")
     parser.add_argument("--phase", choices=["p0", "train", "wf", "pbt", "regime"],
                         default="p0")
-    parser.add_argument("--source", choices=["synthetic", "csv", "postgres"],
+    parser.add_argument("--source", choices=["synthetic", "csv", "postgres", "hyperliquid"],
                         default="synthetic")
     parser.add_argument("--data", type=str, default="./data")
     parser.add_argument("--symbols", type=str, nargs="+", default=None)
@@ -665,6 +683,16 @@ def main():
     parser.add_argument("--oracle-noisy-ic", type=float, default=None,
                         help="--bc-teacher oracle で使う劣化オラクルの目標IC。"
                              "省略時は完全予知（学習不能なパターンを丸暗記するリスクあり）")
+    parser.add_argument("--pg-dsn", type=str, default=None,
+                        help="--source postgres 用の接続文字列。省略時は環境変数 "
+                             "PLATFORM_DB_URL、それも無ければ docker-compose.yml の既定値")
+    parser.add_argument("--pg-source", type=str, default="binance",
+                        help="--source postgres で rl_klines/rl_funding_rate を絞り込む"
+                             "source列の値（例: binance, hyperliquid）")
+    parser.add_argument("--pg-derivatives-source", type=str, default=None,
+                        help="--source postgres でrl_derivatives/rl_orderflow_1mを絞り込む"
+                             "source列の値。省略時は--pg-sourceと同じ"
+                             "（例: klines/fundingはhyperliquid、OI等はbinance代理）")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

@@ -9,6 +9,7 @@ load_orderflow / load_derivatives / load_funding はデータが無い銘柄・
 ソースでは空DataFrameを返してよい（feature_pipelineがゼロ埋めする）。
 """
 
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -235,6 +236,21 @@ _HL_INTERVAL_MAP = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
 _HL_SUFFIXES = ("USDT", "USDC", "PERP")
 
 
+def _hl_post(payload: dict, max_retries: int = 6) -> list:
+    """Hyperliquid info API（429時は指数バックオフでリトライ）"""
+    import time
+
+    for attempt in range(max_retries):
+        resp = requests.post(_HL_INFO_URL, json=payload, timeout=20)
+        if resp.status_code == 429:
+            time.sleep(min(2 ** attempt, 30))
+            continue
+        resp.raise_for_status()
+        return resp.json()
+    resp.raise_for_status()
+    return []
+
+
 class HyperliquidSource(DataSource):
     """
     Hyperliquid実データソース（公開info API・認証不要）
@@ -280,13 +296,11 @@ class HyperliquidSource(DataSource):
         rows = []
         cursor = start_ms
         for _ in range(200):
-            resp = requests.post(_HL_INFO_URL, json={
+            data = _hl_post({
                 "type": "candleSnapshot",
                 "req": {"coin": coin, "interval": interval,
                         "startTime": cursor, "endTime": end_ms},
-            }, timeout=20)
-            resp.raise_for_status()
-            data = resp.json()
+            })
             if not data:
                 break
             rows.extend(data)
@@ -349,12 +363,10 @@ class HyperliquidSource(DataSource):
             rows = []
             cursor = start_ms
             for _ in range(200):
-                resp = requests.post(_HL_INFO_URL, json={
+                data = _hl_post({
                     "type": "fundingHistory",
                     "coin": coin, "startTime": cursor, "endTime": end_ms,
-                }, timeout=20)
-                resp.raise_for_status()
-                data = resp.json()
+                })
                 if not data:
                     break
                 rows.extend(data)
@@ -432,6 +444,116 @@ class HyperliquidSource(DataSource):
         return df.reset_index(drop=True)
 
 
+_DEFAULT_PG_DSN = "postgresql://trade_rl:trade_rl@localhost:5433/trade_rl"
+
+
+class PostgresSource(DataSource):
+    """
+    PostgreSQL（rl_ プレフィックステーブル）ソース
+
+    scripts/fetch_futures.py --to postgres 等（mars_lite.data.postgres_store）
+    が書き込む rl_klines / rl_funding_rate / rl_orderflow_1m / rl_derivatives
+    を読む。各テーブルは (source, symbol, ...) で取得元を区別する
+    （例: source="binance"）。rl_klines は1分足のみ保存されるため、
+    1h/4h/1d等への変換は resample_ohlcv で行う。
+
+    接続文字列は dsn 引数、無ければ環境変数 PLATFORM_DB_URL、
+    どちらも無ければ docker-compose.yml のローカル既定値を使う。
+    """
+
+    def __init__(
+        self,
+        symbols: List[str],
+        dsn: Optional[str] = None,
+        source: str = "binance",
+        derivatives_source: Optional[str] = None,
+        orderflow_source: Optional[str] = None,
+    ):
+        super().__init__(symbols)
+        self.dsn = dsn or os.environ.get("PLATFORM_DB_URL", _DEFAULT_PG_DSN)
+        self.source = source
+        # klines/fundingはネイティブ取得元（例: hyperliquid）、
+        # OI/L-S/清算/オーダーフローはBinance代理で埋めるケースが多いため
+        # 別のsourceラベルを指定できるようにする（省略時はsourceと同じ）
+        self.derivatives_source = derivatives_source or source
+        self.orderflow_source = orderflow_source or source
+
+    def _query(self, sql: str, params: list) -> pd.DataFrame:
+        import psycopg
+
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d.name for d in cur.description]
+            rows = cur.fetchall()
+        df = pd.DataFrame(rows, columns=cols)
+        if not df.empty and "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
+        return df
+
+    def _time_clauses(self, start, end):
+        clauses, params = [], []
+        if start is not None:
+            clauses.append("timestamp >= %s")
+            params.append(pd.Timestamp(start))
+        if end is not None:
+            clauses.append("timestamp <= %s")
+            params.append(pd.Timestamp(end))
+        return clauses, params
+
+    def load_klines(self, symbol, timeframe="1h", start=None, end=None):
+        """
+        rl_klinesはtimeframe列を持つため、まず要求TFそのものを探す
+        （Hyperliquidネイティブ取得は15m/1h/4h/1dを直接保存）。
+        無ければ1m足から resample_ohlcv でリサンプルする
+        （Binance取得は1mのみ保存）。
+        """
+        clauses, params = self._time_clauses(start, end)
+        where = " AND ".join(["source = %s", "symbol = %s", "timeframe = %s"] + clauses)
+        sql = (f"SELECT timestamp, open, high, low, close, volume FROM rl_klines "
+               f"WHERE {where} ORDER BY timestamp")
+        df = self._query(sql, [self.source, symbol, timeframe] + params)
+        if not df.empty:
+            return df.reset_index(drop=True)
+
+        if timeframe == "1m":
+            return df
+        df = self._query(sql, [self.source, symbol, "1m"] + params)
+        if df.empty:
+            return df
+        return resample_ohlcv(df, timeframe).reset_index(drop=True)
+
+    def load_orderflow(self, symbol, start=None, end=None):
+        clauses, params = self._time_clauses(start, end)
+        where = " AND ".join(["source = %s", "symbol = %s"] + clauses)
+        sql = (f"SELECT timestamp, buy_volume, sell_volume, trade_count, "
+               f"avg_trade_size, volume_imbalance FROM rl_orderflow_1m "
+               f"WHERE {where} ORDER BY timestamp")
+        df = self._query(sql, [self.orderflow_source, symbol] + params)
+        if df.empty:
+            return super().load_orderflow(symbol, start, end)
+        return df.reset_index(drop=True)
+
+    def load_derivatives(self, symbol, start=None, end=None):
+        clauses, params = self._time_clauses(start, end)
+        where = " AND ".join(["source = %s", "symbol = %s"] + clauses)
+        sql = (f"SELECT timestamp, open_interest, ls_ratio, liq_notional "
+               f"FROM rl_derivatives WHERE {where} ORDER BY timestamp")
+        df = self._query(sql, [self.derivatives_source, symbol] + params)
+        if df.empty:
+            return super().load_derivatives(symbol, start, end)
+        return df.reset_index(drop=True)
+
+    def load_funding(self, symbol, start=None, end=None):
+        clauses, params = self._time_clauses(start, end)
+        where = " AND ".join(["source = %s", "symbol = %s"] + clauses)
+        sql = (f"SELECT timestamp, funding_rate FROM rl_funding_rate "
+               f"WHERE {where} ORDER BY timestamp")
+        df = self._query(sql, [self.source, symbol] + params)
+        if df.empty:
+            return super().load_funding(symbol, start, end)
+        return df.reset_index(drop=True)
+
+
 def create_source(name: str, symbols: List[str], **kwargs) -> DataSource:
     """名前からDataSourceを構築するファクトリ"""
     if name == "synthetic":
@@ -442,5 +564,5 @@ def create_source(name: str, symbols: List[str], **kwargs) -> DataSource:
     if name == "hyperliquid":
         return HyperliquidSource(symbols, **kwargs)
     if name == "postgres":
-        raise NotImplementedError("postgres source not implemented in this checkout")
+        return PostgresSource(symbols, **kwargs)
     raise ValueError(f"unknown source: {name}")

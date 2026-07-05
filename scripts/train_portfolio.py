@@ -207,6 +207,14 @@ def report_comparison(agent_res: dict, baselines: dict, label: str) -> None:
         print(f"{d['name']:<18} {d['total_return']:>+8.2%} "
               f"{d['sharpe']:>8.2f} {d['max_drawdown']:>7.2%} "
               f"{d['turnover_total']:>9.1f}")
+    # 捕捉率 = RL収益 / オラクル則（手数料込みDP上限）収益
+    oracle = baselines.get("oracle_dp")
+    if oracle is not None:
+        o = oracle.to_dict() if hasattr(oracle, "to_dict") else oracle
+        denom = o["total_return"]
+        if abs(denom) > 1e-9:
+            print(f"  capture rate (RL / oracle_dp) = "
+                  f"{agent_res['total_return'] / denom:>+.1%}")
 
 
 def build_post_processor(args):

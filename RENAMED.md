@@ -80,14 +80,37 @@ python scripts/train_portfolio.py --phase wf --source csv --data ./data --timest
 
 | フラグ | 既定 | 説明 |
 |---|---|---|
-| `--phase` | p0 | `p0`健全性 / `train`学習 / `wf`ウォークフォワード |
+| `--phase` | p0 | `p0`健全性 / `train`学習 / `wf`ウォークフォワード / `pbt`HP探索 / `regime`レジーム特化 |
 | `--source` | synthetic | `synthetic` / `csv`（fetch出力） / `postgres`（Platform DB） |
 | `--ensemble` | 1 | シードアンサンブル数。**弱シグナルでは3推奨**（不確実性縮小が効く） |
 | `--gamma` | 0.5 | 割引率。行動効果が即時のため低い値が正解（0.995は崩壊する） |
 | `--postproc` | full | 後処理（平滑/集中上限/ボラ目標/DDデリスク）。`legacy`で無効化 |
 | `--target-vol` | 0.5 | 年率ボラ目標。0以下で無効 |
 | `--feature-mask` | off | IC安定性による特徴選別（実データのジャンク特徴対策・オプトイン） |
+| `--htf-gate` | off | 階層MTF: 上位足(4h)トレンドで方向を制約し1hはサイジング担当 |
 | `--timesteps` | 300000 | 学習ステップ。実データ本番は200万〜 |
+| `--pbt-pop` / `--pbt-gen` / `--pbt-steps` | 6 / 4 / 40000 | PBT探索の個体数・世代数・個体あたりステップ（`--phase pbt`） |
+| `--regime-bars` | 120 | レジーム専門家のエピソード長（`--phase regime`、5日=120本） |
+
+### 収益最適化フェーズ（項目2〜5）
+
+```bash
+# 執行コストは既定でsqrt-impact + TWAP分割モデル（項目2、常時ON）
+
+# 項目4: PBTでハイパーパラメータ（gamma/ent_coef/λ_turnover/reward_scale/lr）を自動探索
+python scripts/train_portfolio.py --phase pbt --source csv --data ./data --pbt-pop 6 --pbt-gen 4 --pbt-steps 40000
+
+# 項目3: bull/bear/range 専門家を学習し推論時に現レジームへルーティング
+python scripts/train_portfolio.py --phase regime --source csv --data ./data --timesteps 500000
+
+# 項目5: 階層MTF（4hトレンドが方向を決め、1hがサイジング）
+python scripts/train_portfolio.py --phase train --source csv --data ./data --timesteps 2000000 --htf-gate
+```
+
+- **項目2（執行モデル）**: 大口リバランスを平方根則で不利に評価し、TWAP分割の恩恵をモデル化。`mars_lite/trading/execution.py`。学習コストが実運用の執行コスト構造を反映（train/serve一致）。
+- **項目3（レジーム特化）**: `btc_trend`グローバル特徴で相場を bull/bear/range に分類。各レジームで専門家を短窓学習し、`RegimeEnsemble`が観測から現レジームを読んでルーティング（`agent.predict`互換）。
+- **項目4（PBT）**: 軽量Population-Based Trainingで手動チューニング済みでないHP空間を進化探索。`pbt_result.json`に最良HPを出力。
+- **項目5（階層MTF）**: 上位足トレンドと逆行する方向を遮断し、整合する方向のサイジングは1h方策に委ねる。方向の一貫性を上げつつ短期の機動力を保つ。
 
 学習は既定で **TFゲート抽出器 + Ridge教師BCウォームスタート + 検証ベースモデル選択** を使う
 （すべてベンチマークで根拠づけられた既定値。詳細はARCHITECTURE.md §2.1）。

@@ -221,6 +221,14 @@ def build_post_processor(args):
     return make_default_processor(target_vol=tv)
 
 
+def build_env_kwargs(args, pp) -> dict:
+    """学習/評価で共有する環境kwargs（後処理器 + 任意のHTFゲート）"""
+    ekw = {"post_processor": pp}
+    if getattr(args, "htf_gate", False):
+        ekw["htf_gate"] = True
+    return ekw
+
+
 def build_feature_set(args) -> FeatureSet:
     if args.source == "synthetic":
         source = SyntheticSource(
@@ -259,7 +267,7 @@ def phase_p0(args, output_dir: Path) -> None:
         print(f"\nTraining PPO: {args.timesteps:,} steps "
               f"(train {train_fs.n_bars} bars, test {test_fs.n_bars} bars)...")
         pp = build_post_processor(args)
-        ekw = {"post_processor": pp}
+        ekw = build_env_kwargs(args, pp)
         # BCウォームスタートはICゲート合格時のみ（信号なきデータで教師を
         # 模倣するとノイズを刷り込み、陰性対照の安全性を壊すため）
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
@@ -363,7 +371,7 @@ def phase_train(args, output_dir: Path) -> None:
         test_fs = test_fs.apply_mask(feature_mask)
 
     pp = build_post_processor(args)
-    ekw = {"post_processor": pp}
+    ekw = build_env_kwargs(args, pp)
 
     if args.ensemble > 1:
         from mars_lite.learning.policy_ensemble import train_ensemble
@@ -409,7 +417,7 @@ def phase_pbt(args, output_dir: Path) -> None:
     train_fs = fs.slice(0, split)
     val_fs = fs.slice(split + 24, fs.n_bars)
     pp = build_post_processor(args)
-    ekw = {"post_processor": pp}
+    ekw = build_env_kwargs(args, pp)
     print(f"PBT search: pop={args.pbt_pop} gen={args.pbt_gen} "
           f"steps/individual={args.pbt_steps}")
 
@@ -447,7 +455,7 @@ def phase_regime(args, output_dir: Path) -> None:
     test_fs = fs.slice(split + 24, fs.n_bars)
 
     pp = build_post_processor(args)
-    ekw = {"post_processor": pp}
+    ekw = build_env_kwargs(args, pp)
 
     # 専門家は短いエピソード（レジームが一貫する長さ）で学習する。
     # 30日窓では強気/弱気/レンジが混在し「純粋な」エピソードが作れないため、
@@ -517,7 +525,7 @@ def phase_wf(args, output_dir: Path) -> None:
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
 
     pp = build_post_processor(args)
-    ekw = {"post_processor": pp}
+    ekw = build_env_kwargs(args, pp)
 
     def train_fn(train_fs: FeatureSet, seed: int):
         return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed,
@@ -576,6 +584,8 @@ def main():
                         help="PBT各個体の学習ステップ数（--phase pbt）")
     parser.add_argument("--regime-bars", type=int, default=120,
                         help="レジーム専門家のエピソード長（--phase regime、5日=120本）")
+    parser.add_argument("--htf-gate", action="store_true",
+                        help="階層MTF: 上位足(4h)トレンドで方向を制約し1hはサイジング")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

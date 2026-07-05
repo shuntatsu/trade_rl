@@ -396,7 +396,7 @@ def main():
     parser.add_argument("--symbols", type=str, nargs="+", default=None)
     parser.add_argument("--days", type=int, default=240, help="syntheticの生成日数")
     parser.add_argument("--alpha", default="cross",
-                        choices=["none", "cross", "meanrev", "multi"])
+                        choices=["none", "cross", "meanrev", "multi", "bull"])
     parser.add_argument("--alpha-strength", type=float, default=0.002)
     parser.add_argument("--timesteps", type=int, default=300_000)
     parser.add_argument("--gamma", type=float, default=0.5,

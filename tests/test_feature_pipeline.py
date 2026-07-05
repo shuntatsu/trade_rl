@@ -7,7 +7,7 @@ import pytest
 
 from mars_lite.data.sources import SyntheticSource, CsvSource
 from mars_lite.features.feature_pipeline import (
-    FeaturePipeline, TF_BLOCK_FEATURES, BASE_FEATURES,
+    FeaturePipeline, TF_BLOCK_FEATURES, BASE_FEATURES, CS_FEATURES,
 )
 from mars_lite.features.signal_check import run_signal_check
 
@@ -27,7 +27,7 @@ class TestFeaturePipeline:
     def test_shapes(self, feature_set, source):
         fs = feature_set
         n_tf = 4  # 15m, 1h, 4h, 1d
-        expected_features = n_tf * len(TF_BLOCK_FEATURES) + len(BASE_FEATURES)
+        expected_features = n_tf * len(TF_BLOCK_FEATURES) + len(BASE_FEATURES) + len(CS_FEATURES)
         assert fs.features.shape == (fs.n_bars, len(source.symbols), expected_features)
         assert fs.global_features.shape[0] == fs.n_bars
         assert fs.close.shape == (fs.n_bars, fs.n_symbols)

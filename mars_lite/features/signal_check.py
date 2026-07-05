@@ -41,19 +41,19 @@ class SignalReport:
 
     def to_dict(self) -> Dict:
         return {
-            "mean_oos_ic": self.mean_oos_ic,
-            "positive_fold_ratio": self.positive_fold_ratio,
-            "n_folds": self.n_folds,
-            "horizon": self.horizon,
-            "passed": self.passed,
-            "threshold": self.threshold,
-            "t_stat": self.t_stat,
-            "min_t_stat": self.min_t_stat,
-            "stability_passed": self.stability_passed,
-            "target": self.target,
-            "oos_ic_by_fold": self.oos_ic_by_fold,
+            "mean_oos_ic": float(self.mean_oos_ic),
+            "positive_fold_ratio": float(self.positive_fold_ratio),
+            "n_folds": int(self.n_folds),
+            "horizon": int(self.horizon),
+            "passed": bool(self.passed),
+            "threshold": float(self.threshold),
+            "t_stat": float(self.t_stat),
+            "min_t_stat": float(self.min_t_stat),
+            "stability_passed": bool(self.stability_passed),
+            "target": str(self.target),
+            "oos_ic_by_fold": [float(x) for x in self.oos_ic_by_fold],
             "top_features": dict(sorted(
-                self.per_feature_ic.items(), key=lambda x: -abs(x[1])
+                {k: float(v) for k, v in self.per_feature_ic.items()}.items(), key=lambda x: -abs(x[1])
             )[:10]),
         }
 

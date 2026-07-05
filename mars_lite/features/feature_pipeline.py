@@ -49,6 +49,15 @@ BASE_FEATURES = [
     "oi_z", "oi_change", "ls_ratio_z", "liq_z",
     "btc_rel_z", "ret_rank",
 ]
+# Phase C2: クロスセクション正規化特徴
+# ターゲットが cs_demean（銘柄間平均を引いた市場中立リターン）のとき、
+# 特徴量側も同じクロスセクション軸で正規化しないと「絶対モメンタム」と
+# 「相対アルファ」を混在させた状態で回帰することになり fit が散漫になる。
+# 最も直接的な効果が期待できる：リターン系・OI・L/S比率・Fundingに絞って追加。
+CS_FEATURES = [
+    "csz_ret1", "csz_ret5", "csz_ret20",
+    "csz_oi", "csz_ls", "csz_funding",
+]
 GLOBAL_FEATURES = ["hour_sin", "hour_cos", "dow_sin", "dow_cos", "btc_vol_regime",
                    "btc_trend"]
 
@@ -127,6 +136,39 @@ def _z(series: pd.Series, window: int = 100, min_periods: int = 20) -> pd.Series
     return z.clip(-CLIP, CLIP).fillna(0.0)
 
 
+def _cs_z(mat: pd.DataFrame, window: int = 100, min_periods: int = 5) -> pd.DataFrame:
+    """
+    クロスセクションz-score（バー×銘柄行列を入力）
+
+    各バーtにおいて、「そのバーの全銘柄値の中での各銘柄の相対位置」を測る。
+
+    look-ahead防止のため、正規化パラメータ（mu, sigma）は
+    「過去window本のバーのクロスセクション値（全銘柄×window本）の
+    プール統計」から推定する。これにより：
+    - 未来情報を使わない（各バーは過去分でのみ推定）
+    - バー1本だけの銘柄数が少ない問題を回避（窓内の全データをプール）
+    - 市場全体のレベルシフト（上昇相場など）を吸収して相対的な位置を返す
+    """
+    arr = mat.to_numpy(dtype=np.float64)
+    n_bars, n_sym = arr.shape
+    out = np.zeros_like(arr)
+    for t in range(n_bars):
+        lo = max(0, t - window + 1)
+        if t - lo + 1 < min_periods:
+            continue
+        # 過去window本のクロスセクション値を全部プール
+        pool = arr[lo: t + 1].ravel()  # shape: (window * n_sym,)
+        pool = pool[np.isfinite(pool)]
+        if len(pool) < min_periods:
+            continue
+        mu = np.mean(pool)
+        sigma = np.std(pool)
+        if sigma > 1e-12:
+            out[t] = np.clip((arr[t] - mu) / sigma, -CLIP, CLIP)
+    return pd.DataFrame(out, index=mat.index, columns=mat.columns)
+
+
+
 def _tf_block(df: pd.DataFrame) -> pd.DataFrame:
     """単一TFのOHLCVからTFブロック特徴を計算"""
     out = pd.DataFrame(index=df.index)
@@ -175,6 +217,7 @@ class FeaturePipeline:
         self.feature_names = (
             [f"{tf}_{f}" for tf in self.timeframes for f in TF_BLOCK_FEATURES]
             + BASE_FEATURES
+            + CS_FEATURES  # Phase C2: クロスセクション特徴を末尾に追加
         )
         self.global_feature_names = list(GLOBAL_FEATURES)
 
@@ -362,6 +405,53 @@ class FeaturePipeline:
         btc_col = next((s for s in self.symbols if s.upper().startswith("BTC")), self.symbols[0])
         btc_ret = ret_mat[btc_col]
 
+        # ---------- Phase C2: クロスセクション特徴量の事前計算 ----------
+        # ターゲットがcs_demean（市場中立リターン）のとき、特徴量側も
+        # 同じクロスセクション軸で正規化することで回帰の fit を改善する。
+        # ローリングウィンドウ内の全銘柄×全時刻の値を用いて正規化するため、
+        # look-ahead-free かつ単一銘柄の時系列ドリフトに依存しない。
+        ret1_mat = pd.DataFrame({s: np.log(bases[s]["close"] / bases[s]["close"].shift(1))
+                                 for s in self.symbols})
+        ret5_mat = pd.DataFrame({s: ret1_mat[s].rolling(5, min_periods=5).sum()
+                                 for s in self.symbols})
+        ret20_mat = pd.DataFrame({s: ret1_mat[s].rolling(20, min_periods=20).sum()
+                                  for s in self.symbols})
+        cs_ret1 = _cs_z(ret1_mat, self.z_window)
+        cs_ret5 = _cs_z(ret5_mat, self.z_window)
+        cs_ret20 = _cs_z(ret20_mat, self.z_window)
+        # OI・L/S ratio・Fundingのクロスセクション行列（取得可能な場合のみ）
+        # 取得できない銘柄は NaN のままにし、後でゼロ埋めする
+        cs_oi_dict, cs_ls_dict, cs_fund_dict = {}, {}, {}
+        for _s in self.symbols:
+            _d = source.load_derivatives(_s, start, end)
+            if not _d.empty:
+                _d = _d.set_index("timestamp").sort_index()
+                freq = f"{bar_minutes}min"
+                _oi = _d["open_interest"].resample(freq).last().reindex(common)
+                _ls = _d["ls_ratio"].resample(freq).last().reindex(common)
+                cs_oi_dict[_s] = np.log(_oi.clip(lower=1e-9))
+                cs_ls_dict[_s] = np.log(_ls.clip(lower=1e-9))
+            _fr = source.load_funding(_s, start, end)
+            if not _fr.empty:
+                _fr = _fr.set_index("timestamp")["funding_rate"]
+                _decision_times = common + pd.Timedelta(minutes=bar_minutes)
+                _fr_df = _fr.reset_index().rename(columns={"timestamp": "ft"})
+                _fr_df["ft"] = _ns(_fr_df["ft"])
+                _latest = pd.merge_asof(
+                    pd.DataFrame({"t": _ns(_decision_times)}),
+                    _fr_df, left_on="t", right_on="ft", direction="backward",
+                )["funding_rate"].to_numpy()
+                cs_fund_dict[_s] = pd.Series(_latest * 1e4, index=common)
+
+        cs_oi_mat = pd.DataFrame(cs_oi_dict, index=common) if cs_oi_dict else pd.DataFrame(index=common)
+        cs_ls_mat = pd.DataFrame(cs_ls_dict, index=common) if cs_ls_dict else pd.DataFrame(index=common)
+        cs_fund_mat = pd.DataFrame(cs_fund_dict, index=common) if cs_fund_dict else pd.DataFrame(index=common)
+
+        cs_oi_z = _cs_z(cs_oi_mat, self.z_window) if not cs_oi_mat.empty else pd.DataFrame(0.0, index=common, columns=self.symbols)
+        cs_ls_z = _cs_z(cs_ls_mat, self.z_window) if not cs_ls_mat.empty else pd.DataFrame(0.0, index=common, columns=self.symbols)
+        cs_fund_z = _cs_z(cs_fund_mat, self.z_window) if not cs_fund_mat.empty else pd.DataFrame(0.0, index=common, columns=self.symbols)
+        # ---------------------------------------------------------------
+
         n_bars, n_sym = len(common), len(self.symbols)
         features = np.zeros((n_bars, n_sym, len(self.feature_names)), dtype=np.float32)
         funding_arr = np.zeros((n_bars, n_sym), dtype=np.float32)
@@ -390,7 +480,16 @@ class FeaturePipeline:
             base_feats["btc_rel_z"] = rel
             base_feats["ret_rank"] = rank[sym]
 
-            full = pd.concat(blocks + [base_feats], axis=1)[self.feature_names]
+            # Phase C2: クロスセクション特徴を追加
+            cs_feats = pd.DataFrame(index=common)
+            cs_feats["csz_ret1"] = cs_ret1[sym] if sym in cs_ret1.columns else 0.0
+            cs_feats["csz_ret5"] = cs_ret5[sym] if sym in cs_ret5.columns else 0.0
+            cs_feats["csz_ret20"] = cs_ret20[sym] if sym in cs_ret20.columns else 0.0
+            cs_feats["csz_oi"] = cs_oi_z[sym].fillna(0.0) if sym in cs_oi_z.columns else 0.0
+            cs_feats["csz_ls"] = cs_ls_z[sym].fillna(0.0) if sym in cs_ls_z.columns else 0.0
+            cs_feats["csz_funding"] = cs_fund_z[sym].fillna(0.0) if sym in cs_fund_z.columns else 0.0
+
+            full = pd.concat(blocks + [base_feats, cs_feats], axis=1)[self.feature_names]
             features[:, i, :] = np.nan_to_num(
                 full.to_numpy(dtype=np.float32), posinf=CLIP, neginf=-CLIP
             )

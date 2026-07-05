@@ -31,7 +31,10 @@ from mars_lite.eval.walk_forward import (
 )
 
 DEFAULT_SYMBOLS = [
-    "BTCUSDT", "XRPUSDT", "SUIUSDT", "BNBUSDT", "ETHUSDT", "PAXGUSDT", "ETHBTC",
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+    "SUIUSDT", "DOGEUSDT",
+    "ADAUSDT", "AVAXUSDT", "LINKUSDT",
+    "LTCUSDT", "BCHUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
 ]
 
 
@@ -294,7 +297,7 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
     return ekw
 
 
-def build_feature_set(args) -> FeatureSet:
+def build_feature_set(args, output_dir: Optional[Path] = None) -> FeatureSet:
     if args.source == "synthetic":
         source = SyntheticSource(
             n_days=args.days, alpha=args.alpha,
@@ -314,6 +317,15 @@ def build_feature_set(args) -> FeatureSet:
         else:
             kwargs = {}
         source = create_source(args.source, symbols, **kwargs)
+        from mars_lite.data.quality import run_quality_gate
+        qrep = run_quality_gate(source, symbols, base_timeframe="1h")
+        print(qrep.summary())
+        if output_dir is not None:
+            with open(output_dir / "data_quality_report.json", "w", encoding="utf-8") as f:
+                json.dump(qrep.to_dict(), f, indent=2, ensure_ascii=False)
+        symbols = qrep.passing_symbols
+        if len(symbols) < 2:
+            raise ValueError("品質ゲート通過銘柄が2未満です。データを確認してください。")
     return FeaturePipeline(symbols).build(source)
 
 
@@ -394,34 +406,14 @@ def phase_p0(args, output_dir: Path) -> None:
 
 def phase_train(args, output_dir: Path) -> None:
     """P2: 指定ソースで学習・評価（品質ゲート → リーク自己検査 → ICゲート → 学習）"""
-    from mars_lite.data.quality import run_quality_gate
     from mars_lite.features.signal_check import run_leak_self_test
 
-    # --- 品質ゲート（実データソースのみ。不合格銘柄は除外） ---
-    symbols = args.symbols or DEFAULT_SYMBOLS
-    if args.source != "synthetic":
-        if args.source == "csv":
-            kwargs = {"data_dir": args.data}
-        elif args.source == "hyperliquid":
-            kwargs = {"days": args.days}
-        elif args.source == "postgres":
-            kwargs = {"dsn": args.pg_dsn, "source": args.pg_source,
-                     "derivatives_source": args.pg_derivatives_source,
-                     "orderflow_source": args.pg_derivatives_source}
-        else:
-            kwargs = {}
-        source = create_source(args.source, symbols, **kwargs)
-        qrep = run_quality_gate(source, symbols, base_timeframe="1h")
-        print(qrep.summary())
-        symbols = qrep.passing_symbols
-        with open(output_dir / "data_quality_report.json", "w", encoding="utf-8") as f:
-            json.dump(qrep.to_dict(), f, indent=2, ensure_ascii=False)
-        if len(symbols) < 2:
-            print("\n[STOP] 品質ゲート通過銘柄が2未満。データを確認してください。")
-            return
-        fs = FeaturePipeline(symbols).build(source)
-    else:
-        fs = build_feature_set(args)
+    # --- 品質ゲートおよび特徴量生成（実データソースのみ自動剪定） ---
+    try:
+        fs = build_feature_set(args, output_dir=output_dir)
+    except ValueError as e:
+        print(f"\n[STOP] {e}")
+        return
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols x {fs.n_features} features")
 
     # --- リーク検出器の自己検査（評価コードの健全性確認） ---
@@ -495,6 +487,32 @@ def phase_train(args, output_dir: Path) -> None:
     report_comparison(agent_res, baselines, "OOS comparison")
     plot_comparison(agent_res, baselines, output_dir / "train_equity.png")
 
+    # Phase E: ゲート2判定（RLが全ベースラインを上回ったか）を自動記録
+    # 特にtrend_following（固定ルール）との比較が最重要な基準
+    rl_ret = float(agent_res["total_return"])
+    gate2_details = {}
+    gate2_passed = True
+    for bname, bres in baselines.items():
+        bd = bres.to_dict() if hasattr(bres, "to_dict") else bres
+        beat = bool(rl_ret > float(bd.get("total_return", 0.0)))
+        gate2_details[bname] = {
+            "rl_return": rl_ret,
+            "baseline_return": float(bd.get("total_return", 0.0)),
+            "rl_beat": beat,
+        }
+        if not beat:
+            gate2_passed = False
+    # trend_following は特に重要なので別途記録
+    tf_baseline = gate2_details.get("trend_following", {})
+    gate2 = {
+        "passed": bool(gate2_passed),
+        "rl_beat_trend_following": bool(tf_baseline.get("rl_beat", False)) if "rl_beat" in tf_baseline else None,
+        "details": gate2_details,
+    }
+    print(f"\n[Gate 2] {'PASS' if gate2_passed else 'FAIL'} "
+          f"RL vs all baselines. trend_following: "
+          f"{'BEAT' if tf_baseline.get('rl_beat') else 'LOST'}")
+
     if args.ensemble <= 1:
         agent.save(str(output_dir / "portfolio_model"))
     with open(output_dir / "train_report.json", "w", encoding="utf-8") as f:
@@ -505,6 +523,7 @@ def phase_train(args, output_dir: Path) -> None:
                              if feature_mask is not None else None),
             "agent": {k: v for k, v in agent_res.items() if k != "equity_curve"},
             "baselines": {k: v.to_dict() for k, v in baselines.items()},
+            "gate2": gate2,  # Phase E: ゲート2判定結果
         }, f, indent=2, ensure_ascii=False)
     print(f"Model & report -> {output_dir}")
 
@@ -622,19 +641,34 @@ def phase_regime(args, output_dir: Path) -> None:
 
 
 def phase_wf(args, output_dir: Path) -> None:
-    """P3: ウォークフォワード検証（複数シード、コスト感度）"""
-    fs = build_feature_set(args)
+    """P3: ウォークフォワード検証（3fold×3seed×コスト感度、Phase E標準）”"""
+    try:
+        fs = build_feature_set(args, output_dir=output_dir)
+    except ValueError as e:
+        print(f"\n[STOP] {e}")
+        return
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
 
     pp = build_post_processor(args, horizon=args.horizon)
     ekw = build_env_kwargs(args, pp, horizon=args.horizon)
 
-    def train_fn(train_fs: FeatureSet, seed: int):
-        return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed,
-                         gamma=args.gamma, **ekw)
+    # Phase E: --ensemble 3 を推奨デフォルトに。wfでは内側でアンサンブル学習をサポートする。
+    n_ensemble = max(args.ensemble, 1)
+    if n_ensemble > 1:
+        from mars_lite.learning.policy_ensemble import train_ensemble
+        def train_fn(train_fs: FeatureSet, seed: int):
+            def _inner(train_fs_: FeatureSet, _seed: int):
+                return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=_seed,
+                                 gamma=args.gamma, bc_warmstart=True, **ekw)
+            return train_ensemble(_inner, train_fs,
+                                  seeds=list(range(seed, seed + n_ensemble)), verbose=0)
+    else:
+        def train_fn(train_fs: FeatureSet, seed: int):
+            return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed,
+                             gamma=args.gamma, bc_warmstart=True, **ekw)
 
     for cost_mult in [1.0, 2.0]:
-        print(f"\n--- Walk-forward (cost x{cost_mult}) ---")
+        print(f"\n--- Walk-forward (cost x{cost_mult}, ensemble={n_ensemble}) ---")
         report = run_walk_forward(
             fs, train_fn,
             n_folds=args.folds,
@@ -674,7 +708,8 @@ def main():
     parser.add_argument("--target-vol", type=float, default=0.5,
                         help="年率ボラ目標。0以下で無効")
     parser.add_argument("--ensemble", type=int, default=1,
-                        help="シードアンサンブルの個体数（1で単一モデル）")
+                        help="シードアンサンブルの個体数（1で単一モデル）。"
+                             "実データでは3推奨（シード運のばらつき低減+不一致度スケーリング））")
     parser.add_argument("--feature-mask", action="store_true",
                         help="IC安定性による特徴マスクを有効化（実験では中立〜微減。"
                              "実データでジャンク特徴が多い場合のオプション）")

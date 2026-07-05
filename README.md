@@ -1,347 +1,321 @@
-# MarS Lite
+# Trade RL（MarS Lite）
 
-OHLCVデータから仮想マーケットインパクトをシミュレートし、強化学習エージェントに**注文分割（Iceberg相当）**・**時間リスクとのトレードオフ（Almgren-Chriss）**を学習させる環境。
+7銘柄のポートフォリオ配分を1時間ごとに決定するRLエージェント。
+多時間軸（15m/1h/4h/1d）特徴・オーダーフロー・funding rateを観測に使い、
+コスト控除後リターンを最大化する。
 
-## 特徴
+**設計の正典**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（既定値・ゲート体系・ベンチマーク根拠）
 
-- **板情報不要**: OHLCVのみからマーケットインパクトを推定
-- **Almgren-Chriss報酬**: 執行コスト最小化 + 在庫リスクペナルティ
-- **Look-ahead bias防止**: Next Open基準価格、時刻別期待出来高使用
-- **PBT-MAP-Elites**: 多様なスペシャリスト群の同時学習
-- **環境適応推論**: 市場レジームに応じた個体選択
-- **Multi-Timeframe**: 1m, 15m, 1h, 4h, 1dのデータを統合して学習
-- **Cross-Symbol Learning**: 複数通貨によるランダム交差学習で汎化性能を向上
-- **Smart Data Fetching**: 通貨ごとの上場日を自動検出し、無駄なAPIリクエストを削減
-- **Market Cap Selection**: 時価総額（Market Cap）順での上位通貨選択に対応（ステーブルコイン除外機能付き）
+レガシー機能として、OHLCVのみからマーケットインパクトを推定する**執行エージェント（v1）**も同梱。
 
-## Architecture
+---
 
-```mermaid
-graph TD
-    subgraph Data Pipeline
-        Binance[Binance API] -->|Fetch| RawData[Raw OHLCV]
-        RawData -->|Split| DailyFiles[Daily Files (YYYY-MM-DD.csv)]
-        DailyFiles -->|Load| MultiTF[MultiTimeframeLoader]
-        MultiTF -->|Align| AlignedData[Aligned Multi-TF Data]
-        AlignedData -->|Split| SplitData[Train/Val/Test Split]
-    end
+## RLの強さは引き出せているか？ → 合成データ上では証拠あり
 
-    subgraph Environment
-        SplitData -->|Feed| SimEnv[MarsLiteEnv]
-        SimEnv -->|Wrap| TFEnv[MarsLiteMultiTFEnv]
-        TFEnv -->|Wrap| CrossEnv[CrossSymbolEnv]
-        
-        subgraph Market Simulation
-            TFEnv -->|Obs| Agent
-            Agent -->|Action| TFEnv
-            TFEnv -->|Step| Match[Matching Engine]
-            Match -->|Exec Price| Reward[Reward Function]
-            Reward -->|Scalar| Agent
-        end
-    end
+判定基準は「**チューニング済みルールに勝てるか（ゲート2）**」。
 
-    subgraph Learning System
-        CrossEnv -->|Samples| PPO[PPO Agent]
-        PPO -->|Update| Policy[Policy Network]
-        
-        Sampler[RandomEpisodeSampler] -->|Reset Idx| CrossEnv
-    end
-```
+| 市場 | RLフルスタック | 最良ルール（クロスモメンタム則） | 判定 |
+|---|---|---|---|
+| 強モメンタム（cross） | +2129% | +1436% | RL勝ち |
+| 平均回帰（meanrev） | +175% | −48% | RL圧勝 |
+| 弱シグナル（IC 0.11） | +81.5% | +56% | RL勝ち |
 
-## インストール
+**限界**: 上記は合成データ。実データ（IC 0.02〜0.05想定）での証明はP1以降。
+Hyperliquid生特徴のみでは OOSランクIC ≈ 0.006 で**ICゲート不合格**（正しい撤退動作）。
 
-Python **3.12推奨**（3.13/3.14はtorchのwheel提供状況を確認してください）。
-
-```bash
-# リポジトリルートで実行
-python -m venv .venv
-# Windows: .venv\Scripts\activate  /  Linux・Mac: source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
-```
-
-## クイックスタート（Windows・全機能）
-
-```bat
-py -3.12 -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-pip install -e .
-
-REM 1. データ取得（Binanceに繋がらない場合は下の「サンプルデータ生成」へ）
-python scripts\fetch_binance.py --symbol BTCUSDT --output .\data
-
-REM 2. CLI学習・評価・バックテスト
-python scripts\train.py --data .\data --symbol BTCUSDT --multi-tf --timesteps 100000 --output .\output
-python scripts\evaluate.py --model .\output\final_model.zip --episodes 10
-python scripts\backtest.py --model .\output\final_model.zip --data .\data --symbol BTCUSDT
-
-REM 3. ダッシュボード（ターミナル1: APIサーバー、必ずリポジトリルートから起動）
-python scripts\run_server.py
-
-REM ターミナル2: フロントエンド（Node 20以上）
-cd frontend
-npm install
-npm run dev
-REM → http://localhost:5173 を開く
-```
-
-注意点:
-- `run_server.py` はリポジトリルートから起動してください（`data/`・`output/` はルート基準）
-- Windowsでは学習設定の `num_envs` は `1` を推奨（SubprocVecEnvのspawnで大きなデータのpickleが遅い/失敗するため）
-- pandas 2.2以降では頻度文字列は `"1min"` 形式です（`"1m"` は月と解釈されます）。時間軸ラベルの変換は `mars_lite/data/data_utils.py` の `TF_TO_PANDAS_FREQ` に一元化されています
-
-### サンプルデータ生成（オフライン環境用）
-
-Binance APIに接続できない環境では、合成データで全パイプラインを検証できます:
-
-```bash
-python scripts/generate_sample_data.py --symbols BTCUSDT ETHUSDT --days 14 --output ./data
-```
-
-## ポートフォリオ配分RL（v3・推奨ワークフロー）
-
-> **設計の正典は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
-> 全既定値（γ=0.5、TFゲート抽出器、Ridge教師BC、後処理、ゲート体系）の
-> 根拠となる測定値・ベンチマーク台帳・ロードマップを記載。
-> 仕様変更時は同ベンチマークで上回る証拠を示すこと。
-
-7銘柄（btc/xrp/sui/bnb/eth/paxg/ethbtc）の目標ウェイトを1時間ごとに決定する
-ポートフォリオRLエージェント。多時間軸（15m/1h/4h/1d）特徴・オーダーフロー・
-funding rateを観測に使い、コスト控除後リターンを最大化する。
-
-**合否ゲート方式**: 各フェーズに定量的な通過条件を設け、「儲かるか」を証拠付きで判定する。
-
-### シグナルの生涯を通した品質管理（前処理・後処理・実行中）
-
-学習アルゴリズムだけでなく、データ→特徴→方策→注文→運用の全層で品質を担保する。
-
-**前処理**
-- `mars_lite/data/quality.py`: 品質ゲート（欠損率・スパイク・timestamp重複/逆行・funding被覆）。不合格銘柄は学習から自動除外
-- `signal_check.run_leak_self_test`: リーク検出器の自己検査（シャッフルでIC消失／未来シフトでIC増大を確認）
-
-**学習**
-- BCウォームスタート（`learning/bc_warmstart.py`）: クロスモメンタム教師の模倣で方策を初期化してからPPO微調整（デフォルトON）
-- シードアンサンブル（`learning/policy_ensemble.py`, `--ensemble N`）: 多シード平均で分散低減＋不一致度でグロス縮小
-- 検証ベースモデル選択（過学習対策）
-
-**後処理**（`mars_lite/trading/post_processor.py`・学習と運用で同一適用）
-- EMA平滑 → 集中上限 → レバレッジ1射影 → ボラターゲティング → DDデリスク → no-tradeバンド
-- 学習環境の`step`内でも適用し、報酬が執行後の挙動を反映（train/serve skew防止）
-- **効果**: P0で生方策比リターン倍増・Sharpe1.6倍・回転70%減・DD半減
-
-**実行中**（`mars_lite/trading/guardrails.py`）
-- データ鮮度・NaN・全ゼロ特徴 → フラット化
-- 日次損失・DD上限 → フラット化、連続負け・回転異常 → グロス半減
-- `/api/signal/latest` が生/後処理済みウェイト・鮮度・ガードレール状態を返す
-
-### 累積効果（P0陽性データ・240日・各10万ステップOOS）
-
-各層を積み上げたアブレーション。捕捉率＝RL収益÷オラクル則収益(+1436%)。
+### 累積効果（P0陽性・240日・各10万ステップOOS）
 
 | 構成 | リターン | Sharpe | maxDD | 回転率 | 捕捉率 |
 |---|---|---|---|---|---|
-| baseline（後処理なし・BCなし） | +207% | 18.0 | 8.6% | 889 | 14% |
+| baseline | +207% | 18.0 | 8.6% | 889 | 14% |
 | ＋後処理 | +506% | 32.4 | 5.8% | 259 | 35% |
 | ＋BCウォームスタート | +1131% | 48.9 | 2.4% | 90 | 79% |
 | ＋3シードアンサンブル | **+1496%** | **53.6** | **2.0%** | 62 | **104%** |
 
-フルスタックはオラクル（離散クロスモメンタム則）を、より低いDD・低回転で上回る
-（RLがコスト・リスクを織り込んだ滑らかな版を学習したため）。捕捉率14%→104%。
+---
 
-### 汎用性検証（多時間軸・アルファ型・未知市場）
+## セットアップ
 
-| 検証 | 結果 |
+Python **3.12推奨**（3.13/3.14はtorch wheel要確認）。
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate  /  Linux・Mac: source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+pip install "psycopg[binary]"   # Postgres投入時のみ
+```
+
+---
+
+## クイックスタート（データ不要）
+
+まず健全性試験(P0)で学習システムが正しく機能するか確認する:
+
+```bash
+python scripts/train_portfolio.py --phase p0 --timesteps 300000
+```
+
+- **合格条件**: ①アルファ有データでB&H・フラット両方に勝つ ②ノイズデータでほぼ取引しない
+- 出力: `output/portfolio/p0_report.json`、エクイティカーブ図
+- 所要: CPUで約20〜30分
+
+---
+
+## データ取得
+
+### 専用PostgreSQL（Docker・推奨）
+
+既存のTrade Platform DB（5432）と干渉しないよう、**ポート5433**の専用コンテナを使う。
+
+```bash
+docker compose up -d
+```
+
+| 項目 | 値 |
 |---|---|
-| **弱シグナル**（強度1/4, IC 0.11） | 単体+26.6% / Sharpe 4.7 → **3シード＋不確実性スケーリングで+81.5% / Sharpe 13.9**（不一致時にグロス縮小が弱シグナルで奏功） |
-| **多時間軸寄与**（単一スケールアルファ） | 1hのみ +1431% > 全TF +1131%。無関係なTFはノイズ次元 → 下記「TFゲート構造」で解決 |
-| **未知市場**（別シードの価格系列で評価） | 捕捉率92.5%・Sharpe 47.5。方策は価格パスでなく仕組みを学習 |
-| **アルファ型汎化**（平均回帰市場） | RL +97〜175%で全構成黒字。**モメンタム則は-48%と崩壊** — RLがルールに対して持つ本質的優位の実証 |
-| **教師ミスマッチ安全性** | 信号なしデータでBCは有害（-4〜-18%）→ **BCはICゲート合格時のみ有効化**。教師のデフォルトはRidge（データ駆動、+175% vs momentum教師+106%） |
+| コンテナ | `trade_rl_db` |
+| DSN | `postgresql://trade_rl:trade_rl@localhost:5433/trade_rl` |
+| 永続化 | ボリューム `trade_rl_trade_rl_pgdata` |
 
-### 多時間軸の構造的解決: TFゲート付きエンコーダ（既定）
+テーブル（`fetch_* --to postgres` が自動作成）:
 
-「全TFを入れると過学習、TFを人手で選ぶのは汎用でない」問題への解答。
-各TFブロックを**共有エンコーダ＋TF埋め込み＋TFごとの学習可能ゲート**（sigmoid、計4パラメータ）で
-処理する `TFGatedPortfolioExtractor` を既定の方策ネットワークにした。
+| テーブル | 内容 |
+|---|---|
+| `rl_klines` | OHLCV（`source` = `binance` / `hyperliquid`、TF別） |
+| `rl_funding_rate` | funding rate |
+| `rl_orderflow_1m` | 1分オーダーフロー（Binanceのみ） |
+| `rl_derivatives` | OI / L-S比率 / 清算代理（Binanceのみ・直近30日） |
 
-| 構成 | cross（単一スケール） | multi（2スケール） |
+投入状況の確認:
+
+```bash
+set PLATFORM_DB_URL=postgresql://trade_rl:trade_rl@localhost:5433/trade_rl
+python scripts/check_pg.py
+```
+
+### Hyperliquid（認証不要・OHLCV + funding）
+
+上位足（15m/1h/4h/1d）と funding を公開APIから取得。CSVキャッシュとPostgresの両方に書ける。
+
+```bash
+set PLATFORM_DB_URL=postgresql://trade_rl:trade_rl@localhost:5433/trade_rl
+
+python scripts/fetch_hyperliquid.py \
+  --symbols BTCUSDT ETHUSDT SOLUSDT XRPUSDT BNBUSDT SUIUSDT DOGEUSDT \
+  --days 180 --to csv postgres
+```
+
+- オーダーフロー・デリバティブ指標はHLでは取得不可（特徴はゼロ埋め）
+- 銘柄は `BTCUSDT` でも `BTC` でも可（末尾USDT/USDCを自動正規化）
+
+### Binance先物（フルセット: kline + funding + orderflow + derivatives）
+
+```bash
+set PLATFORM_DB_URL=postgresql://trade_rl:trade_rl@localhost:5433/trade_rl
+
+# オーダーフロー(aggTrades)は重い。まずは --skip-orderflow で kline/funding を投入
+python scripts/fetch_futures.py \
+  --symbols BTCUSDT ETHUSDT XRPUSDT BNBUSDT SUIUSDT PAXGUSDT \
+  --days 90 --to csv postgres --skip-orderflow
+
+# オーダーフローも必要なら（日×銘柄で時間がかかる）
+python scripts/fetch_futures.py \
+  --symbols BTCUSDT ETHUSDT --days 30 --to postgres
+```
+
+- デリバAPI（OI/L-S）は**直近30日のみ**取得可能
+- **長期OI/L-S**: `data.binance.vision` 日次 metrics ZIP（5分足・`fetch_derivatives` が自動使用）
+- `ETHBTC` は先物に無いためデフォルト銘柄から除外済み
+- Binanceは一部地域からブロックされる。オフライン検証は下記サンプル生成を使う
+
+### サンプルデータ（オフライン）
+
+```bash
+python scripts/generate_sample_data.py --days 60 --alpha cross --output ./data
+```
+
+---
+
+## 本番ワークフロー（学習・検証）
+
+### CSVソース（Binance fetch出力 or サンプル）
+
+```bash
+# Phase E 標準: walk-forward が実データ評価の既定コマンド
+# 3fold × 3seed × コスト感度2倍 = 18ランの中央値で判断する（単発1曲線で判断しない）
+python scripts/train_portfolio.py --phase wf --source csv --data ./data \
+    --timesteps 500000 --ensemble 3 --folds 3 --n-seeds 3
+
+# 確認用（最終モデルの保存・ゲート2判定を train_report.json に記録）
+python scripts/train_portfolio.py --phase train --source csv --data ./data \
+    --timesteps 2000000 --ensemble 3
+```
+
+> **Phase E 受入基準:**
+> - `--phase wf` の中央値リターンがコスト2倍でもプラス（P3ゲート）
+> - `train_report.json` の `gate2.passed = true`（RL が全ベースライン、特に `trend_following` を上回る）
+> - `--ensemble 3` を実データの既定推奨（シード運のばらつき低減 + 不一致度スケーリング）
+
+### Hyperliquidキャッシュ（CSV）
+
+`fetch_hyperliquid.py` で `./data/hyperliquid/` にキャッシュした後、
+`CsvSource` 互換の読み込みは今後 `--source hyperliquid` で接続予定。
+現状はキャッシュCSVを手動で参照するか、Postgres経由（`PostgresSource` 実装後）を使う。
+
+> **ゲート1**: OOSランクIC ≥ 0.02。不合格ならRL学習に進まない（`--skip-gate` で強制続行可）。
+
+### 収益最適化フェーズ
+
+```bash
+# PBT: ハイパーパラメータ自動探索
+python scripts/train_portfolio.py --phase pbt --source csv --data ./data --pbt-pop 6 --pbt-gen 4 --pbt-steps 40000
+
+# レジーム特化（bull/bear/range）
+python scripts/train_portfolio.py --phase regime --source csv --data ./data --timesteps 500000
+
+# 階層MTF（4hトレンドで方向制約）
+python scripts/train_portfolio.py --phase train --source csv --data ./data --timesteps 2000000 --htf-gate
+```
+
+---
+
+## 主なCLIオプション
+
+| フラグ | 既定 | 説明 |
 |---|---|---|
-| 全TF（フラット結合） | +1636% / Sharpe 53.1 | +924% / 49.8 |
-| **全TF＋TFゲート構造** | **+2129% / 59.1** | **+1094% / 52.1** |
-| 1hのみ（事後的に選んだ正解） | +2269% / 60.4 | +1151% / 52.3 |
+| `--phase` | p0 | `p0` / `train` / `wf` / `pbt` / `regime` |
+| `--source` | synthetic | `synthetic` / `csv` / `postgres`（※Postgres読み込みは未実装） |
+| `--ensemble` | 1 | シードアンサンブル数。**実データでは3推奨**（シード運低減 + 不一致度スケーリング） |
+| `--gamma` | 0.5 | 割引率（0.995は崩壊する） |
+| `--postproc` | full | 後処理（平滑/集中上限/ボラ目標/DDデリスク） |
+| `--target-vol` | 0.5 | 年率ボラ目標。0以下で無効 |
+| `--feature-mask` | off | IC安定性による特徴選別 |
+| `--htf-gate` | off | 4hトレンドで方向制約 |
+| `--timesteps` | 300000 | 学習ステップ。実データ本番は200万〜 |
+| `--folds` | 3 | walk-forward fold数 |
+| `--n-seeds` | 3 | walk-forward で試すシード数 |
 
-TFゲート構造は「1hのみ」との差を9割方解消しつつ、**全時間軸を入れたまま**運用できる
-（時間軸選択を人手でしなくてよい）。効果の主因はTFブロック共有エンコーダによる
-パラメータ共有＝構造的正則化。学習後は `gate_values()` でモデルが使ったTFを可視化できる。
-ICマスク（`--feature-mask`）は実データでジャンク特徴が多い場合のオプション。
+学習は既定で **TFゲート抽出器 + Ridge教師BC + 検証ベースモデル選択**（詳細は ARCHITECTURE.md §2.1）。
 
-### P0: 健全性試験（どこでも実行可、データ不要）
+---
 
-アルファを注入した合成データ（陽性対照）と純ノイズ（陰性対照）で
-「学習システムが正しく機能しているか」を検証する:
+## ゲート体系
 
-```bash
-python scripts/train_portfolio.py --phase p0 --timesteps 300000 --output ./output/portfolio_p0
-```
+1. **品質ゲート**: 欠損率・スパイク・timestamp整合 → 不合格銘柄除外
+2. **リーク自己検査**: shuffleでIC消失 / 未来シフトでIC増大
+3. **ゲート1（IC）**: 特徴に予測力があるか（実データの本丸）
+4. **ゲート2（対ルール）**: `train_report.json` の `gate2.passed` で自動判定。`rl_beat_trend_following` が重要。
+5. **ベースライン比較**: フラット / 等ウェイトB&H / ボラ逆数 / クロスモメンタム則
+5. **オラクル則**: 手数料込みDP上限との捕捉率
+6. **ウォークフォワード**: コスト2倍でも中央値プラスか
 
-通過条件: ①陽性でRLが等ウェイトB&Hとフラット両方に勝つ ②陰性でほぼ取引しない。
-レポートは `p0_report.json`、エクイティカーブ図も出力される。
+---
 
-### P1〜P3: 実データ（ローカルPCで実行）
+## シグナル品質管理（全層）
 
-```bash
-# 1. 先物データ取得（kline + funding rate + オーダーフロー集計）
-python scripts/fetch_futures.py --symbols BTCUSDT ETHUSDT XRPUSDT BNBUSDT SUIUSDT PAXGUSDT --days 180 --to csv
+| 層 | モジュール | 役割 |
+|---|---|---|
+| 前処理 | `data/quality.py` | 品質ゲート・銘柄除外 |
+| 前処理 | `signal_check.py` | ICゲート・リーク自己検査 |
+| 学習 | `bc_warmstart.py` | Ridge教師BC（IC合格時のみ） |
+| 学習 | `policy_ensemble.py` | 多シード平均＋不一致縮小 |
+| 後処理 | `trading/post_processor.py` | EMA平滑・ボラ目標・DDデリスク（train/serve一致） |
+| 実行中 | `trading/guardrails.py` | 鮮度・NaN・損失上限 → フラット化 |
 
-# （Trade PlatformのPostgreSQLと同居させる場合）
-pip install "psycopg[binary]"
-set PLATFORM_DB_URL=postgresql://postgres:postgres@localhost:5432/trade
-python scripts/fetch_futures.py --symbols BTCUSDT --days 180 --to csv postgres
+---
 
-# 2. P1: シグナルICゲート + P2: RL学習（ゲート不合格なら自動停止）
-python scripts/train_portfolio.py --phase train --source csv --data ./data --timesteps 2000000
-
-# 3. P3: ウォークフォワード検証（複数シード・コスト2倍感度込み）
-python scripts/train_portfolio.py --phase wf --source csv --data ./data --timesteps 500000
-```
-
-ゲート1はOOSランクIC≥0.02。不合格なら特徴量・データを変えるまでRL学習に進まない
-（`--skip-gate`で強制続行可）。評価は常にベースライン4種
-（フラット/等ウェイトB&H/ボラ逆数/クロスモメンタムルール）と並記される。
-
-### ダッシュボード・Platform連携
-
-- ダッシュボードからは学習設定で `mode: "portfolio"` を指定して起動可能
-- **`GET /api/signal/latest`**: 学習済みモデルの最新推奨ウェイトを返す。
-  Trade Platform 側はこのAPIをポーリングするだけでBots画面に統合できる
-
-```json
-{"weights": {"BTCUSDT": 0.31, "ETHUSDT": -0.12, ...}, "net_exposure": 0.4, ...}
-```
-
-## 使い方（v1: 執行エージェント）
-
-### データ取得
-```bash
-# 上位30通貨のデータを取得（時価総額順・上場日から全期間）
-# --sort marketcap で時価総額順（ステーブルコイン除外）、デフォルトは volume
-# デフォルトでは 1m 足のみ取得します（学習時に自動で上位足を作成するため推奨）
-# 全ての時間軸ファイルを物理的に保存したい場合は --multi を追加してください
-python scripts/fetch_binance.py --top 30 --sort marketcap --all --output ./data --clean --multi
-```
-
-### データ整理（クリーンアップ）
-指定した通貨リストに含まれない古いデータを削除したい場合は `--clean` オプションを使用します。
-例えば、現在の上位30通貨**以外**のデータを削除するには：
-
-```bash
-python scripts/fetch_binance.py --top 30 --clean --output ./data --all --sort marketcap
-```
-
-全データを削除したい場合は、`data` ディレクトリを直接削除してください。
-
-### 学習
-```bash
-# 複数通貨・多時間軸で学習
-python scripts/train.py --data ./data --top 10 --multi-tf --timesteps 500000
-
-# 単一通貨で学習
-python scripts/train.py --data ./data --symbol BTCUSDT --multi-tf
-```
-
-### 評価
-```bash
-python scripts/evaluate.py --model ./output/final_model.zip --episodes 20
-```
-
-### バックテスト
-```bash
-python scripts/backtest.py --model ./output/final_model.zip --data ./data --symbol BTCUSDT --episodes 10
-```
-
-### 進化学習（PBT-MAP-Elites）
-```bash
-python scripts/run_evolution.py --generations 10 --population 25 --steps-per-gen 10000 --data-dir data
-```
-
-### ダッシュボード
-
-FastAPIサーバー + React UIで学習の開始/停止・メトリクス可視化・モデル管理・バックテストが行えます。
+## ダッシュボード
 
 ```bash
 # ターミナル1（リポジトリルートから）
-python scripts/run_server.py     # http://localhost:8001
+python scripts/run_server.py                 # http://localhost:8001
 
 # ターミナル2
-cd frontend
-npm install
-npm run dev                      # http://localhost:5173
+cd frontend && npm install && npm run dev    # http://localhost:5173
 ```
 
-APIのURLを変える場合は `frontend/.env.example` を `.env` にコピーして編集してください。
+- `mode: portfolio` で学習起動・メトリクス監視・バックテスト
+- **`GET /api/signal/latest`**: 推奨ウェイト（後処理・ガードレール適用後）を返す
 
-主なAPI:
-- `POST /api/training/start` / `POST /api/training/stop` / `GET /api/training/status`
-- `GET /api/models` / `POST /api/backtest` （`{model_id, symbol, n_episodes}`）
-- `WS /ws/metrics` （学習メトリクス・取引データのリアルタイム配信）
-
-### Pythonから直接使用
-```python
-import pandas as pd
-from mars_lite.env import MarsLiteEnv, MarsLiteMultiTFEnv, CrossSymbolEnv
-from mars_lite.data import load_multi_symbol_data, MarsLiteConfig
-
-# データ読み込み
-config = MarsLiteConfig()
-data_map = load_multi_symbol_data("./data", symbols=["BTCUSDT", "ETHUSDT"], config=config)
-
-# 環境構築（手動）
-envs = {}
-for sym, (base, higher) in data_map.items():
-    envs[sym] = MarsLiteMultiTFEnv(
-        data_1m=base, 
-        higher_tf_data=higher, 
-        **create_env_kwargs(config)
-    )
-
-env = CrossSymbolEnv(envs)
-
-# Gymnasium標準インターフェース
-obs, info = env.reset()
-action = env.action_space.sample()
-obs, reward, terminated, truncated, info = env.step(action)
+```json
+{
+  "weights": {"BTCUSDT": 0.28, "ETHUSDT": -0.11},
+  "net_exposure": 0.35, "gross_exposure": 0.82,
+  "data_age_hours": 0.5, "stale": false,
+  "guardrail": {"action": "proceed", "triggered": []}
+}
 ```
+
+---
+
+## Trade Platform との連携
+
+接点は2つ（Django側改修不要）:
+
+1. 同一PostgreSQLの `rl_*` テーブル（`fetch_futures.py --to postgres` / `fetch_hyperliquid.py --to postgres`）
+2. `GET /api/signal/latest`（Bots画面からポーリング）
+
+---
+
+## レガシー: 執行エージェント（v1）
+
+OHLCVのみからマーケットインパクトを推定し、注文分割・Almgren-Chriss報酬で学習する旧ワークフロー。
+
+```bash
+# データ取得
+python scripts/fetch_binance.py --symbol BTCUSDT --output ./data
+
+# 学習・評価・バックテスト
+python scripts/train.py --data ./data --symbol BTCUSDT --multi-tf --timesteps 100000 --output ./output
+python scripts/evaluate.py --model ./output/final_model.zip --episodes 10
+python scripts/backtest.py --model ./output/final_model.zip --data ./data --symbol BTCUSDT
+
+# 進化学習（PBT-MAP-Elites）
+python scripts/run_evolution.py --generations 10 --population 25 --steps-per-gen 10000 --data-dir data
+```
+
+Windowsでは `num_envs=1` を推奨（SubprocVecEnvのpickle問題）。
+
+---
 
 ## ディレクトリ構成
 
 ```
-mars_lite/
+trade_rl/
 ├── mars_lite/
-│   ├── data/          # データ前処理
-│   ├── env/           # Gymnasium環境
-│   ├── learning/      # PPO/Population管理
-│   ├── evolution/     # PBT/MAP-Elites
-│   └── utils/         # 設定/評価指標
-├── tests/             # ユニットテスト
-├── scripts/           # 学習/評価スクリプト
-└── requirements.txt
+│   ├── data/          # DataSource・品質ゲート・Postgres投入
+│   ├── env/           # PortfolioTradingEnv / レガシー環境
+│   ├── features/      # FeaturePipeline・シグナル検証
+│   ├── learning/      # PPO・BC・アンサンブル
+│   ├── trading/       # 後処理・執行・ガードレール
+│   └── server/        # FastAPI・ダッシュボードAPI
+├── scripts/           # fetch / train / evaluate
+├── frontend/          # React UI
+├── docs/ARCHITECTURE.md
+├── docker-compose.yml # 専用Postgres（ポート5433）
+└── tests/
 ```
 
-## テスト実行
+---
+
+## テスト
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-## 主要パラメータ
+---
 
-| パラメータ | 説明 | デフォルト |
-|-----------|------|-----------|
-| `y_impact` | インパクト係数 | 0.5 |
-| `lambda_risk` | 在庫リスク係数 | 0.001 |
-| `initial_inventory` | 初期在庫 | 1000 |
-| `max_steps` | 最大ステップ数 | 1440 |
+## ロードマップ（抜粋）
+
+1. **実データP1**: fetch → ゲート1。ここが本当の勝負
+2. `PostgresSource` 実装（`--source postgres` で学習）
+3. `train_portfolio --source hyperliquid` のCLI接続
+4. 弱シグナル領域: `--ensemble 3`
+5. 紙上運用2週間 → バックテスト乖離分析 → 資金投入判断
+
+---
 
 ## ライセンス
 

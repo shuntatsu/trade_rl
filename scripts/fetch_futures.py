@@ -4,7 +4,9 @@ Binance Futures データ取得スクリプト（認証不要の公開REST）
 取得対象:
     1. 先物1分足kline      GET /fapi/v1/klines
     2. funding rate実績    GET /fapi/v1/fundingRate（8時間毎）
-    3. aggTrades           GET /fapi/v1/aggTrades → 1分オーダーフロー集計に変換
+    3. デリバティブ指標   data.binance.vision 日次 metrics ZIP（5分足・長期履歴）
+       ＋直近ギャップは REST /futures/data/* で補完（30日制限あり）
+    4. aggTrades           GET /fapi/v1/aggTrades → 1分オーダーフロー集計に変換
        （buy_volume / sell_volume / trade_count / avg_trade_size / volume_imbalance）
 
 出力先（--to で選択、複数可）:
@@ -29,9 +31,14 @@ import pandas as pd
 import requests
 
 FAPI = "https://fapi.binance.com"
+# Phase D: HL上場でBinance先物がある流動性上位15銘柄
+# 既存7（BTC/ETH/SOL/XRP/BNB/SUI/DOGE）+ ADA/AVAX/LINK/LTC/BCH/APT/ARB/OP
 DEFAULT_SYMBOLS = [
-    "BTCUSDT", "XRPUSDT", "SUIUSDT", "BNBUSDT", "ETHUSDT", "PAXGUSDT",
-]  # ETHBTC は先物に無いためデフォルトから除外
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+    "SUIUSDT", "DOGEUSDT",
+    "ADAUSDT", "AVAXUSDT", "LINKUSDT",
+    "LTCUSDT", "BCHUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
+]
 
 
 def _get(path: str, params: dict) -> list:
@@ -100,26 +107,24 @@ def fetch_funding_range(symbol: str, start_ms: int, end_ms: int) -> pd.DataFrame
     }).drop_duplicates("timestamp").reset_index(drop=True)
 
 
-def fetch_derivatives(symbol: str, start_ms: int, end_ms: int, period: str = "1h") -> pd.DataFrame:
+def _fetch_derivatives_rest(symbol: str, start_ms: int, end_ms: int, period: str = "1h") -> pd.DataFrame:
     """
-    デリバティブ指標を取得して1h集計で返す:
-      open_interest      GET /futures/data/openInterestHist
-      ls_ratio           GET /futures/data/globalLongShortAccountRatio
-      liq_notional       aggregated from /fapi/v1/allForceOrders は非推奨のため
-                         takerlongshortRatio の非対称を代理指標に使う
-      funding_predicted  GET /fapi/v1/premiumIndex（現在のlastFundingRate）
+    RESTデリバAPI（直近30日のみ）。visionで埋まらないギャップ補完用。
+    """
+    max_hist_ms = 30 * 86_400_000
+    eff_start = max(start_ms, end_ms - max_hist_ms)
 
-    Binanceのdata系エンドポイントは最大30日・limit500の制約があるため、
-    30日窓でページングする。
-    """
     def paged(path, extra):
         rows = []
-        cursor = start_ms
+        cursor = eff_start
         window = 30 * 86_400_000
         while cursor < end_ms:
-            data = _get(path, {"symbol": symbol, "period": period,
-                               "startTime": cursor, "endTime": min(cursor + window, end_ms),
-                               "limit": 500, **extra})
+            try:
+                data = _get(path, {"symbol": symbol, "period": period,
+                                   "startTime": cursor, "endTime": min(cursor + window, end_ms),
+                                   "limit": 500, **extra})
+            except requests.HTTPError:
+                break
             if not data:
                 cursor += window
                 continue
@@ -155,7 +160,42 @@ def fetch_derivatives(symbol: str, start_ms: int, end_ms: int, period: str = "1h
     else:
         out["liq_notional"] = 0.0
     out["funding_predicted"] = 0.0001  # premiumIndexは別途取得可（簡易化）
-    return out.sort_values("timestamp").fillna(method="ffill").fillna(0.0).reset_index(drop=True)
+    return out.sort_values("timestamp").ffill().fillna(0.0).reset_index(drop=True)
+
+
+def fetch_derivatives(symbol: str, start_ms: int, end_ms: int, period: str = "1h", exclude_days: set = None, save_cb=None) -> pd.DataFrame:
+    """
+    OI / L-S / taker量比を取得（vision優先、RESTで直近ギャップ補完）。
+
+    主データ: data.binance.vision 日次 metrics（5分足・数年分）
+    補完: REST openInterestHist 等（直近30日、当日分など vision 未公開分）
+    """
+    from mars_lite.data.binance_vision import fetch_metrics_range
+
+    vision = fetch_metrics_range(symbol, start_ms, end_ms, exclude_days=exclude_days, save_cb=save_cb)
+    rest = _fetch_derivatives_rest(symbol, start_ms, end_ms, period)
+
+    if vision.empty:
+        if save_cb and not rest.empty:
+            save_cb(rest)
+            return pd.DataFrame()
+        return rest
+    if rest.empty:
+        return vision
+
+    have = set(vision["timestamp"].tolist())
+    extra = rest[~rest["timestamp"].isin(have)]
+    if save_cb and not extra.empty:
+        save_cb(extra)
+        return pd.DataFrame()
+    if extra.empty:
+        return vision
+    return (
+        pd.concat([vision, extra], ignore_index=True)
+        .drop_duplicates("timestamp")
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
 
 
 def fetch_orderflow_day(symbol: str, day_start_ms: int) -> pd.DataFrame:
@@ -214,71 +254,6 @@ def save_csv_daily(df: pd.DataFrame, out_dir: Path, day: datetime) -> None:
     df.to_csv(out_dir / f"{day.strftime('%Y-%m-%d')}.csv", index=False)
 
 
-def upsert_postgres(dsn: str, symbol: str, funding: pd.DataFrame,
-                    orderflow: pd.DataFrame, derivatives: pd.DataFrame = None):
-    """rl_ テーブルへUPSERT（テーブルが無ければ作成）"""
-    import psycopg
-
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS rl_derivatives (
-                symbol TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL,
-                open_interest DOUBLE PRECISION,
-                ls_ratio DOUBLE PRECISION,
-                liq_notional DOUBLE PRECISION,
-                funding_predicted DOUBLE PRECISION,
-                PRIMARY KEY (symbol, timestamp)
-            )""")
-        if derivatives is not None:
-            for _, r in derivatives.iterrows():
-                cur.execute(
-                    """INSERT INTO rl_derivatives VALUES (%s, to_timestamp(%s/1000.0), %s, %s, %s, %s)
-                       ON CONFLICT (symbol, timestamp) DO UPDATE SET
-                         open_interest = EXCLUDED.open_interest, ls_ratio = EXCLUDED.ls_ratio,
-                         liq_notional = EXCLUDED.liq_notional, funding_predicted = EXCLUDED.funding_predicted""",
-                    (symbol, int(r["timestamp"]), float(r["open_interest"]),
-                     float(r["ls_ratio"]), float(r["liq_notional"]),
-                     float(r["funding_predicted"])),
-                )
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS rl_funding_rate (
-                symbol TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL,
-                funding_rate DOUBLE PRECISION NOT NULL,
-                PRIMARY KEY (symbol, timestamp)
-            )""")
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS rl_orderflow_1m (
-                symbol TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL,
-                buy_volume DOUBLE PRECISION,
-                sell_volume DOUBLE PRECISION,
-                trade_count INTEGER,
-                avg_trade_size DOUBLE PRECISION,
-                volume_imbalance DOUBLE PRECISION,
-                PRIMARY KEY (symbol, timestamp)
-            )""")
-        for _, r in funding.iterrows():
-            cur.execute(
-                """INSERT INTO rl_funding_rate VALUES (%s, to_timestamp(%s/1000.0), %s)
-                   ON CONFLICT (symbol, timestamp) DO UPDATE SET funding_rate = EXCLUDED.funding_rate""",
-                (symbol, int(r["timestamp"]), float(r["funding_rate"])),
-            )
-        for _, r in orderflow.iterrows():
-            cur.execute(
-                """INSERT INTO rl_orderflow_1m VALUES (%s, to_timestamp(%s/1000.0), %s, %s, %s, %s, %s)
-                   ON CONFLICT (symbol, timestamp) DO UPDATE SET
-                     buy_volume = EXCLUDED.buy_volume, sell_volume = EXCLUDED.sell_volume,
-                     trade_count = EXCLUDED.trade_count, avg_trade_size = EXCLUDED.avg_trade_size,
-                     volume_imbalance = EXCLUDED.volume_imbalance""",
-                (symbol, int(r["timestamp"]), float(r["buy_volume"]),
-                 float(r["sell_volume"]), int(r["trade_count"]),
-                 float(r["avg_trade_size"]), float(r["volume_imbalance"])),
-            )
-        conn.commit()
-
-
 def main():
     parser = argparse.ArgumentParser(description="Binance Futures データ取得")
     parser.add_argument("--symbols", type=str, nargs="+", default=DEFAULT_SYMBOLS)
@@ -290,6 +265,8 @@ def main():
                         help="PostgreSQL DSN（省略時は環境変数 PLATFORM_DB_URL）")
     parser.add_argument("--skip-orderflow", action="store_true",
                         help="aggTrades集計をスキップ（取得が重いため）")
+    parser.add_argument("--klines-source", choices=["vision", "rest"], default="vision",
+                        help="1m足: vision=data.binance.vision日次ZIP（長期向け）, rest=REST API")
     args = parser.parse_args()
 
     dsn = args.dsn or os.environ.get("PLATFORM_DB_URL")
@@ -304,49 +281,156 @@ def main():
 
     for symbol in args.symbols:
         print(f"=== {symbol} ===")
+        
+        existing_kline_days = set()
+        existing_deriv_days = set()
+        existing_orderflow_days = set()
+        if "postgres" in args.to and dsn:
+            from mars_lite.data.postgres_store import get_existing_kline_days, get_existing_derivative_days, get_existing_orderflow_days
+            existing_kline_days = get_existing_kline_days(dsn, "binance", symbol, "1m")
+            existing_deriv_days = get_existing_derivative_days(dsn, "binance", symbol)
+            existing_orderflow_days = get_existing_orderflow_days(dsn, "binance", symbol)
+
+        # Phase D: 上場日をログ表示（品質ゲート選定の判断材料）
+        try:
+            info = _get("/fapi/v1/exchangeInfo", {})
+            sym_info = next((s for s in info.get("symbols", []) if s["symbol"] == symbol), None)
+            if sym_info:
+                listing_ms = sym_info.get("onboardDate") or sym_info.get("deliveryDate")
+                if listing_ms:
+                    from datetime import datetime, timezone as _tz
+                    listing_dt = datetime.fromtimestamp(listing_ms / 1000, tz=_tz.utc)
+                    days_listed = (datetime.now(_tz.utc) - listing_dt).days
+                    print(f"  listing: {listing_dt.strftime('%Y-%m-%d')} ({days_listed}d ago)")
+        except Exception:
+            pass  # 取得失敗は無視して続行
 
         print(f"  funding rate ({args.days}d)...")
         funding = fetch_funding_range(symbol, start_ms, end_ms)
         print(f"    {len(funding)} events")
+        if "postgres" in args.to and dsn and not funding.empty:
+            from mars_lite.data.postgres_store import upsert_funding
+            upsert_funding(dsn, "binance", symbol, funding)
         if "csv" in args.to and len(funding):
             fdir = output_dir / symbol / "funding"
             fdir.mkdir(parents=True, exist_ok=True)
             funding.to_csv(fdir / "funding.csv", index=False)
 
-        print(f"  derivatives (OI/LS/liq)...")
-        derivatives = fetch_derivatives(symbol, start_ms, end_ms)
-        print(f"    {len(derivatives)} hourly rows")
+        deriv_save_cb = None
+        if "postgres" in args.to and dsn:
+            from mars_lite.data.postgres_store import upsert_derivatives
+            def _deriv_save_cb(df):
+                if not df.empty:
+                    upsert_derivatives(dsn, "binance", symbol, df)
+            deriv_save_cb = _deriv_save_cb
+
+        print(f"  derivatives (OI/LS/liq, vision+REST)...")
+        derivatives = fetch_derivatives(symbol, start_ms, end_ms, exclude_days=existing_deriv_days, save_cb=deriv_save_cb)
+        print(f"    {len(derivatives)} rows (5m native)")
         if "csv" in args.to and len(derivatives):
             ddir = output_dir / symbol / "derivatives"
             ddir.mkdir(parents=True, exist_ok=True)
             derivatives.to_csv(ddir / "derivatives.csv", index=False)
 
+        all_klines = []
         all_orderflow = []
-        for d in range(args.days):
-            day = start + timedelta(days=d)
-            day_ms = int(day.timestamp() * 1000)
 
-            klines = fetch_klines_range(symbol, day_ms, min(day_ms + 86_400_000, end_ms))
-            if len(klines) and "csv" in args.to:
-                save_csv_daily(klines, output_dir / symbol / "1m", day)
+        if args.klines_source == "vision":
+            from mars_lite.data.binance_vision import fetch_klines_range as fetch_klines_vision
 
-            if not args.skip_orderflow:
-                of = fetch_orderflow_day(symbol, day_ms)
-                if len(of):
+            def _kl_progress(i, n, day, nrows):
+                if i % 30 == 0 or i == n:
+                    r_str = "SKIPPED" if nrows == -1 else str(nrows)
+                    print(f"  [klines {i}/{n}] {day.strftime('%Y-%m-%d')}: "
+                          f"rows={r_str}", flush=True)
+
+            kline_save_cb = None
+            if "postgres" in args.to and dsn:
+                from mars_lite.data.postgres_store import upsert_klines
+                def _kline_save_cb(df):
+                    if not df.empty:
+                        upsert_klines(dsn, "binance", symbol, "1m", df)
+                kline_save_cb = _kline_save_cb
+
+            print(f"  klines 1m ({args.days}d, vision)...")
+            klines_all = fetch_klines_vision(
+                symbol, start_ms, end_ms, interval="1m",
+                pause_sec=0.02, progress_cb=_kl_progress,
+                exclude_days=existing_kline_days,
+                save_cb=kline_save_cb,
+            )
+            print(f"    {len(klines_all)} bars total")
+            if len(klines_all) and "csv" in args.to:
+                for d in range(args.days):
+                    day = start + timedelta(days=d)
+                    day_ms = int(day.timestamp() * 1000)
+                    day_end_ms = day_ms + 86_400_000
+                    sl = klines_all[
+                        (klines_all["timestamp"] >= day_ms)
+                        & (klines_all["timestamp"] < day_end_ms)
+                    ]
+                    if len(sl):
+                        save_csv_daily(
+                            sl.reset_index(drop=True),
+                            output_dir / symbol / "1m", day,
+                        )
+            if "postgres" in args.to and len(klines_all):
+                all_klines = [klines_all]
+        else:
+            for d in range(args.days):
+                day = start + timedelta(days=d)
+                day_ms = int(day.timestamp() * 1000)
+
+                klines = fetch_klines_range(symbol, day_ms, min(day_ms + 86_400_000, end_ms))
+                if len(klines):
                     if "csv" in args.to:
-                        save_csv_daily(of, output_dir / symbol / "orderflow_1m", day)
-                    all_orderflow.append(of)
+                        save_csv_daily(klines, output_dir / symbol / "1m", day)
+                    if "postgres" in args.to:
+                        all_klines.append(klines)
 
-            print(f"  [{d + 1}/{args.days}] {day.strftime('%Y-%m-%d')}: "
-                  f"klines={len(klines)}", flush=True)
+                print(f"  [klines {d + 1}/{args.days}] {day.strftime('%Y-%m-%d')}: "
+                      f"bars={len(klines)}", flush=True)
 
-        if "postgres" in args.to:
-            of_all = pd.concat(all_orderflow, ignore_index=True) if all_orderflow \
-                else pd.DataFrame(columns=["timestamp", "buy_volume", "sell_volume",
-                                           "trade_count", "avg_trade_size", "volume_imbalance"])
-            print(f"  postgres upsert: funding={len(funding)}, orderflow={len(of_all)}, "
-                  f"derivatives={len(derivatives)}")
-            upsert_postgres(dsn, symbol, funding, of_all, derivatives)
+        if not args.skip_orderflow:
+            def _of_progress(i, n, day, nrows):
+                if i % 30 == 0 or i == n:
+                    r_str = "SKIPPED" if nrows == -1 else str(nrows)
+                    print(f"  [orderflow {i}/{n}] {day.strftime('%Y-%m-%d')}: "
+                          f"rows={r_str}", flush=True)
+
+            of_save_cb = None
+            if "postgres" in args.to and dsn:
+                from mars_lite.data.postgres_store import upsert_orderflow
+                def _of_save_cb(df):
+                    if not df.empty:
+                        upsert_orderflow(dsn, "binance", symbol, df)
+                of_save_cb = _of_save_cb
+
+            print(f"  orderflow 1m ({args.days}d, vision)...")
+            from mars_lite.data.binance_vision import fetch_orderflow_vision
+            of_all = fetch_orderflow_vision(
+                symbol, start_ms, end_ms,
+                pause_sec=0.02, progress_cb=_of_progress,
+                exclude_days=existing_orderflow_days,
+                save_cb=of_save_cb,
+            )
+            
+            if len(of_all) and "csv" in args.to:
+                for d in range(args.days):
+                    day = start + timedelta(days=d)
+                    day_ms = int(day.timestamp() * 1000)
+                    day_end_ms = day_ms + 86_400_000
+                    sl = of_all[
+                        (of_all["timestamp"] >= day_ms)
+                        & (of_all["timestamp"] < day_end_ms)
+                    ]
+                    if len(sl):
+                        save_csv_daily(
+                            sl.reset_index(drop=True),
+                            output_dir / symbol / "orderflow_1m", day,
+                        )
+
+
 
     print("Done.")
 

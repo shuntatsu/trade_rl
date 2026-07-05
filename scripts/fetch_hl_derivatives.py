@@ -32,7 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_futures import fetch_derivatives, fetch_orderflow_day  # noqa: E402
 
 DEFAULT_SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "SUIUSDT", "DOGEUSDT",
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+    "SUIUSDT", "DOGEUSDT",
+    "ADAUSDT", "AVAXUSDT", "LINKUSDT",
+    "LTCUSDT", "BCHUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
 ]
 
 

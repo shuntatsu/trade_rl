@@ -17,7 +17,9 @@ from pathlib import Path
 
 from mars_lite.data.sources import create_source, SyntheticSource
 from mars_lite.features.feature_pipeline import FeaturePipeline
-from mars_lite.features.horizon_scan import run_horizon_scan, DEFAULT_HORIZONS
+from mars_lite.features.horizon_scan import (
+    run_horizon_scan, compute_breakeven_ic, DEFAULT_HORIZONS,
+)
 
 DEFAULT_SYMBOLS = [
     "BTCUSDT", "XRPUSDT", "SUIUSDT", "BNBUSDT", "ETHUSDT", "PAXGUSDT", "ETHBTC",
@@ -38,6 +40,10 @@ def main():
     ap.add_argument("--train-fraction", type=float, default=0.8,
                     help="testリーク防止のため先頭この割合のみ走査")
     ap.add_argument("--output", type=str, default="./output/horizon_scan.json")
+    ap.add_argument("--breakeven", action="store_true",
+                    help="各ホライズンについて、意思決定頻度"
+                         "（既定 max(1,horizon//2)）込みで黒字化する"
+                         "最小の目標ICをノイズオラクルで推定して併記する")
     args = ap.parse_args()
 
     if args.source == "synthetic":
@@ -60,10 +66,22 @@ def main():
     report = run_horizon_scan(train_fs, horizons=tuple(args.horizons), n_folds=args.n_folds)
     print(report.summary())
 
+    payload = report.to_dict()
+    if args.breakeven:
+        print("\n[Breakeven IC] (decision_every = max(1, horizon//2) 込みでコスト後に黒字化する最小の目標IC)")
+        breakeven = {}
+        for r in report.results:
+            de = max(1, r.horizon // 2)
+            be_ic = compute_breakeven_ic(train_fs, r.horizon, decision_every=de)
+            breakeven[r.horizon] = be_ic
+            be_str = f"{be_ic:.2f}" if be_ic is not None else "黒字化なし（試した範囲では割に合わない）"
+            print(f"  horizon={r.horizon:<4} decision_every={de:<3} breakeven_ic={be_str}")
+        payload["breakeven_ic_by_horizon"] = breakeven
+
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(report.to_dict(), f, indent=2, ensure_ascii=False)
+        json.dump(payload, f, indent=2, ensure_ascii=False)
     print(f"Report -> {out_path}")
 
 

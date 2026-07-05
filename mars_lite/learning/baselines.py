@@ -186,6 +186,7 @@ def oracle_dp_paths(
     cost_multiplier: float = 1.0,
     start_idx: int = 0,
     end_idx: Optional[int] = None,
+    decision_every: int = 1,
 ) -> np.ndarray:
     """
     銘柄別の最適ポジション経路をDP（Viterbi型トレリス最短経路）で求める。
@@ -196,6 +197,11 @@ def oracle_dp_paths(
     経路選択は signal に基づくが、損益実現は呼び出し側が真のリターンで
     別途行う）。省略時は真のリターン自体を signal として使う（完全オラクル）。
 
+    decision_every > 1 の場合、ポジション変更は
+    `t % decision_every == 0` のバーでのみ許可する
+    （PortfolioTradingEnv.decision_every と同じ意味論）。低頻度アルファを
+    毎バーの回転コストで削らないための整合。
+
     Returns:
         (T, n_symbols) の実現ポジション値配列（positions の要素）
     """
@@ -205,11 +211,14 @@ def oracle_dp_paths(
     impact_coef = (impact_rate / (0.1 ** 0.5))  # 線形率→sqrt則係数（execution.pyと一致）
     lin = (fee_rate + spread_rate) * cost_multiplier
     imp = impact_coef * cost_multiplier
+    decision_every = max(1, int(decision_every))
 
-    def trans_logcost(p_prev: float, p_new: float) -> float:
+    def trans_logcost(p_prev: float, p_new: float, is_decision_bar: bool) -> float:
         d = abs(p_new - p_prev)
         if d == 0.0:
             return 0.0
+        if not is_decision_bar:
+            return -np.inf  # 非意思決定バーではポジション変更を禁止
         cost = lin * d + imp * (d ** 1.5)
         return np.log(max(1.0 - cost, 1e-9))
 
@@ -220,6 +229,7 @@ def oracle_dp_paths(
 
     sig = signal if signal is not None else _true_returns(fs, start_idx, end_idx)
     paths = np.zeros((T, n_sym), dtype=np.float64)
+    is_decision = [(t % decision_every == 0) for t in range(T)]
 
     for i in range(n_sym):
         s = sig[:, i]
@@ -228,12 +238,12 @@ def oracle_dp_paths(
         dp = np.full((T, n_states), -np.inf)
         ptr = np.zeros((T, n_states), dtype=np.int64)
         for j in range(n_states):
-            dp[0, j] = trans_logcost(0.0, pos[j]) + hold[0, j]
+            dp[0, j] = trans_logcost(0.0, pos[j], is_decision[0]) + hold[0, j]
         for t in range(1, T):
             for j in range(n_states):
                 best_k, best_v = 0, -np.inf
                 for k in range(n_states):
-                    v = dp[t - 1, k] + trans_logcost(pos[k], pos[j])
+                    v = dp[t - 1, k] + trans_logcost(pos[k], pos[j], is_decision[t])
                     if v > best_v:
                         best_v, best_k = v, k
                 dp[t, j] = best_v + hold[t, j]
@@ -315,6 +325,7 @@ def oracle_dp_strategy(
     cost_multiplier: float = 1.0,
     start_idx: int = 0,
     end_idx: Optional[int] = None,
+    decision_every: int = 1,
 ) -> StrategyResult:
     """
     手数料込みの理論上限（完全オラクル）を動的計画法で厳密に求める。
@@ -341,6 +352,7 @@ def oracle_dp_strategy(
         fs, signal=None, positions=positions, allow_short=allow_short,
         fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
         cost_multiplier=cost_multiplier, start_idx=start_idx, end_idx=end_idx,
+        decision_every=decision_every,
     )
     equity, turnover_total = _simulate_positions(
         fs, paths, fee_rate=fee_rate, spread_rate=spread_rate,
@@ -407,6 +419,7 @@ def noisy_oracle_strategy(
     cost_multiplier: float = 1.0,
     start_idx: int = 0,
     end_idx: Optional[int] = None,
+    decision_every: int = 1,
 ) -> StrategyResult:
     """
     目標rank IC（既定0.05）だけ未来を知る「劣化オラクル」
@@ -415,6 +428,10 @@ def noisy_oracle_strategy(
     予知力しか持たない場合の理論上限を返す。複数ノイズドロー（n_draws）の
     平均を取り、単一乱数の偶然に左右されないようにする。捕捉率
     (RL収益 / このオラクル収益) の方が完全オラクル比よりも実務上の目標に近い。
+
+    decision_every > 1 を指定すると、ポジション変更を decision_every バー
+    毎に制限する（低頻度アルファに対して毎バー回転コストを払わせない）。
+    「弱いICでも十分な頻度に落とせば黒字化するか」を定量的に測れる。
     """
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     true_r = _true_returns(fs, start_idx, end_idx)
@@ -428,6 +445,7 @@ def noisy_oracle_strategy(
             fs, signal=noisy_signal, positions=positions, allow_short=allow_short,
             fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
             cost_multiplier=cost_multiplier, start_idx=start_idx, end_idx=end_idx,
+            decision_every=decision_every,
         )
         equity, turnover = _simulate_positions(
             fs, paths, fee_rate=fee_rate, spread_rate=spread_rate,

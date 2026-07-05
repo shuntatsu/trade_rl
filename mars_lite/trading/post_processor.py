@@ -135,15 +135,23 @@ def make_legacy_processor(min_trade_delta: float = 0.02) -> PortfolioPostProcess
     ))
 
 
-def make_default_processor(target_vol: Optional[float] = 0.5) -> PortfolioPostProcessor:
+def make_default_processor(
+    target_vol: Optional[float] = 0.5,
+    ema_alpha: float = 0.5,
+    no_trade_band: float = 0.04,
+) -> PortfolioPostProcessor:
     """
     ポートフォリオ運用の推奨後処理器
 
     P0ベンチマークで生方策比リターン2倍・Sharpe1.6倍・回転71%減・DD半減を確認。
     平滑化とno-tradeバンドが過剰取引によるコスト漏れを抑えるのが主効果。
+
+    ema_alpha/no_trade_bandはホライズンスキャンで選んだ予測ホライズンに
+    合わせて呼び出し側でスケールできる（低頻度アルファほど平滑を強め、
+    no-tradeバンドを広げてコストと信号の周波数を整合させる）。
     """
     return PortfolioPostProcessor(PostProcessConfig(
-        ema_alpha=0.5, max_weight=0.4, no_trade_band=0.04,
+        ema_alpha=ema_alpha, max_weight=0.4, no_trade_band=no_trade_band,
         target_vol=target_vol, vol_lookback=48,
         dd_derisk_start=0.10, dd_derisk_floor=0.3,
         disagreement_penalty=1.0,

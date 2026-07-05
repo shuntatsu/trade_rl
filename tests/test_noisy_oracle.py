@@ -66,3 +66,27 @@ class TestNoisyOracle:
         assert np.isfinite(r.equity_curve).all()
         assert r.equity_curve[0] == pytest.approx(1.0)
         assert r.name == "oracle_ic0.10"
+
+
+class TestDecisionEveryOracle:
+
+    def test_lower_frequency_reduces_turnover(self):
+        """decision_everyを上げると回転が減る（同一signal・同一コスト）"""
+        fs = _synthetic_fs(alpha="cross", days=60, seed=4)
+        r1 = noisy_oracle_strategy(fs, target_ic=0.05, seed=0, n_draws=2, decision_every=1)
+        r8 = noisy_oracle_strategy(fs, target_ic=0.05, seed=0, n_draws=2, decision_every=8)
+        assert r8.turnover_total < r1.turnover_total
+
+    def test_low_frequency_can_reduce_cost_drag(self):
+        """低ICで発生する過剰な回転コストは、意思決定頻度を下げると緩和される"""
+        fs = _synthetic_fs(alpha="cross", days=60, seed=9)
+        r1 = noisy_oracle_strategy(fs, target_ic=0.01, seed=0, n_draws=2, decision_every=1)
+        r8 = noisy_oracle_strategy(fs, target_ic=0.01, seed=0, n_draws=2, decision_every=8)
+        assert r8.total_return >= r1.total_return - 1e-6
+
+    def test_default_decision_every_matches_legacy_behavior(self):
+        """decision_every省略時は従来と同じ挙動（回帰防止）"""
+        fs = _synthetic_fs(alpha="cross", days=30, seed=2)
+        r_default = noisy_oracle_strategy(fs, target_ic=0.1, seed=1, n_draws=2)
+        r_explicit = noisy_oracle_strategy(fs, target_ic=0.1, seed=1, n_draws=2, decision_every=1)
+        np.testing.assert_allclose(r_default.equity_curve, r_explicit.equity_curve)

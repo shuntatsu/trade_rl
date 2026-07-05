@@ -248,8 +248,17 @@ def report_comparison(agent_res: dict, baselines: dict, label: str) -> None:
                   f"（このコスト水準ではより高いICか低コストが必要）")
 
 
-def build_post_processor(args):
-    """CLIフラグから後処理器を構築（デフォルトは推奨フル後処理）"""
+def build_post_processor(args, horizon: int = 4):
+    """
+    CLIフラグから後処理器を構築（デフォルトは推奨フル後処理）
+
+    horizon（採用した予測ホライズン、既定4=基準TF換算4本先）に応じて
+    EMA平滑・no-tradeバンドをスケールする。horizon=4で従来値
+    （ema_alpha=0.5, no_trade_band=0.04）と一致し後方互換。
+    horizonが大きい（低頻度アルファ）ほど平滑を強め・no-tradeバンドを
+    広げ、コストと信号の周波数を整合させる。--decision-every を
+    明示指定した場合はそちらを優先し、このスケーリングは変えない。
+    """
     from mars_lite.trading.post_processor import (
         make_default_processor, make_legacy_processor,
     )
@@ -257,16 +266,31 @@ def build_post_processor(args):
     if mode == "legacy":
         return make_legacy_processor()
     tv = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
-    return make_default_processor(target_vol=tv)
+    ema_alpha = float(np.clip(0.5 * (4.0 / max(horizon, 1)), 0.05, 1.0))
+    no_trade_band = float(0.04 * np.sqrt(max(horizon, 1) / 4.0))
+    return make_default_processor(target_vol=tv, ema_alpha=ema_alpha, no_trade_band=no_trade_band)
 
 
-def build_env_kwargs(args, pp) -> dict:
-    """学習/評価で共有する環境kwargs（後処理器 + 任意のHTFゲート + 意思決定間隔）"""
+def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
+    """
+    学習/評価で共有する環境kwargs（後処理器 + 任意のHTFゲート + 意思決定間隔）
+
+    --decision-every が明示指定されていればそれを使う。未指定かつ
+    ホライズンスキャンでhorizonが選ばれている場合は
+    decision_every = max(1, horizon // 2) を既定にする
+    （例: horizon=8時間 -> 4時間毎に意思決定。1h毎の回転コストで
+    低頻度アルファを削るのを防ぐ）。
+    """
     ekw = {"post_processor": pp}
     if getattr(args, "htf_gate", False):
         ekw["htf_gate"] = True
-    if getattr(args, "decision_every", 1) > 1:
-        ekw["decision_every"] = args.decision_every
+    explicit = getattr(args, "decision_every", 1)
+    if explicit and explicit > 1:
+        ekw["decision_every"] = explicit
+    elif getattr(args, "scan_horizons", False) and horizon > 1:
+        auto_every = max(1, horizon // 2)
+        if auto_every > 1:
+            ekw["decision_every"] = auto_every
     return ekw
 
 
@@ -317,8 +341,8 @@ def phase_p0(args, output_dir: Path) -> None:
 
         print(f"\nTraining PPO: {args.timesteps:,} steps "
               f"(train {train_fs.n_bars} bars, test {test_fs.n_bars} bars)...")
-        pp = build_post_processor(args)
-        ekw = build_env_kwargs(args, pp)
+        pp = build_post_processor(args, horizon=args.horizon)
+        ekw = build_env_kwargs(args, pp, horizon=args.horizon)
         # BCウォームスタートはICゲート合格時のみ（信号なきデータで教師を
         # 模倣するとノイズを刷り込み、陰性対照の安全性を壊すため）
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
@@ -442,8 +466,8 @@ def phase_train(args, output_dir: Path) -> None:
         train_fs = train_fs.apply_mask(feature_mask)
         test_fs = test_fs.apply_mask(feature_mask)
 
-    pp = build_post_processor(args)
-    ekw = build_env_kwargs(args, pp)
+    pp = build_post_processor(args, horizon=horizon)
+    ekw = build_env_kwargs(args, pp, horizon=horizon)
 
     if args.ensemble > 1:
         from mars_lite.learning.policy_ensemble import train_ensemble
@@ -494,8 +518,8 @@ def phase_pbt(args, output_dir: Path) -> None:
     split = int(fs.n_bars * 0.7)
     train_fs = fs.slice(0, split)
     val_fs = fs.slice(split + 24, fs.n_bars)
-    pp = build_post_processor(args)
-    ekw = build_env_kwargs(args, pp)
+    pp = build_post_processor(args, horizon=args.horizon)
+    ekw = build_env_kwargs(args, pp, horizon=args.horizon)
     print(f"PBT search: pop={args.pbt_pop} gen={args.pbt_gen} "
           f"steps/individual={args.pbt_steps}")
 
@@ -532,8 +556,8 @@ def phase_regime(args, output_dir: Path) -> None:
     train_fs = fs.slice(0, split)
     test_fs = fs.slice(split + 24, fs.n_bars)
 
-    pp = build_post_processor(args)
-    ekw = build_env_kwargs(args, pp)
+    pp = build_post_processor(args, horizon=args.horizon)
+    ekw = build_env_kwargs(args, pp, horizon=args.horizon)
 
     # 専門家は短いエピソード（レジームが一貫する長さ）で学習する。
     # 30日窓では強気/弱気/レンジが混在し「純粋な」エピソードが作れないため、
@@ -602,8 +626,8 @@ def phase_wf(args, output_dir: Path) -> None:
     fs = build_feature_set(args)
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
 
-    pp = build_post_processor(args)
-    ekw = build_env_kwargs(args, pp)
+    pp = build_post_processor(args, horizon=args.horizon)
+    ekw = build_env_kwargs(args, pp, horizon=args.horizon)
 
     def train_fn(train_fs: FeatureSet, seed: int):
         return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed,

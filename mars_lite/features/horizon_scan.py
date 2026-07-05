@@ -130,3 +130,35 @@ def run_horizon_scan(
         ))
 
     return HorizonScanReport(results=results)
+
+
+def compute_breakeven_ic(
+    fs: FeatureSet,
+    horizon: int,
+    candidate_ics: Tuple[float, ...] = (0.01, 0.02, 0.05, 0.1, 0.2, 0.3),
+    decision_every: Optional[int] = None,
+    seed: int = 0,
+    n_draws: int = 2,
+    **cost_kwargs,
+) -> Optional[float]:
+    """
+    そのホライズン・意思決定頻度で「コスト後に黒字化する最小の目標IC」を推定する
+
+    ノイズ入りオラクル（baselines.noisy_oracle_strategy）を候補IC群で
+    昇順に評価し、total_return > 0 になる最初のICを返す。全て黒字化
+    しなければNone（=このコスト構造ではどのIC水準でも割に合わない）。
+
+    decision_every省略時は Phase B の既定連動則
+    （max(1, horizon // 2)）を使う。
+    """
+    from mars_lite.learning.baselines import noisy_oracle_strategy
+
+    de = decision_every if decision_every is not None else max(1, horizon // 2)
+    for ic in sorted(candidate_ics):
+        result = noisy_oracle_strategy(
+            fs, target_ic=ic, seed=seed, n_draws=n_draws,
+            decision_every=de, **cost_kwargs,
+        )
+        if result.total_return > 0:
+            return float(ic)
+    return None

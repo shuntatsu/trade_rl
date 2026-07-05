@@ -2,9 +2,9 @@
 Hyperliquid銘柄向けデリバティブ/オーダーフロー取得スクリプト（Binance代理）
 
 Hyperliquidの公開APIはOI・L/S比率・清算の**履歴**を提供しない（現在値の
-スナップショットのみ）。暗号先物のポジショニングは取引所間で強く相関する
-ため、同一コインのBinance USDT-M先物公開エンドポイント（認証不要）から
-履歴を取得し、HyperliquidSourceのキャッシュ規約に保存する:
+スナップショットのみ）。同一コインのBinance USDT-M先物 metrics を
+data.binance.vision から取得し（5分足・長期履歴）、HyperliquidSourceの
+キャッシュ規約に保存する:
 
     data/hyperliquid/{COIN}_derivatives.csv   (timestamp, open_interest, ls_ratio, liq_notional)
     data/hyperliquid/{COIN}_orderflow_1m.csv  (timestamp, buy_volume, sell_volume,
@@ -66,7 +66,7 @@ def main():
         coin = _coin(symbol)
         print(f"=== {symbol} (coin={coin}) ===")
 
-        print("  derivatives (OI/LS/liq proxy, Binance)...")
+        print("  derivatives (OI/LS/liq, Binance vision)...")
         deriv = fetch_derivatives(symbol, start_ms, end_ms)
         deriv = deriv.rename(columns={"timestamp": "ts_ms"})
         import pandas as pd

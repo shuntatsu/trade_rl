@@ -16,6 +16,7 @@
 import argparse
 import json
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 
@@ -64,6 +65,7 @@ def train_ppo(
     bc_teacher: str = "auto",
     extractor: str = "tfgated",
     horizon: int = 4,
+    oracle_noisy_ic: Optional[float] = None,
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -160,6 +162,20 @@ def train_ppo(
             teacher = ridge_teacher(fs, horizon=horizon)
         elif bc_teacher == "ts_momentum":
             teacher = ts_momentum_teacher()
+        elif bc_teacher == "oracle":
+            from mars_lite.features.signal_check import run_signal_check
+            from mars_lite.learning.bc_warmstart import dp_oracle_teacher
+            ic = run_signal_check(fs, horizon=horizon)
+            if ic.mean_oos_ic >= 0.025:
+                teacher = dp_oracle_teacher(fs, noisy_ic=oracle_noisy_ic)
+                if verbose:
+                    kind = f"noisy_ic={oracle_noisy_ic}" if oracle_noisy_ic else "perfect foresight"
+                    print(f"[BC oracle] IC gate passed (ic={ic.mean_oos_ic:.3f}), "
+                          f"using DP-oracle teacher ({kind})")
+            elif verbose:
+                print(f"[BC oracle] IC gate failed (ic={ic.mean_oos_ic:.3f}) "
+                      "-> oracle teacher disabled (flat prior); "
+                      "特権教師を模倣する意味がない（ノイズの丸暗記になる）")
         else:
             teacher = soft_momentum_teacher()
 
@@ -416,7 +432,9 @@ def phase_train(args, output_dir: Path) -> None:
 
         def _train(train_fs_, seed):
             return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=seed,
-                             gamma=args.gamma, bc_warmstart=True, horizon=horizon, **ekw)
+                             gamma=args.gamma, bc_warmstart=True, horizon=horizon,
+                             bc_teacher=args.bc_teacher, oracle_noisy_ic=args.oracle_noisy_ic,
+                             **ekw)
         agent = train_ensemble(_train, train_fs, seeds=list(range(args.ensemble)),
                                verbose=1)
         agent.save(str(output_dir / "portfolio_ensemble"))
@@ -424,7 +442,9 @@ def phase_train(args, output_dir: Path) -> None:
         print(f"Training PPO: {args.timesteps:,} steps...")
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
                           gamma=args.gamma, verbose=args.verbose,
-                          bc_warmstart=True, horizon=horizon, **ekw)
+                          bc_warmstart=True, horizon=horizon,
+                          bc_teacher=args.bc_teacher, oracle_noisy_ic=args.oracle_noisy_ic,
+                          **ekw)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     noisy_ic = args.noisy_oracle_ic if args.noisy_oracle_ic > 0 else None
@@ -638,6 +658,13 @@ def main():
     parser.add_argument("--noisy-oracle-ic", type=float, default=0.05,
                         help="現実的な天井として併記するノイズ入りオラクルの目標IC。"
                              "0以下で無効")
+    parser.add_argument("--bc-teacher", choices=["auto", "ridge", "ts_momentum", "momentum", "oracle"],
+                        default="auto",
+                        help="BC事前学習の教師。oracle=DPオラクル（特権教師）を蒸留。"
+                             "ICゲート合格時のみ有効化される")
+    parser.add_argument("--oracle-noisy-ic", type=float, default=None,
+                        help="--bc-teacher oracle で使う劣化オラクルの目標IC。"
+                             "省略時は完全予知（学習不能なパターンを丸暗記するリスクあり）")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

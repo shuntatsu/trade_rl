@@ -122,6 +122,57 @@ def combined_teacher(
     return teacher
 
 
+def dp_oracle_teacher(
+    train_fs,
+    noisy_ic: Optional[float] = None,
+    seed: int = 0,
+    fee_rate: float = 0.0005,
+    spread_rate: float = 0.0002,
+    impact_rate: float = 0.0001,
+    cost_multiplier: float = 1.0,
+    allow_short: bool = True,
+) -> TeacherFn:
+    """
+    DPオラクル（特権教師）を模倣する蒸留教師（clairvoyant teacher distillation）
+
+    未来を完全に（noisy_ic省略時）、または目標ICだけ劣化的に（noisy_ic指定時）
+    知った上での最適ポジション経路を教師ラベルとする。studentは現在時刻の
+    因果的特徴のみを観測して模倣するため、実際に再現できる度合いは結局
+    データのIC（signal_check）で頭打ちになるが、限られた信号をより
+    攻撃的（オラクル並みの機動性で）に使い切る出発点を与える。
+
+    noisy_ic を指定すると、完全予知ではなく「学習可能な水準の予知力」を
+    模倣させられる（perfect-future patternsの丸暗記を避ける）。
+
+    注意: train_fsには学習スライスのみを渡すこと（リーク防止）。教師
+    ラベル自体は非因果的（未来を見る）だが、模倣後の評価は必ずOOSで
+    行うこと（教師の強さをRLの実力と誤解しない）。
+    """
+    from mars_lite.learning.baselines import oracle_dp_paths, calibrate_noise_to_ic, _true_returns
+
+    n_sym = train_fs.n_symbols
+    end_idx = train_fs.n_bars - 1
+
+    signal = None
+    if noisy_ic is not None:
+        true_r = _true_returns(train_fs, 0, end_idx)
+        sigma = calibrate_noise_to_ic(true_r, noisy_ic, seed=seed)
+        rng = np.random.default_rng(seed)
+        signal = true_r + rng.normal(0.0, sigma, size=true_r.shape)
+
+    paths = oracle_dp_paths(
+        train_fs, signal=signal, allow_short=allow_short,
+        fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier, start_idx=0, end_idx=end_idx,
+    )  # (T, n_sym), T == end_idx
+
+    def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
+        idx = min(t, len(paths) - 1)
+        return paths[idx] / n_sym
+
+    return teacher
+
+
 def generate_teacher_dataset(
     fs, teacher_fn: TeacherFn, env_kwargs: Optional[dict] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:

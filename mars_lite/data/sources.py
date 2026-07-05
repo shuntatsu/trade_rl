@@ -397,8 +397,34 @@ class HyperliquidSource(DataSource):
         coin = self._coin(symbol)
         path = self.cache_dir / f"{coin}_derivatives.csv"
         if not path.exists():
-            return super().load_derivatives(symbol, start, end)
-        df = pd.read_csv(path, parse_dates=["timestamp"])
+            df = super().load_derivatives(symbol, start, end)
+        else:
+            df = pd.read_csv(path, parse_dates=["timestamp"])
+
+        # HLネイティブのスナップショット（collect_hl_snapshots.py蓄積分）が
+        # あれば、重複する期間のopen_interestはネイティブ値で上書きする
+        # （Binance代理はあくまで履歴の穴埋め）。ls_ratio/liq_notionalは
+        # HLに相当データが無いためBinance代理のまま。
+        snap_path = self.cache_dir / "snapshots" / f"{coin}_ctx.csv"
+        if snap_path.exists():
+            snap = pd.read_csv(snap_path, parse_dates=["timestamp"])
+            if not snap.empty:
+                snap = snap.sort_values("timestamp")
+                if df.empty:
+                    df = pd.DataFrame({
+                        "timestamp": snap["timestamp"],
+                        "open_interest": snap["open_interest"],
+                        "ls_ratio": 1.0, "liq_notional": 0.0,
+                    })
+                else:
+                    df = df.set_index("timestamp")
+                    native_oi = snap.set_index("timestamp")["open_interest"]
+                    df = df.reindex(df.index.union(native_oi.index)).sort_index()
+                    df.loc[native_oi.index, "open_interest"] = native_oi
+                    df = df.ffill().reset_index().rename(columns={"index": "timestamp"})
+
+        if df.empty:
+            return df
         if start is not None:
             df = df[df["timestamp"] >= pd.Timestamp(start)]
         if end is not None:

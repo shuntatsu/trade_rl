@@ -149,3 +149,46 @@ class TestFeatureMask:
         import pytest as _pt
         with _pt.raises(ValueError):
             feature_set.apply_mask(np.ones(3, dtype=bool))
+
+
+class TestTrendGateAndTeachers:
+
+    def test_trend_gate_detects_persistent_bull(self):
+        from mars_lite.data.sources import SyntheticSource
+        from mars_lite.features.signal_check import run_trend_gate
+        src = SyntheticSource(n_days=90, alpha="bull", alpha_strength=0.001, seed=1)
+        fs = FeaturePipeline(src.symbols).build(src)
+        g = run_trend_gate(fs)
+        assert g["has_trend"]
+        assert g["direction"] > 0                    # 上昇方向
+        assert g["fold_sign_agreement"] == 1.0       # 全foldで同符号
+
+    def test_trend_gate_rejects_noise_no_false_positive(self):
+        """ランダムウォークの実現ドリフトを符号一致で弾く（偽陽性防止）"""
+        from mars_lite.data.sources import SyntheticSource
+        from mars_lite.features.signal_check import run_trend_gate
+        for seed in range(6):
+            src = SyntheticSource(n_days=60, alpha="none", seed=seed)
+            fs = FeaturePipeline(src.symbols).build(src)
+            assert not run_trend_gate(fs)["has_trend"], f"false positive at seed {seed}"
+
+    def test_ts_momentum_teacher_net_long_in_uptrend(self):
+        import numpy as np
+        from mars_lite.data.sources import SyntheticSource
+        from mars_lite.learning.bc_warmstart import ts_momentum_teacher
+        src = SyntheticSource(n_days=40, alpha="bull", alpha_strength=0.001, seed=2)
+        fs = FeaturePipeline(src.symbols).build(src)
+        w = ts_momentum_teacher()(fs, fs.n_bars - 1, np.zeros(fs.n_symbols))
+        assert w.sum() > 0                           # ネットロング
+
+    def test_ts_momentum_not_zero_sum(self):
+        """時系列モメンタムはネット方向性を持つ（クロスモメンタムはゼロサム）"""
+        import numpy as np
+        from mars_lite.learning.bc_warmstart import ts_momentum_teacher, soft_momentum_teacher
+        from mars_lite.data.sources import SyntheticSource
+        src = SyntheticSource(n_days=40, alpha="bull", alpha_strength=0.001, seed=3)
+        fs = FeaturePipeline(src.symbols).build(src)
+        ts_w = ts_momentum_teacher()(fs, fs.n_bars - 1, np.zeros(fs.n_symbols))
+        cs_w = soft_momentum_teacher()(fs, fs.n_bars - 1, np.zeros(fs.n_symbols))
+        assert abs(ts_w.sum()) > 0.05                # ネット方向性あり
+        assert abs(cs_w.sum()) < 1e-9                # クロスはゼロサム

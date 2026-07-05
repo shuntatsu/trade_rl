@@ -61,7 +61,7 @@ def train_ppo(
     val_eval_freq: int = 20_000,
     bc_warmstart: bool = True,
     bc_epochs: int = 15,
-    bc_teacher: str = "ridge",
+    bc_teacher: str = "auto",
     extractor: str = "tfgated",
     **env_kwargs,
 ):
@@ -127,16 +127,44 @@ def train_ppo(
     )
 
     # BCウォームスタート（教師方策の模倣で方策を初期化）
-    # momentum: クロスモメンタム固定教師 / ridge: 学習スライスで当てはめた
-    # Ridge予測を教師にする（アルファの型を仮定しない、汎用版）
+    # bc_teacher="auto": 学習スライスのゲートで教師を自動選択
+    #   クロスセクショナルIC合格 → ridge（相対アルファ）
+    #   方向性トレンド合格     → ts_momentum（ベータ捕捉。上昇相場でB&Hに勝つ）
+    #   どちらも無し           → BC無効（フラットで待つ＝安全）
+    # ridge/momentum/ts_momentum を明示指定も可。
     if bc_warmstart:
         from mars_lite.learning.bc_warmstart import (
-            soft_momentum_teacher, ridge_teacher, generate_teacher_dataset, bc_pretrain,
+            soft_momentum_teacher, ridge_teacher, ts_momentum_teacher,
+            generate_teacher_dataset, bc_pretrain,
         )
-        teacher = (ridge_teacher(fs) if bc_teacher == "ridge"
-                   else soft_momentum_teacher())
-        X, A = generate_teacher_dataset(fs, teacher, env_kwargs)
-        bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
+        teacher = None
+        if bc_teacher == "auto":
+            from mars_lite.features.signal_check import run_signal_check, run_trend_gate
+            from mars_lite.learning.bc_warmstart import combined_teacher
+            ic = run_signal_check(fs)
+            trend = run_trend_gate(fs)
+            # Ridgeは偽陽性回避のため閾値+マージンを要求
+            use_ridge = ic.mean_oos_ic >= 0.025
+            use_trend = trend["has_trend"]
+            if use_ridge or use_trend:
+                teacher = combined_teacher(fs, use_ridge=use_ridge, use_trend=use_trend)
+                if verbose:
+                    comps = []
+                    if use_ridge: comps.append(f"ridge(ic={ic.mean_oos_ic:.3f})")
+                    if use_trend: comps.append(f"trend(t={trend['t_stat']:.1f})")
+                    print(f"[BC auto] teacher = {' + '.join(comps)}")
+            elif verbose:
+                print("[BC auto] no gate passed -> BC disabled (flat prior)")
+        elif bc_teacher == "ridge":
+            teacher = ridge_teacher(fs)
+        elif bc_teacher == "ts_momentum":
+            teacher = ts_momentum_teacher()
+        else:
+            teacher = soft_momentum_teacher()
+
+        if teacher is not None:
+            X, A = generate_teacher_dataset(fs, teacher, env_kwargs)
+            bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
 
     val_cb = None
     if val_fs is not None:
@@ -225,7 +253,7 @@ def phase_p0(args, output_dir: Path) -> None:
         # 模倣するとノイズを刷り込み、陰性対照の安全性を壊すため）
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
                           gamma=args.gamma, verbose=args.verbose,
-                          bc_warmstart=ic.passed, **ekw)
+                          bc_warmstart=True, **ekw)
 
         agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
         baselines = run_all_baselines(test_fs)
@@ -332,7 +360,7 @@ def phase_train(args, output_dir: Path) -> None:
 
         def _train(train_fs_, seed):
             return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=seed,
-                             gamma=args.gamma, bc_warmstart=ic.passed, **ekw)
+                             gamma=args.gamma, bc_warmstart=True, **ekw)
         agent = train_ensemble(_train, train_fs, seeds=list(range(args.ensemble)),
                                verbose=1)
         agent.save(str(output_dir / "portfolio_ensemble"))
@@ -340,7 +368,7 @@ def phase_train(args, output_dir: Path) -> None:
         print(f"Training PPO: {args.timesteps:,} steps...")
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
                           gamma=args.gamma, verbose=args.verbose,
-                          bc_warmstart=ic.passed, **ekw)
+                          bc_warmstart=True, **ekw)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     baselines = run_all_baselines(test_fs)

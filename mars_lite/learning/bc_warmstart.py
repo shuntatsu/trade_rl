@@ -43,6 +43,29 @@ def soft_momentum_teacher(lookback: int = 24) -> TeacherFn:
     return teacher
 
 
+def ts_momentum_teacher(lookback: int = 48) -> TeacherFn:
+    """
+    時系列モメンタム教師（**ネット方向性を持つ**＝ベータ捕捉可能）
+
+    クロスセクショナル教師（ridge/soft_momentum）はゼロサムで市場中立のため、
+    「全銘柄が上がるだけ」の方向性ベータを捉えられない。この教師は各銘柄の
+    過去リターンの絶対的な符号・強度でポジションを建て、ゼロサムにしない。
+    上昇相場では全ロング、下落相場では全ショートに寄る（=トレンドフォロー）。
+    """
+    def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
+        n = fs.n_symbols
+        start = max(0, t - lookback)
+        if t - start < 4:
+            return np.zeros(n)
+        mom = np.log(fs.close[t] / fs.close[start])
+        scale = np.abs(mom).mean() + 1e-9
+        raw = np.tanh(mom / scale)          # 有界化・ネット方向性を保持
+        gross = np.abs(raw).sum()
+        return raw / gross if gross > 1.0 else raw
+
+    return teacher
+
+
 def ridge_teacher(train_fs, horizon: int = 4, lam: float = 10.0) -> TeacherFn:
     """
     データ駆動のRidge教師（アルファの型を仮定しない）
@@ -67,6 +90,34 @@ def ridge_teacher(train_fs, horizon: int = 4, lam: float = 10.0) -> TeacherFn:
         if denom < 1e-12:
             return np.zeros(fs.n_symbols)
         return centered / denom
+
+    return teacher
+
+
+def combined_teacher(
+    train_fs, use_ridge: bool, use_trend: bool, horizon: int = 4,
+) -> TeacherFn:
+    """
+    合成教師: Ridge（相対アルファ・ゼロサム）＋ 時系列モメンタム（方向性ベータ）
+
+    ポジション = 市場中立の相対ベット + 方向性の市場エクスポージャ、という
+    正しい分解。各成分は独立ゲートで有効化する:
+      use_ridge: クロスセクショナルICが（マージン付きで）合格
+      use_trend: 方向性トレンドが有意
+    上昇相場では use_trend が effいてベータを捕捉、相対アルファ市場では
+    use_ridge が効いて相対ベットを取る。両方でも自然に合算される。
+    """
+    ridge_fn = ridge_teacher(train_fs, horizon) if use_ridge else None
+    ts_fn = ts_momentum_teacher() if use_trend else None
+
+    def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
+        w = np.zeros(fs.n_symbols)
+        if ridge_fn is not None:
+            w = w + ridge_fn(fs, t, prev)
+        if ts_fn is not None:
+            w = w + ts_fn(fs, t, prev)
+        gross = np.abs(w).sum()
+        return w / gross if gross > 1.0 else w
 
     return teacher
 

@@ -60,11 +60,29 @@ def cross_momentum_strategy(
     return weights
 
 
+def trend_following_strategy(
+    fs: FeatureSet, t: int, w: np.ndarray,
+    lookback: int = 48, rebalance_every: int = 24,
+) -> np.ndarray:
+    """時系列モメンタム（ネット方向性あり。上昇相場では全ロング）"""
+    if t % rebalance_every != 0 and w.any():
+        return w
+    start = max(0, t - lookback)
+    if t - start < 4:
+        return np.zeros(fs.n_symbols)
+    mom = np.log(fs.close[t] / fs.close[start])
+    scale = np.abs(mom).mean() + 1e-9
+    raw = np.tanh(mom / scale)
+    gross = np.abs(raw).sum()
+    return raw / gross if gross > 1.0 else raw
+
+
 BASELINES: Dict[str, WeightFn] = {
     "flat": flat_strategy,
     "equal_weight_bh": equal_weight_strategy,
     "inverse_vol": inverse_vol_strategy,
     "cross_momentum": cross_momentum_strategy,
+    "trend_following": trend_following_strategy,
 }
 
 

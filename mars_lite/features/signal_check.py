@@ -158,6 +158,55 @@ def compute_feature_mask(
     }
 
 
+def run_trend_gate(
+    fs: FeatureSet, horizon: int = 4, t_threshold: float = 3.0,
+    n_folds: int = 4, min_sign_agreement: float = 1.0,
+) -> Dict[str, object]:
+    """
+    方向性トレンドゲート（**持続的な**方向性ベータの有無を検出）
+
+    全銘柄プールの前方リターン平均が有意に非ゼロ（t検定）**かつ**、
+    時系列fold間でドリフトの符号が一致することを要求する。
+
+    後者が重要: ランダムウォークは有限窓で実現ドリフトを持つため単純な
+    t検定は偽陽性を出す（1つの実現に過剰適合）。真の持続ドリフトは全fold
+    で同符号だが、ランダムウォークのドリフトはfold間でばらつく。ICマスクと
+    同じ符号一致原理でこれを弾く。
+
+    Returns:
+        {mean_fwd, t_stat, fold_sign_agreement, has_trend, direction}
+    """
+    _, y, bar_idx = _pool(fs, horizon)
+    if len(y) < 40:
+        return {"mean_fwd": 0.0, "t_stat": 0.0, "fold_sign_agreement": 0.0,
+                "has_trend": False, "direction": 0}
+
+    mean = float(np.mean(y))
+    se = float(np.std(y) / np.sqrt(len(y)))
+    t = mean / se if se > 1e-12 else 0.0
+    direction = int(np.sign(mean))
+
+    # fold別のドリフト符号一致
+    n_bars = int(bar_idx.max()) + 1
+    edges = np.linspace(0, n_bars, n_folds + 1).astype(int)
+    fold_means = []
+    for k in range(n_folds):
+        m = (bar_idx >= edges[k]) & (bar_idx < edges[k + 1])
+        if m.sum() >= 10:
+            fold_means.append(float(np.mean(y[m])))
+    agreement = (float(np.mean([np.sign(fm) == direction for fm in fold_means]))
+                 if fold_means else 0.0)
+
+    has_trend = abs(t) >= t_threshold and agreement >= min_sign_agreement
+    return {
+        "mean_fwd": mean,
+        "t_stat": float(t),
+        "fold_sign_agreement": agreement,
+        "has_trend": bool(has_trend),
+        "direction": direction,
+    }
+
+
 def run_leak_self_test(fs: FeatureSet, horizon: int = 4) -> Dict[str, object]:
     """
     リーク検出器自体の健全性を検査する自己テスト

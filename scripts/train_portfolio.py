@@ -208,14 +208,28 @@ def report_comparison(agent_res: dict, baselines: dict, label: str) -> None:
         print(f"{d['name']:<18} {d['total_return']:>+8.2%} "
               f"{d['sharpe']:>8.2f} {d['max_drawdown']:>7.2%} "
               f"{d['turnover_total']:>9.1f}")
-    # 捕捉率 = RL収益 / オラクル則（手数料込みDP上限）収益
+    # 捕捉率 = RL収益 / オラクル収益。完全オラクル（IC=1、到達不能な天井）と
+    # ノイズ入りオラクル（現実的な目標IC天井）の両方があれば併記する。
+    # ヘッドラインはノイズ入りオラクル比（現実的に目指すべき水準）。
     oracle = baselines.get("oracle_dp")
     if oracle is not None:
         o = oracle.to_dict() if hasattr(oracle, "to_dict") else oracle
         denom = o["total_return"]
         if abs(denom) > 1e-9:
-            print(f"  capture rate (RL / oracle_dp) = "
+            print(f"  capture rate (RL / oracle_dp perfect)  = "
                   f"{agent_res['total_return'] / denom:>+.1%}")
+    for name, r in baselines.items():
+        if not name.startswith("oracle_ic"):
+            continue
+        d = r.to_dict() if hasattr(r, "to_dict") else r
+        denom = d["total_return"]
+        if denom > 1e-9:
+            print(f"  capture rate (RL / {name})  = "
+                  f"{agent_res['total_return'] / denom:>+.1%}  <- headline")
+        else:
+            print(f"  {name}: 目標ICでもコスト後は黒字化しない"
+                  f"（return={denom:+.2%}）。捕捉率は算出不能"
+                  f"（このコスト水準ではより高いICか低コストが必要）")
 
 
 def build_post_processor(args):
@@ -413,7 +427,8 @@ def phase_train(args, output_dir: Path) -> None:
                           bc_warmstart=True, horizon=horizon, **ekw)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
-    baselines = run_all_baselines(test_fs)
+    noisy_ic = args.noisy_oracle_ic if args.noisy_oracle_ic > 0 else None
+    baselines = run_all_baselines(test_fs, noisy_oracle_ic=noisy_ic)
     report_comparison(agent_res, baselines, "OOS comparison")
     plot_comparison(agent_res, baselines, output_dir / "train_equity.png")
 
@@ -620,6 +635,9 @@ def main():
     parser.add_argument("--decision-every", type=int, default=1,
                         help="環境の意思決定間隔（バー数）。1バーでシグナルが立たない"
                              "低頻度アルファをホライズンスキャンで見つけた場合に使う")
+    parser.add_argument("--noisy-oracle-ic", type=float, default=0.05,
+                        help="現実的な天井として併記するノイズ入りオラクルの目標IC。"
+                             "0以下で無効")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

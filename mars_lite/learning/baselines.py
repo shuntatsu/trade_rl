@@ -10,7 +10,7 @@ simulate_strategy() が環境と同一のコストモデルでバックテスト
 """
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -170,35 +170,34 @@ def simulate_strategy(
     )
 
 
-def oracle_dp_strategy(
+def _true_returns(fs: FeatureSet, start_idx: int, end_idx: int) -> np.ndarray:
+    """[start_idx, end_idx) 区間の1バー単純リターン (T, n_symbols)"""
+    return fs.close[start_idx + 1:end_idx + 1] / fs.close[start_idx:end_idx] - 1.0
+
+
+def oracle_dp_paths(
     fs: FeatureSet,
-    name: str = "oracle_dp",
+    signal: Optional[np.ndarray] = None,
+    positions: tuple = (-1.0, 0.0, 1.0),
+    allow_short: bool = True,
     fee_rate: float = 0.0005,
     spread_rate: float = 0.0002,
     impact_rate: float = 0.0001,
-    positions: tuple = (-1.0, 0.0, 1.0),
-    allow_short: bool = True,
     cost_multiplier: float = 1.0,
     start_idx: int = 0,
     end_idx: Optional[int] = None,
-) -> StrategyResult:
+) -> np.ndarray:
     """
-    手数料込みの理論上限（オラクル）を動的計画法で厳密に求める。
+    銘柄別の最適ポジション経路をDP（Viterbi型トレリス最短経路）で求める。
 
-    各銘柄に資本を 1/N ずつ割り当てた独立サブアカウントとして扱い、各
-    サブアカウントで「未来を完全に知った上で、手数料を払ってでもポジションを
-    持つ/反転させる価値があるか」をDP（Viterbi型のトレリス最短経路）で解く。
+    各銘柄を独立サブアカウントとして扱い、「手数料を払ってでもポジションを
+    持つ/反転させる価値があるか」を解く。`signal` を渡すとその値を
+    バー報酬 log(1+p·signal_t) の駆動源として使う（ノイズ入りオラクル用。
+    経路選択は signal に基づくが、損益実現は呼び出し側が真のリターンで
+    別途行う）。省略時は真のリターン自体を signal として使う（完全オラクル）。
 
-    - 状態: サブアカウント内ポジション p ∈ positions（既定 {-1,0,+1} = 全ショート/
-      フラット/全ロング）。allow_short=Falseなら {0,+1}
-    - バー報酬: log(1 + p·r_t)（対数で複利を加法化）
-    - 遷移コスト: env と同じ (手数料+スプレッド)·|Δp| + impact·|Δp|^1.5 を
-      log(1-cost) として減算。**微小な山谷は手数料に負けて取らない**ため、
-      閾値を超える山と谷だけを取りにいく最適経路になる
-
-    ポートフォリオ資産 = 各サブアカウント資産の平均（等資本のため加法的）。
-    これは同一コスト・同一レバレッジ制約下での達成可能な上限であり、RLの
-    「捕捉率 = RL収益 / オラクル収益」の分母に使える。
+    Returns:
+        (T, n_symbols) の実現ポジション値配列（positions の要素）
     """
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     pos = np.array([p for p in positions if allow_short or p >= 0], dtype=np.float64)
@@ -219,18 +218,15 @@ def oracle_dp_strategy(
     if T < 1:
         raise ValueError("oracle_dp: 区間が短すぎます")
 
-    # 各サブアカウントの資産推移（後で平均してポートフォリオ資産に）
-    sleeve_equity = np.ones((T + 1, n_sym))
-    turnover_total = 0.0
+    sig = signal if signal is not None else _true_returns(fs, start_idx, end_idx)
+    paths = np.zeros((T, n_sym), dtype=np.float64)
 
     for i in range(n_sym):
-        r = fs.close[start_idx + 1:end_idx + 1, i] / fs.close[start_idx:end_idx, i] - 1.0
-        # ホールド対数報酬 (T, n_states)
-        hold = np.log(np.clip(1.0 + np.outer(r, pos), 1e-9, None))
+        s = sig[:, i]
+        hold = np.log(np.clip(1.0 + np.outer(s, pos), 1e-9, None))
 
         dp = np.full((T, n_states), -np.inf)
         ptr = np.zeros((T, n_states), dtype=np.int64)
-        # t=0: 初期ポジション0（フラット）から遷移
         for j in range(n_states):
             dp[0, j] = trans_logcost(0.0, pos[j]) + hold[0, j]
         for t in range(1, T):
@@ -243,55 +239,234 @@ def oracle_dp_strategy(
                 dp[t, j] = best_v + hold[t, j]
                 ptr[t, j] = best_k
 
-        # 最良終端からバックトラックして最適ポジション経路を復元
-        path = np.zeros(T, dtype=np.int64)
-        path[T - 1] = int(np.argmax(dp[T - 1]))
+        path_idx = np.zeros(T, dtype=np.int64)
+        path_idx[T - 1] = int(np.argmax(dp[T - 1]))
         for t in range(T - 1, 0, -1):
-            path[t - 1] = ptr[t, path[t]]
+            path_idx[t - 1] = ptr[t, path_idx[t]]
+        paths[:, i] = pos[path_idx]
 
-        # 経路に沿ってサブアカウント資産を再構成（コスト→ホールドの順）
+    return paths
+
+
+def _simulate_positions(
+    fs: FeatureSet,
+    paths: np.ndarray,
+    fee_rate: float = 0.0005,
+    spread_rate: float = 0.0002,
+    impact_rate: float = 0.0001,
+    cost_multiplier: float = 1.0,
+    start_idx: int = 0,
+    end_idx: Optional[int] = None,
+) -> Tuple[np.ndarray, float]:
+    """
+    銘柄別ポジション経路 paths (T, n_symbols) を**真のリターン**で実現し、
+    サブアカウント平均のポートフォリオ資産曲線を返す。
+
+    oracle_dp_paths の signal が真のリターンと異なる場合（ノイズ入り
+    オラクル）に、選択された経路の実際の損益を正しく評価するために使う。
+    """
+    end_idx = end_idx if end_idx is not None else fs.n_bars - 1
+    n_sym = fs.n_symbols
+    T = end_idx - start_idx
+    impact_coef = (impact_rate / (0.1 ** 0.5))
+    lin = (fee_rate + spread_rate) * cost_multiplier
+    imp = impact_coef * cost_multiplier
+    r = _true_returns(fs, start_idx, end_idx)
+
+    sleeve_equity = np.ones((T + 1, n_sym))
+    turnover_total = 0.0
+    for i in range(n_sym):
         prev_p = 0.0
         val = 1.0
         for t in range(T):
-            p = pos[path[t]]
+            p = paths[t, i]
             d = abs(p - prev_p)
-            turnover_total += d / n_sym          # ポートフォリオ比の回転
+            turnover_total += d / n_sym
             cost = lin * d + imp * (d ** 1.5) if d > 0 else 0.0
-            val *= (1.0 - cost) * (1.0 + p * r[t])
+            val *= (1.0 - cost) * (1.0 + p * r[t, i])
             sleeve_equity[t + 1, i] = val
             prev_p = p
 
-    # ポートフォリオ資産 = サブアカウント資産の平均（等資本）
     equity = sleeve_equity.mean(axis=1)
+    return equity, turnover_total
+
+
+def _equity_to_result(name: str, equity: np.ndarray, turnover_total: float) -> StrategyResult:
     rets = np.diff(equity) / equity[:-1]
     sharpe = float(rets.mean() / rets.std() * np.sqrt(24 * 365)) \
         if rets.std() > 0 else 0.0
     peak = np.maximum.accumulate(equity)
     max_dd = float((1.0 - equity / peak).max())
-
     return StrategyResult(
-        name=name,
-        equity_curve=equity,
-        total_return=float(equity[-1] - 1.0),
-        sharpe=sharpe,
-        max_drawdown=max_dd,
-        turnover_total=float(turnover_total),
-        n_bars=T,
+        name=name, equity_curve=equity, total_return=float(equity[-1] - 1.0),
+        sharpe=sharpe, max_drawdown=max_dd, turnover_total=float(turnover_total),
+        n_bars=len(equity) - 1,
     )
 
 
-def run_all_baselines(fs: FeatureSet, include_oracle: bool = True,
-                      **kwargs) -> Dict[str, StrategyResult]:
-    """全ベースラインを同一条件でバックテスト（include_oracleでDPオラクル上限も併記）"""
+def oracle_dp_strategy(
+    fs: FeatureSet,
+    name: str = "oracle_dp",
+    fee_rate: float = 0.0005,
+    spread_rate: float = 0.0002,
+    impact_rate: float = 0.0001,
+    positions: tuple = (-1.0, 0.0, 1.0),
+    allow_short: bool = True,
+    cost_multiplier: float = 1.0,
+    start_idx: int = 0,
+    end_idx: Optional[int] = None,
+) -> StrategyResult:
+    """
+    手数料込みの理論上限（完全オラクル）を動的計画法で厳密に求める。
+
+    各銘柄に資本を 1/N ずつ割り当てた独立サブアカウントとして扱い、各
+    サブアカウントで「未来を完全に知った上で、手数料を払ってでもポジションを
+    持つ/反転させる価値があるか」をDP（Viterbi型のトレリス最短経路）で解く。
+
+    - 状態: サブアカウント内ポジション p ∈ positions（既定 {-1,0,+1} = 全ショート/
+      フラット/全ロング）。allow_short=Falseなら {0,+1}
+    - バー報酬: log(1 + p·r_t)（対数で複利を加法化）
+    - 遷移コスト: env と同じ (手数料+スプレッド)·|Δp| + impact·|Δp|^1.5 を
+      log(1-cost) として減算。**微小な山谷は手数料に負けて取らない**ため、
+      閾値を超える山と谷だけを取りにいく最適経路になる
+
+    ポートフォリオ資産 = 各サブアカウント資産の平均（等資本のため加法的）。
+    これは同一コスト・同一レバレッジ制約下での達成可能な上限であり、RLの
+    「捕捉率 = RL収益 / オラクル収益」の分母に使える。
+
+    注意: IC=1（完全な未来予知）を要求する到達不能な天井。現実的な比較には
+    noisy_oracle_strategy（目標ICを指定した劣化オラクル）を併用すること。
+    """
+    paths = oracle_dp_paths(
+        fs, signal=None, positions=positions, allow_short=allow_short,
+        fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier, start_idx=start_idx, end_idx=end_idx,
+    )
+    equity, turnover_total = _simulate_positions(
+        fs, paths, fee_rate=fee_rate, spread_rate=spread_rate,
+        impact_rate=impact_rate, cost_multiplier=cost_multiplier,
+        start_idx=start_idx, end_idx=end_idx,
+    )
+    return _equity_to_result(name, equity, turnover_total)
+
+
+def calibrate_noise_to_ic(
+    fwd_ret: np.ndarray,
+    target_ic: float,
+    seed: int = 0,
+    n_avg: int = 5,
+    tol: float = 0.005,
+    max_iter: int = 40,
+) -> float:
+    """
+    目標rank IC（ノイズ付き信号 vs 真の前方リターン）に近づくノイズsigmaを
+    二分探索で求める。sigma=0でIC=1、sigma→∞でIC→0の単調減少関係を利用。
+    """
+    from mars_lite.features.signal_check import _rank_ic
+
+    fwd = np.asarray(fwd_ret, dtype=np.float64).flatten()
+    std = float(np.std(fwd))
+    if std <= 1e-12:
+        return 1.0
+    if target_ic <= 0:
+        return std * 50.0
+
+    rng = np.random.default_rng(seed)
+
+    def ic_at(sigma: float) -> float:
+        ics = [
+            _rank_ic(fwd + rng.normal(0.0, sigma, size=fwd.shape), fwd)
+            for _ in range(n_avg)
+        ]
+        return float(np.mean(ics))
+
+    lo, hi = 0.0, std * 50.0
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2.0
+        ic = ic_at(mid)
+        if abs(ic - target_ic) < tol:
+            return mid
+        if ic > target_ic:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def noisy_oracle_strategy(
+    fs: FeatureSet,
+    target_ic: float = 0.05,
+    seed: int = 0,
+    n_draws: int = 3,
+    name: Optional[str] = None,
+    fee_rate: float = 0.0005,
+    spread_rate: float = 0.0002,
+    impact_rate: float = 0.0001,
+    positions: tuple = (-1.0, 0.0, 1.0),
+    allow_short: bool = True,
+    cost_multiplier: float = 1.0,
+    start_idx: int = 0,
+    end_idx: Optional[int] = None,
+) -> StrategyResult:
+    """
+    目標rank IC（既定0.05）だけ未来を知る「劣化オラクル」
+
+    完全オラクル（IC=1、到達不能）ではなく、現実的に目指しうるIC水準の
+    予知力しか持たない場合の理論上限を返す。複数ノイズドロー（n_draws）の
+    平均を取り、単一乱数の偶然に左右されないようにする。捕捉率
+    (RL収益 / このオラクル収益) の方が完全オラクル比よりも実務上の目標に近い。
+    """
+    end_idx = end_idx if end_idx is not None else fs.n_bars - 1
+    true_r = _true_returns(fs, start_idx, end_idx)
+    sigma = calibrate_noise_to_ic(true_r, target_ic, seed=seed)
+
+    rng = np.random.default_rng(seed)
+    equity_draws, turnover_draws = [], []
+    for _ in range(n_draws):
+        noisy_signal = true_r + rng.normal(0.0, sigma, size=true_r.shape)
+        paths = oracle_dp_paths(
+            fs, signal=noisy_signal, positions=positions, allow_short=allow_short,
+            fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
+            cost_multiplier=cost_multiplier, start_idx=start_idx, end_idx=end_idx,
+        )
+        equity, turnover = _simulate_positions(
+            fs, paths, fee_rate=fee_rate, spread_rate=spread_rate,
+            impact_rate=impact_rate, cost_multiplier=cost_multiplier,
+            start_idx=start_idx, end_idx=end_idx,
+        )
+        equity_draws.append(equity)
+        turnover_draws.append(turnover)
+
+    equity = np.mean(np.stack(equity_draws, axis=0), axis=0)
+    turnover_total = float(np.mean(turnover_draws))
+    name = name or f"oracle_ic{target_ic:.2f}"
+    return _equity_to_result(name, equity, turnover_total)
+
+
+def run_all_baselines(
+    fs: FeatureSet, include_oracle: bool = True,
+    noisy_oracle_ic: Optional[float] = None,
+    **kwargs,
+) -> Dict[str, StrategyResult]:
+    """
+    全ベースラインを同一条件でバックテスト
+
+    include_oracle: 完全DPオラクル上限（到達不能な天井）も併記
+    noisy_oracle_ic: 指定するとこの目標ICの劣化オラクル（現実的な天井）も併記
+    """
     out = {
         name: simulate_strategy(fs, fn, name=name, **kwargs)
         for name, fn in BASELINES.items()
     }
+    oracle_kwargs = {k: v for k, v in kwargs.items()
+                     if k in ("fee_rate", "spread_rate", "impact_rate",
+                              "cost_multiplier", "start_idx", "end_idx")}
     if include_oracle:
-        oracle_kwargs = {k: v for k, v in kwargs.items()
-                         if k in ("fee_rate", "spread_rate", "impact_rate",
-                                  "cost_multiplier", "start_idx", "end_idx")}
         out["oracle_dp"] = oracle_dp_strategy(fs, **oracle_kwargs)
+    if noisy_oracle_ic is not None:
+        out[f"oracle_ic{noisy_oracle_ic:.2f}"] = noisy_oracle_strategy(
+            fs, target_ic=noisy_oracle_ic, **oracle_kwargs,
+        )
     return out
 
 

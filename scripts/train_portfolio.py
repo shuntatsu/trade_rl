@@ -420,6 +420,19 @@ def phase_train(args, output_dir: Path) -> None:
         return
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols x {fs.n_features} features")
 
+    # --- ロックボックス（最終封印テスト）: 末尾を全工程から隔離 ---
+    # 何度もwalk-forward/train実行を繰り返すほど、検証データへの
+    # 暗黙の過学習（p-hacking）が蓄積する。ここで切り出した区間は
+    # ゲート・特徴マスク・ホライズン選択・fold分割のいずれにも使わず、
+    # 最終モデルの評価に一度だけ使う。
+    lockbox_fs = None
+    if args.lockbox_frac > 0:
+        cut = int(fs.n_bars * (1.0 - args.lockbox_frac))
+        lockbox_fs = fs.slice(cut, fs.n_bars)
+        fs = fs.slice(0, cut)
+        print(f"[Lockbox] 末尾{args.lockbox_frac:.0%}（{lockbox_fs.n_bars}本）を"
+              "最終封印テストとして隔離。以降の全工程はこの区間を参照しない。")
+
     # --- リーク検出器の自己検査（評価コードの健全性確認） ---
     leak = run_leak_self_test(fs)
     print(f"[Leak self-test] shuffle_ic={leak['shuffle_ic']:.4f} "
@@ -519,6 +532,26 @@ def phase_train(args, output_dir: Path) -> None:
 
     if args.ensemble <= 1:
         agent.save(str(output_dir / "portfolio_model"))
+
+    lockbox_report = None
+    if lockbox_fs is not None:
+        marker = output_dir / "lockbox_used.marker"
+        if marker.exists():
+            print(f"\n[Lockbox] 警告: このロックボックスは既に "
+                  f"{marker.read_text().strip()} に一度使用済みです。"
+                  "同じ区間を繰り返し見て判断を調整するのは過学習の抜け道になります。")
+        lockbox_res = evaluate_agent_on_slice(agent, lockbox_fs, **ekw)
+        lockbox_baselines = run_all_baselines(lockbox_fs, noisy_oracle_ic=noisy_ic)
+        report_comparison(lockbox_res, lockbox_baselines,
+                          "LOCKBOX（最終封印・一度きりの検定）")
+        lockbox_report = {
+            "n_bars": lockbox_fs.n_bars,
+            "agent": {k: v for k, v in lockbox_res.items() if k != "equity_curve"},
+            "baselines": {k: v.to_dict() for k, v in lockbox_baselines.items()},
+        }
+        import datetime
+        marker.write_text(datetime.datetime.now(datetime.timezone.utc).isoformat())
+
     with open(output_dir / "train_report.json", "w", encoding="utf-8") as f:
         json.dump({
             "signal_gate": ic.to_dict(),
@@ -528,6 +561,7 @@ def phase_train(args, output_dir: Path) -> None:
             "agent": {k: v for k, v in agent_res.items() if k != "equity_curve"},
             "baselines": {k: v.to_dict() for k, v in baselines.items()},
             "gate2": gate2,  # Phase E: ゲート2判定結果
+            "lockbox": lockbox_report,  # 最終封印テスト（--lockbox-frac指定時のみ）
         }, f, indent=2, ensure_ascii=False)
     print(f"Model & report -> {output_dir}")
 
@@ -683,6 +717,12 @@ def phase_wf(args, output_dir: Path) -> None:
         path = output_dir / f"walk_forward_cost{cost_mult:.0f}x.json"
         report.save(path)
         print(json.dumps(report.summary(), indent=2))
+        if report.dsr:
+            d = report.dsr
+            print(f"[Deflated Sharpe] dsr={d['dsr']:.1%} (>=95%推奨) "
+                  f"sr_hat={d['sr_hat_annualized']:+.2f} "
+                  f"sr0(試行数補正後の基準)={d['sr0_annualized']:+.2f} "
+                  f"n_trials={d['n_trials']}")
         print(f"Report -> {path}")
 
 
@@ -707,6 +747,11 @@ def main():
     parser.add_argument("--output", type=str, default="./output/portfolio")
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--skip-gate", action="store_true")
+    parser.add_argument("--lockbox-frac", type=float, default=0.0,
+                        help="--phase train専用。末尾このfractionを、ゲート/特徴マスク/"
+                             "fold分割/学習の全工程から隔離し、最終モデル評価に一度だけ"
+                             "使う最終封印テストにする。0で無効（既定）。過学習検査用に"
+                             "0.1〜0.15程度を推奨。同じ区間の再利用は警告される。")
     parser.add_argument("--postproc", choices=["full", "legacy"], default="full",
                         help="後処理: full=推奨(平滑/バンド/ボラ目標/DDデリスク), legacy=射影のみ")
     parser.add_argument("--target-vol", type=float, default=0.5,

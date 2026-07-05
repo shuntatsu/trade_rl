@@ -17,9 +17,12 @@ import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.learning.baselines import run_all_baselines, StrategyResult
+from mars_lite.utils.metrics import deflated_sharpe_ratio
 
 # エージェント学習関数の型: (train_fs, seed) -> agent
 TrainFn = Callable[[FeatureSet, int], object]
+
+BARS_PER_YEAR_1H = 24 * 365
 
 
 @dataclass
@@ -35,6 +38,7 @@ class FoldResult:
 class WalkForwardReport:
     folds: List[FoldResult] = field(default_factory=list)
     config: Dict = field(default_factory=dict)
+    dsr: Dict = field(default_factory=dict)
 
     def summary(self) -> Dict:
         """fold横断のエージェント成績分布とベースライン比較"""
@@ -70,6 +74,7 @@ class WalkForwardReport:
         payload = {
             "config": self.config,
             "summary": self.summary(),
+            "deflated_sharpe": self.dsr,
             "folds": [
                 {
                     "fold": f.fold,
@@ -147,6 +152,9 @@ def run_walk_forward(
 
     edges = np.linspace(int(fs.n_bars * 0.4), fs.n_bars, n_folds + 1).astype(int)
 
+    returns_pool: List[np.ndarray] = []
+    trial_sharpes: List[float] = []
+
     for k in range(n_folds):
         train_end = edges[k]
         test_start = train_end + purge_bars
@@ -167,7 +175,10 @@ def run_walk_forward(
                 agent, test_fs, cost_multiplier=cost_multiplier, **env_kwargs
             )
             res["seed"] = seed
-            res.pop("equity_curve", None)
+            equity = np.asarray(res.pop("equity_curve", []), dtype=np.float64)
+            if len(equity) > 2:
+                returns_pool.append(np.diff(np.log(np.clip(equity, 1e-9, None))))
+            trial_sharpes.append(float(res.get("sharpe", 0.0)))
             agent_results.append(res)
             if verbose:
                 print(f"  seed {seed}: ret={res['total_return']:+.4f} "
@@ -187,6 +198,14 @@ def run_walk_forward(
             agent_by_seed=agent_results,
             baselines=baselines,
         ))
+
+    if returns_pool:
+        all_returns = np.concatenate(returns_pool)
+        # n_trials = 全fold x 全seedの試行回数。「これだけ試して選んだ最良の
+        # Sharpeが偶然でない確率」を測る（過学習・selection biasの定量化）。
+        report.dsr = deflated_sharpe_ratio(
+            all_returns, trial_sharpes, annualization_factor=BARS_PER_YEAR_1H,
+        )
 
     return report
 

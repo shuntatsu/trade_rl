@@ -195,6 +195,7 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 | `--timesteps` | 300000 | 学習ステップ。実データ本番は200万〜 |
 | `--folds` | 3 | walk-forward fold数 |
 | `--n-seeds` | 3 | walk-forward で試すシード数 |
+| `--lockbox-frac` | 0 | `--phase train`専用。末尾このfractionを最終封印テストに隔離（例: 0.15） |
 
 学習は既定で **TFゲート抽出器 + Ridge教師BC + 検証ベースモデル選択**（詳細は ARCHITECTURE.md §2.1）。
 
@@ -209,6 +210,16 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 5. **ベースライン比較**: フラット / 等ウェイトB&H / ボラ逆数 / クロスモメンタム則
 5. **オラクル則**: 手数料込みDP上限との捕捉率
 6. **ウォークフォワード**: コスト2倍でも中央値プラスか
+7. **Deflated Sharpe Ratio**: `--phase wf` の各コスト水準で自動計算し
+   `walk_forward_cost*x.json` の `deflated_sharpe` に記録。fold×seedの
+   試行回数で「そのSharpeが偶然でない確率」を補正する（目安 `dsr >= 0.95`）。
+   何度も条件を変えて再実行するほど選択バイアスが乗るため、点推定の
+   Sharpeだけでなくこちらも確認すること。
+8. **ロックボックス（最終封印テスト）**: `--phase train --lockbox-frac 0.15` で
+   末尾区間を全工程（ゲート・特徴マスク・fold分割・学習）から隔離し、
+   最終モデルの評価に一度だけ使う。`train_report.json` の `lockbox` に記録。
+   同じ出力ディレクトリで再実行すると使用済み警告が出る
+   （繰り返し覗き見て判断を調整するのを防ぐため）。
 
 ---
 

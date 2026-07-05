@@ -63,6 +63,7 @@ def train_ppo(
     bc_epochs: int = 15,
     bc_teacher: str = "auto",
     extractor: str = "tfgated",
+    horizon: int = 4,
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -141,13 +142,13 @@ def train_ppo(
         if bc_teacher == "auto":
             from mars_lite.features.signal_check import run_signal_check, run_trend_gate
             from mars_lite.learning.bc_warmstart import combined_teacher
-            ic = run_signal_check(fs)
-            trend = run_trend_gate(fs)
+            ic = run_signal_check(fs, horizon=horizon)
+            trend = run_trend_gate(fs, horizon=horizon)
             # Ridgeは偽陽性回避のため閾値+マージンを要求
             use_ridge = ic.mean_oos_ic >= 0.025
             use_trend = trend["has_trend"]
             if use_ridge or use_trend:
-                teacher = combined_teacher(fs, use_ridge=use_ridge, use_trend=use_trend)
+                teacher = combined_teacher(fs, use_ridge=use_ridge, use_trend=use_trend, horizon=horizon)
                 if verbose:
                     comps = []
                     if use_ridge: comps.append(f"ridge(ic={ic.mean_oos_ic:.3f})")
@@ -156,7 +157,7 @@ def train_ppo(
             elif verbose:
                 print("[BC auto] no gate passed -> BC disabled (flat prior)")
         elif bc_teacher == "ridge":
-            teacher = ridge_teacher(fs)
+            teacher = ridge_teacher(fs, horizon=horizon)
         elif bc_teacher == "ts_momentum":
             teacher = ts_momentum_teacher()
         else:
@@ -230,10 +231,12 @@ def build_post_processor(args):
 
 
 def build_env_kwargs(args, pp) -> dict:
-    """学習/評価で共有する環境kwargs（後処理器 + 任意のHTFゲート）"""
+    """学習/評価で共有する環境kwargs（後処理器 + 任意のHTFゲート + 意思決定間隔）"""
     ekw = {"post_processor": pp}
     if getattr(args, "htf_gate", False):
         ekw["htf_gate"] = True
+    if getattr(args, "decision_every", 1) > 1:
+        ekw["decision_every"] = args.decision_every
     return ekw
 
 
@@ -264,13 +267,14 @@ def phase_p0(args, output_dir: Path) -> None:
         fs = FeaturePipeline(source.symbols).build(source)
 
         # ICゲート（陽性はPASS、陰性はFAILが期待値）
-        ic = run_signal_check(fs)
+        ic = run_signal_check(fs, horizon=args.horizon)
         print(ic.summary())
 
-        # train/test 時系列分割（70/30、purge 24本）
+        # train/test 時系列分割（70/30、purge = max(24,horizon)本）
         split = int(fs.n_bars * 0.7)
+        purge = max(24, args.horizon)
         train_fs = fs.slice(0, split)
-        test_fs = fs.slice(split + 24, fs.n_bars)
+        test_fs = fs.slice(split + purge, fs.n_bars)
 
         print(f"\nTraining PPO: {args.timesteps:,} steps "
               f"(train {train_fs.n_bars} bars, test {test_fs.n_bars} bars)...")
@@ -280,7 +284,7 @@ def phase_p0(args, output_dir: Path) -> None:
         # 模倣するとノイズを刷り込み、陰性対照の安全性を壊すため）
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
                           gamma=args.gamma, verbose=args.verbose,
-                          bc_warmstart=True, **ekw)
+                          bc_warmstart=True, horizon=args.horizon, **ekw)
 
         agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
         baselines = run_all_baselines(test_fs)
@@ -355,7 +359,17 @@ def phase_train(args, output_dir: Path) -> None:
     if not leak["healthy"]:
         print("[WARN] リーク検出器の自己検査に失敗。評価結果を信用しないこと。")
 
-    ic = run_signal_check(fs)
+    horizon = args.horizon
+    if args.scan_horizons:
+        from mars_lite.features.horizon_scan import run_horizon_scan
+        # test分離: スキャンは学習スライス相当（先頭80%）のみで行う
+        scan_split = int(fs.n_bars * 0.8)
+        scan = run_horizon_scan(fs.slice(0, scan_split), horizons=tuple(args.horizons))
+        print(scan.summary())
+        horizon = scan.best_horizon
+        print(f"[Horizon scan] selected horizon={horizon}")
+
+    ic = run_signal_check(fs, horizon=horizon)
     print(ic.summary())
     if not ic.passed and not args.skip_gate:
         print("\n[STOP] ゲート1不合格: 特徴量に予測力がありません。"
@@ -363,14 +377,15 @@ def phase_train(args, output_dir: Path) -> None:
         return
 
     split = int(fs.n_bars * 0.8)
+    purge = max(24, horizon)
     train_fs = fs.slice(0, split)
-    test_fs = fs.slice(split + 24, fs.n_bars)
+    test_fs = fs.slice(split + purge, fs.n_bars)
 
     # IC安定性マスク（オプトイン。時間軸の冗長性はTFゲート構造が既定で処理する）
     feature_mask = None
     if args.feature_mask:
         from mars_lite.features.signal_check import compute_feature_mask
-        mask_rep = compute_feature_mask(train_fs)
+        mask_rep = compute_feature_mask(train_fs, horizon=horizon)
         feature_mask = mask_rep["mask"]
         print(f"[Feature mask] kept {len(mask_rep['kept'])}/{fs.n_features} features "
               f"(dropped: {', '.join(mask_rep['dropped'][:8])}"
@@ -387,7 +402,7 @@ def phase_train(args, output_dir: Path) -> None:
 
         def _train(train_fs_, seed):
             return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=seed,
-                             gamma=args.gamma, bc_warmstart=True, **ekw)
+                             gamma=args.gamma, bc_warmstart=True, horizon=horizon, **ekw)
         agent = train_ensemble(_train, train_fs, seeds=list(range(args.ensemble)),
                                verbose=1)
         agent.save(str(output_dir / "portfolio_ensemble"))
@@ -395,7 +410,7 @@ def phase_train(args, output_dir: Path) -> None:
         print(f"Training PPO: {args.timesteps:,} steps...")
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
                           gamma=args.gamma, verbose=args.verbose,
-                          bc_warmstart=True, **ekw)
+                          bc_warmstart=True, horizon=horizon, **ekw)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     baselines = run_all_baselines(test_fs)
@@ -594,6 +609,17 @@ def main():
                         help="レジーム専門家のエピソード長（--phase regime、5日=120本）")
     parser.add_argument("--htf-gate", action="store_true",
                         help="階層MTF: 上位足(4h)トレンドで方向を制約し1hはサイジング")
+    parser.add_argument("--horizon", type=int, default=4,
+                        help="予測ホライズン（バー数）。ICゲート/BC教師/特徴マスクに使う")
+    parser.add_argument("--scan-horizons", action="store_true",
+                        help="--phase train で学習前にホライズンスキャンを行い、"
+                             "OOS ICが最大のホライズンを自動選択する（--horizonを上書き）")
+    parser.add_argument("--horizons", type=int, nargs="+",
+                        default=[1, 2, 4, 8, 24, 48, 72],
+                        help="--scan-horizons で走査するホライズン候補")
+    parser.add_argument("--decision-every", type=int, default=1,
+                        help="環境の意思決定間隔（バー数）。1バーでシグナルが立たない"
+                             "低頻度アルファをホライズンスキャンで見つけた場合に使う")
     args = parser.parse_args()
 
     output_dir = Path(args.output)

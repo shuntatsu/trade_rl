@@ -55,6 +55,7 @@ class PortfolioTradingEnv(gym.Env):
         reward_scale: float = 100.0,
         use_dsr: bool = False,
         dsr_eta: float = 0.01,
+        decision_every: int = 1,
     ):
         super().__init__()
         self.fs = fs
@@ -77,6 +78,7 @@ class PortfolioTradingEnv(gym.Env):
         self.reward_scale = reward_scale
         self.use_dsr = use_dsr
         self.dsr_eta = dsr_eta
+        self.decision_every = max(1, decision_every)
 
         self._exec_model = make_execution_model(
             fee_rate=fee_rate, spread_rate=spread_rate,
@@ -213,8 +215,14 @@ class PortfolioTradingEnv(gym.Env):
 
     def step(self, action):
         raw = np.asarray(action, dtype=np.float64).flatten()
-        proj = self.project_weights(raw)
         prev = self.weights.copy()
+
+        is_decision_bar = (self.t - self.start_idx) % self.decision_every == 0
+        if not is_decision_bar:
+            # 非意思決定バー: 前回のウェイトを保持（低頻度アルファ向け）
+            proj = prev.copy()
+        else:
+            proj = self.project_weights(raw)
 
         if self.post_processor is not None:
             cfg = self.post_processor.cfg

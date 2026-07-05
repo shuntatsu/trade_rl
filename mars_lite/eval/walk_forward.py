@@ -152,7 +152,12 @@ def run_walk_forward(
 
     edges = np.linspace(int(fs.n_bars * 0.4), fs.n_bars, n_folds + 1).astype(int)
 
-    returns_pool: List[np.ndarray] = []
+    # DSR用: foldごとに代表seed（中央値Sharpe）のリターン系列を1本だけ集める。
+    # foldは時間的に重ならないので、これらを連結すれば honest な1本のOOS
+    # 系列になる。同一foldの複数seedを全部連結するとサンプル数nが情報を
+    # 伴わずに水増しされ、DSRを実態より良く見せてしまうため避ける。
+    fold_return_series: List[np.ndarray] = []
+    # 試行数補正には全 fold×seed のSharpeを使う（selection biasの母数）。
     trial_sharpes: List[float] = []
 
     for k in range(n_folds):
@@ -169,6 +174,8 @@ def run_walk_forward(
             print(f"[Fold {k}] train: {train_fs.n_bars} bars, test: {test_fs.n_bars} bars")
 
         agent_results = []
+        seed_returns: List[np.ndarray] = []
+        seed_sharpes: List[float] = []
         for seed in seeds:
             agent = train_fn(train_fs, seed)
             res = evaluate_agent_on_slice(
@@ -176,13 +183,20 @@ def run_walk_forward(
             )
             res["seed"] = seed
             equity = np.asarray(res.pop("equity_curve", []), dtype=np.float64)
+            sharpe = float(res.get("sharpe", 0.0))
             if len(equity) > 2:
-                returns_pool.append(np.diff(np.log(np.clip(equity, 1e-9, None))))
-            trial_sharpes.append(float(res.get("sharpe", 0.0)))
+                seed_returns.append(np.diff(np.log(np.clip(equity, 1e-9, None))))
+                seed_sharpes.append(sharpe)
+            trial_sharpes.append(sharpe)
             agent_results.append(res)
             if verbose:
                 print(f"  seed {seed}: ret={res['total_return']:+.4f} "
                       f"sharpe={res['sharpe']:+.2f} trades={res['n_trades']}")
+
+        # このfoldの代表として中央値Sharpeのseedを1本選ぶ（楽観バイアス回避）。
+        if seed_returns:
+            med_idx = int(np.argsort(seed_sharpes)[len(seed_sharpes) // 2])
+            fold_return_series.append(seed_returns[med_idx])
 
         baselines = {
             name: r.to_dict()
@@ -199,12 +213,11 @@ def run_walk_forward(
             baselines=baselines,
         ))
 
-    if returns_pool:
-        all_returns = np.concatenate(returns_pool)
-        # n_trials = 全fold x 全seedの試行回数。「これだけ試して選んだ最良の
-        # Sharpeが偶然でない確率」を測る（過学習・selection biasの定量化）。
+    if fold_return_series:
+        # 時間的に重ならないfoldの代表系列を連結 = 1本のhonestなOOS equity path。
+        oos_returns = np.concatenate(fold_return_series)
         report.dsr = deflated_sharpe_ratio(
-            all_returns, trial_sharpes, annualization_factor=BARS_PER_YEAR_1H,
+            oos_returns, trial_sharpes, annualization_factor=BARS_PER_YEAR_1H,
         )
 
     return report

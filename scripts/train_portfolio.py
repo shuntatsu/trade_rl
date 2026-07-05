@@ -544,8 +544,29 @@ def phase_train(args, output_dir: Path) -> None:
         lockbox_baselines = run_all_baselines(lockbox_fs, noisy_oracle_ic=noisy_ic)
         report_comparison(lockbox_res, lockbox_baselines,
                           "LOCKBOX（最終封印・一度きりの検定）")
+
+        # ロックボックス最終判定: RLが未使用区間で全ベースライン(特にtrend_following)
+        # を上回れて初めて「本物」。ここを閉じないと診断値を出すだけで終わる。
+        lb_ret = float(lockbox_res["total_return"])
+        lb_beat = {}
+        lb_passed = True
+        for bname, bres in lockbox_baselines.items():
+            if bname.startswith("oracle"):
+                continue  # オラクルは到達不能な天井なので合格条件から除外
+            bd = bres.to_dict() if hasattr(bres, "to_dict") else bres
+            beat = bool(lb_ret > float(bd.get("total_return", 0.0)))
+            lb_beat[bname] = beat
+            if not beat:
+                lb_passed = False
+        print(f"[Lockbox GATE] {'PASS' if lb_passed else 'FAIL'} "
+              f"（RLが未使用区間で全ベースライン超え）. "
+              f"trend_following: {'BEAT' if lb_beat.get('trend_following') else 'LOST'}")
+
         lockbox_report = {
             "n_bars": lockbox_fs.n_bars,
+            "passed": bool(lb_passed),
+            "beat_by_baseline": lb_beat,
+            "rl_beat_trend_following": bool(lb_beat.get("trend_following", False)),
             "agent": {k: v for k, v in lockbox_res.items() if k != "equity_curve"},
             "baselines": {k: v.to_dict() for k, v in lockbox_baselines.items()},
         }

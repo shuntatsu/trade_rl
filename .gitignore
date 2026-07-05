@@ -151,9 +151,10 @@ activemq-data/
 .env
 .envrc
 .venv
-env/
+/env/
 venv/
 ENV/
+!mars_lite/env/
 env.bak/
 venv.bak/
 
@@ -215,7 +216,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-data/
+/data/
+!mars_lite/data/
 *.parquet
 *.zip
 # 学習出力

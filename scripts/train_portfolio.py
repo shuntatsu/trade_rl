@@ -388,6 +388,41 @@ def phase_train(args, output_dir: Path) -> None:
     print(f"Model & report -> {output_dir}")
 
 
+def phase_pbt(args, output_dir: Path) -> None:
+    """項目4: PBTハイパーパラメータ探索（gamma/ent_coef/lambda_turnover等）"""
+    from mars_lite.learning.pbt_search import run_pbt
+    from mars_lite.learning.val_selection import quick_evaluate
+
+    fs = build_feature_set(args)
+    split = int(fs.n_bars * 0.7)
+    train_fs = fs.slice(0, split)
+    val_fs = fs.slice(split + 24, fs.n_bars)
+    pp = build_post_processor(args)
+    ekw = {"post_processor": pp}
+    print(f"PBT search: pop={args.pbt_pop} gen={args.pbt_gen} "
+          f"steps/individual={args.pbt_steps}")
+
+    def train_eval(hp, seed):
+        agent = train_ppo(
+            fs=train_fs, timesteps=args.pbt_steps, seed=int(seed),
+            gamma=hp["gamma"], ent_coef=hp["ent_coef"],
+            learning_rate=hp["learning_rate"],
+            lambda_turnover=hp["lambda_turnover"],
+            reward_scale=hp["reward_scale"],
+            bc_warmstart=True, **ekw,
+        )
+        return quick_evaluate(agent, val_fs, **ekw)
+
+    result = run_pbt(train_eval, population_size=args.pbt_pop,
+                     n_generations=args.pbt_gen, seed=args.seed)
+    print(f"\nBest HP (val score {result.best_score:+.4f}):")
+    for k, v in result.best_hp.items():
+        print(f"  {k} = {v:.5f}")
+    with open(output_dir / "pbt_result.json", "w", encoding="utf-8") as f:
+        json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
+    print(f"Result -> {output_dir / 'pbt_result.json'}")
+
+
 def phase_wf(args, output_dir: Path) -> None:
     """P3: ウォークフォワード検証（複数シード、コスト感度）"""
     fs = build_feature_set(args)
@@ -417,7 +452,7 @@ def phase_wf(args, output_dir: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="ポートフォリオRL学習")
-    parser.add_argument("--phase", choices=["p0", "train", "wf"], default="p0")
+    parser.add_argument("--phase", choices=["p0", "train", "wf", "pbt"], default="p0")
     parser.add_argument("--source", choices=["synthetic", "csv", "postgres"],
                         default="synthetic")
     parser.add_argument("--data", type=str, default="./data")
@@ -444,6 +479,12 @@ def main():
     parser.add_argument("--feature-mask", action="store_true",
                         help="IC安定性による特徴マスクを有効化（実験では中立〜微減。"
                              "実データでジャンク特徴が多い場合のオプション）")
+    parser.add_argument("--pbt-pop", type=int, default=6,
+                        help="PBT個体数（--phase pbt）")
+    parser.add_argument("--pbt-gen", type=int, default=4,
+                        help="PBT世代数（--phase pbt）")
+    parser.add_argument("--pbt-steps", type=int, default=40_000,
+                        help="PBT各個体の学習ステップ数（--phase pbt）")
     args = parser.parse_args()
 
     output_dir = Path(args.output)
@@ -453,6 +494,8 @@ def main():
         phase_p0(args, output_dir)
     elif args.phase == "train":
         phase_train(args, output_dir)
+    elif args.phase == "pbt":
+        phase_pbt(args, output_dir)
     else:
         phase_wf(args, output_dir)
 

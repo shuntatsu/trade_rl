@@ -408,6 +408,7 @@ def phase_train(args, output_dir: Path) -> None:
         print("[WARN] リーク検出器の自己検査に失敗。評価結果を信用しないこと。")
 
     horizon = args.horizon
+    scan = None
     if args.scan_horizons:
         from mars_lite.features.horizon_scan import run_horizon_scan
         # test分離: スキャンは学習スライス相当（先頭80%）のみで行う
@@ -475,6 +476,7 @@ def phase_train(args, output_dir: Path) -> None:
     with open(output_dir / "train_report.json", "w", encoding="utf-8") as f:
         json.dump({
             "signal_gate": ic.to_dict(),
+            "horizon_scan": scan.to_dict() if scan is not None else None,
             "feature_mask": ([bool(x) for x in feature_mask]
                              if feature_mask is not None else None),
             "agent": {k: v for k, v in agent_res.items() if k != "equity_curve"},

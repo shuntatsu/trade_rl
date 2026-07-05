@@ -284,7 +284,11 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
     （例: horizon=8時間 -> 4時間毎に意思決定。1h毎の回転コストで
     低頻度アルファを削るのを防ぐ）。
     """
-    ekw = {"post_processor": pp}
+    ekw = {
+        "post_processor": pp,
+        "min_trade_delta": getattr(args, "min_trade_delta", 0.04),
+        "lambda_turnover": getattr(args, "lambda_turnover", 0.04),
+    }
     if getattr(args, "htf_gate", False):
         ekw["htf_gate"] = True
     explicit = getattr(args, "decision_every", 1)
@@ -734,6 +738,10 @@ def main():
     parser.add_argument("--decision-every", type=int, default=1,
                         help="環境の意思決定間隔（バー数）。1バーでシグナルが立たない"
                              "低頻度アルファをホライズンスキャンで見つけた場合に使う")
+    parser.add_argument("--min-trade-delta", type=float, default=0.04,
+                        help="微小リバランス禁止バンド（デフォルト0.04=4%未満の変更はスキップ）")
+    parser.add_argument("--lambda-turnover", type=float, default=0.04,
+                        help="ターンオーバー罰則係数（デフォルト0.04=回転コストの抑制）")
     parser.add_argument("--noisy-oracle-ic", type=float, default=0.05,
                         help="現実的な天井として併記するノイズ入りオラクルの目標IC。"
                              "0以下で無効")

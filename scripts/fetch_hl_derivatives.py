@@ -29,7 +29,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fetch_futures import fetch_derivatives, fetch_orderflow_day  # noqa: E402
+from fetch_futures import fetch_derivatives  # noqa: E402
+from mars_lite.data.binance_vision import fetch_orderflow_vision  # noqa: E402
 
 DEFAULT_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
@@ -69,32 +70,27 @@ def main():
         coin = _coin(symbol)
         print(f"=== {symbol} (coin={coin}) ===")
 
-        print("  derivatives (OI/LS/liq, Binance vision)...")
+        print("  derivatives (OI/LS/liq, Binance vision)...", flush=True)
         deriv = fetch_derivatives(symbol, start_ms, end_ms)
         deriv = deriv.rename(columns={"timestamp": "ts_ms"})
         import pandas as pd
         deriv["timestamp"] = pd.to_datetime(deriv["ts_ms"], unit="ms")
         deriv = deriv[["timestamp", "open_interest", "ls_ratio", "liq_notional"]]
         deriv.to_csv(cache_dir / f"{coin}_derivatives.csv", index=False)
-        print(f"    {len(deriv)} rows -> {coin}_derivatives.csv")
+        print(f"    {len(deriv)} rows -> {coin}_derivatives.csv", flush=True)
 
         if not args.skip_orderflow:
-            all_of = []
-            for d in range(args.days):
-                day = start + timedelta(days=d)
-                day_ms = int(day.timestamp() * 1000)
-                of = fetch_orderflow_day(symbol, day_ms)
-                if len(of):
-                    all_of.append(of)
-                if (d + 1) % 30 == 0 or d == args.days - 1:
-                    print(f"    orderflow [{d + 1}/{args.days}] days processed", flush=True)
-            if all_of:
-                of_all = pd.concat(all_of, ignore_index=True)
+            print("  orderflow (1m aggTrades, Binance vision)...", flush=True)
+            def _progress(idx, total, day, rows):
+                if idx % 30 == 0 or idx == total:
+                    print(f"    orderflow [{idx}/{total}] days processed", flush=True)
+            of_all = fetch_orderflow_vision(symbol, start_ms, end_ms, progress_cb=_progress)
+            if not of_all.empty:
                 of_all["timestamp"] = pd.to_datetime(of_all["timestamp"], unit="ms")
                 of_all.to_csv(cache_dir / f"{coin}_orderflow_1m.csv", index=False)
-                print(f"    {len(of_all)} rows -> {coin}_orderflow_1m.csv")
+                print(f"    {len(of_all)} rows -> {coin}_orderflow_1m.csv", flush=True)
             else:
-                print("    orderflow: no data")
+                print("    orderflow: no data", flush=True)
 
         time.sleep(0.2)
 

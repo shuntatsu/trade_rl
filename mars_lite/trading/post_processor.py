@@ -30,6 +30,7 @@ class PostProcessConfig:
     dd_derisk_start: float = 0.15       # このDDからグロス縮小開始
     dd_derisk_floor: float = 0.3        # DD悪化時のグロス下限倍率
     disagreement_penalty: float = 1.0   # アンサンブル不一致によるグロス縮小の強さ
+    beta_neutral: bool = False          # 市場方向(等ウェイト)成分を除去しドル中立化
     bars_per_year: int = BARS_PER_YEAR_1H
 
     def to_dict(self) -> Dict:
@@ -123,6 +124,16 @@ class PortfolioPostProcessor:
         delta[np.abs(delta) < cfg.no_trade_band] = 0.0
         executed = prev + delta
 
+        # ⑧ ベータ中立化（オプトイン）: 実行ウェイトから市場方向＝等ウェイト平均
+        # 成分を除去し Σw=0（ドル中立）を保証する。暗号資産のように全銘柄が
+        # BTCベータで共線なユニバースでは、ネットロングは実質レバBTCベット。
+        # これを外すと相対アルファだけが残る。方向性ベータを捨てるため上昇相場
+        # では不利になりうる → 既定off。バンド後の最終段に置くことで、微小レグの
+        # 据え置きで中立性が崩れないよう出力での中立を保証する。
+        if cfg.beta_neutral and len(executed) > 1:
+            executed = executed - executed.mean()
+            info.extra["beta_neutralized"] = True
+
         info.processed_gross = float(np.abs(executed).sum())
         return executed, info
 
@@ -139,6 +150,7 @@ def make_default_processor(
     target_vol: Optional[float] = 0.5,
     ema_alpha: float = 0.5,
     no_trade_band: float = 0.04,
+    beta_neutral: bool = False,
 ) -> PortfolioPostProcessor:
     """
     ポートフォリオ運用の推奨後処理器
@@ -154,5 +166,5 @@ def make_default_processor(
         ema_alpha=ema_alpha, max_weight=0.4, no_trade_band=no_trade_band,
         target_vol=target_vol, vol_lookback=48,
         dd_derisk_start=0.10, dd_derisk_floor=0.3,
-        disagreement_penalty=1.0,
+        disagreement_penalty=1.0, beta_neutral=beta_neutral,
     ))

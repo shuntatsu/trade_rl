@@ -69,6 +69,9 @@ def train_ppo(
     extractor: str = "tfgated",
     horizon: int = 4,
     oracle_noisy_ic: Optional[float] = None,
+    net_size: str = "small",
+    dropout: float = 0.0,
+    net_arch=None,
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -101,6 +104,12 @@ def train_ppo(
         if p in ("15m", "30m", "1h", "4h", "1d") and p not in tf_prefixes:
             tf_prefixes.append(p)
 
+    # net_size に応じた方策/価値ヘッド構成（extractorの規模と連動）。
+    # small=実証済み（ARCHITECTURE.mdベンチ構成）、large=大容量（要再ベンチ）。
+    if net_arch is None:
+        net_arch = (dict(pi=[256, 256, 128], vf=[256, 256, 128]) if net_size == "large"
+                    else dict(pi=[64, 64], vf=[64, 64]))
+
     if extractor == "tfgated" and tf_prefixes:
         from mars_lite.models.portfolio_extractor import TFGatedPortfolioExtractor
         policy_kwargs = {
@@ -109,14 +118,16 @@ def train_ppo(
                 **probe.obs_layout,
                 "n_tf_blocks": len(tf_prefixes),
                 "tf_block_size": len(TF_BLOCK_FEATURES),
+                "size": net_size,
+                "dropout": dropout,
             },
-            "net_arch": dict(pi=[256, 256, 128], vf=[256, 256, 128]),
+            "net_arch": net_arch,
         }
     else:
         policy_kwargs = {
             "features_extractor_class": PortfolioExtractor,
-            "features_extractor_kwargs": probe.obs_layout,
-            "net_arch": dict(pi=[256, 256, 128], vf=[256, 256, 128]),
+            "features_extractor_kwargs": {**probe.obs_layout, "size": net_size, "dropout": dropout},
+            "net_arch": net_arch,
         }
 
     def lr_schedule(progress_remaining: float) -> float:
@@ -271,7 +282,10 @@ def build_post_processor(args, horizon: int = 4):
     tv = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
     ema_alpha = float(np.clip(0.5 * (4.0 / max(horizon, 1)), 0.05, 1.0))
     no_trade_band = float(0.04 * np.sqrt(max(horizon, 1) / 4.0))
-    return make_default_processor(target_vol=tv, ema_alpha=ema_alpha, no_trade_band=no_trade_band)
+    return make_default_processor(
+        target_vol=tv, ema_alpha=ema_alpha, no_trade_band=no_trade_band,
+        beta_neutral=getattr(args, "beta_neutral", False),
+    )
 
 
 def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
@@ -330,7 +344,14 @@ def build_feature_set(args, output_dir: Optional[Path] = None) -> FeatureSet:
         symbols = qrep.passing_symbols
         if len(symbols) < 2:
             raise ValueError("品質ゲート通過銘柄が2未満です。データを確認してください。")
-    return FeaturePipeline(symbols).build(source)
+    fs = FeaturePipeline(symbols).build(source)
+    # 入力の分布正規化（汎用性向上）: 各特徴チャネルをローリング・ガウスランクで
+    # N(0,1)に写像。資産・レジーム間のスケール差への過適合を抑える。既定はoff
+    # （原則1: 証拠なき機能は既定にしない）。
+    if getattr(args, "feature_norm", "none") == "rank_gauss":
+        fs = fs.gaussian_rank_normalized()
+        print("[Feature norm] rank_gauss適用（各特徴をローリングN(0,1)に正規化）")
+    return fs
 
 
 def phase_p0(args, output_dir: Path) -> None:
@@ -344,6 +365,8 @@ def phase_p0(args, output_dir: Path) -> None:
             alpha_strength=args.alpha_strength, seed=args.seed,
         )
         fs = FeaturePipeline(source.symbols).build(source)
+        if getattr(args, "feature_norm", "none") == "rank_gauss":
+            fs = fs.gaussian_rank_normalized()
 
         # ICゲート（陽性はPASS、陰性はFAILが期待値）
         ic = run_signal_check(fs, horizon=args.horizon)
@@ -363,7 +386,8 @@ def phase_p0(args, output_dir: Path) -> None:
         # 模倣するとノイズを刷り込み、陰性対照の安全性を壊すため）
         agent = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
                           gamma=args.gamma, verbose=args.verbose,
-                          bc_warmstart=True, horizon=args.horizon, **ekw)
+                          bc_warmstart=True, horizon=args.horizon,
+                          net_size=args.net_size, dropout=args.dropout, **ekw)
 
         agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
         baselines = run_all_baselines(test_fs)
@@ -486,7 +510,7 @@ def phase_train(args, output_dir: Path) -> None:
             return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=seed,
                              gamma=args.gamma, bc_warmstart=True, horizon=horizon,
                              bc_teacher=args.bc_teacher, oracle_noisy_ic=args.oracle_noisy_ic,
-                             **ekw)
+                             net_size=args.net_size, dropout=args.dropout, **ekw)
         agent = train_ensemble(_train, train_fs, seeds=list(range(args.ensemble)),
                                verbose=1)
         agent.save(str(output_dir / "portfolio_ensemble"))
@@ -496,7 +520,7 @@ def phase_train(args, output_dir: Path) -> None:
                           gamma=args.gamma, verbose=args.verbose,
                           bc_warmstart=True, horizon=horizon,
                           bc_teacher=args.bc_teacher, oracle_noisy_ic=args.oracle_noisy_ic,
-                          **ekw)
+                          net_size=args.net_size, dropout=args.dropout, **ekw)
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     noisy_ic = args.noisy_oracle_ic if args.noisy_oracle_ic > 0 else None
@@ -608,7 +632,8 @@ def phase_pbt(args, output_dir: Path) -> None:
             learning_rate=hp["learning_rate"],
             lambda_turnover=hp["lambda_turnover"],
             reward_scale=hp["reward_scale"],
-            bc_warmstart=True, **ekw,
+            bc_warmstart=True,
+            net_size=args.net_size, dropout=args.dropout, **ekw,
         )
         return quick_evaluate(agent, val_fs, **ekw)
 
@@ -652,7 +677,8 @@ def phase_regime(args, output_dir: Path) -> None:
     # 汎用方策（フォールバック兼、専門家プールが薄いレジーム用）
     print(f"\nTraining generalist: {args.timesteps:,} steps...")
     generalist = train_ppo(fs=train_fs, timesteps=args.timesteps, seed=args.seed,
-                           gamma=args.gamma, bc_warmstart=True, **ekw)
+                           gamma=args.gamma, bc_warmstart=True,
+                           net_size=args.net_size, dropout=args.dropout, **ekw)
 
     # 十分なプールがあるレジームのみ専門家を学習（少数は汎用にフォールバック）
     spec_ekw = {**ekw, "episode_bars": spec_horizon}
@@ -668,6 +694,7 @@ def phase_regime(args, output_dir: Path) -> None:
         specialists[r] = train_ppo(
             fs=train_fs, timesteps=args.timesteps, seed=args.seed + 1,
             gamma=args.gamma, bc_warmstart=True,
+            net_size=args.net_size, dropout=args.dropout,
             regime_start_pool=pools[r], **spec_ekw,
         )
 
@@ -718,13 +745,15 @@ def phase_wf(args, output_dir: Path) -> None:
         def train_fn(train_fs: FeatureSet, seed: int):
             def _inner(train_fs_: FeatureSet, _seed: int):
                 return train_ppo(fs=train_fs_, timesteps=args.timesteps, seed=_seed,
-                                 gamma=args.gamma, bc_warmstart=True, **ekw)
+                                 gamma=args.gamma, bc_warmstart=True,
+                                 net_size=args.net_size, dropout=args.dropout, **ekw)
             return train_ensemble(_inner, train_fs,
                                   seeds=list(range(seed, seed + n_ensemble)), verbose=0)
     else:
         def train_fn(train_fs: FeatureSet, seed: int):
             return train_ppo(fs=train_fs, timesteps=args.timesteps, seed=seed,
-                             gamma=args.gamma, bc_warmstart=True, **ekw)
+                             gamma=args.gamma, bc_warmstart=True,
+                             net_size=args.net_size, dropout=args.dropout, **ekw)
 
     for cost_mult in [1.0, 2.0]:
         print(f"\n--- Walk-forward (cost x{cost_mult}, ensemble={n_ensemble}) ---")
@@ -768,6 +797,21 @@ def main():
     parser.add_argument("--output", type=str, default="./output/portfolio")
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--skip-gate", action="store_true")
+    parser.add_argument("--net-size", choices=["small", "large"], default="small",
+                        help="方策/価値ネットの規模。small=実証済み（ARCHITECTURE.md"
+                             "ベンチ構成、既定）、large=大容量・多層（多様/実データでの"
+                             "汎用性狙い、要再ベンチ。dropout併用推奨）")
+    parser.add_argument("--dropout", type=float, default=0.0,
+                        help="抽出器の隠れ層dropout率（large時の過学習/seed分散抑制。"
+                             "例: 0.1）。0で無効（既定）")
+    parser.add_argument("--feature-norm", choices=["none", "rank_gauss"], default="none",
+                        help="入力特徴の分布正規化。rank_gauss=各特徴をローリング・"
+                             "ガウスランクでN(0,1)に写像し、資産・レジーム差への過適合を"
+                             "抑える（汎用性狙い、因果的・リークなし）。既定none")
+    parser.add_argument("--beta-neutral", action="store_true",
+                        help="後処理で市場方向(等ウェイト平均)成分を除去しドル中立化。"
+                             "全銘柄がBTCベータで共線なユニバースで相対アルファのみ"
+                             "残す。方向性ベータを捨てるため上昇相場で不利になりうる（opt-in）")
     parser.add_argument("--lockbox-frac", type=float, default=0.0,
                         help="--phase train専用。末尾このfractionを、ゲート/特徴マスク/"
                              "fold分割/学習の全工程から隔離し、最終モデル評価に一度だけ"

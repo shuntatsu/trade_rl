@@ -196,6 +196,10 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 | `--folds` | 3 | walk-forward fold数 |
 | `--n-seeds` | 3 | walk-forward で試すシード数 |
 | `--lockbox-frac` | 0 | `--phase train`専用。末尾このfractionを最終封印テストに隔離（例: 0.15） |
+| `--net-size` | small | 方策/価値ネット規模。`small`=実証済み、`large`=大容量・多層（要再ベンチ・`--dropout`併用推奨） |
+| `--dropout` | 0 | 抽出器の隠れ層dropout率（large時の過学習/seed分散抑制。例 0.1） |
+| `--feature-norm` | none | `rank_gauss`で各特徴をローリング・ガウスランクでN(0,1)に正規化（汎用性狙い・因果的） |
+| `--beta-neutral` | off | 後処理で市場方向成分を除去しドル中立化（相対アルファのみ残す・opt-in） |
 
 学習は既定で **TFゲート抽出器 + Ridge教師BC + 検証ベースモデル選択**（詳細は ARCHITECTURE.md §2.1）。
 

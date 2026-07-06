@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from mars_lite.data.sources import SyntheticSource
-from mars_lite.features.feature_pipeline import FeaturePipeline
 from mars_lite.env.portfolio_env import PortfolioTradingEnv
+from mars_lite.features.feature_pipeline import FeaturePipeline
 
 
 @pytest.fixture(scope="module")
@@ -22,7 +22,6 @@ def env(feature_set):
 
 
 class TestPortfolioEnv:
-
     def test_obs_shape(self, env):
         obs, info = env.reset(seed=0)
         assert obs.shape == env.observation_space.shape
@@ -47,9 +46,18 @@ class TestPortfolioEnv:
             done = term or trunc
             steps += 1
         assert done
-        for key in ["win_rate", "max_drawdown", "portfolio_value", "apy",
-                    "sharpe", "n_trades", "funding_pnl",
-                    "long_pct", "short_pct", "hold_pct"]:
+        for key in [
+            "win_rate",
+            "max_drawdown",
+            "portfolio_value",
+            "apy",
+            "sharpe",
+            "n_trades",
+            "funding_pnl",
+            "long_pct",
+            "short_pct",
+            "hold_pct",
+        ]:
             assert key in info, f"missing episode key: {key}"
 
     def test_execution_info_contract(self, env):
@@ -57,8 +65,16 @@ class TestPortfolioEnv:
         env.reset(seed=2)
         _, _, _, _, info = env.step(env.action_space.sample())
         ex = info["execution"]
-        for key in ["step", "p_base", "p_exec", "action", "side",
-                    "inventory_after", "reward", "event"]:
+        for key in [
+            "step",
+            "p_base",
+            "p_exec",
+            "action",
+            "side",
+            "inventory_after",
+            "reward",
+            "event",
+        ]:
             assert key in ex
         assert ex["side"] in ("buy", "sell", "hold")
         assert ex["event"] in ("normal", "liquidation")
@@ -89,14 +105,19 @@ class TestPortfolioEnv:
 
     def test_funding_applied(self, feature_set):
         """funding率がポートフォリオ価値に反映される"""
-        env = PortfolioTradingEnv(feature_set, episode_bars=100,
-                                  fee_rate=0, spread_rate=0, impact_rate=0,
-                                  min_trade_delta=0.0)
+        env = PortfolioTradingEnv(
+            feature_set,
+            episode_bars=100,
+            fee_rate=0,
+            spread_rate=0,
+            impact_rate=0,
+            min_trade_delta=0.0,
+        )
         env.reset(seed=7, options={"start_idx": 0})
         funding_hits = 0
         for _ in range(60):
             _, _, term, trunc, _ = env.step(np.full(env.n_symbols, 1.0))
-            if env.fs.funding_rate[env.t] .any():
+            if env.fs.funding_rate[env.t].any():
                 funding_hits += 1
             if term or trunc:
                 break

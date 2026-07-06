@@ -22,8 +22,11 @@ def quick_evaluate(agent, fs: FeatureSet, **env_kwargs) -> float:
 
     # 検証はスライス全体を1エピソードで走査。学習側の episode_bars /
     # regime_start_pool（レジーム専門家用）はここでは無視する。
-    env_kwargs = {k: v for k, v in env_kwargs.items()
-                  if k not in ("episode_bars", "regime_start_pool")}
+    env_kwargs = {
+        k: v
+        for k, v in env_kwargs.items()
+        if k not in ("episode_bars", "regime_start_pool")
+    }
     env = PortfolioTradingEnv(fs, episode_bars=fs.n_bars - 2, **env_kwargs)
     obs, _ = env.reset(options={"start_idx": 0})
     done = False
@@ -64,8 +67,10 @@ class ValSelectionCallback(BaseCallback):
         score = quick_evaluate(self.model, self.val_fs, **self.env_kwargs)
         self.history.append({"step": self.num_timesteps, "val_score": score})
         if self.verbose >= 1:
-            print(f"[ValSelection] step={self.num_timesteps:,} val_score={score:+.4f} "
-                  f"(best={self.best_score:+.4f})")
+            print(
+                f"[ValSelection] step={self.num_timesteps:,} val_score={score:+.4f} "
+                f"(best={self.best_score:+.4f})"
+            )
         if score > self.best_score:
             self.best_score = score
             buf = io.BytesIO()
@@ -91,6 +96,7 @@ class ValSelectionCallback(BaseCallback):
         if self.best_params is None:
             return agent
         from stable_baselines3 import PPO
+
         buf = io.BytesIO(self.best_params)
         best = PPO.load(buf, device=agent.device)
         agent.set_parameters(best.get_parameters())

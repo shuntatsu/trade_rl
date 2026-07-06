@@ -17,10 +17,21 @@ import time
 from mars_lite.data.sources import HyperliquidSource
 
 DEFAULT_SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
-    "SUIUSDT", "DOGEUSDT",
-    "ADAUSDT", "AVAXUSDT", "LINKUSDT",
-    "LTCUSDT", "BCHUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "BNBUSDT",
+    "SUIUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+    "BCHUSDT",
+    "APTUSDT",
+    "ARBUSDT",
+    "OPUSDT",
 ]
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 
@@ -39,10 +50,13 @@ def main():
     if "postgres" in args.to and not dsn:
         ap.error("--to postgres には --dsn か PLATFORM_DB_URL が必要です")
 
-    src = HyperliquidSource(args.symbols, days=args.days,
-                            cache_dir=args.cache_dir, end=args.end)
-    print(f"Fetching {len(args.symbols)} symbols x {len(TIMEFRAMES)} TF "
-          f"({args.days}日) -> {args.cache_dir}")
+    src = HyperliquidSource(
+        args.symbols, days=args.days, cache_dir=args.cache_dir, end=args.end
+    )
+    print(
+        f"Fetching {len(args.symbols)} symbols x {len(TIMEFRAMES)} TF "
+        f"({args.days}日) -> {args.cache_dir}"
+    )
     if "postgres" in args.to:
         from mars_lite.data.postgres_store import upsert_funding, upsert_klines
 
@@ -59,9 +73,11 @@ def main():
         if "postgres" in args.to and len(f):
             upsert_funding(dsn, "hyperliquid", sym, f)
         ok = "OK" if rows["1h"] > 0 else "EMPTY(コイン未対応?)"
-        print(f"  {sym:<10} {src._coin(sym):<6} "
-              f"{'/'.join(str(rows[tf]) for tf in TIMEFRAMES)} bars, "
-              f"funding={len(f)}  [{ok}, {time.time()-t:.1f}s]")
+        print(
+            f"  {sym:<10} {src._coin(sym):<6} "
+            f"{'/'.join(str(rows[tf]) for tf in TIMEFRAMES)} bars, "
+            f"funding={len(f)}  [{ok}, {time.time() - t:.1f}s]"
+        )
     dest = ", ".join(args.to)
     print(f"完了 ({dest})。")
 

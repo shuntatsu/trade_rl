@@ -226,3 +226,5 @@ outputs/
 eval_output/
 crash_log.txt
 elites_memo.txt
+
+.agents/

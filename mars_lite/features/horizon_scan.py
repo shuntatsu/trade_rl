@@ -17,29 +17,57 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from mars_lite.features.feature_pipeline import FeatureSet, TF_BLOCK_FEATURES
-from mars_lite.features.signal_check import run_signal_check, SignalReport
+from mars_lite.features.feature_pipeline import (
+    SR_BLOCK_FEATURES,
+    TF_BLOCK_FEATURES,
+    FeatureSet,
+)
+from mars_lite.features.signal_check import SignalReport, run_signal_check
 
 DEFAULT_HORIZONS: Tuple[int, ...] = (1, 2, 4, 8, 24, 48, 72)
 
 
 def default_feature_groups(fs: FeatureSet) -> Dict[str, List[str]]:
-    """特徴名から標準グループを導出（TFブロック別 + オーダーフロー + デリバティブ + funding + クロスセクション + その他）"""
+    """
+    特徴名から標準グループを導出。
+
+    TFブロック別(tf_15m等) + サポート/レジスタンス + 一目均衡表 + ダイバージェンス
+    + オーダーフロー + デリバティブ + funding + クロスセクション + その他。
+
+    cci_divergenceはTF_BLOCK_FEATURESに含まれるがTFブロックの並進的な特徴
+    (ret_z/rsi/bb_pos等)とは性質が異なるため、rsi_divergenceと同じ
+    「divergence」グループに分離する。同様にichi_*・SR系(dist_high等)も
+    「otherに埋もれる」ことなく専用グループへ分類する。
+    """
     groups: Dict[str, List[str]] = {}
-    tf_feature_set = set(TF_BLOCK_FEATURES)
+    tf_core_features = set(TF_BLOCK_FEATURES) - {"cci_divergence"}
+    sr_core_features = set(SR_BLOCK_FEATURES) - {"rsi_divergence"}
     for name in fs.feature_names:
-        if "_" in name:
-            prefix, rest = name.split("_", 1)
-            if prefix in ("15m", "30m", "1h", "4h", "1d") and rest in tf_feature_set:
+        prefix, rest = (
+            (name.split("_", 1) + [None])[:2] if "_" in name else (None, None)
+        )
+        if prefix in ("15m", "30m", "1h", "4h", "1d"):
+            if rest in ("cci_divergence", "rsi_divergence"):
+                groups.setdefault("divergence", []).append(name)
+                continue
+            if rest in tf_core_features:
                 groups.setdefault(f"tf_{prefix}", []).append(name)
                 continue
-        if name.startswith("of_"):
+            if rest in sr_core_features:
+                groups.setdefault("support_resistance", []).append(name)
+                continue
+            if rest is not None and rest.startswith("ichi_"):
+                groups.setdefault("ichimoku", []).append(name)
+                continue
+        if name.startswith("ichi_"):
+            groups.setdefault("ichimoku", []).append(name)
+        elif name.startswith("of_"):
             groups.setdefault("orderflow", []).append(name)
         elif name in ("oi_z", "oi_change", "ls_ratio_z", "liq_z"):
             groups.setdefault("derivatives", []).append(name)
         elif name.startswith("funding_") or name == "time_to_funding":
             groups.setdefault("funding", []).append(name)
-        elif name in ("ret_rank", "btc_rel_z"):
+        elif name.startswith("csz_") or name in ("ret_rank", "btc_rel_z"):
             groups.setdefault("cross_sectional", []).append(name)
         else:
             groups.setdefault("other", []).append(name)
@@ -79,7 +107,11 @@ class HorizonScanReport:
     def summary(self) -> str:
         lines = ["[Horizon Scan]"]
         for r in self.results:
-            top_group = max(r.group_ic.items(), key=lambda kv: abs(kv[1])) if r.group_ic else ("-", 0.0)
+            top_group = (
+                max(r.group_ic.items(), key=lambda kv: abs(kv[1]))
+                if r.group_ic
+                else ("-", 0.0)
+            )
             lines.append(
                 f"  horizon={r.horizon:<4} OOS_IC={r.mean_oos_ic:+.4f} "
                 f"(+folds={r.positive_fold_ratio:.0%})  top_group={top_group[0]}({top_group[1]:+.3f})"
@@ -117,8 +149,12 @@ def run_horizon_scan(
     for h in horizons:
         purge = max(24, h)
         report: SignalReport = run_signal_check(
-            fs, horizon=h, n_folds=n_folds, purge_bars=purge,
-            threshold=threshold, min_positive_ratio=min_positive_ratio,
+            fs,
+            horizon=h,
+            n_folds=n_folds,
+            purge_bars=purge,
+            threshold=threshold,
+            min_positive_ratio=min_positive_ratio,
             target=target,
         )
         group_ic = {}
@@ -126,11 +162,14 @@ def run_horizon_scan(
             ics = [report.per_feature_ic[n] for n in fnames if n in name_to_idx]
             group_ic[gname] = float(np.mean(np.abs(ics))) if ics else 0.0
 
-        results.append(HorizonResult(
-            horizon=h, mean_oos_ic=report.mean_oos_ic,
-            positive_fold_ratio=report.positive_fold_ratio,
-            group_ic=group_ic,
-        ))
+        results.append(
+            HorizonResult(
+                horizon=h,
+                mean_oos_ic=report.mean_oos_ic,
+                positive_fold_ratio=report.positive_fold_ratio,
+                group_ic=group_ic,
+            )
+        )
 
     return HorizonScanReport(results=results)
 
@@ -159,8 +198,12 @@ def compute_breakeven_ic(
     de = decision_every if decision_every is not None else max(1, horizon // 2)
     for ic in sorted(candidate_ics):
         result = noisy_oracle_strategy(
-            fs, target_ic=ic, seed=seed, n_draws=n_draws,
-            decision_every=de, **cost_kwargs,
+            fs,
+            target_ic=ic,
+            seed=seed,
+            n_draws=n_draws,
+            decision_every=de,
+            **cost_kwargs,
         )
         if result.total_return > 0:
             return float(ic)

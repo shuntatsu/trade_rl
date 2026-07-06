@@ -1,0 +1,60 @@
+name: Deployment Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Deployment stage
+        required: true
+        type: choice
+        options:
+          - shadow
+          - canary
+          - production
+      shadow_passed:
+        description: Shadow evidence passed
+        required: true
+        default: "false"
+      canary_passed:
+        description: Canary evidence passed
+        required: true
+        default: "false"
+      approval_ticket:
+        description: Required for production
+        required: false
+        default: ""
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --all-extras --dev
+
+      - name: Evaluate deployment gate
+        run: |
+          uv run python - <<'PY'
+          import os
+          from mars_lite.server.deployment_gate import DeploymentEvidence, DeploymentGate
+
+          evidence = DeploymentEvidence(
+              stage=os.environ["STAGE"],
+              shadow_passed=os.environ["SHADOW_PASSED"].lower() == "true",
+              canary_passed=os.environ["CANARY_PASSED"].lower() == "true",
+              approval_ticket=os.environ["APPROVAL_TICKET"] or None,
+          )
+          decision = DeploymentGate().evaluate(evidence)
+          print(decision.reason)
+          if not decision.allowed:
+              raise SystemExit(1)
+          PY
+        env:
+          STAGE: ${{ inputs.stage }}
+          SHADOW_PASSED: ${{ inputs.shadow_passed }}
+          CANARY_PASSED: ${{ inputs.canary_passed }}
+          APPROVAL_TICKET: ${{ inputs.approval_ticket }}

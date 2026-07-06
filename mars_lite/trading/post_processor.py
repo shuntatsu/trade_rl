@@ -22,14 +22,15 @@ BARS_PER_YEAR_1H = 24 * 365
 @dataclass
 class PostProcessConfig:
     """後処理パラメータ"""
-    ema_alpha: float = 1.0              # 1.0=平滑なし、<1で生ウェイトへEMA追従
-    max_weight: float = 0.4             # 銘柄あたりの絶対ウェイト上限
-    no_trade_band: float = 0.02         # |Δw|がこの幅未満なら据え置き
+
+    ema_alpha: float = 1.0  # 1.0=平滑なし、<1で生ウェイトへEMA追従
+    max_weight: float = 0.4  # 銘柄あたりの絶対ウェイト上限
+    no_trade_band: float = 0.02  # |Δw|がこの幅未満なら据え置き
     target_vol: Optional[float] = None  # 年率ボラ目標（Noneで無効）。例: 0.20
-    vol_lookback: int = 48              # ボラ推定に使う直近バー数
-    dd_derisk_start: float = 0.15       # このDDからグロス縮小開始
-    dd_derisk_floor: float = 0.3        # DD悪化時のグロス下限倍率
-    disagreement_penalty: float = 1.0   # アンサンブル不一致によるグロス縮小の強さ
+    vol_lookback: int = 48  # ボラ推定に使う直近バー数
+    dd_derisk_start: float = 0.15  # このDDからグロス縮小開始
+    dd_derisk_floor: float = 0.3  # DD悪化時のグロス下限倍率
+    disagreement_penalty: float = 1.0  # アンサンブル不一致によるグロス縮小の強さ
     bars_per_year: int = BARS_PER_YEAR_1H
 
     def to_dict(self) -> Dict:
@@ -39,6 +40,7 @@ class PostProcessConfig:
 @dataclass
 class PostProcessInfo:
     """後処理の各段の状態（監視・ガードレール用）"""
+
     raw_gross: float = 0.0
     processed_gross: float = 0.0
     vol_scale: float = 1.0
@@ -97,7 +99,11 @@ class PortfolioPostProcessor:
         w = _project_leverage(w, 1.0)
 
         # ④ ボラターゲティング
-        if cfg.target_vol is not None and recent_returns is not None and len(recent_returns) >= 5:
+        if (
+            cfg.target_vol is not None
+            and recent_returns is not None
+            and len(recent_returns) >= 5
+        ):
             port_ret = recent_returns @ w
             est_vol = float(np.std(port_ret) * np.sqrt(cfg.bars_per_year))
             info.est_port_vol = est_vol
@@ -107,7 +113,9 @@ class PortfolioPostProcessor:
 
         # ⑤ ドローダウン応答（DDが進むほどグロスを線形縮小、下限あり）
         if drawdown > cfg.dd_derisk_start:
-            over = (drawdown - cfg.dd_derisk_start) / max(1.0 - cfg.dd_derisk_start, 1e-9)
+            over = (drawdown - cfg.dd_derisk_start) / max(
+                1.0 - cfg.dd_derisk_start, 1e-9
+            )
             info.dd_scale = float(max(cfg.dd_derisk_floor, 1.0 - over))
             w = w * info.dd_scale
 
@@ -129,10 +137,16 @@ class PortfolioPostProcessor:
 
 def make_legacy_processor(min_trade_delta: float = 0.02) -> PortfolioPostProcessor:
     """従来挙動（射影＋no-tradeバンドのみ）と等価な後処理器"""
-    return PortfolioPostProcessor(PostProcessConfig(
-        ema_alpha=1.0, max_weight=1.0, no_trade_band=min_trade_delta,
-        target_vol=None, dd_derisk_start=1.0, disagreement_penalty=0.0,
-    ))
+    return PortfolioPostProcessor(
+        PostProcessConfig(
+            ema_alpha=1.0,
+            max_weight=1.0,
+            no_trade_band=min_trade_delta,
+            target_vol=None,
+            dd_derisk_start=1.0,
+            disagreement_penalty=0.0,
+        )
+    )
 
 
 def make_default_processor(
@@ -150,9 +164,15 @@ def make_default_processor(
     合わせて呼び出し側でスケールできる（低頻度アルファほど平滑を強め、
     no-tradeバンドを広げてコストと信号の周波数を整合させる）。
     """
-    return PortfolioPostProcessor(PostProcessConfig(
-        ema_alpha=ema_alpha, max_weight=0.4, no_trade_band=no_trade_band,
-        target_vol=target_vol, vol_lookback=48,
-        dd_derisk_start=0.10, dd_derisk_floor=0.3,
-        disagreement_penalty=1.0,
-    ))
+    return PortfolioPostProcessor(
+        PostProcessConfig(
+            ema_alpha=ema_alpha,
+            max_weight=0.4,
+            no_trade_band=no_trade_band,
+            target_vol=target_vol,
+            vol_lookback=48,
+            dd_derisk_start=0.10,
+            dd_derisk_floor=0.3,
+            disagreement_penalty=1.0,
+        )
+    )

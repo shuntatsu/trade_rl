@@ -8,7 +8,8 @@ import pytest
 from mars_lite.data.sources import SyntheticSource
 from mars_lite.features.feature_pipeline import FeaturePipeline
 from mars_lite.features.horizon_scan import (
-    run_horizon_scan, default_feature_groups, DEFAULT_HORIZONS,
+    default_feature_groups,
+    run_horizon_scan,
 )
 
 
@@ -25,7 +26,6 @@ def fs_noise():
 
 
 class TestHorizonScan:
-
     def test_default_feature_groups_cover_all_features(self, fs_alpha):
         groups = default_feature_groups(fs_alpha)
         covered = sorted(n for names in groups.values() for n in names)
@@ -52,9 +52,9 @@ class TestHorizonScan:
 
 
 class TestDecisionEvery:
-
     def test_decision_every_holds_between_decisions(self, fs_alpha):
         from mars_lite.env.portfolio_env import PortfolioTradingEnv
+
         env = PortfolioTradingEnv(fs_alpha, episode_bars=20, decision_every=4)
         env.reset(seed=0, options={"start_idx": 0})
         rng = np.random.default_rng(1)

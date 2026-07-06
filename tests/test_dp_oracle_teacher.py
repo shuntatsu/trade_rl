@@ -3,7 +3,6 @@ DPオラクル蒸留教師（clairvoyant teacher distillation）のテスト
 """
 
 import numpy as np
-import pytest
 
 from mars_lite.data.sources import SyntheticSource
 from mars_lite.features.feature_pipeline import FeaturePipeline
@@ -11,12 +10,13 @@ from mars_lite.learning.bc_warmstart import dp_oracle_teacher, generate_teacher_
 
 
 def _synthetic_fs(alpha="cross", days=40, seed=3, alpha_strength=0.002):
-    src = SyntheticSource(n_days=days, alpha=alpha, alpha_strength=alpha_strength, seed=seed)
+    src = SyntheticSource(
+        n_days=days, alpha=alpha, alpha_strength=alpha_strength, seed=seed
+    )
     return FeaturePipeline(src.symbols).build(src)
 
 
 class TestDPOracleTeacher:
-
     def test_weights_gross_bounded(self):
         fs = _synthetic_fs(alpha="cross", days=30)
         teacher = dp_oracle_teacher(fs)

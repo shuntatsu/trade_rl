@@ -31,7 +31,9 @@ class SeedEnsemble:
         ]
         return np.stack(acts, axis=0)
 
-    def predict(self, obs: np.ndarray, deterministic: bool = True) -> Tuple[np.ndarray, None]:
+    def predict(
+        self, obs: np.ndarray, deterministic: bool = True
+    ) -> Tuple[np.ndarray, None]:
         """平均行動を返す（agent.predict互換）"""
         return self._all_actions(obs).mean(axis=0), None
 
@@ -49,6 +51,7 @@ class SeedEnsemble:
 
     def save(self, dir_path) -> None:
         from pathlib import Path
+
         d = Path(dir_path)
         d.mkdir(parents=True, exist_ok=True)
         for i, a in enumerate(self.agents):
@@ -57,7 +60,9 @@ class SeedEnsemble:
     @classmethod
     def load(cls, dir_path, device: str = "cpu") -> "SeedEnsemble":
         from pathlib import Path
+
         from stable_baselines3 import PPO
+
         d = Path(dir_path)
         paths = sorted(d.glob("seed_*.zip"))
         if not paths:

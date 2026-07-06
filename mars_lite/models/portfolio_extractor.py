@@ -52,9 +52,7 @@ class PortfolioExtractor(BaseFeaturesExtractor):
             nn.ReLU(),
         )
         # 銘柄ごとの学習可能な埋め込み（対称性を破って銘柄個性を持たせる）
-        self.symbol_embedding = nn.Parameter(
-            torch.zeros(n_symbols, symbol_embed_dim)
-        )
+        self.symbol_embedding = nn.Parameter(torch.zeros(n_symbols, symbol_embed_dim))
         nn.init.normal_(self.symbol_embedding, std=0.1)
 
         trunk_in = n_symbols * (encoder_dim + symbol_embed_dim) + n_global
@@ -67,7 +65,7 @@ class PortfolioExtractor(BaseFeaturesExtractor):
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         batch = observations.shape[0]
         sym_flat = observations[:, : self.n_symbols * self.n_per_symbol]
-        global_part = observations[:, self.n_symbols * self.n_per_symbol:]
+        global_part = observations[:, self.n_symbols * self.n_per_symbol :]
 
         sym = sym_flat.view(batch, self.n_symbols, self.n_per_symbol)
         encoded = self.symbol_encoder(sym)  # (batch, n_sym, encoder_dim)
@@ -153,20 +151,20 @@ class TFGatedPortfolioExtractor(BaseFeaturesExtractor):
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         batch = observations.shape[0]
         sym_flat = observations[:, : self.n_symbols * self.n_per_symbol]
-        global_part = observations[:, self.n_symbols * self.n_per_symbol:]
+        global_part = observations[:, self.n_symbols * self.n_per_symbol :]
 
         sym = sym_flat.view(batch, self.n_symbols, self.n_per_symbol)
         tf_part = sym[:, :, : self.n_tf * self.tf_size].view(
             batch, self.n_symbols, self.n_tf, self.tf_size
         )
-        base_part = sym[:, :, self.n_tf * self.tf_size:]
+        base_part = sym[:, :, self.n_tf * self.tf_size :]
 
         # TFブロックをエンコードし、埋め込み加算 → ゲート乗算
-        enc = self.tf_encoder(tf_part)                      # (B, S, T, D)
+        enc = self.tf_encoder(tf_part)  # (B, S, T, D)
         enc = enc + self.tf_embedding[None, None, :, :]
-        gates = torch.sigmoid(self.tf_gate_logits)          # (T,)
+        gates = torch.sigmoid(self.tf_gate_logits)  # (T,)
         enc = enc * gates[None, None, :, None]
-        enc = enc.flatten(2)                                # (B, S, T*D)
+        enc = enc.flatten(2)  # (B, S, T*D)
 
         sym_encoded = self.symbol_encoder(torch.cat([enc, base_part], dim=2))
         embed = self.symbol_embedding.unsqueeze(0).expand(batch, -1, -1)

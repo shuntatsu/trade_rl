@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from mars_lite.data.sources import SyntheticSource
-from mars_lite.features.feature_pipeline import FeaturePipeline
 from mars_lite.env.portfolio_env import PortfolioTradingEnv
+from mars_lite.features.feature_pipeline import FeaturePipeline
 
 
 @pytest.fixture(scope="module")
@@ -17,7 +17,6 @@ def fs():
 
 
 class TestHTFGate:
-
     def test_gate_disabled_by_default(self, fs):
         env = PortfolioTradingEnv(fs)
         assert env._htf_idx is None
@@ -29,21 +28,22 @@ class TestHTFGate:
         assert env._htf_idx == fs.feature_names.index("4h_ret_z20")
 
     def test_gate_blocks_counter_trend(self, fs):
-        env = PortfolioTradingEnv(fs, htf_gate=True, htf_threshold=0.3,
-                                  htf_neutral_scale=0.5)
+        env = PortfolioTradingEnv(
+            fs, htf_gate=True, htf_threshold=0.3, htf_neutral_scale=0.5
+        )
         env.reset(options={"start_idx": 100})
         idx = env._htf_idx
         # HTFトレンドを人工的に設定
         htf = np.zeros(fs.n_symbols)
-        htf[0] = 1.0    # 上昇 → ショート禁止
-        htf[1] = -1.0   # 下降 → ロング禁止
+        htf[0] = 1.0  # 上昇 → ショート禁止
+        htf[1] = -1.0  # 下降 → ロング禁止
         # neutral（0）はスケール縮小
         env.fs.features[env.t][:, idx] = htf.astype(np.float32)
 
         w = np.array([-0.4, 0.4] + [0.2] * (fs.n_symbols - 2))
         gated = env.apply_htf_gate(w)
-        assert gated[0] == 0.0             # 上昇HTFでショート → 0
-        assert gated[1] == 0.0             # 下降HTFでロング → 0
+        assert gated[0] == 0.0  # 上昇HTFでショート → 0
+        assert gated[1] == 0.0  # 下降HTFでロング → 0
         assert np.allclose(gated[2:], 0.2 * 0.5)  # neutral縮小
 
     def test_gate_preserves_aligned_sizing(self, fs):
@@ -52,14 +52,14 @@ class TestHTFGate:
         env.reset(options={"start_idx": 100})
         idx = env._htf_idx
         htf = np.zeros(fs.n_symbols)
-        htf[0] = 1.0    # 上昇
-        htf[1] = -1.0   # 下降
+        htf[0] = 1.0  # 上昇
+        htf[1] = -1.0  # 下降
         env.fs.features[env.t][:, idx] = htf.astype(np.float32)
 
         w = np.array([0.6, -0.3] + [0.0] * (fs.n_symbols - 2))
         gated = env.apply_htf_gate(w)
-        assert gated[0] == 0.6    # 上昇HTFでロング → 維持
-        assert gated[1] == -0.3   # 下降HTFでショート → 維持
+        assert gated[0] == 0.6  # 上昇HTFでロング → 維持
+        assert gated[1] == -0.3  # 下降HTFでショート → 維持
 
     def test_gate_never_increases_gross(self, fs):
         env = PortfolioTradingEnv(fs, htf_gate=True)

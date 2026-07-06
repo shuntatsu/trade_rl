@@ -10,10 +10,9 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 import numpy as np
-import pandas as pd
 
-from mars_lite.data.sources import DataSource
 from mars_lite.data.data_utils import TF_TO_MINUTES
+from mars_lite.data.sources import DataSource
 
 
 @dataclass
@@ -27,8 +26,11 @@ class SymbolQuality:
 
     def to_dict(self) -> Dict:
         return {
-            "symbol": self.symbol, "passed": self.passed, "n_bars": self.n_bars,
-            "missing_ratio": self.missing_ratio, "max_jump": self.max_jump,
+            "symbol": self.symbol,
+            "passed": self.passed,
+            "n_bars": self.n_bars,
+            "missing_ratio": self.missing_ratio,
+            "max_jump": self.max_jump,
             "reasons": self.reasons,
         }
 
@@ -42,8 +44,10 @@ class QualityReport:
         return [r.symbol for r in self.results if r.passed]
 
     def to_dict(self) -> Dict:
-        return {"results": [r.to_dict() for r in self.results],
-                "passing_symbols": self.passing_symbols}
+        return {
+            "results": [r.to_dict() for r in self.results],
+            "passing_symbols": self.passing_symbols,
+        }
 
     def summary(self) -> str:
         lines = ["[Data Quality Gate]"]
@@ -92,13 +96,20 @@ def check_symbol(
         reasons.append("non_positive_price")
 
     return SymbolQuality(
-        symbol=symbol, passed=len(reasons) == 0, n_bars=n_bars,
-        missing_ratio=missing_ratio, max_jump=jump, reasons=reasons,
+        symbol=symbol,
+        passed=len(reasons) == 0,
+        n_bars=n_bars,
+        missing_ratio=missing_ratio,
+        max_jump=jump,
+        reasons=reasons,
     )
 
 
 def run_quality_gate(
-    source: DataSource, symbols: List[str], base_timeframe: str = "1h", **kwargs,
+    source: DataSource,
+    symbols: List[str],
+    base_timeframe: str = "1h",
+    **kwargs,
 ) -> QualityReport:
     """全銘柄の品質を検査してレポートを返す"""
     results = [check_symbol(source, s, base_timeframe, **kwargs) for s in symbols]

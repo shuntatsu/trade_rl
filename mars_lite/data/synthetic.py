@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 MINUTES_PER_DAY = 1440
-VOL_PER_MIN = 0.0009          # 1分あたりのノイズ標準偏差（年率~70%相当）
+VOL_PER_MIN = 0.0009  # 1分あたりのノイズ標準偏差（年率~70%相当）
 LATENT_HALF_LIFE_MIN = 60 * 30  # 潜在ドリフトの半減期（30時間）
 
 
@@ -42,7 +42,7 @@ def generate_market(
         latent:  (n_minutes, n_symbols) 時間あたり予測可能ドリフト状態
     """
     phi = np.exp(-np.log(2.0) / LATENT_HALF_LIFE_MIN)
-    sig_innov = alpha_strength * np.sqrt(1.0 - phi ** 2)
+    sig_innov = alpha_strength * np.sqrt(1.0 - phi**2)
 
     latent = np.zeros((n_minutes, n_symbols))
     returns = np.zeros((n_minutes, n_symbols))
@@ -93,10 +93,16 @@ def build_ohlcv(
     volume = base_volume * activity * rng.lognormal(0.0, 0.3, n)
 
     ts = pd.date_range(start, periods=n, freq="1min")
-    return pd.DataFrame({
-        "timestamp": ts, "open": open_, "high": high, "low": low,
-        "close": close, "volume": volume,
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": ts,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        }
+    )
 
 
 def build_orderflow(
@@ -113,15 +119,21 @@ def build_orderflow(
     imb = np.tanh(0.5 * signal + rng.normal(0.0, 1.0, n))
     buy = vol * (0.5 + 0.25 * imb)
     sell = vol - buy
-    count = np.maximum(1, rng.poisson(50, n) + (vol / (vol.mean() + 1e-12) * 20).astype(int))
+    count = np.maximum(
+        1, rng.poisson(50, n) + (vol / (vol.mean() + 1e-12) * 20).astype(int)
+    )
     avg_size = vol / count
     total = buy + sell
-    return pd.DataFrame({
-        "timestamp": kline_df["timestamp"],
-        "buy_volume": buy, "sell_volume": sell,
-        "trade_count": count, "avg_trade_size": avg_size,
-        "volume_imbalance": np.where(total > 0, (buy - sell) / total, 0.0),
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": kline_df["timestamp"],
+            "buy_volume": buy,
+            "sell_volume": sell,
+            "trade_count": count,
+            "avg_trade_size": avg_size,
+            "volume_imbalance": np.where(total > 0, (buy - sell) / total, 0.0),
+        }
+    )
 
 
 def build_funding(
@@ -135,7 +147,11 @@ def build_funding(
     n_events = days * 3
     ts = pd.date_range(start, periods=n_events, freq="8h")
     idx = np.minimum((np.arange(n_events) * 480), len(latent) - 1)
-    sig = latent[idx] / (np.abs(latent).std() + 1e-12) if alpha != "none" else np.zeros(n_events)
+    sig = (
+        latent[idx] / (np.abs(latent).std() + 1e-12)
+        if alpha != "none"
+        else np.zeros(n_events)
+    )
     rate = np.clip(1e-4 * sig + rng.normal(1e-5, 5e-5, n_events), -7.5e-4, 7.5e-4)
     return pd.DataFrame({"timestamp": ts, "funding_rate": rate})
 
@@ -170,7 +186,11 @@ def build_derivatives(
     hr_ret = np.abs(np.log(close[idx] / close[np.maximum(idx - 59, 0)]))
     liq = np.maximum(0.0, hr_ret - 0.005) * 5e7 * rng.lognormal(0.0, 0.5, hours)
 
-    return pd.DataFrame({
-        "timestamp": ts, "open_interest": oi,
-        "ls_ratio": ls, "liq_notional": liq,
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": ts,
+            "open_interest": oi,
+            "ls_ratio": ls,
+            "liq_notional": liq,
+        }
+    )

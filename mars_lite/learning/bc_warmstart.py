@@ -26,6 +26,7 @@ def soft_momentum_teacher(lookback: int = 24) -> TeacherFn:
     直近lookbackバーのリターンでランク付けし、勝者ロング・敗者ショートの
     ゼロサム・グロス1ウェイトを毎バー返す（離散リバランス版より滑らか）。
     """
+
     def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
         n = fs.n_symbols
         start = max(0, t - lookback)
@@ -52,6 +53,7 @@ def ts_momentum_teacher(lookback: int = 48) -> TeacherFn:
     過去リターンの絶対的な符号・強度でポジションを建て、ゼロサムにしない。
     上昇相場では全ロング、下落相場では全ショートに寄る（=トレンドフォロー）。
     """
+
     def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
         n = fs.n_symbols
         start = max(0, t - lookback)
@@ -59,7 +61,7 @@ def ts_momentum_teacher(lookback: int = 48) -> TeacherFn:
             return np.zeros(n)
         mom = np.log(fs.close[t] / fs.close[start])
         scale = np.abs(mom).mean() + 1e-9
-        raw = np.tanh(mom / scale)          # 有界化・ネット方向性を保持
+        raw = np.tanh(mom / scale)  # 有界化・ネット方向性を保持
         gross = np.abs(raw).sum()
         return raw / gross if gross > 1.0 else raw
 
@@ -67,7 +69,10 @@ def ts_momentum_teacher(lookback: int = 48) -> TeacherFn:
 
 
 def ridge_teacher(
-    train_fs, horizon: int = 4, lam: float = 10.0, target: str = "raw",
+    train_fs,
+    horizon: int = 4,
+    lam: float = 10.0,
+    target: str = "raw",
 ) -> TeacherFn:
     """
     データ駆動のRidge教師（アルファの型を仮定しない）
@@ -101,7 +106,10 @@ def ridge_teacher(
 
 
 def combined_teacher(
-    train_fs, use_ridge: bool, use_trend: bool, horizon: int = 4,
+    train_fs,
+    use_ridge: bool,
+    use_trend: bool,
+    horizon: int = 4,
     ridge_target: str = "raw",
 ) -> TeacherFn:
     """
@@ -117,7 +125,9 @@ def combined_teacher(
     ridge_target="cs_demean" にすると、Ridge成分が方向性ベータ（ts_fn側で
     別途捕捉）と重複しない、純粋な相対アルファだけを学習する。
     """
-    ridge_fn = ridge_teacher(train_fs, horizon, target=ridge_target) if use_ridge else None
+    ridge_fn = (
+        ridge_teacher(train_fs, horizon, target=ridge_target) if use_ridge else None
+    )
     ts_fn = ts_momentum_teacher() if use_trend else None
 
     def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
@@ -158,7 +168,11 @@ def dp_oracle_teacher(
     ラベル自体は非因果的（未来を見る）だが、模倣後の評価は必ずOOSで
     行うこと（教師の強さをRLの実力と誤解しない）。
     """
-    from mars_lite.learning.baselines import oracle_dp_paths, calibrate_noise_to_ic, _true_returns
+    from mars_lite.learning.baselines import (
+        _true_returns,
+        calibrate_noise_to_ic,
+        oracle_dp_paths,
+    )
 
     n_sym = train_fs.n_symbols
     end_idx = train_fs.n_bars - 1
@@ -171,9 +185,15 @@ def dp_oracle_teacher(
         signal = true_r + rng.normal(0.0, sigma, size=true_r.shape)
 
     paths = oracle_dp_paths(
-        train_fs, signal=signal, allow_short=allow_short,
-        fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
-        cost_multiplier=cost_multiplier, start_idx=0, end_idx=end_idx,
+        train_fs,
+        signal=signal,
+        allow_short=allow_short,
+        fee_rate=fee_rate,
+        spread_rate=spread_rate,
+        impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier,
+        start_idx=0,
+        end_idx=end_idx,
     )  # (T, n_sym), T == end_idx
 
     def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
@@ -184,7 +204,9 @@ def dp_oracle_teacher(
 
 
 def generate_teacher_dataset(
-    fs, teacher_fn: TeacherFn, env_kwargs: Optional[dict] = None,
+    fs,
+    teacher_fn: TeacherFn,
+    env_kwargs: Optional[dict] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     教師方策で環境を1エピソード走らせ (観測, 教師行動) を収集
@@ -243,7 +265,7 @@ def bc_pretrain(
         perm = torch.randperm(n, device=device)
         total = 0.0
         for i in range(0, n, batch_size):
-            idx = perm[i:i + batch_size]
+            idx = perm[i : i + batch_size]
             dist = policy.get_distribution(Xt[idx])
             mean_action = dist.distribution.mean
             loss = F.mse_loss(mean_action, At[idx])

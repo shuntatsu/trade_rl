@@ -13,37 +13,43 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mars_lite.features.ichimoku import calc_ichimoku, ichimoku_features
-
 
 # ============================================================
 # テスト用データ生成ヘルパー
 # ============================================================
 
+
 def make_ohlcv(n: int = 200, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     close = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, n))
-    high  = close * (1 + rng.uniform(0.001, 0.01, n))
-    low   = close * (1 - rng.uniform(0.001, 0.01, n))
+    high = close * (1 + rng.uniform(0.001, 0.01, n))
+    low = close * (1 - rng.uniform(0.001, 0.01, n))
     open_ = close * (1 + rng.normal(0, 0.005, n))
-    ts    = pd.date_range("2025-01-01", periods=n, freq="1h")
-    return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close}, index=ts)
+    ts = pd.date_range("2025-01-01", periods=n, freq="1h")
+    return pd.DataFrame(
+        {"open": open_, "high": high, "low": low, "close": close}, index=ts
+    )
 
 
 # ============================================================
 # calc_ichimoku のテスト
 # ============================================================
 
-class TestCalcIchimoku:
 
+class TestCalcIchimoku:
     def test_columns(self):
         df = make_ohlcv()
         ichi = calc_ichimoku(df["high"], df["low"], df["close"])
         assert set(ichi.columns) == {
-            "tenkan", "kijun", "senkou_a", "senkou_b",
-            "future_span_a", "future_span_b", "chikou",
+            "tenkan",
+            "kijun",
+            "senkou_a",
+            "senkou_b",
+            "future_span_a",
+            "future_span_b",
+            "chikou",
         }
 
     def test_no_lookahead_senkou(self):
@@ -58,8 +64,8 @@ class TestCalcIchimoku:
         df2 = df.copy()
         df2 = df2.copy()  # CoW 対応
         df2.loc[df2.index[-1], "close"] *= 1.5
-        df2.loc[df2.index[-1], "high"]  *= 1.5
-        df2.loc[df2.index[-1], "low"]   *= 1.5
+        df2.loc[df2.index[-1], "high"] *= 1.5
+        df2.loc[df2.index[-1], "low"] *= 1.5
         ichi2 = calc_ichimoku(df2["high"], df2["low"], df2["close"])
 
         # senkou_a[t] は t-26 以前の情報のみなので、最後の26本は変わってはならない
@@ -94,18 +100,25 @@ class TestCalcIchimoku:
 # ichimoku_features のテスト
 # ============================================================
 
-class TestIchimokuFeatures:
 
+class TestIchimokuFeatures:
     def test_output_columns(self):
         df = make_ohlcv()
         feats = ichimoku_features(df["high"], df["low"], df["close"])
         expected = {
             # 現在雲
-            "ichi_pos", "ichi_cloud_thick", "ichi_cloud_bull",
+            "ichi_pos",
+            "ichi_cloud_thick",
+            "ichi_cloud_bull",
             # 転換・基準線
-            "ichi_tk_cross", "ichi_price_kijun", "ichi_price_tenkan",
+            "ichi_tk_cross",
+            "ichi_price_kijun",
+            "ichi_price_tenkan",
             # 未来雲予測
-            "ichi_future_pos", "ichi_future_bull", "ichi_future_thick", "ichi_tk_accel",
+            "ichi_future_pos",
+            "ichi_future_bull",
+            "ichi_future_thick",
+            "ichi_tk_accel",
         }
         assert set(feats.columns) == expected
 
@@ -142,14 +155,14 @@ class TestIchimokuFeatures:
         ts = pd.date_range("2025-01-01", periods=n, freq="1h")
         # 単調上昇（長期で雲の上を維持するケース）
         close_up = pd.Series(np.linspace(100, 500, n), index=ts)
-        high_up  = close_up * 1.005
-        low_up   = close_up * 0.995
+        high_up = close_up * 1.005
+        low_up = close_up * 0.995
         feats_up = ichimoku_features(high_up, low_up, close_up)
 
         # 単調下降（長期で雲の下を維持するケース）
         close_dn = pd.Series(np.linspace(500, 100, n), index=ts)
-        high_dn  = close_dn * 1.005
-        low_dn   = close_dn * 0.995
+        high_dn = close_dn * 1.005
+        low_dn = close_dn * 0.995
         feats_dn = ichimoku_features(high_dn, low_dn, close_dn)
 
         # warmup (78本+) 以降の安定期で比較
@@ -166,11 +179,13 @@ class TestIchimokuFeatures:
         ts = pd.date_range("2025-01-01", periods=n, freq="1h")
         # 単調下降の価格
         close = pd.Series(np.linspace(200, 100, n), index=ts)
-        high  = close * 1.005
-        low   = close * 0.995
+        high = close * 1.005
+        low = close * 0.995
         feats = ichimoku_features(high, low, close)
         stable = feats["ichi_pos"].iloc[80:]
-        assert (stable <= 0.01).all(), f"Expected negative ichi_pos below cloud, got max={stable.max()}"
+        assert (stable <= 0.01).all(), (
+            f"Expected negative ichi_pos below cloud, got max={stable.max()}"
+        )
 
     def test_ichi_cloud_bull_sign(self):
         """
@@ -180,13 +195,15 @@ class TestIchimokuFeatures:
         n = 300
         ts = pd.date_range("2025-01-01", periods=n, freq="1h")
         close = pd.Series(np.linspace(100, 300, n), index=ts)
-        high  = close * 1.005
-        low   = close * 0.995
+        high = close * 1.005
+        low = close * 0.995
         feats = ichimoku_features(high, low, close)
         # senkou_a には warmup が 78本必要
         stable = feats["ichi_cloud_bull"].iloc[90:]
         # z-score標準化後でも平均値が正中立以上のはず
-        assert stable.mean() >= 0, f"Expected non-negative mean cloud_bull in uptrend, got {stable.mean():.3f}"
+        assert stable.mean() >= 0, (
+            f"Expected non-negative mean cloud_bull in uptrend, got {stable.mean():.3f}"
+        )
 
     def test_no_lookahead_feature(self):
         """
@@ -199,8 +216,8 @@ class TestIchimokuFeatures:
         # 最後の1本だけ大幅に変える
         df2 = df.copy()
         df2.loc[df2.index[-1], "close"] *= 2.0
-        df2.loc[df2.index[-1], "high"]  *= 2.0
-        df2.loc[df2.index[-1], "low"]   *= 2.0
+        df2.loc[df2.index[-1], "high"] *= 2.0
+        df2.loc[df2.index[-1], "low"] *= 2.0
         feats2 = ichimoku_features(df2["high"], df2["low"], df2["close"])
 
         # 現在雲は 26本前のデータに依存するので、最後の 26本より前は変化しない
@@ -223,8 +240,8 @@ class TestIchimokuFeatures:
 
         df2 = df.copy()
         df2.loc[df2.index[-1], "close"] *= 3.0
-        df2.loc[df2.index[-1], "high"]  *= 3.0
-        df2.loc[df2.index[-1], "low"]   *= 3.0
+        df2.loc[df2.index[-1], "high"] *= 3.0
+        df2.loc[df2.index[-1], "low"] *= 3.0
         feats2 = ichimoku_features(df2["high"], df2["low"], df2["close"])
 
         # 未来雲は現在データだけに依存 → 最後の1本以外は変化なし
@@ -241,24 +258,32 @@ class TestIchimokuFeatures:
 # FeaturePipeline との統合確認
 # ============================================================
 
-class TestFeaturePipelineIntegration:
 
+class TestFeaturePipelineIntegration:
     def test_ichimoku_in_feature_names(self):
         """FeaturePipeline の feature_names に ichi_* が10個含まれること"""
         from mars_lite.features.feature_pipeline import FeaturePipeline
+
         fp = FeaturePipeline(["BTCUSDT", "ETHUSDT"])
         ichi_feats = [f for f in fp.feature_names if f.startswith("ichi_")]
         expected = [
-            "ichi_pos", "ichi_cloud_thick", "ichi_cloud_bull",
-            "ichi_tk_cross", "ichi_price_kijun", "ichi_price_tenkan",
-            "ichi_future_pos", "ichi_future_bull", "ichi_future_thick", "ichi_tk_accel",
+            "ichi_pos",
+            "ichi_cloud_thick",
+            "ichi_cloud_bull",
+            "ichi_tk_cross",
+            "ichi_price_kijun",
+            "ichi_price_tenkan",
+            "ichi_future_pos",
+            "ichi_future_bull",
+            "ichi_future_thick",
+            "ichi_tk_accel",
         ]
         assert set(ichi_feats) == set(expected), f"Got: {ichi_feats}"
 
     def test_build_with_synthetic_source(self):
         """SyntheticSource で build が完走し、ichi_* 特徴量に NaN がないこと"""
-        from mars_lite.features.feature_pipeline import FeaturePipeline
         from mars_lite.data.sources import SyntheticSource
+        from mars_lite.features.feature_pipeline import FeaturePipeline
 
         symbols = ["BTCUSDT", "ETHUSDT"]
         fp = FeaturePipeline(symbols)
@@ -270,4 +295,6 @@ class TestFeaturePipelineIntegration:
 
         ichi_data = fs.features[:, :, ichi_idxs]
         assert not np.isnan(ichi_data).any(), "NaN found in ichi features from build()"
-        assert (np.abs(ichi_data) <= 5.0 + 1e-5).all(), "Clipping violated in built features"
+        assert (np.abs(ichi_data) <= 5.0 + 1e-5).all(), (
+            "Clipping violated in built features"
+        )

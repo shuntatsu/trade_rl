@@ -78,9 +78,15 @@ def upsert_klines(
     out["timestamp"] = _ts_ms(out["timestamp"])
     rows = [
         (
-            source, symbol, timeframe, r["timestamp"].to_pydatetime(),
-            float(r["open"]), float(r["high"]), float(r["low"]),
-            float(r["close"]), float(r["volume"]),
+            source,
+            symbol,
+            timeframe,
+            r["timestamp"].to_pydatetime(),
+            float(r["open"]),
+            float(r["high"]),
+            float(r["low"]),
+            float(r["close"]),
+            float(r["volume"]),
         )
         for _, r in out.iterrows()
     ]
@@ -94,7 +100,7 @@ def upsert_klines(
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
         ensure_schema(cur)
         for i in range(0, len(rows), batch_size):
-            batch = rows[i:i + batch_size]
+            batch = rows[i : i + batch_size]
             cur.executemany(sql, batch)
             total += len(batch)
         conn.commit()
@@ -107,8 +113,12 @@ def upsert_funding(dsn: str, source: str, symbol: str, funding: pd.DataFrame) ->
     import psycopg
 
     rows = [
-        (source, symbol, _ts_ms(pd.Series([r["timestamp"]]))[0].to_pydatetime(),
-         float(r["funding_rate"]))
+        (
+            source,
+            symbol,
+            _ts_ms(pd.Series([r["timestamp"]]))[0].to_pydatetime(),
+            float(r["funding_rate"]),
+        )
         for _, r in funding.iterrows()
     ]
     sql = """
@@ -123,17 +133,23 @@ def upsert_funding(dsn: str, source: str, symbol: str, funding: pd.DataFrame) ->
     return len(rows)
 
 
-def upsert_orderflow(dsn: str, source: str, symbol: str, orderflow: pd.DataFrame) -> int:
+def upsert_orderflow(
+    dsn: str, source: str, symbol: str, orderflow: pd.DataFrame
+) -> int:
     if orderflow is None or orderflow.empty:
         return 0
     import psycopg
 
     rows = [
         (
-            source, symbol,
+            source,
+            symbol,
             _ts_ms(pd.Series([r["timestamp"]]))[0].to_pydatetime(),
-            float(r["buy_volume"]), float(r["sell_volume"]), int(r["trade_count"]),
-            float(r["avg_trade_size"]), float(r["volume_imbalance"]),
+            float(r["buy_volume"]),
+            float(r["sell_volume"]),
+            int(r["trade_count"]),
+            float(r["avg_trade_size"]),
+            float(r["volume_imbalance"]),
         )
         for _, r in orderflow.iterrows()
     ]
@@ -152,7 +168,10 @@ def upsert_orderflow(dsn: str, source: str, symbol: str, orderflow: pd.DataFrame
 
 
 def upsert_derivatives(
-    dsn: str, source: str, symbol: str, derivatives: pd.DataFrame,
+    dsn: str,
+    source: str,
+    symbol: str,
+    derivatives: pd.DataFrame,
     batch_size: int = 5000,
 ) -> int:
     if derivatives is None or derivatives.empty:
@@ -161,10 +180,13 @@ def upsert_derivatives(
 
     rows = [
         (
-            source, symbol,
+            source,
+            symbol,
             _ts_ms(pd.Series([r["timestamp"]]))[0].to_pydatetime(),
-            float(r["open_interest"]), float(r["ls_ratio"]),
-            float(r["liq_notional"]), float(r.get("funding_predicted", 0.0)),
+            float(r["open_interest"]),
+            float(r["ls_ratio"]),
+            float(r["liq_notional"]),
+            float(r.get("funding_predicted", 0.0)),
         )
         for _, r in derivatives.iterrows()
     ]
@@ -179,7 +201,7 @@ def upsert_derivatives(
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
         ensure_schema(cur)
         for i in range(0, len(rows), batch_size):
-            batch = rows[i:i + batch_size]
+            batch = rows[i : i + batch_size]
             cur.executemany(sql, batch)
             total += len(batch)
         conn.commit()
@@ -200,7 +222,9 @@ def upsert_binance_bundle(
         "funding": upsert_funding(dsn, "binance", symbol, funding),
         "orderflow": upsert_orderflow(dsn, "binance", symbol, orderflow),
         "derivatives": upsert_derivatives(
-            dsn, "binance", symbol,
+            dsn,
+            "binance",
+            symbol,
             derivatives if derivatives is not None else pd.DataFrame(),
         ),
     }
@@ -211,8 +235,10 @@ def get_existing_kline_days(dsn: str, source: str, symbol: str, timeframe: str) 
     if not dsn:
         return set()
     try:
-        import psycopg
         from datetime import timezone
+
+        import psycopg
+
         sql = "SELECT DISTINCT date_trunc('day', timestamp) FROM rl_klines WHERE source=%s AND symbol=%s AND timeframe=%s"
         with psycopg.connect(dsn) as conn, conn.cursor() as cur:
             cur.execute(sql, (source, symbol, timeframe))
@@ -226,8 +252,10 @@ def get_existing_derivative_days(dsn: str, source: str, symbol: str) -> set:
     if not dsn:
         return set()
     try:
-        import psycopg
         from datetime import timezone
+
+        import psycopg
+
         sql = "SELECT DISTINCT date_trunc('day', timestamp) FROM rl_derivatives WHERE source=%s AND symbol=%s"
         with psycopg.connect(dsn) as conn, conn.cursor() as cur:
             cur.execute(sql, (source, symbol))
@@ -236,12 +264,15 @@ def get_existing_derivative_days(dsn: str, source: str, symbol: str) -> set:
         print(f"Warning: failed to fetch existing derivative dates: {e}")
         return set()
 
+
 def get_existing_orderflow_days(dsn: str, source: str, symbol: str) -> set:
     if not dsn:
         return set()
     try:
-        import psycopg
         from datetime import timezone
+
+        import psycopg
+
         sql = "SELECT DISTINCT date_trunc('day', timestamp) FROM rl_orderflow_1m WHERE source=%s AND symbol=%s"
         with psycopg.connect(dsn) as conn, conn.cursor() as cur:
             cur.execute(sql, (source, symbol))

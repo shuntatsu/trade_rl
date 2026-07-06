@@ -17,35 +17,38 @@ import numpy as np
 
 @dataclass
 class GuardrailConfig:
-    max_data_age_hours: float = 2.0        # これ以上古いデータならシグナル無効
-    max_daily_loss: float = 0.05           # 日次損失上限（超で解消）
-    max_drawdown: float = 0.20             # 最大DD上限（超で解消）
-    max_consecutive_losses: int = 12       # 連続負けバー上限（超でグロス半減）
-    max_turnover_z: float = 3.0            # 回転率の学習時分布からの逸脱σ
-    max_abs_weight: float = 0.5            # 単一銘柄の絶対ウェイト上限
+    max_data_age_hours: float = 2.0  # これ以上古いデータならシグナル無効
+    max_daily_loss: float = 0.05  # 日次損失上限（超で解消）
+    max_drawdown: float = 0.20  # 最大DD上限（超で解消）
+    max_consecutive_losses: int = 12  # 連続負けバー上限（超でグロス半減）
+    max_turnover_z: float = 3.0  # 回転率の学習時分布からの逸脱σ
+    max_abs_weight: float = 0.5  # 単一銘柄の絶対ウェイト上限
 
 
 @dataclass
 class GuardrailState:
     """運用側が保持する累積状態"""
+
     day_start_value: float = 1.0
     peak_value: float = 1.0
     consecutive_losses: int = 0
-    turnover_mean: float = 0.0             # 学習時の回転率平均
+    turnover_mean: float = 0.0  # 学習時の回転率平均
     turnover_std: float = 1.0
 
 
 @dataclass
 class GuardrailResult:
-    action: str = "proceed"                # proceed | scale | flatten
-    scale: float = 1.0                     # scale時の倍率
+    action: str = "proceed"  # proceed | scale | flatten
+    scale: float = 1.0  # scale時の倍率
     triggered: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return {
-            "action": self.action, "scale": self.scale,
-            "triggered": self.triggered, "warnings": self.warnings,
+            "action": self.action,
+            "scale": self.scale,
+            "triggered": self.triggered,
+            "warnings": self.warnings,
         }
 
 

@@ -4,17 +4,18 @@
 
 import numpy as np
 
-from mars_lite.trading.guardrails import (
-    GuardrailConfig, GuardrailState, evaluate_guardrails, apply_guardrails,
-)
+from mars_lite.data.quality import check_symbol, run_quality_gate
 from mars_lite.data.sources import SyntheticSource
-from mars_lite.data.quality import run_quality_gate, check_symbol
 from mars_lite.features.feature_pipeline import FeaturePipeline
 from mars_lite.features.signal_check import run_leak_self_test
+from mars_lite.trading.guardrails import (
+    GuardrailState,
+    apply_guardrails,
+    evaluate_guardrails,
+)
 
 
 class TestGuardrails:
-
     def _w(self):
         return np.array([0.3, -0.2, 0.1, 0.0, 0.0, 0.0, 0.0])
 
@@ -44,28 +45,28 @@ class TestGuardrails:
         assert r.action == "flatten"  # DD = 1 - 1.0/1.5 = 33% > 20%
 
     def test_consecutive_losses_scales(self):
-        st = GuardrailState(day_start_value=1.0, peak_value=1.0,
-                            consecutive_losses=20)
+        st = GuardrailState(day_start_value=1.0, peak_value=1.0, consecutive_losses=20)
         r = evaluate_guardrails(self._w(), 1.0, 0.1, data_age_hours=0.5, state=st)
         assert r.action == "scale"
         assert r.scale == 0.5
 
     def test_turnover_anomaly_scales(self):
         st = GuardrailState(turnover_mean=0.2, turnover_std=0.1)
-        r = evaluate_guardrails(self._w(), 1.0, turnover=1.0,
-                                data_age_hours=0.5, state=st)
+        r = evaluate_guardrails(
+            self._w(), 1.0, turnover=1.0, data_age_hours=0.5, state=st
+        )
         assert r.action == "scale"
 
     def test_proceed_when_healthy(self):
         st = GuardrailState(turnover_mean=0.3, turnover_std=0.1)
-        r = evaluate_guardrails(self._w(), 1.0, turnover=0.3,
-                                data_age_hours=0.5, state=st)
+        r = evaluate_guardrails(
+            self._w(), 1.0, turnover=0.3, data_age_hours=0.5, state=st
+        )
         assert r.action == "proceed"
         np.testing.assert_array_equal(apply_guardrails(self._w(), r), self._w())
 
 
 class TestQualityGate:
-
     def test_clean_synthetic_passes(self):
         src = SyntheticSource(n_days=20, alpha="cross", seed=2)
         rep = run_quality_gate(src, src.symbols, base_timeframe="1h")
@@ -78,11 +79,10 @@ class TestQualityGate:
 
 
 class TestLeakSelfTest:
-
     def test_detector_healthy(self):
         src = SyntheticSource(n_days=30, alpha="cross", seed=3)
         fs = FeaturePipeline(src.symbols).build(src)
         lt = run_leak_self_test(fs)
-        assert lt["shuffle_ic"] < 0.05          # シャッフルで相関消失
+        assert lt["shuffle_ic"] < 0.05  # シャッフルで相関消失
         assert lt["future_shift_ic"] > lt["base_ic"]  # 未来シフトでIC増大
         assert lt["healthy"]

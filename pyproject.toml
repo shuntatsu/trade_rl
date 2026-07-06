@@ -7,22 +7,75 @@ name = "mars_lite"
 version = "0.1.0"
 description = "仮想マーケットインパクトシミュレーション環境"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 dependencies = [
-    "numpy>=1.24.0,<2.0.0",
-    "pandas>=2.0.0",
+    "numpy>=1.26.0,<2.0.0",
+    "pandas>=2.2.0",
+    "pyarrow>=14.0.0",
+    "requests>=2.28.0",
     "gymnasium>=0.29.0",
     "stable-baselines3==2.3.2",
     "torch==2.3.1",
+    "tqdm>=4.65.0",
+    "rich>=13.0.0",
     "matplotlib>=3.7.0",
-    "requests>=2.28.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "websockets>=11.0",
+    "psycopg[binary]>=3.1",
+    "packaging<24.0",
+    "optuna>=3.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["mars_lite*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501", "E712", "F841", "E402", "E741", "E722", "F823", "F401"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+follow_imports = "skip"
+strict_optional = false
+disable_error_code = ["arg-type", "return-value", "var-annotated", "assignment", "attr-defined", "union-attr", "operator"]
+
+[[tool.mypy.overrides]]
+module = "psycopg.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = [
+    "mars_lite/evolution/*",
+    "mars_lite/models/*",
+    "mars_lite/pipeline/*",
+    "mars_lite/utils/*",
+    "mars_lite/eval/walk_forward.py",
+    "mars_lite/server/metrics_server.py",
+    "mars_lite/data/postgres_store.py",
+    "mars_lite/learning/model_manager.py",
+    "mars_lite/learning/training_callback.py",
+    "mars_lite/learning/pbt_search.py",
+    "mars_lite/learning/policy_ensemble.py",
+    "mars_lite/learning/val_selection.py",
+    "mars_lite/learning/curriculum_callback.py",
+]
+

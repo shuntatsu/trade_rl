@@ -21,7 +21,11 @@ KLINES_DAILY_BASE = "https://data.binance.vision/data/futures/um/daily/klines"
 AGGTRADES_DAILY_BASE = "https://data.binance.vision/data/futures/um/daily/aggTrades"
 
 DERIV_COLUMNS = [
-    "timestamp", "open_interest", "ls_ratio", "liq_notional", "funding_predicted",
+    "timestamp",
+    "open_interest",
+    "ls_ratio",
+    "liq_notional",
+    "funding_predicted",
 ]
 
 KLINES_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
@@ -39,14 +43,22 @@ def normalize_metrics_df(df: pd.DataFrame) -> pd.DataFrame:
 
     ts = pd.to_datetime(df["create_time"], utc=True)
     ts_ms = (ts.astype("int64") // 1000).astype("int64")
-    taker = pd.to_numeric(df["sum_taker_long_short_vol_ratio"], errors="coerce").fillna(1.0)
-    return pd.DataFrame({
-        "timestamp": ts_ms,
-        "open_interest": pd.to_numeric(df["sum_open_interest"], errors="coerce").fillna(0.0),
-        "ls_ratio": pd.to_numeric(df["count_long_short_ratio"], errors="coerce").fillna(1.0),
-        "liq_notional": (taker - 1.0).abs(),
-        "funding_predicted": 0.0001,
-    })
+    taker = pd.to_numeric(df["sum_taker_long_short_vol_ratio"], errors="coerce").fillna(
+        1.0
+    )
+    return pd.DataFrame(
+        {
+            "timestamp": ts_ms,
+            "open_interest": pd.to_numeric(
+                df["sum_open_interest"], errors="coerce"
+            ).fillna(0.0),
+            "ls_ratio": pd.to_numeric(
+                df["count_long_short_ratio"], errors="coerce"
+            ).fillna(1.0),
+            "liq_notional": (taker - 1.0).abs(),
+            "funding_predicted": 0.0001,
+        }
+    )
 
 
 def download_metrics_day(
@@ -84,10 +96,12 @@ def fetch_metrics_range(
     当日分は翌日朝以降に公開されるため、直近1日は欠けることがある。
     """
     start_day = datetime.fromtimestamp(
-        start_ms / 1000, tz=timezone.utc,
+        start_ms / 1000,
+        tz=timezone.utc,
     ).replace(hour=0, minute=0, second=0, microsecond=0)
     end_day = datetime.fromtimestamp(
-        end_ms / 1000, tz=timezone.utc,
+        end_ms / 1000,
+        tz=timezone.utc,
     ).replace(hour=0, minute=0, second=0, microsecond=0)
 
     parts = []
@@ -116,9 +130,7 @@ def fetch_metrics_range(
     out = pd.concat(parts, ignore_index=True)
     out = out[(out["timestamp"] >= start_ms) & (out["timestamp"] <= end_ms)]
     return (
-        out.drop_duplicates("timestamp")
-        .sort_values("timestamp")
-        .reset_index(drop=True)
+        out.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
     )
 
 
@@ -131,14 +143,16 @@ def normalize_klines_df(df: pd.DataFrame) -> pd.DataFrame:
     """vision kline CSV → 標準OHLCV（timestamp=epoch ms）"""
     if df is None or df.empty:
         return pd.DataFrame(columns=KLINES_COLUMNS)
-    return pd.DataFrame({
-        "timestamp": df["open_time"].astype("int64"),
-        "open": pd.to_numeric(df["open"], errors="coerce"),
-        "high": pd.to_numeric(df["high"], errors="coerce"),
-        "low": pd.to_numeric(df["low"], errors="coerce"),
-        "close": pd.to_numeric(df["close"], errors="coerce"),
-        "volume": pd.to_numeric(df["volume"], errors="coerce"),
-    }).dropna(subset=["open", "close"])
+    return pd.DataFrame(
+        {
+            "timestamp": df["open_time"].astype("int64"),
+            "open": pd.to_numeric(df["open"], errors="coerce"),
+            "high": pd.to_numeric(df["high"], errors="coerce"),
+            "low": pd.to_numeric(df["low"], errors="coerce"),
+            "close": pd.to_numeric(df["close"], errors="coerce"),
+            "volume": pd.to_numeric(df["volume"], errors="coerce"),
+        }
+    ).dropna(subset=["open", "close"])
 
 
 def download_klines_day(
@@ -175,10 +189,12 @@ def fetch_klines_range(
 ) -> pd.DataFrame:
     """期間内の1m（等）足を日次ZIPから結合。"""
     start_day = datetime.fromtimestamp(
-        start_ms / 1000, tz=timezone.utc,
+        start_ms / 1000,
+        tz=timezone.utc,
     ).replace(hour=0, minute=0, second=0, microsecond=0)
     end_day = datetime.fromtimestamp(
-        end_ms / 1000, tz=timezone.utc,
+        end_ms / 1000,
+        tz=timezone.utc,
     ).replace(hour=0, minute=0, second=0, microsecond=0)
 
     parts = []
@@ -216,21 +232,38 @@ def fetch_klines_range(
     out = pd.concat(parts, ignore_index=True)
     out = out[(out["timestamp"] >= start_ms) & (out["timestamp"] < end_ms + 86_400_000)]
     return (
-        out.drop_duplicates("timestamp")
-        .sort_values("timestamp")
-        .reset_index(drop=True)
+        out.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
     )
+
 
 def aggtrades_daily_url(symbol: str, day: datetime) -> str:
     d = day.strftime("%Y-%m-%d")
     return f"{AGGTRADES_DAILY_BASE}/{symbol}/{symbol}-aggTrades-{d}.zip"
 
+
 def normalize_aggtrades_to_orderflow(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=["timestamp", "buy_volume", "sell_volume", "trade_count", "avg_trade_size", "volume_imbalance"])
-    
+        return pd.DataFrame(
+            columns=[
+                "timestamp",
+                "buy_volume",
+                "sell_volume",
+                "trade_count",
+                "avg_trade_size",
+                "volume_imbalance",
+            ]
+        )
+
     if "transact_time" not in df.columns:
-        df.columns = ["agg_trade_id", "price", "quantity", "first_trade_id", "last_trade_id", "transact_time", "is_buyer_maker"]
+        df.columns = [
+            "agg_trade_id",
+            "price",
+            "quantity",
+            "first_trade_id",
+            "last_trade_id",
+            "transact_time",
+            "is_buyer_maker",
+        ]
 
     df["transact_time"] = pd.to_numeric(df["transact_time"], errors="coerce")
     df["minute"] = (df["transact_time"] // 60000) * 60000
@@ -242,19 +275,26 @@ def normalize_aggtrades_to_orderflow(df: pd.DataFrame) -> pd.DataFrame:
     sell_vol = df[df["is_sell"]].groupby("minute")["quantity"].sum()
     trade_count = gb.size()
 
-    out = pd.DataFrame({
-        "timestamp": list(gb.groups.keys()),
-    })
+    out = pd.DataFrame(
+        {
+            "timestamp": list(gb.groups.keys()),
+        }
+    )
     out["buy_volume"] = out["timestamp"].map(buy_vol).fillna(0.0)
     out["sell_volume"] = out["timestamp"].map(sell_vol).fillna(0.0)
     out["trade_count"] = out["timestamp"].map(trade_count).fillna(0)
 
-    out["avg_trade_size"] = (out["buy_volume"] + out["sell_volume"]) / out["trade_count"].replace(0, 1)
-    
+    out["avg_trade_size"] = (out["buy_volume"] + out["sell_volume"]) / out[
+        "trade_count"
+    ].replace(0, 1)
+
     vol_sum = out["buy_volume"] + out["sell_volume"]
-    out["volume_imbalance"] = (out["buy_volume"] - out["sell_volume"]) / vol_sum.replace(0, 1)
-    
+    out["volume_imbalance"] = (
+        out["buy_volume"] - out["sell_volume"]
+    ) / vol_sum.replace(0, 1)
+
     return out.sort_values("timestamp").reset_index(drop=True)
+
 
 def download_orderflow_day(
     symbol: str,
@@ -278,6 +318,7 @@ def download_orderflow_day(
     except Exception:
         return pd.DataFrame()
 
+
 def fetch_orderflow_vision(
     symbol: str,
     start_ms: int,
@@ -287,8 +328,12 @@ def fetch_orderflow_vision(
     exclude_days: Optional[set] = None,
     save_cb=None,
 ) -> pd.DataFrame:
-    start_day = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    end_day = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_day = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    end_day = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
 
     parts = []
     session = requests.Session()
@@ -299,7 +344,8 @@ def fetch_orderflow_vision(
     while day <= end_day:
         if exclude_days and day in exclude_days:
             idx += 1
-            if progress_cb: progress_cb(idx, n_days, day, -1)
+            if progress_cb:
+                progress_cb(idx, n_days, day, -1)
             day += timedelta(days=1)
             continue
 
@@ -309,9 +355,10 @@ def fetch_orderflow_vision(
                 save_cb(chunk)
             else:
                 parts.append(chunk)
-        
+
         idx += 1
-        if progress_cb: progress_cb(idx, n_days, day, len(chunk))
+        if progress_cb:
+            progress_cb(idx, n_days, day, len(chunk))
         day += timedelta(days=1)
         if pause_sec > 0:
             time.sleep(pause_sec)
@@ -323,4 +370,6 @@ def fetch_orderflow_vision(
 
     out = pd.concat(parts, ignore_index=True)
     out = out[(out["timestamp"] >= start_ms) & (out["timestamp"] < end_ms + 86_400_000)]
-    return out.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+    return (
+        out.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+    )

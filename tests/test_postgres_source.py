@@ -15,6 +15,7 @@ from mars_lite.data.sources import PostgresSource, create_source
 def _db_available(dsn: str) -> bool:
     try:
         import psycopg
+
         with psycopg.connect(dsn, connect_timeout=3):
             return True
     except Exception:
@@ -26,7 +27,6 @@ pytestmark = pytest.mark.skipif(not _db_available(DSN), reason="Postgres not rea
 
 
 class TestPostgresSource:
-
     def test_factory_registers_postgres(self):
         src = create_source("postgres", ["BTCUSDT"], dsn=DSN, source="hyperliquid")
         assert isinstance(src, PostgresSource)
@@ -37,22 +37,37 @@ class TestPostgresSource:
         df = src.load_klines("BTCUSDT", "1h")
         if df.empty:
             pytest.skip("no hyperliquid klines seeded in this DB")
-        assert list(df.columns) == ["timestamp", "open", "high", "low", "close", "volume"]
+        assert list(df.columns) == [
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ]
         assert pd.api.types.is_datetime64_any_dtype(df["timestamp"])
         assert df["timestamp"].is_monotonic_increasing
 
     def test_cross_source_derivatives(self):
         """klines/fundingとderivatives/orderflowで異なるsourceラベルを使える"""
         src = PostgresSource(
-            ["BTCUSDT"], dsn=DSN, source="hyperliquid",
-            derivatives_source="binance", orderflow_source="binance",
+            ["BTCUSDT"],
+            dsn=DSN,
+            source="hyperliquid",
+            derivatives_source="binance",
+            orderflow_source="binance",
         )
         assert src.derivatives_source == "binance"
         assert src.orderflow_source == "binance"
         assert src.source == "hyperliquid"
         # 存在有無に関わらずクラッシュしないこと
         deriv = src.load_derivatives("BTCUSDT")
-        assert list(deriv.columns) == ["timestamp", "open_interest", "ls_ratio", "liq_notional"]
+        assert list(deriv.columns) == [
+            "timestamp",
+            "open_interest",
+            "ls_ratio",
+            "liq_notional",
+        ]
 
     def test_missing_symbol_returns_empty_not_error(self):
         src = PostgresSource(["NOSUCHSYM"], dsn=DSN, source="hyperliquid")

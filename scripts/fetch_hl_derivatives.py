@@ -30,13 +30,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_futures import fetch_derivatives  # noqa: E402
+
 from mars_lite.data.binance_vision import fetch_orderflow_vision  # noqa: E402
 
 DEFAULT_SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
-    "SUIUSDT", "DOGEUSDT",
-    "ADAUSDT", "AVAXUSDT", "LINKUSDT",
-    "LTCUSDT", "BCHUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "BNBUSDT",
+    "SUIUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+    "BCHUSDT",
+    "APTUSDT",
+    "ARBUSDT",
+    "OPUSDT",
 ]
 
 
@@ -49,13 +61,22 @@ def _coin(symbol: str) -> str:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Hyperliquid銘柄向けBinance代理デリバティブ取得")
-    ap.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS,
-                    help="Binance先物のシンボル表記（例: BTCUSDT）")
+    ap = argparse.ArgumentParser(
+        description="Hyperliquid銘柄向けBinance代理デリバティブ取得"
+    )
+    ap.add_argument(
+        "--symbols",
+        nargs="+",
+        default=DEFAULT_SYMBOLS,
+        help="Binance先物のシンボル表記（例: BTCUSDT）",
+    )
     ap.add_argument("--days", type=int, default=180)
     ap.add_argument("--cache-dir", default="./data/hyperliquid")
-    ap.add_argument("--skip-orderflow", action="store_true",
-                    help="aggTrades集計をスキップ（OI/LS/liqのみ、高速）")
+    ap.add_argument(
+        "--skip-orderflow",
+        action="store_true",
+        help="aggTrades集計をスキップ（OI/LS/liqのみ、高速）",
+    )
     args = ap.parse_args()
 
     cache_dir = Path(args.cache_dir)
@@ -74,6 +95,7 @@ def main():
         deriv = fetch_derivatives(symbol, start_ms, end_ms)
         deriv = deriv.rename(columns={"timestamp": "ts_ms"})
         import pandas as pd
+
         deriv["timestamp"] = pd.to_datetime(deriv["ts_ms"], unit="ms")
         deriv = deriv[["timestamp", "open_interest", "ls_ratio", "liq_notional"]]
         deriv.to_csv(cache_dir / f"{coin}_derivatives.csv", index=False)
@@ -81,10 +103,14 @@ def main():
 
         if not args.skip_orderflow:
             print("  orderflow (1m aggTrades, Binance vision)...", flush=True)
+
             def _progress(idx, total, day, rows):
                 if idx % 30 == 0 or idx == total:
                     print(f"    orderflow [{idx}/{total}] days processed", flush=True)
-            of_all = fetch_orderflow_vision(symbol, start_ms, end_ms, progress_cb=_progress)
+
+            of_all = fetch_orderflow_vision(
+                symbol, start_ms, end_ms, progress_cb=_progress
+            )
             if not of_all.empty:
                 of_all["timestamp"] = pd.to_datetime(of_all["timestamp"], unit="ms")
                 of_all.to_csv(cache_dir / f"{coin}_orderflow_1m.csv", index=False)
@@ -94,7 +120,9 @@ def main():
 
         time.sleep(0.2)
 
-    print("完了。--source hyperliquid で oi_z/ls_ratio_z/liq_z/of_* が実データで埋まります。")
+    print(
+        "完了。--source hyperliquid で oi_z/ls_ratio_z/liq_z/of_* が実データで埋まります。"
+    )
 
 
 if __name__ == "__main__":

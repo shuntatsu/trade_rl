@@ -1,10 +1,11 @@
 """執行コストモデルのテスト"""
+
 import numpy as np
+
 from mars_lite.trading.execution import ExecutionModel, make_execution_model
 
 
 class TestExecutionModel:
-
     def test_sqrt_impact_superlinear(self):
         """大口のインパクトは線形を超える（sqrt則: cost ∝ size^1.5）"""
         em = ExecutionModel(fee_rate=0, spread_rate=0, impact_coef=0.001)
@@ -17,9 +18,13 @@ class TestExecutionModel:
     def test_twap_splitting_reduces_impact(self):
         """TWAP分割でインパクトが1/√Kに減る"""
         d = np.array([0.4, 0, 0])
-        c1 = ExecutionModel(fee_rate=0, spread_rate=0, impact_coef=0.001, n_slices=1).cost_fraction(d)
-        c4 = ExecutionModel(fee_rate=0, spread_rate=0, impact_coef=0.001, n_slices=4).cost_fraction(d)
-        assert abs(c4 - c1 / 2.0) < 1e-9      # 1/sqrt(4) = 1/2
+        c1 = ExecutionModel(
+            fee_rate=0, spread_rate=0, impact_coef=0.001, n_slices=1
+        ).cost_fraction(d)
+        c4 = ExecutionModel(
+            fee_rate=0, spread_rate=0, impact_coef=0.001, n_slices=4
+        ).cost_fraction(d)
+        assert abs(c4 - c1 / 2.0) < 1e-9  # 1/sqrt(4) = 1/2
 
     def test_fee_spread_linear(self):
         """手数料・スプレッドは回転率に線形"""
@@ -30,13 +35,17 @@ class TestExecutionModel:
     def test_cost_multiplier(self):
         em = make_execution_model(impact_rate=0.0001)
         d = np.array([0.2, 0, 0])
-        assert abs(em.with_multiplier(2.0).cost_fraction(d) - 2 * em.cost_fraction(d)) < 1e-12
+        assert (
+            abs(em.with_multiplier(2.0).cost_fraction(d) - 2 * em.cost_fraction(d))
+            < 1e-12
+        )
 
     def test_env_uses_execution_model(self):
         """環境が執行モデルを使い、コスト2倍で資産が減る"""
         from mars_lite.data.sources import SyntheticSource
-        from mars_lite.features.feature_pipeline import FeaturePipeline
         from mars_lite.env.portfolio_env import PortfolioTradingEnv
+        from mars_lite.features.feature_pipeline import FeaturePipeline
+
         src = SyntheticSource(n_days=15, alpha="cross", seed=1)
         fs = FeaturePipeline(src.symbols).build(src)
         vals = []

@@ -4,8 +4,8 @@
 APIに到達できない環境（オフライン・地域制限など）ではskipする。
 """
 
-import sys
 import os
+import sys
 
 import pytest
 import requests

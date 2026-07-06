@@ -1,6 +1,6 @@
-from mars_lite.server.training_manager import TrainingManager, TrainingConfig
 import time
-import os
+
+from mars_lite.server.training_manager import TrainingConfig, TrainingManager
 
 print("Starting direct test...")
 manager = TrainingManager()
@@ -9,7 +9,7 @@ config = TrainingConfig(
     checkpoint_freq=100,
     symbol="BTCUSDT",
     interval="1h",
-    output_dir="./output"
+    output_dir="./output",
 )
 
 # Start
@@ -20,8 +20,10 @@ print(f"Start result: {res}")
 for i in range(20):
     time.sleep(1)
     status = manager.get_status_info()
-    print(f"Step {i}: Status={status.get('status')}, Current Step={status.get('current_step')}")
-    if status.get('status') in ['completed', 'error']:
+    print(
+        f"Step {i}: Status={status.get('status')}, Current Step={status.get('current_step')}"
+    )
+    if status.get("status") in ["completed", "error"]:
         break
 
 # Stop

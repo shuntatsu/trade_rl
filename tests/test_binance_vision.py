@@ -8,12 +8,11 @@ import pandas as pd
 import pytest
 
 from mars_lite.data.binance_vision import (
-    normalize_metrics_df,
     download_metrics_day,
     fetch_metrics_range,
     metrics_zip_url,
+    normalize_metrics_df,
 )
-
 
 SAMPLE_CSV = """create_time,symbol,sum_open_interest,sum_open_interest_value,count_toptrader_long_short_ratio,sum_toptrader_long_short_ratio,count_long_short_ratio,sum_taker_long_short_vol_ratio
 2024-06-01 00:05:00,BTCUSDT,76537.751,5180097949.0,2.15,1.58,2.17,1.66
@@ -31,7 +30,11 @@ def test_normalize_metrics_df():
     raw = pd.read_csv(io.StringIO(SAMPLE_CSV))
     out = normalize_metrics_df(raw)
     assert list(out.columns) == [
-        "timestamp", "open_interest", "ls_ratio", "liq_notional", "funding_predicted",
+        "timestamp",
+        "open_interest",
+        "ls_ratio",
+        "liq_notional",
+        "funding_predicted",
     ]
     assert len(out) == 2
     assert out["open_interest"].iloc[0] == 76537.751

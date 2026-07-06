@@ -32,7 +32,13 @@ import requests
 _HL_INFO_URL = "https://api.hyperliquid.xyz/info"
 
 DEFAULT_SYMBOLS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "SUIUSDT", "DOGEUSDT",
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "BNBUSDT",
+    "SUIUSDT",
+    "DOGEUSDT",
 ]
 
 
@@ -54,16 +60,18 @@ def fetch_snapshot() -> pd.DataFrame:
 
     rows = []
     for u, ctx in zip(universe, ctxs):
-        rows.append({
-            "timestamp": now,
-            "coin": u["name"],
-            "open_interest": float(ctx.get("openInterest", 0.0)),
-            "funding": float(ctx.get("funding", 0.0)),
-            "premium": float(ctx.get("premium", 0.0) or 0.0),
-            "mark_px": float(ctx.get("markPx", 0.0) or 0.0),
-            "oracle_px": float(ctx.get("oraclePx", 0.0) or 0.0),
-            "day_ntl_vlm": float(ctx.get("dayNtlVlm", 0.0) or 0.0),
-        })
+        rows.append(
+            {
+                "timestamp": now,
+                "coin": u["name"],
+                "open_interest": float(ctx.get("openInterest", 0.0)),
+                "funding": float(ctx.get("funding", 0.0)),
+                "premium": float(ctx.get("premium", 0.0) or 0.0),
+                "mark_px": float(ctx.get("markPx", 0.0) or 0.0),
+                "oracle_px": float(ctx.get("oraclePx", 0.0) or 0.0),
+                "day_ntl_vlm": float(ctx.get("dayNtlVlm", 0.0) or 0.0),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -77,7 +85,9 @@ def append_snapshot(df: pd.DataFrame, coin: str, out_dir: Path) -> None:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Hyperliquidネイティブスナップショット収集（単発実行）")
+    ap = argparse.ArgumentParser(
+        description="Hyperliquidネイティブスナップショット収集（単発実行）"
+    )
     ap.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS)
     ap.add_argument("--out-dir", default="./data/hyperliquid/snapshots")
     args = ap.parse_args()

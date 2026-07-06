@@ -6,13 +6,14 @@ import numpy as np
 import pytest
 
 from mars_lite.trading.post_processor import (
-    PortfolioPostProcessor, PostProcessConfig,
-    make_legacy_processor, make_default_processor,
+    PortfolioPostProcessor,
+    PostProcessConfig,
+    make_default_processor,
+    make_legacy_processor,
 )
 
 
 class TestPostProcessor:
-
     def test_leverage_respected(self):
         pp = PortfolioPostProcessor(PostProcessConfig(ema_alpha=1.0, no_trade_band=0.0))
         raw = np.array([0.5, 0.5, 0.5, -0.5])
@@ -20,23 +21,26 @@ class TestPostProcessor:
         assert np.abs(w).sum() <= 1.0 + 1e-9
 
     def test_concentration_cap(self):
-        pp = PortfolioPostProcessor(PostProcessConfig(
-            ema_alpha=1.0, max_weight=0.3, no_trade_band=0.0))
+        pp = PortfolioPostProcessor(
+            PostProcessConfig(ema_alpha=1.0, max_weight=0.3, no_trade_band=0.0)
+        )
         raw = np.array([1.0, 0.0, 0.0, 0.0])
         w, _ = pp.process(raw, np.zeros(4))
         assert np.abs(w).max() <= 0.3 + 1e-9
 
     def test_no_trade_band(self):
-        pp = PortfolioPostProcessor(PostProcessConfig(
-            ema_alpha=1.0, no_trade_band=0.1, max_weight=1.0))
+        pp = PortfolioPostProcessor(
+            PostProcessConfig(ema_alpha=1.0, no_trade_band=0.1, max_weight=1.0)
+        )
         prev = np.array([0.2, 0.2, 0.0, 0.0])
         raw = np.array([0.22, 0.2, 0.05, 0.0])  # 変化は0.02,0,0.05 いずれも<0.1
         w, _ = pp.process(raw, prev)
         np.testing.assert_allclose(w, prev)  # すべて据え置き
 
     def test_ema_smoothing(self):
-        pp = PortfolioPostProcessor(PostProcessConfig(
-            ema_alpha=0.5, no_trade_band=0.0, max_weight=1.0))
+        pp = PortfolioPostProcessor(
+            PostProcessConfig(ema_alpha=0.5, no_trade_band=0.0, max_weight=1.0)
+        )
         prev = np.array([0.0, 0.0])
         raw = np.array([0.8, 0.0])
         w, _ = pp.process(raw, prev)
@@ -44,8 +48,9 @@ class TestPostProcessor:
         assert w[0] == pytest.approx(0.4, abs=1e-6)
 
     def test_vol_targeting_reduces_gross(self):
-        cfg = PostProcessConfig(ema_alpha=1.0, no_trade_band=0.0, max_weight=1.0,
-                                target_vol=0.10)  # 低い目標
+        cfg = PostProcessConfig(
+            ema_alpha=1.0, no_trade_band=0.0, max_weight=1.0, target_vol=0.10
+        )  # 低い目標
         pp = PortfolioPostProcessor(cfg)
         raw = np.array([0.5, 0.5])
         # 高ボラの直近リターン
@@ -56,8 +61,13 @@ class TestPostProcessor:
         assert np.abs(w).sum() < np.abs(raw).sum()
 
     def test_drawdown_derisk(self):
-        cfg = PostProcessConfig(ema_alpha=1.0, no_trade_band=0.0, max_weight=1.0,
-                                dd_derisk_start=0.1, dd_derisk_floor=0.3)
+        cfg = PostProcessConfig(
+            ema_alpha=1.0,
+            no_trade_band=0.0,
+            max_weight=1.0,
+            dd_derisk_start=0.1,
+            dd_derisk_floor=0.3,
+        )
         pp = PortfolioPostProcessor(cfg)
         raw = np.array([0.5, 0.5])
         w_normal, _ = pp.process(raw, np.zeros(2), drawdown=0.0)
@@ -66,8 +76,9 @@ class TestPostProcessor:
         assert np.abs(w_dd).sum() < np.abs(w_normal).sum()
 
     def test_disagreement_scaling(self):
-        cfg = PostProcessConfig(ema_alpha=1.0, no_trade_band=0.0, max_weight=1.0,
-                                disagreement_penalty=1.0)
+        cfg = PostProcessConfig(
+            ema_alpha=1.0, no_trade_band=0.0, max_weight=1.0, disagreement_penalty=1.0
+        )
         pp = PortfolioPostProcessor(cfg)
         raw = np.array([0.5, 0.5])
         w, info = pp.process(raw, np.zeros(2), disagreement=0.5)

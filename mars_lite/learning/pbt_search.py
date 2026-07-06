@@ -17,7 +17,6 @@ from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
-
 # 探索空間: 名前 -> (最小, 最大, log空間か)
 DEFAULT_SEARCH_SPACE = {
     "gamma": (0.3, 0.95, False),
@@ -55,8 +54,11 @@ class PBTResult:
     history: List[Dict] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
-        return {"best_hp": self.best_hp, "best_score": self.best_score,
-                "history": self.history}
+        return {
+            "best_hp": self.best_hp,
+            "best_score": self.best_score,
+            "history": self.history,
+        }
 
 
 def run_pbt(
@@ -97,21 +99,29 @@ def run_pbt(
 
         for li, wi in zip(losers, rng.permutation(winners)):
             # exploit: 勝者のHPをコピー → explore: 摂動
-            pop[li] = _perturb(rng, copy.deepcopy(pop[winners[-1] if wi is None else wi]), space)
+            pop[li] = _perturb(
+                rng, copy.deepcopy(pop[winners[-1] if wi is None else wi]), space
+            )
             scores[li] = train_eval_fn(pop[li], seed + gen * 100 + li)
 
         best_i = int(np.argmax(scores))
-        history.append({
-            "generation": gen,
-            "best_score": float(scores[best_i]),
-            "best_hp": {k: round(v, 6) for k, v in pop[best_i].items()},
-        })
+        history.append(
+            {
+                "generation": gen,
+                "best_score": float(scores[best_i]),
+                "best_hp": {k: round(v, 6) for k, v in pop[best_i].items()},
+            }
+        )
         if verbose:
             hp = pop[best_i]
-            print(f"[PBT gen {gen}] best={scores[best_i]:+.4f} "
-                  f"gamma={hp['gamma']:.2f} ent={hp['ent_coef']:.4f} "
-                  f"lam={hp['lambda_turnover']:.3f} rs={hp['reward_scale']:.0f}", flush=True)
+            print(
+                f"[PBT gen {gen}] best={scores[best_i]:+.4f} "
+                f"gamma={hp['gamma']:.2f} ent={hp['ent_coef']:.4f} "
+                f"lam={hp['lambda_turnover']:.3f} rs={hp['reward_scale']:.0f}",
+                flush=True,
+            )
 
     best_i = int(np.argmax(scores))
-    return PBTResult(best_hp=pop[best_i], best_score=float(scores[best_i]),
-                     history=history)
+    return PBTResult(
+        best_hp=pop[best_i], best_score=float(scores[best_i]), history=history
+    )

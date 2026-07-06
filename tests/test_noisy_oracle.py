@@ -9,8 +9,9 @@ from mars_lite.data.sources import SyntheticSource
 from mars_lite.features.feature_pipeline import FeaturePipeline
 from mars_lite.features.signal_check import _rank_ic
 from mars_lite.learning.baselines import (
-    calibrate_noise_to_ic, noisy_oracle_strategy, oracle_dp_strategy,
-    simulate_strategy, flat_strategy,
+    calibrate_noise_to_ic,
+    noisy_oracle_strategy,
+    oracle_dp_strategy,
 )
 
 
@@ -20,7 +21,6 @@ def _synthetic_fs(alpha="cross", days=40, seed=3):
 
 
 class TestCalibrateNoise:
-
     def test_calibrated_ic_close_to_target(self):
         rng = np.random.default_rng(0)
         fwd = rng.normal(0, 0.01, size=(500, 5))
@@ -38,7 +38,6 @@ class TestCalibrateNoise:
 
 
 class TestNoisyOracle:
-
     def test_monotonic_in_target_ic(self):
         """目標ICが高いほど（真の未来知識に近いほど）収益が上がる"""
         fs = _synthetic_fs(alpha="cross", days=60)
@@ -69,24 +68,33 @@ class TestNoisyOracle:
 
 
 class TestDecisionEveryOracle:
-
     def test_lower_frequency_reduces_turnover(self):
         """decision_everyを上げると回転が減る（同一signal・同一コスト）"""
         fs = _synthetic_fs(alpha="cross", days=60, seed=4)
-        r1 = noisy_oracle_strategy(fs, target_ic=0.05, seed=0, n_draws=2, decision_every=1)
-        r8 = noisy_oracle_strategy(fs, target_ic=0.05, seed=0, n_draws=2, decision_every=8)
+        r1 = noisy_oracle_strategy(
+            fs, target_ic=0.05, seed=0, n_draws=2, decision_every=1
+        )
+        r8 = noisy_oracle_strategy(
+            fs, target_ic=0.05, seed=0, n_draws=2, decision_every=8
+        )
         assert r8.turnover_total < r1.turnover_total
 
     def test_low_frequency_can_reduce_cost_drag(self):
         """低ICで発生する過剰な回転コストは、意思決定頻度を下げると緩和される"""
         fs = _synthetic_fs(alpha="cross", days=60, seed=9)
-        r1 = noisy_oracle_strategy(fs, target_ic=0.01, seed=0, n_draws=2, decision_every=1)
-        r8 = noisy_oracle_strategy(fs, target_ic=0.01, seed=0, n_draws=2, decision_every=8)
+        r1 = noisy_oracle_strategy(
+            fs, target_ic=0.01, seed=0, n_draws=2, decision_every=1
+        )
+        r8 = noisy_oracle_strategy(
+            fs, target_ic=0.01, seed=0, n_draws=2, decision_every=8
+        )
         assert r8.total_return >= r1.total_return - 1e-6
 
     def test_default_decision_every_matches_legacy_behavior(self):
         """decision_every省略時は従来と同じ挙動（回帰防止）"""
         fs = _synthetic_fs(alpha="cross", days=30, seed=2)
         r_default = noisy_oracle_strategy(fs, target_ic=0.1, seed=1, n_draws=2)
-        r_explicit = noisy_oracle_strategy(fs, target_ic=0.1, seed=1, n_draws=2, decision_every=1)
+        r_explicit = noisy_oracle_strategy(
+            fs, target_ic=0.1, seed=1, n_draws=2, decision_every=1
+        )
         np.testing.assert_allclose(r_default.equity_curve, r_explicit.equity_curve)

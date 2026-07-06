@@ -27,37 +27,59 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
-
 
 MINUTES_PER_DAY = 1440
 DEFAULT_SYMBOLS = [
-    "BTCUSDT", "XRPUSDT", "SUIUSDT", "BNBUSDT", "ETHUSDT", "PAXGUSDT", "ETHBTC",
+    "BTCUSDT",
+    "XRPUSDT",
+    "SUIUSDT",
+    "BNBUSDT",
+    "ETHUSDT",
+    "PAXGUSDT",
+    "ETHBTC",
 ]
 START_PRICES = {
-    "BTCUSDT": 40000.0, "XRPUSDT": 0.6, "SUIUSDT": 1.5, "BNBUSDT": 300.0,
-    "ETHUSDT": 2500.0, "PAXGUSDT": 2000.0, "ETHBTC": 0.06,
+    "BTCUSDT": 40000.0,
+    "XRPUSDT": 0.6,
+    "SUIUSDT": 1.5,
+    "BNBUSDT": 300.0,
+    "ETHUSDT": 2500.0,
+    "PAXGUSDT": 2000.0,
+    "ETHBTC": 0.06,
 }
 
 from mars_lite.data.synthetic import (  # noqa: E402
-    generate_market, build_ohlcv, build_orderflow, build_funding, build_derivatives,
+    build_derivatives,
+    build_funding,
+    build_ohlcv,
+    build_orderflow,
+    generate_market,
 )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="合成マーケットデータ生成（アルファ注入対応）")
+    parser = argparse.ArgumentParser(
+        description="合成マーケットデータ生成（アルファ注入対応）"
+    )
     parser.add_argument("--symbols", type=str, nargs="+", default=DEFAULT_SYMBOLS)
     parser.add_argument("--days", type=int, default=60, help="生成日数")
     parser.add_argument("--output", type=str, default="./data", help="出力ディレクトリ")
-    parser.add_argument("--start-date", type=str, default=None, help="開始日 YYYY-MM-DD")
+    parser.add_argument(
+        "--start-date", type=str, default=None, help="開始日 YYYY-MM-DD"
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--alpha", type=str, default="none", choices=["none", "cross", "meanrev", "multi", "bull"],
-        help="注入するアルファの種類"
+        "--alpha",
+        type=str,
+        default="none",
+        choices=["none", "cross", "meanrev", "multi", "bull"],
+        help="注入するアルファの種類",
     )
     parser.add_argument(
-        "--alpha-strength", type=float, default=0.002,
-        help="アルファ強度（1時間あたりの予測可能ドリフトの標準偏差）"
+        "--alpha-strength",
+        type=float,
+        default=0.002,
+        help="アルファ強度（1時間あたりの予測可能ドリフトの標準偏差）",
     )
     args = parser.parse_args()
 
@@ -73,8 +95,10 @@ def main():
     n_minutes = args.days * MINUTES_PER_DAY
     n_symbols = len(args.symbols)
 
-    print(f"Generating {args.days} days x {n_symbols} symbols "
-          f"(alpha={args.alpha}, strength={args.alpha_strength})...")
+    print(
+        f"Generating {args.days} days x {n_symbols} symbols "
+        f"(alpha={args.alpha}, strength={args.alpha_strength})..."
+    )
 
     returns, latent = generate_market(
         rng, n_symbols, n_minutes, args.alpha, args.alpha_strength
@@ -94,7 +118,7 @@ def main():
             sym_dir = output_dir / symbol / name
             sym_dir.mkdir(parents=True, exist_ok=True)
             for d in range(args.days):
-                day_slice = df.iloc[d * MINUTES_PER_DAY:(d + 1) * MINUTES_PER_DAY]
+                day_slice = df.iloc[d * MINUTES_PER_DAY : (d + 1) * MINUTES_PER_DAY]
                 date_str = (start + timedelta(days=d)).strftime("%Y-%m-%d")
                 day_slice.to_csv(sym_dir / f"{date_str}.csv", index=False)
 

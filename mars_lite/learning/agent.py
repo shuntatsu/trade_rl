@@ -4,19 +4,15 @@ PPOエージェントモジュール
 Stable-Baselines3ベースのPPOエージェント管理
 """
 
-from typing import Any, Callable, Dict, List, Optional, Type, Union
 from pathlib import Path
-import numpy as np
+from typing import Any, Callable, Dict, List, Optional, Union
 
-try:
-    from stable_baselines3 import PPO
-    from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
-    from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv
-    from stable_baselines3.common.monitor import Monitor
-    HAS_SB3 = True
-except ImportError:
-    HAS_SB3 = False
-    PPO = None
+import numpy as np
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
+from stable_baselines3.common.vec_env import VecEnv
+
+HAS_SB3 = True
 
 import gymnasium as gym
 
@@ -40,7 +36,7 @@ def create_ppo_agent(
 ) -> "PPO":
     """
     PPOエージェントを生成
-    
+
     Args:
         env: Gymnasium環境
         learning_rate: 学習率
@@ -57,22 +53,21 @@ def create_ppo_agent(
         verbose: ログ出力レベル
         device: デバイス（"cpu", "cuda", "auto"）
         seed: 乱数シード
-        
+
     Returns:
         PPOエージェント
     """
     if not HAS_SB3:
         raise ImportError(
-            "stable-baselines3 is required. "
-            "Install with: pip install stable-baselines3"
+            "stable-baselines3 is required. Install with: pip install stable-baselines3"
         )
-    
+
     # デフォルトのポリシー設定
     if policy_kwargs is None:
         policy_kwargs = {
             "net_arch": dict(pi=[128, 128], vf=[128, 128]),
         }
-    
+
     agent = PPO(
         policy="MlpPolicy",
         env=env,
@@ -91,7 +86,7 @@ def create_ppo_agent(
         device=device,
         seed=seed,
     )
-    
+
     return agent
 
 
@@ -107,7 +102,7 @@ def train_agent(
 ) -> "PPO":
     """
     エージェントを学習
-    
+
     Args:
         agent: PPOエージェント
         total_timesteps: 総学習ステップ数
@@ -117,15 +112,15 @@ def train_agent(
         eval_freq: 評価頻度
         n_eval_episodes: 評価エピソード数
         save_path: モデル保存パス
-        
+
     Returns:
         学習済みエージェント
     """
     if not HAS_SB3:
         raise ImportError("stable-baselines3 is required.")
-    
+
     callback_list = callbacks or []
-    
+
     # 評価コールバック追加
     if eval_env is not None:
         eval_callback = EvalCallback(
@@ -138,17 +133,17 @@ def train_agent(
             render=False,
         )
         callback_list.append(eval_callback)
-    
+
     agent.learn(
         total_timesteps=total_timesteps,
         callback=callback_list if callback_list else None,
         log_interval=log_interval,
     )
-    
+
     # 最終モデル保存
     if save_path:
         agent.save(Path(save_path) / "final_model")
-    
+
     return agent
 
 
@@ -160,47 +155,49 @@ def evaluate_agent(
 ) -> Dict[str, Any]:
     """
     エージェントを評価
-    
+
     Args:
         agent: 学習済みエージェント
         env: 評価環境
         n_episodes: 評価エピソード数
         deterministic: 決定的行動を使用
-        
+
     Returns:
         評価結果（mean_reward, std_reward, execution_stats等）
     """
     episode_rewards = []
     episode_lengths = []
     execution_stats = []
-    
+
     for _ in range(n_episodes):
         obs, info = env.reset()
         done = False
         total_reward = 0.0
         length = 0
-        
+
         while not done:
             action, _ = agent.predict(obs, deterministic=deterministic)
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             total_reward += reward
             length += 1
-        
+
         episode_rewards.append(total_reward)
         episode_lengths.append(length)
-        
+
         # 執行履歴を取得（MarsLiteEnvの場合）
         if hasattr(env, "get_execution_history"):
             exec_hist = env.get_execution_history()
             if len(exec_hist) > 0:
-                execution_stats.append({
-                    "n_trades": len(exec_hist),
-                    "mean_pov": exec_hist["pov"].mean(),
-                    "total_quantity": exec_hist["quantity"].sum(),
-                    "mean_impact": exec_hist["impact_pct"].mean(),
-                })
-    
+                execution_stats.append(
+                    {
+                        "n_trades": len(exec_hist),
+                        "mean_pov": exec_hist["pov"].mean(),
+                        "total_quantity": exec_hist["quantity"].sum(),
+                        "mean_impact": exec_hist["impact_pct"].mean(),
+                    }
+                )
+
     return {
         "mean_reward": np.mean(episode_rewards),
         "std_reward": np.std(episode_rewards),
@@ -213,15 +210,15 @@ def evaluate_agent(
 def load_agent(path: str, env: gym.Env) -> "PPO":
     """
     保存済みエージェントを読み込み
-    
+
     Args:
         path: モデルパス
         env: 環境（ポリシー検証用）
-        
+
     Returns:
         PPOエージェント
     """
     if not HAS_SB3:
         raise ImportError("stable-baselines3 is required.")
-    
+
     return PPO.load(path, env=env)

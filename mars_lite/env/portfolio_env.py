@@ -18,6 +18,7 @@ from gymnasium import spaces
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
+from mars_lite.trading.pre_trade_risk import PreTradeRiskVerifier
 
 BARS_PER_YEAR_1H = 24 * 365
 
@@ -56,8 +57,10 @@ class PortfolioTradingEnv(gym.Env):
         use_dsr: bool = False,
         dsr_eta: float = 0.01,
         decision_every: int = 1,
+        pre_trade_verifier: Optional[PreTradeRiskVerifier] = None,
     ):
         super().__init__()
+        self.pre_trade_verifier = pre_trade_verifier
         self.fs = fs
         self.n_symbols = fs.n_symbols
         self.episode_bars = episode_bars
@@ -81,8 +84,10 @@ class PortfolioTradingEnv(gym.Env):
         self.decision_every = max(1, decision_every)
 
         self._exec_model = make_execution_model(
-            fee_rate=fee_rate, spread_rate=spread_rate,
-            impact_rate=impact_rate, cost_multiplier=cost_multiplier,
+            fee_rate=fee_rate,
+            spread_rate=spread_rate,
+            impact_rate=impact_rate,
+            cost_multiplier=cost_multiplier,
         )
 
         self._htf_idx: Optional[int] = None
@@ -94,10 +99,16 @@ class PortfolioTradingEnv(gym.Env):
 
         obs_dim = self.n_symbols * self.n_per_symbol + self.n_global
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32,
+            low=-np.inf,
+            high=np.inf,
+            shape=(obs_dim,),
+            dtype=np.float32,
         )
         self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(self.n_symbols,), dtype=np.float32,
+            low=-1.0,
+            high=1.0,
+            shape=(self.n_symbols,),
+            dtype=np.float32,
         )
 
         # 属性の初期化（reset前にアクセスされても壊れないように）
@@ -171,9 +182,9 @@ class PortfolioTradingEnv(gym.Env):
         eta = self.dsr_eta
         dA = r - self._dsr_A
         dB = r * r - self._dsr_B
-        denom = (self._dsr_B - self._dsr_A ** 2)
+        denom = self._dsr_B - self._dsr_A**2
         if denom > 1e-12:
-            dsr = (self._dsr_B * dA - 0.5 * self._dsr_A * dB) / (denom ** 1.5)
+            dsr = (self._dsr_B * dA - 0.5 * self._dsr_A * dB) / (denom**1.5)
         else:
             dsr = 0.0
         self._dsr_A += eta * dA
@@ -231,13 +242,16 @@ class PortfolioTradingEnv(gym.Env):
             recent_returns = None
             if self.t > start:
                 recent_returns = (
-                    np.diff(self.fs.close[start:self.t + 1], axis=0)
-                    / self.fs.close[start:self.t, :]
+                    np.diff(self.fs.close[start : self.t + 1], axis=0)
+                    / self.fs.close[start : self.t, :]
                 )
             drawdown = 1.0 - self.portfolio_value / max(self.peak_value, 1e-9)
             target, _pp_info = self.post_processor.process(
-                proj, prev, recent_returns=recent_returns,
-                drawdown=drawdown, disagreement=self.disagreement,
+                proj,
+                prev,
+                recent_returns=recent_returns,
+                drawdown=drawdown,
+                disagreement=self.disagreement,
             )
         else:
             delta0 = proj - prev
@@ -246,6 +260,9 @@ class PortfolioTradingEnv(gym.Env):
 
         if self._htf_idx is not None:
             target = self.apply_htf_gate(target)
+
+        if self.pre_trade_verifier is not None:
+            self.pre_trade_verifier.validate(target, self.portfolio_value)
 
         delta = target - prev
         turnover = float(np.abs(delta).sum())
@@ -257,9 +274,11 @@ class PortfolioTradingEnv(gym.Env):
         net = gross_pnl - cost - funding
 
         p_base = self.portfolio_value
-        self.portfolio_value *= (1.0 + net)
+        self.portfolio_value *= 1.0 + net
         self.peak_value = max(self.peak_value, self.portfolio_value)
-        self.max_dd = max(self.max_dd, 1.0 - self.portfolio_value / max(self.peak_value, 1e-9))
+        self.max_dd = max(
+            self.max_dd, 1.0 - self.portfolio_value / max(self.peak_value, 1e-9)
+        )
         self._funding_pnl += funding
 
         self.weights = target
@@ -296,33 +315,57 @@ class PortfolioTradingEnv(gym.Env):
         info = {
             "turnover": turnover,
             "execution": {
-                "step": self.t, "p_base": p_base, "p_exec": self.portfolio_value,
-                "action": raw.tolist(), "side": side,
+                "step": self.t,
+                "p_base": p_base,
+                "p_exec": self.portfolio_value,
+                "action": raw.tolist(),
+                "side": side,
                 "inventory_after": self.weights.tolist(),
-                "reward": float(reward), "event": event,
+                "reward": float(reward),
+                "event": event,
             },
         }
 
         if terminated or truncated:
-            rets = np.array(self._returns_history) if self._returns_history else np.zeros(1)
+            rets = (
+                np.array(self._returns_history)
+                if self._returns_history
+                else np.zeros(1)
+            )
             n_steps = len(self._returns_history)
-            sharpe = float(rets.mean() / rets.std() * np.sqrt(BARS_PER_YEAR_1H)) \
-                if rets.std() > 0 else 0.0
-            apy = float((self.portfolio_value / self.initial_capital) **
-                        (BARS_PER_YEAR_1H / max(n_steps, 1)) - 1.0) if n_steps > 0 else 0.0
-            info.update({
-                "win_rate": float((rets > 0).mean()),
-                "max_drawdown": self.max_dd,
-                "portfolio_value": self.portfolio_value,
-                "apy": apy,
-                "sharpe": sharpe,
-                "n_trades": self.n_trades,
-                "turnover_total": self.turnover_total,
-                "funding_pnl": self._funding_pnl,
-                "long_pct": float(self._long_symbol_steps / max(self._total_symbol_steps, 1)),
-                "short_pct": float(self._short_symbol_steps / max(self._total_symbol_steps, 1)),
-                "hold_pct": float(self._n_hold_steps / max(n_steps, 1)),
-            })
+            sharpe = (
+                float(rets.mean() / rets.std() * np.sqrt(BARS_PER_YEAR_1H))
+                if rets.std() > 0
+                else 0.0
+            )
+            apy = (
+                float(
+                    (self.portfolio_value / self.initial_capital)
+                    ** (BARS_PER_YEAR_1H / max(n_steps, 1))
+                    - 1.0
+                )
+                if n_steps > 0
+                else 0.0
+            )
+            info.update(
+                {
+                    "win_rate": float((rets > 0).mean()),
+                    "max_drawdown": self.max_dd,
+                    "portfolio_value": self.portfolio_value,
+                    "apy": apy,
+                    "sharpe": sharpe,
+                    "n_trades": self.n_trades,
+                    "turnover_total": self.turnover_total,
+                    "funding_pnl": self._funding_pnl,
+                    "long_pct": float(
+                        self._long_symbol_steps / max(self._total_symbol_steps, 1)
+                    ),
+                    "short_pct": float(
+                        self._short_symbol_steps / max(self._total_symbol_steps, 1)
+                    ),
+                    "hold_pct": float(self._n_hold_steps / max(n_steps, 1)),
+                }
+            )
 
         obs = self._obs()
         return obs, float(reward), terminated, truncated, info

@@ -29,32 +29,55 @@ class DataSource(ABC):
 
     @abstractmethod
     def load_klines(
-        self, symbol: str, timeframe: str = "1h",
-        start: Optional[str] = None, end: Optional[str] = None,
+        self,
+        symbol: str,
+        timeframe: str = "1h",
+        start: Optional[str] = None,
+        end: Optional[str] = None,
     ) -> pd.DataFrame:
         """OHLCV。列: timestamp, open, high, low, close, volume"""
         raise NotImplementedError
 
     def load_orderflow(
-        self, symbol: str, start: Optional[str] = None, end: Optional[str] = None,
+        self,
+        symbol: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
     ) -> pd.DataFrame:
         """1分オーダーフロー集計。列: timestamp, buy_volume, sell_volume,
         trade_count, avg_trade_size, volume_imbalance。デフォルトは空。"""
-        return pd.DataFrame(columns=[
-            "timestamp", "buy_volume", "sell_volume",
-            "trade_count", "avg_trade_size", "volume_imbalance",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "timestamp",
+                "buy_volume",
+                "sell_volume",
+                "trade_count",
+                "avg_trade_size",
+                "volume_imbalance",
+            ]
+        )
 
     def load_derivatives(
-        self, symbol: str, start: Optional[str] = None, end: Optional[str] = None,
+        self,
+        symbol: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
     ) -> pd.DataFrame:
         """デリバティブ指標。列: timestamp, open_interest, ls_ratio, liq_notional"""
-        return pd.DataFrame(columns=[
-            "timestamp", "open_interest", "ls_ratio", "liq_notional",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "timestamp",
+                "open_interest",
+                "ls_ratio",
+                "liq_notional",
+            ]
+        )
 
     def load_funding(
-        self, symbol: str, start: Optional[str] = None, end: Optional[str] = None,
+        self,
+        symbol: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
     ) -> pd.DataFrame:
         """funding rate実績。列: timestamp, funding_rate"""
         return pd.DataFrame(columns=["timestamp", "funding_rate"])
@@ -69,11 +92,22 @@ class SyntheticSource(DataSource):
     """
 
     DEFAULT_SYMBOLS = [
-        "BTCUSDT", "XRPUSDT", "SUIUSDT", "BNBUSDT", "ETHUSDT", "PAXGUSDT", "ETHBTC",
+        "BTCUSDT",
+        "XRPUSDT",
+        "SUIUSDT",
+        "BNBUSDT",
+        "ETHUSDT",
+        "PAXGUSDT",
+        "ETHBTC",
     ]
     START_PRICES = {
-        "BTCUSDT": 40000.0, "XRPUSDT": 0.6, "SUIUSDT": 1.5, "BNBUSDT": 300.0,
-        "ETHUSDT": 2500.0, "PAXGUSDT": 2000.0, "ETHBTC": 0.06,
+        "BTCUSDT": 40000.0,
+        "XRPUSDT": 0.6,
+        "SUIUSDT": 1.5,
+        "BNBUSDT": 300.0,
+        "ETHUSDT": 2500.0,
+        "PAXGUSDT": 2000.0,
+        "ETHBTC": 0.06,
     }
 
     def __init__(
@@ -88,14 +122,21 @@ class SyntheticSource(DataSource):
         symbols = symbols or self.DEFAULT_SYMBOLS
         super().__init__(symbols)
         from mars_lite.data.synthetic import (
-            generate_market, build_ohlcv, build_orderflow,
-            build_funding, build_derivatives,
+            build_derivatives,
+            build_funding,
+            build_ohlcv,
+            build_orderflow,
+            generate_market,
         )
 
         rng = np.random.default_rng(seed)
         n_minutes = n_days * 1440
         returns, latent = generate_market(
-            rng, len(symbols), n_minutes, alpha, alpha_strength,
+            rng,
+            len(symbols),
+            n_minutes,
+            alpha,
+            alpha_strength,
         )
 
         self._klines: Dict[str, pd.DataFrame] = {}
@@ -168,7 +209,11 @@ class CsvSource(DataSource):
                 df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
             else:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df = df.sort_values("timestamp").drop_duplicates("timestamp").reset_index(drop=True)
+            df = (
+                df.sort_values("timestamp")
+                .drop_duplicates("timestamp")
+                .reset_index(drop=True)
+            )
         return df
 
     def _1m_klines(self, symbol: str) -> pd.DataFrame:
@@ -243,7 +288,7 @@ def _hl_post(payload: dict, max_retries: int = 6) -> list:
     for attempt in range(max_retries):
         resp = requests.post(_HL_INFO_URL, json=payload, timeout=20)
         if resp.status_code == 429:
-            time.sleep(min(2 ** attempt, 30))
+            time.sleep(min(2**attempt, 30))
             continue
         resp.raise_for_status()
         return resp.json()
@@ -296,11 +341,17 @@ class HyperliquidSource(DataSource):
         rows = []
         cursor = start_ms
         for _ in range(200):
-            data = _hl_post({
-                "type": "candleSnapshot",
-                "req": {"coin": coin, "interval": interval,
-                        "startTime": cursor, "endTime": end_ms},
-            })
+            data = _hl_post(
+                {
+                    "type": "candleSnapshot",
+                    "req": {
+                        "coin": coin,
+                        "interval": interval,
+                        "startTime": cursor,
+                        "endTime": end_ms,
+                    },
+                }
+            )
             if not data:
                 break
             rows.extend(data)
@@ -312,15 +363,25 @@ class HyperliquidSource(DataSource):
             if cursor >= end_ms:
                 break
         if not rows:
-            return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+            return pd.DataFrame(
+                columns=["timestamp", "open", "high", "low", "close", "volume"]
+            )
         df = pd.DataFrame(rows)
-        out = pd.DataFrame({
-            "timestamp": pd.to_datetime(df["t"].astype("int64"), unit="ms"),
-            "open": df["o"].astype(float), "high": df["h"].astype(float),
-            "low": df["l"].astype(float), "close": df["c"].astype(float),
-            "volume": df["v"].astype(float),
-        })
-        return out.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+        out = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(df["t"].astype("int64"), unit="ms"),
+                "open": df["o"].astype(float),
+                "high": df["h"].astype(float),
+                "low": df["l"].astype(float),
+                "close": df["c"].astype(float),
+                "volume": df["v"].astype(float),
+            }
+        )
+        return (
+            out.drop_duplicates("timestamp")
+            .sort_values("timestamp")
+            .reset_index(drop=True)
+        )
 
     def _load_candles(self, coin: str, interval: str) -> pd.DataFrame:
         cache_key = f"{coin}_{interval}"
@@ -363,10 +424,14 @@ class HyperliquidSource(DataSource):
             rows = []
             cursor = start_ms
             for _ in range(200):
-                data = _hl_post({
-                    "type": "fundingHistory",
-                    "coin": coin, "startTime": cursor, "endTime": end_ms,
-                })
+                data = _hl_post(
+                    {
+                        "type": "fundingHistory",
+                        "coin": coin,
+                        "startTime": cursor,
+                        "endTime": end_ms,
+                    }
+                )
                 if not data:
                     break
                 rows.extend(data)
@@ -377,10 +442,19 @@ class HyperliquidSource(DataSource):
                 if cursor >= end_ms:
                     break
             if rows:
-                df = pd.DataFrame({
-                    "timestamp": pd.to_datetime([int(r["time"]) for r in rows], unit="ms"),
-                    "funding_rate": [float(r["fundingRate"]) for r in rows],
-                }).drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+                df = (
+                    pd.DataFrame(
+                        {
+                            "timestamp": pd.to_datetime(
+                                [int(r["time"]) for r in rows], unit="ms"
+                            ),
+                            "funding_rate": [float(r["fundingRate"]) for r in rows],
+                        }
+                    )
+                    .drop_duplicates("timestamp")
+                    .sort_values("timestamp")
+                    .reset_index(drop=True)
+                )
                 df.to_csv(path, index=False)
             else:
                 df = pd.DataFrame(columns=["timestamp", "funding_rate"])
@@ -423,11 +497,14 @@ class HyperliquidSource(DataSource):
             if not snap.empty:
                 snap = snap.sort_values("timestamp")
                 if df.empty:
-                    df = pd.DataFrame({
-                        "timestamp": snap["timestamp"],
-                        "open_interest": snap["open_interest"],
-                        "ls_ratio": 1.0, "liq_notional": 0.0,
-                    })
+                    df = pd.DataFrame(
+                        {
+                            "timestamp": snap["timestamp"],
+                            "open_interest": snap["open_interest"],
+                            "ls_ratio": 1.0,
+                            "liq_notional": 0.0,
+                        }
+                    )
                 else:
                     df = df.set_index("timestamp")
                     native_oi = snap.set_index("timestamp")["open_interest"]
@@ -487,7 +564,9 @@ class PostgresSource(DataSource):
             rows = cur.fetchall()
         df = pd.DataFrame(rows, columns=cols)
         if not df.empty and "timestamp" in df.columns:
-            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
+            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(
+                None
+            )
         return df
 
     def _time_clauses(self, start, end):
@@ -509,8 +588,10 @@ class PostgresSource(DataSource):
         """
         clauses, params = self._time_clauses(start, end)
         where = " AND ".join(["source = %s", "symbol = %s", "timeframe = %s"] + clauses)
-        sql = (f"SELECT timestamp, open, high, low, close, volume FROM rl_klines "
-               f"WHERE {where} ORDER BY timestamp")
+        sql = (
+            f"SELECT timestamp, open, high, low, close, volume FROM rl_klines "
+            f"WHERE {where} ORDER BY timestamp"
+        )
         df = self._query(sql, [self.source, symbol, timeframe] + params)
         if not df.empty:
             return df.reset_index(drop=True)
@@ -525,9 +606,11 @@ class PostgresSource(DataSource):
     def load_orderflow(self, symbol, start=None, end=None):
         clauses, params = self._time_clauses(start, end)
         where = " AND ".join(["source = %s", "symbol = %s"] + clauses)
-        sql = (f"SELECT timestamp, buy_volume, sell_volume, trade_count, "
-               f"avg_trade_size, volume_imbalance FROM rl_orderflow_1m "
-               f"WHERE {where} ORDER BY timestamp")
+        sql = (
+            f"SELECT timestamp, buy_volume, sell_volume, trade_count, "
+            f"avg_trade_size, volume_imbalance FROM rl_orderflow_1m "
+            f"WHERE {where} ORDER BY timestamp"
+        )
         df = self._query(sql, [self.orderflow_source, symbol] + params)
         if df.empty:
             return super().load_orderflow(symbol, start, end)
@@ -536,8 +619,10 @@ class PostgresSource(DataSource):
     def load_derivatives(self, symbol, start=None, end=None):
         clauses, params = self._time_clauses(start, end)
         where = " AND ".join(["source = %s", "symbol = %s"] + clauses)
-        sql = (f"SELECT timestamp, open_interest, ls_ratio, liq_notional "
-               f"FROM rl_derivatives WHERE {where} ORDER BY timestamp")
+        sql = (
+            f"SELECT timestamp, open_interest, ls_ratio, liq_notional "
+            f"FROM rl_derivatives WHERE {where} ORDER BY timestamp"
+        )
         df = self._query(sql, [self.derivatives_source, symbol] + params)
         if df.empty:
             return super().load_derivatives(symbol, start, end)
@@ -546,8 +631,10 @@ class PostgresSource(DataSource):
     def load_funding(self, symbol, start=None, end=None):
         clauses, params = self._time_clauses(start, end)
         where = " AND ".join(["source = %s", "symbol = %s"] + clauses)
-        sql = (f"SELECT timestamp, funding_rate FROM rl_funding_rate "
-               f"WHERE {where} ORDER BY timestamp")
+        sql = (
+            f"SELECT timestamp, funding_rate FROM rl_funding_rate "
+            f"WHERE {where} ORDER BY timestamp"
+        )
         df = self._query(sql, [self.source, symbol] + params)
         if df.empty:
             return super().load_funding(symbol, start, end)

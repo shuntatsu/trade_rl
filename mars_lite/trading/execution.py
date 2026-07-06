@@ -23,11 +23,12 @@ import numpy as np
 @dataclass
 class ExecutionModel:
     """sqrt-impact + TWAP分割の執行コストモデル"""
-    fee_rate: float = 0.0005        # taker手数料（回転率に線形）
-    spread_rate: float = 0.0002     # スプレッド/2（回転率に線形）
-    impact_coef: float = 0.0005     # sqrt-impact係数（|Δw|^1.5に乗算）
-    n_slices: int = 1               # TWAP分割数（インパクトを1/√n_slicesに）
-    cost_multiplier: float = 1.0    # 感度分析用
+
+    fee_rate: float = 0.0005  # taker手数料（回転率に線形）
+    spread_rate: float = 0.0002  # スプレッド/2（回転率に線形）
+    impact_coef: float = 0.0005  # sqrt-impact係数（|Δw|^1.5に乗算）
+    n_slices: int = 1  # TWAP分割数（インパクトを1/√n_slicesに）
+    cost_multiplier: float = 1.0  # 感度分析用
 
     def cost_fraction(self, weight_deltas: np.ndarray) -> float:
         """
@@ -42,17 +43,20 @@ class ExecutionModel:
         d = np.abs(np.asarray(weight_deltas, dtype=np.float64))
         turnover = d.sum()
         linear = turnover * (self.fee_rate + self.spread_rate)
-        impact = self.impact_coef * np.sum(d ** 1.5) / np.sqrt(max(self.n_slices, 1))
+        impact = self.impact_coef * np.sum(d**1.5) / np.sqrt(max(self.n_slices, 1))
         return float((linear + impact) * self.cost_multiplier)
 
     def with_multiplier(self, m: float) -> "ExecutionModel":
-        return ExecutionModel(self.fee_rate, self.spread_rate, self.impact_coef,
-                              self.n_slices, m)
+        return ExecutionModel(
+            self.fee_rate, self.spread_rate, self.impact_coef, self.n_slices, m
+        )
 
 
 def make_execution_model(
-    fee_rate: float = 0.0005, spread_rate: float = 0.0002,
-    impact_rate: float = 0.0001, n_slices: int = 1,
+    fee_rate: float = 0.0005,
+    spread_rate: float = 0.0002,
+    impact_rate: float = 0.0001,
+    n_slices: int = 1,
     cost_multiplier: float = 1.0,
 ) -> ExecutionModel:
     """
@@ -63,8 +67,11 @@ def make_execution_model(
     小口ではより低くなる。
     """
     # 線形 impact_rate*|d| ≈ impact_coef*|d|^1.5 を |d|=0.1 で合わせる
-    impact_coef = impact_rate / (0.1 ** 0.5)  # = impact_rate / 0.316
+    impact_coef = impact_rate / (0.1**0.5)  # = impact_rate / 0.316
     return ExecutionModel(
-        fee_rate=fee_rate, spread_rate=spread_rate, impact_coef=impact_coef,
-        n_slices=n_slices, cost_multiplier=cost_multiplier,
+        fee_rate=fee_rate,
+        spread_rate=spread_rate,
+        impact_coef=impact_coef,
+        n_slices=n_slices,
+        cost_multiplier=cost_multiplier,
     )

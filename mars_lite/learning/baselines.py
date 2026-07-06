@@ -15,6 +15,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
+from mars_lite.trading.pre_trade_risk import PreTradeRiskVerifier
 
 WeightFn = Callable[[FeatureSet, int, np.ndarray], np.ndarray]
 
@@ -34,7 +35,7 @@ def inverse_vol_strategy(fs: FeatureSet, t: int, w: np.ndarray) -> np.ndarray:
     if t % 24 != 0 and w.any():
         return w
     start = max(0, t - 24)
-    rets = np.diff(np.log(fs.close[start:t + 1]), axis=0)
+    rets = np.diff(np.log(fs.close[start : t + 1]), axis=0)
     if len(rets) < 5:
         return np.full(fs.n_symbols, 1.0 / fs.n_symbols)
     vol = rets.std(axis=0)
@@ -43,8 +44,12 @@ def inverse_vol_strategy(fs: FeatureSet, t: int, w: np.ndarray) -> np.ndarray:
 
 
 def cross_momentum_strategy(
-    fs: FeatureSet, t: int, w: np.ndarray,
-    lookback: int = 24, n_side: int = 2, rebalance_every: int = 24,
+    fs: FeatureSet,
+    t: int,
+    w: np.ndarray,
+    lookback: int = 24,
+    n_side: int = 2,
+    rebalance_every: int = 24,
 ) -> np.ndarray:
     """④クロスセクショナルモメンタム（上位n_sideロング/下位n_sideショート）"""
     if t % rebalance_every != 0 and w.any():
@@ -61,8 +66,11 @@ def cross_momentum_strategy(
 
 
 def trend_following_strategy(
-    fs: FeatureSet, t: int, w: np.ndarray,
-    lookback: int = 48, rebalance_every: int = 24,
+    fs: FeatureSet,
+    t: int,
+    w: np.ndarray,
+    lookback: int = 48,
+    rebalance_every: int = 24,
 ) -> np.ndarray:
     """時系列モメンタム（ネット方向性あり。上昇相場では全ロング）"""
     if t % rebalance_every != 0 and w.any():
@@ -89,6 +97,7 @@ BASELINES: Dict[str, WeightFn] = {
 @dataclass
 class StrategyResult:
     """戦略バックテストの結果"""
+
     name: str
     equity_curve: np.ndarray
     total_return: float
@@ -119,6 +128,7 @@ def simulate_strategy(
     cost_multiplier: float = 1.0,
     start_idx: int = 0,
     end_idx: Optional[int] = None,
+    pre_trade_verifier: Optional[PreTradeRiskVerifier] = None,
 ) -> StrategyResult:
     """
     PortfolioTradingEnvと同一のコストモデルで戦略をバックテスト
@@ -139,6 +149,9 @@ def simulate_strategy(
         if gross > 1.0:
             target = target / gross
 
+        if pre_trade_verifier is not None:
+            pre_trade_verifier.validate(target, value)
+
         delta = target - weights
         delta[np.abs(delta) < min_trade_delta] = 0.0
         weights = weights + delta
@@ -149,15 +162,18 @@ def simulate_strategy(
         funding = float(np.sum(weights * fs.funding_rate[t + 1]))
         net = float(np.dot(weights, r_vec)) - turnover * cost_per_turnover - funding
 
-        value *= (1.0 + net)
+        value *= 1.0 + net
         rets.append(net)
         equity.append(value)
         peak = max(peak, value)
         max_dd = max(max_dd, 1.0 - value / peak)
 
     rets_arr = np.array(rets) if rets else np.zeros(1)
-    sharpe = float(rets_arr.mean() / rets_arr.std() * np.sqrt(24 * 365)) \
-        if rets_arr.std() > 0 else 0.0
+    sharpe = (
+        float(rets_arr.mean() / rets_arr.std() * np.sqrt(24 * 365))
+        if rets_arr.std() > 0
+        else 0.0
+    )
 
     return StrategyResult(
         name=name,
@@ -172,7 +188,7 @@ def simulate_strategy(
 
 def _true_returns(fs: FeatureSet, start_idx: int, end_idx: int) -> np.ndarray:
     """[start_idx, end_idx) 区間の1バー単純リターン (T, n_symbols)"""
-    return fs.close[start_idx + 1:end_idx + 1] / fs.close[start_idx:end_idx] - 1.0
+    return fs.close[start_idx + 1 : end_idx + 1] / fs.close[start_idx:end_idx] - 1.0
 
 
 def oracle_dp_paths(
@@ -208,7 +224,7 @@ def oracle_dp_paths(
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     pos = np.array([p for p in positions if allow_short or p >= 0], dtype=np.float64)
     n_states = len(pos)
-    impact_coef = (impact_rate / (0.1 ** 0.5))  # 線形率→sqrt則係数（execution.pyと一致）
+    impact_coef = impact_rate / (0.1**0.5)  # 線形率→sqrt則係数（execution.pyと一致）
     lin = (fee_rate + spread_rate) * cost_multiplier
     imp = impact_coef * cost_multiplier
     decision_every = max(1, int(decision_every))
@@ -219,7 +235,7 @@ def oracle_dp_paths(
             return 0.0
         if not is_decision_bar:
             return -np.inf  # 非意思決定バーではポジション変更を禁止
-        cost = lin * d + imp * (d ** 1.5)
+        cost = lin * d + imp * (d**1.5)
         return np.log(max(1.0 - cost, 1e-9))
 
     n_sym = fs.n_symbols
@@ -278,7 +294,7 @@ def _simulate_positions(
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     n_sym = fs.n_symbols
     T = end_idx - start_idx
-    impact_coef = (impact_rate / (0.1 ** 0.5))
+    impact_coef = impact_rate / (0.1**0.5)
     lin = (fee_rate + spread_rate) * cost_multiplier
     imp = impact_coef * cost_multiplier
     r = _true_returns(fs, start_idx, end_idx)
@@ -292,7 +308,7 @@ def _simulate_positions(
             p = paths[t, i]
             d = abs(p - prev_p)
             turnover_total += d / n_sym
-            cost = lin * d + imp * (d ** 1.5) if d > 0 else 0.0
+            cost = lin * d + imp * (d**1.5) if d > 0 else 0.0
             val *= (1.0 - cost) * (1.0 + p * r[t, i])
             sleeve_equity[t + 1, i] = val
             prev_p = p
@@ -301,15 +317,22 @@ def _simulate_positions(
     return equity, turnover_total
 
 
-def _equity_to_result(name: str, equity: np.ndarray, turnover_total: float) -> StrategyResult:
+def _equity_to_result(
+    name: str, equity: np.ndarray, turnover_total: float
+) -> StrategyResult:
     rets = np.diff(equity) / equity[:-1]
-    sharpe = float(rets.mean() / rets.std() * np.sqrt(24 * 365)) \
-        if rets.std() > 0 else 0.0
+    sharpe = (
+        float(rets.mean() / rets.std() * np.sqrt(24 * 365)) if rets.std() > 0 else 0.0
+    )
     peak = np.maximum.accumulate(equity)
     max_dd = float((1.0 - equity / peak).max())
     return StrategyResult(
-        name=name, equity_curve=equity, total_return=float(equity[-1] - 1.0),
-        sharpe=sharpe, max_drawdown=max_dd, turnover_total=float(turnover_total),
+        name=name,
+        equity_curve=equity,
+        total_return=float(equity[-1] - 1.0),
+        sharpe=sharpe,
+        max_drawdown=max_dd,
+        turnover_total=float(turnover_total),
         n_bars=len(equity) - 1,
     )
 
@@ -349,15 +372,27 @@ def oracle_dp_strategy(
     noisy_oracle_strategy（目標ICを指定した劣化オラクル）を併用すること。
     """
     paths = oracle_dp_paths(
-        fs, signal=None, positions=positions, allow_short=allow_short,
-        fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
-        cost_multiplier=cost_multiplier, start_idx=start_idx, end_idx=end_idx,
+        fs,
+        signal=None,
+        positions=positions,
+        allow_short=allow_short,
+        fee_rate=fee_rate,
+        spread_rate=spread_rate,
+        impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier,
+        start_idx=start_idx,
+        end_idx=end_idx,
         decision_every=decision_every,
     )
     equity, turnover_total = _simulate_positions(
-        fs, paths, fee_rate=fee_rate, spread_rate=spread_rate,
-        impact_rate=impact_rate, cost_multiplier=cost_multiplier,
-        start_idx=start_idx, end_idx=end_idx,
+        fs,
+        paths,
+        fee_rate=fee_rate,
+        spread_rate=spread_rate,
+        impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier,
+        start_idx=start_idx,
+        end_idx=end_idx,
     )
     return _equity_to_result(name, equity, turnover_total)
 
@@ -442,15 +477,27 @@ def noisy_oracle_strategy(
     for _ in range(n_draws):
         noisy_signal = true_r + rng.normal(0.0, sigma, size=true_r.shape)
         paths = oracle_dp_paths(
-            fs, signal=noisy_signal, positions=positions, allow_short=allow_short,
-            fee_rate=fee_rate, spread_rate=spread_rate, impact_rate=impact_rate,
-            cost_multiplier=cost_multiplier, start_idx=start_idx, end_idx=end_idx,
+            fs,
+            signal=noisy_signal,
+            positions=positions,
+            allow_short=allow_short,
+            fee_rate=fee_rate,
+            spread_rate=spread_rate,
+            impact_rate=impact_rate,
+            cost_multiplier=cost_multiplier,
+            start_idx=start_idx,
+            end_idx=end_idx,
             decision_every=decision_every,
         )
         equity, turnover = _simulate_positions(
-            fs, paths, fee_rate=fee_rate, spread_rate=spread_rate,
-            impact_rate=impact_rate, cost_multiplier=cost_multiplier,
-            start_idx=start_idx, end_idx=end_idx,
+            fs,
+            paths,
+            fee_rate=fee_rate,
+            spread_rate=spread_rate,
+            impact_rate=impact_rate,
+            cost_multiplier=cost_multiplier,
+            start_idx=start_idx,
+            end_idx=end_idx,
         )
         equity_draws.append(equity)
         turnover_draws.append(turnover)
@@ -462,7 +509,8 @@ def noisy_oracle_strategy(
 
 
 def run_all_baselines(
-    fs: FeatureSet, include_oracle: bool = True,
+    fs: FeatureSet,
+    include_oracle: bool = True,
     noisy_oracle_ic: Optional[float] = None,
     **kwargs,
 ) -> Dict[str, StrategyResult]:
@@ -476,14 +524,26 @@ def run_all_baselines(
         name: simulate_strategy(fs, fn, name=name, **kwargs)
         for name, fn in BASELINES.items()
     }
-    oracle_kwargs = {k: v for k, v in kwargs.items()
-                     if k in ("fee_rate", "spread_rate", "impact_rate",
-                              "cost_multiplier", "start_idx", "end_idx")}
+    oracle_kwargs = {
+        k: v
+        for k, v in kwargs.items()
+        if k
+        in (
+            "fee_rate",
+            "spread_rate",
+            "impact_rate",
+            "cost_multiplier",
+            "start_idx",
+            "end_idx",
+        )
+    }
     if include_oracle:
         out["oracle_dp"] = oracle_dp_strategy(fs, **oracle_kwargs)
     if noisy_oracle_ic is not None:
         out[f"oracle_ic{noisy_oracle_ic:.2f}"] = noisy_oracle_strategy(
-            fs, target_ic=noisy_oracle_ic, **oracle_kwargs,
+            fs,
+            target_ic=noisy_oracle_ic,
+            **oracle_kwargs,
         )
     return out
 
@@ -497,6 +557,7 @@ def make_agent_weight_fn(agent, env) -> WeightFn:
     観測構築にenv内部状態（weights, value等）を使うため、simulate側の
     状態遷移と同期させる簡易実装として、envを内部で並走させる。
     """
+
     def weight_fn(fs: FeatureSet, t: int, w: np.ndarray) -> np.ndarray:
         # env内部を強制同期
         env.t = t

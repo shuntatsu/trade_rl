@@ -16,7 +16,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
-from mars_lite.learning.baselines import run_all_baselines, StrategyResult
+from mars_lite.learning.baselines import StrategyResult, run_all_baselines
 
 # エージェント学習関数の型: (train_fs, seed) -> agent
 TrainFn = Callable[[FeatureSet, int], object]
@@ -51,8 +51,10 @@ class WalkForwardReport:
                 return {}
             xs = np.array(xs)
             return {
-                "mean": float(xs.mean()), "median": float(np.median(xs)),
-                "min": float(xs.min()), "max": float(xs.max()),
+                "mean": float(xs.mean()),
+                "median": float(np.median(xs)),
+                "min": float(xs.min()),
+                "max": float(xs.max()),
             }
 
         return {
@@ -92,8 +94,10 @@ def evaluate_agent_on_slice(
     from mars_lite.env.portfolio_env import PortfolioTradingEnv
 
     env = PortfolioTradingEnv(
-        fs, episode_bars=fs.n_bars - 2,
-        cost_multiplier=cost_multiplier, **env_kwargs,
+        fs,
+        episode_bars=fs.n_bars - 2,
+        cost_multiplier=cost_multiplier,
+        **env_kwargs,
     )
     obs, _ = env.reset(options={"start_idx": 0})
     done = False
@@ -139,11 +143,15 @@ def run_walk_forward(
     """
     seeds = seeds or [0, 1, 2]
     env_kwargs = env_kwargs or {}
-    report = WalkForwardReport(config={
-        "n_folds": n_folds, "purge_bars": purge_bars,
-        "seeds": seeds, "cost_multiplier": cost_multiplier,
-        "n_bars_total": fs.n_bars,
-    })
+    report = WalkForwardReport(
+        config={
+            "n_folds": n_folds,
+            "purge_bars": purge_bars,
+            "seeds": seeds,
+            "cost_multiplier": cost_multiplier,
+            "n_bars_total": fs.n_bars,
+        }
+    )
 
     edges = np.linspace(int(fs.n_bars * 0.4), fs.n_bars, n_folds + 1).astype(int)
 
@@ -158,7 +166,9 @@ def run_walk_forward(
         test_fs = fs.slice(test_start, test_end)
 
         if verbose:
-            print(f"[Fold {k}] train: {train_fs.n_bars} bars, test: {test_fs.n_bars} bars")
+            print(
+                f"[Fold {k}] train: {train_fs.n_bars} bars, test: {test_fs.n_bars} bars"
+            )
 
         agent_results = []
         for seed in seeds:
@@ -170,8 +180,10 @@ def run_walk_forward(
             res.pop("equity_curve", None)
             agent_results.append(res)
             if verbose:
-                print(f"  seed {seed}: ret={res['total_return']:+.4f} "
-                      f"sharpe={res['sharpe']:+.2f} trades={res['n_trades']}")
+                print(
+                    f"  seed {seed}: ret={res['total_return']:+.4f} "
+                    f"sharpe={res['sharpe']:+.2f} trades={res['n_trades']}"
+                )
 
         baselines = {
             name: r.to_dict()
@@ -180,13 +192,15 @@ def run_walk_forward(
             ).items()
         }
 
-        report.folds.append(FoldResult(
-            fold=k,
-            train_bars=train_fs.n_bars,
-            test_bars=test_fs.n_bars,
-            agent_by_seed=agent_results,
-            baselines=baselines,
-        ))
+        report.folds.append(
+            FoldResult(
+                fold=k,
+                train_bars=train_fs.n_bars,
+                test_bars=test_fs.n_bars,
+                agent_by_seed=agent_results,
+                baselines=baselines,
+            )
+        )
 
     return report
 
@@ -199,6 +213,7 @@ def plot_comparison(
 ) -> None:
     """エージェントとベースラインのエクイティカーブを描画"""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 

@@ -6,10 +6,14 @@ import numpy as np
 import pytest
 
 from mars_lite.data.sources import SyntheticSource
-from mars_lite.features.feature_pipeline import FeaturePipeline
 from mars_lite.env.portfolio_env import PortfolioTradingEnv
+from mars_lite.features.feature_pipeline import FeaturePipeline
 from mars_lite.learning.regime_ensemble import (
-    classify_trend, regime_labels, regime_start_pools, RegimeEnsemble, REGIMES,
+    REGIMES,
+    RegimeEnsemble,
+    classify_trend,
+    regime_labels,
+    regime_start_pools,
 )
 
 
@@ -20,7 +24,6 @@ def fs_bull():
 
 
 class TestRegimeLabels:
-
     def test_classify_thresholds(self):
         assert classify_trend(1.0) == "bull"
         assert classify_trend(-1.0) == "bear"
@@ -49,6 +52,7 @@ class TestRegimeLabels:
 
 class _StubAgent:
     """predictが自分のタグを返すだけのスタブ（ルーティング検証用）"""
+
     def __init__(self, tag, n):
         self.tag = tag
         self.n = n
@@ -59,15 +63,20 @@ class _StubAgent:
 
 
 class TestRegimeRouting:
-
     def test_routes_to_matching_specialist(self, fs_bull):
         env = PortfolioTradingEnv(fs_bull)
         n = fs_bull.n_symbols
-        specialists = {"bull": _StubAgent(1.0, n), "bear": _StubAgent(2.0, n),
-                       "range": _StubAgent(3.0, n)}
-        ens = RegimeEnsemble(specialists, generalist=None,
-                             obs_layout=env.obs_layout,
-                             n_raw_globals=fs_bull.global_features.shape[1])
+        specialists = {
+            "bull": _StubAgent(1.0, n),
+            "bear": _StubAgent(2.0, n),
+            "range": _StubAgent(3.0, n),
+        }
+        ens = RegimeEnsemble(
+            specialists,
+            generalist=None,
+            obs_layout=env.obs_layout,
+            n_raw_globals=fs_bull.global_features.shape[1],
+        )
 
         # btc_trend を強制的に強気/弱気/レンジへ設定した観測を作る
         obs, _ = env.reset(options={"start_idx": 100})
@@ -81,10 +90,12 @@ class TestRegimeRouting:
     def test_generalist_fallback_when_missing(self, fs_bull):
         env = PortfolioTradingEnv(fs_bull)
         n = fs_bull.n_symbols
-        ens = RegimeEnsemble({"bull": _StubAgent(1.0, n)},
-                             generalist=_StubAgent(9.0, n),
-                             obs_layout=env.obs_layout,
-                             n_raw_globals=fs_bull.global_features.shape[1])
+        ens = RegimeEnsemble(
+            {"bull": _StubAgent(1.0, n)},
+            generalist=_StubAgent(9.0, n),
+            obs_layout=env.obs_layout,
+            n_raw_globals=fs_bull.global_features.shape[1],
+        )
         obs, _ = env.reset(options={"start_idx": 100})
         o = obs.copy()
         o[ens._trend_pos] = -2.0  # bear specialist無し → generalist
@@ -93,11 +104,9 @@ class TestRegimeRouting:
 
 
 class TestRegimeStartPoolEnv:
-
     def test_env_samples_from_pool(self, fs_bull):
         pool = np.array([50, 51, 52], dtype=np.int64)
-        env = PortfolioTradingEnv(fs_bull, episode_bars=100,
-                                  regime_start_pool=pool)
+        env = PortfolioTradingEnv(fs_bull, episode_bars=100, regime_start_pool=pool)
         for seed in range(10):
             env.reset(seed=seed)
             assert env.start_idx in set(pool.tolist())

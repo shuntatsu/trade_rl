@@ -27,6 +27,7 @@ from mars_lite.data.sources import DataSource
 from mars_lite.data.data_utils import TF_TO_MINUTES
 from mars_lite.data.volatility import calc_garman_klass
 from mars_lite.features.indicators import calc_rsi, calc_adx, calc_rci
+from mars_lite.features.ichimoku import ichimoku_features
 
 CLIP = 5.0
 
@@ -48,6 +49,10 @@ BASE_FEATURES = [
     "funding_bps", "funding_cum_bps", "time_to_funding",
     "oi_z", "oi_change", "ls_ratio_z", "liq_z",
     "btc_rel_z", "ret_rank",
+    # 一目均衡表（look-ahead なし: senkou は shift(26) 済み、chikou は除外）
+    # 雲のサポート/レジスタンスと転換・基準線の位置関係をエージェントに提供
+    "ichi_pos", "ichi_cloud_thick", "ichi_cloud_bull",
+    "ichi_tk_cross", "ichi_price_kijun", "ichi_price_tenkan",
 ]
 # Phase C2: クロスセクション正規化特徴
 # ターゲットが cs_demean（銘柄間平均を引いた市場中立リターン）のとき、
@@ -479,6 +484,15 @@ class FeaturePipeline:
             base_feats = pd.concat([base_feats, of, fund_feats, deriv], axis=1)
             base_feats["btc_rel_z"] = rel
             base_feats["ret_rank"] = rank[sym]
+
+            # 一目均衡表特徴量（look-ahead なし: 先行スパンは shift(26) 済み）
+            # close はキャッシュ済み bases[sym] を使い、high/low はソースから取得
+            _kl = source.load_klines(sym, self.base_tf, start, end).set_index("timestamp")
+            _kl_common = _kl.reindex(common)
+            _ichi = ichimoku_features(
+                _kl_common["high"], _kl_common["low"], _kl_common["close"]
+            )
+            base_feats = pd.concat([base_feats, _ichi], axis=1)
 
             # Phase C2: クロスセクション特徴を追加
             cs_feats = pd.DataFrame(index=common)

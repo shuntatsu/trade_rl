@@ -61,7 +61,7 @@
 | BC事前学習 | **Ridge教師**（学習スライスで当てはめ）・**ICゲート合格時のみ** | 平均回帰市場でridge+175% vs momentum教師+106% vs BCなし+97%。無信号データではBCが有害（-4〜-18%）のためゲート連動 |
 | 方策ネット | **TFGatedPortfolioExtractor** | フラット結合比で cross +1636%→+2129% / multi +924%→+1094%。主因はTFブロック共有エンコーダの構造的正則化 |
 | ネット規模 | `--net-size {small,large}`（既定 **small**） | small=encoder 2層・net_arch[64,64]（上記ベンチ値の構成）。large=encoder 3層・trunk 3層・net_arch[256,256,128]。**合成cross(IC0.36)・60k歩・3seedの比較では large は small と横ばい〜やや劣位（return mean 0.878 vs 0.894, Sharpe mean 49.8 vs 51.9）かつseed分散が増大**したため、原則1（証拠なき機能は既定にしない）に従い small を既定に据え置き。large は多様/実データでの汎用性を狙う場合のオプトイン（`--dropout 0.1` 併用と`--feature-norm rank_gauss`推奨、要再ベンチ） |
-| 入力正規化 | `--feature-norm {none,rank_gauss}`（既定 none） | rank_gauss=各特徴をローリング・ガウスランクでN(0,1)に写像（因果的・リークなし）。資産・レジーム間のスケール差・裾の重さへの過適合を抑え、汎用性を狙う。既定offは原則1に従う（汎用性スイートでの検証待ち） |
+| 入力正規化 | `--feature-norm {none,rank_gauss}`（既定 none） | rank_gauss=各特徴をローリング・ガウスランクでN(0,1)に写像（因果的・リークなし）。資産・レジーム間のスケール差・裾の重さへの過適合を抑え、汎用性を狙う。**wf比較(cross/meanrev・2fold×2seed・25k歩)では large+dropout0.1+rank_gauss の合成が、cross型でbaseline(small)に明確に劣位（ret_median +1.076 vs +1.152, Sharpe 38.0 vs 43.5）、meanrev型ではわずかに優位（+0.430 vs +0.413）**という一貫しない結果。単純な複雑化・入力分布正規化が汎用性を上げるという仮説はこの範囲では支持されず、既定offを維持 |
 | アンサンブル | 3シード平均（`--ensemble 3`） | 単独+1131%→アンサンブル+1496%（Sharpe 48.9→53.6） |
 | データ量 | 合成ベンチは240日以上 | 120日では検証窓が短すぎ選択が機能しない（検証スコアの分散過大） |
 

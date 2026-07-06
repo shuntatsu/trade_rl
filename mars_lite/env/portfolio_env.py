@@ -18,17 +18,9 @@ from gymnasium import spaces
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
+from mars_lite.trading.post_processor import _project_leverage
 
 BARS_PER_YEAR_1H = 24 * 365
-
-
-def _project_leverage(w: np.ndarray, max_leverage: float = 1.0) -> np.ndarray:
-    """Sigma|w| <= max_leverage への射影（超過分のみ縮小）"""
-    w = np.asarray(w, dtype=np.float64).copy()
-    gross = np.abs(w).sum()
-    if gross > max_leverage:
-        return w * (max_leverage / gross)
-    return w
 
 
 class PortfolioTradingEnv(gym.Env):
@@ -53,8 +45,6 @@ class PortfolioTradingEnv(gym.Env):
         regime_start_pool: Optional[np.ndarray] = None,
         lambda_turnover: float = 0.04,
         reward_scale: float = 100.0,
-        use_dsr: bool = False,
-        dsr_eta: float = 0.01,
         decision_every: int = 1,
     ):
         super().__init__()
@@ -76,8 +66,6 @@ class PortfolioTradingEnv(gym.Env):
         )
         self.lambda_turnover = lambda_turnover
         self.reward_scale = reward_scale
-        self.use_dsr = use_dsr
-        self.dsr_eta = dsr_eta
         self.decision_every = max(1, decision_every)
 
         self._exec_model = make_execution_model(
@@ -111,8 +99,6 @@ class PortfolioTradingEnv(gym.Env):
         self.n_trades = 0
         self.turnover_total = 0.0
         self.max_dd = 0.0
-        self._dsr_A = 0.0
-        self._dsr_B = 0.0
 
     # ---- ユーティリティ ----
 
@@ -149,12 +135,6 @@ class PortfolioTradingEnv(gym.Env):
                 gated[i] = gated[i] * self.htf_neutral_scale
         return gated
 
-    def set_reward_mode(self, use_dsr: bool) -> None:
-        """CurriculumCallback契約: 報酬モードをPnL/DSR間で切替"""
-        self.use_dsr = use_dsr
-        self._dsr_A = 0.0
-        self._dsr_B = 0.0
-
     def _obs(self) -> np.ndarray:
         feats = self.fs.features[self.t]  # (n_sym, n_feat)
         per_sym = np.concatenate(
@@ -166,19 +146,6 @@ class PortfolioTradingEnv(gym.Env):
         progress = (self.t - self.start_idx) / max(self.episode_bars, 1)
         port_globals = np.array([drawdown, gross, progress], dtype=np.float32)
         return np.concatenate([per_sym, raw_globals, port_globals]).astype(np.float32)
-
-    def _dsr_reward(self, r: float) -> float:
-        eta = self.dsr_eta
-        dA = r - self._dsr_A
-        dB = r * r - self._dsr_B
-        denom = (self._dsr_B - self._dsr_A ** 2)
-        if denom > 1e-12:
-            dsr = (self._dsr_B * dA - 0.5 * self._dsr_A * dB) / (denom ** 1.5)
-        else:
-            dsr = 0.0
-        self._dsr_A += eta * dA
-        self._dsr_B += eta * dB
-        return float(dsr) * self.reward_scale
 
     # ---- gym.Env API ----
 
@@ -208,8 +175,6 @@ class PortfolioTradingEnv(gym.Env):
         self._short_symbol_steps = 0
         self._total_symbol_steps = 0
         self.disagreement = 0.0
-        self._dsr_A = 0.0
-        self._dsr_B = 0.0
 
         return self._obs(), {}
 
@@ -273,10 +238,7 @@ class PortfolioTradingEnv(gym.Env):
         self._short_symbol_steps += int((target < -1e-9).sum())
         self._total_symbol_steps += self.n_symbols
 
-        if self.use_dsr:
-            reward = self._dsr_reward(net)
-        else:
-            reward = net * self.reward_scale - self.lambda_turnover * turnover
+        reward = net * self.reward_scale - self.lambda_turnover * turnover
 
         self.t += 1
         terminated = bool(self.portfolio_value <= 1e-6 * self.initial_capital)

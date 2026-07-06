@@ -27,7 +27,7 @@ class PostProcessConfig:
     no_trade_band: float = 0.02         # |Δw|がこの幅未満なら据え置き
     target_vol: Optional[float] = None  # 年率ボラ目標（Noneで無効）。例: 0.20
     vol_lookback: int = 48              # ボラ推定に使う直近バー数
-    dd_derisk_start: float = 0.15       # このDDからグロス縮小開始
+    dd_derisk_start: float = 0.10       # このDDからグロス縮小開始
     dd_derisk_floor: float = 0.3        # DD悪化時のグロス下限倍率
     disagreement_penalty: float = 1.0   # アンサンブル不一致によるグロス縮小の強さ
     beta_neutral: bool = False          # 市場方向(等ウェイト)成分を除去しドル中立化

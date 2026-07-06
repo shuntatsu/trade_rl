@@ -102,13 +102,6 @@ class TestPortfolioEnv:
                 break
         assert env._funding_pnl != 0.0  # ロング保有でfunding授受が発生
 
-    def test_set_reward_mode(self, env):
-        """CurriculumCallback契約"""
-        env.set_reward_mode(True)
-        assert env.use_dsr is True
-        env.set_reward_mode(False)
-        assert env.use_dsr is False
-
     def test_start_idx_option(self, env):
         env.reset(seed=0, options={"start_idx": 5})
         assert env.start_idx == 5

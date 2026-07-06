@@ -72,6 +72,7 @@ def train_ppo(
     net_size: str = "small",
     dropout: float = 0.0,
     net_arch=None,
+    custom_teacher=None,
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -154,8 +155,10 @@ def train_ppo(
             soft_momentum_teacher, ridge_teacher, ts_momentum_teacher,
             generate_teacher_dataset, bc_pretrain,
         )
-        teacher = None
-        if bc_teacher == "auto":
+        teacher = custom_teacher
+        if teacher is not None:
+            pass  # 呼び出し側が既に構築した教師をそのまま使う（target指定等の柔軟性用）
+        elif bc_teacher == "auto":
             from mars_lite.features.signal_check import run_signal_check, run_trend_gate
             from mars_lite.learning.bc_warmstart import combined_teacher
             ic = run_signal_check(fs, horizon=horizon)

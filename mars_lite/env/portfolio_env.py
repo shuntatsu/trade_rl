@@ -20,6 +20,7 @@ from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
 from mars_lite.trading.post_processor import _project_leverage, BARS_PER_YEAR_1H
 from mars_lite.trading.pipeline import DecisionPipeline, MarketView, PortfolioState
+from mars_lite.trading.post_processor import PostProcessInfo
 
 
 class PortfolioTradingEnv(gym.Env):
@@ -45,6 +46,8 @@ class PortfolioTradingEnv(gym.Env):
         lambda_turnover: float = 0.04,
         reward_scale: float = 100.0,
         decision_every: int = 1,
+        obs_risk_state: bool = False,
+        disagreement_dr_max: float = 0.0,
     ):
         super().__init__()
         self.fs = fs
@@ -66,6 +69,8 @@ class PortfolioTradingEnv(gym.Env):
         self.lambda_turnover = lambda_turnover
         self.reward_scale = reward_scale
         self.decision_every = max(1, decision_every)
+        self.obs_risk_state = obs_risk_state
+        self.disagreement_dr_max = disagreement_dr_max
 
         self._exec_model = make_execution_model(
             fee_rate=fee_rate, spread_rate=spread_rate,
@@ -85,7 +90,9 @@ class PortfolioTradingEnv(gym.Env):
         )
 
         self.n_per_symbol = fs.n_features + 1  # 特徴 + 現ウェイト
-        self.n_global = fs.global_features.shape[1] + 3  # 生グローバル + ポート状態3
+        # 生グローバル + ポート状態3（drawdown/gross/progress）
+        # + オプトインのルール層状態4（vol_scale/dd_scale/disagreement_scale/est_port_vol）
+        self.n_global = fs.global_features.shape[1] + 3 + (4 if obs_risk_state else 0)
 
         obs_dim = self.n_symbols * self.n_per_symbol + self.n_global
         self.observation_space = spaces.Box(
@@ -106,6 +113,7 @@ class PortfolioTradingEnv(gym.Env):
         self.n_trades = 0
         self.turnover_total = 0.0
         self.max_dd = 0.0
+        self._last_pp_info = PostProcessInfo()
 
     # ---- ユーティリティ ----
 
@@ -142,8 +150,21 @@ class PortfolioTradingEnv(gym.Env):
         drawdown = 1.0 - self.portfolio_value / max(self.peak_value, 1e-9)
         gross = float(np.abs(self.weights).sum())
         progress = (self.t - self.start_idx) / max(self.episode_bars, 1)
-        port_globals = np.array([drawdown, gross, progress], dtype=np.float32)
-        return np.concatenate([per_sym, raw_globals, port_globals]).astype(np.float32)
+        port_globals = [drawdown, gross, progress]
+        if self.obs_risk_state:
+            # ルール層（後処理）が前ステップで方策の提案をどう変形したかを
+            # 観測に含める。既定offで、方策はこれらのルールを予見できず
+            # 衝突しやすい構造になっている（docs/ARCHITECTURE.md
+            # 「RLの担当範囲」原則4の緊張点）。opt-inでこの視認性を与え、
+            # ベンチマークで有効性を確認できたら既定にする候補
+            info = self._last_pp_info
+            port_globals += [
+                info.vol_scale, info.dd_scale,
+                info.disagreement_scale, info.est_port_vol,
+            ]
+        return np.concatenate(
+            [per_sym, raw_globals, np.array(port_globals, dtype=np.float32)]
+        ).astype(np.float32)
 
     # ---- gym.Env API ----
 
@@ -172,7 +193,15 @@ class PortfolioTradingEnv(gym.Env):
         self._long_symbol_steps = 0
         self._short_symbol_steps = 0
         self._total_symbol_steps = 0
-        self.disagreement = 0.0
+        # disagreement_dr_max>0: 学習中もエピソード毎に不一致度をランダムに
+        # 与え、方策がアンサンブル不一致縮小レイヤーを経験できるようにする
+        # （既定0=無効。単独方策の学習中はdisagreementが常に0で、
+        # 評価/運用時のみ有効というtrain/eval不一致の緩和策、opt-in）
+        if self.disagreement_dr_max > 0:
+            self.disagreement = float(self.np_random.uniform(0.0, self.disagreement_dr_max))
+        else:
+            self.disagreement = 0.0
+        self._last_pp_info = PostProcessInfo()
 
         return self._obs(), {}
 
@@ -194,7 +223,8 @@ class PortfolioTradingEnv(gym.Env):
         market = MarketView.from_feature_set(
             self.fs, self.t, vol_lookback=self._vol_lookback, htf_idx=self._htf_idx,
         )
-        target, _pp_info = self._pipeline.target_weights(proj, state, market)
+        target, pp_info = self._pipeline.target_weights(proj, state, market)
+        self._last_pp_info = pp_info
 
         delta = target - prev
         turnover = float(np.abs(delta).sum())

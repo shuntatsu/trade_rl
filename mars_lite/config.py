@@ -63,6 +63,8 @@ class EnvConfig:
     htf_neutral_scale: float = 0.5
     min_trade_delta: float = 0.04
     bars_per_year: int = BARS_PER_YEAR_1H
+    obs_risk_state: bool = False  # opt-in: ルール層状態(vol/dd/disagreement scale)を観測に追加
+    disagreement_dr_max: float = 0.0  # opt-in: 学習中の不一致度ドメインランダム化上限（0で無効）
 
 
 @dataclass

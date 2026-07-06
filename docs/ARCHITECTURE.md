@@ -137,15 +137,37 @@
 - **本当のボトルネックはデータのアルファ量**。RL機構はもう主因ではない。
   実データ（IC 0.02〜0.05想定）では上記アンサンブル+不確実性が本領を発揮する見込み
 
+### 2.8 RL強化 Stage A（オプトイン、未昇格）
+
+責務再設計（アーキテクチャ再設計セッション）の一環。「RLの担当範囲」
+（原則4）を広げる方向の実験。**いずれも既定offで、ここに記載の内容は
+単発run(単一シード・短ステップ)での動作確認に留まり、原則1（証拠なき
+機能は既定にしない）に従い既定へは未昇格**。既定化するには本表と同じ
+P0＋汎用性スイート×3シードでの再測定が必要（未実施、将来の作業）。
+
+| フラグ | 内容 | 状況 |
+|---|---|---|
+| `--obs-risk-state` | 前ステップの後処理状態(vol_scale/dd_scale/disagreement_scale/est_port_vol)を観測に追加。方策がルール層（EMA平滑・ボラ目標・DDデリスク等）の挙動を予見できるようにする | 単発run(60k歩・alpha=cross)でP0陽性+18.2% vs 既定+17.8%・陰性静止維持を確認。TFGatedPortfolioExtractorがn_global変化に自動追随することも確認。中央値評価は未実施 |
+| `--disagreement-dr <x>` | 学習中もエピソード毎に不一致度をU(0,x)でランダムに与え、方策がアンサンブル不一致縮小レイヤーを経験できるようにする。単独方策の学習中は`disagreement`が常に0という train/eval不一致（2.7節）の緩和策 | 機構のみ実装・単体テスト済み。弱シグナルens3ベンチ(+81.5%/Sharpe13.9)に対する再ベンチは未実施 |
+| `--lambda-turnover 0.0` | 報酬の回転率罰則`−λ·turnover`は実コスト(`net`)に既に織り込まれた回転率への**追加**シェーピング項（二重課金と読める）。0にすると罰則なしにできる | 単発run(60k歩)ではdefault(0.04)と**bit-identicalな結果**（学習後の決定論的方策が変化せず）。BC事前学習の影響が強い短時間学習では効果が埋没した可能性があり、λの効果自体はenv.step単体では確認済み（reward値は変化する）。中央値評価は未実施につき既定0.04を維持 |
+
 ## 3. 運用設計（Trade Platform連携）
 
 - 接点は2つだけ: ①同一PostgreSQLの `rl_funding_rate` / `rl_orderflow_1m`
   （fetch_futures.py --to postgres が管理）②`GET /api/signal/latest`
 - signal APIの返却: 生ウェイト・後処理済みウェイト・net/gross・データ鮮度・
   ガードレール判定。Platform側はこれをBots画面/発注に変換するだけ
+- `prev_weights`/`portfolio_value`/`peak_value` クエリパラメータ（任意）:
+  Platform側の実ポジション・実損益を渡すと、EMA平滑・DDデリスクが
+  実状態基準で機能する。省略時は無ポジション/drawdown=0のstateless
+  として扱う（従来互換）
+- env.step（学習時）と `/api/signal/latest`（運用時）は
+  `mars_lite.trading.pipeline.DecisionPipeline` を共有し、後処理・HTF
+  ゲートの適用が構造的に一致する（train/serve一致は「揃えたつもり」
+  ではなく共有コードパスで保証）
 - 再学習ループ（推奨、未自動化）: 週次で fetch → 品質ゲート → ゲート1 →
   再学習+検証選択 → 旧モデルとOOSシャドー比較 → 勝った場合のみ昇格
-  （model_managerでバージョン管理・ロールバック）
+  （`mars_lite.serving.model_store` でバージョン管理・ロールバック）
 
 ## 4. ロードマップ（優先順）
 

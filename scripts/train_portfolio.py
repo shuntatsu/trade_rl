@@ -94,6 +94,16 @@ def main():
                         help="レジーム専門家のエピソード長（--phase regime、5日=120本）")
     parser.add_argument("--htf-gate", action="store_true",
                         help="階層MTF: 上位足(4h)トレンドで方向を制約し1hはサイジング")
+    parser.add_argument("--obs-risk-state", action="store_true",
+                        help="opt-in: 前ステップの後処理状態(vol_scale/dd_scale/"
+                             "disagreement_scale/est_port_vol)を観測に追加し、"
+                             "方策がルール層の挙動を予見できるようにする。"
+                             "既定off（証拠なき機能は既定にしない、Stage A実験用）")
+    parser.add_argument("--disagreement-dr", type=float, default=0.0,
+                        help="opt-in: 学習中もエピソード毎に不一致度をU(0,x)で"
+                             "ランダムに与え、方策がアンサンブル不一致縮小レイヤーを"
+                             "経験できるようにする（単独方策学習中は常に0という"
+                             "train/eval不一致の緩和策）。0で無効（既定、Stage A実験用）")
     parser.add_argument("--horizon", type=int, default=4,
                         help="予測ホライズン（バー数）。ICゲート/BC教師/特徴マスクに使う")
     parser.add_argument("--scan-horizons", action="store_true",

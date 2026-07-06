@@ -50,9 +50,12 @@ BASE_FEATURES = [
     "oi_z", "oi_change", "ls_ratio_z", "liq_z",
     "btc_rel_z", "ret_rank",
     # 一目均衡表（look-ahead なし: senkou は shift(26) 済み、chikou は除外）
-    # 雲のサポート/レジスタンスと転換・基準線の位置関係をエージェントに提供
+    # 「現在雲」: 26本前の予測が今届いた雲のサポート/レジスタンスとの位置関係
     "ichi_pos", "ichi_cloud_thick", "ichi_cloud_bull",
     "ichi_tk_cross", "ichi_price_kijun", "ichi_price_tenkan",
+    # 「未来雲予測」: t時点のデータから t+26 の雲構造を予測（look-ahead なし）
+    # エージェントが「26本先の相場構造」を学習できる
+    "ichi_future_pos", "ichi_future_bull", "ichi_future_thick", "ichi_tk_accel",
 ]
 # Phase C2: クロスセクション正規化特徴
 # ターゲットが cs_demean（銘柄間平均を引いた市場中立リターン）のとき、
@@ -485,12 +488,13 @@ class FeaturePipeline:
             base_feats["btc_rel_z"] = rel
             base_feats["ret_rank"] = rank[sym]
 
-            # 一目均衡表特徴量（look-ahead なし: 先行スパンは shift(26) 済み）
-            # close はキャッシュ済み bases[sym] を使い、high/low はソースから取得
+            # 一目均衡表特徴量（look-ahead なし: 先行スパンは shift(26) 済み、未来雲は現在データから計算）
+            # リクエストごとにロードするのでキャッシュ済み sources[sym] を再利用
             _kl = source.load_klines(sym, self.base_tf, start, end).set_index("timestamp")
             _kl_common = _kl.reindex(common)
             _ichi = ichimoku_features(
-                _kl_common["high"], _kl_common["low"], _kl_common["close"]
+                _kl_common["high"], _kl_common["low"], _kl_common["close"],
+                z_window=self.z_window,
             )
             base_feats = pd.concat([base_feats, _ichi], axis=1)
 

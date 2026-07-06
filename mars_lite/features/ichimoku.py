@@ -1,35 +1,56 @@
 """
 一目均衡表（Ichimoku Kinko Hyo）指標計算モジュール
 
-【重要: look-ahead バイアスの回避設計】
-一目均衡表には構造的に未来を参照する計算が2つある。
+【look-ahead バイアスの回避設計】
 
-1. 先行スパン A・B（Senkou Span）:
-   - 本来の定義: 「時刻 t に計算した (tenkan+kijun)/2 を t+26 の位置に描画」
-   - 学習で使える形: 「時刻 t の雲 = 26本前（t-26）に計算された先行スパン」
-   → 実装: raw_span を .shift(displacement) することで
-     「過去の予測が今届いた」として look-ahead なしに変換。
+1. 先行スパン A・B（現在雲）:
+   - 本来の定義: 「時刻 t の計算結果を t+26 の位置に描画」
+   - look-ahead 安全化: raw_span を .shift(displacement) することで
+     「26本前に計算された予測が今届いた」として参照 → look-ahead なし
 
 2. 遅行スパン（Chikou Span）:
-   - 定義: close[t] を t-26 に描画（= 今の終値を過去に置く）
-   - 言い換え: t 時点で遅行スパンが示す位置は close[t+26]
-   - 純粋な未来終値なので学習特徴量には一切使用しない。
+   - close[t+26] を t 時点に置く = 純粋な未来情報 → 学習特徴量から完全除外
 
-【学習に有効な特徴量 (6種)】
-  ichi_pos        : 価格の雲に対する相対位置 (上/中/下)
-  ichi_cloud_thick: 雲の厚さ → サポート・レジスタンスの強度
-  ichi_cloud_bull : 雲の色 (+1=上昇雲, -1=下降雲)
-  ichi_tk_cross   : 転換線-基準線乖離 → ゴールデン/デッドクロス強度
-  ichi_price_kijun : 価格-基準線乖離 → 中期トレンドの強さ
-  ichi_price_tenkan: 価格-転換線乖離 → 短期過熱/過冷
+【予測的特徴量（Future Cloud）】
+
+一目均衡表の最も強力な洞察：
+  「今時刻 t での tenkan[t] と kijun[t] から、t+26 の雲が"予測"できる」
+
+  future_span_a[t] = (tenkan[t] + kijun[t]) / 2   ← これが t+26 に出現する雲A
+  future_span_b[t] = mid_52[t]                     ← これが t+26 に出現する雲B
+
+これは look-ahead ではない。なぜなら tenkan[t], kijun[t], mid_52[t] は
+すべて時刻 t までのデータから計算されているから。
+この「未来の雲の予測値」を現在の特徴量として使うことで、
+エージェントは「26本先のサポート・レジスタンス構造」を学習できる。
+
+【全特徴量（10種、すべてローリングz-score標準化済み）】
+
+  現在雲との関係（過去26本の予測が届いた雲）:
+    ichi_pos          価格の現在雲に対する相対位置
+    ichi_cloud_thick  現在雲の厚さ（サポート/レジスタンス強度）
+    ichi_cloud_bull   現在雲の色（+1=上昇雲, -1=下降雲）
+
+  転換線・基準線との関係:
+    ichi_tk_cross     転換線-基準線乖離（クロス方向と強度）
+    ichi_price_kijun  価格-基準線乖離（中期トレンド位置）
+    ichi_price_tenkan 価格-転換線乖離（短期過熱/過冷）
+
+  未来雲予測（26本先の雲をt時点で予測 = look-ahead なし）:
+    ichi_future_pos   価格の"未来雲"に対する予測的位置
+    ichi_future_bull  未来雲の色予測（+1=上昇雲になる, -1=下降雲になる）
+    ichi_future_thick 未来雲の厚さ予測（将来の強い壁の有無）
+    ichi_tk_accel     転換線と基準線の乖離加速度（トレンド加速/減速）
 """
 
 import numpy as np
 import pandas as pd
+from typing import Optional
 
+CLIP = 5.0
 
 # ============================================================
-# コア計算
+# 内部ヘルパー
 # ============================================================
 
 def _mid(series_high: pd.Series, series_low: pd.Series, period: int) -> pd.Series:
@@ -39,6 +60,26 @@ def _mid(series_high: pd.Series, series_low: pd.Series, period: int) -> pd.Serie
         + series_low.rolling(period, min_periods=period).min()
     ) / 2.0
 
+
+def _rolling_z(
+    series: pd.Series,
+    window: int = 100,
+    min_periods: int = 20,
+    clip: float = CLIP,
+) -> pd.Series:
+    """
+    ローリングz-score（feature_pipeline._z と同一ロジック）。
+    過去窓のみ使用 → look-ahead なし。NaN → 0.0 で埋め。
+    """
+    mean = series.rolling(window, min_periods=min_periods).mean()
+    std  = series.rolling(window, min_periods=min_periods).std()
+    z    = (series - mean) / std.replace(0, np.nan)
+    return z.clip(-clip, clip).fillna(0.0)
+
+
+# ============================================================
+# コア計算
+# ============================================================
 
 def calc_ichimoku(
     high: pd.Series,
@@ -54,41 +95,50 @@ def calc_ichimoku(
 
     Returns:
         DataFrame with columns:
-            tenkan     : 転換線（9本中値）
-            kijun      : 基準線（26本中値）
-            senkou_a   : 先行スパンA  ← .shift(26) 済み = look-ahead なし
-            senkou_b   : 先行スパンB  ← .shift(26) 済み = look-ahead なし
-            chikou     : 遅行スパン   ← 未来情報。学習特徴量では使わないこと
+            tenkan         転換線（9本中値）
+            kijun          基準線（26本中値）
+            senkou_a       先行スパンA ← shift(displacement)済み = look-ahead なし
+            senkou_b       先行スパンB ← shift(displacement)済み = look-ahead なし
+            future_span_a  t+26の雲Aの予測値（= raw_span_a。現在データから計算）
+            future_span_b  t+26の雲Bの予測値（= raw_span_b。現在データから計算）
+            chikou         遅行スパン ← 未来終値なので学習特徴量では使わないこと
 
-    look-ahead 安全性の詳細:
-        senkou_a[t] = (tenkan[t-26] + kijun[t-26]) / 2
-        senkou_b[t] = mid_52[t-26]
-        → t 時点で参照できるのは t-26 以前の情報のみ → 安全
+    look-ahead 安全性:
+        senkou_a[t]    = (tenkan[t-26] + kijun[t-26]) / 2  ← 過去のみ依存
+        future_span_a[t] = (tenkan[t] + kijun[t]) / 2      ← 過去のみ依存（未来描画だが計算は過去データ）
+        chikou[t]      = close[t+26]                        ← 未来データ依存 = 学習禁止
     """
     tenkan = _mid(high, low, tenkan_period)
     kijun  = _mid(high, low, kijun_period)
 
-    # 先行スパン: 26本前に計算された値を現在時刻にシフト
-    # 本来「26本先に描画」 → 「26本遅延で参照」に変換することでリークなし
+    # --- 現在雲（26本前に計算した先行スパンが今届いた） ---
     raw_span_a = (tenkan + kijun) / 2.0
     raw_span_b = _mid(high, low, senkou_b_period)
-    senkou_a = raw_span_a.shift(displacement)
-    senkou_b = raw_span_b.shift(displacement)
+    senkou_a   = raw_span_a.shift(displacement)   # look-ahead なし
+    senkou_b   = raw_span_b.shift(displacement)   # look-ahead なし
 
-    # 遅行スパン: 現在終値を26本後ろへ = 未来の終値が含まれる（学習禁止）
+    # --- 未来雲予測（t時点のデータから t+26 の雲を予測 = look-ahead なし） ---
+    # raw_span_a / raw_span_b は現在時刻 t のデータのみで計算されている
+    # これが実際に t+26 の位置に描画されることが一目均衡表の設計
+    future_span_a = raw_span_a   # = (tenkan[t] + kijun[t]) / 2
+    future_span_b = raw_span_b   # = mid_52[t]
+
+    # --- 遅行スパン（未来情報 → 学習には使わない） ---
     chikou = close.shift(-displacement)
 
     return pd.DataFrame({
-        "tenkan":   tenkan,
-        "kijun":    kijun,
-        "senkou_a": senkou_a,
-        "senkou_b": senkou_b,
-        "chikou":   chikou,
+        "tenkan":        tenkan,
+        "kijun":         kijun,
+        "senkou_a":      senkou_a,
+        "senkou_b":      senkou_b,
+        "future_span_a": future_span_a,
+        "future_span_b": future_span_b,
+        "chikou":        chikou,
     }, index=close.index)
 
 
 # ============================================================
-# RL 学習用特徴量への変換
+# RL 学習用特徴量への変換（10種、z-score標準化済み）
 # ============================================================
 
 def ichimoku_features(
@@ -99,113 +149,150 @@ def ichimoku_features(
     kijun_period: int = 26,
     senkou_b_period: int = 52,
     displacement: int = 26,
-    clip: float = 5.0,
+    z_window: int = 100,
+    clip: float = CLIP,
 ) -> pd.DataFrame:
     """
-    一目均衡表から RL 学習用に数値化した6特徴量を返す。
+    一目均衡表から RL 学習用に数値化・z-score標準化した10特徴量を返す。
 
-    遅行スパン（chikou）は look-ahead のため含めない。
-    すべての特徴量は [-clip, clip] にクリップし、NaN は 0.0 で埋める。
+    すべての特徴量は「比率（/close）」→「ローリングz-score」の2段変換で
+    他の特徴量（ret_z*, bb_pos 等）と同一スケールに揃える。
+    NaN（warmup 期間）は 0.0 で埋める。
 
-    特徴量:
-        ichi_pos          価格の雲に対する相対位置 [-clip, clip]
-                          +  : 雲の上 (= 上昇バイアス、サポートゾーン上)
-                          0  : 雲の中 (= 膠着状態、突破待ち)
-                          -  : 雲の下 (= 下落バイアス、レジスタンスゾーン下)
+    Args:
+        z_window:  ローリングz-score の窓長（feature_pipeline の z_window と合わせる）
 
-        ichi_cloud_thick  雲の厚さ (senkou_a と senkou_b の絶対差 / close)
-                          大 = 強いサポート/レジスタンス → 価格が通過しにくい
-                          小 = 薄い雲 → ブレイクアウトが起きやすい
+    現在雲との関係（「26本前の予測が届いた雲」との位置関係）:
+        ichi_pos          価格の現在雲に対する相対位置
+                          +  雲の上（上昇バイアス），0  雲の中，-  雲の下（下落バイアス）
+        ichi_cloud_thick  現在雲の厚さ（強いサポート/レジスタンスの強度）
+        ichi_cloud_bull   現在雲の色（+1=上昇雲, -1=下降雲）
 
-        ichi_cloud_bull   雲の色
-                          +1 = 上昇雲 (senkou_a > senkou_b = bullish kumo)
-                          -1 = 下降雲 (senkou_a < senkou_b = bearish kumo)
+    転換線・基準線との関係:
+        ichi_tk_cross     転換線-基準線乖離（正=ゴールデンクロス方向）
+        ichi_price_kijun  価格-基準線乖離（中期トレンドの位置確認）
+        ichi_price_tenkan 価格-転換線乖離（短期過熱/過冷）
 
-        ichi_tk_cross     転換線と基準線の乖離 / close
-                          + = 転換線が基準線を上回る (ゴールデンクロス方向)
-                          - = 転換線が基準線を下回る (デッドクロス方向)
+    未来雲予測（現在データから t+26 の雲を予測 = look-ahead なし）:
+        ichi_future_pos   価格の"26本先の雲"に対する予測的相対位置
+                          正=現価格が将来雲の上側 → 26本後もサポートに乗っている見通し
+                          負=現価格が将来雲の下側 → 26本後にレジスタンスに阻まれる見通し
+        ichi_future_bull  未来雲の色予測（+1=26本後に上昇雲 → 強気継続の構造）
+        ichi_future_thick 未来雲の厚さ予測（大=将来に強いサポート/レジスタンス帯あり）
+        ichi_tk_accel     転換線と基準線の乖離の変化速度（加速=トレンド加速、減速=モメンタム減衰）
 
-        ichi_price_kijun  (close - 基準線) / close
-                          + = 価格が基準線より上 (中期上昇トレンド)
-                          - = 価格が基準線より下 (中期下落トレンド)
-
-        ichi_price_tenkan (close - 転換線) / close
-                          + = 価格が転換線より上 (短期強気)
-                          - = 価格が転換線より下 (短期弱気)
-
-    Caution:
-        先頭 (kijun_period + displacement) 本分は NaN → 0 で埋まる。
-        FeaturePipeline の z_window に比べて短いので問題ない
-        (kijun=26 + disp=26 = 52本。z_window デフォルト=100本以内)。
+    Note:
+        chikou (遅行スパン = close[t+26]) は look-ahead のため含めない。
     """
     ichi = calc_ichimoku(
         high, low, close,
         tenkan_period, kijun_period, senkou_b_period, displacement,
     )
-    tenkan  = ichi["tenkan"]
-    kijun   = ichi["kijun"]
-    span_a  = ichi["senkou_a"]
-    span_b  = ichi["senkou_b"]
+    tenkan    = ichi["tenkan"]
+    kijun     = ichi["kijun"]
+    span_a    = ichi["senkou_a"]
+    span_b    = ichi["senkou_b"]
+    f_span_a  = ichi["future_span_a"]
+    f_span_b  = ichi["future_span_b"]
 
-    # 雲の上限・下限（A と B のどちらが大きいかで変わる）
-    both    = pd.concat([span_a, span_b], axis=1)
-    kumo_top = both.max(axis=1)
-    kumo_bot = both.min(axis=1)
+    safe_close = close.replace(0, np.nan).clip(lower=1e-12)
 
-    safe_close = close.replace(0, np.nan)
+    # ================================================================
+    # 現在雲との関係（Step 1: 比率計算 → Step 2: ローリングz-score）
+    # ================================================================
 
-    # ---- ichi_pos: 価格の雲に対する相対位置 ----
-    # 雲の上: (close - kumo_top) / close > 0
-    # 雲の下: (close - kumo_bot) / close < 0
-    # 雲の中: 0
-    above = (close - kumo_top) / safe_close
-    below = (close - kumo_bot) / safe_close
-    pos_raw = np.where(
-        above > 0, above,
-        np.where(below < 0, below, 0.0),
-    )
-    ichi_pos = pd.Series(
-        np.clip(pos_raw, -clip, clip), index=close.index,
-    ).fillna(0.0)
+    # 現在雲の上限・下限
+    cur_top = pd.concat([span_a, span_b], axis=1).max(axis=1)
+    cur_bot = pd.concat([span_a, span_b], axis=1).min(axis=1)
 
-    # ---- ichi_cloud_thick: 雲の厚さ ----
-    thickness_pct = (span_a - span_b).abs() / safe_close.clip(lower=1e-12)
-    # log1p で安定化、×100 でスケール調整 (0.1% 差 → log1p(0.1) ≈ 0.1)
-    ichi_cloud_thick = (
-        np.log1p(thickness_pct.clip(lower=0) * 100)
-        .clip(0, clip)
-        .fillna(0.0)
+    # ichi_pos: 価格の雲に対する相対位置（比率 → z-score）
+    above_ratio = (close - cur_top) / safe_close
+    below_ratio = (close - cur_bot) / safe_close
+    pos_raw = np.where(above_ratio > 0, above_ratio,
+                       np.where(below_ratio < 0, below_ratio, 0.0))
+    ichi_pos = _rolling_z(
+        pd.Series(pos_raw, index=close.index), z_window, clip=clip
     )
 
-    # ---- ichi_cloud_bull: 雲の色 ----
-    ichi_cloud_bull = np.sign(span_a - span_b).fillna(0.0)
-
-    # ---- ichi_tk_cross: 転換線-基準線乖離 ----
-    ichi_tk_cross = (
-        ((tenkan - kijun) / safe_close)
-        .clip(-clip, clip)
-        .fillna(0.0)
+    # ichi_cloud_thick: 雲の厚さ（log比率 → z-score）
+    thick_ratio = (span_a - span_b).abs() / safe_close
+    ichi_cloud_thick = _rolling_z(
+        np.log1p(thick_ratio.clip(lower=0) * 100), z_window, clip=clip
     )
 
-    # ---- ichi_price_kijun: 価格-基準線乖離 ----
-    ichi_price_kijun = (
-        ((close - kijun) / safe_close)
-        .clip(-clip, clip)
-        .fillna(0.0)
+    # ichi_cloud_bull: 雲の色（+1/-1/0、連続値として z-score）
+    cloud_bull_raw = np.sign(span_a - span_b).fillna(0.0)
+    ichi_cloud_bull = _rolling_z(
+        pd.Series(cloud_bull_raw, index=close.index), z_window, clip=clip
     )
 
-    # ---- ichi_price_tenkan: 価格-転換線乖離 ----
-    ichi_price_tenkan = (
-        ((close - tenkan) / safe_close)
-        .clip(-clip, clip)
-        .fillna(0.0)
+    # ================================================================
+    # 転換線・基準線との関係
+    # ================================================================
+
+    # ichi_tk_cross: 転換線-基準線乖離の比率 → z-score
+    tk_ratio = (tenkan - kijun) / safe_close
+    ichi_tk_cross = _rolling_z(tk_ratio, z_window, clip=clip)
+
+    # ichi_price_kijun: 価格-基準線乖離の比率 → z-score
+    pk_ratio = (close - kijun) / safe_close
+    ichi_price_kijun = _rolling_z(pk_ratio, z_window, clip=clip)
+
+    # ichi_price_tenkan: 価格-転換線乖離の比率 → z-score
+    pt_ratio = (close - tenkan) / safe_close
+    ichi_price_tenkan = _rolling_z(pt_ratio, z_window, clip=clip)
+
+    # ================================================================
+    # 未来雲予測（t時点のデータから t+26 を予測 = look-ahead なし）
+    # ================================================================
+
+    # 未来雲の上限・下限（将来のサポート/レジスタンス構造の予測）
+    fut_top = pd.concat([f_span_a, f_span_b], axis=1).max(axis=1)
+    fut_bot = pd.concat([f_span_a, f_span_b], axis=1).min(axis=1)
+
+    # ichi_future_pos: 現在価格 vs 未来雲の予測的相対位置
+    #   正 → 今の価格が26本後の雲の上 → 上昇構造の継続が見込まれる
+    #   負 → 今の価格が26本後の雲の下 → レジスタンスに阻まれる構造
+    f_above = (close - fut_top) / safe_close
+    f_below = (close - fut_bot) / safe_close
+    f_pos_raw = np.where(f_above > 0, f_above,
+                         np.where(f_below < 0, f_below, 0.0))
+    ichi_future_pos = _rolling_z(
+        pd.Series(f_pos_raw, index=close.index), z_window, clip=clip
     )
+
+    # ichi_future_bull: 未来雲の色予測
+    #   +1 → 26本後に上昇雲（強気構造の継続）
+    #   -1 → 26本後に下降雲（弱気構造の継続）
+    f_bull_raw = np.sign(f_span_a - f_span_b).fillna(0.0)
+    ichi_future_bull = _rolling_z(
+        pd.Series(f_bull_raw, index=close.index), z_window, clip=clip
+    )
+
+    # ichi_future_thick: 未来雲の厚さ予測（将来の強い壁の存在）
+    f_thick_ratio = (f_span_a - f_span_b).abs() / safe_close
+    ichi_future_thick = _rolling_z(
+        np.log1p(f_thick_ratio.clip(lower=0) * 100), z_window, clip=clip
+    )
+
+    # ichi_tk_accel: 転換線-基準線乖離の1階差分（トレンド加速度）
+    #   正 → 転換線が基準線から更に遠ざかる（上昇モメンタム加速）
+    #   負 → 転換線が基準線に近づく（モメンタム減衰・クロス警戒）
+    tk_accel_raw = tk_ratio.diff()
+    ichi_tk_accel = _rolling_z(tk_accel_raw, z_window, clip=clip)
 
     return pd.DataFrame({
+        # 現在雲
         "ichi_pos":           ichi_pos,
         "ichi_cloud_thick":   ichi_cloud_thick,
         "ichi_cloud_bull":    ichi_cloud_bull,
+        # 転換線・基準線
         "ichi_tk_cross":      ichi_tk_cross,
         "ichi_price_kijun":   ichi_price_kijun,
         "ichi_price_tenkan":  ichi_price_tenkan,
+        # 未来雲予測（現在データから t+26 を予測）
+        "ichi_future_pos":    ichi_future_pos,
+        "ichi_future_bull":   ichi_future_bull,
+        "ichi_future_thick":  ichi_future_thick,
+        "ichi_tk_accel":      ichi_tk_accel,
     }, index=close.index)

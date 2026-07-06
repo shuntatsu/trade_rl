@@ -73,6 +73,7 @@ def train_ppo(
     dropout: float = 0.0,
     net_arch=None,
     custom_teacher=None,
+    custom_bc_dataset=None,
     **env_kwargs,
 ):
     """FeatureSetでPPOを学習して返す
@@ -83,6 +84,14 @@ def train_ppo(
     bc_warmstart=True でBC事前学習を行う。教師はbc_teacherで選択:
     ridge（デフォルト）= 学習スライスのRidge予測（アルファの型を仮定しない）、
     momentum = クロスモメンタム固定教師。
+
+    custom_teacher: 呼び出し側が構築済みの教師関数を直接渡す（bc_teacher選択
+    ロジックを全てバイパス）。例: combined_teacher(fs, ..., ridge_target=
+    "cs_demean") でtarget指定した合成教師を使いたい場合。
+    custom_bc_dataset: (X, A) の教師データを直接渡す（generate_teacher_dataset
+    もバイパス）。レジーム専門家など、教師データをfs全体ではなく特定の
+    エピソード開始位置プールに限定したい場合に使う（PPO自身の経験分布との
+    整合を保つため）。custom_teacher/bc_teacherより優先される。
     """
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -156,7 +165,9 @@ def train_ppo(
             generate_teacher_dataset, bc_pretrain,
         )
         teacher = custom_teacher
-        if teacher is not None:
+        if custom_bc_dataset is not None:
+            pass  # 下でこのデータセットをそのまま使う（教師選択ロジックは全てスキップ）
+        elif teacher is not None:
             pass  # 呼び出し側が既に構築した教師をそのまま使う（target指定等の柔軟性用）
         elif bc_teacher == "auto":
             from mars_lite.features.signal_check import run_signal_check, run_trend_gate
@@ -196,7 +207,10 @@ def train_ppo(
         else:
             teacher = soft_momentum_teacher()
 
-        if teacher is not None:
+        if custom_bc_dataset is not None:
+            X, A = custom_bc_dataset
+            bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
+        elif teacher is not None:
             X, A = generate_teacher_dataset(fs, teacher, env_kwargs)
             bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
 

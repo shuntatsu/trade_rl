@@ -480,10 +480,11 @@ def create_app(
         from mars_lite.data.sources import create_source
         from mars_lite.features.feature_pipeline import FeaturePipeline
         from mars_lite.env.portfolio_env import PortfolioTradingEnv
+        from mars_lite.serving.model_store import model_exists, load_metadata
 
-        model_path = output_path / "models" / "portfolio_model.zip"
-        meta_path = output_path / "models" / "portfolio_model.json"
-        if not model_path.exists():
+        models_dir = output_path / "models"
+        model_path = models_dir / "portfolio_model.zip"
+        if not model_exists(models_dir, "portfolio_model"):
             raise HTTPException(
                 status_code=404,
                 detail="portfolio_model not found. Train with mode='portfolio' first.",
@@ -492,15 +493,11 @@ def create_app(
         symbols = None
         pp_cfg = None
         feature_mask = None
-        if meta_path.exists():
-            try:
-                with open(meta_path, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-                    symbols = meta.get("symbols")
-                    pp_cfg = meta.get("post_processor")
-                    feature_mask = meta.get("feature_mask")
-            except Exception:
-                pass
+        meta = load_metadata(models_dir, "portfolio_model")
+        if meta is not None:
+            symbols = meta.symbols or None
+            pp_cfg = meta.post_processor or None
+            feature_mask = meta.feature_mask
 
         data_dir = resolve_data_dir()
         available = set(

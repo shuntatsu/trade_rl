@@ -347,9 +347,7 @@ class TrainingManager:
 
 
             # ---- 学習 ----
-            import sys
-            sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-            from train_portfolio import train_ppo
+            from mars_lite.learning.trainer import train_ppo
 
             metrics_cb = TrainingMetricsCallback(
                 total_timesteps=config.total_timesteps, log_freq=1, verbose=1,
@@ -382,20 +380,17 @@ class TrainingManager:
                 f"momentum={baselines['cross_momentum']['total_return']:+.2%}")
 
             # ---- 保存 ----
+            from mars_lite.serving.model_store import save_bundle, ModelMetadata
             models_dir = output_path / "models"
-            models_dir.mkdir(parents=True, exist_ok=True)
-            agent.save(str(models_dir / "portfolio_model"))
-            import json as _json
-            with open(models_dir / "portfolio_model.json", "w", encoding="utf-8") as f:
-                _json.dump({
-                    "mode": "portfolio",
-                    "symbols": symbols,
-                    "post_processor": pp.cfg.to_dict(),
+            save_bundle(models_dir, "portfolio_model", agent, ModelMetadata(
+                symbols=symbols,
+                post_processor=pp.cfg.to_dict(),
+                metrics={
                     "signal_gate": ic.to_dict(),
                     "oos_agent": agent_res,
                     "oos_baselines": baselines,
-                    "timestamp": time.time(),
-                }, f, indent=2, ensure_ascii=False)
+                },
+            ))
 
             if self._stop_event.is_set():
                 self._status = TrainingStatus.IDLE

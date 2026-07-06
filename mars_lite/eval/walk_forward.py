@@ -17,12 +17,11 @@ import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.learning.baselines import run_all_baselines, StrategyResult
+from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 from mars_lite.utils.metrics import deflated_sharpe_ratio
 
 # エージェント学習関数の型: (train_fs, seed) -> agent
 TrainFn = Callable[[FeatureSet, int], object]
-
-BARS_PER_YEAR_1H = 24 * 365
 
 
 @dataclass

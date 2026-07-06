@@ -18,9 +18,8 @@ from gymnasium import spaces
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
-from mars_lite.trading.post_processor import _project_leverage
-
-BARS_PER_YEAR_1H = 24 * 365
+from mars_lite.trading.post_processor import _project_leverage, BARS_PER_YEAR_1H
+from mars_lite.trading.pipeline import DecisionPipeline, MarketView, PortfolioState
 
 
 class PortfolioTradingEnv(gym.Env):
@@ -77,6 +76,14 @@ class PortfolioTradingEnv(gym.Env):
         if htf_gate:
             self._htf_idx = fs.feature_names.index("4h_ret_z20")
 
+        self._vol_lookback = (
+            post_processor.cfg.vol_lookback if post_processor is not None else 0
+        )
+        self._pipeline = DecisionPipeline(
+            post_processor=post_processor, min_trade_delta=min_trade_delta,
+            htf_threshold=htf_threshold, htf_neutral_scale=htf_neutral_scale,
+        )
+
         self.n_per_symbol = fs.n_features + 1  # 特徴 + 現ウェイト
         self.n_global = fs.global_features.shape[1] + 3  # 生グローバル + ポート状態3
 
@@ -118,22 +125,13 @@ class PortfolioTradingEnv(gym.Env):
         """
         階層MTFゲート: 上位足(4h)トレンドと逆方向のポジションを禁止し、
         トレンド無し(neutral)では縮小する。グロスは増加させない。
+        実装は mars_lite.trading.pipeline.DecisionPipeline と共有
+        （/api/signal/latest からも同一コードパスで呼ばれる）。
         """
         if self._htf_idx is None:
             return w
         htf = self.fs.features[self.t][:, self._htf_idx]
-        gated = np.asarray(w, dtype=np.float64).copy()
-        for i in range(len(gated)):
-            h = float(htf[i])
-            if h > self.htf_threshold:
-                if gated[i] < 0:
-                    gated[i] = 0.0
-            elif h < -self.htf_threshold:
-                if gated[i] > 0:
-                    gated[i] = 0.0
-            else:
-                gated[i] = gated[i] * self.htf_neutral_scale
-        return gated
+        return self._pipeline.apply_htf_gate(w, htf)
 
     def _obs(self) -> np.ndarray:
         feats = self.fs.features[self.t]  # (n_sym, n_feat)
@@ -189,28 +187,14 @@ class PortfolioTradingEnv(gym.Env):
         else:
             proj = self.project_weights(raw)
 
-        if self.post_processor is not None:
-            cfg = self.post_processor.cfg
-            lb = cfg.vol_lookback
-            start = max(0, self.t - lb)
-            recent_returns = None
-            if self.t > start:
-                recent_returns = (
-                    np.diff(self.fs.close[start:self.t + 1], axis=0)
-                    / self.fs.close[start:self.t, :]
-                )
-            drawdown = 1.0 - self.portfolio_value / max(self.peak_value, 1e-9)
-            target, _pp_info = self.post_processor.process(
-                proj, prev, recent_returns=recent_returns,
-                drawdown=drawdown, disagreement=self.disagreement,
-            )
-        else:
-            delta0 = proj - prev
-            delta0[np.abs(delta0) < self.min_trade_delta] = 0.0
-            target = prev + delta0
-
-        if self._htf_idx is not None:
-            target = self.apply_htf_gate(target)
+        state = PortfolioState(
+            weights=prev, portfolio_value=self.portfolio_value,
+            peak_value=self.peak_value, disagreement=self.disagreement,
+        )
+        market = MarketView.from_feature_set(
+            self.fs, self.t, vol_lookback=self._vol_lookback, htf_idx=self._htf_idx,
+        )
+        target, _pp_info = self._pipeline.target_weights(proj, state, market)
 
         delta = target - prev
         turnover = float(np.abs(delta).sum())

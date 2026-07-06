@@ -16,6 +16,7 @@ import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
+from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 
 WeightFn = Callable[[FeatureSet, int, np.ndarray], np.ndarray]
 
@@ -166,7 +167,7 @@ def simulate_strategy(
         max_dd = max(max_dd, 1.0 - value / peak)
 
     rets_arr = np.array(rets) if rets else np.zeros(1)
-    sharpe = float(rets_arr.mean() / rets_arr.std() * np.sqrt(24 * 365)) \
+    sharpe = float(rets_arr.mean() / rets_arr.std() * np.sqrt(BARS_PER_YEAR_1H)) \
         if rets_arr.std() > 0 else 0.0
 
     return StrategyResult(
@@ -218,9 +219,15 @@ def oracle_dp_paths(
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     pos = np.array([p for p in positions if allow_short or p >= 0], dtype=np.float64)
     n_states = len(pos)
-    impact_coef = (impact_rate / (0.1 ** 0.5))  # 線形率→sqrt則係数（execution.pyと一致）
-    lin = (fee_rate + spread_rate) * cost_multiplier
-    imp = impact_coef * cost_multiplier
+    # 係数はExecutionModelのfactory関数から取得（コスト式の単一の正）。
+    # DPの内側ループはスカラー演算のホットパスなのでcost_fraction呼び出しは
+    # 使わず、係数のみ共有する。
+    exec_model = make_execution_model(
+        fee_rate=fee_rate, spread_rate=spread_rate,
+        impact_rate=impact_rate, cost_multiplier=cost_multiplier,
+    )
+    lin = (exec_model.fee_rate + exec_model.spread_rate) * exec_model.cost_multiplier
+    imp = exec_model.impact_coef * exec_model.cost_multiplier
     decision_every = max(1, int(decision_every))
 
     def trans_logcost(p_prev: float, p_new: float, is_decision_bar: bool) -> float:
@@ -288,9 +295,13 @@ def _simulate_positions(
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     n_sym = fs.n_symbols
     T = end_idx - start_idx
-    impact_coef = (impact_rate / (0.1 ** 0.5))
-    lin = (fee_rate + spread_rate) * cost_multiplier
-    imp = impact_coef * cost_multiplier
+    # 係数はExecutionModelのfactory関数から取得（コスト式の単一の正、oracle_dp_pathsと同じ）
+    exec_model = make_execution_model(
+        fee_rate=fee_rate, spread_rate=spread_rate,
+        impact_rate=impact_rate, cost_multiplier=cost_multiplier,
+    )
+    lin = (exec_model.fee_rate + exec_model.spread_rate) * exec_model.cost_multiplier
+    imp = exec_model.impact_coef * exec_model.cost_multiplier
     r = _true_returns(fs, start_idx, end_idx)
 
     sleeve_equity = np.ones((T + 1, n_sym))
@@ -313,7 +324,7 @@ def _simulate_positions(
 
 def _equity_to_result(name: str, equity: np.ndarray, turnover_total: float) -> StrategyResult:
     rets = np.diff(equity) / equity[:-1]
-    sharpe = float(rets.mean() / rets.std() * np.sqrt(24 * 365)) \
+    sharpe = float(rets.mean() / rets.std() * np.sqrt(BARS_PER_YEAR_1H)) \
         if rets.std() > 0 else 0.0
     peak = np.maximum.accumulate(equity)
     max_dd = float((1.0 - equity / peak).max())

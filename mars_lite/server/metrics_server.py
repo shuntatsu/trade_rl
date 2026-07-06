@@ -458,12 +458,24 @@ def create_app(
     # ==================== Signal Endpoint (Platform連携) ====================
 
     @app.get("/api/signal/latest")
-    def get_latest_signal() -> Dict[str, Any]:
+    def get_latest_signal(
+        prev_weights: Optional[str] = None,
+        portfolio_value: float = 1.0,
+        peak_value: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
         ポートフォリオモデルの最新推奨ウェイトを返す（Trade Platform連携用）
 
         Platform側はこのエンドポイントをポーリングするだけで
         RLエージェントのシグナルをBots画面等に統合できる。
+
+        Args:
+            prev_weights: 現在の実ポジション（symbols順のカンマ区切り）。
+                省略時は無ポジション(stateless)として扱う（従来互換）。
+                指定するとEMA平滑・no-tradeバンドが実ポジション基準で
+                正しく機能する（train/serveのEMA初期化不一致を解消）。
+            portfolio_value / peak_value: ドローダウン応答用。
+                省略時はdrawdown=0（デリスキング無効）として扱う（従来互換）。
 
         Returns:
             {
@@ -481,6 +493,7 @@ def create_app(
         from mars_lite.features.feature_pipeline import FeaturePipeline
         from mars_lite.env.portfolio_env import PortfolioTradingEnv
         from mars_lite.serving.model_store import model_exists, load_metadata
+        from mars_lite.trading.pipeline import DecisionPipeline, MarketView, PortfolioState
 
         models_dir = output_path / "models"
         model_path = models_dir / "portfolio_model.zip"
@@ -558,18 +571,30 @@ def create_app(
             pp = PortfolioPostProcessor(PostProcessConfig(**pp_cfg))
         else:
             pp = make_default_processor()
-        # env.step と同一の直近リターン計算（ボラターゲティング用、train/serve一致）
-        lb = pp.cfg.vol_lookback
-        t = env.t
-        start = max(0, t - lb)
-        recent = None
-        if t > start:
-            recent = np.diff(fs.close[start:t + 1], axis=0) / fs.close[start:t, :]
-        processed, pp_info = pp.process(
-            raw_weights=raw_weights,
-            prev_weights=np.zeros(len(symbols)),  # 現ポジションはPlatform側が持つ
-            recent_returns=recent,
-        )
+
+        # prev_weights省略時は無ポジション(stateless)として扱う（従来互換）
+        if prev_weights:
+            try:
+                prev_w = np.array([float(x) for x in prev_weights.split(",")], dtype=np.float64)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="prev_weights must be comma-separated floats")
+            if len(prev_w) != len(symbols):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"prev_weights has {len(prev_w)} values but model has {len(symbols)} symbols",
+                )
+        else:
+            prev_w = np.zeros(len(symbols))
+
+        pv = portfolio_value
+        pk = peak_value if peak_value is not None else portfolio_value
+
+        # env.step と同一のDecisionPipeline（射影→後処理→HTFゲート）を通す
+        # （実装共有により train/serve 一致が構造で保証される）
+        pipeline = DecisionPipeline(post_processor=pp)
+        state = PortfolioState(weights=prev_w, portfolio_value=pv, peak_value=pk)
+        market = MarketView.from_feature_set(fs, env.t, vol_lookback=pp.cfg.vol_lookback)
+        processed, pp_info = pipeline.target_weights(raw_weights, state, market)
 
         # ガードレール評価（データ鮮度・NaN・過大ウェイト等）
         from mars_lite.trading.guardrails import evaluate_guardrails, apply_guardrails

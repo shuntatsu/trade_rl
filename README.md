@@ -200,6 +200,7 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 | `--dropout` | 0 | 抽出器の隠れ層dropout率（large時の過学習/seed分散抑制。例 0.1） |
 | `--feature-norm` | none | `rank_gauss`で各特徴をローリング・ガウスランクでN(0,1)に正規化（汎用性狙い・因果的） |
 | `--beta-neutral` | off | 後処理で市場方向成分を除去しドル中立化（相対アルファのみ残す・opt-in） |
+| `--warmup-days` | 0 | 先頭Ndaysを切り捨て（最長ローリング窓=100日分が埋まるまで特徴が不完全なため）。実効学習期間365日を確保したいなら取得465日+`--warmup-days 100` |
 
 学習は既定で **TFゲート抽出器 + Ridge教師BC + 検証ベースモデル選択**（詳細は ARCHITECTURE.md §2.1）。
 

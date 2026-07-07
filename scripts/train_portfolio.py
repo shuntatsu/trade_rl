@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description="ポートフォリオRL学習")
     parser.add_argument("--phase", choices=["p0", "train", "wf", "pbt", "regime", "overlay"],
                         default="p0")
-    parser.add_argument("--source", choices=["synthetic", "csv", "postgres", "hyperliquid"],
+    parser.add_argument("--source", choices=["synthetic", "csv", "postgres", "hyperliquid", "bitget", "okx"],
                         default="synthetic")
     parser.add_argument("--data", type=str, default="./data")
     parser.add_argument("--symbols", type=str, nargs="+", default=None)

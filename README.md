@@ -197,6 +197,31 @@ python scripts/train_portfolio.py --phase train --source hyperliquid \
 
 > **ゲート1**: OOSランクIC ≥ 0.02。不合格ならRL学習に進まない（`--skip-gate` で強制続行可）。
 
+### OKX（`--source okx`、長期実データ向け・推奨）
+
+USDT建て無期限先物の公開APIから直接取得する（`OKXSource`、CSVキャッシュ不要、
+`./data/okx/`に自動キャッシュ）。実測でBTC-USDT-SWAPの1h足が1000日以上遡って
+取得できており、3ソース中もっとも長期の実データ検証に向く。funding rate
+履歴のみ約92日分（OKX公開APIの仕様）。
+
+```bash
+python scripts/train_portfolio.py --phase train --source okx \
+    --symbols BTCUSDT ETHUSDT SOLUSDT XRPUSDT BNBUSDT \
+    --days 600 --warmup-days 100 --timesteps 2000000
+```
+
+### Bitget（`--source bitget`）
+
+USDT-M先物の公開APIから直接取得する（`BitgetSource`、`./data/bitget/`に
+自動キャッシュ）。1h足の実際に取得できる期間は環境・時期依存で変動しうる
+（実測では数十日程度に留まったこともある）。長期検証にはOKXの方が安定して
+使える。
+
+```bash
+python scripts/train_portfolio.py --phase train --source bitget \
+    --symbols BTCUSDT ETHUSDT --days 60 --warmup-days 30 --timesteps 500000
+```
+
 ### 収益最適化フェーズ
 
 ```bash
@@ -231,7 +256,7 @@ python scripts/train_portfolio.py --phase overlay --source csv --data ./data \
 | フラグ | 既定 | 説明 |
 |---|---|---|
 | `--phase` | p0 | `p0` / `train` / `wf` / `pbt` / `regime` / `overlay` |
-| `--source` | synthetic | `synthetic` / `csv` / `postgres` / `hyperliquid` |
+| `--source` | synthetic | `synthetic` / `csv` / `postgres` / `hyperliquid` / `bitget` / `okx` |
 | `--ensemble` | 1 | シードアンサンブル数。**実データでは3推奨**（シード運低減 + 不一致度スケーリング） |
 | `--gamma` | 0.5 | 割引率（0.995は崩壊する） |
 | `--postproc` | full | 後処理（平滑/集中上限/ボラ目標/DDデリスク） |

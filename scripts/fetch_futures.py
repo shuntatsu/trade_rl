@@ -298,9 +298,8 @@ def main():
             if sym_info:
                 listing_ms = sym_info.get("onboardDate") or sym_info.get("deliveryDate")
                 if listing_ms:
-                    from datetime import datetime, timezone as _tz
-                    listing_dt = datetime.fromtimestamp(listing_ms / 1000, tz=_tz.utc)
-                    days_listed = (datetime.now(_tz.utc) - listing_dt).days
+                    listing_dt = datetime.fromtimestamp(listing_ms / 1000, tz=timezone.utc)
+                    days_listed = (datetime.now(timezone.utc) - listing_dt).days
                     print(f"  listing: {listing_dt.strftime('%Y-%m-%d')} ({days_listed}d ago)")
         except Exception:
             pass  # 取得失敗は無視して続行

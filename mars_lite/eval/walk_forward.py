@@ -17,6 +17,8 @@ import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.learning.baselines import StrategyResult, run_all_baselines
+from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
+from mars_lite.utils.metrics import deflated_sharpe_ratio
 
 # エージェント学習関数の型: (train_fs, seed) -> agent
 TrainFn = Callable[[FeatureSet, int], object]
@@ -35,6 +37,7 @@ class FoldResult:
 class WalkForwardReport:
     folds: List[FoldResult] = field(default_factory=list)
     config: Dict = field(default_factory=dict)
+    dsr: Dict = field(default_factory=dict)
 
     def summary(self) -> Dict:
         """fold横断のエージェント成績分布とベースライン比較"""
@@ -72,6 +75,7 @@ class WalkForwardReport:
         payload = {
             "config": self.config,
             "summary": self.summary(),
+            "deflated_sharpe": self.dsr,
             "folds": [
                 {
                     "fold": f.fold,
@@ -155,6 +159,14 @@ def run_walk_forward(
 
     edges = np.linspace(int(fs.n_bars * 0.4), fs.n_bars, n_folds + 1).astype(int)
 
+    # DSR用: foldごとに代表seed（中央値Sharpe）のリターン系列を1本だけ集める。
+    # foldは時間的に重ならないので、これらを連結すれば honest な1本のOOS
+    # 系列になる。同一foldの複数seedを全部連結するとサンプル数nが情報を
+    # 伴わずに水増しされ、DSRを実態より良く見せてしまうため避ける。
+    fold_return_series: List[np.ndarray] = []
+    # 試行数補正には全 fold×seed のSharpeを使う（selection biasの母数）。
+    trial_sharpes: List[float] = []
+
     for k in range(n_folds):
         train_end = edges[k]
         test_start = train_end + purge_bars
@@ -171,19 +183,31 @@ def run_walk_forward(
             )
 
         agent_results = []
+        seed_returns: List[np.ndarray] = []
+        seed_sharpes: List[float] = []
         for seed in seeds:
             agent = train_fn(train_fs, seed)
             res = evaluate_agent_on_slice(
                 agent, test_fs, cost_multiplier=cost_multiplier, **env_kwargs
             )
             res["seed"] = seed
-            res.pop("equity_curve", None)
+            equity = np.asarray(res.pop("equity_curve", []), dtype=np.float64)
+            sharpe = float(res.get("sharpe", 0.0))
+            if len(equity) > 2:
+                seed_returns.append(np.diff(np.log(np.clip(equity, 1e-9, None))))
+                seed_sharpes.append(sharpe)
+            trial_sharpes.append(sharpe)
             agent_results.append(res)
             if verbose:
                 print(
                     f"  seed {seed}: ret={res['total_return']:+.4f} "
                     f"sharpe={res['sharpe']:+.2f} trades={res['n_trades']}"
                 )
+
+        # このfoldの代表として中央値Sharpeのseedを1本選ぶ（楽観バイアス回避）。
+        if seed_returns:
+            med_idx = int(np.argsort(seed_sharpes)[len(seed_sharpes) // 2])
+            fold_return_series.append(seed_returns[med_idx])
 
         baselines = {
             name: r.to_dict()
@@ -200,6 +224,15 @@ def run_walk_forward(
                 agent_by_seed=agent_results,
                 baselines=baselines,
             )
+        )
+
+    if fold_return_series:
+        # 時間的に重ならないfoldの代表系列を連結 = 1本のhonestなOOS equity path。
+        oos_returns = np.concatenate(fold_return_series)
+        report.dsr = deflated_sharpe_ratio(
+            oos_returns,
+            trial_sharpes,
+            annualization_factor=BARS_PER_YEAR_1H,
         )
 
     return report

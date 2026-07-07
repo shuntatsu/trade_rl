@@ -15,6 +15,49 @@ import torch.nn as nn
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
+# 抽出器の規模プリセット。small は実証済み（ARCHITECTURE.mdのベンチ値の構成）、
+# large は容量を増やした構成（多様/実データでの汎用性狙い、要再ベンチ）。
+ARCH_PRESETS = {
+    "small": dict(
+        symbol_embed_dim=8,
+        encoder_dim=32,
+        features_dim=128,
+        tf_encode_dim=16,
+        enc_hidden=(64,),
+        tf_hidden=(),
+        trunk_hidden=(),
+    ),
+    "large": dict(
+        symbol_embed_dim=16,
+        encoder_dim=64,
+        features_dim=256,
+        tf_encode_dim=32,
+        enc_hidden=(128, 128),
+        tf_hidden=(32,),
+        trunk_hidden=(256, 256),
+    ),
+}
+
+
+def _mlp(in_dim, hidden, out_dim, dropout=0.0, use_ln=True, out_ln=False, out_act=True):
+    """Linear/LayerNorm/ReLU(/Dropout) の積層を作る小ヘルパ"""
+    layers = []
+    d = in_dim
+    for h in hidden:
+        layers.append(nn.Linear(d, h))
+        if use_ln:
+            layers.append(nn.LayerNorm(h))
+        layers.append(nn.ReLU())
+        if dropout > 0:
+            layers.append(nn.Dropout(dropout))
+        d = h
+    layers.append(nn.Linear(d, out_dim))
+    if out_ln:
+        layers.append(nn.LayerNorm(out_dim))
+    if out_act:
+        layers.append(nn.ReLU())
+    return nn.Sequential(*layers)
+
 
 class PortfolioExtractor(BaseFeaturesExtractor):
     """銘柄共有エンコーダ型の特徴抽出器"""
@@ -25,10 +68,13 @@ class PortfolioExtractor(BaseFeaturesExtractor):
         n_symbols: int,
         n_per_symbol: int,
         n_global: int,
-        symbol_embed_dim: int = 8,
-        encoder_dim: int = 32,
-        features_dim: int = 128,
+        size: str = "large",
+        dropout: float = 0.0,
     ):
+        cfg = ARCH_PRESETS[size]
+        symbol_embed_dim = cfg["symbol_embed_dim"]
+        encoder_dim = cfg["encoder_dim"]
+        features_dim = cfg["features_dim"]
         super().__init__(observation_space, features_dim)
 
         expected = n_symbols * n_per_symbol + n_global
@@ -44,22 +90,28 @@ class PortfolioExtractor(BaseFeaturesExtractor):
         self.n_global = n_global
 
         # 銘柄共有エンコーダ（全銘柄で同一重み）
-        self.symbol_encoder = nn.Sequential(
-            nn.Linear(n_per_symbol, 64),
-            nn.LayerNorm(64),
-            nn.ReLU(),
-            nn.Linear(64, encoder_dim),
-            nn.ReLU(),
+        self.symbol_encoder = _mlp(
+            n_per_symbol,
+            cfg["enc_hidden"],
+            encoder_dim,
+            dropout=dropout,
+            use_ln=True,
+            out_ln=False,
+            out_act=True,
         )
         # 銘柄ごとの学習可能な埋め込み（対称性を破って銘柄個性を持たせる）
         self.symbol_embedding = nn.Parameter(torch.zeros(n_symbols, symbol_embed_dim))
         nn.init.normal_(self.symbol_embedding, std=0.1)
 
         trunk_in = n_symbols * (encoder_dim + symbol_embed_dim) + n_global
-        self.trunk = nn.Sequential(
-            nn.Linear(trunk_in, features_dim),
-            nn.LayerNorm(features_dim),
-            nn.ReLU(),
+        self.trunk = _mlp(
+            trunk_in,
+            cfg["trunk_hidden"],
+            features_dim,
+            dropout=dropout,
+            use_ln=True,
+            out_ln=True,
+            out_act=True,
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
@@ -96,11 +148,14 @@ class TFGatedPortfolioExtractor(BaseFeaturesExtractor):
         n_global: int,
         n_tf_blocks: int = 4,
         tf_block_size: int = 7,
-        symbol_embed_dim: int = 8,
-        tf_encode_dim: int = 16,
-        encoder_dim: int = 32,
-        features_dim: int = 128,
+        size: str = "large",
+        dropout: float = 0.0,
     ):
+        cfg = ARCH_PRESETS[size]
+        symbol_embed_dim = cfg["symbol_embed_dim"]
+        tf_encode_dim = cfg["tf_encode_dim"]
+        encoder_dim = cfg["encoder_dim"]
+        features_dim = cfg["features_dim"]
         super().__init__(observation_space, features_dim)
 
         expected = n_symbols * n_per_symbol + n_global
@@ -115,10 +170,15 @@ class TFGatedPortfolioExtractor(BaseFeaturesExtractor):
         self.tf_size = tf_block_size
         self.n_base = n_per_symbol - n_tf_blocks * tf_block_size  # 基準特徴+現ウェイト
 
-        # TFブロック共有エンコーダ（全TF・全銘柄で同一重み）
-        self.tf_encoder = nn.Sequential(
-            nn.Linear(tf_block_size, tf_encode_dim),
-            nn.ReLU(),
+        # TFブロック共有エンコーダ（全TF・全銘柄で同一重み。LayerNorm無し=元設計踏襲）
+        self.tf_encoder = _mlp(
+            tf_block_size,
+            cfg["tf_hidden"],
+            tf_encode_dim,
+            dropout=dropout,
+            use_ln=False,
+            out_ln=False,
+            out_act=True,
         )
         # TF埋め込み（TFの個性）と学習可能ゲート（初期値: sigmoid(0)=0.5で全TF半開）
         self.tf_embedding = nn.Parameter(torch.zeros(n_tf_blocks, tf_encode_dim))
@@ -127,21 +187,27 @@ class TFGatedPortfolioExtractor(BaseFeaturesExtractor):
 
         # 銘柄共有エンコーダ
         sym_in = n_tf_blocks * tf_encode_dim + self.n_base
-        self.symbol_encoder = nn.Sequential(
-            nn.Linear(sym_in, 64),
-            nn.LayerNorm(64),
-            nn.ReLU(),
-            nn.Linear(64, encoder_dim),
-            nn.ReLU(),
+        self.symbol_encoder = _mlp(
+            sym_in,
+            cfg["enc_hidden"],
+            encoder_dim,
+            dropout=dropout,
+            use_ln=True,
+            out_ln=False,
+            out_act=True,
         )
         self.symbol_embedding = nn.Parameter(torch.zeros(n_symbols, symbol_embed_dim))
         nn.init.normal_(self.symbol_embedding, std=0.1)
 
         trunk_in = n_symbols * (encoder_dim + symbol_embed_dim) + n_global
-        self.trunk = nn.Sequential(
-            nn.Linear(trunk_in, features_dim),
-            nn.LayerNorm(features_dim),
-            nn.ReLU(),
+        self.trunk = _mlp(
+            trunk_in,
+            cfg["trunk_hidden"],
+            features_dim,
+            dropout=dropout,
+            use_ln=True,
+            out_ln=True,
+            out_act=True,
         )
 
     def gate_values(self):

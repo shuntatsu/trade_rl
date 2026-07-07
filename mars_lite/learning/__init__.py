@@ -1,7 +1,8 @@
 """
 学習モジュール
 
-PPO/SACエージェント・Population管理・サンプラー
+BC warmstart・検証選択・シードアンサンブル・PBT・レジームアンサンブル。
+サブモジュールを直接import すること（例: from mars_lite.learning.baselines import ...）。
 """
 
 from .agent import create_ppo_agent, evaluate_agent, train_agent

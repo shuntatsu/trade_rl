@@ -18,18 +18,13 @@ from gymnasium import spaces
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
+from mars_lite.trading.pipeline import DecisionPipeline, MarketView, PortfolioState
+from mars_lite.trading.post_processor import (
+    BARS_PER_YEAR_1H,
+    PostProcessInfo,
+    _project_leverage,
+)
 from mars_lite.trading.pre_trade_risk import PreTradeRiskVerifier
-
-BARS_PER_YEAR_1H = 24 * 365
-
-
-def _project_leverage(w: np.ndarray, max_leverage: float = 1.0) -> np.ndarray:
-    """Sigma|w| <= max_leverage への射影（超過分のみ縮小）"""
-    w = np.asarray(w, dtype=np.float64).copy()
-    gross = np.abs(w).sum()
-    if gross > max_leverage:
-        return w * (max_leverage / gross)
-    return w
 
 
 class PortfolioTradingEnv(gym.Env):
@@ -58,6 +53,8 @@ class PortfolioTradingEnv(gym.Env):
         dsr_eta: float = 0.01,
         decision_every: int = 1,
         pre_trade_verifier: Optional[PreTradeRiskVerifier] = None,
+        obs_risk_state: bool = False,
+        disagreement_dr_max: float = 0.0,
     ):
         super().__init__()
         self.pre_trade_verifier = pre_trade_verifier
@@ -82,6 +79,8 @@ class PortfolioTradingEnv(gym.Env):
         self.use_dsr = use_dsr
         self.dsr_eta = dsr_eta
         self.decision_every = max(1, decision_every)
+        self.obs_risk_state = obs_risk_state
+        self.disagreement_dr_max = disagreement_dr_max
 
         self._exec_model = make_execution_model(
             fee_rate=fee_rate,
@@ -94,8 +93,20 @@ class PortfolioTradingEnv(gym.Env):
         if htf_gate:
             self._htf_idx = fs.feature_names.index("4h_ret_z20")
 
+        self._vol_lookback = (
+            post_processor.cfg.vol_lookback if post_processor is not None else 0
+        )
+        self._pipeline = DecisionPipeline(
+            post_processor=post_processor,
+            min_trade_delta=min_trade_delta,
+            htf_threshold=htf_threshold,
+            htf_neutral_scale=htf_neutral_scale,
+        )
+
         self.n_per_symbol = fs.n_features + 1  # 特徴 + 現ウェイト
-        self.n_global = fs.global_features.shape[1] + 3  # 生グローバル + ポート状態3
+        # 生グローバル + ポート状態3（drawdown/gross/progress）
+        # + オプトインのルール層状態4（vol_scale/dd_scale/disagreement_scale/est_port_vol）
+        self.n_global = fs.global_features.shape[1] + 3 + (4 if obs_risk_state else 0)
 
         obs_dim = self.n_symbols * self.n_per_symbol + self.n_global
         self.observation_space = spaces.Box(
@@ -124,6 +135,7 @@ class PortfolioTradingEnv(gym.Env):
         self.max_dd = 0.0
         self._dsr_A = 0.0
         self._dsr_B = 0.0
+        self._last_pp_info = PostProcessInfo()
 
     # ---- ユーティリティ ----
 
@@ -143,22 +155,13 @@ class PortfolioTradingEnv(gym.Env):
         """
         階層MTFゲート: 上位足(4h)トレンドと逆方向のポジションを禁止し、
         トレンド無し(neutral)では縮小する。グロスは増加させない。
+        実装は mars_lite.trading.pipeline.DecisionPipeline と共有
+        （/api/signal/latest からも同一コードパスで呼ばれる）。
         """
         if self._htf_idx is None:
             return w
         htf = self.fs.features[self.t][:, self._htf_idx]
-        gated = np.asarray(w, dtype=np.float64).copy()
-        for i in range(len(gated)):
-            h = float(htf[i])
-            if h > self.htf_threshold:
-                if gated[i] < 0:
-                    gated[i] = 0.0
-            elif h < -self.htf_threshold:
-                if gated[i] > 0:
-                    gated[i] = 0.0
-            else:
-                gated[i] = gated[i] * self.htf_neutral_scale
-        return gated
+        return self._pipeline.apply_htf_gate(w, htf)
 
     def set_reward_mode(self, use_dsr: bool) -> None:
         """CurriculumCallback契約: 報酬モードをPnL/DSR間で切替"""
@@ -175,8 +178,23 @@ class PortfolioTradingEnv(gym.Env):
         drawdown = 1.0 - self.portfolio_value / max(self.peak_value, 1e-9)
         gross = float(np.abs(self.weights).sum())
         progress = (self.t - self.start_idx) / max(self.episode_bars, 1)
-        port_globals = np.array([drawdown, gross, progress], dtype=np.float32)
-        return np.concatenate([per_sym, raw_globals, port_globals]).astype(np.float32)
+        port_globals = [drawdown, gross, progress]
+        if self.obs_risk_state:
+            # ルール層（後処理）が前ステップで方策の提案をどう変形したかを
+            # 観測に含める。既定offで、方策はこれらのルールを予見できず
+            # 衝突しやすい構造になっている（docs/ARCHITECTURE.md
+            # 「RLの担当範囲」原則4の緊張点）。opt-inでこの視認性を与え、
+            # ベンチマークで有効性を確認できたら既定にする候補
+            info = self._last_pp_info
+            port_globals += [
+                info.vol_scale,
+                info.dd_scale,
+                info.disagreement_scale,
+                info.est_port_vol,
+            ]
+        return np.concatenate(
+            [per_sym, raw_globals, np.array(port_globals, dtype=np.float32)]
+        ).astype(np.float32)
 
     def _dsr_reward(self, r: float) -> float:
         eta = self.dsr_eta
@@ -218,9 +236,19 @@ class PortfolioTradingEnv(gym.Env):
         self._long_symbol_steps = 0
         self._short_symbol_steps = 0
         self._total_symbol_steps = 0
-        self.disagreement = 0.0
         self._dsr_A = 0.0
         self._dsr_B = 0.0
+        # disagreement_dr_max>0: 学習中もエピソード毎に不一致度をランダムに
+        # 与え、方策がアンサンブル不一致縮小レイヤーを経験できるようにする
+        # （既定0=無効。単独方策の学習中はdisagreementが常に0で、
+        # 評価/運用時のみ有効というtrain/eval不一致の緩和策、opt-in）
+        if self.disagreement_dr_max > 0:
+            self.disagreement = float(
+                self.np_random.uniform(0.0, self.disagreement_dr_max)
+            )
+        else:
+            self.disagreement = 0.0
+        self._last_pp_info = PostProcessInfo()
 
         return self._obs(), {}
 
@@ -235,31 +263,17 @@ class PortfolioTradingEnv(gym.Env):
         else:
             proj = self.project_weights(raw)
 
-        if self.post_processor is not None:
-            cfg = self.post_processor.cfg
-            lb = cfg.vol_lookback
-            start = max(0, self.t - lb)
-            recent_returns = None
-            if self.t > start:
-                recent_returns = (
-                    np.diff(self.fs.close[start : self.t + 1], axis=0)
-                    / self.fs.close[start : self.t, :]
-                )
-            drawdown = 1.0 - self.portfolio_value / max(self.peak_value, 1e-9)
-            target, _pp_info = self.post_processor.process(
-                proj,
-                prev,
-                recent_returns=recent_returns,
-                drawdown=drawdown,
-                disagreement=self.disagreement,
-            )
-        else:
-            delta0 = proj - prev
-            delta0[np.abs(delta0) < self.min_trade_delta] = 0.0
-            target = prev + delta0
-
-        if self._htf_idx is not None:
-            target = self.apply_htf_gate(target)
+        state = PortfolioState(
+            weights=prev,
+            portfolio_value=self.portfolio_value,
+            peak_value=self.peak_value,
+            disagreement=self.disagreement,
+        )
+        market = MarketView.from_feature_set(
+            self.fs, self.t, vol_lookback=self._vol_lookback, htf_idx=self._htf_idx
+        )
+        target, pp_info = self._pipeline.target_weights(proj, state, market)
+        self._last_pp_info = pp_info
 
         if self.pre_trade_verifier is not None:
             self.pre_trade_verifier.validate(target, self.portfolio_value)

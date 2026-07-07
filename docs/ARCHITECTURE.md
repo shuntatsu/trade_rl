@@ -60,6 +60,8 @@
 | モデル選択 | **検証スライス(末尾15%)で定期評価し最良を採用**。初期スナップショットを候補に含む | 300k歩で訓練データ150周の過学習を観測（val単調悪化）。初期含有により無信号データで「取引しない」が自動選択される |
 | BC事前学習 | **Ridge教師**（学習スライスで当てはめ）・**ICゲート合格時のみ** | 平均回帰市場でridge+175% vs momentum教師+106% vs BCなし+97%。無信号データではBCが有害（-4〜-18%）のためゲート連動 |
 | 方策ネット | **TFGatedPortfolioExtractor** | フラット結合比で cross +1636%→+2129% / multi +924%→+1094%。主因はTFブロック共有エンコーダの構造的正則化 |
+| ネット規模 | `--net-size {small,large}`（既定 **small**） | small=encoder 2層・net_arch[64,64]（上記ベンチ値の構成）。large=encoder 3層・trunk 3層・net_arch[256,256,128]。**合成cross(IC0.36)・60k歩・3seedの比較では large は small と横ばい〜やや劣位（return mean 0.878 vs 0.894, Sharpe mean 49.8 vs 51.9）かつseed分散が増大**したため、原則1（証拠なき機能は既定にしない）に従い small を既定に据え置き。large は多様/実データでの汎用性を狙う場合のオプトイン（`--dropout 0.1` 併用と`--feature-norm rank_gauss`推奨、要再ベンチ） |
+| 入力正規化 | `--feature-norm {none,rank_gauss}`（既定 none） | rank_gauss=各特徴をローリング・ガウスランクでN(0,1)に写像（因果的・リークなし）。資産・レジーム間のスケール差・裾の重さへの過適合を抑え、汎用性を狙う。**wf比較(cross/meanrev・2fold×2seed・25k歩)では large+dropout0.1+rank_gauss の合成が、cross型でbaseline(small)に明確に劣位（ret_median +1.076 vs +1.152, Sharpe 38.0 vs 43.5）、meanrev型ではわずかに優位（+0.430 vs +0.413）**という一貫しない結果。単純な複雑化・入力分布正規化が汎用性を上げるという仮説はこの範囲では支持されず、既定offを維持 |
 | アンサンブル | 3シード平均（`--ensemble 3`） | 単独+1131%→アンサンブル+1496%（Sharpe 48.9→53.6） |
 | データ量 | 合成ベンチは240日以上 | 120日では検証窓が短すぎ選択が機能しない（検証スコアの分散過大） |
 
@@ -83,8 +85,12 @@
 
 ### 2.4 特徴量（FeaturePipeline）
 
-- 4TFブロック（15m/1h/4h/1d × 7特徴）+ 基準特徴10（出来高異常・RCI・
-  オーダーフロー3・funding3・BTC相対・24hランク）+ グローバル5
+- 4TFブロック（15m/1h/4h/1d × 7特徴）+ 基準特徴26（出来高異常・RCI・
+  多ホライズンリターン2・オーダーフロー3・funding3・デリバティブ4・
+  BTC相対・24hランク・一目均衡表10）+ クロスセクション6 + グローバル5
+- 一目均衡表（`mars_lite/features/ichimoku.py`）: 現在雲・転換線/基準線・
+  未来雲予測の10特徴、全てlook-aheadなし（先行スパンはshift(26)済み、
+  遅行スパンは特徴量から除外）
 - **重要知見**: 多スケール情報の大半は「基準TF上の多ホライズン特徴」
   （ret_z1/z5/z20・24hランク・オーダーフロー・funding）が既に運ぶ。
   TFブロックの積み増しより基準特徴の充実が効く（2スケールアルファ実験で
@@ -135,15 +141,62 @@
 - **本当のボトルネックはデータのアルファ量**。RL機構はもう主因ではない。
   実データ（IC 0.02〜0.05想定）では上記アンサンブル+不確実性が本領を発揮する見込み
 
+### 2.8 RL強化 Stage A（オプトイン、未昇格）
+
+責務再設計（アーキテクチャ再設計セッション）の一環。「RLの担当範囲」
+（原則4）を広げる方向の実験。**いずれも既定offで、ここに記載の内容は
+単発run(単一シード・短ステップ)での動作確認に留まり、原則1（証拠なき
+機能は既定にしない）に従い既定へは未昇格**。既定化するには本表と同じ
+P0＋汎用性スイート×3シードでの再測定が必要（未実施、将来の作業）。
+
+| フラグ | 内容 | 状況 |
+|---|---|---|
+| `--obs-risk-state` | 前ステップの後処理状態(vol_scale/dd_scale/disagreement_scale/est_port_vol)を観測に追加。方策がルール層（EMA平滑・ボラ目標・DDデリスク等）の挙動を予見できるようにする | 単発run(60k歩・alpha=cross)でP0陽性+18.2% vs 既定+17.8%・陰性静止維持を確認。TFGatedPortfolioExtractorがn_global変化に自動追随することも確認。中央値評価は未実施 |
+| `--disagreement-dr <x>` | 学習中もエピソード毎に不一致度をU(0,x)でランダムに与え、方策がアンサンブル不一致縮小レイヤーを経験できるようにする。単独方策の学習中は`disagreement`が常に0という train/eval不一致（2.7節）の緩和策 | 機構のみ実装・単体テスト済み。弱シグナルens3ベンチ(+81.5%/Sharpe13.9)に対する再ベンチは未実施 |
+| `--lambda-turnover 0.0` | 報酬の回転率罰則`−λ·turnover`は実コスト(`net`)に既に織り込まれた回転率への**追加**シェーピング項（二重課金と読める）。0にすると罰則なしにできる | 単発run(60k歩)ではdefault(0.04)と**bit-identicalな結果**（学習後の決定論的方策が変化せず）。BC事前学習の影響が強い短時間学習では効果が埋没した可能性があり、λの効果自体はenv.step単体では確認済み（reward値は変化する）。中央値評価は未実施につき既定0.04を維持 |
+
+### 2.9 Stage B: リスクオーバーレイRL（オプトイン、未昇格）
+
+`mars_lite.trading.risk_overlay.RiskOverlay` は後処理④⑤⑥（ボラ目標・
+DDデリスク・不一致縮小、グロス量を決める段）を差し替え可能にする抽象。
+
+- `RuleRiskOverlay`: 既定。既存インライン実装(post_processor.py)から
+  忠実に抽出し、`tests/test_risk_overlay.py`で発火あり/なし4パターンの
+  ゴールデンテストにより数値的に同一であることを保証（既定挙動への影響ゼロ）
+- `RLRiskOverlay`: 配分（銘柄間の相対ウェイト）は凍結済みの配分エージェントに
+  任せ、グロスのスケール（どれだけリスクを取るか）だけを別の小型PPO
+  （net_arch[32,32]、観測6次元: gross/drawdown/disagreement/vol_ratio/
+  ret_mean/ret_std）に学習させる。`learning/overlay_trainer.py` の
+  `RiskOverlayEnv` は既存の `PortfolioTradingEnv` のPnL/コスト機構をそのまま
+  再利用し、独自の経済モデル実装によるバグを避けている
+- `--phase overlay`（`--overlay-timesteps`で学習量を指定）でルール比較の
+  実行が可能。**現時点では単一シード・単一シナリオでの動作確認のみ**
+  （1000歩のスモークではRLオーバーレイが安全側＝フラットに収束することを
+  確認）。昇格基準（P0＋汎用性スイート×3シードで中央値Sharpe超え・
+  maxDD以下・陰性対照の回転率非悪化）を満たすまでは`RuleRiskOverlay`が
+  既定のまま
+
 ## 3. 運用設計（Trade Platform連携）
 
 - 接点は2つだけ: ①同一PostgreSQLの `rl_funding_rate` / `rl_orderflow_1m`
   （fetch_futures.py --to postgres が管理）②`GET /api/signal/latest`
 - signal APIの返却: 生ウェイト・後処理済みウェイト・net/gross・データ鮮度・
   ガードレール判定。Platform側はこれをBots画面/発注に変換するだけ
+- 現在 `scripts/run_server.py` が起動するのは
+  `mars_lite.server.metrics_server`（学習監視・バックテスト等フルAPI、
+  frontend/が前提とする実装）。この実装の `/api/signal/latest` は
+  `prev_weights` を渡せず常に無ポジション起点で後処理する旧来のインライン
+  実装で、HTFゲートも未適用（既知の制限）
+- `mars_lite.trading.pipeline.DecisionPipeline`（env.stepと後処理・HTF
+  ゲートを共有し構造的にtrain/serve一致を保証する新実装）は
+  `mars_lite.server.signal_server`（`prev_weights`/`portfolio_value`/
+  `peak_value` クエリパラメータ対応、`mars_lite.serving.model_store`で
+  バージョン管理）側でのみ使われている。**現状run_server.pyには未配線**
+  （metrics_server.py→signal_server.pyへの移行は将来判断、§4参照）
 - 再学習ループ（推奨、未自動化）: 週次で fetch → 品質ゲート → ゲート1 →
   再学習+検証選択 → 旧モデルとOOSシャドー比較 → 勝った場合のみ昇格
-  （model_managerでバージョン管理・ロールバック）
+  （`mars_lite.server.model_registry` でバージョン管理・ロールバック。
+  signal_server.py経路を使う場合は`mars_lite.serving.model_store`）
 
 ## 4. ロードマップ（優先順）
 
@@ -154,11 +207,23 @@
    建玉残高・清算・L/S比率（Binance公開API、fetch_futures拡張）
 3. **弱シグナル領域の改善**: 弱シグナルベンチ（strength 0.0005）を常設し、
    ここでの捕捉率47%→改善を測る。候補: アンサンブル増強、不一致度スケーリングの結線
-4. **執行層の統合**: v1執行環境（Almgren-Chriss注文分割）を配分層の下に敷き、
-   大きなリバランスを15m分割執行
-5. **P4**: PBT-MAP-Elites + MetaControllerでレジーム特化アンサンブル
-   （既存基盤の接続のみ。単一方策が実データで頭打ちになってから）
-6. **紙上運用2週間** → バックテストとの乖離分析 → 資金投入判断
+4. **RL強化Stage A/B の正式ベンチマーク**（§2.8/2.9）: オプトイン実装済みの
+   観測強化・不一致度DR・リスクオーバーレイRLをP0＋汎用性スイート×3シードで
+   再測定し、既定化するか判断する
+5. **執行層**: 大きなリバランスをTWAP分割執行するAlmgren-Chriss型の
+   執行エージェントは、以前の単一銘柄実装（レガシー、削除済み）とは別に、
+   現行のポートフォリオ配分層の下に新規設計する必要がある（未着手）
+6. **レジーム特化アンサンブル**: `learning/regime_ensemble.py`
+   （ルールベースの分類器でbull/bear/rangeの専門家PPOをルーティング、
+   `--phase regime`で利用可能）は既に生きている。学習型メタコントローラ
+   （どの専門家をどう混ぜるかをRLで決める）への発展は単一方策が実データで
+   頭打ちになってから検討する
+7. **紙上運用2週間** → バックテストとの乖離分析 → 資金投入判断
+8. **本番シグナル配信のtrain/serve一致修正**: `scripts/run_server.py`が
+   起動する`metrics_server.py`の`/api/signal/latest`を、`DecisionPipeline`
+   共有・`prev_weights`受け渡し対応の`signal_server.py`実装へ移行するか、
+   metrics_server.py側に同じ修正を後移植するか判断する（§3参照。frontend/
+   はmetrics_server.pyのフルAPI前提のため、移行時はUI側の対応も要検討）
 
 ## 5. ベンチマーク台帳（変更時は再測定すること）
 
@@ -192,3 +257,25 @@
   ただしfunding rate履歴のみ約92日分に制限される（OKX公開APIの仕様、
   価格系特徴ほど重要でないため許容）
 | アルファ型 | meanrev 0.05（100k） | ridge-BC +175% / ルール-48% |
+
+## 6. 既知の問題
+
+- **取引所実データソース（Hyperliquid/Bitget/OKX）のキャッシュがstaleに
+  なりうる**: いずれも`_fetch_candles`/`_load_candles`がキャッシュCSVの
+  存在有無だけを見て、要求日数（`--days`）をカバーしているかを確認していない。
+  一度短い日数で取得すると、後で長い日数を指定しても黙って古いキャッシュが
+  再利用される。回避策: `./data/{hyperliquid,bitget,okx}/` を手動で削除
+  してから再取得する。恒久修正は未着手（キャッシュ側にカバー日数を記録し、
+  不足時のみ再取得する必要がある）
+- **Hyperliquid公開APIの1h足は約209日分しか保持されていない**（実測、
+  2026-07時点で2025-12-10以前は0件が返る。バグではなくAPI側の仕様）。
+  `--source hyperliquid --days 500` のように長い日数を指定しても1h足では
+  実際に取れるのは約209日分止まりで、`--warmup-days 100`を引くと有効
+  約109日分にしかならない。4h足は約833日分、1d足は2000日分以上取得できる
+- **Bitget公開API（USDT-M先物）の1h足も実測期間が短い**: ある時点の実測では
+  約59日分（それ以前は0件）に留まった。取得可能期間は環境・時期により変動
+  しうるため、長期実データ検証にはOKXを優先する
+- **長期実データ検証にはOKX（`--source okx`）を推奨**: 実測でBTC-USDT-SWAPの
+  1h足が1000日以上遡って取得できることを確認済み（3ソース中もっとも長期）。
+  ただしfunding rate履歴のみ約92日分に制限される（OKX公開APIの仕様、
+  価格系特徴ほど重要でないため許容）

@@ -4,6 +4,6 @@ MarS Lite Models Module
 Neural network architectures and feature extractors.
 """
 
-from .feature_extractor import MambaProxyExtractor
+from .portfolio_extractor import PortfolioExtractor, TFGatedPortfolioExtractor
 
-__all__ = ["MambaProxyExtractor"]
+__all__ = ["PortfolioExtractor", "TFGatedPortfolioExtractor"]

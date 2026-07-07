@@ -1,5 +1,5 @@
 """
-Test server startup script
+Signal server startup script
 Run this with: python scripts/run_server.py
 """
 
@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if __name__ == "__main__":
-    print("Starting MarS Lite Training Server...")
+    print("Starting Trade RL Signal Server...")
     print("Press Ctrl+C to stop")
     print()
 

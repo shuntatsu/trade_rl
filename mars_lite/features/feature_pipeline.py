@@ -181,6 +181,39 @@ class FeatureSet:
             global_feature_names=self.global_feature_names,
         )
 
+    def gaussian_rank_normalized(
+        self, window: int = 250, min_periods: int = 40
+    ) -> "FeatureSet":
+        """
+        各特徴チャネルをローリング・ガウスランク正規化した新FeatureSetを返す。
+
+        目的（汎用性）: 生の特徴は資産・レジームによってスケール・裾の重さが
+        大きく異なる。過去 window バー内での順位 → 分位点 → 逆正規CDF で写像
+        すると、どの銘柄・どの時期でも各入力チャネルが概ね標準正規 N(0,1) に
+        従うようになり、モデルが「特定資産の特定スケール」に過適合しにくくなる。
+        外れ値バーの支配も自動的に抑えられる（順位変換のため単調・裾に頑健）。
+
+        因果的: 各時刻 t の値は「t 以前の window バー」内での順位のみで決まる
+        （trailing window、未来を参照しない）。price/funding は変換しない
+        （損益計算の整合を保つため、入力特徴のみ正規化する）。
+
+        window/min_periods は学習・推論で同一に適用すること（モデルメタデータに
+        記録）。ゼロ埋め特徴（crypto固有指標が無い資産など）は分散ゼロなので
+        変換後も 0 のまま。
+        """
+        new_features = _gaussian_rank_transform(self.features, window, min_periods)
+        return FeatureSet(
+            symbols=self.symbols,
+            timestamps=self.timestamps,
+            features=new_features,
+            global_features=self.global_features,
+            close=self.close,
+            open_next=self.open_next,
+            funding_rate=self.funding_rate,
+            feature_names=self.feature_names,
+            global_feature_names=self.global_feature_names,
+        )
+
     def slice(self, start_idx: int, end_idx: int) -> "FeatureSet":
         """バー範囲でスライスした新しいFeatureSetを返す"""
         return FeatureSet(
@@ -202,6 +235,36 @@ def _z(series: pd.Series, window: int = 100, min_periods: int = 20) -> pd.Series
     std = series.rolling(window, min_periods=min_periods).std()
     z = (series - mean) / std.replace(0, np.nan)
     return z.clip(-CLIP, CLIP).fillna(0.0)
+
+
+def _gaussian_rank_transform(
+    features: np.ndarray,
+    window: int = 250,
+    min_periods: int = 40,
+) -> np.ndarray:
+    """
+    (n_bars, n_symbols, n_features) の各(symbol,feature)チャネルを
+    ローリング・ガウスランク正規化する（因果的・ベクトル化）。
+
+    各時刻 t の値を、trailing window 内での順位 rank(1..cnt) から
+    分位点 q=(rank-0.5)/cnt を作り、逆正規CDFで N(0,1) に写像する。
+    分散ゼロ（定数/ゼロ埋め）チャネルは順位が縮退するため 0 に落ちる。
+    """
+    from mars_lite.utils.metrics import norm_ppf_array
+
+    n_bars, n_sym, n_feat = features.shape
+    out = np.zeros_like(features, dtype=np.float64)
+    for i in range(n_sym):
+        for j in range(n_feat):
+            s = pd.Series(features[:, i, j])
+            if s.nunique(dropna=True) <= 1:
+                continue  # 定数/ゼロ埋めチャネルは 0 のまま
+            rank = s.rolling(window, min_periods=min_periods).rank()
+            cnt = s.rolling(window, min_periods=min_periods).count()
+            q = (rank - 0.5) / cnt.replace(0, np.nan)
+            z = norm_ppf_array(q.to_numpy())
+            out[:, i, j] = np.nan_to_num(z, nan=0.0)
+    return out
 
 
 def _cs_z(mat: pd.DataFrame, window: int = 100, min_periods: int = 5) -> pd.DataFrame:

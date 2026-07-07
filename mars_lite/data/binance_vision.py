@@ -19,6 +19,9 @@ import requests
 VISION_BASE = "https://data.binance.vision/data/futures/um/daily/metrics"
 KLINES_DAILY_BASE = "https://data.binance.vision/data/futures/um/daily/klines"
 AGGTRADES_DAILY_BASE = "https://data.binance.vision/data/futures/um/daily/aggTrades"
+FUNDING_MONTHLY_BASE = "https://data.binance.vision/data/futures/um/monthly/fundingRate"
+
+FUNDING_COLUMNS = ["timestamp", "funding_rate"]
 
 DERIV_COLUMNS = [
     "timestamp",
@@ -231,6 +234,91 @@ def fetch_klines_range(
 
     out = pd.concat(parts, ignore_index=True)
     out = out[(out["timestamp"] >= start_ms) & (out["timestamp"] < end_ms + 86_400_000)]
+    return (
+        out.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+    )
+
+
+def funding_monthly_url(symbol: str, month_start: datetime) -> str:
+    m = month_start.strftime("%Y-%m")
+    return f"{FUNDING_MONTHLY_BASE}/{symbol}/{symbol}-fundingRate-{m}.zip"
+
+
+def normalize_funding_df(df: pd.DataFrame) -> pd.DataFrame:
+    """vision fundingRate CSV(calc_time, funding_interval_hours, last_funding_rate)
+    → CsvSource互換（timestamp=epoch ms, funding_rate）"""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=FUNDING_COLUMNS)
+    return pd.DataFrame(
+        {
+            "timestamp": pd.to_numeric(df["calc_time"], errors="coerce").astype(
+                "int64"
+            ),
+            "funding_rate": pd.to_numeric(df["last_funding_rate"], errors="coerce"),
+        }
+    ).dropna(subset=["funding_rate"])
+
+
+def download_funding_month(
+    symbol: str,
+    month_start: datetime,
+    session: Optional[requests.Session] = None,
+) -> pd.DataFrame:
+    """1ヶ月分の fundingRate ZIP を取得。無い月は空。"""
+    url = funding_monthly_url(symbol, month_start)
+    sess = session or requests
+    try:
+        resp = sess.get(url, timeout=60)
+        if resp.status_code == 404:
+            return pd.DataFrame(columns=FUNDING_COLUMNS)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return pd.DataFrame(columns=FUNDING_COLUMNS)
+
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        raw = pd.read_csv(zf.open(zf.namelist()[0]))
+    return normalize_funding_df(raw)
+
+
+def fetch_funding_range(
+    symbol: str,
+    start_ms: int,
+    end_ms: int,
+    pause_sec: float = 0.1,
+) -> pd.DataFrame:
+    """
+    期間内のfunding rateを月次ZIPから結合（8時間毎、timestamp=epoch ms）。
+
+    REST /fapi/v1/fundingRate と異なり地域ブロックの影響を受けない
+    （data.binance.vision は静的ファイル配信）。当月分は未公開のことがある。
+    """
+    start_month = datetime.fromtimestamp(
+        start_ms / 1000,
+        tz=timezone.utc,
+    ).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end_month = datetime.fromtimestamp(
+        end_ms / 1000,
+        tz=timezone.utc,
+    ).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    parts = []
+    session = requests.Session()
+    month = start_month
+    while month <= end_month:
+        chunk = download_funding_month(symbol, month, session)
+        if not chunk.empty:
+            parts.append(chunk)
+        if month.month == 12:
+            month = month.replace(year=month.year + 1, month=1)
+        else:
+            month = month.replace(month=month.month + 1)
+        if pause_sec > 0:
+            time.sleep(pause_sec)
+
+    if not parts:
+        return pd.DataFrame(columns=FUNDING_COLUMNS)
+    out = pd.concat(parts, ignore_index=True)
+    out = out[(out["timestamp"] >= start_ms) & (out["timestamp"] <= end_ms)]
     return (
         out.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
     )

@@ -28,9 +28,10 @@ class PostProcessConfig:
     no_trade_band: float = 0.02  # |Δw|がこの幅未満なら据え置き
     target_vol: Optional[float] = None  # 年率ボラ目標（Noneで無効）。例: 0.20
     vol_lookback: int = 48  # ボラ推定に使う直近バー数
-    dd_derisk_start: float = 0.15  # このDDからグロス縮小開始
+    dd_derisk_start: float = 0.10  # このDDからグロス縮小開始
     dd_derisk_floor: float = 0.3  # DD悪化時のグロス下限倍率
     disagreement_penalty: float = 1.0  # アンサンブル不一致によるグロス縮小の強さ
+    beta_neutral: bool = False  # 市場方向(等ウェイト)成分を除去しドル中立化
     bars_per_year: int = BARS_PER_YEAR_1H
 
     def to_dict(self) -> Dict:
@@ -61,8 +62,17 @@ def _project_leverage(w: np.ndarray, max_leverage: float = 1.0) -> np.ndarray:
 class PortfolioPostProcessor:
     """方策の生ウェイトを執行可能ウェイトへ変換する後処理器"""
 
-    def __init__(self, config: Optional[PostProcessConfig] = None):
+    def __init__(self, config: Optional[PostProcessConfig] = None, risk_overlay=None):
+        """
+        Args:
+            risk_overlay: 省略時（既定）は④⑤⑥（ボラ目標/DDデリスク/不一致縮小）を
+                このクラス内にインライン実装した従来ロジックで処理する。
+                mars_lite.trading.risk_overlay.RiskOverlay 実装（RuleRiskOverlay/
+                RLRiskOverlay）を渡すと④⑤⑥をそちらに委譲する（opt-in、
+                docs/ARCHITECTURE.md §2.8参照）。
+        """
         self.cfg = config or PostProcessConfig()
+        self.risk_overlay = risk_overlay
 
     def process(
         self,
@@ -98,38 +108,58 @@ class PortfolioPostProcessor:
         # ③ レバレッジ1射影
         w = _project_leverage(w, 1.0)
 
-        # ④ ボラターゲティング
-        if (
-            cfg.target_vol is not None
-            and recent_returns is not None
-            and len(recent_returns) >= 5
-        ):
-            port_ret = recent_returns @ w
-            est_vol = float(np.std(port_ret) * np.sqrt(cfg.bars_per_year))
-            info.est_port_vol = est_vol
-            if est_vol > cfg.target_vol and est_vol > 1e-9:
-                info.vol_scale = cfg.target_vol / est_vol
-                w = w * info.vol_scale
-
-        # ⑤ ドローダウン応答（DDが進むほどグロスを線形縮小、下限あり）
-        if drawdown > cfg.dd_derisk_start:
-            over = (drawdown - cfg.dd_derisk_start) / max(
-                1.0 - cfg.dd_derisk_start, 1e-9
+        # ④⑤⑥ リスクオーバーレイ（ボラ目標・DDデリスク・不一致縮小でグロスを調整）
+        if self.risk_overlay is not None:
+            w, overlay_info = self.risk_overlay.scale(
+                w, drawdown, disagreement, recent_returns
             )
-            info.dd_scale = float(max(cfg.dd_derisk_floor, 1.0 - over))
-            w = w * info.dd_scale
+            info.vol_scale = overlay_info.get("vol_scale", 1.0)
+            info.dd_scale = overlay_info.get("dd_scale", 1.0)
+            info.disagreement_scale = overlay_info.get("disagreement_scale", 1.0)
+            info.est_port_vol = overlay_info.get("est_port_vol", 0.0)
+        else:
+            # ④ ボラターゲティング
+            if (
+                cfg.target_vol is not None
+                and recent_returns is not None
+                and len(recent_returns) >= 5
+            ):
+                port_ret = recent_returns @ w
+                est_vol = float(np.std(port_ret) * np.sqrt(cfg.bars_per_year))
+                info.est_port_vol = est_vol
+                if est_vol > cfg.target_vol and est_vol > 1e-9:
+                    info.vol_scale = cfg.target_vol / est_vol
+                    w = w * info.vol_scale
 
-        # ⑥ アンサンブル不一致縮小（意見が割れるほどグロスを落とす）
-        if disagreement > 0:
-            info.disagreement_scale = float(
-                max(0.0, 1.0 - cfg.disagreement_penalty * disagreement)
-            )
-            w = w * info.disagreement_scale
+            # ⑤ ドローダウン応答（DDが進むほどグロスを線形縮小、下限あり）
+            if drawdown > cfg.dd_derisk_start:
+                over = (drawdown - cfg.dd_derisk_start) / max(
+                    1.0 - cfg.dd_derisk_start, 1e-9
+                )
+                info.dd_scale = float(max(cfg.dd_derisk_floor, 1.0 - over))
+                w = w * info.dd_scale
+
+            # ⑥ アンサンブル不一致縮小（意見が割れるほどグロスを落とす）
+            if disagreement > 0:
+                info.disagreement_scale = float(
+                    max(0.0, 1.0 - cfg.disagreement_penalty * disagreement)
+                )
+                w = w * info.disagreement_scale
 
         # ⑦ no-tradeバンド（微小な変更は据え置いてコストを節約）
         delta = w - prev
         delta[np.abs(delta) < cfg.no_trade_band] = 0.0
         executed = prev + delta
+
+        # ⑧ ベータ中立化（オプトイン）: 実行ウェイトから市場方向＝等ウェイト平均
+        # 成分を除去し Σw=0（ドル中立）を保証する。暗号資産のように全銘柄が
+        # BTCベータで共線なユニバースでは、ネットロングは実質レバBTCベット。
+        # これを外すと相対アルファだけが残る。方向性ベータを捨てるため上昇相場
+        # では不利になりうる → 既定off。バンド後の最終段に置くことで、微小レグの
+        # 据え置きで中立性が崩れないよう出力での中立を保証する。
+        if cfg.beta_neutral and len(executed) > 1:
+            executed = executed - executed.mean()
+            info.extra["beta_neutralized"] = True
 
         info.processed_gross = float(np.abs(executed).sum())
         return executed, info
@@ -153,6 +183,7 @@ def make_default_processor(
     target_vol: Optional[float] = 0.5,
     ema_alpha: float = 0.5,
     no_trade_band: float = 0.04,
+    beta_neutral: bool = False,
 ) -> PortfolioPostProcessor:
     """
     ポートフォリオ運用の推奨後処理器
@@ -174,5 +205,6 @@ def make_default_processor(
             dd_derisk_start=0.10,
             dd_derisk_floor=0.3,
             disagreement_penalty=1.0,
+            beta_neutral=beta_neutral,
         )
     )

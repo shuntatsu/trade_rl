@@ -100,3 +100,27 @@ class TestPostProcessor:
         pp2 = PortfolioPostProcessor(PostProcessConfig(**d))
         assert pp2.cfg.ema_alpha == pp.cfg.ema_alpha
         assert pp2.cfg.target_vol == pp.cfg.target_vol
+
+    def test_beta_neutral_enforces_zero_net(self):
+        """beta_neutral=True で実行ウェイトの純エクスポージャがΣw=0になる"""
+        pp = make_default_processor(beta_neutral=True)
+        for raw in [
+            np.array([0.3, 0.2, 0.1, -0.05, 0.0, 0.0, 0.0]),
+            np.array([0.4, 0.3, 0.2, 0.1, 0.05, 0.0, -0.1]),
+        ]:
+            w, info = pp.process(raw, np.zeros(7))
+            assert abs(float(w.sum())) < 1e-9
+            assert info.extra.get("beta_neutralized") is True
+
+    def test_beta_neutral_off_by_default(self):
+        """既定では中立化しない（純ロングはネットロングのまま）"""
+        pp = make_default_processor()
+        w, info = pp.process(np.array([0.3, 0.2, 0.1, 0.0, 0.0, 0.0, 0.0]), np.zeros(7))
+        assert float(w.sum()) > 0.1
+        assert "beta_neutralized" not in info.extra
+
+    def test_beta_neutral_pure_market_bet_vanishes(self):
+        """全銘柄同ウェイト（純粋な市場ベット）は中立化で消える"""
+        pp = make_default_processor(beta_neutral=True)
+        w, _ = pp.process(np.full(7, 0.4), np.zeros(7))
+        assert np.abs(w).sum() < 1e-9

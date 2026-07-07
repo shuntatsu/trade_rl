@@ -37,17 +37,23 @@ class SeedEnsemble:
         """平均行動を返す（agent.predict互換）"""
         return self._all_actions(obs).mean(axis=0), None
 
+    # 行動は Box(-1,1)。この範囲で標準偏差が最大になるのは全seedが両端(-1/+1)に
+    # 割れた場合で、その最大std = レンジ幅2の半分 = 1.0。これで割ると不一致度が
+    # [0,1]に正規化される（旧コメントの「レンジ2で正規化」は誤り。2で割ると
+    # 最大不一致でも0.5にしかならず範囲を使い切れない）。
+    _ACTION_MAX_STD = 1.0
+
     def disagreement(self, obs: np.ndarray) -> float:
         """
         シード間の不一致度 [0,1]
 
-        各行動次元の標準偏差の平均を、行動レンジ(2)で正規化した値。
-        意見が完全一致で0、大きくばらつくほど1に近づく。
+        各行動次元の標準偏差の平均を、到達可能な最大std(=1.0)で正規化した値。
+        意見が完全一致で0、両端に最大限割れると1に近づく。
         """
         acts = self._all_actions(obs)
         if len(acts) < 2:
             return 0.0
-        return float(np.clip(acts.std(axis=0).mean() / 1.0, 0.0, 1.0))
+        return float(np.clip(acts.std(axis=0).mean() / self._ACTION_MAX_STD, 0.0, 1.0))
 
     def save(self, dir_path) -> None:
         from pathlib import Path

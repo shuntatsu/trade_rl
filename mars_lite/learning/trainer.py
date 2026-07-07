@@ -1,9 +1,16 @@
-from typing import Optional
+"""
+PPO学習ライブラリ（ポートフォリオ配分エージェント）
 
-import numpy as np
+scripts/train_portfolio.py から移動。CLIスクリプトとサーバーの両方から
+同じ実装をimportして使う（以前はサーバーがsys.path操作でスクリプトを
+ライブラリとしてimportしていた）。
+"""
+
+from typing import Optional
 
 from mars_lite.env.portfolio_env import PortfolioTradingEnv
 from mars_lite.features.feature_pipeline import FeatureSet
+from mars_lite.models.portfolio_extractor import PortfolioExtractor
 
 
 def make_env_fns(fs: FeatureSet, n_envs: int, seed: int, **env_kwargs):
@@ -38,15 +45,36 @@ def train_ppo(
     extractor: str = "tfgated",
     horizon: int = 4,
     oracle_noisy_ic: Optional[float] = None,
+    net_size: str = "small",
+    dropout: float = 0.0,
+    net_arch=None,
+    custom_teacher=None,
+    custom_bc_dataset=None,
     **env_kwargs,
 ):
+    """FeatureSetでPPOを学習して返す
+
+    val_fs を渡すと検証スライスで定期評価し、最良時点のパラメータを
+    最終モデルとして採用する（小データへの過学習対策）。
+    val_fs 省略時は fs の末尾15%を自動で検証に割く。
+    bc_warmstart=True でBC事前学習を行う。教師はbc_teacherで選択:
+    ridge（デフォルト）= 学習スライスのRidge予測（アルファの型を仮定しない）、
+    momentum = クロスモメンタム固定教師。
+
+    custom_teacher: 呼び出し側が構築済みの教師関数を直接渡す（bc_teacher選択
+    ロジックを全てバイパス）。例: combined_teacher(fs, ..., ridge_target=
+    "cs_demean") でtarget指定した合成教師を使いたい場合。
+    custom_bc_dataset: (X, A) の教師データを直接渡す（generate_teacher_dataset
+    もバイパス）。レジーム専門家など、教師データをfs全体ではなく特定の
+    エピソード開始位置プールに限定したい場合に使う（PPO自身の経験分布との
+    整合を保つため）。custom_teacher/bc_teacherより優先される。
+    """
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import CallbackList
     from stable_baselines3.common.vec_env import DummyVecEnv
 
     from mars_lite.learning.val_selection import ValSelectionCallback
 
-    full_fs = fs
     if val_fs is None and fs.n_bars > 400:
         cut = int(fs.n_bars * 0.85)
         val_fs = fs.slice(cut, fs.n_bars)
@@ -55,6 +83,7 @@ def train_ppo(
     env = DummyVecEnv(make_env_fns(fs, n_envs, seed, **env_kwargs))
     probe = PortfolioTradingEnv(fs, **env_kwargs)
 
+    # TFブロック構造を特徴名から導出（例: "15m_ret_z1" → TFプレフィックス）
     from mars_lite.features.feature_pipeline import TF_BLOCK_FEATURES
 
     tf_prefixes = []
@@ -62,6 +91,15 @@ def train_ppo(
         p = name.split("_")[0]
         if p in ("15m", "30m", "1h", "4h", "1d") and p not in tf_prefixes:
             tf_prefixes.append(p)
+
+    # net_size に応じた方策/価値ヘッド構成（extractorの規模と連動）。
+    # small=実証済み（ARCHITECTURE.mdベンチ構成）、large=大容量（要再ベンチ）。
+    if net_arch is None:
+        net_arch = (
+            dict(pi=[256, 256, 128], vf=[256, 256, 128])
+            if net_size == "large"
+            else dict(pi=[64, 64], vf=[64, 64])
+        )
 
     if extractor == "tfgated" and tf_prefixes:
         from mars_lite.models.portfolio_extractor import TFGatedPortfolioExtractor
@@ -72,19 +110,20 @@ def train_ppo(
                 **probe.obs_layout,
                 "n_tf_blocks": len(tf_prefixes),
                 "tf_block_size": len(TF_BLOCK_FEATURES),
-                # size="small"がARCHITECTURE.mdのベンチ実績構成。"large"は容量を
-                # 増やした未検証構成（要再ベンチ）なのでここでは明示的に固定する
-                "size": "small",
+                "size": net_size,
+                "dropout": dropout,
             },
-            "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+            "net_arch": net_arch,
         }
     else:
-        from mars_lite.models.portfolio_extractor import PortfolioExtractor
-
         policy_kwargs = {
             "features_extractor_class": PortfolioExtractor,
-            "features_extractor_kwargs": {**probe.obs_layout, "size": "small"},
-            "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+            "features_extractor_kwargs": {
+                **probe.obs_layout,
+                "size": net_size,
+                "dropout": dropout,
+            },
+            "net_arch": net_arch,
         }
 
     def lr_schedule(progress_remaining: float) -> float:
@@ -108,6 +147,12 @@ def train_ppo(
         verbose=verbose,
     )
 
+    # BCウォームスタート（教師方策の模倣で方策を初期化）
+    # bc_teacher="auto": 学習スライスのゲートで教師を自動選択
+    #   クロスセクショナルIC合格 → ridge（相対アルファ）
+    #   方向性トレンド合格     → ts_momentum（ベータ捕捉。上昇相場でB&Hに勝つ）
+    #   どちらも無し           → BC無効（フラットで待つ＝安全）
+    # ridge/momentum/ts_momentum を明示指定も可。
     if bc_warmstart:
         from mars_lite.learning.bc_warmstart import (
             bc_pretrain,
@@ -117,13 +162,18 @@ def train_ppo(
             ts_momentum_teacher,
         )
 
-        teacher = None
-        if bc_teacher == "auto":
+        teacher = custom_teacher
+        if custom_bc_dataset is not None:
+            pass  # 下でこのデータセットをそのまま使う（教師選択ロジックは全てスキップ）
+        elif teacher is not None:
+            pass  # 呼び出し側が既に構築した教師をそのまま使う（target指定等の柔軟性用）
+        elif bc_teacher == "auto":
             from mars_lite.features.signal_check import run_signal_check, run_trend_gate
             from mars_lite.learning.bc_warmstart import combined_teacher
 
-            ic = run_signal_check(full_fs, horizon=horizon)
-            trend = run_trend_gate(full_fs, horizon=horizon)
+            ic = run_signal_check(fs, horizon=horizon)
+            trend = run_trend_gate(fs, horizon=horizon)
+            # Ridgeは偽陽性回避のため閾値+マージンを要求
             use_ridge = ic.mean_oos_ic >= 0.025
             use_trend = trend["has_trend"]
             if use_ridge or use_trend:
@@ -147,7 +197,7 @@ def train_ppo(
             from mars_lite.features.signal_check import run_signal_check
             from mars_lite.learning.bc_warmstart import dp_oracle_teacher
 
-            ic = run_signal_check(full_fs, horizon=horizon)
+            ic = run_signal_check(fs, horizon=horizon)
             if ic.mean_oos_ic >= 0.025:
                 teacher = dp_oracle_teacher(fs, noisy_ic=oracle_noisy_ic)
                 if verbose:
@@ -169,7 +219,10 @@ def train_ppo(
         else:
             teacher = soft_momentum_teacher()
 
-        if teacher is not None:
+        if custom_bc_dataset is not None:
+            X, A = custom_bc_dataset
+            bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
+        elif teacher is not None:
             X, A = generate_teacher_dataset(fs, teacher, env_kwargs)
             bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
 
@@ -194,49 +247,3 @@ def train_ppo(
                 f"[train_ppo] Restored best-val model (score={val_cb.best_score:+.4f})"
             )
     return agent
-
-
-def build_post_processor(args, horizon: int = 4):
-    from mars_lite.trading.post_processor import (
-        make_default_processor,
-        make_legacy_processor,
-    )
-
-    mode = getattr(args, "postproc", "full")
-    if mode == "legacy":
-        return make_legacy_processor()
-    tv = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
-    # 低頻度化は decision_every が担うため、ema_alpha/no_trade_band を
-    # horizon で強くスケールしない（マイクロノイズ除去に役割を限定する）。
-    ema_alpha = 0.5
-    no_trade_band = 0.04
-    max_weight = 0.4
-    # 不変条件: no_trade_band <= ema_alpha * max_weight * 0.5
-    # これを破ると「1ステップで動ける最大量 < 発注しきい値」となり、
-    # ウェイトが初期値(通常0)から一歩も動けず永久に据え置かれる
-    # （decision_every とは独立に発生するデッドゾーン）。
-    cap = ema_alpha * max_weight * 0.5
-    if no_trade_band > cap:
-        no_trade_band = cap
-    return make_default_processor(
-        target_vol=tv, ema_alpha=ema_alpha, no_trade_band=no_trade_band
-    )
-
-
-def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
-    ekw = {
-        "post_processor": pp,
-        "min_trade_delta": getattr(args, "min_trade_delta", 0.04),
-        "lambda_turnover": getattr(args, "lambda_turnover", 0.04),
-        "reward_scale": getattr(args, "reward_scale", 100.0),
-    }
-    if getattr(args, "htf_gate", False):
-        ekw["htf_gate"] = True
-    explicit = getattr(args, "decision_every", 1)
-    if explicit and explicit > 1:
-        ekw["decision_every"] = explicit
-    elif getattr(args, "scan_horizons", False) and horizon > 1:
-        auto_every = max(1, horizon // 2)
-        if auto_every > 1:
-            ekw["decision_every"] = auto_every
-    return ekw

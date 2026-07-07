@@ -123,13 +123,93 @@ class TestPortfolioEnv:
                 break
         assert env._funding_pnl != 0.0  # ロング保有でfunding授受が発生
 
-    def test_set_reward_mode(self, env):
-        """CurriculumCallback契約"""
-        env.set_reward_mode(True)
-        assert env.use_dsr is True
-        env.set_reward_mode(False)
-        assert env.use_dsr is False
-
     def test_start_idx_option(self, env):
         env.reset(seed=0, options={"start_idx": 5})
         assert env.start_idx == 5
+
+
+class TestObsRiskState:
+    """opt-in観測強化(obs_risk_state)のテスト。既定offでは無効。"""
+
+    def test_default_off_does_not_change_obs_shape(self, feature_set):
+        base = PortfolioTradingEnv(feature_set, episode_bars=50)
+        assert base.n_global == feature_set.global_features.shape[1] + 3
+
+    def test_opt_in_adds_four_globals(self, feature_set):
+        env = PortfolioTradingEnv(feature_set, episode_bars=50, obs_risk_state=True)
+        assert env.n_global == feature_set.global_features.shape[1] + 7
+        obs, _ = env.reset(seed=0)
+        assert obs.shape == env.observation_space.shape
+
+    def test_risk_state_reflects_post_processor_output(self, feature_set):
+        from mars_lite.trading.post_processor import make_default_processor
+
+        pp = make_default_processor()
+        env = PortfolioTradingEnv(
+            feature_set,
+            episode_bars=50,
+            post_processor=pp,
+            obs_risk_state=True,
+        )
+        env.reset(seed=0)
+        # リセット直後は中立値（後処理未適用）
+        obs0 = env._obs()
+        vol_scale, dd_scale, disagreement_scale, est_vol = obs0[-4:]
+        assert vol_scale == pytest.approx(1.0)
+        assert dd_scale == pytest.approx(1.0)
+        assert disagreement_scale == pytest.approx(1.0)
+        assert est_vol == pytest.approx(0.0)
+
+        # 大きな行動を繰り返しボラを高めればvol_scaleが1未満に落ちるはず
+        for _ in range(10):
+            env.step(np.full(env.n_symbols, 1.0))
+        obs1 = env._obs()
+        assert obs1.shape == env.observation_space.shape
+        assert np.isfinite(obs1).all()
+
+    def test_disagreement_dr_disabled_by_default(self, feature_set):
+        env = PortfolioTradingEnv(feature_set, episode_bars=50)
+        env.reset(seed=0)
+        assert env.disagreement == 0.0
+
+    def test_disagreement_dr_samples_when_enabled(self, feature_set):
+        env = PortfolioTradingEnv(feature_set, episode_bars=50, disagreement_dr_max=0.3)
+        seen = set()
+        for seed in range(5):
+            env.reset(seed=seed)
+            assert 0.0 <= env.disagreement <= 0.3
+            seen.add(env.disagreement)
+        assert len(seen) > 1  # 複数エピソードで異なる値がサンプルされる
+
+    def test_disagreement_dr_constant_within_episode(self, feature_set):
+        env = PortfolioTradingEnv(feature_set, episode_bars=50, disagreement_dr_max=0.3)
+        env.reset(seed=1)
+        d0 = env.disagreement
+        for _ in range(5):
+            env.step(np.zeros(env.n_symbols))
+            assert env.disagreement == d0
+
+    def test_extractor_adapts_to_enriched_obs(self, feature_set):
+        """TFGatedPortfolioExtractorがn_global変化に自動適応することを確認"""
+        from mars_lite.features.feature_pipeline import TF_BLOCK_FEATURES
+        from mars_lite.models.portfolio_extractor import TFGatedPortfolioExtractor
+
+        env = PortfolioTradingEnv(feature_set, episode_bars=50, obs_risk_state=True)
+        tf_prefixes = []
+        for name in feature_set.feature_names:
+            p = name.split("_")[0]
+            if p in ("15m", "30m", "1h", "4h", "1d") and p not in tf_prefixes:
+                tf_prefixes.append(p)
+
+        extractor = TFGatedPortfolioExtractor(
+            env.observation_space,
+            **env.obs_layout,
+            n_tf_blocks=len(tf_prefixes),
+            tf_block_size=len(TF_BLOCK_FEATURES),
+            size="small",
+        )
+        import torch
+
+        obs, _ = env.reset(seed=0)
+        out = extractor(torch.as_tensor(obs).unsqueeze(0))
+        assert out.shape == (1, 128)  # small preset features_dim

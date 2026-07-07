@@ -4,10 +4,220 @@
 Implementation Shortfall、Differential Sharpe Ratio等の計算
 """
 
-from typing import Any, Dict
+import math
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+
+_EULER_MASCHERONI = 0.5772156649015329
+
+
+def _norm_cdf(x: float) -> float:
+    """標準正規分布のCDF（math.erfのみで実装、scipy不使用）"""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _norm_ppf(p: float) -> float:
+    """
+    標準正規分布の分位点関数（逆CDF）。Acklamの有理近似（scipy不使用）。
+    精度は|誤差| < 1.15e-9 程度で本用途には十分。
+    """
+    if p <= 0.0:
+        return -math.inf
+    if p >= 1.0:
+        return math.inf
+    a = [
+        -3.969683028665376e01,
+        2.209460984245205e02,
+        -2.759285104469687e02,
+        1.383577518672690e02,
+        -3.066479806614716e01,
+        2.506628277459239e00,
+    ]
+    b = [
+        -5.447609879822406e01,
+        1.615858368580409e02,
+        -1.556989798598866e02,
+        6.680131188771972e01,
+        -1.328068155288572e01,
+    ]
+    c = [
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e00,
+        -2.549732539343734e00,
+        4.374664141464968e00,
+        2.938163982698783e00,
+    ]
+    d = [
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e00,
+        3.754408661907416e00,
+    ]
+    p_low = 0.02425
+    p_high = 1 - p_low
+    if p < p_low:
+        q = math.sqrt(-2 * math.log(p))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / (
+            (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1
+        )
+    if p <= p_high:
+        q = p - 0.5
+        r = q * q
+        return (
+            (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5])
+            * q
+            / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+        )
+    q = math.sqrt(-2 * math.log(1 - p))
+    return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / (
+        (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1
+    )
+
+
+def norm_ppf_array(p: np.ndarray) -> np.ndarray:
+    """
+    標準正規分布の分位点関数のベクトル化版（Acklam近似、scipy不使用）。
+
+    入力 p は (0,1) の配列。端点(0/1)は ±8 にクリップして無限大を避ける。
+    ガウスランク正規化など、多数の分位点を一括変換する用途向け。
+    """
+    p = np.asarray(p, dtype=np.float64)
+    a = [
+        -3.969683028665376e01,
+        2.209460984245205e02,
+        -2.759285104469687e02,
+        1.383577518672690e02,
+        -3.066479806614716e01,
+        2.506628277459239e00,
+    ]
+    b = [
+        -5.447609879822406e01,
+        1.615858368580409e02,
+        -1.556989798598866e02,
+        6.680131188771972e01,
+        -1.328068155288572e01,
+    ]
+    c = [
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e00,
+        -2.549732539343734e00,
+        4.374664141464968e00,
+        2.938163982698783e00,
+    ]
+    d = [
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e00,
+        3.754408661907416e00,
+    ]
+    p_low, p_high = 0.02425, 1 - 0.02425
+    out = np.zeros_like(p)
+
+    lo = p < p_low
+    mid = (p >= p_low) & (p <= p_high)
+    hi = p > p_high
+
+    if lo.any():
+        q = np.sqrt(-2 * np.log(np.clip(p[lo], 1e-300, None)))
+        out[lo] = (
+            ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
+        ) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    if mid.any():
+        q = p[mid] - 0.5
+        r = q * q
+        out[mid] = (
+            (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5])
+            * q
+            / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+        )
+    if hi.any():
+        q = np.sqrt(-2 * np.log(np.clip(1 - p[hi], 1e-300, None)))
+        out[hi] = -(
+            ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
+        ) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    return np.clip(out, -8.0, 8.0)
+
+
+def deflated_sharpe_ratio(
+    returns: np.ndarray,
+    trial_sharpes: List[float],
+    annualization_factor: float = 252,
+) -> Dict[str, float]:
+    """
+    Deflated Sharpe Ratio（Bailey & Lopez de Prado, 2014）
+
+    「何回試行したか」（シード違い・fold違い・パラメータ違いの繰り返し）を
+    差し引いた上で、観測されたSharpeが偶然の産物ではない確率(PSR)を返す。
+    バックテストを何度も見て一番良い結果を選ぶほど、選ばれたSharpeは運の
+    寄与が混じる（selection bias）。この指標はその危険性を定量化する。
+
+    Args:
+        returns: 評価対象（採用する1本）の期間別リターン系列
+        trial_sharpes: 実際に試した全試行（他シード・他fold等）の年率化Sharpe。
+            試行回数Nとその分散から「偶然で得られる最大Sharpeの期待値」を
+            推定するために使う。長さ1なら試行数補正なし（sr0=0扱い）。
+        annualization_factor: リターンの年率化係数（1h足なら24*365）
+
+    Returns:
+        dsr: 0〜1の確率（高いほど本物のスキルらしい。目安: >=0.95）
+        sr0_annualized: 試行数補正後の基準Sharpe（これを超えて初めて「勝ち」）
+        sr_hat_annualized: 評価対象の実測Sharpe
+        n_trials, skew, kurtosis: 内訳
+    """
+    returns = np.asarray(returns, dtype=np.float64)
+    n = len(returns)
+    n_trials = max(len(trial_sharpes), 1)
+    empty = {
+        "dsr": 0.0,
+        "sr0_annualized": 0.0,
+        "sr_hat_annualized": 0.0,
+        "n_trials": n_trials,
+        "skew": 0.0,
+        "kurtosis": 3.0,
+    }
+    if n < 4:
+        return empty
+
+    mean = float(returns.mean())
+    std = float(returns.std(ddof=1))
+    if std < 1e-12:
+        return empty
+    sr_hat = mean / std  # 期間あたり（未年率化）Sharpe
+
+    z = (returns - mean) / std
+    skew = float(np.mean(z**3))
+    kurt = float(np.mean(z**4))  # 非超過尖度（正規分布で3.0）
+
+    sr0 = 0.0
+    if n_trials > 1:
+        # trial_sharpesは年率化済みの値を想定 -> 期間あたりへ変換して分散を推定
+        per_period_trials = np.asarray(trial_sharpes, dtype=np.float64) / math.sqrt(
+            annualization_factor
+        )
+        sr_var = float(np.var(per_period_trials, ddof=1))
+        if sr_var > 1e-12:
+            z_a = _norm_ppf(1.0 - 1.0 / n_trials)
+            z_b = _norm_ppf(1.0 - 1.0 / (n_trials * math.e))
+            sr0 = math.sqrt(sr_var) * (
+                (1 - _EULER_MASCHERONI) * z_a + _EULER_MASCHERONI * z_b
+            )
+
+    denom = math.sqrt(max(1e-12, 1 - skew * sr_hat + (kurt - 1) / 4.0 * sr_hat**2))
+    psr_stat = (sr_hat - sr0) * math.sqrt(n - 1) / denom
+    dsr = _norm_cdf(psr_stat)
+
+    return {
+        "dsr": float(dsr),
+        "sr0_annualized": float(sr0 * math.sqrt(annualization_factor)),
+        "sr_hat_annualized": float(sr_hat * math.sqrt(annualization_factor)),
+        "n_trials": int(n_trials),
+        "skew": float(skew),
+        "kurtosis": float(kurt),
+    }
 
 
 def calc_implementation_shortfall(

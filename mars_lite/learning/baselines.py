@@ -15,6 +15,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
+from mars_lite.trading.execution import make_execution_model
+from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 from mars_lite.trading.pre_trade_risk import PreTradeRiskVerifier
 
 WeightFn = Callable[[FeatureSet, int, np.ndarray], np.ndarray]
@@ -134,7 +136,17 @@ def simulate_strategy(
     PortfolioTradingEnvと同一のコストモデルで戦略をバックテスト
     """
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
-    cost_per_turnover = (fee_rate + spread_rate + impact_rate) * cost_multiplier
+    # 環境（PortfolioTradingEnv）・oracle_dp と厳密に同一の sqrt-impact + TWAP
+    # 執行モデルを使う。以前は線形コスト（turnover×固定率）だったが、大きな
+    # リバランスをするベースライン（cross_momentum/trend_following は ±0.5 の
+    # ジャンプ）が RL/oracle より 7〜27% 安いコストしか払わず、ゲート2の
+    # 「RL は全ベースラインに勝てるか」判定をベースライン有利に歪めていた。
+    exec_model = make_execution_model(
+        fee_rate=fee_rate,
+        spread_rate=spread_rate,
+        impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier,
+    )
 
     value = 1.0
     weights = np.zeros(fs.n_symbols)
@@ -160,7 +172,8 @@ def simulate_strategy(
 
         r_vec = fs.close[t + 1] / fs.close[t] - 1.0
         funding = float(np.sum(weights * fs.funding_rate[t + 1]))
-        net = float(np.dot(weights, r_vec)) - turnover * cost_per_turnover - funding
+        cost = exec_model.cost_fraction(delta)
+        net = float(np.dot(weights, r_vec)) - cost - funding
 
         value *= 1.0 + net
         rets.append(net)
@@ -170,7 +183,7 @@ def simulate_strategy(
 
     rets_arr = np.array(rets) if rets else np.zeros(1)
     sharpe = (
-        float(rets_arr.mean() / rets_arr.std() * np.sqrt(24 * 365))
+        float(rets_arr.mean() / rets_arr.std() * np.sqrt(BARS_PER_YEAR_1H))
         if rets_arr.std() > 0
         else 0.0
     )
@@ -224,9 +237,17 @@ def oracle_dp_paths(
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     pos = np.array([p for p in positions if allow_short or p >= 0], dtype=np.float64)
     n_states = len(pos)
-    impact_coef = impact_rate / (0.1**0.5)  # 線形率→sqrt則係数（execution.pyと一致）
-    lin = (fee_rate + spread_rate) * cost_multiplier
-    imp = impact_coef * cost_multiplier
+    # 係数はExecutionModelのfactory関数から取得（コスト式の単一の正）。
+    # DPの内側ループはスカラー演算のホットパスなのでcost_fraction呼び出しは
+    # 使わず、係数のみ共有する。
+    exec_model = make_execution_model(
+        fee_rate=fee_rate,
+        spread_rate=spread_rate,
+        impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier,
+    )
+    lin = (exec_model.fee_rate + exec_model.spread_rate) * exec_model.cost_multiplier
+    imp = exec_model.impact_coef * exec_model.cost_multiplier
     decision_every = max(1, int(decision_every))
 
     def trans_logcost(p_prev: float, p_new: float, is_decision_bar: bool) -> float:
@@ -294,9 +315,15 @@ def _simulate_positions(
     end_idx = end_idx if end_idx is not None else fs.n_bars - 1
     n_sym = fs.n_symbols
     T = end_idx - start_idx
-    impact_coef = impact_rate / (0.1**0.5)
-    lin = (fee_rate + spread_rate) * cost_multiplier
-    imp = impact_coef * cost_multiplier
+    # 係数はExecutionModelのfactory関数から取得（コスト式の単一の正、oracle_dp_pathsと同じ）
+    exec_model = make_execution_model(
+        fee_rate=fee_rate,
+        spread_rate=spread_rate,
+        impact_rate=impact_rate,
+        cost_multiplier=cost_multiplier,
+    )
+    lin = (exec_model.fee_rate + exec_model.spread_rate) * exec_model.cost_multiplier
+    imp = exec_model.impact_coef * exec_model.cost_multiplier
     r = _true_returns(fs, start_idx, end_idx)
 
     sleeve_equity = np.ones((T + 1, n_sym))
@@ -322,7 +349,9 @@ def _equity_to_result(
 ) -> StrategyResult:
     rets = np.diff(equity) / equity[:-1]
     sharpe = (
-        float(rets.mean() / rets.std() * np.sqrt(24 * 365)) if rets.std() > 0 else 0.0
+        float(rets.mean() / rets.std() * np.sqrt(BARS_PER_YEAR_1H))
+        if rets.std() > 0
+        else 0.0
     )
     peak = np.maximum.accumulate(equity)
     max_dd = float((1.0 - equity / peak).max())

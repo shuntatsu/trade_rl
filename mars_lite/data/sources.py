@@ -521,6 +521,403 @@ class HyperliquidSource(DataSource):
         return df.reset_index(drop=True)
 
 
+_BITGET_BASE_URL = "https://api.bitget.com"
+_BITGET_INTERVAL_MAP = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D"}
+
+
+def _bitget_get(path: str, params: dict, max_retries: int = 6) -> list:
+    """Bitget公開API（USDT-M先物、認証不要。429・接続断は指数バックオフでリトライ）"""
+    import time
+
+    url = _BITGET_BASE_URL + path
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, timeout=20)
+        except requests.exceptions.RequestException:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(min(2**attempt, 30))
+            continue
+        if resp.status_code == 429:
+            time.sleep(min(2**attempt, 30))
+            continue
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != "00000":
+            raise RuntimeError(
+                f"bitget api error: {data.get('code')} {data.get('msg')}"
+            )
+        return data.get("data") or []
+    resp.raise_for_status()
+    return []
+
+
+class BitgetSource(DataSource):
+    """
+    Bitget実データソース（USDT-M先物公開API・認証不要）
+
+    上位足（15m/1h/4h/1d）とfunding rateを取得しCSVキャッシュに保存する。
+    candlesエンドポイントは1回のリクエストで最大1000本・start/end間隔90日
+    までしか返さないため、endTimeを古い方へずらしながら複数回叩いて
+    HyperliquidSource同様にページングする。OI/L-S比率/清算はBitgetでは
+    未対応のため空フレーム（feature_pipelineがゼロ埋め）。
+    """
+
+    def __init__(
+        self,
+        symbols: List[str],
+        days: int = 180,
+        cache_dir: str = "./data/bitget",
+        end: Optional[str] = None,
+        product_type: str = "usdt-futures",
+    ):
+        super().__init__(symbols)
+        self.days = days
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.end = pd.Timestamp(end) if end else pd.Timestamp.now().floor("h")
+        self.product_type = product_type
+        self._kline_cache: Dict[str, pd.DataFrame] = {}
+
+    def _fetch_candles(
+        self, symbol: str, granularity: str, step_ms: int
+    ) -> pd.DataFrame:
+        start_ms = int((self.end - pd.Timedelta(days=self.days)).timestamp() * 1000)
+        cursor_end = int(self.end.timestamp() * 1000)
+        rows: list = []
+        prev_oldest = None
+        for _ in range(400):
+            cursor_start = max(start_ms, cursor_end - 90 * 86_400_000)
+            data = _bitget_get(
+                "/api/v2/mix/market/candles",
+                {
+                    "symbol": symbol,
+                    "productType": self.product_type,
+                    "granularity": granularity,
+                    "startTime": str(cursor_start),
+                    "endTime": str(cursor_end),
+                    "limit": "1000",
+                },
+            )
+            if not data:
+                break
+            rows = data + rows
+            oldest_t = int(data[0][0])
+            if prev_oldest is not None and oldest_t >= prev_oldest:
+                break  # 進捗なし（これ以上遡れない）
+            prev_oldest = oldest_t
+            if oldest_t <= start_ms:
+                break
+            cursor_end = oldest_t - step_ms
+            if cursor_end <= start_ms:
+                break
+        if not rows:
+            return pd.DataFrame(
+                columns=["timestamp", "open", "high", "low", "close", "volume"]
+            )
+        df = pd.DataFrame(
+            rows,
+            columns=["t", "o", "h", "l", "c", "vbase", "vquote"],
+        )
+        out = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(df["t"].astype("int64"), unit="ms"),
+                "open": df["o"].astype(float),
+                "high": df["h"].astype(float),
+                "low": df["l"].astype(float),
+                "close": df["c"].astype(float),
+                "volume": df["vbase"].astype(float),
+            }
+        )
+        return (
+            out.drop_duplicates("timestamp")
+            .sort_values("timestamp")
+            .reset_index(drop=True)
+        )
+
+    def _cache_path(self, symbol: str, interval: str) -> Path:
+        return self.cache_dir / f"{symbol}_{interval}.csv"
+
+    def _load_candles(self, symbol: str, timeframe: str) -> pd.DataFrame:
+        granularity = _BITGET_INTERVAL_MAP.get(timeframe, timeframe)
+        cache_key = f"{symbol}_{timeframe}"
+        if cache_key in self._kline_cache:
+            return self._kline_cache[cache_key]
+        path = self._cache_path(symbol, timeframe)
+        if path.exists():
+            df = pd.read_csv(path, parse_dates=["timestamp"])
+        else:
+            step_ms = TF_TO_MINUTES[timeframe] * 60_000
+            df = self._fetch_candles(symbol, granularity, step_ms)
+            if not df.empty:
+                df.to_csv(path, index=False)
+        self._kline_cache[cache_key] = df
+        return df
+
+    def load_klines(self, symbol, timeframe="1h", start=None, end=None):
+        df = self._load_candles(symbol, timeframe)
+        if df.empty:
+            return df
+        if start is not None:
+            df = df[df["timestamp"] >= pd.Timestamp(start)]
+        if end is not None:
+            df = df[df["timestamp"] <= pd.Timestamp(end)]
+        return df.reset_index(drop=True)
+
+    def load_funding(self, symbol, start=None, end=None):
+        cache_key = f"{symbol}_funding"
+        path = self.cache_dir / f"{symbol}_funding.csv"
+        if cache_key in self._kline_cache:
+            df = self._kline_cache[cache_key]
+        elif path.exists():
+            df = pd.read_csv(path, parse_dates=["timestamp"])
+            self._kline_cache[cache_key] = df
+        else:
+            start_ms = int((self.end - pd.Timedelta(days=self.days)).timestamp() * 1000)
+            rows: list = []
+            for page in range(1, 400):
+                data = _bitget_get(
+                    "/api/v2/mix/market/history-fund-rate",
+                    {
+                        "symbol": symbol,
+                        "productType": self.product_type,
+                        "pageSize": "100",
+                        "pageNo": str(page),
+                    },
+                )
+                if not data:
+                    break
+                rows.extend(data)
+                oldest_t = int(data[-1]["fundingTime"])
+                if oldest_t <= start_ms:
+                    break
+            if rows:
+                df = (
+                    pd.DataFrame(
+                        {
+                            "timestamp": pd.to_datetime(
+                                [int(r["fundingTime"]) for r in rows],
+                                unit="ms",
+                            ),
+                            "funding_rate": [float(r["fundingRate"]) for r in rows],
+                        }
+                    )
+                    .drop_duplicates("timestamp")
+                    .sort_values("timestamp")
+                    .reset_index(drop=True)
+                )
+                df.to_csv(path, index=False)
+            else:
+                df = pd.DataFrame(columns=["timestamp", "funding_rate"])
+            self._kline_cache[cache_key] = df
+        if df.empty:
+            return df
+        if start is not None:
+            df = df[df["timestamp"] >= pd.Timestamp(start)]
+        if end is not None:
+            df = df[df["timestamp"] <= pd.Timestamp(end)]
+        return df.reset_index(drop=True)
+
+
+_OKX_BASE_URL = "https://www.okx.com"
+_OKX_BAR_MAP = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc"}
+_OKX_SUFFIXES = ("USDT", "USDC")
+
+
+def _okx_get(path: str, params: dict, max_retries: int = 6) -> list:
+    """OKX公開API（USDT建て無期限先物、認証不要。429・接続断は指数バックオフでリトライ）"""
+    import time
+
+    url = _OKX_BASE_URL + path
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, timeout=20)
+        except requests.exceptions.RequestException:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(min(2**attempt, 30))
+            continue
+        if resp.status_code == 429:
+            time.sleep(min(2**attempt, 30))
+            continue
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != "0":
+            raise RuntimeError(f"okx api error: {data.get('code')} {data.get('msg')}")
+        return data.get("data") or []
+    resp.raise_for_status()
+    return []
+
+
+class OKXSource(DataSource):
+    """
+    OKX実データソース（USDT建て無期限先物 公開API・認証不要）
+
+    3取引所（Hyperliquid/Bitget/OKX）の中では最も長期の1h足履歴を持つ
+    （実測: BTC-USDT-SWAPで1000日以上前まで取得可能）。history-candles
+    エンドポイントは`after`（このts「より前」を返す）でシンプルに後方
+    ページングできる。OI/L-S比率/清算はOKXでは未対応のため空フレーム
+    （feature_pipelineがゼロ埋め）。
+    """
+
+    def __init__(
+        self,
+        symbols: List[str],
+        days: int = 180,
+        cache_dir: str = "./data/okx",
+        end: Optional[str] = None,
+    ):
+        super().__init__(symbols)
+        self.days = days
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.end = pd.Timestamp(end) if end else pd.Timestamp.now().floor("h")
+        self._kline_cache: Dict[str, pd.DataFrame] = {}
+
+    def _inst_id(self, symbol: str) -> str:
+        s = symbol.upper()
+        for suf in _OKX_SUFFIXES:
+            if s.endswith(suf) and len(s) > len(suf):
+                return f"{s[: -len(suf)]}-{suf}-SWAP"
+        return f"{s}-USDT-SWAP"
+
+    def _fetch_candles(self, inst_id: str, bar: str) -> pd.DataFrame:
+        start_ms = int((self.end - pd.Timedelta(days=self.days)).timestamp() * 1000)
+        cursor_after = int(self.end.timestamp() * 1000) + 1
+        rows: list = []
+        for _ in range(400):
+            data = _okx_get(
+                "/api/v5/market/history-candles",
+                {
+                    "instId": inst_id,
+                    "bar": bar,
+                    "after": str(cursor_after),
+                    "limit": "100",
+                },
+            )
+            if not data:
+                break
+            rows.extend(data)
+            oldest_t = int(data[-1][0])
+            if oldest_t >= cursor_after:
+                break  # 進捗なし（これ以上遡れない）
+            cursor_after = oldest_t
+            if oldest_t <= start_ms:
+                break
+        if not rows:
+            return pd.DataFrame(
+                columns=["timestamp", "open", "high", "low", "close", "volume"]
+            )
+        df = pd.DataFrame(
+            [r[:6] for r in rows],
+            columns=["t", "o", "h", "l", "c", "vol"],
+        )
+        out = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(df["t"].astype("int64"), unit="ms"),
+                "open": df["o"].astype(float),
+                "high": df["h"].astype(float),
+                "low": df["l"].astype(float),
+                "close": df["c"].astype(float),
+                "volume": df["vol"].astype(float),
+            }
+        )
+        out = out[out["timestamp"] >= pd.Timestamp(start_ms, unit="ms")]
+        return (
+            out.drop_duplicates("timestamp")
+            .sort_values("timestamp")
+            .reset_index(drop=True)
+        )
+
+    def _cache_path(self, inst_id: str, timeframe: str) -> Path:
+        return self.cache_dir / f"{inst_id}_{timeframe}.csv"
+
+    def _load_candles(self, symbol: str, timeframe: str) -> pd.DataFrame:
+        inst_id = self._inst_id(symbol)
+        bar = _OKX_BAR_MAP.get(timeframe, timeframe)
+        cache_key = f"{inst_id}_{timeframe}"
+        if cache_key in self._kline_cache:
+            return self._kline_cache[cache_key]
+        path = self._cache_path(inst_id, timeframe)
+        if path.exists():
+            df = pd.read_csv(path, parse_dates=["timestamp"])
+        else:
+            df = self._fetch_candles(inst_id, bar)
+            if not df.empty:
+                df.to_csv(path, index=False)
+        self._kline_cache[cache_key] = df
+        return df
+
+    def load_klines(self, symbol, timeframe="1h", start=None, end=None):
+        df = self._load_candles(symbol, timeframe)
+        if df.empty:
+            return df
+        if start is not None:
+            df = df[df["timestamp"] >= pd.Timestamp(start)]
+        if end is not None:
+            df = df[df["timestamp"] <= pd.Timestamp(end)]
+        return df.reset_index(drop=True)
+
+    def load_funding(self, symbol, start=None, end=None):
+        inst_id = self._inst_id(symbol)
+        cache_key = f"{inst_id}_funding"
+        path = self.cache_dir / f"{inst_id}_funding.csv"
+        if cache_key in self._kline_cache:
+            df = self._kline_cache[cache_key]
+        elif path.exists():
+            df = pd.read_csv(path, parse_dates=["timestamp"])
+            self._kline_cache[cache_key] = df
+        else:
+            start_ms = int((self.end - pd.Timedelta(days=self.days)).timestamp() * 1000)
+            cursor_after = int(self.end.timestamp() * 1000) + 1
+            rows: list = []
+            for _ in range(400):
+                data = _okx_get(
+                    "/api/v5/public/funding-rate-history",
+                    {
+                        "instId": inst_id,
+                        "after": str(cursor_after),
+                        "limit": "100",
+                    },
+                )
+                if not data:
+                    break
+                rows.extend(data)
+                oldest_t = int(data[-1]["fundingTime"])
+                if oldest_t >= cursor_after:
+                    break
+                cursor_after = oldest_t
+                if oldest_t <= start_ms:
+                    break
+            if rows:
+                df = (
+                    pd.DataFrame(
+                        {
+                            "timestamp": pd.to_datetime(
+                                [int(r["fundingTime"]) for r in rows],
+                                unit="ms",
+                            ),
+                            "funding_rate": [float(r["fundingRate"]) for r in rows],
+                        }
+                    )
+                    .drop_duplicates("timestamp")
+                    .sort_values("timestamp")
+                    .reset_index(drop=True)
+                )
+                df = df[df["timestamp"] >= pd.Timestamp(start_ms, unit="ms")]
+                df.to_csv(path, index=False)
+            else:
+                df = pd.DataFrame(columns=["timestamp", "funding_rate"])
+            self._kline_cache[cache_key] = df
+        if df.empty:
+            return df
+        if start is not None:
+            df = df[df["timestamp"] >= pd.Timestamp(start)]
+        if end is not None:
+            df = df[df["timestamp"] <= pd.Timestamp(end)]
+        return df.reset_index(drop=True)
+
+
 _DEFAULT_PG_DSN = "postgresql://trade_rl:trade_rl@localhost:5433/trade_rl"
 
 
@@ -650,6 +1047,10 @@ def create_source(name: str, symbols: List[str], **kwargs) -> DataSource:
         return CsvSource(data_dir, symbols, **kwargs)
     if name == "hyperliquid":
         return HyperliquidSource(symbols, **kwargs)
+    if name == "bitget":
+        return BitgetSource(symbols, **kwargs)
+    if name == "okx":
+        return OKXSource(symbols, **kwargs)
     if name == "postgres":
         return PostgresSource(symbols, **kwargs)
     raise ValueError(f"unknown source: {name}")

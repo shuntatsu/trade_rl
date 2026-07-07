@@ -37,7 +37,7 @@ def build_feature_set(args, output_dir: Optional[Path] = None) -> FeatureSet:
         symbols = args.symbols or DEFAULT_SYMBOLS
         if args.source == "csv":
             kwargs = {"data_dir": args.data}
-        elif args.source == "hyperliquid":
+        elif args.source in ("hyperliquid", "bitget", "okx"):
             kwargs = {"days": args.days}
         elif args.source == "postgres":
             kwargs = {

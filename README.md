@@ -171,6 +171,23 @@ uv run python scripts/fetch_hyperliquid.py \
 - 銘柄は `BTCUSDT` でも `BTC` でも可（末尾 USDT/USDC を自動正規化）
 - 学習時は `--source hyperliquid --days <N>` でそのまま接続できる
 
+> **1h足の保持期間に上限あり**: Hyperliquid公開APIは1h足を約209日分しか
+> 保持していない（実測、それ以前は0件）。`--days`をこれ以上増やしても
+> 1h足では取得量は増えない（4h足は約833日、1d足は2000日以上保持）。
+> より長期の実データが必要なら Binance（`scripts/fetch_futures.py`）を使う
+> か`--days`をこの上限内に収めること。
+
+### ③ Bitget / OKX（認証不要・USDT建て無期限先物）
+
+Bitget・OKXの公開APIから直接OHLCV + fundingを取得する。オーダーフロー・
+デリバティブ指標は両取引所とも非対応のため特徴量はゼロ埋めになる。
+学習時は `--source bitget --days <N>` / `--source okx --days <N>` で
+接続でき、初回アクセス時に自動でCSVキャッシュ（`./data/bitget/` /
+`./data/okx/`）へ保存される（専用フェッチスクリプトは不要）。
+
+- OKXは3ソース中もっとも長期の1h足履歴を持つ（実測: 1000日以上前まで取得可能）
+- Bitgetは90日/1000本ずつページングして取得する
+
 ### ③ サンプルデータ（オフライン）
 
 ```bash

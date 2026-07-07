@@ -94,11 +94,20 @@ def main() -> int:
     total_steps = 5
 
     # --- STEP 1: p0 健全性試験 ---
+    # p0はARCHITECTURE.mdの検証済みデフォルト(horizon=4, decision_every=1)
+    # でのみ合否実績があるため、実データ用に選んだhorizon/decision_everyを
+    # 一時的に検証済み値へ差し替えて実行する（「コードが壊れていないか」を
+    # 「その設定は合成データ向けにチューニングされていないだけ」から分離する）。
     _print_step(1, total_steps, "p0 健全性試験（学習システム自体が壊れていないか）")
     if args.skip_p0:
         print("[skip]")
     else:
-        phase_p0(args, output_dir)
+        orig_horizon, orig_decision_every = args.horizon, args.decision_every
+        args.horizon, args.decision_every = 4, 1
+        try:
+            phase_p0(args, output_dir)
+        finally:
+            args.horizon, args.decision_every = orig_horizon, orig_decision_every
         gate = _load(output_dir / "p0_report.json")["gate"]
         print(f"[p0] P0_PASSED = {gate['P0_PASSED']}")
         if not gate["P0_PASSED"] and not args.force:

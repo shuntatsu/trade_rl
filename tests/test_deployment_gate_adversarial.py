@@ -23,6 +23,7 @@ def test_adversarial_git_commit_newline_bypass():
     decision = gate.evaluate(evidence)
     assert decision.allowed is False  # ブロック成功を確認
 
+
 def test_adversarial_approval_ticket_newline_bypass():
     # 修正確認: 末尾の改行コードが強固にブロックされること
     gate = DeploymentGate()
@@ -43,6 +44,7 @@ def test_adversarial_approval_ticket_newline_bypass():
     decision = gate.evaluate(evidence)
     assert decision.allowed is False  # ブロック成功を確認
 
+
 def test_adversarial_spaces_in_ticket():
     gate = DeploymentGate()
 
@@ -60,6 +62,7 @@ def test_adversarial_spaces_in_ticket():
         decision = gate.evaluate(evidence)
         # model_version のバリデーションにより、不正な文字や極端な長さは False になる
         assert decision.allowed is False
+
 
 def test_adversarial_model_version_abuse():
     gate = DeploymentGate()
@@ -90,7 +93,10 @@ def test_adversarial_model_version_abuse():
     decision_huge = gate.evaluate(evidence_huge)
     # 修正後: 長さ制限（50文字）によりブロックされること
     assert decision_huge.allowed is False
-    assert decision_huge.reason == "model version exceeds maximum length of 50 characters"
+    assert (
+        decision_huge.reason == "model version exceeds maximum length of 50 characters"
+    )
+
 
 def test_adversarial_approval_ticket_abuse():
     gate = DeploymentGate()
@@ -110,7 +116,11 @@ def test_adversarial_approval_ticket_abuse():
     decision_huge = gate.evaluate(evidence_huge)
     # 修正後: 長さ制限（20文字）によりブロックされること
     assert decision_huge.allowed is False
-    assert decision_huge.reason == "approval ticket exceeds maximum length of 20 characters"
+    assert (
+        decision_huge.reason
+        == "approval ticket exceeds maximum length of 20 characters"
+    )
+
 
 def test_adversarial_unknown_stages():
     gate = DeploymentGate()
@@ -130,6 +140,7 @@ def test_adversarial_unknown_stages():
         assert decision.allowed is False
         assert "unknown deployment stage" in decision.reason
 
+
 def test_adversarial_active_incidents_truthy():
     gate = DeploymentGate()
 
@@ -143,6 +154,7 @@ def test_adversarial_active_incidents_truthy():
         # Python の if evidence.active_incidents: により True と判定されブロックされる（安全）
         assert decision.allowed is False
         assert "blocked due to active incidents" in decision.reason
+
 
 def test_deploy_yml_parsing_simulation():
     # deploy.yml で環境変数から読み込む際のパースシミュレーション

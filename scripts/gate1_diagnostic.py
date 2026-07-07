@@ -65,7 +65,7 @@ def build_fs(
             "derivatives_source": args.pg_derivatives_source,
             "orderflow_source": args.pg_derivatives_source,
         }
-    elif source_name == "hyperliquid":
+    elif source_name in ("hyperliquid", "bitget", "okx"):
         kwargs = {"days": args.days}
     elif source_name == "csv":
         kwargs = {"data_dir": args.data}
@@ -203,7 +203,9 @@ def full_diagnostic(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--source", default="postgres", choices=["postgres", "csv", "hyperliquid"]
+        "--source",
+        default="postgres",
+        choices=["postgres", "csv", "hyperliquid", "bitget", "okx"],
     )
     parser.add_argument("--data", default="./data")
     parser.add_argument("--symbols", nargs="+", default=None)

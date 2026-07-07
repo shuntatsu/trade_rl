@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--source",
-        choices=["synthetic", "csv", "postgres", "hyperliquid"],
+        choices=["synthetic", "csv", "postgres", "hyperliquid", "bitget", "okx"],
         default="synthetic",
     )
     parser.add_argument("--data", type=str, default="./data")

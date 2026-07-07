@@ -46,6 +46,7 @@ def train_ppo(
 
     from mars_lite.learning.val_selection import ValSelectionCallback
 
+    full_fs = fs
     if val_fs is None and fs.n_bars > 400:
         cut = int(fs.n_bars * 0.85)
         val_fs = fs.slice(cut, fs.n_bars)
@@ -118,8 +119,8 @@ def train_ppo(
             from mars_lite.features.signal_check import run_signal_check, run_trend_gate
             from mars_lite.learning.bc_warmstart import combined_teacher
 
-            ic = run_signal_check(fs, horizon=horizon)
-            trend = run_trend_gate(fs, horizon=horizon)
+            ic = run_signal_check(full_fs, horizon=horizon)
+            trend = run_trend_gate(full_fs, horizon=horizon)
             use_ridge = ic.mean_oos_ic >= 0.025
             use_trend = trend["has_trend"]
             if use_ridge or use_trend:
@@ -143,7 +144,7 @@ def train_ppo(
             from mars_lite.features.signal_check import run_signal_check
             from mars_lite.learning.bc_warmstart import dp_oracle_teacher
 
-            ic = run_signal_check(fs, horizon=horizon)
+            ic = run_signal_check(full_fs, horizon=horizon)
             if ic.mean_oos_ic >= 0.025:
                 teacher = dp_oracle_teacher(fs, noisy_ic=oracle_noisy_ic)
                 if verbose:
@@ -202,8 +203,18 @@ def build_post_processor(args, horizon: int = 4):
     if mode == "legacy":
         return make_legacy_processor()
     tv = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
-    ema_alpha = float(np.clip(0.5 * (4.0 / max(horizon, 1)), 0.05, 1.0))
-    no_trade_band = float(0.04 * np.sqrt(max(horizon, 1) / 4.0))
+    # 低頻度化は decision_every が担うため、ema_alpha/no_trade_band を
+    # horizon で強くスケールしない（マイクロノイズ除去に役割を限定する）。
+    ema_alpha = 0.5
+    no_trade_band = 0.04
+    max_weight = 0.4
+    # 不変条件: no_trade_band <= ema_alpha * max_weight * 0.5
+    # これを破ると「1ステップで動ける最大量 < 発注しきい値」となり、
+    # ウェイトが初期値(通常0)から一歩も動けず永久に据え置かれる
+    # （decision_every とは独立に発生するデッドゾーン）。
+    cap = ema_alpha * max_weight * 0.5
+    if no_trade_band > cap:
+        no_trade_band = cap
     return make_default_processor(
         target_vol=tv, ema_alpha=ema_alpha, no_trade_band=no_trade_band
     )

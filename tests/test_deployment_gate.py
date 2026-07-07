@@ -105,7 +105,9 @@ def test_deployment_gate_git_commit_sha1_validation():
     valid_commit = "a" * 40
     invalid_commit_short = "a" * 39
     invalid_commit_long = "a" * 41
-    invalid_commit_chars = "z" * 40  # Wait, SHA-1 is hexadecimal [a-fA-F0-9]. 'z' is invalid.
+    invalid_commit_chars = (
+        "z" * 40
+    )  # Wait, SHA-1 is hexadecimal [a-fA-F0-9]. 'z' is invalid.
 
     # Canary validation
     assert (
@@ -121,7 +123,13 @@ def test_deployment_gate_git_commit_sha1_validation():
         is True
     )
 
-    for invalid in [None, "", invalid_commit_short, invalid_commit_long, invalid_commit_chars]:
+    for invalid in [
+        None,
+        "",
+        invalid_commit_short,
+        invalid_commit_long,
+        invalid_commit_chars,
+    ]:
         assert (
             gate.evaluate(
                 DeploymentEvidence(
@@ -151,7 +159,13 @@ def test_deployment_gate_git_commit_sha1_validation():
         is True
     )
 
-    for invalid in [None, "", invalid_commit_short, invalid_commit_long, invalid_commit_chars]:
+    for invalid in [
+        None,
+        "",
+        invalid_commit_short,
+        invalid_commit_long,
+        invalid_commit_chars,
+    ]:
         assert (
             gate.evaluate(
                 DeploymentEvidence(
@@ -331,4 +345,3 @@ def test_deployment_gate_security_hardening():
             )
             decision = gate.evaluate(evidence)
             assert decision.allowed is False
-

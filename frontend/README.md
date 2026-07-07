@@ -1,73 +1,43 @@
-# React + TypeScript + Vite
+# Trade RL Frontend — 現状と注意事項
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+このReact/Viteフロントエンドは、レガシー実行エージェントv1時代の
+学習モニタリングUI（WebSocketでのリアルタイムメトリクス配信・
+ブラウザからの学習開始/停止）としてつくられたもの。
 
-Currently, two official plugins are available:
+## アーキテクチャ再設計（バックエンドの変更）に伴う影響
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+バックエンドはCLI一本化した設計に整理され、学習は
+`scripts/train_portfolio.py` から実行する運用に統一された
+（docs/ARCHITECTURE.md 参照）。これに伴い、サーバー側の
+以下のエンドポイントは**削除済み**:
 
-## React Compiler
+- `/ws/metrics`（学習メトリクスのWebSocket配信）
+- `/api/training/*`（学習の開始・停止・状態取得・設定取得）
+- `/api/metrics`, `/api/metrics/latest`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+現在のサーバー（`mars_lite/server/signal_server.py`）が提供するのは:
 
-## Expanding the ESLint configuration
+- `GET /api/signal/latest` — ポートフォリオRLエージェントの最新推奨ウェイト（Trade Platform連携用）
+- `GET /api/models`, `GET /api/models/{id}`, `DELETE /api/models/{id}` — 保存済みモデルの一覧・削除
+- `GET /api/data/available` — 利用可能なデータセット
+- `GET /health`
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## このフロントエンドの現状
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+**このディレクトリはコード凍結状態**（意図的に未更新）。以下のコンポーネント・
+フックは削除されたエンドポイントに依存しており、現状は接続エラー/404になる:
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- `useWebSocket.ts`, `useTrainingControl.ts`
+- `TrainingConfigPanel.tsx`, `TrainingChart.tsx`, `LossChart.tsx`,
+  `DetailedLossChart.tsx`, `LogTerminal.tsx`, `TradingVisualizer.tsx`,
+  `BacktestPanel.tsx`（`/api/backtest`も削除済み）
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+`ModelPanel.tsx` / `ModelSelect.tsx` / `StatsCard.tsx` は現行の
+`/api/models`系エンドポイントとおおむね互換だが、`Dashboard.tsx` からの
+配線は上記の削除済みフックに依存する形で書かれているため、そのままでは
+動作しない。
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+新しいシグナル/モデル中心のダッシュボード（`/api/signal/latest`を
+ポーリングするSignalPanel等）への作り直しは未着手（今後の作業）。
+UIが必要な場合は、当面はAPIを直接叩く（`curl`/Postman等）か、
+軽量な専用スクリプトで代替することを推奨する。

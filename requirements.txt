@@ -17,13 +17,13 @@ rich>=13.0.0
 # 可視化
 matplotlib>=3.7.0
 
-# UIサーバー
+# シグナルサーバー
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
-websockets>=11.0
 
 # テスト
 pytest>=7.0.0
+httpx>=0.24.0  # fastapi.testclient (signal_serverのテストに使用)
 
 # Trade Platform (PostgreSQL) 連携
 psycopg[binary]>=3.1

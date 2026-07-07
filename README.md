@@ -6,7 +6,8 @@
 
 **設計の正典**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（既定値・ゲート体系・ベンチマーク根拠）
 
-レガシー機能として、OHLCVのみからマーケットインパクトを推定する**執行エージェント（v1）**も同梱。
+学習はCLI（`scripts/train_portfolio.py`）に一本化。運用は
+`GET /api/signal/latest` のポーリングのみ（下記「シグナルサーバー」参照）。
 
 ---
 
@@ -178,13 +179,27 @@ python scripts/train_portfolio.py --phase regime --source csv --data ./data --ti
 python scripts/train_portfolio.py --phase train --source csv --data ./data --timesteps 2000000 --htf-gate
 ```
 
+### RL強化の実験（オプトイン、未昇格）
+
+`docs/ARCHITECTURE.md` §2.8/2.9 参照。いずれも既定offで、既定への昇格には
+P0＋汎用性スイート×3シードでの再測定が必要（未実施）。
+
+```bash
+# 観測強化: 前ステップの後処理状態(vol_scale/dd_scale/disagreement_scale/est_port_vol)を観測に追加
+python scripts/train_portfolio.py --phase train --source csv --data ./data --obs-risk-state
+
+# リスクオーバーレイRL: グロスのスケールだけを別の小型PPOに学習させ、ルールベースと比較
+python scripts/train_portfolio.py --phase overlay --source csv --data ./data \
+    --timesteps 500000 --overlay-timesteps 100000
+```
+
 ---
 
 ## 主なCLIオプション
 
 | フラグ | 既定 | 説明 |
 |---|---|---|
-| `--phase` | p0 | `p0` / `train` / `wf` / `pbt` / `regime` |
+| `--phase` | p0 | `p0` / `train` / `wf` / `pbt` / `regime` / `overlay` |
 | `--source` | synthetic | `synthetic` / `csv` / `postgres`（※Postgres読み込みは未実装） |
 | `--ensemble` | 1 | シードアンサンブル数。**実データでは3推奨**（シード運低減 + 不一致度スケーリング） |
 | `--gamma` | 0.5 | 割引率（0.995は崩壊する） |
@@ -192,6 +207,9 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 | `--target-vol` | 0.5 | 年率ボラ目標。0以下で無効 |
 | `--feature-mask` | off | IC安定性による特徴選別 |
 | `--htf-gate` | off | 4hトレンドで方向制約 |
+| `--obs-risk-state` | off | opt-in: 後処理状態を観測に追加（§2.8、未昇格） |
+| `--disagreement-dr <x>` | 0 | opt-in: 学習中の不一致度ドメインランダム化上限（§2.8、未昇格） |
+| `--overlay-timesteps` | 50000 | `--phase overlay`専用。リスクオーバーレイRLの学習ステップ数（§2.9、未昇格） |
 | `--timesteps` | 300000 | 学習ステップ。実データ本番は200万〜 |
 | `--folds` | 3 | walk-forward fold数 |
 | `--n-seeds` | 3 | walk-forward で試すシード数 |
@@ -203,6 +221,8 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 | `--warmup-days` | 0 | 先頭Ndaysを切り捨て（最長ローリング窓=100日分が埋まるまで特徴が不完全なため）。実効学習期間365日を確保したいなら取得465日+`--warmup-days 100` |
 
 学習は既定で **TFゲート抽出器 + Ridge教師BC + 検証ベースモデル選択**（詳細は ARCHITECTURE.md §2.1）。
+ハイパーパラメータの単一の正は `mars_lite/config.py`（`RunConfig`）。既定値を変える場合は
+`tests/test_config.py`（憲法テスト）も合わせて更新すること。
 
 ---
 
@@ -241,18 +261,22 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data --tim
 
 ---
 
-## ダッシュボード
+## シグナルサーバー
+
+学習トリガー・リアルタイムメトリクス配信のUIは持たない（学習はCLIで行う設計。
+`docs/ARCHITECTURE.md` §4「運用設計」参照）。サーバーは学習済みモデルから
+推奨ウェイトを配信する薄いAPIのみ:
 
 ```bash
-# ターミナル1（リポジトリルートから）
 python scripts/run_server.py                 # http://localhost:8001
-
-# ターミナル2
-cd frontend && npm install && npm run dev    # http://localhost:5173
 ```
 
-- `mode: portfolio` で学習起動・メトリクス監視・バックテスト
-- **`GET /api/signal/latest`**: 推奨ウェイト（後処理・ガードレール適用後）を返す
+- **`GET /api/signal/latest`**: 推奨ウェイト（後処理・ガードレール適用後）を返す。
+  任意で `prev_weights`（実ポジション、カンマ区切り）・`portfolio_value`・
+  `peak_value` を渡すとEMA平滑・DDデリスクが実状態基準で機能する
+- `GET /api/models`, `GET /api/models/{id}`, `DELETE /api/models/{id}`: 保存済みモデル管理
+- `GET /api/data/available`: 利用可能なデータセット
+- `GET /health`
 
 ```json
 {
@@ -262,6 +286,10 @@ cd frontend && npm install && npm run dev    # http://localhost:5173
   "guardrail": {"action": "proceed", "triggered": []}
 }
 ```
+
+`frontend/`（React UI）は旧アーキテクチャ（サーバー主導の学習制御）向けに
+作られたもので、上記のAPI縮小に伴いコード凍結中。詳細は
+[frontend/README.md](frontend/README.md) を参照。
 
 ---
 
@@ -274,42 +302,24 @@ cd frontend && npm install && npm run dev    # http://localhost:5173
 
 ---
 
-## レガシー: 執行エージェント（v1）
-
-OHLCVのみからマーケットインパクトを推定し、注文分割・Almgren-Chriss報酬で学習する旧ワークフロー。
-
-```bash
-# データ取得
-python scripts/fetch_binance.py --symbol BTCUSDT --output ./data
-
-# 学習・評価・バックテスト
-python scripts/train.py --data ./data --symbol BTCUSDT --multi-tf --timesteps 100000 --output ./output
-python scripts/evaluate.py --model ./output/final_model.zip --episodes 10
-python scripts/backtest.py --model ./output/final_model.zip --data ./data --symbol BTCUSDT
-
-# 進化学習（PBT-MAP-Elites）
-python scripts/run_evolution.py --generations 10 --population 25 --steps-per-gen 10000 --data-dir data
-```
-
-Windowsでは `num_envs=1` を推奨（SubprocVecEnvのpickle問題）。
-
----
-
 ## ディレクトリ構成
 
 ```
 trade_rl/
 ├── mars_lite/
-│   ├── data/          # DataSource・品質ゲート・Postgres投入
-│   ├── env/           # PortfolioTradingEnv / レガシー環境
-│   ├── features/      # FeaturePipeline・シグナル検証
-│   ├── learning/      # PPO・BC・アンサンブル
-│   ├── trading/       # 後処理・執行・ガードレール
-│   └── server/        # FastAPI・ダッシュボードAPI
-├── scripts/           # fetch / train / evaluate
-├── frontend/          # React UI
+│   ├── config.py       # RunConfig: ハイパーパラメータの単一の正
+│   ├── data/           # DataSource・品質ゲート・Postgres投入
+│   ├── env/            # PortfolioTradingEnv
+│   ├── features/       # FeaturePipeline・シグナル検証
+│   ├── learning/       # PPO学習(trainer.py)・BC・アンサンブル・PBT
+│   ├── pipeline/       # 学習フェーズ実装(p0/train/wf/pbt/regime/overlay)
+│   ├── trading/        # 後処理・執行・ガードレール・DecisionPipeline・リスクオーバーレイ
+│   ├── serving/        # モデル永続化・バージョン管理(model_store)
+│   └── server/         # シグナルサーバー(signal_server)
+├── scripts/            # fetch / train_portfolio / run_server
+├── frontend/           # React UI（コード凍結中、frontend/README.md参照）
 ├── docs/ARCHITECTURE.md
-├── docker-compose.yml # 専用Postgres（ポート5433）
+├── docker-compose.yml  # 専用Postgres（ポート5433）
 └── tests/
 ```
 

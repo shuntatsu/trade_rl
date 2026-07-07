@@ -70,7 +70,7 @@ class TestPipelineParity:
         raw_action = np.array([0.3, -0.2, 0.1, 0.0, -0.1, 0.2, -0.05])[: env.n_symbols]
         raw_weights = PortfolioTradingEnv.project_weights(raw_action)
 
-        # serve側の呼び出し（mars_lite/server/metrics_server.py get_latest_signalと同一形）
+        # serve側の呼び出し（mars_lite/server/signal_server.py get_latest_signalと同一形）
         serve_pipeline = DecisionPipeline(post_processor=pp)
         serve_state = PortfolioState(weights=np.zeros(env.n_symbols))
         serve_market = MarketView.from_feature_set(feature_set, env.t, vol_lookback=pp.cfg.vol_lookback)

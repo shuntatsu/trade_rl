@@ -24,11 +24,6 @@ from mars_lite.pipeline.phases import (
     phase_p0, phase_train, phase_pbt, phase_regime, phase_wf, phase_overlay,
 )
 
-# 後方互換: 以前はこのモジュールが train_ppo/make_env_fns を定義していた
-# （server/training_manager.py がsys.path操作でこのファイルをimportしていた）。
-# 現在の実装は mars_lite.learning.trainer にある。
-from mars_lite.learning.trainer import train_ppo, make_env_fns  # noqa: F401
-
 
 def main():
     parser = argparse.ArgumentParser(description="ポートフォリオRL学習")

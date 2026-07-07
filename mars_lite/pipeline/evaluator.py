@@ -215,18 +215,24 @@ def phase_train(
     if not leak["healthy"]:
         print("[WARN] リーク検出器の自己検査に失敗。評価結果を信用しないこと。")
 
+    signal_target = getattr(args, "target", "raw")
+
     horizon = args.horizon
     scan = None
     if args.scan_horizons:
         from mars_lite.features.horizon_scan import run_horizon_scan
 
         scan_split = int(fs.n_bars * 0.8)
-        scan = run_horizon_scan(fs.slice(0, scan_split), horizons=tuple(args.horizons))
+        scan = run_horizon_scan(
+            fs.slice(0, scan_split),
+            horizons=tuple(args.horizons),
+            target=signal_target,
+        )
         print(scan.summary())
         horizon = scan.best_horizon
         print(f"[Horizon scan] selected horizon={horizon}")
 
-    ic = run_signal_check(fs, horizon=horizon)
+    ic = run_signal_check(fs, horizon=horizon, target=signal_target)
     print(ic.summary())
     if not ic.passed and not args.skip_gate:
         print(
@@ -279,6 +285,7 @@ def phase_train(
                 learning_rate=getattr(args, "learning_rate", 3e-4),
                 bc_warmstart=True,
                 horizon=horizon,
+                signal_target=signal_target,
                 bc_teacher=args.bc_teacher,
                 oracle_noisy_ic=args.oracle_noisy_ic,
                 **ekw,
@@ -319,6 +326,7 @@ def phase_train(
             verbose=args.verbose,
             bc_warmstart=True,
             horizon=horizon,
+            signal_target=signal_target,
             bc_teacher=args.bc_teacher,
             oracle_noisy_ic=args.oracle_noisy_ic,
             **ekw,

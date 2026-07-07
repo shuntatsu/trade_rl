@@ -113,6 +113,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="予測ホライズン（バー数）。ICゲート/BC教師/特徴マスクに使う",
     )
     parser.add_argument(
+        "--target",
+        choices=["raw", "cs_demean", "vol_norm"],
+        default="raw",
+        help="ICゲート判定とRidge教師の予測対象。raw=絶対リターン(既定)、"
+        "cs_demean=市場中立の相対アルファ(銘柄間平均を除去)、vol_norm=ボラ正規化。"
+        "絶対リターンに信号が無く相対アルファのみ有意な市場では cs_demean を使う"
+        "（gate1_diagnostic.py の診断結果に合わせる）",
+    )
+    parser.add_argument(
+        "--beta-neutral",
+        action="store_true",
+        help="後処理で市場方向(等ウェイト平均)成分を除去しドル中立化する。"
+        "全銘柄がBTCベータで共線なユニバースで相対アルファのみ残す。"
+        "--target cs_demean と組で使うと出力も市場中立になる（方向性ベータを"
+        "捨てるため純粋な上昇相場では不利になりうる opt-in）",
+    )
+    parser.add_argument(
+        "--warmup-days",
+        type=int,
+        default=0,
+        help="先頭Ndaysをウォームアップとして切り捨てる（最長ローリング窓="
+        "1dTFのvol_ratio長期側=100日分が埋まるまで特徴が不完全なため）。"
+        "実効学習期間をNdays確保したいなら取得を(N+warmup_days)日にして"
+        "本フラグで先頭を切り捨てる。既定0=無効",
+    )
+    parser.add_argument(
         "--scan-horizons",
         action="store_true",
         help="--phase train で学習前にホライズンスキャンを行い、"

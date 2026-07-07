@@ -25,6 +25,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbols", type=str, nargs="+", default=None)
     parser.add_argument("--days", type=int, default=240, help="syntheticの生成日数")
     parser.add_argument(
+        "--base-timeframe",
+        choices=["15m", "1h", "4h", "1d"],
+        default="1h",
+        help="意思決定の基準時間軸。既定1h。gate1_diagnostic.py で1h不合格でも"
+        "4h等では合格することがある（低頻度なほどコスト後ブレークイーブンICが"
+        "下がるため）。品質ゲート・ウォームアップ日数換算もこれに追従する",
+    )
+    parser.add_argument(
         "--alpha",
         default="cross",
         choices=["none", "cross", "meanrev", "multi", "bull"],

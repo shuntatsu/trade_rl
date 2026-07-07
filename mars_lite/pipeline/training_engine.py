@@ -206,6 +206,7 @@ def train_ppo(
 
 
 def build_post_processor(args, horizon: int = 4):
+    from mars_lite.data.data_utils import TF_TO_MINUTES
     from mars_lite.trading.post_processor import (
         make_default_processor,
         make_legacy_processor,
@@ -227,11 +228,17 @@ def build_post_processor(args, horizon: int = 4):
     cap = ema_alpha * max_weight * 0.5
     if no_trade_band > cap:
         no_trade_band = cap
+    # ④ボラターゲティングの年率換算はbase_timeframeの実バー数に合わせる。
+    # 1h想定のまま4h等を使うと推定年率ボラが水増しされ、target_volへの
+    # スケーリングが過剰にグロスを絞ってしまう。
+    base_tf = getattr(args, "base_timeframe", "1h")
+    bars_per_year = int(24 * 60 / TF_TO_MINUTES[base_tf] * 365)
     return make_default_processor(
         target_vol=tv,
         ema_alpha=ema_alpha,
         no_trade_band=no_trade_band,
         beta_neutral=getattr(args, "beta_neutral", False),
+        bars_per_year=bars_per_year,
     )
 
 

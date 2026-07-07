@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from mars_lite.data.data_utils import TF_TO_MINUTES
 from mars_lite.data.sources import SyntheticSource, create_source
 from mars_lite.features.feature_pipeline import FeaturePipeline, FeatureSet
 
@@ -25,6 +26,7 @@ DEFAULT_SYMBOLS = [
 
 
 def build_feature_set(args, output_dir: Optional[Path] = None) -> FeatureSet:
+    base_timeframe = getattr(args, "base_timeframe", "1h")
     if args.source == "synthetic":
         source = SyntheticSource(
             n_days=args.days,
@@ -51,7 +53,7 @@ def build_feature_set(args, output_dir: Optional[Path] = None) -> FeatureSet:
         source = create_source(args.source, symbols, **kwargs)
         from mars_lite.data.quality import run_quality_gate
 
-        qrep = run_quality_gate(source, symbols, base_timeframe="1h")
+        qrep = run_quality_gate(source, symbols, base_timeframe=base_timeframe)
         print(qrep.summary())
         if output_dir is not None:
             with open(
@@ -63,7 +65,7 @@ def build_feature_set(args, output_dir: Optional[Path] = None) -> FeatureSet:
             raise ValueError(
                 "品質ゲート通過銘柄が2未満です。データを確認してください。"
             )
-    fs = FeaturePipeline(symbols).build(source)
+    fs = FeaturePipeline(symbols, base_timeframe=base_timeframe).build(source)
 
     # ウォームアップ切り捨て: 最長のローリング窓（1dTFのvol_ratio長期側=100日
     # ≈2400本@1h）が埋まるまで特徴が不完全（min_periods未満はゼロ埋め）。
@@ -71,7 +73,7 @@ def build_feature_set(args, output_dir: Optional[Path] = None) -> FeatureSet:
     # 先頭warmup_days日を切り捨てる（例: 500日学習→600日取得+warmup 100）。
     warmup_days = getattr(args, "warmup_days", 0)
     if warmup_days > 0:
-        bar_minutes = 60  # base_timeframe既定"1h"
+        bar_minutes = TF_TO_MINUTES[base_timeframe]
         warmup_bars = int(warmup_days * 24 * 60 / bar_minutes)
         if warmup_bars >= fs.n_bars:
             raise ValueError(

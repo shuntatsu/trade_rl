@@ -449,12 +449,18 @@ _BITGET_INTERVAL_MAP = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D"}
 
 
 def _bitget_get(path: str, params: dict, max_retries: int = 6) -> list:
-    """Bitget公開API（USDT-M先物、認証不要。429時は指数バックオフでリトライ）"""
+    """Bitget公開API（USDT-M先物、認証不要。429・接続断は指数バックオフでリトライ）"""
     import time
 
     url = _BITGET_BASE_URL + path
     for attempt in range(max_retries):
-        resp = requests.get(url, params=params, timeout=20)
+        try:
+            resp = requests.get(url, params=params, timeout=20)
+        except requests.exceptions.RequestException:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(min(2 ** attempt, 30))
+            continue
         if resp.status_code == 429:
             time.sleep(min(2 ** attempt, 30))
             continue
@@ -609,12 +615,18 @@ _OKX_SUFFIXES = ("USDT", "USDC")
 
 
 def _okx_get(path: str, params: dict, max_retries: int = 6) -> list:
-    """OKX公開API（USDT建て無期限先物、認証不要。429時は指数バックオフでリトライ）"""
+    """OKX公開API（USDT建て無期限先物、認証不要。429・接続断は指数バックオフでリトライ）"""
     import time
 
     url = _OKX_BASE_URL + path
     for attempt in range(max_retries):
-        resp = requests.get(url, params=params, timeout=20)
+        try:
+            resp = requests.get(url, params=params, timeout=20)
+        except requests.exceptions.RequestException:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(min(2 ** attempt, 30))
+            continue
         if resp.status_code == 429:
             time.sleep(min(2 ** attempt, 30))
             continue

@@ -151,6 +151,27 @@ P0＋汎用性スイート×3シードでの再測定が必要（未実施、将
 | `--disagreement-dr <x>` | 学習中もエピソード毎に不一致度をU(0,x)でランダムに与え、方策がアンサンブル不一致縮小レイヤーを経験できるようにする。単独方策の学習中は`disagreement`が常に0という train/eval不一致（2.7節）の緩和策 | 機構のみ実装・単体テスト済み。弱シグナルens3ベンチ(+81.5%/Sharpe13.9)に対する再ベンチは未実施 |
 | `--lambda-turnover 0.0` | 報酬の回転率罰則`−λ·turnover`は実コスト(`net`)に既に織り込まれた回転率への**追加**シェーピング項（二重課金と読める）。0にすると罰則なしにできる | 単発run(60k歩)ではdefault(0.04)と**bit-identicalな結果**（学習後の決定論的方策が変化せず）。BC事前学習の影響が強い短時間学習では効果が埋没した可能性があり、λの効果自体はenv.step単体では確認済み（reward値は変化する）。中央値評価は未実施につき既定0.04を維持 |
 
+### 2.9 Stage B: リスクオーバーレイRL（オプトイン、未昇格）
+
+`mars_lite.trading.risk_overlay.RiskOverlay` は後処理④⑤⑥（ボラ目標・
+DDデリスク・不一致縮小、グロス量を決める段）を差し替え可能にする抽象。
+
+- `RuleRiskOverlay`: 既定。既存インライン実装(post_processor.py)から
+  忠実に抽出し、`tests/test_risk_overlay.py`で発火あり/なし4パターンの
+  ゴールデンテストにより数値的に同一であることを保証（既定挙動への影響ゼロ）
+- `RLRiskOverlay`: 配分（銘柄間の相対ウェイト）は凍結済みの配分エージェントに
+  任せ、グロスのスケール（どれだけリスクを取るか）だけを別の小型PPO
+  （net_arch[32,32]、観測6次元: gross/drawdown/disagreement/vol_ratio/
+  ret_mean/ret_std）に学習させる。`learning/overlay_trainer.py` の
+  `RiskOverlayEnv` は既存の `PortfolioTradingEnv` のPnL/コスト機構をそのまま
+  再利用し、独自の経済モデル実装によるバグを避けている
+- `--phase overlay`（`--overlay-timesteps`で学習量を指定）でルール比較の
+  実行が可能。**現時点では単一シード・単一シナリオでの動作確認のみ**
+  （1000歩のスモークではRLオーバーレイが安全側＝フラットに収束することを
+  確認）。昇格基準（P0＋汎用性スイート×3シードで中央値Sharpe超え・
+  maxDD以下・陰性対照の回転率非悪化）を満たすまでは`RuleRiskOverlay`が
+  既定のまま
+
 ## 3. 運用設計（Trade Platform連携）
 
 - 接点は2つだけ: ①同一PostgreSQLの `rl_funding_rate` / `rl_orderflow_1m`

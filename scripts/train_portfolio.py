@@ -20,7 +20,9 @@
 import argparse
 from pathlib import Path
 
-from mars_lite.pipeline.phases import phase_p0, phase_train, phase_pbt, phase_regime, phase_wf
+from mars_lite.pipeline.phases import (
+    phase_p0, phase_train, phase_pbt, phase_regime, phase_wf, phase_overlay,
+)
 
 # 後方互換: 以前はこのモジュールが train_ppo/make_env_fns を定義していた
 # （server/training_manager.py がsys.path操作でこのファイルをimportしていた）。
@@ -30,7 +32,7 @@ from mars_lite.learning.trainer import train_ppo, make_env_fns  # noqa: F401
 
 def main():
     parser = argparse.ArgumentParser(description="ポートフォリオRL学習")
-    parser.add_argument("--phase", choices=["p0", "train", "wf", "pbt", "regime"],
+    parser.add_argument("--phase", choices=["p0", "train", "wf", "pbt", "regime", "overlay"],
                         default="p0")
     parser.add_argument("--source", choices=["synthetic", "csv", "postgres", "hyperliquid"],
                         default="synthetic")
@@ -92,6 +94,9 @@ def main():
                         help="PBT各個体の学習ステップ数（--phase pbt）")
     parser.add_argument("--regime-bars", type=int, default=120,
                         help="レジーム専門家のエピソード長（--phase regime、5日=120本）")
+    parser.add_argument("--overlay-timesteps", type=int, default=50_000,
+                        help="リスクオーバーレイRLの学習ステップ数（--phase overlay）。"
+                             "opt-in・未昇格の実験用（docs/ARCHITECTURE.md §2.8/4章）")
     parser.add_argument("--htf-gate", action="store_true",
                         help="階層MTF: 上位足(4h)トレンドで方向を制約し1hはサイジング")
     parser.add_argument("--obs-risk-state", action="store_true",
@@ -152,6 +157,8 @@ def main():
         phase_pbt(args, output_dir)
     elif args.phase == "regime":
         phase_regime(args, output_dir)
+    elif args.phase == "overlay":
+        phase_overlay(args, output_dir)
     else:
         phase_wf(args, output_dir)
 

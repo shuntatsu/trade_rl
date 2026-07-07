@@ -619,3 +619,73 @@ def phase_wf(args, output_dir: Path) -> None:
                   f"sr0(試行数補正後の基準)={d['sr0_annualized']:+.2f} "
                   f"n_trials={d['n_trials']}")
         print(f"Report -> {path}")
+
+
+def phase_overlay(args, output_dir: Path) -> None:
+    """
+    Stage B: リスクオーバーレイRL（オプトイン、docs/ARCHITECTURE.md §2.8/4章）
+
+    配分（銘柄間の相対ウェイト）は通常どおりPPOで学習し、後処理の④⑤⑥
+    （ボラ目標・DDデリスク・不一致縮小）だけを別の小さなRLに任せる構成を
+    ルールベース実装と比較する。既定はルールのまま（本フェーズは比較データを
+    出すための実験用で、ここでの結果だけでは既定を変更しない）。
+    """
+    from mars_lite.learning.overlay_trainer import train_risk_overlay
+    from mars_lite.trading.risk_overlay import (
+        RuleRiskOverlay, RuleRiskOverlayConfig, RLRiskOverlay,
+    )
+    from mars_lite.trading.post_processor import PortfolioPostProcessor, PostProcessConfig
+
+    fs = build_feature_set(args)
+    print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
+    split = int(fs.n_bars * 0.8)
+    train_fs = fs.slice(0, split)
+    test_fs = fs.slice(split + 24, fs.n_bars)
+
+    target_vol = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
+
+    # 配分エージェント: ④⑤⑥を無効化した後処理で学習（リスク判断はオーバーレイに委ねる）
+    alloc_pp_cfg = PostProcessConfig(
+        ema_alpha=0.5, max_weight=0.4, no_trade_band=0.04,
+        target_vol=None, dd_derisk_start=1.0, disagreement_penalty=0.0,
+    )
+    alloc_ekw = {"post_processor": PortfolioPostProcessor(alloc_pp_cfg)}
+    print(f"\nTraining allocation agent: {args.timesteps:,} steps...")
+    allocation_agent = train_ppo(
+        fs=train_fs, timesteps=args.timesteps, seed=args.seed,
+        gamma=args.gamma, bc_warmstart=True, horizon=args.horizon,
+        net_size=args.net_size, dropout=args.dropout, **alloc_ekw,
+    )
+
+    print(f"\nTraining RL risk overlay: {args.overlay_timesteps:,} steps...")
+    overlay_agent = train_risk_overlay(
+        train_fs, allocation_agent, timesteps=args.overlay_timesteps,
+        seed=args.seed, target_vol=target_vol or 0.5,
+    )
+    rl_overlay = RLRiskOverlay(overlay_agent, target_vol=target_vol or 0.5)
+    rule_overlay = RuleRiskOverlay(RuleRiskOverlayConfig(
+        target_vol=target_vol, dd_derisk_start=0.10, dd_derisk_floor=0.3,
+        disagreement_penalty=1.0,
+    ))
+
+    exec_pp_cfg = PostProcessConfig(ema_alpha=0.5, max_weight=0.4, no_trade_band=0.04)
+    rule_pp = PortfolioPostProcessor(exec_pp_cfg, risk_overlay=rule_overlay)
+    rl_pp = PortfolioPostProcessor(exec_pp_cfg, risk_overlay=rl_overlay)
+
+    rule_res = evaluate_agent_on_slice(allocation_agent, test_fs, post_processor=rule_pp)
+    rl_res = evaluate_agent_on_slice(allocation_agent, test_fs, post_processor=rl_pp)
+
+    print("\n=== Risk overlay comparison (OOS, single seed) ===")
+    report_comparison(rl_res, {"rule_overlay": _as_baseline(rule_res, "rule_overlay")},
+                      "RL overlay vs Rule overlay (allocation agent identical)")
+    print("[NOTE] 単一シード・単一シナリオの結果。既定への昇格には"
+          "docs/ARCHITECTURE.md §5と同じP0+汎用性スイート×3シードでの"
+          "再測定が必要（未実施）。")
+
+    with open(output_dir / "overlay_report.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "rule_overlay": {k: v for k, v in rule_res.items() if k != "equity_curve"},
+            "rl_overlay": {k: v for k, v in rl_res.items() if k != "equity_curve"},
+            "note": "single-seed exploratory comparison, not a promotion-grade benchmark",
+        }, f, indent=2, ensure_ascii=False)
+    print(f"Report -> {output_dir / 'overlay_report.json'}")

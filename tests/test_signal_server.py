@@ -127,3 +127,64 @@ class TestSignalServer:
         client = TestClient(app)
         resp = client.get("/api/signal/latest")
         assert resp.status_code == 404
+
+
+class TestRunConfigParity:
+    """回帰テスト: 学習時のenv設定(htf_gate/obs_risk_state等)がメタデータの
+    run_configに保存され、serve側で復元されることを確認する。これが無いと
+    観測形状の異なるモデルに対しserveが常定義既定env設定で推論してしまい、
+    train/serve一致が崩れる（DecisionPipelineの共有だけでは不十分）。
+    """
+
+    @staticmethod
+    @pytest.fixture(scope="class")
+    def trained_model_dir_with_run_config(tmp_path_factory):
+        base = tmp_path_factory.mktemp("run_config_fixture")
+        models_dir = base / "output"
+        data_dir = base / "data"
+        models_dir.mkdir()
+
+        subprocess.run(
+            [sys.executable, str(_REPO_ROOT / "scripts" / "generate_sample_data.py"),
+             "--days", "30", "--alpha", "cross", "--seed", "2", "--output", str(data_dir)],
+            check=True, cwd=_REPO_ROOT, capture_output=True,
+        )
+        symbols = sorted(
+            d.name for d in data_dir.iterdir() if d.is_dir() and (d / "1m").is_dir()
+        )
+        source = CsvSource(data_dir, symbols)
+        fs = FeaturePipeline(symbols).build(source)
+        pp = make_default_processor()
+        # htf_gate + obs_risk_state 付きで学習（観測形状が既定と異なる）
+        env_kwargs = {"post_processor": pp, "htf_gate": True, "obs_risk_state": True}
+        agent = train_ppo(
+            fs=fs, timesteps=1500, seed=0, n_envs=1,
+            bc_warmstart=False, **env_kwargs,
+        )
+        run_config = {k: v for k, v in env_kwargs.items() if k != "post_processor"}
+        save_bundle(models_dir, "portfolio_model", agent, ModelMetadata(
+            symbols=symbols, post_processor=pp.cfg.to_dict(), run_config=run_config,
+        ))
+        return models_dir, data_dir
+
+    def test_run_config_saved_and_loaded(self, trained_model_dir_with_run_config):
+        from mars_lite.serving.model_store import load_metadata
+
+        models_dir, _ = trained_model_dir_with_run_config
+        meta = load_metadata(models_dir, "portfolio_model")
+        assert meta.run_config == {"htf_gate": True, "obs_risk_state": True}
+
+    def test_signal_latest_matches_trained_obs_shape(self, trained_model_dir_with_run_config, monkeypatch):
+        """run_configがserve側のenv構築に反映され、観測形状不一致で
+        落ちない（＝正しい方策入力で推論できる）ことを確認する。
+        """
+        models_dir, data_dir = trained_model_dir_with_run_config
+        monkeypatch.chdir(data_dir.parent)
+        app = create_app(output_dir=str(models_dir))
+        client = TestClient(app)
+
+        resp = client.get("/api/signal/latest")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "weights" in body
+        assert set(body["symbols"]) == set(body["weights"].keys())

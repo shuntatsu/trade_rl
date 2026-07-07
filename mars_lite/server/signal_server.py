@@ -246,11 +246,13 @@ def create_app(output_dir: str = "./output") -> "FastAPI":
         symbols = None
         pp_cfg = None
         feature_mask = None
+        run_config = {}
         meta = load_metadata(models_dir, "portfolio_model")
         if meta is not None:
             symbols = meta.symbols or None
             pp_cfg = meta.post_processor or None
             feature_mask = meta.feature_mask
+            run_config = meta.run_config or {}
 
         data_dir = resolve_data_dir()
         available = set(
@@ -292,12 +294,17 @@ def create_app(output_dir: str = "./output") -> "FastAPI":
         last_ts = pd.Timestamp(fs.timestamps[-1])
         if last_ts.tzinfo is not None:
             last_ts = last_ts.tz_localize(None)
-        age_hours = (pd.Timestamp.utcnow().tz_localize(None) - last_ts).total_seconds() / 3600
+        age_hours = (pd.Timestamp.now("UTC").tz_localize(None) - last_ts).total_seconds() / 3600
         # 合成/過去データでの検証を妨げないため、鮮度は警告フラグとして返す（拒否はしない）
         # 閾値はguardrails.GuardrailConfigを単一の正とする
         stale = age_hours > GuardrailConfig().max_data_age_hours
 
-        env = PortfolioTradingEnv(fs, episode_bars=10)
+        # 学習時のenv構築引数（htf_gate/obs_risk_state/decision_every等）を
+        # run_configから復元する。これを省略すると、学習時と異なる観測形状・
+        # HTFゲート無しの環境で推論することになりtrain/serve一致が崩れる
+        # （post_processorだけを揃えても不十分）。post_processorは別途
+        # meta.post_processorから復元するのでrun_configには含めない。
+        env = PortfolioTradingEnv(fs, episode_bars=10, **run_config)
         # 最終バーの観測でフラット状態からの推奨ウェイトを推論
         obs, _ = env.reset(options={"start_idx": max(fs.n_bars - 3, 0)})
         agent = PPO.load(str(model_path), device="cpu")
@@ -330,10 +337,17 @@ def create_app(output_dir: str = "./output") -> "FastAPI":
         pk = peak_value if peak_value is not None else portfolio_value
 
         # env.step と同一のDecisionPipeline（射影→後処理→HTFゲート）を通す
-        # （実装共有により train/serve 一致が構造で保証される）
-        pipeline = DecisionPipeline(post_processor=pp)
+        # （実装共有により train/serve 一致が構造で保証される）。
+        # HTFゲートのしきい値・スケールもenvと同一のものを使う
+        # （学習時 --htf-gate 付きなら env._htf_idx が設定されている）。
+        pipeline = DecisionPipeline(
+            post_processor=pp, htf_threshold=env.htf_threshold,
+            htf_neutral_scale=env.htf_neutral_scale,
+        )
         state = PortfolioState(weights=prev_w, portfolio_value=pv, peak_value=pk)
-        market = MarketView.from_feature_set(fs, env.t, vol_lookback=pp.cfg.vol_lookback)
+        market = MarketView.from_feature_set(
+            fs, env.t, vol_lookback=pp.cfg.vol_lookback, htf_idx=env._htf_idx,
+        )
         processed, pp_info = pipeline.target_weights(raw_weights, state, market)
 
         # ガードレール評価（データ鮮度・NaN・過大ウェイト等）

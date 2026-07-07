@@ -125,7 +125,10 @@ class TestRLRiskOverlay:
         scaled, info = overlay.scale(w, drawdown=0.1, disagreement=0.0, recent_returns=None)
 
         np.testing.assert_allclose(scaled, w * 0.3, atol=1e-12)
+        # 単一のグロス乗数が④⑤⑥全てを代替するため3項目とも同じ値になる
+        assert info["vol_scale"] == pytest.approx(0.3)
         assert info["dd_scale"] == pytest.approx(0.3)
+        assert info["disagreement_scale"] == pytest.approx(0.3)
 
     def test_scale_clips_out_of_range_actions(self):
         from mars_lite.trading.risk_overlay import RLRiskOverlay

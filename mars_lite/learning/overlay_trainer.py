@@ -38,9 +38,14 @@ class _GrossMultAdapter:
     def scale(self, w, drawdown, disagreement, recent_returns):
         m = self.pending_gross_mult
         scaled = np.asarray(w, dtype=np.float64) * m
+        # 3項目とも同じ値にする理由はRLRiskOverlay.scaleと同じ:
+        # 単一のグロス乗数が④⑤⑥全てを代替するため、どれか1つ(dd_scale)だけに
+        # 詰め込むと配分エージェントがobs_risk_state付きで学習されていた場合、
+        # 次のinner_env観測に「ドローダウン応答だけが動いた」という偽の
+        # シグナルが混入する。
         return scaled, {
-            "vol_scale": 1.0, "dd_scale": m,
-            "disagreement_scale": 1.0, "est_port_vol": 0.0,
+            "vol_scale": m, "dd_scale": m,
+            "disagreement_scale": m, "est_port_vol": 0.0,
         }
 
 

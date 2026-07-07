@@ -133,7 +133,13 @@ def get_current(model_dir: Path) -> Optional[str]:
 
 
 def rollback(model_dir: Path) -> Optional[str]:
-    """直前に昇格していたモデルへポインタを戻す。履歴が無ければNone"""
+    """直前に昇格していたモデルへポインタを戻す。履歴が無ければNone
+
+    注意: rollback自体は履歴に積み直さないため、rollbackを2回続けても
+    「rollbackを取り消す」動作にはならない（多段のundo/redoは非対応。
+    現状の週次再学習運用では直前バージョンへの単純な巻き戻しで十分という
+    想定によるシンプル化）。
+    """
     model_dir = Path(model_dir)
     history_path = _history_path(model_dir)
     if not history_path.exists():

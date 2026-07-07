@@ -14,7 +14,7 @@ RLRiskOverlay は「配分（銘柄間の相対ウェイト）は既存の配分
 ルール比の優位性を示すまで昇格しない。
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol
 
 import numpy as np
@@ -128,8 +128,14 @@ class RLRiskOverlay:
         action, _ = self.agent.predict(obs, deterministic=True)
         gross_mult = float(np.clip(np.asarray(action).flatten()[0], 0.0, 1.0))
         scaled = np.asarray(w, dtype=np.float64) * gross_mult
+        # 単一の学習済みスカラーが④⑤⑥(ボラ目標/DDデリスク/不一致縮小)を
+        # まとめて代替するため、どの要因がどれだけ効いたかは分解できない。
+        # dd_scaleだけに詰め込むとPortfolioTradingEnv.obs_risk_state経由で
+        # 方策に「ドローダウン応答だけが動いた」という偽の信号を与えてしまう
+        # ため、3つとも同じ値にして「オーバーレイの合成スケール」として扱う。
         info = {
-            "vol_scale": 1.0, "dd_scale": gross_mult,
-            "disagreement_scale": 1.0, "est_port_vol": float(obs[3] * (self.target_vol or 0.0)),
+            "vol_scale": gross_mult, "dd_scale": gross_mult,
+            "disagreement_scale": gross_mult,
+            "est_port_vol": float(obs[3] * (self.target_vol or 0.0)),
         }
         return scaled, info

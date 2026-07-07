@@ -391,11 +391,19 @@ def phase_train(args, output_dir: Path) -> None:
 
     if args.ensemble <= 1:
         from mars_lite.serving.model_store import save_bundle, ModelMetadata
+        # ekwからpost_processor(既にpost_processorキーで別途保存済み)を除いた
+        # 残りのenv構築引数(htf_gate/obs_risk_state/decision_every等)を
+        # run_configとして保存する。これが無いとserve側は常に既定env設定で
+        # 推論することになり、htf_gate/obs_risk_state付きで学習したモデルの
+        # train/serve一致が構造的に保証されなくなる（DecisionPipelineの
+        # 共有だけでは、そこに渡すenv側の設定自体が揃っていないと不十分）。
+        run_config = {k: v for k, v in ekw.items() if k != "post_processor"}
         save_bundle(output_dir, "portfolio_model", agent, ModelMetadata(
             symbols=fs.symbols,
             post_processor=pp.cfg.to_dict(),
             feature_mask=([bool(x) for x in feature_mask]
                           if feature_mask is not None else None),
+            run_config=run_config,
             metrics={
                 "signal_gate": ic.to_dict(),
                 "gate2": gate2,

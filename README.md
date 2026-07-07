@@ -189,6 +189,12 @@ python scripts/train_portfolio.py --phase train --source hyperliquid \
 > が埋まるまで特徴が不完全になる。実効学習期間をNdays確保したいなら、
 > `--days` は (N+100) 程度を確保し `--warmup-days 100` で先頭を切り捨てる。
 
+> **1h足の保持期間に上限あり**: Hyperliquid公開APIは1h足を約209日分しか
+> 保持していない（実測、それ以前は0件）。`--days`をこれ以上増やしても
+> 1h足では取得量は増えない（4h足は約833日、1d足は2000日以上保持）。
+> より長期の実データが必要なら Binance（`scripts/fetch_futures.py`）を使う
+> か`--days`をこの上限内に収めること（docs/ARCHITECTURE.md §6）。
+
 > **ゲート1**: OOSランクIC ≥ 0.02。不合格ならRL学習に進まない（`--skip-gate` で強制続行可）。
 
 ### 収益最適化フェーズ

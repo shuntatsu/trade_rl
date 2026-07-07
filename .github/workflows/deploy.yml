@@ -14,15 +14,35 @@ on:
       shadow_passed:
         description: Shadow evidence passed
         required: true
-        default: "false"
+        type: boolean
+        default: false
       canary_passed:
         description: Canary evidence passed
         required: true
-        default: "false"
+        type: boolean
+        default: false
       approval_ticket:
         description: Required for production
         required: false
         default: ""
+      model_version:
+        description: Model version (required for canary/production)
+        required: false
+        default: ""
+      git_commit:
+        description: Git commit hash (40-char SHA-1, required for canary/production)
+        required: false
+        default: ""
+      drift_report_passed:
+        description: Drift report passed (required for canary/production)
+        required: false
+        type: boolean
+        default: false
+      active_incidents:
+        description: Active incidents present (blocks deployment if true)
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   gate:
@@ -47,6 +67,10 @@ jobs:
               shadow_passed=os.environ["SHADOW_PASSED"].lower() == "true",
               canary_passed=os.environ["CANARY_PASSED"].lower() == "true",
               approval_ticket=os.environ["APPROVAL_TICKET"] or None,
+              model_version=os.environ["MODEL_VERSION"] or None,
+              git_commit=os.environ["GIT_COMMIT"] or None,
+              drift_report_passed=os.environ["DRIFT_REPORT_PASSED"].lower() == "true",
+              active_incidents=os.environ["ACTIVE_INCIDENTS"].lower() == "true",
           )
           decision = DeploymentGate().evaluate(evidence)
           print(decision.reason)
@@ -58,3 +82,7 @@ jobs:
           SHADOW_PASSED: ${{ inputs.shadow_passed }}
           CANARY_PASSED: ${{ inputs.canary_passed }}
           APPROVAL_TICKET: ${{ inputs.approval_ticket }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+          GIT_COMMIT: ${{ inputs.git_commit }}
+          DRIFT_REPORT_PASSED: ${{ inputs.drift_report_passed }}
+          ACTIVE_INCIDENTS: ${{ inputs.active_incidents }}

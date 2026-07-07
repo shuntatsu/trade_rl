@@ -1,27 +1,75 @@
-# Incident Response Runbook
+# インシデント対応運用手順書 (Incident Response Runbook)
 
-## Scope
+## 1. 概要と対象範囲 (Scope)
+本手順書は、`mars_lite` における予測モデルサービングおよび評価ワークフローにおいて発生する、Shadow、Canary、Production の各ステージでのインシデント発生時の対応手順を定義します。
 
-This runbook covers Shadow, Canary, and Production incidents for `mars_lite`
-model serving and evaluation workflows.
+## 2. 重要度レベル (Severity Levels)
+発生した異常や障害の重大性に応じて、以下の重要度レベル（SEV）に分類し、定められた対応目標時間内に対応を行います。
 
-## Severity Levels
-
-| Severity | Trigger | Response target |
+| 重要度 (Severity) | トリガー条件 (Trigger) | 対応目標 (Response target) |
 | --- | --- | --- |
-| SEV1 | Production order safety breach or data corruption | Immediate stop and rollback |
-| SEV2 | Canary drift, degraded Sharpe, or failed guardrail | Pause promotion within 30 minutes |
-| SEV3 | Shadow-only metric regression | Triage before next promotion |
+| **SEV1** (緊急) | 本番環境（Production）での注文安全基準の逸脱、またはデータ破損の発生 | 直ちにシステム停止およびモデルのロールバックを実施 |
+| **SEV2** (警告) | Canary環境でのドリフト発生、シャープレシオの大幅低下、またはガードレールチェックの失敗 | 30分以内に昇格（プロモーション）プロセスを一時停止 |
+| **SEV3** (注意) | Shadow環境のみでのメトリクス（パフォーマンス指標）の低下 | 次回の昇格プロセス開始前までにトリアージ（原因分析と優先度評価）を実施 |
 
-## First Actions
+## 3. 初動対応手順 (First Actions)
+インシデント検知後、速やかに以下の初動対応を順に実施してください。
 
-1. Freeze the current deployment stage.
-2. Capture active model version, registry history, metrics, and drift report.
-3. If the active stage is Production, run model rollback and move execution to flat
-   exposure until the deployment gate is cleared again.
-4. Open an incident record with owner, start time, affected symbols, and evidence.
+1. **デプロイステージの凍結**:
+   現在進行中のデプロイステージの昇格処理を直ちに中断・凍結します。
+2. **証跡・メトリクスの収集**:
+   現在アクティブなモデルバージョン、レジストリ履歴、監視メトリクス、およびドリフトレポートの情報をキャプチャ（記録）します。
+3. **本番環境でのロールバック実行**:
+   インシデントが発生したステージが Production の場合、直ちにモデルロールバック（後述のコマンド参照）を実行し、デプロイゲートが再度クリアされるまで、実行システムをフラットポジション（ポジションなし・リスク最小化状態）に移行させます。
+4. **インシデント記録の作成**:
+   インシデント対応者（オーナー）、開始時刻、影響を受けた取引対象（シンボル）、および収集した証跡を記載したインシデント記録を作成します。
 
-## Recovery Criteria
+## 4. 緊急コマンド実行手順 (Emergency Commands)
 
-Production can resume only after Shadow and Canary evidence pass again, the model
-decision log is updated, and the approval ticket is recorded.
+### 4.1 緊急時ポジションフラット化コマンド
+本番環境で異常な注文動作や許容値を超えるリスクを検知した場合、以下のコマンドを実行して即座にポジションをクローズ（フラット化）し、新規注文を防止してください。
+```bash
+python -m mars_lite.trading.guardrails --action flatten --reason "SEV1 incident: abnormal order behavior detected"
+```
+
+### 4.2 モデルロールバック実行コマンド
+問題のあるモデルバージョンから直前の安定バージョンにフォールバックさせるための手順です。
+
+1. **登録されているモデルバージョン一覧の確認**:
+   ```bash
+   python -m mars_lite.server.model_registry list
+   ```
+   出力結果から、直近で正常動作していたモデルバージョン（例：`v1.1.0`）を確認します。
+
+2. **ロールバックの実行**:
+   ```bash
+   python -m mars_lite.server.model_registry rollback --target-version <version>
+   ```
+   （例：`python -m mars_lite.server.model_registry rollback --target-version v1.1.0`）
+
+## 5. エスカレーション先 (Escalation Path)
+インシデント発生時は、重要度レベルに応じて以下の連絡先に即座に通報・連携を行ってください。
+
+- **開発・インフラ運用チーム (On-Call)**:
+  - Email: `oncall@company.com`
+  - Slack Channel: `#trading-alerts` (緊急連絡用メンション: `@oncall-lead`)
+- **コンプライアンス・リスク管理部門**:
+  - Email: `compliance@company.com`
+  - 内線電話: リスク管理担当直通 (緊急時のみ)
+
+## 6. 事後分析 (RCA) ドキュメントの作成ルール
+インシデントがクローズ（復旧・対応完了）した後、**48時間以内**に事後分析 (RCA: Root Cause Analysis) ドキュメントを作成し、関係者に共有しなければなりません。
+
+RCA ドキュメントには、以下の項目を必ず記載してください：
+1. **インシデント概要**: 発生日時、検知方法、対応時間、影響範囲。
+2. **タイムライン**: 検知から復旧にいたるまでの各対応ステップと正確な時刻。
+3. **根本原因 (Root Cause)**: なぜ問題が発生したか。5つの「なぜ」分析（5 Whys）などを活用して掘り下げる。
+4. **是正処置・予防策 (Corrective Actions)**: 再発防止のために実装する短期・長期の対策（タスクオーナーと期限を明記）。
+5. **証跡リンク**: 対応時に採取したログ、ハッシュ値、ロールバック時の記録。
+
+## 7. 復旧基準 (Recovery Criteria)
+本番環境（Production）でのモデル運用を再開するには、以下の条件をすべて満たす必要があります。
+
+- Shadow および Canary ステージでの検証が再パスし、必要な証跡がすべて正常に揃っていること。
+- モデル意思決定ログ（`model_decision_log.md`）が更新されていること。
+- 新たに発行された承認チケット（`PROD-`で始まるチケット番号）が記録されていること。

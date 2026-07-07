@@ -47,6 +47,14 @@ pip install -e .
 pip install "psycopg[binary]"   # Postgres投入時のみ
 ```
 
+`uv` を使う場合:
+
+```bash
+uv venv --python 3.11
+# Windows PowerShell: .venv\Scripts\activate
+uv pip install -e . -r requirements.txt
+```
+
 ---
 
 ## クイックスタート（データ不要）
@@ -127,6 +135,8 @@ python scripts/fetch_futures.py \
 
 - デリバAPI（OI/L-S）は**直近30日のみ**取得可能
 - **長期OI/L-S**: `data.binance.vision` 日次 metrics ZIP（5分足・`fetch_derivatives` が自動使用）
+- 長期間（例: 3年・10銘柄）の取得は数時間以上かかる。途中で停止しても
+  再実行すれば既存データへの追記・重複スキップで再開できる
 - `ETHBTC` は先物に無いためデフォルト銘柄から除外済み
 - Binanceは一部地域からブロックされる。オフライン検証は下記サンプル生成を使う
 
@@ -158,11 +168,26 @@ python scripts/train_portfolio.py --phase train --source csv --data ./data \
 > - `train_report.json` の `gate2.passed = true`（RL が全ベースライン、特に `trend_following` を上回る）
 > - `--ensemble 3` を実データの既定推奨（シード運のばらつき低減 + 不一致度スケーリング）
 
-### Hyperliquidキャッシュ（CSV）
+### Hyperliquid（`--source hyperliquid`、CSVキャッシュ不要）
 
-`fetch_hyperliquid.py` で `./data/hyperliquid/` にキャッシュした後、
-`CsvSource` 互換の読み込みは今後 `--source hyperliquid` で接続予定。
-現状はキャッシュCSVを手動で参照するか、Postgres経由（`PostgresSource` 実装後）を使う。
+`train_portfolio.py --source hyperliquid` は `HyperliquidSource` 経由で
+公開APIから直接データを取得する（`fetch_hyperliquid.py`によるCSV事前取得は不要。
+取得結果は `./data/hyperliquid/` に自動キャッシュされる。両者はキャッシュを共有する）。
+
+```bash
+python scripts/train_portfolio.py --phase train --source hyperliquid \
+    --symbols BTCUSDT ETHUSDT SOLUSDT XRPUSDT \
+    --days 220 --warmup-days 100 --timesteps 2000000
+```
+
+> **注意（既知の問題）**: キャッシュは「ファイルが存在するか」しか見ておらず、
+> 要求日数をカバーしているかは確認しない。先に短い日数で取得すると、後で
+> `--days` を増やしても古いキャッシュが黙って再利用される。日数を増やす際は
+> `rm -rf ./data/hyperliquid` してから再取得すること（docs/ARCHITECTURE.md §6）。
+
+> **ウォームアップに注意**: 最長のローリング窓（1dTFのvol_ratio長期側=100日分）
+> が埋まるまで特徴が不完全になる。実効学習期間をNdays確保したいなら、
+> `--days` は (N+100) 程度を確保し `--warmup-days 100` で先頭を切り捨てる。
 
 > **ゲート1**: OOSランクIC ≥ 0.02。不合格ならRL学習に進まない（`--skip-gate` で強制続行可）。
 
@@ -200,7 +225,7 @@ python scripts/train_portfolio.py --phase overlay --source csv --data ./data \
 | フラグ | 既定 | 説明 |
 |---|---|---|
 | `--phase` | p0 | `p0` / `train` / `wf` / `pbt` / `regime` / `overlay` |
-| `--source` | synthetic | `synthetic` / `csv` / `postgres`（※Postgres読み込みは未実装） |
+| `--source` | synthetic | `synthetic` / `csv` / `postgres` / `hyperliquid` |
 | `--ensemble` | 1 | シードアンサンブル数。**実データでは3推奨**（シード運低減 + 不一致度スケーリング） |
 | `--gamma` | 0.5 | 割引率（0.995は崩壊する） |
 | `--postproc` | full | 後処理（平滑/集中上限/ボラ目標/DDデリスク） |
@@ -233,14 +258,14 @@ python scripts/train_portfolio.py --phase overlay --source csv --data ./data \
 3. **ゲート1（IC）**: 特徴に予測力があるか（実データの本丸）
 4. **ゲート2（対ルール）**: `train_report.json` の `gate2.passed` で自動判定。`rl_beat_trend_following` が重要。
 5. **ベースライン比較**: フラット / 等ウェイトB&H / ボラ逆数 / クロスモメンタム則
-5. **オラクル則**: 手数料込みDP上限との捕捉率
-6. **ウォークフォワード**: コスト2倍でも中央値プラスか
-7. **Deflated Sharpe Ratio**: `--phase wf` の各コスト水準で自動計算し
+6. **オラクル則**: 手数料込みDP上限との捕捉率
+7. **ウォークフォワード**: コスト2倍でも中央値プラスか
+8. **Deflated Sharpe Ratio**: `--phase wf` の各コスト水準で自動計算し
    `walk_forward_cost*x.json` の `deflated_sharpe` に記録。fold×seedの
    試行回数で「そのSharpeが偶然でない確率」を補正する（目安 `dsr >= 0.95`）。
    何度も条件を変えて再実行するほど選択バイアスが乗るため、点推定の
    Sharpeだけでなくこちらも確認すること。
-8. **ロックボックス（最終封印テスト）**: `--phase train --lockbox-frac 0.15` で
+9. **ロックボックス（最終封印テスト）**: `--phase train --lockbox-frac 0.15` で
    末尾区間を全工程（ゲート・特徴マスク・fold分割・学習）から隔離し、
    最終モデルの評価に一度だけ使う。`train_report.json` の `lockbox` に記録。
    同じ出力ディレクトリで再実行すると使用済み警告が出る
@@ -264,7 +289,7 @@ python scripts/train_portfolio.py --phase overlay --source csv --data ./data \
 ## シグナルサーバー
 
 学習トリガー・リアルタイムメトリクス配信のUIは持たない（学習はCLIで行う設計。
-`docs/ARCHITECTURE.md` §4「運用設計」参照）。サーバーは学習済みモデルから
+`docs/ARCHITECTURE.md` §3「運用設計」参照）。サーバーは学習済みモデルから
 推奨ウェイトを配信する薄いAPIのみ:
 
 ```bash
@@ -336,10 +361,12 @@ python -m pytest tests/ -v
 ## ロードマップ（抜粋）
 
 1. **実データP1**: fetch → ゲート1。ここが本当の勝負
-2. `PostgresSource` 実装（`--source postgres` で学習）
-3. `train_portfolio --source hyperliquid` のCLI接続
-4. 弱シグナル領域: `--ensemble 3`
-5. 紙上運用2週間 → バックテスト乖離分析 → 資金投入判断
+2. 弱シグナル領域: `--ensemble 3`
+3. RL強化Stage A/B（`--obs-risk-state` / `--phase overlay`等）の正式ベンチマーク・既定化判断
+4. 紙上運用2週間 → バックテスト乖離分析 → 資金投入判断
+
+`--source postgres` / `--source hyperliquid` は実装済み（後者は動作確認済み、
+docs/ARCHITECTURE.md §6の既知の問題に注意）。
 
 ---
 

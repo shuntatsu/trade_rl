@@ -23,15 +23,16 @@
 3. [5分でわかる動作確認（P0）](#5分でわかる動作確認p0)
 4. [データ取得](#データ取得)
 5. [学習フェーズの使い分け](#学習フェーズの使い分け)
-6. [評価とゲート体系](#評価とゲート体系)
-7. [リスク制御・モデル管理・監視](#リスク制御モデル管理監視)
-8. [デプロイパイプライン](#デプロイパイプライン)
-9. [ダッシュボード](#ダッシュボード)
-10. [主なCLIオプション一覧](#主なcliオプション一覧)
-11. [ディレクトリ構成](#ディレクトリ構成)
-12. [テスト・CI](#テストci)
-13. [レガシー: 執行エージェント（v1）](#レガシー-執行エージェントv1)
-14. [トラブルシューティング](#トラブルシューティング)
+6. [本番相当のフルパイプライン（1コマンド）](#本番相当のフルパイプライン1コマンド)
+7. [評価とゲート体系](#評価とゲート体系)
+8. [リスク制御・モデル管理・監視](#リスク制御モデル管理監視)
+9. [デプロイパイプライン](#デプロイパイプライン)
+10. [ダッシュボード](#ダッシュボード)
+11. [主なCLIオプション一覧](#主なcliオプション一覧)
+12. [ディレクトリ構成](#ディレクトリ構成)
+13. [テスト・CI](#テストci)
+14. [レガシー: 執行エージェント（v1）](#レガシー-執行エージェントv1)
+15. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
@@ -243,6 +244,69 @@ uv run python scripts/train_portfolio.py --phase train --source postgres \
 
 ---
 
+## 本番相当のフルパイプライン（1コマンド）
+
+`--phase` を手でp0→pbt→wf→trainと順に叩く代わりに、`scripts/run_pipeline.py` が
+**p0(健全性試験) → pbt(ハイパラ探索) → wf(walk-forward評価/ゲート) →
+train(最終学習/ゲート2) → bootstrap(有意性検定/任意) → モデルレジストリ登録**
+を1コマンドで通しで実行する。各ステップは `train_portfolio.py` の各フェーズと
+同じ関数を呼んでいるだけで、挙動は同一。既定ではゲート不合格時にそこで停止する
+（`--force` で強制続行）。
+
+**特徴量セットは1回だけ構築し、末尾 `--holdout-frac`（既定15%）を
+pbt・wfが一切参照しない完全ホールドアウト区間として切り出す。**
+pbtのハイパラ探索・wfの全foldはホールドアウトより前の「dev区間」だけで完結し、
+最終ゲート2判定だけがホールドアウト区間を1回だけ参照する。これをしないと
+「後ろ30%で良いハイパラをpbtが探し、wf/trainのアウトオブサンプル評価が
+同じ後ろ20〜30%を再利用する」というデータスヌーピングになる。
+
+### 本番相当コマンド例（実データ・全銘柄・統計的有意性検定つき）
+
+```bash
+uv run python scripts/run_pipeline.py \
+  --source postgres --pg-source binance \
+  --timesteps 300000 \
+  --ensemble 3 --folds 3 --n-seeds 3 \
+  --scan-horizons --horizons 1 2 4 8 12 24 48 72 \
+  --postproc full --bc-teacher auto \
+  --require-significant \
+  --output ./output/portfolio_run_full \
+  --verbose 1
+```
+
+| フラグ | 意味 |
+|---|---|
+| `--scan-horizons --horizons ...` | 学習前にホライズンスキャンを行い、OOS ICが最大のホライズンを自動選択（`--horizon`を上書き）。低頻度アルファ向けの`decision_every`も連動して自動設定される |
+| `--ensemble 3 --folds 3 --n-seeds 3` | シード運のばらつきを抑えるためのアンサンブル数・walk-forward fold数・試行シード数 |
+| `--require-significant` | 最終モデルが `trend_following` ベースラインに対しブートストラップ検定でp<0.05で勝っているかをゲートに追加する |
+| `--verbose 1` | PPOの学習ログ（`ep_rew_mean`等）を出力する |
+
+出力（`--output` 配下）:
+
+| ファイル | 内容 |
+|---|---|
+| `p0_report.json` | STEP1健全性試験の合否 |
+| `pbt_result.json` | 探索されたベストハイパーパラメータと世代ごとの推移 |
+| `walk_forward_cost2x.json` | コスト2倍時の全fold×seedのリターン分布 |
+| `train_report.json` | 最終モデルのゲート2判定・ベースライン比較・holdout成績 |
+| `model_registry/` | バージョン管理されたモデル（`--no-register`でスキップ可） |
+
+### 主なオーケストレータ専用オプション
+
+| フラグ | 既定値 | 説明 |
+|---|---|---|
+| `--holdout-frac` | 0.15 | pbt/wfが一切触れない最終ホールドアウト区間の割合（末尾から） |
+| `--skip-p0` / `--skip-pbt` / `--skip-wf` | off | 該当ステップをスキップ（実データ本番では非推奨） |
+| `--wf-cost-gate` | 0.0 | walk-forward（コスト2倍）の中央値リターンがこの値以下なら停止 |
+| `--require-significant` | off | ブートストラップ検定（対trend_following）のp<0.05をゲートにする |
+| `--force` | off | ゲート不合格でも後続ステップを続行する（自己責任） |
+| `--no-register` | off | 学習後にモデルレジストリへ登録しない |
+
+軽く試したいだけの場合は `--skip-pbt --skip-wf --timesteps 50000 --ensemble 1` のように
+各ステップを削ぎ落として実行時間を短縮できる（ただし本番判断には使わないこと）。
+
+---
+
 ## 評価とゲート体系
 
 学習したモデルを「勘」ではなく段階的なゲートで判定する。
@@ -417,7 +481,7 @@ trade_rl/
 │   ├── eval/           # リプレイシミュレータ・ドリフト監視・ブートストラップ評価・walk-forward
 │   ├── server/         # FastAPIダッシュボードAPI・モデルレジストリ・デプロイゲート
 │   └── pipeline/       # train_portfolio.py の実体（cli/dataset_builder/training_engine/evaluator）
-├── scripts/            # fetch_* / train_portfolio.py / evaluate / backtest 等
+├── scripts/            # fetch_* / train_portfolio.py / run_pipeline.py(1コマンド通し実行) / evaluate / backtest 等
 ├── frontend/           # React製ダッシュボードUI
 ├── docs/
 │   ├── ARCHITECTURE.md              # 設計の正典

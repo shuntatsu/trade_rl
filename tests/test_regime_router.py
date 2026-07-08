@@ -90,8 +90,7 @@ class TestDeriveRouterTable:
         assert set(table.assignments.keys()) == set(FINE_REGIMES)
         assert all(v == "tf" for v in table.assignments.values())
         assert all(
-            table.derivation[r]["reason"] == "insufficient_sample"
-            for r in FINE_REGIMES
+            table.derivation[r]["reason"] == "insufficient_sample" for r in FINE_REGIMES
         )
 
     def test_table_only_uses_data_before_end(self):
@@ -118,7 +117,11 @@ class TestRouterTableSerialization:
     def test_roundtrip_via_dict(self):
         table = RouterTable(
             assignments={r: "tf" for r in FINE_REGIMES},
-            labeler_params={"trend_threshold": 0.5, "vol_threshold": 0.0, "age_bars": 24},
+            labeler_params={
+                "trend_threshold": 0.5,
+                "vol_threshold": 0.0,
+                "age_bars": 24,
+            },
             derivation={"trend_up_early": {"reason": "default_or_positive"}},
         )
         d = table.to_dict()
@@ -130,7 +133,11 @@ class TestRouterTableSerialization:
     def test_roundtrip_via_file(self, tmp_path):
         table = RouterTable(
             assignments={r: "flat" for r in FINE_REGIMES},
-            labeler_params={"trend_threshold": 0.5, "vol_threshold": 0.0, "age_bars": 24},
+            labeler_params={
+                "trend_threshold": 0.5,
+                "vol_threshold": 0.0,
+                "age_bars": 24,
+            },
         )
         path = tmp_path / "router_config.json"
         table.save(path)
@@ -181,7 +188,10 @@ class TestMakeRouterWeightFn:
         # ここではflat以外の唯一の選択肢がtfなので、確実に切替を起こすため
         # ラベルを手動で構成する代わりにconfirm_bars=1で即時切替させる
         table = RouterTable(
-            assignments={FINE_REGIMES[0]: "flat", **{r: "flat" for r in FINE_REGIMES[1:]}},
+            assignments={
+                FINE_REGIMES[0]: "flat",
+                **{r: "flat" for r in FINE_REGIMES[1:]},
+            },
             labeler_params={},
             confirm_bars=1,
         )
@@ -196,7 +206,10 @@ class TestMakeRouterWeightFn:
         confirmed_target = FINE_REGIMES[0]
         switch_t = None
         for t in range(1, len(raw_labels) - 1):
-            if raw_labels[t - 1] != confirmed_target and raw_labels[t] == confirmed_target:
+            if (
+                raw_labels[t - 1] != confirmed_target
+                and raw_labels[t] == confirmed_target
+            ):
                 switch_t = t
                 break
         if switch_t is None:
@@ -205,7 +218,9 @@ class TestMakeRouterWeightFn:
         nonzero_prev = np.full(n, 0.3)
         result = wf(fs, switch_t, nonzero_prev)
         # echo_strategyがw=zerosで呼ばれていれば結果はゼロになるはず
-        assert np.allclose(result, 0.0), "切替バーでprevウェイトがそのまま素通しされている"
+        assert np.allclose(result, 0.0), (
+            "切替バーでprevウェイトがそのまま素通しされている"
+        )
 
     def test_no_forced_rebalance_when_underlying_strategy_unchanged(self):
         """

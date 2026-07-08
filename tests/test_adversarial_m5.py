@@ -128,10 +128,19 @@ def test_disk_full_during_copy_leaves_partial_files(tmp_path):
     assert not target_file.exists(), "Partial file was not cleaned up"
 
 
-def test_index_file_write_permission_failure(tmp_path):
+def test_index_file_write_permission_failure(tmp_path, monkeypatch):
     """
-    インデックスファイル（registry.json）への書き込み権限がない場合、
-    書き込みエラーが発生し、物理ファイルだけがコピーされて残ることを実証するテスト。
+    インデックスファイル（registry.json）への書き込みが失敗した場合、
+    書き込みエラーが呼び出し元に伝播し、物理ファイルだけがクリーンアップ
+    されて残らないことを実証するテスト。
+
+    注意: os.chmod(index_path, stat.S_IREAD) でファイル自体を読み取り専用に
+    しても、_save() が使う Path.replace()（rename）は対象ファイルではなく
+    親ディレクトリの書き込み権限で許可判定される（POSIX仕様）ため、
+    ファイル単体の権限を落としても失敗を再現できない。これはroot/非rootを
+    問わない仕様（実測: rootはもちろん、GitHub Actionsのrunnerユーザーでも
+    再現しなかった）。実ファイルパーミッションに依存せず、_save()を
+    monkeypatchして書き込み失敗を直接注入する。
     """
     registry_dir = tmp_path / "registry"
     registry = ModelRegistry(registry_dir)
@@ -142,26 +151,25 @@ def test_index_file_write_permission_failure(tmp_path):
     # 初期状態として1つ登録しておく
     registry.register(model_file, version="v1")
 
-    # index_path を読み取り専用に変更
-    os.chmod(registry.index_path, stat.S_IREAD)
+    def failing_save(data):
+        raise PermissionError("simulated: index file write denied")
 
-    try:
-        # 新しいモデルの登録を試みる。
-        # temp_path.replace(self.index_path) または _save の書き込み処理で PermissionError / OSError が発生する
-        with pytest.raises((PermissionError, OSError)):
-            registry.register(model_file, version="v2")
+    monkeypatch.setattr(registry, "_save", failing_save)
 
-        # インデックスには登録されていない
-        # (読み取り専用なので load しても v1 しか見えないはず)
-        models = registry.list_models()
-        assert not any(m.version == "v2" for m in models)
+    # 新しいモデルの登録を試みる。_save の書き込み処理で PermissionError が発生する
+    with pytest.raises((PermissionError, OSError)):
+        registry.register(model_file, version="v2")
 
-        # 物理ファイルがクリーンアップされ、存在しないことを確認
-        target_file = registry.models_dir / "v2.zip"
-        assert not target_file.exists(), "File was not cleaned up"
-    finally:
-        # テスト後に元の権限に戻す
-        os.chmod(registry.index_path, stat.S_IWRITE)
+    monkeypatch.undo()
+
+    # インデックスには登録されていない
+    # (_saveが失敗しているのでファイルにはv1しか書かれていないはず)
+    models = registry.list_models()
+    assert not any(m.version == "v2" for m in models)
+
+    # 物理ファイルがクリーンアップされ、存在しないことを確認
+    target_file = registry.models_dir / "v2.zip"
+    assert not target_file.exists(), "File was not cleaned up"
 
 
 def test_invalid_metadata_type_persistence(tmp_path):

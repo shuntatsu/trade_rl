@@ -29,8 +29,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from mars_lite.features.regime_taxonomy import FINE_REGIMES, label_fine_regimes
 from mars_lite.features.feature_pipeline import FeatureSet
+from mars_lite.features.regime_taxonomy import FINE_REGIMES, label_fine_regimes
 from mars_lite.learning.baselines import (
     flat_strategy,
     simulate_strategy,

@@ -398,10 +398,12 @@ def phase_train(args, output_dir: Path) -> None:
 
         mask_rep = compute_feature_mask(train_fs, horizon=horizon)
         feature_mask = mask_rep["mask"]
+        dropped = mask_rep["dropped"]
+        assert isinstance(dropped, list)
         print(
             f"[Feature mask] kept {len(mask_rep['kept'])}/{fs.n_features} features "
-            f"(dropped: {', '.join(mask_rep['dropped'][:8])}"
-            f"{'...' if len(mask_rep['dropped']) > 8 else ''})"
+            f"(dropped: {', '.join(dropped[:8])}"
+            f"{'...' if len(dropped) > 8 else ''})"
         )
         train_fs = train_fs.apply_mask(feature_mask)
         test_fs = test_fs.apply_mask(feature_mask)

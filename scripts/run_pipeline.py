@@ -241,8 +241,14 @@ def main() -> int:
     else:
         from mars_lite.server.model_registry import ModelRegistry
 
-        model_name = "portfolio_ensemble" if args.ensemble > 1 else "portfolio_model"
-        model_path = output_dir / f"{model_name}.zip"
+        # SeedEnsemble.save()はディレクトリ(portfolio_ensemble/にseed_*.zipを
+        # 内包)を書くため.zipファイルにはならない。単一モデルはagent.save()が
+        # portfolio_model.zipを書く。ensemble>1時に.zip拡張子を付けて探すと
+        # 常に見つからず登録がスキップされていたバグを修正。
+        if args.ensemble > 1:
+            model_path = output_dir / "portfolio_ensemble"
+        else:
+            model_path = output_dir / "portfolio_model.zip"
         if not model_path.exists():
             print(f"[WARN] {model_path} が見つからず登録をスキップします")
         else:

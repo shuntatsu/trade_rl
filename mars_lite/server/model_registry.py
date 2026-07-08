@@ -104,6 +104,9 @@ class ModelRegistry:
                         break
                     timestamp += 1
 
+            # SeedEnsemble.save()はディレクトリ(seed_*.zipを内包)を書くため、
+            # source.suffixは空文字（拡張子なしの単一ファイルと区別できない）。
+            # ディレクトリソースはそのままディレクトリとして登録する。
             target = self.models_dir / f"{version}{source.suffix}"
 
             # Path traversal validation
@@ -117,7 +120,10 @@ class ModelRegistry:
                 )
 
             try:
-                shutil.copy2(source, target)
+                if source.is_dir():
+                    shutil.copytree(source, target)
+                else:
+                    shutil.copy2(source, target)
                 entry = ModelEntry(
                     version=version,
                     model_path=str(target),
@@ -132,7 +138,10 @@ class ModelRegistry:
             except Exception:
                 if target.exists():
                     try:
-                        target.unlink()
+                        if target.is_dir():
+                            shutil.rmtree(target)
+                        else:
+                            target.unlink()
                     except Exception:
                         pass
                 raise

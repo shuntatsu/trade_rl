@@ -648,22 +648,29 @@ def phase_wf(args, output_dir: Path, fs: Optional[FeatureSet] = None) -> None:
     pp = build_post_processor(args, horizon=args.horizon)
     ekw = build_env_kwargs(args, pp, horizon=args.horizon)
 
+    # phase_trainと同一の構成（horizon/target/BC教師）で各foldを学習する。
+    # これを渡さないとwfはBC教師選択を既定(h=4/raw)で行い、--horizon/--target
+    # 指定時に「wfで検証した構成」と「trainで本番学習する構成」が食い違う。
+    signal_target = getattr(args, "target", "raw")
+    train_kwargs = dict(
+        timesteps=args.timesteps,
+        gamma=args.gamma,
+        ent_coef=getattr(args, "ent_coef", 0.002),
+        learning_rate=getattr(args, "learning_rate", 3e-4),
+        bc_warmstart=True,
+        horizon=args.horizon,
+        signal_target=signal_target,
+        bc_teacher=getattr(args, "bc_teacher", "auto"),
+        oracle_noisy_ic=getattr(args, "oracle_noisy_ic", None),
+    )
+
     n_ensemble = max(args.ensemble, 1)
     if n_ensemble > 1:
         from mars_lite.learning.policy_ensemble import train_ensemble
 
         def train_fn(train_fs: FeatureSet, seed: int):
             def _inner(train_fs_: FeatureSet, _seed: int):
-                return train_ppo(
-                    fs=train_fs_,
-                    timesteps=args.timesteps,
-                    seed=_seed,
-                    gamma=args.gamma,
-                    ent_coef=getattr(args, "ent_coef", 0.002),
-                    learning_rate=getattr(args, "learning_rate", 3e-4),
-                    bc_warmstart=True,
-                    **ekw,
-                )
+                return train_ppo(fs=train_fs_, seed=_seed, **train_kwargs, **ekw)
 
             return train_ensemble(
                 _inner, train_fs, seeds=list(range(seed, seed + n_ensemble)), verbose=0
@@ -671,16 +678,7 @@ def phase_wf(args, output_dir: Path, fs: Optional[FeatureSet] = None) -> None:
     else:
 
         def train_fn(train_fs: FeatureSet, seed: int):
-            return train_ppo(
-                fs=train_fs,
-                timesteps=args.timesteps,
-                seed=seed,
-                gamma=args.gamma,
-                ent_coef=getattr(args, "ent_coef", 0.002),
-                learning_rate=getattr(args, "learning_rate", 3e-4),
-                bc_warmstart=True,
-                **ekw,
-            )
+            return train_ppo(fs=train_fs, seed=seed, **train_kwargs, **ekw)
 
     for cost_mult in [1.0, 2.0]:
         print(f"\n--- Walk-forward (cost x{cost_mult}, ensemble={n_ensemble}) ---")

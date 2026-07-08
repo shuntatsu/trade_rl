@@ -32,6 +32,32 @@ def test_model_registry_lists_activates_and_rolls_back(tmp_path):
     assert Path(rolled_back.model_path).exists()
 
 
+def test_register_directory_source_like_seed_ensemble(tmp_path):
+    """
+    SeedEnsemble.save()はディレクトリ(seed_0.zip, seed_1.zip...を内包)を書く。
+    run_pipeline STEP5がensemble>1時に`{model_name}.zip`を探して常に見つからず
+    登録をスキップしていたバグの根本原因(register側がディレクトリ未対応)を
+    直接テストする。
+    """
+    ensemble_dir = tmp_path / "portfolio_ensemble"
+    ensemble_dir.mkdir()
+    (ensemble_dir / "seed_0.zip").write_text("seed0", encoding="utf-8")
+    (ensemble_dir / "seed_1.zip").write_text("seed1", encoding="utf-8")
+
+    registry = ModelRegistry(tmp_path / "registry")
+    entry = registry.register(ensemble_dir, metrics={"sharpe": 1.2}, version="ens-v1")
+
+    target = Path(entry.model_path)
+    assert target.is_dir()
+    assert (target / "seed_0.zip").read_text(encoding="utf-8") == "seed0"
+    assert (target / "seed_1.zip").read_text(encoding="utf-8") == "seed1"
+    assert registry.get_active().version == "ens-v1"
+
+    # ロード可能性の確認: SeedEnsemble.loadと同じglobパターンで実ファイルが拾える
+    seed_files = sorted(target.glob("seed_*.zip"))
+    assert len(seed_files) == 2
+
+
 def test_model_registry_rejects_unknown_activation(tmp_path):
     registry = ModelRegistry(tmp_path / "registry")
 

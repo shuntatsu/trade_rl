@@ -62,6 +62,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--skip-gate", action="store_true")
     parser.add_argument(
+        "--warmup-days",
+        type=float,
+        default=0,
+        help="先頭Ndaysをウォームアップとして切り捨てる（最長ローリング窓"
+        "=1dTFのvol_ratio長期側100日分が埋まるまで特徴が不完全なため）。"
+        "実効学習期間をNdays確保したいなら、取得を(N+warmup_days)日分"
+        "にして本フラグで切り捨てる運用にする。既定0=無効",
+    )
+    parser.add_argument(
         "--postproc",
         choices=["full", "legacy"],
         default="full",

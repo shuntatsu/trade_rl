@@ -94,20 +94,31 @@ def main() -> int:
     total_steps = 5
 
     # --- STEP 1: p0 健全性試験 ---
-    # p0はARCHITECTURE.mdの検証済みデフォルト(horizon=4, decision_every=1)
-    # でのみ合否実績があるため、実データ用に選んだhorizon/decision_everyを
+    # p0はARCHITECTURE.mdの検証済みデフォルト(horizon=4, decision_every=1, days=240)
+    # でのみ合否実績があるため、実データ用に選んだhorizon/decision_every/daysを
     # 一時的に検証済み値へ差し替えて実行する（「コードが壊れていないか」を
     # 「その設定は合成データ向けにチューニングされていないだけ」から分離する）。
+    # days を差し替えないと、実データ用に指定した --days がそのまま p0 の
+    # 合成データ生成にも流用され、検証済みでない日数でノイズ耐性が偽陽性/偽陰性に
+    # なりうる（実測: --days 200 だとネガティブケースで過剰取引しFAILする）。
     _print_step(1, total_steps, "p0 健全性試験（学習システム自体が壊れていないか）")
     if args.skip_p0:
         print("[skip]")
     else:
-        orig_horizon, orig_decision_every = args.horizon, args.decision_every
-        args.horizon, args.decision_every = 4, 1
+        orig_horizon, orig_decision_every, orig_days = (
+            args.horizon,
+            args.decision_every,
+            args.days,
+        )
+        args.horizon, args.decision_every, args.days = 4, 1, 240
         try:
             phase_p0(args, output_dir)
         finally:
-            args.horizon, args.decision_every = orig_horizon, orig_decision_every
+            args.horizon, args.decision_every, args.days = (
+                orig_horizon,
+                orig_decision_every,
+                orig_days,
+            )
         gate = _load(output_dir / "p0_report.json")["gate"]
         print(f"[p0] P0_PASSED = {gate['P0_PASSED']}")
         if not gate["P0_PASSED"] and not args.force:

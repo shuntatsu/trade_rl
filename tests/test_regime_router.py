@@ -206,3 +206,41 @@ class TestMakeRouterWeightFn:
         result = wf(fs, switch_t, nonzero_prev)
         # echo_strategyがw=zerosで呼ばれていれば結果はゼロになるはず
         assert np.allclose(result, 0.0), "切替バーでprevウェイトがそのまま素通しされている"
+
+    def test_no_forced_rebalance_when_underlying_strategy_unchanged(self):
+        """
+        レジームラベルが変わっても、割当先の戦略が同じ(tf->tf等)なら
+        強制リバランス(w=zeros呼び出し)は起きない。
+
+        実データ検証で発見したバグ: 生ラベルの変化だけで強制リバランスすると、
+        全レジームが同一戦略に割り当てられているfoldでも回転率が
+        trend_following単体の約1.9倍になっていた（不要な往復コスト）。
+        """
+
+        def echo_strategy(fs_, t, w):
+            return w.copy()
+
+        fs = _fs()
+        n = fs.n_symbols
+        # 全レジームを同じspecialist(echo_strategy)に割り当てる
+        table = RouterTable(
+            assignments={r: "specialist" for r in FINE_REGIMES},
+            labeler_params={},
+            confirm_bars=1,
+        )
+        specialists = {r: echo_strategy for r in FINE_REGIMES}
+        wf = make_router_weight_fn(fs, table, specialists=specialists)
+
+        raw_labels = label_fine_regimes(fs)
+        # レジームラベルが実際に変化するバーを探す
+        switch_t = None
+        for t in range(1, len(raw_labels) - 1):
+            if raw_labels[t - 1] != raw_labels[t]:
+                switch_t = t
+                break
+        assert switch_t is not None, "テストデータにレジーム変化が無い"
+
+        nonzero_prev = np.full(n, 0.3)
+        result = wf(fs, switch_t, nonzero_prev)
+        # echo_strategyが実際のprevウェイトで呼ばれていれば、結果はprevと一致する
+        np.testing.assert_allclose(result, nonzero_prev)

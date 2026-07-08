@@ -286,10 +286,18 @@ def make_router_weight_fn(
     """
     RouterTable から WeightFn を組み立てる。
 
-    レジーム切替バー（confirmed系列が前バーと変わった瞬間）では、下位戦略を
-    w=zeros で呼び強制リバランスする。trend_following_strategy は
+    **下位戦略が実際に変わったバー**（例: flat→tf, tf→specialist）では、
+    下位戦略を w=zeros で呼び強制リバランスする。trend_following_strategy は
     `t%24!=0 and w.any()` で前回ウェイトを素通しするため、そうしないと
     specialist→tf切替時に最大23本の遅延が発生するため。
+
+    注意: 判定は「生ラベル/確定レジームが変わったか」ではなく「割り当てられた
+    戦略オブジェクトが変わったか」で行う。例えば range_lowvol→range_highvol は
+    レジームとしては切替だが、両方とも"tf"割当なら実際にはtrend_following
+    自身の内部ロジック（24本毎リバランス・prevウェイト素通し）に任せるべきで、
+    ここで毎回w=zerosを強制すると同一戦略なのに不要な往復コストを払う
+    （実データ検証で発見: 全レジームがtf割当のfoldでもrouterの回転率が
+    trend_following単体の約1.9倍になっていた）。
     """
     specialists = specialists or {}
     raw_labels = label_fine_regimes(fs, **table.labeler_params)
@@ -307,8 +315,9 @@ def make_router_weight_fn(
         idx = min(t, len(confirmed) - 1)
         regime = confirmed[idx]
         strat = strategy_for(regime)
-        switched = idx > 0 and confirmed[idx - 1] != regime
-        if switched:
+        prev_regime = confirmed[idx - 1] if idx > 0 else regime
+        strategy_changed = idx > 0 and strategy_for(prev_regime) is not strat
+        if strategy_changed:
             return strat(fs_, t, np.zeros(fs_.n_symbols))
         return strat(fs_, t, w)
 

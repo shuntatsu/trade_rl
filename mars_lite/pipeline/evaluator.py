@@ -20,6 +20,17 @@ from mars_lite.pipeline.training_engine import (
     build_post_processor,
     train_ppo,
 )
+from mars_lite.trading.execution import FEE_KWARG_KEYS
+
+
+def _fee_kwargs(ekw: dict) -> dict:
+    """env_kwargsからfee_rate/spread_rate/impact_rateだけを取り出す
+
+    run_all_baselines/run_walk_forwardのベースライン評価にも同じ執行
+    プロファイルを適用し、RLと比較の公平性を保つ（--fee-profileでmaker等に
+    切り替えたのにベースラインだけtaker前提のままだとゲート2の判定が歪む）。
+    """
+    return {k: ekw[k] for k in FEE_KWARG_KEYS if k in ekw}
 
 
 def _as_baseline(res: dict, name: str = "generalist") -> dict:
@@ -119,7 +130,7 @@ def phase_p0(args, output_dir: Path) -> None:
         )
 
         agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
-        baselines = run_all_baselines(test_fs)
+        baselines = run_all_baselines(test_fs, **_fee_kwargs(ekw))
         report_comparison(agent_res, baselines, f"OOS comparison: {label}")
 
         plot_comparison(
@@ -334,9 +345,33 @@ def phase_train(
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     noisy_ic = args.noisy_oracle_ic if args.noisy_oracle_ic > 0 else None
-    baselines = run_all_baselines(test_fs, noisy_oracle_ic=noisy_ic)
+    baselines = run_all_baselines(test_fs, noisy_oracle_ic=noisy_ic, **_fee_kwargs(ekw))
     report_comparison(agent_res, baselines, "OOS comparison")
     plot_comparison(agent_res, baselines, output_dir / "train_equity.png")
+
+    # 2スリーブ合成book（オプトイン、参考表示のみ）: RLの実行済みウェイトに
+    # trend_followingベースラインと同一のトレンドシグナルを固定比率で加算し、
+    # market-neutral学習で構造的に失った方向性ベータを補えるか確認する。
+    blended_results = {}
+    trend_fracs = getattr(args, "trend_sleeve", []) or []
+    if trend_fracs:
+        from mars_lite.eval.blended_book import evaluate_blended_book
+
+        print("\n=== 2スリーブ合成book（RL + trend_following、参考表示） ===")
+        for frac in trend_fracs:
+            bres = evaluate_blended_book(
+                agent,
+                test_fs,
+                trend_frac=float(frac),
+                **_fee_kwargs(ekw),
+                min_trade_delta=getattr(args, "min_trade_delta", 0.04),
+            )
+            blended_results[bres["name"]] = bres
+            print(
+                f"{bres['name']:<20} {bres['total_return']:>+8.2%} "
+                f"{bres['sharpe']:>8.2f} {bres['max_drawdown']:>7.2%} "
+                f"{bres['turnover_total']:>9.1f}"
+            )
 
     rl_ret = float(agent_res["total_return"])
     gate2_details = {}
@@ -397,6 +432,10 @@ def phase_train(
                 ),
                 "agent": {k: v for k, v in agent_res.items() if k != "equity_curve"},
                 "baselines": {k: v.to_dict() for k, v in baselines.items()},
+                "blended_books": {
+                    k: {kk: vv for kk, vv in v.items() if kk != "equity_curve"}
+                    for k, v in blended_results.items()
+                },
                 "gate2": gate2,
             },
             f,
@@ -567,7 +606,7 @@ def phase_regime(args, output_dir: Path) -> None:
 
     ens_res = evaluate_agent_on_slice(ensemble, test_fs, **ekw)
     gen_res = evaluate_agent_on_slice(generalist, test_fs, **ekw)
-    baselines = run_all_baselines(test_fs)
+    baselines = run_all_baselines(test_fs, **_fee_kwargs(ekw))
 
     report_comparison(
         ens_res,

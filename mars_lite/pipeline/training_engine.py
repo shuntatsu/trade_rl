@@ -243,11 +243,14 @@ def build_post_processor(args, horizon: int = 4):
 
 
 def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
+    from mars_lite.trading.execution import FEE_PROFILES
+
     ekw = {
         "post_processor": pp,
         "min_trade_delta": getattr(args, "min_trade_delta", 0.04),
         "lambda_turnover": getattr(args, "lambda_turnover", 0.04),
         "reward_scale": getattr(args, "reward_scale", 100.0),
+        **FEE_PROFILES[getattr(args, "fee_profile", "taker")],
     }
     if getattr(args, "htf_gate", False):
         ekw["htf_gate"] = True

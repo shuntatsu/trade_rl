@@ -17,6 +17,7 @@ import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.learning.baselines import StrategyResult, run_all_baselines
+from mars_lite.trading.execution import FEE_KWARG_KEYS
 from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 from mars_lite.utils.metrics import deflated_sharpe_ratio
 
@@ -209,10 +210,11 @@ def run_walk_forward(
             med_idx = int(np.argsort(seed_sharpes)[len(seed_sharpes) // 2])
             fold_return_series.append(seed_returns[med_idx])
 
+        fee_kwargs = {k: env_kwargs[k] for k in FEE_KWARG_KEYS if k in env_kwargs}
         baselines = {
             name: r.to_dict()
             for name, r in run_all_baselines(
-                test_fs, cost_multiplier=cost_multiplier
+                test_fs, cost_multiplier=cost_multiplier, **fee_kwargs
             ).items()
         }
 

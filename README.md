@@ -445,9 +445,15 @@ cd frontend && npm install && npm run dev            # http://localhost:5173
 | フラグ | 既定値 | 説明 |
 |---|---|---|
 | `--phase` | `p0` | `p0` / `train` / `wf` / `pbt` / `regime` |
-| `--source` | `synthetic` | `synthetic` / `csv` / `postgres` / `hyperliquid` |
-| `--days` | 240 | 取得日数（`synthetic`/`hyperliquid`のみ有効。`postgres`はDB内の全期間を使用） |
+| `--source` | `synthetic` | `synthetic` / `csv` / `postgres` / `hyperliquid` / `bitget` / `okx` |
+| `--days` | 240 | 取得日数（`synthetic`/取引所実データソースのみ有効。`postgres`はDB内の全期間を使用） |
 | `--symbols` | `DEFAULT_SYMBOLS`（15銘柄） | 対象銘柄を上書き指定 |
+| `--base-timeframe` | `1h` | `15m`/`1h`/`4h`/`1d`。`gate1_diagnostic.py`で1hが不合格でも他の粒度で合格することがある |
+| `--target` | `raw` | ICゲート判定・Ridge教師の予測対象。`raw`/`cs_demean`（市場中立の相対アルファ）/`vol_norm` |
+| `--beta-neutral` | off | 後処理で市場方向(等ウェイト平均)成分を除去しドル中立化。`--target cs_demean`と組で使う |
+| `--warmup-days` | 0 | 先頭Ndaysをウォームアップとして切り捨て（最長ローリング窓=100日分が埋まるまで特徴が不完全） |
+| `--fee-profile` | `taker` | 執行コストプロファイル。`taker`(成行, 片道7bps)/`maker`(指値, 片道2bps。未約定リスクは未モデル化) |
+| `--trend-sleeve` | `[]`（無効） | `--phase train`専用。RLの実行済みウェイトと`trend_following`ベースラインを固定比率で合成した2スリーブbookを参考表示（複数値可、例: `0.3 0.5`） |
 | `--timesteps` | 300,000 | 学習ステップ数。実データ本番は200万〜推奨 |
 | `--ensemble` | 1 | シードアンサンブル数。**実データでは3推奨**（シード運のばらつき低減 + 不一致度スケーリング） |
 | `--gamma` | 0.5 | 割引率（行動効果が即時のため低い値が有効。0.995は崩壊する） |
@@ -463,6 +469,10 @@ cd frontend && npm install && npm run dev            # http://localhost:5173
 | `--regime-trials` | 100 | Regime FSM自動較正の試行回数 |
 | `--pg-dsn` | 環境変数 `PLATFORM_DB_URL` | `--source postgres` の接続文字列 |
 | `--skip-gate` | off | ゲート1不合格でも学習を強制続行 |
+
+> **昇格判定について**: `gate1_diagnostic.py`の結果は候補を絞るスクリーニング
+> 専用で、単体では「使える」と結論しない。正式な判定は`--phase wf`
+> （3fold×3seed以上・コスト2倍）の中央値のみ（docs/ARCHITECTURE.md §7）。
 
 学習は既定で **TFゲート抽出器 + Ridge教師BC + 検証ベースモデル選択** を使う（詳細は [ARCHITECTURE.md](docs/ARCHITECTURE.md) §2.1）。
 

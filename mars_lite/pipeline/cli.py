@@ -147,6 +147,27 @@ def build_parser() -> argparse.ArgumentParser:
         "本フラグで先頭を切り捨てる。既定0=無効",
     )
     parser.add_argument(
+        "--fee-profile",
+        choices=["taker", "maker"],
+        default="taker",
+        help="執行コストプロファイル。taker=成行想定(既定、片道7bps)、"
+        "maker=指値想定(片道2bps、スプレッドは払わない)。RL/全ベースライン/"
+        "オラクルに同一プロファイルを適用するので比較の公平性は保たれるが、"
+        "makerは未約定リスク・逆選択を表現しない楽観シナリオである点に注意",
+    )
+    parser.add_argument(
+        "--trend-sleeve",
+        type=float,
+        nargs="+",
+        default=[],
+        help="--phase train専用。RLの実行済みウェイトとtrend_followingベース"
+        "ラインを w_blend=(1-f)*w_rl+f*w_trend で合成した2スリーブ合成book"
+        "をOOS比較に追記する（複数値可、例: 0.3 0.5）。RLをmarket-neutral"
+        "(--target cs_demean --beta-neutral)で学習した場合に失う方向性ベータ"
+        "を、ルールベースのトレンドフォローで補う狙い。ゲート2の合否判定には"
+        "使わず参考表示のみ（既定[]=無効）",
+    )
+    parser.add_argument(
         "--scan-horizons",
         action="store_true",
         help="--phase train で学習前にホライズンスキャンを行い、"

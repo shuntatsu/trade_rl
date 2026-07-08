@@ -156,6 +156,28 @@ def build_parser() -> argparse.ArgumentParser:
         "makerは未約定リスク・逆選択を表現しない楽観シナリオである点に注意",
     )
     parser.add_argument(
+        "--signal-layer",
+        choices=["off", "append", "only"],
+        default="off",
+        help="因果的Ridgeアルファ信号レイヤー（予測とトレードの責務分離）。"
+        "append=既存特徴+信号、only=特徴を信号だけに置き換え"
+        "（RLは予測の発見から解放されサイジング/タイミングに専念、"
+        "観測次元が劇的に減る）。信号は過去データのみのローリング再学習で"
+        "生成されるためwalk-forward検証でもリークしない。既定off",
+    )
+    parser.add_argument(
+        "--signal-train-window",
+        type=int,
+        default=4000,
+        help="--signal-layer のRidgeローリング学習窓（バー数）",
+    )
+    parser.add_argument(
+        "--signal-refit-every",
+        type=int,
+        default=400,
+        help="--signal-layer のRidge再学習間隔（バー数）",
+    )
+    parser.add_argument(
         "--trend-sleeve",
         type=float,
         nargs="+",

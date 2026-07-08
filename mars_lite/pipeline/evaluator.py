@@ -252,6 +252,21 @@ def phase_train(
         )
         return None
 
+    # シグナルレイヤー（予測とトレードの責務分離、opt-in）。因果的なので
+    # train/test分割前の一括適用でリークしない。ゲート1は「アルファ源の
+    # 特徴量に予測力があるか」の判定なので信号化の前に済ませてある。
+    if getattr(args, "signal_layer", "off") != "off":
+        if holdout_fs is not None:
+            print(
+                "[WARN] --signal-layer は run_pipeline のholdout分離モードでは"
+                "未対応（holdout区間の信号はdev末尾までの学習で生成する必要が"
+                "あり未実装）。信号レイヤーをスキップします。"
+            )
+        else:
+            from mars_lite.features.signal_layer import apply_signal_layer
+
+            fs = apply_signal_layer(args, fs, horizon)
+
     purge = max(24, horizon)
     if holdout_fs is not None:
         # dev_fs全体を学習に使い、pbt/wfが未接触のholdout_fsだけで評価する
@@ -644,6 +659,13 @@ def phase_wf(args, output_dir: Path, fs: Optional[FeatureSet] = None) -> None:
             print(f"\n[STOP] {e}")
             return
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
+
+    # シグナルレイヤー（opt-in）: 因果的（各バーの信号は過去データのみで学習
+    # したRidgeの出力）なので、fold分割前の全系列への一括適用でリークしない。
+    if getattr(args, "signal_layer", "off") != "off":
+        from mars_lite.features.signal_layer import apply_signal_layer
+
+        fs = apply_signal_layer(args, fs, args.horizon)
 
     pp = build_post_processor(args, horizon=args.horizon)
     ekw = build_env_kwargs(args, pp, horizon=args.horizon)

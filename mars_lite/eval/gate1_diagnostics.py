@@ -215,6 +215,66 @@ def nested_walk_forward_ic(
     )
 
 
+def walk_forward_ic(
+    fs: FeatureSet,
+    horizon: int,
+    target: str = "cs_demean",
+    model: str = "gbm",
+    n_folds: int = 5,
+    purge_bars: Optional[int] = None,
+) -> Dict[str, object]:
+    """予測器（ridge/gbm）のOOS rank ICを walk-forward で測る診断（Phase1ゲート用）。
+
+    nested_walk_forward_ic と同じfold/purge構造を使うが、内側λ探索は行わず、
+    ridge は固定λ、gbm は LightGBM 既定で外側学習→外側テストのICを測る。
+    「予測器の差し替えで実データICが 0.02 を超えるか」を Ridge/GBM 公平比較する。
+    """
+    purge_bars = purge_bars if purge_bars is not None else max(24, horizon)
+    X_full, y, bar_idx, _ = _pool_with_symbol(fs, horizon, target)
+    n_bars = int(bar_idx.max()) + 1
+    fold_edges = np.linspace(0, n_bars, n_folds + 2).astype(int)
+
+    oos_ics: List[float] = []
+    for k in range(1, n_folds + 1):
+        train_end = fold_edges[k]
+        test_start = train_end + purge_bars
+        test_end = fold_edges[k + 1]
+        if test_start >= test_end or train_end < 200:
+            continue
+        train_mask = bar_idx < train_end
+        test_mask = (bar_idx >= test_start) & (bar_idx < test_end)
+        if train_mask.sum() < 200 or test_mask.sum() < 50:
+            continue
+
+        Xtr_raw, Xte_raw = X_full[train_mask], X_full[test_mask]
+        ytr, yte = y[train_mask], y[test_mask]
+        if model == "gbm":
+            from mars_lite.features.gbm_forecaster import fit_gbm, predict_gbm
+
+            booster = fit_gbm(Xtr_raw, ytr)
+            pred = predict_gbm(booster, Xte_raw)
+        else:
+            Xtr, Xte = _standardize(Xtr_raw, Xte_raw)
+            Xtrb = np.hstack([Xtr, np.ones((len(Xtr), 1))])
+            Xteb = np.hstack([Xte, np.ones((len(Xte), 1))])
+            w = _fit_ridge(Xtrb, ytr, 10.0)
+            pred = Xteb @ w
+        oos_ics.append(_rank_ic(pred, yte))
+
+    mean_ic, pos_ratio, t_stat, stability = _fold_ic_stats(oos_ics, 1.0)
+    return {
+        "model": model,
+        "horizon": horizon,
+        "target": target,
+        "mean_oos_ic": float(mean_ic),
+        "positive_fold_ratio": float(pos_ratio),
+        "t_stat": float(t_stat),
+        "n_folds": len(oos_ics),
+        "oos_ic_by_fold": [float(x) for x in oos_ics],
+        "passed": bool(mean_ic >= 0.02),
+    }
+
+
 def run_matrix(
     fs: FeatureSet,
     horizons: Sequence[int] = (1, 2, 4, 8, 12, 24, 48, 72),

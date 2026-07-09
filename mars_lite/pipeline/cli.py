@@ -166,10 +166,18 @@ def build_parser() -> argparse.ArgumentParser:
         "生成されるためwalk-forward検証でもリークしない。既定off",
     )
     parser.add_argument(
+        "--signal-model",
+        choices=["ridge", "gbm"],
+        default="ridge",
+        help="--signal-layer の予測器。ridge=線形（既定）、gbm=LightGBM勾配"
+        "ブースティング（表形式金融データで線形を上回りやすい。要 [research] extra）。"
+        "因果ローリング構造・embargoはどちらも同一",
+    )
+    parser.add_argument(
         "--signal-train-window",
         type=int,
         default=4000,
-        help="--signal-layer のRidgeローリング学習窓（バー数）",
+        help="--signal-layer のRidge/GBMローリング学習窓（バー数）",
     )
     parser.add_argument(
         "--signal-refit-every",

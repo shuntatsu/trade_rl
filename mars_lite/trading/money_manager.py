@@ -111,6 +111,7 @@ def build_money_manager(
     vol_lookback: int = 48,
     rebalance_every: int = 24,
     no_trade_band: float = 0.05,
+    model: str = "ridge",
 ) -> WeightFn:
     """学習スライスのみから金銭管理アロケータ（weight_fn）を構築する。
 
@@ -119,12 +120,13 @@ def build_money_manager(
 
     Args:
         train_fs: 適合に使う学習スライス（**これだけ**を使う=因果的）
-        use_ridge: 相対アルファ成分（Ridge、市場中立）を使うか
+        use_ridge: 相対アルファ成分（市場中立）を使うか
         use_trend: 方向性ベータ成分（時系列モメンタム）を使うか
-        ridge_target: Ridgeの予測対象。cs_demean=市場中立の相対アルファ推奨
+        ridge_target: 予測対象。cs_demean=市場中立の相対アルファ推奨
         target_vol: >0 ならボラ目標スケーリングを重ねる（年率）。0で無効
         rebalance_every: 目標を再計算する間隔（バー数）。回転抑制の主ノブ
         no_trade_band: 目標変化グロスがこの値未満なら据え置く微小取引禁止帯
+        model: アルファ予測器。ridge=線形（既定）/ gbm=LightGBM
     """
     teacher = combined_teacher(
         train_fs,
@@ -132,6 +134,7 @@ def build_money_manager(
         use_trend=use_trend,
         horizon=horizon,
         ridge_target=ridge_target,
+        model=model,
     )
     if target_vol and target_vol > 0:
         teacher = _vol_targeted(teacher, target_vol, lookback=vol_lookback)
@@ -150,6 +153,7 @@ def evaluate_money_manager(
     target_vol: float = 0.0,
     rebalance_every: int = 24,
     no_trade_band: float = 0.05,
+    model: str = "ridge",
     name: str = "money_manager",
     fee_rate: float = 0.0005,
     spread_rate: float = 0.0002,
@@ -177,6 +181,7 @@ def evaluate_money_manager(
         target_vol=target_vol,
         rebalance_every=rebalance_every,
         no_trade_band=no_trade_band,
+        model=model,
     )
     return simulate_strategy(
         test_fs,

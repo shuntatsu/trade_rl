@@ -155,22 +155,29 @@ def apply_signal_layer(args, fs: FeatureSet, horizon: int) -> FeatureSet:
     if mode == "off":
         return fs
     train_window = getattr(args, "signal_train_window", 4000)
-    signal = causal_ridge_signal(
-        fs,
+    model = getattr(args, "signal_model", "ridge")
+    # ウォームアップは学習窓に比例させる（固定1000だと小さいデータセットでは
+    # 学習スライスの大半が信号ゼロになり、方策が「常にフラット」を学んでしまう）
+    common = dict(
         horizon=horizon,
         target=getattr(args, "target", "raw"),
         train_window=train_window,
-        # ウォームアップは学習窓に比例させる（固定1000だと小さいデータセット
-        # では学習スライスの大半が信号ゼロになり、方策が「常にフラット」を
-        # 学んでしまう）
         min_train_bars=max(400, train_window // 4),
         refit_every=getattr(args, "signal_refit_every", 400),
     )
+    if model == "gbm":
+        from mars_lite.features.gbm_forecaster import causal_gbm_signal
+
+        signal = causal_gbm_signal(fs, **common)
+        sig_name = f"gbm_alpha_h{horizon}"
+    else:
+        signal = causal_ridge_signal(fs, **common)
+        sig_name = f"ridge_alpha_h{horizon}"
     fs2 = augment_with_signals(
-        fs, signal, signal_names=[f"ridge_alpha_h{horizon}"], only=(mode == "only")
+        fs, signal, signal_names=[sig_name], only=(mode == "only")
     )
     print(
-        f"[Signal layer] mode={mode} ridge_alpha_h{horizon} "
+        f"[Signal layer] mode={mode} model={model} {sig_name} "
         f"(features: {fs.n_features} -> {fs2.n_features})"
     )
     return fs2

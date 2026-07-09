@@ -73,29 +73,46 @@ def ridge_teacher(
     horizon: int = 4,
     lam: float = 10.0,
     target: str = "raw",
+    model: str = "ridge",
 ) -> TeacherFn:
     """
-    データ駆動のRidge教師（アルファの型を仮定しない）
+    データ駆動の教師（アルファの型を仮定しない）
 
-    ゲート1と同じRidge回帰を**学習スライスのみ**で当てはめ、
-    その予測値のクロスセクショナル中心化ウェイトを教師とする。
-    モメンタム型・平均回帰型どちらのアルファでも、ICゲートを通る
-    信号があれば自動的にそれを模倣の出発点にできる。
+    ゲート1と同じ予測器を**学習スライスのみ**で当てはめ、その予測値の
+    クロスセクショナル中心化ウェイトを教師とする。モメンタム型・平均回帰型
+    どちらのアルファでも、ICゲートを通る信号があれば自動的にそれを模倣の
+    出発点にできる。
 
-    target="cs_demean" で学習すると、Ridge自体が市場中立な相対アルファ
-    だけを当てにいく（予測後のクロスセクショナル中心化と整合する）。
-    狭いユニバースでは市場全体の方向がフィットを汚染しうるため有効。
+    model="ridge"（既定・線形）/ "gbm"（LightGBM勾配ブースティング。表形式の
+    金融データで線形を上回りやすい。要 [research] extra）。どちらも train_fs の
+    プールされたクロスセクショナルデータ（signal_check._pool）に当てはめる。
+
+    target="cs_demean" で学習すると、予測自体が市場中立な相対アルファだけを
+    当てにいく（予測後のクロスセクショナル中心化と整合する）。狭いユニバースでは
+    市場全体の方向がフィットを汚染しうるため有効。
 
     注意: train_fs には学習用スライスだけを渡すこと（リーク防止）。
     """
-    from mars_lite.features.signal_check import _pool, _ridge_fit
+    from mars_lite.features.signal_check import _pool, _ridge_fit, _ridge_predict
 
     X, y, _ = _pool(train_fs, horizon, target=target)
-    w_ridge = _ridge_fit(X, y, lam)
+
+    if model == "gbm":
+        from mars_lite.features.gbm_forecaster import fit_gbm, predict_gbm
+
+        booster = fit_gbm(X, y)
+
+        def _predict(feats: np.ndarray) -> np.ndarray:
+            return predict_gbm(booster, feats)
+    else:
+        w_ridge = _ridge_fit(X, y, lam)
+
+        def _predict(feats: np.ndarray) -> np.ndarray:
+            return _ridge_predict(feats, w_ridge)
 
     def teacher(fs, t: int, prev: np.ndarray) -> np.ndarray:
         feats = fs.features[t]  # (n_symbols, n_features)
-        preds = np.hstack([feats, np.ones((len(feats), 1))]) @ w_ridge
+        preds = _predict(feats)
         centered = preds - preds.mean()
         denom = np.abs(centered).sum()
         if denom < 1e-12:
@@ -111,6 +128,7 @@ def combined_teacher(
     use_trend: bool,
     horizon: int = 4,
     ridge_target: str = "raw",
+    model: str = "ridge",
 ) -> TeacherFn:
     """
     合成教師: Ridge（相対アルファ・ゼロサム）＋ 時系列モメンタム（方向性ベータ）
@@ -126,7 +144,9 @@ def combined_teacher(
     別途捕捉）と重複しない、純粋な相対アルファだけを学習する。
     """
     ridge_fn = (
-        ridge_teacher(train_fs, horizon, target=ridge_target) if use_ridge else None
+        ridge_teacher(train_fs, horizon, target=ridge_target, model=model)
+        if use_ridge
+        else None
     )
     ts_fn = ts_momentum_teacher() if use_trend else None
 

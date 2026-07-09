@@ -406,6 +406,7 @@ def phase_train(
             ridge_target=getattr(args, "target", "cs_demean"),
             target_vol=getattr(args, "mm_vol_target", 0.0),
             rebalance_every=getattr(args, "mm_rebalance_every", 24),
+            model=getattr(args, "signal_model", "ridge"),
             cost_multiplier=float(ekw.get("cost_multiplier", 1.0)),
             **_fee_kwargs(ekw),
         )

@@ -14,6 +14,7 @@ import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
 
 from mars_lite.features.feature_pipeline import FeatureSet
+from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 
 
 def quick_evaluate(agent, fs: FeatureSet, **env_kwargs) -> float:
@@ -35,10 +36,28 @@ def quick_evaluate(agent, fs: FeatureSet, **env_kwargs) -> float:
         obs, _, term, trunc, info = env.step(action)
         done = term or trunc
 
-    total_return = env.portfolio_value / env.initial_capital - 1.0
-    max_dd = info.get("max_drawdown", 0.0)
-    # リターン − ドローダウンペナルティ（単純だが頑健なスコア）
-    return float(total_return - 0.5 * max_dd)
+    return sortino_score(getattr(env, "_returns_history", []))
+
+
+def sortino_score(returns_history) -> float:
+    """検証スライスの1バーリターン系列 → Sortino比（下方偏差調整の年率リターン）。
+
+    旧指標 total_return − 0.5·max_dd は、弱αでリターンがノイズに埋もれる実データ
+    では max_dd 項が支配し「取引しない（flat）」を常に最良と判定して PBT/val選択を
+    保守崩壊させていた（実データ3本すべての遠因）。Sortinoは
+      - flat（無取引・全ゼロ）→ 0
+      - 弱くても正のリスク調整エッジ → 正（＝flatより高評価。ここが是正点）
+      - 損失を出す方策 → 負（正しく棄却）
+    と振る舞い、下方偏差でリスクも見るため崩壊しない。
+    """
+    rets = np.asarray(returns_history, dtype=np.float64)
+    if rets.size < 5 or not np.any(np.abs(rets) > 1e-12):
+        return 0.0
+    mean = float(rets.mean())
+    downside = np.minimum(rets, 0.0)
+    dstd = float(np.sqrt(np.mean(downside**2)))  # 目標0の下方偏差
+    sortino = mean / (dstd + 1e-9) * np.sqrt(BARS_PER_YEAR_1H)
+    return float(np.clip(sortino, -50.0, 50.0))
 
 
 class ValSelectionCallback(BaseCallback):

@@ -136,8 +136,16 @@ def _register_carry() -> None:
     BASELINES["carry"] = make_carry_strategy()
 
 
+def _register_crowding() -> None:
+    from mars_lite.learning.crowding import make_crowding_strategy
+
+    # 実データdevで最良だった構成（OI単独・日次）を既定登録
+    BASELINES["crowding"] = make_crowding_strategy(use_oi=True, use_funding=False)
+
+
 _register_trend_v2()
 _register_carry()
+_register_crowding()
 
 
 @dataclass

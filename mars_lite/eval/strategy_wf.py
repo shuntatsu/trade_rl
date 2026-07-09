@@ -50,6 +50,15 @@ STRATEGY_GATE_CRITERIA = {
         "require_maxdd_improvement": True,
         "require_positive_cost2x_median": True,
     },
+    # crowding（建玉クラウディング）の事前登録基準。市場中立・低回転の
+    # クロスセクショナル戦略として、コスト2倍でも頑健に正であることを要求する。
+    "crowding": {
+        "min_folds_beat_tf": 5,
+        "min_folds_total": 6,
+        "require_positive_cost2x_median": True,
+        "min_median_sharpe_cost2x": 0.5,
+        "min_bootstrap_ci_lower": 0.0,
+    },
 }
 
 
@@ -246,6 +255,27 @@ def judge_carry(summary: Dict[str, dict], dsr: dict, name: str = "carry") -> dic
             abs(s2["correlation_with_baseline"]) < crit["max_tf_correlation"]
         ),
         "dsr": bool(dsr["dsr"] >= crit["min_dsr"]),
+    }
+    return {"passed": all(checks.values()), "checks": checks, "criteria": crit}
+
+
+def judge_crowding(
+    summary: Dict[str, dict], bootstrap: dict, name: str = "crowding"
+) -> dict:
+    crit = STRATEGY_GATE_CRITERIA["crowding"]
+    s2 = summary[name][2.0]
+    checks = {
+        "folds_beat_tf": bool(
+            s2["n_folds_beat_baseline"] >= crit["min_folds_beat_tf"]
+            and s2["n_folds_total"] >= crit["min_folds_total"]
+        ),
+        "cost2x_median_positive": bool(s2["median_return"] > 0.0),
+        "median_sharpe_cost2x": bool(
+            s2["median_sharpe"] >= crit["min_median_sharpe_cost2x"]
+        ),
+        "bootstrap_ci_lower": bool(
+            bootstrap["lower_ci"] >= crit["min_bootstrap_ci_lower"]
+        ),
     }
     return {"passed": all(checks.values()), "checks": checks, "criteria": crit}
 

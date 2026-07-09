@@ -37,9 +37,14 @@ def train_ppo(
     bc_teacher: str = "auto",
     extractor: str = "tfgated",
     horizon: int = 4,
+    signal_target: str = "raw",
     oracle_noisy_ic: Optional[float] = None,
     **env_kwargs,
 ):
+    """signal_target: ICゲート判定とRidge教師の予測対象（raw/cs_demean/vol_norm）。
+    絶対リターンに信号が無く相対アルファのみ有意な市場では cs_demean を指定すると、
+    ゲート判定・Ridge教師の両方が同じ市場中立の対象を見る。
+    """
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import CallbackList
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -122,13 +127,17 @@ def train_ppo(
             from mars_lite.features.signal_check import run_signal_check, run_trend_gate
             from mars_lite.learning.bc_warmstart import combined_teacher
 
-            ic = run_signal_check(full_fs, horizon=horizon)
+            ic = run_signal_check(full_fs, horizon=horizon, target=signal_target)
             trend = run_trend_gate(full_fs, horizon=horizon)
             use_ridge = ic.mean_oos_ic >= 0.025
             use_trend = trend["has_trend"]
             if use_ridge or use_trend:
                 teacher = combined_teacher(
-                    fs, use_ridge=use_ridge, use_trend=use_trend, horizon=horizon
+                    fs,
+                    use_ridge=use_ridge,
+                    use_trend=use_trend,
+                    horizon=horizon,
+                    ridge_target=signal_target,
                 )
                 if verbose:
                     comps = []
@@ -140,14 +149,14 @@ def train_ppo(
             elif verbose:
                 print("[BC auto] no gate passed -> BC disabled (flat prior)")
         elif bc_teacher == "ridge":
-            teacher = ridge_teacher(fs, horizon=horizon)
+            teacher = ridge_teacher(fs, horizon=horizon, target=signal_target)
         elif bc_teacher == "ts_momentum":
             teacher = ts_momentum_teacher()
         elif bc_teacher == "oracle":
             from mars_lite.features.signal_check import run_signal_check
             from mars_lite.learning.bc_warmstart import dp_oracle_teacher
 
-            ic = run_signal_check(full_fs, horizon=horizon)
+            ic = run_signal_check(full_fs, horizon=horizon, target=signal_target)
             if ic.mean_oos_ic >= 0.025:
                 teacher = dp_oracle_teacher(fs, noisy_ic=oracle_noisy_ic)
                 if verbose:
@@ -197,6 +206,7 @@ def train_ppo(
 
 
 def build_post_processor(args, horizon: int = 4):
+    from mars_lite.data.data_utils import TF_TO_MINUTES
     from mars_lite.trading.post_processor import (
         make_default_processor,
         make_legacy_processor,
@@ -218,17 +228,29 @@ def build_post_processor(args, horizon: int = 4):
     cap = ema_alpha * max_weight * 0.5
     if no_trade_band > cap:
         no_trade_band = cap
+    # ④ボラターゲティングの年率換算はbase_timeframeの実バー数に合わせる。
+    # 1h想定のまま4h等を使うと推定年率ボラが水増しされ、target_volへの
+    # スケーリングが過剰にグロスを絞ってしまう。
+    base_tf = getattr(args, "base_timeframe", "1h")
+    bars_per_year = int(24 * 60 / TF_TO_MINUTES[base_tf] * 365)
     return make_default_processor(
-        target_vol=tv, ema_alpha=ema_alpha, no_trade_band=no_trade_band
+        target_vol=tv,
+        ema_alpha=ema_alpha,
+        no_trade_band=no_trade_band,
+        beta_neutral=getattr(args, "beta_neutral", False),
+        bars_per_year=bars_per_year,
     )
 
 
 def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
+    from mars_lite.trading.execution import FEE_PROFILES
+
     ekw = {
         "post_processor": pp,
         "min_trade_delta": getattr(args, "min_trade_delta", 0.04),
         "lambda_turnover": getattr(args, "lambda_turnover", 0.04),
         "reward_scale": getattr(args, "reward_scale", 100.0),
+        **FEE_PROFILES[getattr(args, "fee_profile", "taker")],
     }
     if getattr(args, "htf_gate", False):
         ekw["htf_gate"] = True

@@ -44,6 +44,7 @@ def train_ppo(
     bc_teacher: str = "auto",
     extractor: str = "tfgated",
     horizon: int = 4,
+    signal_target: str = "raw",
     oracle_noisy_ic: Optional[float] = None,
     net_size: str = "small",
     dropout: float = 0.0,
@@ -60,6 +61,12 @@ def train_ppo(
     bc_warmstart=True でBC事前学習を行う。教師はbc_teacherで選択:
     ridge（デフォルト）= 学習スライスのRidge予測（アルファの型を仮定しない）、
     momentum = クロスモメンタム固定教師。
+
+    signal_target: ICゲート判定とRidge教師の予測対象。"raw"（絶対リターン、
+    既定）| "cs_demean"（バー毎に銘柄間平均を引いた市場中立の相対アルファ）|
+    "vol_norm"。絶対リターンに信号が無く相対アルファだけが有意な市場では
+    "cs_demean" を指定すると、ゲート判定・Ridge教師の両方が同じ市場中立の
+    対象を見るようになる（gate1_diagnostic.py の診断結果に合わせる用途）。
 
     custom_teacher: 呼び出し側が構築済みの教師関数を直接渡す（bc_teacher選択
     ロジックを全てバイパス）。例: combined_teacher(fs, ..., ridge_target=
@@ -171,14 +178,18 @@ def train_ppo(
             from mars_lite.features.signal_check import run_signal_check, run_trend_gate
             from mars_lite.learning.bc_warmstart import combined_teacher
 
-            ic = run_signal_check(fs, horizon=horizon)
+            ic = run_signal_check(fs, horizon=horizon, target=signal_target)
             trend = run_trend_gate(fs, horizon=horizon)
             # Ridgeは偽陽性回避のため閾値+マージンを要求
             use_ridge = ic.mean_oos_ic >= 0.025
             use_trend = trend["has_trend"]
             if use_ridge or use_trend:
                 teacher = combined_teacher(
-                    fs, use_ridge=use_ridge, use_trend=use_trend, horizon=horizon
+                    fs,
+                    use_ridge=use_ridge,
+                    use_trend=use_trend,
+                    horizon=horizon,
+                    ridge_target=signal_target,
                 )
                 if verbose:
                     comps = []
@@ -190,14 +201,14 @@ def train_ppo(
             elif verbose:
                 print("[BC auto] no gate passed -> BC disabled (flat prior)")
         elif bc_teacher == "ridge":
-            teacher = ridge_teacher(fs, horizon=horizon)
+            teacher = ridge_teacher(fs, horizon=horizon, target=signal_target)
         elif bc_teacher == "ts_momentum":
             teacher = ts_momentum_teacher()
         elif bc_teacher == "oracle":
             from mars_lite.features.signal_check import run_signal_check
             from mars_lite.learning.bc_warmstart import dp_oracle_teacher
 
-            ic = run_signal_check(fs, horizon=horizon)
+            ic = run_signal_check(fs, horizon=horizon, target=signal_target)
             if ic.mean_oos_ic >= 0.025:
                 teacher = dp_oracle_teacher(fs, noisy_ic=oracle_noisy_ic)
                 if verbose:

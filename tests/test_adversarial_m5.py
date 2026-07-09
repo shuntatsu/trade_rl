@@ -1,6 +1,4 @@
 import json
-import os
-import stat
 import threading
 import time
 from pathlib import Path
@@ -130,17 +128,16 @@ def test_disk_full_during_copy_leaves_partial_files(tmp_path):
 
 def test_index_file_write_permission_failure(tmp_path, monkeypatch):
     """
-    インデックスファイル（registry.json）への書き込みが失敗した場合、
-    書き込みエラーが呼び出し元に伝播し、物理ファイルだけがクリーンアップ
-    されて残らないことを実証するテスト。
+    インデックス（registry.json）の書き込みが失敗した場合、register は例外を
+    伝播し、コピー済みの物理ファイルをクリーンアップして中途半端な状態を
+    残さないことを検証する。
 
-    注意: os.chmod(index_path, stat.S_IREAD) でファイル自体を読み取り専用に
-    しても、_save() が使う Path.replace()（rename）は対象ファイルではなく
-    親ディレクトリの書き込み権限で許可判定される（POSIX仕様）ため、
-    ファイル単体の権限を落としても失敗を再現できない。これはroot/非rootを
-    問わない仕様（実測: rootはもちろん、GitHub Actionsのrunnerユーザーでも
-    再現しなかった）。実ファイルパーミッションに依存せず、_save()を
-    monkeypatchして書き込み失敗を直接注入する。
+    注: 以前は index_path を chmod で read-only にしていたが、_save は
+    アトミックな temp→replace で書くため rename はディレクトリ権限のみに依存し、
+    ファイルを read-only にしても書き込みは失敗しない（かつ root 実行では chmod
+    自体が無視される）。このためテストの前提が誤りで CI で常に失敗していた。
+    ここでは _save の失敗を直接注入し「失敗時のクリーンアップ契約」を
+    環境非依存に検証する。
     """
     registry_dir = tmp_path / "registry"
     registry = ModelRegistry(registry_dir)
@@ -151,23 +148,23 @@ def test_index_file_write_permission_failure(tmp_path, monkeypatch):
     # 初期状態として1つ登録しておく
     registry.register(model_file, version="v1")
 
-    def failing_save(data):
-        raise PermissionError("simulated: index file write denied")
+    # インデックス書き込みだけを失敗させる（モデルのコピーは成功する）
+    def _boom(_data):
+        raise OSError("simulated index write failure")
 
-    monkeypatch.setattr(registry, "_save", failing_save)
+    monkeypatch.setattr(registry, "_save", _boom)
 
-    # 新しいモデルの登録を試みる。_save の書き込み処理で PermissionError が発生する
+    # register は _save の OSError を伝播するはず
     with pytest.raises((PermissionError, OSError)):
         registry.register(model_file, version="v2")
 
+    # 実インデックスを読むためパッチを戻す（_save は書けていないので v1 のみ）
     monkeypatch.undo()
 
-    # インデックスには登録されていない
-    # (_saveが失敗しているのでファイルにはv1しか書かれていないはず)
     models = registry.list_models()
     assert not any(m.version == "v2" for m in models)
 
-    # 物理ファイルがクリーンアップされ、存在しないことを確認
+    # コピー済みの物理ファイルはクリーンアップされ、存在しない
     target_file = registry.models_dir / "v2.zip"
     assert not target_file.exists(), "File was not cleaned up"
 

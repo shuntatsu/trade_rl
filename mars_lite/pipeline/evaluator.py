@@ -20,6 +20,17 @@ from mars_lite.pipeline.training_engine import (
     build_post_processor,
     train_ppo,
 )
+from mars_lite.trading.execution import FEE_KWARG_KEYS
+
+
+def _fee_kwargs(ekw: dict) -> dict:
+    """env_kwargsからfee_rate/spread_rate/impact_rateだけを取り出す
+
+    run_all_baselines/run_walk_forwardのベースライン評価にも同じ執行
+    プロファイルを適用し、RLと比較の公平性を保つ（--fee-profileでmaker等に
+    切り替えたのにベースラインだけtaker前提のままだとゲート2の判定が歪む）。
+    """
+    return {k: ekw[k] for k in FEE_KWARG_KEYS if k in ekw}
 
 
 def _as_baseline(res: dict, name: str = "generalist") -> dict:
@@ -119,7 +130,7 @@ def phase_p0(args, output_dir: Path) -> None:
         )
 
         agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
-        baselines = run_all_baselines(test_fs)
+        baselines = run_all_baselines(test_fs, **_fee_kwargs(ekw))
         report_comparison(agent_res, baselines, f"OOS comparison: {label}")
 
         plot_comparison(
@@ -215,18 +226,24 @@ def phase_train(
     if not leak["healthy"]:
         print("[WARN] リーク検出器の自己検査に失敗。評価結果を信用しないこと。")
 
+    signal_target = getattr(args, "target", "raw")
+
     horizon = args.horizon
     scan = None
     if args.scan_horizons:
         from mars_lite.features.horizon_scan import run_horizon_scan
 
         scan_split = int(fs.n_bars * 0.8)
-        scan = run_horizon_scan(fs.slice(0, scan_split), horizons=tuple(args.horizons))
+        scan = run_horizon_scan(
+            fs.slice(0, scan_split),
+            horizons=tuple(args.horizons),
+            target=signal_target,
+        )
         print(scan.summary())
         horizon = scan.best_horizon
         print(f"[Horizon scan] selected horizon={horizon}")
 
-    ic = run_signal_check(fs, horizon=horizon)
+    ic = run_signal_check(fs, horizon=horizon, target=signal_target)
     print(ic.summary())
     if not ic.passed and not args.skip_gate:
         print(
@@ -234,6 +251,21 @@ def phase_train(
             "RL学習をスキップします（--skip-gate で強制続行可）。"
         )
         return None
+
+    # シグナルレイヤー（予測とトレードの責務分離、opt-in）。因果的なので
+    # train/test分割前の一括適用でリークしない。ゲート1は「アルファ源の
+    # 特徴量に予測力があるか」の判定なので信号化の前に済ませてある。
+    if getattr(args, "signal_layer", "off") != "off":
+        if holdout_fs is not None:
+            print(
+                "[WARN] --signal-layer は run_pipeline のholdout分離モードでは"
+                "未対応（holdout区間の信号はdev末尾までの学習で生成する必要が"
+                "あり未実装）。信号レイヤーをスキップします。"
+            )
+        else:
+            from mars_lite.features.signal_layer import apply_signal_layer
+
+            fs = apply_signal_layer(args, fs, horizon)
 
     purge = max(24, horizon)
     if holdout_fs is not None:
@@ -279,6 +311,7 @@ def phase_train(
                 learning_rate=getattr(args, "learning_rate", 3e-4),
                 bc_warmstart=True,
                 horizon=horizon,
+                signal_target=signal_target,
                 bc_teacher=args.bc_teacher,
                 oracle_noisy_ic=args.oracle_noisy_ic,
                 **ekw,
@@ -319,6 +352,7 @@ def phase_train(
             verbose=args.verbose,
             bc_warmstart=True,
             horizon=horizon,
+            signal_target=signal_target,
             bc_teacher=args.bc_teacher,
             oracle_noisy_ic=args.oracle_noisy_ic,
             **ekw,
@@ -326,9 +360,33 @@ def phase_train(
 
     agent_res = evaluate_agent_on_slice(agent, test_fs, **ekw)
     noisy_ic = args.noisy_oracle_ic if args.noisy_oracle_ic > 0 else None
-    baselines = run_all_baselines(test_fs, noisy_oracle_ic=noisy_ic)
+    baselines = run_all_baselines(test_fs, noisy_oracle_ic=noisy_ic, **_fee_kwargs(ekw))
     report_comparison(agent_res, baselines, "OOS comparison")
     plot_comparison(agent_res, baselines, output_dir / "train_equity.png")
+
+    # 2スリーブ合成book（オプトイン、参考表示のみ）: RLの実行済みウェイトに
+    # trend_followingベースラインと同一のトレンドシグナルを固定比率で加算し、
+    # market-neutral学習で構造的に失った方向性ベータを補えるか確認する。
+    blended_results = {}
+    trend_fracs = getattr(args, "trend_sleeve", []) or []
+    if trend_fracs:
+        from mars_lite.eval.blended_book import evaluate_blended_book
+
+        print("\n=== 2スリーブ合成book（RL + trend_following、参考表示） ===")
+        for frac in trend_fracs:
+            bres = evaluate_blended_book(
+                agent,
+                test_fs,
+                trend_frac=float(frac),
+                **_fee_kwargs(ekw),
+                min_trade_delta=getattr(args, "min_trade_delta", 0.04),
+            )
+            blended_results[bres["name"]] = bres
+            print(
+                f"{bres['name']:<20} {bres['total_return']:>+8.2%} "
+                f"{bres['sharpe']:>8.2f} {bres['max_drawdown']:>7.2%} "
+                f"{bres['turnover_total']:>9.1f}"
+            )
 
     rl_ret = float(agent_res["total_return"])
     gate2_details = {}
@@ -389,6 +447,10 @@ def phase_train(
                 ),
                 "agent": {k: v for k, v in agent_res.items() if k != "equity_curve"},
                 "baselines": {k: v.to_dict() for k, v in baselines.items()},
+                "blended_books": {
+                    k: {kk: vv for kk, vv in v.items() if kk != "equity_curve"}
+                    for k, v in blended_results.items()
+                },
                 "gate2": gate2,
             },
             f,
@@ -559,7 +621,7 @@ def phase_regime(args, output_dir: Path) -> None:
 
     ens_res = evaluate_agent_on_slice(ensemble, test_fs, **ekw)
     gen_res = evaluate_agent_on_slice(generalist, test_fs, **ekw)
-    baselines = run_all_baselines(test_fs)
+    baselines = run_all_baselines(test_fs, **_fee_kwargs(ekw))
 
     report_comparison(
         ens_res,
@@ -598,8 +660,31 @@ def phase_wf(args, output_dir: Path, fs: Optional[FeatureSet] = None) -> None:
             return
     print(f"FeatureSet: {fs.n_bars} bars x {fs.n_symbols} symbols")
 
+    # シグナルレイヤー（opt-in）: 因果的（各バーの信号は過去データのみで学習
+    # したRidgeの出力）なので、fold分割前の全系列への一括適用でリークしない。
+    if getattr(args, "signal_layer", "off") != "off":
+        from mars_lite.features.signal_layer import apply_signal_layer
+
+        fs = apply_signal_layer(args, fs, args.horizon)
+
     pp = build_post_processor(args, horizon=args.horizon)
     ekw = build_env_kwargs(args, pp, horizon=args.horizon)
+
+    # phase_trainと同一の構成（horizon/target/BC教師）で各foldを学習する。
+    # これを渡さないとwfはBC教師選択を既定(h=4/raw)で行い、--horizon/--target
+    # 指定時に「wfで検証した構成」と「trainで本番学習する構成」が食い違う。
+    signal_target = getattr(args, "target", "raw")
+    train_kwargs = dict(
+        timesteps=args.timesteps,
+        gamma=args.gamma,
+        ent_coef=getattr(args, "ent_coef", 0.002),
+        learning_rate=getattr(args, "learning_rate", 3e-4),
+        bc_warmstart=True,
+        horizon=args.horizon,
+        signal_target=signal_target,
+        bc_teacher=getattr(args, "bc_teacher", "auto"),
+        oracle_noisy_ic=getattr(args, "oracle_noisy_ic", None),
+    )
 
     n_ensemble = max(args.ensemble, 1)
     if n_ensemble > 1:
@@ -607,16 +692,7 @@ def phase_wf(args, output_dir: Path, fs: Optional[FeatureSet] = None) -> None:
 
         def train_fn(train_fs: FeatureSet, seed: int):
             def _inner(train_fs_: FeatureSet, _seed: int):
-                return train_ppo(
-                    fs=train_fs_,
-                    timesteps=args.timesteps,
-                    seed=_seed,
-                    gamma=args.gamma,
-                    ent_coef=getattr(args, "ent_coef", 0.002),
-                    learning_rate=getattr(args, "learning_rate", 3e-4),
-                    bc_warmstart=True,
-                    **ekw,
-                )
+                return train_ppo(fs=train_fs_, seed=_seed, **train_kwargs, **ekw)
 
             return train_ensemble(
                 _inner, train_fs, seeds=list(range(seed, seed + n_ensemble)), verbose=0
@@ -624,16 +700,7 @@ def phase_wf(args, output_dir: Path, fs: Optional[FeatureSet] = None) -> None:
     else:
 
         def train_fn(train_fs: FeatureSet, seed: int):
-            return train_ppo(
-                fs=train_fs,
-                timesteps=args.timesteps,
-                seed=seed,
-                gamma=args.gamma,
-                ent_coef=getattr(args, "ent_coef", 0.002),
-                learning_rate=getattr(args, "learning_rate", 3e-4),
-                bc_warmstart=True,
-                **ekw,
-            )
+            return train_ppo(fs=train_fs, seed=seed, **train_kwargs, **ekw)
 
     for cost_mult in [1.0, 2.0]:
         print(f"\n--- Walk-forward (cost x{cost_mult}, ensemble={n_ensemble}) ---")

@@ -184,6 +184,7 @@ def make_default_processor(
     ema_alpha: float = 0.5,
     no_trade_band: float = 0.04,
     beta_neutral: bool = False,
+    bars_per_year: int = BARS_PER_YEAR_1H,
 ) -> PortfolioPostProcessor:
     """
     ポートフォリオ運用の推奨後処理器
@@ -194,6 +195,12 @@ def make_default_processor(
     ema_alpha/no_trade_bandはホライズンスキャンで選んだ予測ホライズンに
     合わせて呼び出し側でスケールできる（低頻度アルファほど平滑を強め、
     no-tradeバンドを広げてコストと信号の周波数を整合させる）。
+
+    bars_per_year: ④ボラターゲティングの年率換算に使う1年あたりのバー数。
+    base_timeframeが1h以外（4h等）のときは呼び出し側で実際のバー数に
+    合わせないと、推定年率ボラが実際とズレてtarget_volへのスケーリングが
+    過剰/過小になる（例: 4hを1h想定のままだと推定ボラが2倍に水増しされ、
+    グロスを不必要に絞ってしまう）。
     """
     return PortfolioPostProcessor(
         PostProcessConfig(
@@ -206,5 +213,6 @@ def make_default_processor(
             dd_derisk_floor=0.3,
             disagreement_penalty=1.0,
             beta_neutral=beta_neutral,
+            bars_per_year=bars_per_year,
         )
     )

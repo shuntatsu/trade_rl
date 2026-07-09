@@ -19,6 +19,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
+# 執行プロファイル: fee_rate/spread_rate/impact_rate の既定セット。
+# taker=成行/IOC想定（現行既定）。maker=指値で板に並べる想定で、手数料が
+# 下がりスプレッドは払わない（クロスせず受動的に約定するため）。
+# 重要な注意: このモデルは未約定リスク・逆選択・機会損失を表現しない。
+# maker前提の結果は「約定できた場合の」楽観シナリオとして解釈すること
+# （実運用では約定率・キュー位置を別途検証する必要がある）。
+FEE_PROFILES: dict = {
+    "taker": {"fee_rate": 0.0005, "spread_rate": 0.0002, "impact_rate": 0.0001},
+    "maker": {"fee_rate": 0.0002, "spread_rate": 0.0, "impact_rate": 0.0001},
+}
+FEE_KWARG_KEYS = ("fee_rate", "spread_rate", "impact_rate")
+
 
 @dataclass
 class ExecutionModel:

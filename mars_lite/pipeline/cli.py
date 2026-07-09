@@ -25,6 +25,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbols", type=str, nargs="+", default=None)
     parser.add_argument("--days", type=int, default=240, help="syntheticの生成日数")
     parser.add_argument(
+        "--base-timeframe",
+        choices=["15m", "1h", "4h", "1d"],
+        default="1h",
+        help="意思決定の基準時間軸。既定1h。gate1_diagnostic.py で1h不合格でも"
+        "4h等では合格することがある（低頻度なほどコスト後ブレークイーブンICが"
+        "下がるため）。品質ゲート・ウォームアップ日数換算もこれに追従する",
+    )
+    parser.add_argument(
         "--alpha",
         default="cross",
         choices=["none", "cross", "meanrev", "multi", "bull"],
@@ -120,6 +128,66 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=4,
         help="予測ホライズン（バー数）。ICゲート/BC教師/特徴マスクに使う",
+    )
+    parser.add_argument(
+        "--target",
+        choices=["raw", "cs_demean", "vol_norm"],
+        default="raw",
+        help="ICゲート判定とRidge教師の予測対象。raw=絶対リターン(既定)、"
+        "cs_demean=市場中立の相対アルファ(銘柄間平均を除去)、vol_norm=ボラ正規化。"
+        "絶対リターンに信号が無く相対アルファのみ有意な市場では cs_demean を使う"
+        "（gate1_diagnostic.py の診断結果に合わせる）",
+    )
+    parser.add_argument(
+        "--beta-neutral",
+        action="store_true",
+        help="後処理で市場方向(等ウェイト平均)成分を除去しドル中立化する。"
+        "全銘柄がBTCベータで共線なユニバースで相対アルファのみ残す。"
+        "--target cs_demean と組で使うと出力も市場中立になる（方向性ベータを"
+        "捨てるため純粋な上昇相場では不利になりうる opt-in）",
+    )
+    parser.add_argument(
+        "--fee-profile",
+        choices=["taker", "maker"],
+        default="taker",
+        help="執行コストプロファイル。taker=成行想定(既定、片道7bps)、"
+        "maker=指値想定(片道2bps、スプレッドは払わない)。RL/全ベースライン/"
+        "オラクルに同一プロファイルを適用するので比較の公平性は保たれるが、"
+        "makerは未約定リスク・逆選択を表現しない楽観シナリオである点に注意",
+    )
+    parser.add_argument(
+        "--signal-layer",
+        choices=["off", "append", "only"],
+        default="off",
+        help="因果的Ridgeアルファ信号レイヤー（予測とトレードの責務分離）。"
+        "append=既存特徴+信号、only=特徴を信号だけに置き換え"
+        "（RLは予測の発見から解放されサイジング/タイミングに専念、"
+        "観測次元が劇的に減る）。信号は過去データのみのローリング再学習で"
+        "生成されるためwalk-forward検証でもリークしない。既定off",
+    )
+    parser.add_argument(
+        "--signal-train-window",
+        type=int,
+        default=4000,
+        help="--signal-layer のRidgeローリング学習窓（バー数）",
+    )
+    parser.add_argument(
+        "--signal-refit-every",
+        type=int,
+        default=400,
+        help="--signal-layer のRidge再学習間隔（バー数）",
+    )
+    parser.add_argument(
+        "--trend-sleeve",
+        type=float,
+        nargs="+",
+        default=[],
+        help="--phase train専用。RLの実行済みウェイトとtrend_followingベース"
+        "ラインを w_blend=(1-f)*w_rl+f*w_trend で合成した2スリーブ合成book"
+        "をOOS比較に追記する（複数値可、例: 0.3 0.5）。RLをmarket-neutral"
+        "(--target cs_demean --beta-neutral)で学習した場合に失う方向性ベータ"
+        "を、ルールベースのトレンドフォローで補う狙い。ゲート2の合否判定には"
+        "使わず参考表示のみ（既定[]=無効）",
     )
     parser.add_argument(
         "--scan-horizons",

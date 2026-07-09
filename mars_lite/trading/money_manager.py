@@ -28,7 +28,11 @@ import numpy as np
 
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.learning.baselines import StrategyResult, WeightFn, simulate_strategy
-from mars_lite.learning.bc_warmstart import combined_teacher
+from mars_lite.learning.bc_warmstart import (
+    combined_teacher,
+    ridge_teacher,
+    ts_momentum_teacher,
+)
 from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 
 
@@ -112,11 +116,24 @@ def build_money_manager(
     rebalance_every: int = 24,
     no_trade_band: float = 0.05,
     model: str = "ridge",
+    use_risk_parity: bool = False,
+    risk_parity_scope: str = "ridge_only",
+    risk_parity_lookback: int = 96,
 ) -> WeightFn:
     """学習スライスのみから金銭管理アロケータ（weight_fn）を構築する。
 
-    合成順序: combined_teacher（予測+分解）→ ボラ目標（サイジング）→
+    合成順序: 予測（相対アルファ+方向性ベータ）→ HRPリスク配分（相対アルファ
+    成分のみ、既定）→ 和・グロス射影 → ボラ目標（全体グロス調整）→
     回転抑制（保持+no-tradeバンド、実際に執行される最終ウェイト）。
+
+    実データ検証で発見: HRP（相関構造からの分散）を相対アルファ＋方向性ベータの
+    **合成後**にかけると、強トレンド期のholdoutで大幅悪化した（Ridge +14.4%->
+    +6.2%、GBM +8.3%->+0.3%）。方向性ベータ成分は「市場全体の相関した動き」を
+    意図的に取りに行く設計なのに、HRPがそれを「分散すべき冗長リスク」と誤認し
+    縮小してしまうため。相対アルファ成分（本来market-neutralで分散が理にかなう）
+    **だけ**にHRPを限定すると、全体適用より一貫して優位（同じ2ケースで
+    Ridge +9.5%, GBM +8.3%（ほぼ同等）かつ最大DDが両方で改善: 18.0%->13.2%等）。
+    risk_parity_scope="full" で旧挙動（非推奨、比較用）に戻せる。
 
     Args:
         train_fs: 適合に使う学習スライス（**これだけ**を使う=因果的）
@@ -127,15 +144,41 @@ def build_money_manager(
         rebalance_every: 目標を再計算する間隔（バー数）。回転抑制の主ノブ
         no_trade_band: 目標変化グロスがこの値未満なら据え置く微小取引禁止帯
         model: アルファ予測器。ridge=線形（既定）/ gbm=LightGBM
+        use_risk_parity: skfolio HRPで相対アルファ成分の銘柄間配分を組み替えるか
+        risk_parity_scope: "ridge_only"（既定・推奨）= 相対アルファ成分のみに
+            HRP適用。"full" = 合成後の全体に適用（実データで悪化を確認済み、
+            比較用に残す）
+        risk_parity_lookback: HRP適合に使う直近リターンの窓（バー数）
     """
-    teacher = combined_teacher(
-        train_fs,
-        use_ridge=use_ridge,
-        use_trend=use_trend,
-        horizon=horizon,
-        ridge_target=ridge_target,
-        model=model,
-    )
+    if use_risk_parity and risk_parity_scope == "ridge_only" and use_ridge:
+        from mars_lite.trading.risk_allocator import risk_parity_scaled
+
+        ridge_fn = risk_parity_scaled(
+            ridge_teacher(train_fs, horizon, target=ridge_target, model=model),
+            lookback=risk_parity_lookback,
+        )
+        ts_fn = ts_momentum_teacher() if use_trend else None
+
+        def teacher(fs: FeatureSet, t: int, prev: np.ndarray) -> np.ndarray:
+            w = ridge_fn(fs, t, prev)
+            if ts_fn is not None:
+                w = w + ts_fn(fs, t, prev)
+            gross = float(np.abs(w).sum())
+            return w / gross if gross > 1.0 else w
+    else:
+        teacher = combined_teacher(
+            train_fs,
+            use_ridge=use_ridge,
+            use_trend=use_trend,
+            horizon=horizon,
+            ridge_target=ridge_target,
+            model=model,
+        )
+        if use_risk_parity and risk_parity_scope == "full":
+            from mars_lite.trading.risk_allocator import risk_parity_scaled
+
+            teacher = risk_parity_scaled(teacher, lookback=risk_parity_lookback)
+
     if target_vol and target_vol > 0:
         teacher = _vol_targeted(teacher, target_vol, lookback=vol_lookback)
     return _turnover_controlled(
@@ -154,6 +197,9 @@ def evaluate_money_manager(
     rebalance_every: int = 24,
     no_trade_band: float = 0.05,
     model: str = "ridge",
+    use_risk_parity: bool = False,
+    risk_parity_scope: str = "ridge_only",
+    risk_parity_lookback: int = 96,
     name: str = "money_manager",
     fee_rate: float = 0.0005,
     spread_rate: float = 0.0002,
@@ -182,6 +228,9 @@ def evaluate_money_manager(
         rebalance_every=rebalance_every,
         no_trade_band=no_trade_band,
         model=model,
+        use_risk_parity=use_risk_parity,
+        risk_parity_scope=risk_parity_scope,
+        risk_parity_lookback=risk_parity_lookback,
     )
     return simulate_strategy(
         test_fs,

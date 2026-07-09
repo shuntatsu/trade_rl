@@ -229,6 +229,29 @@ def build_parser() -> argparse.ArgumentParser:
         "のみ再計算し中間は保持する（弱IC実データでのコスト暴走を防ぐ）。既定24",
     )
     parser.add_argument(
+        "--mm-risk-parity",
+        action="store_true",
+        help="--eval-money-manager にskfolio Hierarchical Risk Parityを重ね、"
+        "直近リターンの共分散構造からクロスセクショナルなリスク予算を組み替える"
+        "（相関の高い銘柄群への配分集中を是正）。要 [research] extra（既定off）",
+    )
+    parser.add_argument(
+        "--mm-risk-parity-scope",
+        choices=["ridge_only", "full"],
+        default="ridge_only",
+        help="--mm-risk-parity の適用範囲。ridge_only(既定・推奨)=相対アルファ"
+        "成分のみにHRP適用。full=合成後の全体に適用（実データ検証で強トレンド期"
+        "に悪化を確認済み、比較用）。方向性ベータ成分は意図的に相関した市場全体"
+        "の動きを取りに行く設計のため、HRPで縮小すると trend_following 由来の"
+        "エッジを損なう",
+    )
+    parser.add_argument(
+        "--mm-risk-parity-lookback",
+        type=int,
+        default=96,
+        help="--mm-risk-parity のHRP適合に使う直近リターンの窓（バー数）。既定96",
+    )
+    parser.add_argument(
         "--scan-horizons",
         action="store_true",
         help="--phase train で学習前にホライズンスキャンを行い、"

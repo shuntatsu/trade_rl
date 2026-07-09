@@ -121,6 +121,39 @@ class TestTurnoverControl:
         np.testing.assert_allclose(held, prev)
 
 
+class TestRiskParityScope:
+    def test_ridge_only_scope_differs_from_full(self):
+        """risk_parity_scope='ridge_only'(既定)と'full'は異なる合成を行う
+        （HRPを相対アルファ成分のみに適用 vs 合成後全体に適用）。"""
+        fs = _fs(alpha="cross", days=120, seed=13)
+        train_fs, test_fs = _split(fs)
+        res_ridge_only = evaluate_money_manager(
+            train_fs,
+            test_fs,
+            use_risk_parity=True,
+            risk_parity_scope="ridge_only",
+        )
+        res_full = evaluate_money_manager(
+            train_fs,
+            test_fs,
+            use_risk_parity=True,
+            risk_parity_scope="full",
+        )
+        assert res_ridge_only.total_return != res_full.total_return
+
+    def test_risk_parity_off_ignores_scope(self):
+        """use_risk_parity=False なら scope に関わらず同じ結果になる。"""
+        fs = _fs(alpha="cross", days=120, seed=13)
+        train_fs, test_fs = _split(fs)
+        a = evaluate_money_manager(
+            train_fs, test_fs, use_risk_parity=False, risk_parity_scope="ridge_only"
+        )
+        b = evaluate_money_manager(
+            train_fs, test_fs, use_risk_parity=False, risk_parity_scope="full"
+        )
+        assert a.total_return == b.total_return
+
+
 class TestEvaluation:
     def test_beats_flat_on_alpha_data(self):
         """アルファ有データでは金銭管理アロケータはflat(0%)を上回る"""

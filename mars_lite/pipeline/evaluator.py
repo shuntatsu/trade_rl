@@ -407,11 +407,19 @@ def phase_train(
             target_vol=getattr(args, "mm_vol_target", 0.0),
             rebalance_every=getattr(args, "mm_rebalance_every", 24),
             model=getattr(args, "signal_model", "ridge"),
+            use_risk_parity=getattr(args, "mm_risk_parity", False),
+            risk_parity_scope=getattr(args, "mm_risk_parity_scope", "ridge_only"),
+            risk_parity_lookback=getattr(args, "mm_risk_parity_lookback", 96),
             cost_multiplier=float(ekw.get("cost_multiplier", 1.0)),
             **_fee_kwargs(ekw),
         )
+        rp_tag = (
+            f"+HRP({getattr(args, 'mm_risk_parity_scope', 'ridge_only')})"
+            if getattr(args, "mm_risk_parity", False)
+            else ""
+        )
         print(
-            f"\n=== 金銭管理アロケータ（{comp}、因果的・RL非経由） ===\n"
+            f"\n=== 金銭管理アロケータ（{comp}{rp_tag}、因果的・RL非経由） ===\n"
             f"{'money_manager':<20} {mm_res.total_return:>+8.2%} "
             f"{mm_res.sharpe:>8.2f} {mm_res.max_drawdown:>7.2%} "
             f"{mm_res.turnover_total:>9.1f}"

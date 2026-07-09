@@ -40,6 +40,7 @@ dev = [
 # coreパイプラインはこれ無しでも動く（import は遅延＋ガードする）。
 research = [
     "lightgbm>=4.3.0",
+    "skfolio>=0.20.1",
 ]
 
 [tool.setuptools.packages.find]

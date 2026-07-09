@@ -22,6 +22,30 @@ from mars_lite.trading.pre_trade_risk import PreTradeRiskVerifier
 WeightFn = Callable[[FeatureSet, int, np.ndarray], np.ndarray]
 
 
+def combine_weight_fns(
+    weighted_fns: List[Tuple[float, WeightFn]],
+) -> WeightFn:
+    """複数のWeightFnを固定比率で線形合成する（グロス>1なら射影）。
+
+    weighted_fns: [(重み, WeightFn), ...]。各WeightFnの出力に重みを掛けて
+    加算し、合成後のグロスが1を超えたら射影する。simulate_strategy自身も
+    gross>1を射影するため、ここでの射影は「各成分の相対配分をグロス超過時に
+    保つ」ためのものであり二重規制ではない（simulate側の射影は最終防衛線）。
+
+    prev（直前ウェイト）は素通しで各成分に渡す。回転抑制・no-tradeバンドは
+    各成分・呼び出し側（simulate_strategy）の責務であり、ここでは行わない。
+    """
+
+    def teacher(fs: FeatureSet, t: int, prev: np.ndarray) -> np.ndarray:
+        w = np.zeros(fs.n_symbols)
+        for weight, fn in weighted_fns:
+            w = w + weight * fn(fs, t, prev)
+        gross = float(np.abs(w).sum())
+        return w / gross if gross > 1.0 else w
+
+    return teacher
+
+
 def flat_strategy(fs: FeatureSet, t: int, w: np.ndarray) -> np.ndarray:
     """①フラット（無ポジション）"""
     return np.zeros(fs.n_symbols)
@@ -94,6 +118,26 @@ BASELINES: Dict[str, WeightFn] = {
     "cross_momentum": cross_momentum_strategy,
     "trend_following": trend_following_strategy,
 }
+
+
+def _register_trend_v2() -> None:
+    """trend_engine.py はこのモジュールの WeightFn 型に依存するため、循環
+    import を避けて BASELINES 定義後に遅延登録する（WeightFn は既に上で
+    定義済みなので、trend_engine 側の `from ...baselines import WeightFn`
+    はモジュール読み込み完了を待たずに解決できる）。"""
+    from mars_lite.learning.trend_engine import make_trend_engine_v2
+
+    BASELINES["trend_v2"] = make_trend_engine_v2()
+
+
+def _register_carry() -> None:
+    from mars_lite.learning.carry import make_carry_strategy
+
+    BASELINES["carry"] = make_carry_strategy()
+
+
+_register_trend_v2()
+_register_carry()
 
 
 @dataclass

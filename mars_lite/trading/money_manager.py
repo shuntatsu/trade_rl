@@ -119,6 +119,10 @@ def build_money_manager(
     use_risk_parity: bool = False,
     risk_parity_scope: str = "ridge_only",
     risk_parity_lookback: int = 96,
+    use_confidence_gate: bool = False,
+    cg_lookback: int = 100,
+    cg_min_lookback: int = 50,
+    cg_alpha_scale: float = 0.02,
 ) -> WeightFn:
     """学習スライスのみから金銭管理アロケータ（weight_fn）を構築する。
 
@@ -135,6 +139,15 @@ def build_money_manager(
     Ridge +9.5%, GBM +8.3%（ほぼ同等）かつ最大DDが両方で改善: 18.0%->13.2%等）。
     risk_parity_scope="full" で旧挙動（非推奨、比較用）に戻せる。
 
+    さらに実データで判明: combined_teacher の単純合算は、相対アルファ成分が
+    負けている期間（実測 -10.65%）でも一定比率で混ぜ続けるため、trend単体
+    （同期間 +26.34%）を常時希釈する（実測: 合成 +14.36%、ほぼ中間値）。
+    use_confidence_gate は相対アルファ成分の直近実現損益（因果的）を自己参照し、
+    負けている間はブレンド比率を0（純trend）へ、勝っている間は引き上げる
+    動的ゲート（mars_lite.trading.confidence_gate）。train/valを分けた正しい
+    検証では合成 +14.36% -> +19.07% まで改善したが、trend単体 +26.34% には
+    **依然として未達**（過学習させずに得られた誠実な結果）。
+
     Args:
         train_fs: 適合に使う学習スライス（**これだけ**を使う=因果的）
         use_ridge: 相対アルファ成分（市場中立）を使うか
@@ -149,8 +162,26 @@ def build_money_manager(
             HRP適用。"full" = 合成後の全体に適用（実データで悪化を確認済み、
             比較用に残す）
         risk_parity_lookback: HRP適合に使う直近リターンの窓（バー数）
+        use_confidence_gate: 相対アルファの直近実現損益で trend とのブレンド
+            比率を動的に決めるか（use_risk_parityより優先。併用は未対応）。
+            lookback/alpha_scale は**評価対象のholdoutに対して直接チューニング
+            すると容易に過学習する**（実測: +40%超という非現実的な値が出た）。
+            必ず別のval区間で選定すること
+        cg_lookback: 信頼度ゲートのトレーリング実現損益を測る窓（バー数）
+        cg_min_lookback: この本数未満の履歴では純trend（ゲート無効）とする
+        cg_alpha_scale: conf=1（アルファ全開）に達するトレーリングリターンの基準値
     """
-    if use_risk_parity and risk_parity_scope == "ridge_only" and use_ridge:
+    if use_confidence_gate and use_ridge and use_trend:
+        from mars_lite.trading.confidence_gate import confidence_gated_blend
+
+        teacher = confidence_gated_blend(
+            ridge_teacher(train_fs, horizon, target=ridge_target, model=model),
+            ts_momentum_teacher(),
+            lookback=cg_lookback,
+            min_lookback=cg_min_lookback,
+            alpha_scale=cg_alpha_scale,
+        )
+    elif use_risk_parity and risk_parity_scope == "ridge_only" and use_ridge:
         from mars_lite.trading.risk_allocator import risk_parity_scaled
 
         ridge_fn = risk_parity_scaled(
@@ -200,6 +231,10 @@ def evaluate_money_manager(
     use_risk_parity: bool = False,
     risk_parity_scope: str = "ridge_only",
     risk_parity_lookback: int = 96,
+    use_confidence_gate: bool = False,
+    cg_lookback: int = 100,
+    cg_min_lookback: int = 50,
+    cg_alpha_scale: float = 0.02,
     name: str = "money_manager",
     fee_rate: float = 0.0005,
     spread_rate: float = 0.0002,
@@ -212,6 +247,10 @@ def evaluate_money_manager(
 
     train_fs と test_fs は列（特徴量）構成が一致している必要がある
     （同一パイプライン由来なら自動的に一致する）。
+
+    use_confidence_gate=True の場合、cg_lookback/cg_alpha_scale は
+    **test_fsに対して直接チューニングしないこと**（過学習の実例あり）。
+    train_fsとは別のval区間で選定した固定値を渡すこと。
     """
     if train_fs.n_features != test_fs.n_features:
         raise ValueError(
@@ -231,6 +270,10 @@ def evaluate_money_manager(
         use_risk_parity=use_risk_parity,
         risk_parity_scope=risk_parity_scope,
         risk_parity_lookback=risk_parity_lookback,
+        use_confidence_gate=use_confidence_gate,
+        cg_lookback=cg_lookback,
+        cg_min_lookback=cg_min_lookback,
+        cg_alpha_scale=cg_alpha_scale,
     )
     return simulate_strategy(
         test_fs,

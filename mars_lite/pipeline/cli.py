@@ -252,6 +252,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="--mm-risk-parity のHRP適合に使う直近リターンの窓（バー数）。既定96",
     )
     parser.add_argument(
+        "--mm-confidence-gate",
+        action="store_true",
+        help="--eval-money-manager で、相対アルファ成分の直近実現損益（因果的）を"
+        "自己参照し、負けている間はtrendへ、勝っている間はアルファへ動的に"
+        "ブレンド比率を変える（combined_teacherの単純合算がtrendを常時希釈する"
+        "問題の是正）。--mm-risk-parityより優先（併用は未対応）。"
+        "cg-lookback/cg-alpha-scaleを評価対象のholdoutに直接チューニングすると"
+        "過学習するため、別のval区間で選定した値を渡すこと（既定off）",
+    )
+    parser.add_argument(
+        "--mm-cg-lookback",
+        type=int,
+        default=100,
+        help="--mm-confidence-gate のトレーリング実現損益を測る窓（バー数）。既定100",
+    )
+    parser.add_argument(
+        "--mm-cg-min-lookback",
+        type=int,
+        default=50,
+        help="--mm-confidence-gate でこの本数未満の履歴では純trend（ゲート無効）。既定50",
+    )
+    parser.add_argument(
+        "--mm-cg-alpha-scale",
+        type=float,
+        default=0.02,
+        help="--mm-confidence-gate でconf=1(アルファ全開)に達するトレーリング"
+        "リターンの基準値。既定0.02",
+    )
+    parser.add_argument(
         "--scan-horizons",
         action="store_true",
         help="--phase train で学習前にホライズンスキャンを行い、"

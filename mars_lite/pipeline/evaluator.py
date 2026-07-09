@@ -410,14 +410,19 @@ def phase_train(
             use_risk_parity=getattr(args, "mm_risk_parity", False),
             risk_parity_scope=getattr(args, "mm_risk_parity_scope", "ridge_only"),
             risk_parity_lookback=getattr(args, "mm_risk_parity_lookback", 96),
+            use_confidence_gate=getattr(args, "mm_confidence_gate", False),
+            cg_lookback=getattr(args, "mm_cg_lookback", 100),
+            cg_min_lookback=getattr(args, "mm_cg_min_lookback", 50),
+            cg_alpha_scale=getattr(args, "mm_cg_alpha_scale", 0.02),
             cost_multiplier=float(ekw.get("cost_multiplier", 1.0)),
             **_fee_kwargs(ekw),
         )
-        rp_tag = (
-            f"+HRP({getattr(args, 'mm_risk_parity_scope', 'ridge_only')})"
-            if getattr(args, "mm_risk_parity", False)
-            else ""
-        )
+        if getattr(args, "mm_confidence_gate", False):
+            rp_tag = "+ConfGate"
+        elif getattr(args, "mm_risk_parity", False):
+            rp_tag = f"+HRP({getattr(args, 'mm_risk_parity_scope', 'ridge_only')})"
+        else:
+            rp_tag = ""
         print(
             f"\n=== 金銭管理アロケータ（{comp}{rp_tag}、因果的・RL非経由） ===\n"
             f"{'money_manager':<20} {mm_res.total_return:>+8.2%} "

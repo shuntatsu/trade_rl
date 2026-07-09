@@ -190,6 +190,37 @@ def build_parser() -> argparse.ArgumentParser:
         "使わず参考表示のみ（既定[]=無効）",
     )
     parser.add_argument(
+        "--eval-money-manager",
+        action="store_true",
+        help="--phase train専用。因果的な金銭管理アロケータ"
+        "（Ridge相対アルファ+時系列モメンタム方向性ベータ、学習スライスのみで"
+        "適合しholdout/testで評価）をOOS比較に追記し、ゲートに "
+        "money_manager_beat_trend_following / rl_beat_money_manager を加える。"
+        "「教師あり予測+ルールサイジングはRL/純トレンドに勝てるか」の判定用。"
+        "RL学習不要で数秒（既定off）",
+    )
+    parser.add_argument(
+        "--mm-vol-target",
+        type=float,
+        default=0.0,
+        help="--eval-money-manager のボラ目標（年率）。0で無効（combined_teacher"
+        "のグロス上限のみ）。例: 0.5 で年率50%ボラにグロスを因果的に調整",
+    )
+    parser.add_argument(
+        "--mm-components",
+        choices=["ridge", "trend", "both"],
+        default="both",
+        help="--eval-money-manager の成分。ridge=相対アルファのみ、"
+        "trend=方向性ベータのみ、both=両者合成（既定）",
+    )
+    parser.add_argument(
+        "--mm-rebalance-every",
+        type=int,
+        default=24,
+        help="--eval-money-manager の回転抑制間隔（バー数）。目標をNバー毎に"
+        "のみ再計算し中間は保持する（弱IC実データでのコスト暴走を防ぐ）。既定24",
+    )
+    parser.add_argument(
         "--scan-horizons",
         action="store_true",
         help="--phase train で学習前にホライズンスキャンを行い、"

@@ -388,6 +388,34 @@ def phase_train(
                 f"{bres['turnover_total']:>9.1f}"
             )
 
+    # 金銭管理アロケータ（責務分割の検証、opt-in）: 因果的Ridge相対アルファ
+    # + 時系列モメンタム方向性ベータを train_fs のみで適合し、test_fs で
+    # RL/ベースラインと同一の執行コストモデルで評価する。RL学習を一切
+    # 経由しない「教師あり予測 + ルールサイジング」の実力を測る。
+    mm_res = None
+    if getattr(args, "eval_money_manager", False):
+        from mars_lite.trading.money_manager import evaluate_money_manager
+
+        comp = getattr(args, "mm_components", "both")
+        mm_res = evaluate_money_manager(
+            train_fs,
+            test_fs,
+            horizon=horizon,
+            use_ridge=comp in ("ridge", "both"),
+            use_trend=comp in ("trend", "both"),
+            ridge_target=getattr(args, "target", "cs_demean"),
+            target_vol=getattr(args, "mm_vol_target", 0.0),
+            rebalance_every=getattr(args, "mm_rebalance_every", 24),
+            cost_multiplier=float(ekw.get("cost_multiplier", 1.0)),
+            **_fee_kwargs(ekw),
+        )
+        print(
+            f"\n=== 金銭管理アロケータ（{comp}、因果的・RL非経由） ===\n"
+            f"{'money_manager':<20} {mm_res.total_return:>+8.2%} "
+            f"{mm_res.sharpe:>8.2f} {mm_res.max_drawdown:>7.2%} "
+            f"{mm_res.turnover_total:>9.1f}"
+        )
+
     rl_ret = float(agent_res["total_return"])
     gate2_details = {}
     gate2_passed = True
@@ -409,6 +437,33 @@ def phase_train(
         else None,
         "details": gate2_details,
     }
+    # 金銭管理アロケータとの比較（診断用。gate2の合否自体は変えない＝RLと
+    # 金銭管理は代替アプローチであり、RLゲートを金銭管理で落とすのは筋違い）。
+    if mm_res is not None:
+        mm_ret = float(mm_res.total_return)
+        tf_ret = (
+            float(baselines["trend_following"].total_return)
+            if ("trend_following" in baselines)
+            else None
+        )
+        gate2["money_manager"] = {
+            "return": mm_ret,
+            "sharpe": float(mm_res.sharpe),
+            "rl_beat_money_manager": bool(rl_ret > mm_ret),
+            "money_manager_beat_trend_following": (
+                bool(mm_ret > tf_ret) if tf_ret is not None else None
+            ),
+        }
+        print(
+            f"[金銭管理] RL {'BEAT' if rl_ret > mm_ret else 'LOST vs'} money_manager "
+            f"({rl_ret:+.2%} vs {mm_ret:+.2%})"
+            + (
+                f" | money_manager vs trend_following: "
+                f"{'BEAT' if tf_ret is not None and mm_ret > tf_ret else 'LOST'}"
+                if tf_ret is not None
+                else ""
+            )
+        )
     print(
         f"\n[Gate 2] {'PASS' if gate2_passed else 'FAIL'} "
         f"RL vs all baselines. trend_following: "
@@ -451,6 +506,7 @@ def phase_train(
                     k: {kk: vv for kk, vv in v.items() if kk != "equity_curve"}
                     for k, v in blended_results.items()
                 },
+                "money_manager": mm_res.to_dict() if mm_res is not None else None,
                 "gate2": gate2,
             },
             f,

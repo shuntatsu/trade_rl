@@ -48,6 +48,20 @@ def main():
     ap = argparse.ArgumentParser(description="Binance Futures 実データ取得(vision専用)")
     ap.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS)
     ap.add_argument("--days", type=int, default=365)
+    ap.add_argument(
+        "--start",
+        type=str,
+        default=None,
+        help="取得開始日 YYYY-MM-DD（UTC）。指定時は --days より優先し "
+        "[--start, --end) の絶対期間を取得する（過去の未接触検証期間の確保用）",
+    )
+    ap.add_argument(
+        "--end",
+        type=str,
+        default=None,
+        help="取得終了日 YYYY-MM-DD（UTC・排他的）。--start 指定時のみ有効。"
+        "省略時は今日（UTC 00:00）",
+    )
     ap.add_argument("--output", default="./data")
     ap.add_argument(
         "--skip-orderflow",
@@ -58,9 +72,26 @@ def main():
 
     output_dir = Path(args.output)
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = now - timedelta(days=args.days)
+    if args.start is not None:
+        start = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end = (
+            datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if args.end is not None
+            else now
+        )
+    else:
+        start = now - timedelta(days=args.days)
+        end = now
+    if end <= start:
+        ap.error("--end は --start より後の日付である必要があります")
+    n_days = (end - start).days
     start_ms = int(start.timestamp() * 1000)
-    end_ms = int(now.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+    print(
+        f"取得期間: {start.strftime('%Y-%m-%d')} 〜 {end.strftime('%Y-%m-%d')} "
+        f"({n_days}日) 銘柄={args.symbols} 出力={output_dir}",
+        flush=True,
+    )
 
     for symbol in args.symbols:
         print(f"=== {symbol} ===", flush=True)
@@ -100,7 +131,7 @@ def main():
         )
         print(f"    {len(klines_all)} bars total", flush=True)
         if len(klines_all):
-            for d in range(args.days):
+            for d in range(n_days):
                 day = start + timedelta(days=d)
                 day_ms = int(day.timestamp() * 1000)
                 day_end_ms = day_ms + 86_400_000
@@ -132,7 +163,7 @@ def main():
             )
             print(f"    {len(of_all)} rows total", flush=True)
             if len(of_all):
-                for d in range(args.days):
+                for d in range(n_days):
                     day = start + timedelta(days=d)
                     day_ms = int(day.timestamp() * 1000)
                     day_end_ms = day_ms + 86_400_000

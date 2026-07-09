@@ -9,6 +9,7 @@ load_orderflow / load_derivatives / load_funding はデータが無い銘柄・
 ソースでは空DataFrameを返してよい（feature_pipelineがゼロ埋めする）。
 """
 
+import hashlib
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -952,8 +953,28 @@ class PostgresSource(DataSource):
         self.derivatives_source = derivatives_source or source
         self.orderflow_source = orderflow_source or source
 
+    # 生データ（klines/orderflow/derivatives/funding）はDB上の履歴が確定済みで
+    # 事後に書き換わらない（fetch_futures.py等は追記のみ）ため、SQL文＋paramsを
+    # キーにディスクキャッシュしてよい。ボラティリティ系指標などfeature_pipeline側の
+    # 計算（_z/ichimoku/vol_ratio等）はこのキャッシュの対象外＝毎回この生データから
+    # 再計算される（安く、コード変更に追従できる）。
+    # 注意: start/end省略（DB全期間取得）のクエリをキャッシュした後にDBへ新しい
+    # 日付を追加投入した場合、このキャッシュは古い（狭い）範囲のまま返る。
+    # 再取得後に反映したい場合はキャッシュディレクトリを削除するか
+    # PG_SOURCE_CACHE_DIR="" で無効化して実行すること。
+    _cache_dir_env = "PG_SOURCE_CACHE_DIR"
+    _default_cache_dir = "./data/.pg_cache"
+
     def _query(self, sql: str, params: list) -> pd.DataFrame:
         import psycopg
+
+        cache_dir = os.environ.get(self._cache_dir_env, self._default_cache_dir)
+        cache_path = None
+        if cache_dir:
+            key = hashlib.sha1(f"{self.dsn}|{sql}|{params}".encode("utf-8")).hexdigest()
+            cache_path = Path(cache_dir) / f"{key}.parquet"
+            if cache_path.exists():
+                return pd.read_parquet(cache_path)
 
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             cur.execute(sql, params)
@@ -964,6 +985,10 @@ class PostgresSource(DataSource):
             df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(
                 None
             )
+
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(cache_path)
         return df
 
     def _time_clauses(self, start, end):

@@ -212,14 +212,21 @@ def build_post_processor(args, horizon: int = 4):
         make_legacy_processor,
     )
 
+    # no_trade_band は --min-trade-delta 由来の単一の値にする。以前は
+    # full/legacyの両モードでハードコード値(0.04/make_legacy_processorの
+    # 既定0.02)を使っており、--min-trade-delta が実際のno-tradeバンドに
+    # 一切反映されない二重管理バグだった（実データのflat崩壊アブレーション
+    # で発覚: --min-trade-delta 0を指定してもno_trade_bandは0.04のままで、
+    # 「発注抑制を除去した」つもりの実験が実は何も変わっていなかった）。
+    no_trade_band = getattr(args, "min_trade_delta", 0.04)
+
     mode = getattr(args, "postproc", "full")
     if mode == "legacy":
-        return make_legacy_processor()
+        return make_legacy_processor(no_trade_band)
     tv = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
     # 低頻度化は decision_every が担うため、ema_alpha/no_trade_band を
     # horizon で強くスケールしない（マイクロノイズ除去に役割を限定する）。
     ema_alpha = 0.5
-    no_trade_band = 0.04
     max_weight = 0.4
     # 不変条件: no_trade_band <= ema_alpha * max_weight * 0.5
     # これを破ると「1ステップで動ける最大量 < 発注しきい値」となり、
@@ -245,9 +252,10 @@ def build_post_processor(args, horizon: int = 4):
 def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
     from mars_lite.trading.execution import FEE_PROFILES
 
+    min_trade_delta = getattr(args, "min_trade_delta", 0.04)
     ekw = {
         "post_processor": pp,
-        "min_trade_delta": getattr(args, "min_trade_delta", 0.04),
+        "min_trade_delta": min_trade_delta,
         "lambda_turnover": getattr(args, "lambda_turnover", 0.04),
         "reward_scale": getattr(args, "reward_scale", 100.0),
         **FEE_PROFILES[getattr(args, "fee_profile", "taker")],
@@ -261,4 +269,24 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
         auto_every = max(1, horizon // 2)
         if auto_every > 1:
             ekw["decision_every"] = auto_every
+
+    # 実効設定を可視化する（--min-trade-deltaがno_trade_bandに反映されて
+    # いるかを毎回目視確認できるようにする。過去にno_trade_bandがハード
+    # コードされ--min-trade-deltaが無視される二重管理バグがあったため）。
+    pp_cfg = getattr(pp, "cfg", None)
+    effective_no_trade_band = getattr(pp_cfg, "no_trade_band", None)
+    if pp_cfg is not None and effective_no_trade_band != min_trade_delta:
+        print(
+            f"[WARN] no_trade_band({effective_no_trade_band}) != "
+            f"min_trade_delta({min_trade_delta})。post_processor構築経路を確認すること。"
+        )
+    print(
+        "[Effective config] "
+        f"no_trade_band={effective_no_trade_band} "
+        f"ema_alpha={getattr(pp_cfg, 'ema_alpha', None)} "
+        f"target_vol={getattr(pp_cfg, 'target_vol', None)} "
+        f"lambda_turnover={ekw['lambda_turnover']} "
+        f"min_trade_delta={min_trade_delta} "
+        f"decision_every={ekw.get('decision_every', 1)}"
+    )
     return ekw

@@ -61,7 +61,6 @@ jobs:
             --dir deployment_bundle
 
           CANDIDATE_COMMIT=$(python -c 'import json; print(json.load(open("deployment_bundle/candidate.json", encoding="utf-8"))["git_commit"])')
-          CANDIDATE_VERSION=$(python -c 'import json; print(json.load(open("deployment_bundle/candidate.json", encoding="utf-8"))["model_version"])')
           RUN_HEAD_SHA=$(gh run view "$EVIDENCE_RUN_ID" --repo "${GITHUB_REPOSITORY}" --json headSha --jq .headSha)
           RUN_CONCLUSION=$(gh run view "$EVIDENCE_RUN_ID" --repo "${GITHUB_REPOSITORY}" --json conclusion --jq .conclusion)
           if [ "$RUN_CONCLUSION" != "success" ]; then
@@ -75,18 +74,37 @@ jobs:
 
           test -d deployment_bundle/serving_candidate
           uv run python - <<'PY'
+          import hashlib
           import json
           from pathlib import Path
+
           from mars_lite.serving.bundle import load_bundle
 
           root = Path("deployment_bundle")
           evidence = json.loads((root / "candidate.json").read_text(encoding="utf-8"))
+          expected_artifact = "serving_candidate/manifest.json"
+          if evidence.get("artifact_path") != expected_artifact:
+              raise SystemExit(
+                  "candidate artifact_path must bind evidence to serving_candidate/manifest.json"
+              )
+          manifest_path = root / expected_artifact
+          manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+          if manifest_sha != str(evidence.get("artifact_sha256", "")).lower():
+              raise SystemExit("candidate artifact digest does not match serving manifest")
           bundle = load_bundle(root / "serving_candidate")
           if bundle.version != evidence["model_version"]:
               raise SystemExit("serving bundle version does not match evidence candidate")
           if bundle.manifest.git_sha != evidence["git_commit"]:
               raise SystemExit("serving bundle git SHA does not match evidence candidate")
-          print(json.dumps({"version": bundle.version, "bundle_digest": bundle.bundle_digest}))
+          print(
+              json.dumps(
+                  {
+                      "version": bundle.version,
+                      "bundle_digest": bundle.bundle_digest,
+                      "manifest_sha256": manifest_sha,
+                  }
+              )
+          )
           PY
 
       - name: Evaluate deployment gate

@@ -338,6 +338,7 @@ class PortfolioTradingEnv(gym.Env):
                 "reward": float(reward),
                 "event": event,
             },
+            "pp_info": self._last_pp_info,
         }
 
         if terminated or truncated:

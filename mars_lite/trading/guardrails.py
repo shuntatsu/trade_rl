@@ -141,3 +141,74 @@ def apply_guardrails(weights: np.ndarray, result: GuardrailResult) -> np.ndarray
     if result.action == "scale":
         return weights * result.scale
     return weights
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLIエントリーポイント: 緊急フラット化等のランブック操作に対応"""
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description="Mars Lite Live Guardrails CLI")
+    parser.add_argument(
+        "--action",
+        type=str,
+        choices=["flatten", "scale", "evaluate"],
+        default="evaluate",
+        help="Action to perform (flatten for emergency flatten)",
+    )
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=0.0,
+        help="Scale factor when action=scale",
+    )
+    parser.add_argument(
+        "--reason",
+        type=str,
+        default="manual emergency intervention via CLI",
+        help="Reason for manual action",
+    )
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        choices=["json", "text"],
+        default="json",
+        help="Output format",
+    )
+
+    args = parser.parse_args(argv)
+
+    if args.action == "flatten":
+        res = GuardrailResult(
+            action="flatten",
+            scale=0.0,
+            triggered=[args.reason],
+            warnings=["EMERGENCY FLATTEN EXECUTED VIA CLI - ALL POSITIONS REDUCED TO ZERO"],
+        )
+    elif args.action == "scale":
+        res = GuardrailResult(
+            action="scale",
+            scale=args.scale,
+            triggered=[args.reason],
+            warnings=[f"MANUAL SCALE EXECUTED VIA CLI (scale={args.scale})"],
+        )
+    else:
+        res = GuardrailResult(action="proceed", scale=1.0)
+
+    output = res.to_dict()
+    if args.output_format == "json":
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+    else:
+        print(f"Action: {res.action.upper()}")
+        print(f"Scale: {res.scale}")
+        print(f"Triggered: {', '.join(res.triggered)}")
+        print(f"Warnings: {', '.join(res.warnings)}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
+

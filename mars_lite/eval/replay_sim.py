@@ -11,6 +11,7 @@ import pandas as pd
 from mars_lite.utils.metrics import calc_sharpe_ratio
 
 OrderSide = Literal["buy", "sell"]
+OrderType = Literal["market", "limit"]
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,11 @@ class ExecutionOrder:
     symbol: str
     side: OrderSide
     quantity: float
+    order_type: OrderType = "market"
+    limit_price: float | None = None
+    max_delay_seconds: float = 3600.0
+    latency_seconds: float = 0.0
+    maker: bool = False
 
 
 @dataclass(frozen=True)
@@ -42,14 +48,28 @@ class ReplayResult:
     sharpe: float
 
 
+class LiquidityLedger:
+    """Track unconsumed volume per trade row to prevent duplicate fills."""
+
+    def __init__(self, trades: pd.DataFrame) -> None:
+        self.remaining_volume: np.ndarray = trades["quantity"].to_numpy(dtype=float).copy()
+
+    def consume(self, row_idx: int, amount: float) -> float:
+        avail = self.remaining_volume[row_idx]
+        take = min(avail, amount)
+        self.remaining_volume[row_idx] -= take
+        return take
+
+
 class ReplaySimulator:
-    """Deterministic simulator that fills orders against aggTrades rows."""
+    """Deterministic simulator that fills orders against aggTrades rows with a LiquidityLedger."""
 
     def __init__(
         self,
         fee_rate: float = 0.0005,
         max_participation_rate: float = 0.1,
         slippage_bps: float = 0.0,
+        maker_fee_rate: float | None = None,
     ) -> None:
         if max_participation_rate <= 0:
             raise ValueError("max_participation_rate must be positive")
@@ -60,6 +80,7 @@ class ReplaySimulator:
         self.fee_rate = fee_rate
         self.max_participation_rate = max_participation_rate
         self.slippage_bps = slippage_bps
+        self.maker_fee_rate = maker_fee_rate if maker_fee_rate is not None else fee_rate
 
     def simulate(
         self,
@@ -70,14 +91,16 @@ class ReplaySimulator:
         self._validate_trades(agg_trades)
         if initial_cash <= 0:
             raise ValueError("initial_cash must be positive")
-        trades = agg_trades.sort_values(["symbol", "timestamp"]).copy()
+        trades = agg_trades.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
+        ledger = LiquidityLedger(trades)
+
         cash = float(initial_cash)
         positions: Dict[str, float] = {}
         fills: list[ReplayFill] = []
         equity_curve = [float(initial_cash)]
 
         for order in sorted(orders, key=lambda item: item.timestamp):
-            fill = self._fill_order(trades, order)
+            fill = self._fill_order(trades, ledger, order)
             if fill.filled_quantity == 0:
                 fills.append(fill)
                 continue
@@ -110,30 +133,56 @@ class ReplaySimulator:
             sharpe=sharpe,
         )
 
-    def _fill_order(self, trades: pd.DataFrame, order: ExecutionOrder) -> ReplayFill:
+    def _fill_order(
+        self, trades: pd.DataFrame, ledger: LiquidityLedger, order: ExecutionOrder
+    ) -> ReplayFill:
         remaining = float(order.quantity)
         if remaining <= 0:
             raise ValueError("order quantity must be positive")
 
-        eligible = trades[
-            (trades["symbol"] == order.symbol)
-            & (trades["timestamp"] >= order.timestamp)
-        ]
+        effective_start = order.timestamp + pd.Timedelta(seconds=order.latency_seconds)
+        effective_end = order.timestamp + pd.Timedelta(seconds=order.max_delay_seconds)
+
         filled = 0.0
         notional = 0.0
-        for row in eligible.itertuples(index=False):
-            available = float(row.quantity) * self.max_participation_rate
-            take = min(remaining, available)
+
+        # 行をイテレーションして有効範囲内＆指値条件合致の行に対して台帳消費を行う
+        for idx in range(len(trades)):
+            row_symbol = trades.at[idx, "symbol"]
+            if row_symbol != order.symbol:
+                continue
+            row_ts = trades.at[idx, "timestamp"]
+            if row_ts < effective_start:
+                continue
+            if row_ts > effective_end:
+                break
+
+            row_price = float(trades.at[idx, "price"])
+            if order.order_type == "limit" and order.limit_price is not None:
+                if order.side == "buy" and row_price > order.limit_price:
+                    continue
+                if order.side == "sell" and row_price < order.limit_price:
+                    continue
+
+            # 台帳から利用可能な出来高を取得
+            available_in_row = ledger.remaining_volume[idx] * self.max_participation_rate
+            take_target = min(remaining, available_in_row)
+            if take_target <= 0:
+                continue
+
+            take = ledger.consume(idx, take_target / self.max_participation_rate) * self.max_participation_rate
             if take <= 0:
                 continue
-            price = self._execution_price(float(row.price), order.side)
+
+            exec_price = self._execution_price(row_price, order.side)
             filled += take
-            notional += take * price
+            notional += take * exec_price
             remaining -= take
             if remaining <= 1e-12:
                 break
 
-        average_price = notional / filled if filled else 0.0
+        average_price = notional / filled if filled > 0 else 0.0
+        fee_rate = self.maker_fee_rate if order.maker else self.fee_rate
         return ReplayFill(
             order_timestamp=pd.Timestamp(order.timestamp),
             symbol=order.symbol,
@@ -141,7 +190,7 @@ class ReplaySimulator:
             requested_quantity=float(order.quantity),
             filled_quantity=float(filled),
             average_price=float(average_price),
-            fee_paid=float(notional * self.fee_rate),
+            fee_paid=float(notional * fee_rate),
         )
 
     def _execution_price(self, price: float, side: OrderSide) -> float:

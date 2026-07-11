@@ -345,3 +345,64 @@ def test_deployment_gate_security_hardening():
             )
             decision = gate.evaluate(evidence)
             assert decision.allowed is False
+
+
+def test_deployment_gate_evidence_based_reports():
+    from mars_lite.server.deployment_gate import (
+        CanaryEvidenceReport,
+        DriftEvidenceReport,
+        ShadowEvidenceReport,
+    )
+
+    gate = DeploymentGate()
+
+    # 1. 失敗する Shadow レポート（Sharpe 差分不足）
+    failed_shadow = ShadowEvidenceReport(
+        run_id="run-1",
+        oos_sharpe=0.5,
+        baseline_sharpe=1.0,
+        max_drawdown=0.10,
+    )
+    ev_failed_shadow = DeploymentEvidence(
+        stage="canary",
+        model_version="1.0.0",
+        git_commit="a" * 40,
+        shadow_report=failed_shadow,
+        drift_report_passed=True,
+    )
+    assert gate.evaluate(ev_failed_shadow).allowed is False
+
+    # 2. 成功する Shadow/Canary/Drift レポート
+    passed_shadow = ShadowEvidenceReport(
+        run_id="run-1",
+        oos_sharpe=1.2,
+        baseline_sharpe=1.0,
+        max_drawdown=0.10,
+    )
+    passed_canary = CanaryEvidenceReport(
+        run_id="canary-1",
+        capital_cap_usd=5000.0,
+        duration_days=14,
+        max_loss_pct=0.02,
+        mean_slippage_bps=5.0,
+    )
+    passed_drift = DriftEvidenceReport(
+        report_id="drift-1",
+        psi_score=0.10,
+        ks_p_value=0.20,
+        signature_sha256="b" * 64,
+    )
+
+    ev_prod = DeploymentEvidence(
+        stage="production",
+        model_version="1.0.0",
+        git_commit="a" * 40,
+        approval_ticket="PROD-999",
+        model_artifact_sha256="c" * 64,
+        shadow_report=passed_shadow,
+        canary_report=passed_canary,
+        drift_report=passed_drift,
+        environment_approver="risk-manager-1",
+    )
+    assert gate.evaluate(ev_prod).allowed is True
+

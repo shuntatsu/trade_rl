@@ -332,3 +332,27 @@ def test_cli_register_invalid_metrics_error(tmp_path, capsys):
     assert ret == 1
     out, err = capsys.readouterr()
     assert "Error: metrics must be a JSON object" in err
+
+
+def test_rollback_with_target_version(tmp_path, capsys):
+    model_file = tmp_path / "model.zip"
+    model_file.write_text("dummy", encoding="utf-8")
+
+    registry = ModelRegistry(tmp_path / "registry")
+    registry.register(model_file, version="v1")
+    registry.register(model_file, version="v2")
+    registry.register(model_file, version="v3")
+
+    # 明示的に target_version=v1 を指定したロールバック
+    rolled = registry.rollback("v1")
+    assert rolled.version == "v1"
+    assert registry.get_active().version == "v1"
+
+    # CLI 経由の --target-version ロールバック
+    registry_dir = str(tmp_path / "registry")
+    ret = main(["--registry-dir", registry_dir, "rollback", "--target-version", "v2"])
+    assert ret == 0
+    out, _ = capsys.readouterr()
+    data = json.loads(out.strip())
+    assert data["version"] == "v2"
+

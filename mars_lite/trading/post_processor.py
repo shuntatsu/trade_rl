@@ -48,6 +48,17 @@ class PostProcessInfo:
     dd_scale: float = 1.0
     disagreement_scale: float = 1.0
     est_port_vol: float = 0.0
+    raw_action: Optional[np.ndarray] = None
+    after_ema: Optional[np.ndarray] = None
+    after_target_vol: Optional[np.ndarray] = None
+    after_concentration_cap: Optional[np.ndarray] = None
+    final_executed_weights: Optional[np.ndarray] = None
+    desired_turnover: float = 0.0
+    executed_turnover: float = 0.0
+    tracking_ratio: float = 1.0
+    is_freeze: bool = False
+    is_cap_hit: bool = False
+    max_abs_weight: float = 0.0
     extra: dict = field(default_factory=dict)
 
 
@@ -98,17 +109,13 @@ class PortfolioPostProcessor:
         raw = np.asarray(raw_weights, dtype=np.float64)
         prev = np.asarray(prev_weights, dtype=np.float64)
         info = PostProcessInfo(raw_gross=float(np.abs(raw).sum()))
+        info.raw_action = raw.copy()
 
         # ① EMA平滑（生ウェイトへ部分追従）
         w = cfg.ema_alpha * raw + (1.0 - cfg.ema_alpha) * prev
+        info.after_ema = w.copy()
 
-        # ② 銘柄集中上限
-        w = np.clip(w, -cfg.max_weight, cfg.max_weight)
-
-        # ③ レバレッジ1射影
-        w = _project_leverage(w, 1.0)
-
-        # ④⑤⑥ リスクオーバーレイ（ボラ目標・DDデリスク・不一致縮小でグロスを調整）
+        # ② リスクオーバーレイ（ボラ目標・DDデリスク・不一致縮小でグロスを調整）
         if self.risk_overlay is not None:
             w, overlay_info = self.risk_overlay.scale(
                 w, drawdown, disagreement, recent_returns
@@ -118,7 +125,7 @@ class PortfolioPostProcessor:
             info.disagreement_scale = overlay_info.get("disagreement_scale", 1.0)
             info.est_port_vol = overlay_info.get("est_port_vol", 0.0)
         else:
-            # ④ ボラターゲティング
+            # ボラターゲティング
             if (
                 cfg.target_vol is not None
                 and recent_returns is not None
@@ -131,7 +138,7 @@ class PortfolioPostProcessor:
                     info.vol_scale = cfg.target_vol / est_vol
                     w = w * info.vol_scale
 
-            # ⑤ ドローダウン応答（DDが進むほどグロスを線形縮小、下限あり）
+            # ドローダウン応答
             if drawdown > cfg.dd_derisk_start:
                 over = (drawdown - cfg.dd_derisk_start) / max(
                     1.0 - cfg.dd_derisk_start, 1e-9
@@ -139,29 +146,42 @@ class PortfolioPostProcessor:
                 info.dd_scale = float(max(cfg.dd_derisk_floor, 1.0 - over))
                 w = w * info.dd_scale
 
-            # ⑥ アンサンブル不一致縮小（意見が割れるほどグロスを落とす）
+            # アンサンブル不一致縮小
             if disagreement > 0:
                 info.disagreement_scale = float(
                     max(0.0, 1.0 - cfg.disagreement_penalty * disagreement)
                 )
                 w = w * info.disagreement_scale
 
-        # ⑦ no-tradeバンド（微小な変更は据え置いてコストを節約）
+        info.after_target_vol = w.copy()
+
+        # ③ 銘柄集中上限 ＆ レバレッジ1射影（ハード制約を最後に適用して保証）
+        w = np.clip(w, -cfg.max_weight, cfg.max_weight)
+        if np.any(np.abs(w) >= cfg.max_weight - 1e-6):
+            info.is_cap_hit = True
+        w = _project_leverage(w, 1.0)
+        info.after_concentration_cap = w.copy()
+
+        # ④ no-tradeバンド（微小な変更は据え置いてコストを節約）
         delta = w - prev
         delta[np.abs(delta) < cfg.no_trade_band] = 0.0
         executed = prev + delta
 
-        # ⑧ ベータ中立化（オプトイン）: 実行ウェイトから市場方向＝等ウェイト平均
-        # 成分を除去し Σw=0（ドル中立）を保証する。暗号資産のように全銘柄が
-        # BTCベータで共線なユニバースでは、ネットロングは実質レバBTCベット。
-        # これを外すと相対アルファだけが残る。方向性ベータを捨てるため上昇相場
-        # では不利になりうる → 既定off。バンド後の最終段に置くことで、微小レグの
-        # 据え置きで中立性が崩れないよう出力での中立を保証する。
         if cfg.beta_neutral and len(executed) > 1:
             executed = executed - executed.mean()
             info.extra["beta_neutralized"] = True
 
+        info.final_executed_weights = executed.copy()
         info.processed_gross = float(np.abs(executed).sum())
+        info.max_abs_weight = float(np.max(np.abs(executed))) if len(executed) > 0 else 0.0
+
+        desired_turnover = float(np.abs(info.after_concentration_cap - prev).sum())
+        executed_turnover = float(np.abs(executed - prev).sum())
+        info.desired_turnover = desired_turnover
+        info.executed_turnover = executed_turnover
+        info.tracking_ratio = float(executed_turnover / (desired_turnover + 1e-9))
+        info.is_freeze = bool(desired_turnover > 1e-4 and executed_turnover < 1e-6)
+
         return executed, info
 
 

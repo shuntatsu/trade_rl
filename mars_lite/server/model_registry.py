@@ -163,17 +163,19 @@ class ModelRegistry:
             self._save(data)
             return entry
 
-    def rollback(self) -> ModelEntry:
+    def rollback(self, target_version: str | None = None) -> ModelEntry:
+        if target_version is not None:
+            return self.activate(target_version)
         with self._lock():
             data = self._load()
             history = data["history"]
             if len(history) < 2:
                 raise LookupError("no previous active model to roll back to")
-            target_version = history[-2]
-            entry = self._entry_for(target_version)
+            target_version_auto = history[-2]
+            entry = self._entry_for(target_version_auto)
 
             history.pop()
-            data["active_version"] = target_version
+            data["active_version"] = target_version_auto
             self._save(data)
             return entry
 
@@ -233,7 +235,10 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("list")
     activate_parser = subparsers.add_parser("activate")
     activate_parser.add_argument("version")
-    subparsers.add_parser("rollback")
+    rollback_parser = subparsers.add_parser("rollback")
+    rollback_parser.add_argument(
+        "--target-version", default=None, help="Specific version to rollback to"
+    )
 
     try:
         args = parser.parse_args(argv)
@@ -261,7 +266,15 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "activate":
             print(json.dumps(asdict(registry.activate(args.version))))
         elif args.command == "rollback":
-            print(json.dumps(asdict(registry.rollback())))
+            print(
+                json.dumps(
+                    asdict(
+                        registry.rollback(
+                            getattr(args, "target_version", None)
+                        )
+                    )
+                )
+            )
         return 0
     except (ValueError, FileNotFoundError, KeyError, LookupError) as exc:
         import sys

@@ -130,14 +130,17 @@ class SyntheticSource(DataSource):
             generate_market,
         )
 
-        rng = np.random.default_rng(seed)
+        base_rng = np.random.default_rng(seed)
+        alpha_rng = np.random.default_rng(seed + 1_000_000)
+        ohlcv_rng = np.random.default_rng(seed + 2_000_000)
         n_minutes = n_days * 1440
         returns, latent = generate_market(
-            rng,
+            base_rng,
             len(symbols),
             n_minutes,
             alpha,
             alpha_strength,
+            alpha_rng=alpha_rng,
         )
 
         self._klines: Dict[str, pd.DataFrame] = {}
@@ -146,13 +149,17 @@ class SyntheticSource(DataSource):
         self._derivatives: Dict[str, pd.DataFrame] = {}
 
         for i, sym in enumerate(symbols):
-            price = self.START_PRICES.get(sym, float(rng.uniform(1, 1000)))
-            base_volume = float(rng.uniform(200, 2000))
-            kdf = build_ohlcv(rng, returns[:, i], price, base_volume, start)
+            price = self.START_PRICES.get(sym, float(ohlcv_rng.uniform(1, 1000)))
+            base_volume = float(ohlcv_rng.uniform(200, 2000))
+            kdf = build_ohlcv(ohlcv_rng, returns[:, i], price, base_volume, start)
             self._klines[sym] = kdf
-            self._orderflow[sym] = build_orderflow(rng, kdf, latent[:, i], alpha)
-            self._funding[sym] = build_funding(rng, latent[:, i], start, n_days, alpha)
-            self._derivatives[sym] = build_derivatives(rng, kdf, latent[:, i], alpha)
+            self._orderflow[sym] = build_orderflow(ohlcv_rng, kdf, latent[:, i], alpha)
+            self._funding[sym] = build_funding(
+                ohlcv_rng, latent[:, i], start, n_days, alpha
+            )
+            self._derivatives[sym] = build_derivatives(
+                ohlcv_rng, kdf, latent[:, i], alpha
+            )
 
     def _slice(self, df: pd.DataFrame, start, end) -> pd.DataFrame:
         if df.empty:

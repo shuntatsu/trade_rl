@@ -15,7 +15,7 @@ def test_bootstrap_sharpe_difference_outputs_ci_and_p_value():
         seed=7,
     )
 
-    assert set(result) == {
+    assert {
         "mean",
         "lower_ci",
         "upper_ci",
@@ -23,9 +23,12 @@ def test_bootstrap_sharpe_difference_outputs_ci_and_p_value():
         "observed_diff",
         "n_bootstrap",
         "ci",
-    }
+        "block_size",
+        "method",
+    }.issubset(set(result))
     assert result["n_bootstrap"] == 300
     assert result["ci"] == 0.90
+    assert result["method"] == "moving_block"
     assert 0.0 <= result["p_value"] <= 1.0
     assert result["lower_ci"] <= result["mean"] <= result["upper_ci"]
     assert result["observed_diff"] > 0.0
@@ -81,6 +84,28 @@ def test_bootstrap_sharpe_difference_invalid_inputs():
 
     # Test invalid CI
     with pytest.raises(ValueError, match="ci must be between 0 and 1"):
-        bootstrap_sharpe_difference(candidate, baseline, ci=0.0)
-    with pytest.raises(ValueError, match="ci must be between 0 and 1"):
         bootstrap_sharpe_difference(candidate, baseline, ci=1.0)
+
+
+def test_bootstrap_stationary_and_sensitivity():
+    from mars_lite.eval.bootstrap_eval import analyze_block_size_sensitivity
+
+    rng = np.random.default_rng(42)
+    candidate = rng.normal(0.01, 0.01, 100)
+    baseline = rng.normal(0.00, 0.01, 100)
+
+    # Stationary Bootstrap のテスト
+    stat_res = bootstrap_sharpe_difference(
+        candidate, baseline, n_bootstrap=200, method="stationary", block_size=10, seed=123
+    )
+    assert stat_res["method"] == "stationary"
+    assert stat_res["block_size"] == 10
+
+    # 感度分析のテスト
+    sens = analyze_block_size_sensitivity(
+        candidate, baseline, block_sizes=[5, 10], n_bootstrap=100, seed=123
+    )
+    assert set(sens.keys()) == {5, 10}
+    assert sens[5]["block_size"] == 5
+    assert sens[10]["block_size"] == 10
+

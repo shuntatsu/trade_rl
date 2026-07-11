@@ -17,7 +17,7 @@ SyntheticSource と generate_sample_data.py の両方がここを使う。
 派生データ（OI/L/S/オーダーフロー/funding）の生成にも使う。
 """
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -33,6 +33,7 @@ def generate_market(
     n_minutes: int,
     alpha: str = "none",
     alpha_strength: float = 0.002,
+    alpha_rng: Optional[np.random.Generator] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     合成リターンと潜在ドリフト状態を生成
@@ -41,6 +42,8 @@ def generate_market(
         returns: (n_minutes, n_symbols) 1分対数リターン
         latent:  (n_minutes, n_symbols) 時間あたり予測可能ドリフト状態
     """
+    if alpha_rng is None:
+        alpha_rng = rng
     phi = np.exp(-np.log(2.0) / LATENT_HALF_LIFE_MIN)
     sig_innov = alpha_strength * np.sqrt(1.0 - phi**2)
 
@@ -52,23 +55,42 @@ def generate_market(
     cum24 = np.zeros(n_symbols)  # 直近24hリターンのEMA近似（meanrev用）
     decay24 = 1.0 - 1.0 / MINUTES_PER_DAY
 
-    use_cross = alpha in ("cross", "multi")
+    use_cross = alpha in ("cross", "multi", "concentrated_alpha", "concentrated_alpha_crash", "persistent_cross", "fast_reversal", "vol_shock_up", "vol_shock_down")
     use_meanrev = alpha in ("meanrev", "multi")
     scale = 0.5 if alpha == "multi" else 1.0
+
+    phi_use = phi
+    if alpha == "persistent_cross":
+        phi_use = np.exp(-1.0 / (MINUTES_PER_DAY * 4.0))
+    elif alpha == "fast_reversal":
+        phi_use = -0.5
 
     for t in range(n_minutes):
         drift = np.zeros(n_symbols)
         if use_cross:
-            l = phi * l + rng.normal(0.0, sig_innov, n_symbols)
-            l -= l.mean()  # クロスセクショナルにデミーン（相対アルファ）
-            drift += scale * l
+            l = phi_use * l + alpha_rng.normal(0.0, sig_innov, n_symbols)
+            l_eff = l.copy()
+            if alpha in ("concentrated_alpha", "concentrated_alpha_crash"):
+                l_eff[0] *= 3.0
+                l_eff[1:] *= 0.1
+            l_eff -= l_eff.mean()
+            drift += scale * l_eff
         if use_meanrev:
             drift += -scale * alpha_strength * np.tanh(cum24 / 0.02)
         if alpha == "bull":
             drift += alpha_strength
 
         latent[t] = drift
-        r = drift / 60.0 + noise[t]
+        noise_t = noise[t].copy()
+        if alpha == "vol_shock_up" and t >= n_minutes // 2:
+            noise_t *= 3.0
+        elif alpha == "vol_shock_down" and t < n_minutes // 2:
+            noise_t *= 3.0
+
+        r = drift / 60.0 + noise_t
+        if alpha == "concentrated_alpha_crash" and t >= n_minutes // 2:
+            r[0] -= 0.0005
+
         returns[t] = r
         cum24 = decay24 * cum24 + r
 

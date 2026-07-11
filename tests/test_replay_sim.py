@@ -162,3 +162,42 @@ def test_compare_bar_vs_replay_invalid_inputs():
         compare_bar_vs_replay(returns_a, returns_b, annualization_factor=0)
     with pytest.raises(ValueError, match="annualization_factor"):
         compare_bar_vs_replay(returns_a, returns_b, annualization_factor=-1)
+
+
+def test_replay_simulator_liquidity_ledger_and_advanced_orders():
+    trades = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-01-01", periods=3, freq="min"),
+            "symbol": ["BTCUSDT"] * 3,
+            "price": [100.0, 105.0, 110.0],
+            "quantity": [10.0, 10.0, 10.0],
+        }
+    )
+
+    # max_participation_rate = 0.5 の場合、各行から利用できる出来高は最大 5.0
+    # 注文1 (買い 5.0) は最初の行 (100.0) の利用可能分 5.0 をすべて消費する。
+    # 注文2 (買い 5.0) が続いて発注されたとき、台帳機能により最初の行の残りは 0 なので、2番目の行 (105.0) から約定されるべき！
+    orders = [
+        ExecutionOrder(
+            timestamp=pd.Timestamp("2026-01-01 00:00:00"),
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=5.0,
+        ),
+        ExecutionOrder(
+            timestamp=pd.Timestamp("2026-01-01 00:00:00"),
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=5.0,
+        ),
+    ]
+
+    sim = ReplaySimulator(fee_rate=0.0, max_participation_rate=0.5)
+    res = sim.simulate(trades, orders, initial_cash=100_000.0)
+
+    assert len(res.fills) == 2
+    assert res.fills[0].average_price == 100.0
+    assert res.fills[0].filled_quantity == 5.0
+    assert res.fills[1].average_price == 105.0
+    assert res.fills[1].filled_quantity == 5.0
+

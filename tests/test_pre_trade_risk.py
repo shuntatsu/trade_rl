@@ -125,3 +125,38 @@ def test_simulate_strategy_integration():
         simulate_strategy(
             fs, risky_strategy, pre_trade_verifier=verifier, min_trade_delta=0.0
         )
+
+
+def test_verifier_advanced_risk_checks():
+    # 1. NaN / Inf 検知
+    verifier_nan = PreTradeRiskVerifier(PreTradeRiskConfig())
+    with pytest.raises(PreTradeRejection) as exc_info:
+        verifier_nan.validate(np.array([0.1, np.nan]), 1000.0)
+    assert exc_info.value.reason == "nan_or_inf_in_weights"
+
+    # 2. Net Exposure 上限
+    verifier_net = PreTradeRiskVerifier(PreTradeRiskConfig(max_net_exposure=0.5))
+    with pytest.raises(PreTradeRejection) as exc_info:
+        verifier_net.validate(np.array([0.4, 0.2]), 1000.0)  # sum=0.6 > 0.5
+    assert exc_info.value.reason == "net_exposure_limit_exceeded"
+
+    # 3. Worst-case notional (現在 + pending_notional)
+    verifier_worst = PreTradeRiskVerifier(PreTradeRiskConfig(max_worst_case_notional=1500.0))
+    with pytest.raises(PreTradeRejection) as exc_info:
+        verifier_worst.validate(np.array([0.5, 0.5]), 1000.0, pending_notional=600.0)  # 1000 + 600 = 1600 > 1500
+    assert exc_info.value.reason == "worst_case_notional_exceeded"
+
+    # 4. 銘柄別流動性キャップ
+    verifier_cap = PreTradeRiskVerifier(
+        PreTradeRiskConfig(symbol_liquidity_caps={"BTCUSDT": 400.0})
+    )
+    with pytest.raises(PreTradeRejection) as exc_info:
+        verifier_cap.validate(np.array([0.5]), 1000.0, symbols=["BTCUSDT"])  # 500 > 400
+    assert exc_info.value.reason == "symbol_liquidity_cap_exceeded"
+
+    # 5. 最小注文額
+    verifier_min = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=10.0))
+    with pytest.raises(PreTradeRejection) as exc_info:
+        verifier_min.validate(np.array([0.005]), 1000.0)  # 5 < 10
+    assert exc_info.value.reason == "min_order_notional_not_met"
+

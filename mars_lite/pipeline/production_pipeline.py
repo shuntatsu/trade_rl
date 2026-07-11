@@ -84,6 +84,7 @@ def build_and_register_candidate(
     run_config = {
         key: value for key, value in env_kwargs.items() if key != "post_processor"
     }
+    run_config["base_timeframe"] = str(getattr(args, "base_timeframe", "1h"))
     run_config["observation_progress_mode"] = "zero"
 
     candidate_dir = output_dir / "candidates" / version

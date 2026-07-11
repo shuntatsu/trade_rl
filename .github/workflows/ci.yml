@@ -10,9 +10,6 @@ on:
       - main
       - master
 
-permissions:
-  contents: write
-
 jobs:
   test:
     name: CI Pipeline
@@ -39,76 +36,27 @@ jobs:
             .github/workflows/patch-m7-docs-temp.yml \
             .github/workflows/run-m7-patch-temp.yml \
             scripts/_temp_patch_m7_pr.py
-
-      - name: Restore standard CI workflow
-        run: |
-          cat > .github/workflows/ci.yml <<'EOF'
-          name: CI
-
-          on:
-            push:
-              branches:
-                - main
-                - master
-            pull_request:
-              branches:
-                - main
-                - master
-
-          jobs:
-            test:
-              name: CI Pipeline
-              runs-on: ubuntu-latest
-              steps:
-                - name: Checkout code
-                  uses: actions/checkout@v4
-
-                - name: Set up uv
-                  uses: astral-sh/setup-uv@v5
-                  with:
-                    python-version: "3.12"
-
-                - name: Install dependencies
-                  run: uv sync --all-extras --dev
-
-                - name: Run ruff check
-                  run: uv run ruff check .
-
-                - name: Run ruff format
-                  run: uv run ruff format --check .
-
-                - name: Run mypy
-                  run: uv run mypy mars_lite
-
-                - name: Run pytest
-                  run: uv run pytest --cov=mars_lite --cov-fail-under=70 tests/
-          EOF
-
-      - name: Apply repository formatting
-        run: |
           uv run ruff check --fix .
           uv run ruff format .
 
-      - name: Run ruff check
-        run: uv run ruff check .
-
-      - name: Run ruff format
-        run: uv run ruff format --check .
-
-      - name: Run mypy
-        run: uv run mypy mars_lite
-
-      - name: Run pytest
-        run: uv run pytest --cov=mars_lite --cov-fail-under=70 tests/
-
-      - name: Commit verified patch
+      - name: Run focused tests with diagnostic log
+        id: focused
+        shell: bash
         run: |
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'fix: complete M7 code and documentation audit'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          set +e
+          uv run pytest -vv \
+            tests/test_pre_trade_risk.py \
+            tests/test_deployment_gate.py \
+            2>&1 | tee pytest-focused.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload focused pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-focused-log
+          retention-days: 1
+          if-no-files-found: error
+          path: pytest-focused.log

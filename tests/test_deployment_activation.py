@@ -78,4 +78,4 @@ def test_deploy_workflow_gates_before_registry_activation() -> None:
     script = activation["run"]
     assert "scripts/manage_registry.py" in script
     assert "register deployment_bundle/serving_candidate" in script
-    assert "activate \"$MODEL_VERSION\"" in script
+    assert 'activate "$MODEL_VERSION"' in script

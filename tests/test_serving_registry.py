@@ -11,11 +11,13 @@ def create_bundle(root: Path, version: str, payload: bytes) -> Path:
     (root / "model.zip").write_bytes(payload)
     (root / "metadata.json").write_text(
         '{"schema_version":1,"model_version":"%s","git_sha":"abc123",'
-        '"symbols":["BTCUSDT"],"observation_schema_version":1}' % version,
+        '"symbols":["BTCUSDT"],"observation_schema_version":1,'
+        '"observation_progress_mode":"zero","observation_dim":5,"run_config":{}}'
+        % version,
         encoding="utf-8",
     )
     (root / "preprocessing.json").write_text(
-        '{"feature_names":["ret"],"feature_norm":"none",'
+        '{"feature_names":["ret"],"global_feature_names":[],"feature_norm":"none",'
         '"feature_mask":[true],"post_mask_dim":1}',
         encoding="utf-8",
     )

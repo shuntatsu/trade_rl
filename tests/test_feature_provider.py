@@ -58,7 +58,9 @@ def test_feature_provider_uses_bundled_base_timeframe(tmp_path, monkeypatch) -> 
             return _feature_set()
 
     sentinel_source = object()
-    monkeypatch.setattr(sources, "create_source", lambda *args, **kwargs: sentinel_source)
+    monkeypatch.setattr(
+        sources, "create_source", lambda *args, **kwargs: sentinel_source
+    )
     monkeypatch.setattr(feature_pipeline, "FeaturePipeline", FakePipeline)
 
     provider = CsvFeatureProvider(

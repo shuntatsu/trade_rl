@@ -11,6 +11,8 @@ import numpy as np
 
 from mars_lite.serving.runtime import FeatureSnapshot, ServingRuntime
 
+_SUPPORTED_BASE_TIMEFRAMES = {"15m", "1h", "4h", "1d"}
+
 
 class CsvFeatureProvider:
     def __init__(
@@ -43,14 +45,13 @@ class CsvFeatureProvider:
             ):
                 return self._cached
 
-        from mars_lite.data.data_utils import TF_TO_MINUTES
         from mars_lite.data.sources import create_source
         from mars_lite.features.feature_pipeline import FeaturePipeline
 
         symbols = list(bundle.metadata["symbols"])
         run_config = dict(bundle.metadata.get("run_config") or {})
         base_timeframe = str(run_config.get("base_timeframe", "1h"))
-        if base_timeframe not in TF_TO_MINUTES:
+        if base_timeframe not in _SUPPORTED_BASE_TIMEFRAMES:
             raise ValueError(f"unsupported bundled base_timeframe: {base_timeframe!r}")
         source = create_source("csv", symbols, data_dir=self.data_dir)
         feature_set = FeaturePipeline(symbols, base_timeframe=base_timeframe).build(

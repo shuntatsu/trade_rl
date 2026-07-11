@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from mars_lite.pipeline import production_pipeline
 from mars_lite.serving.bundle import load_bundle
 from mars_lite.serving.registry import ModelRegistry
@@ -59,6 +61,7 @@ def test_pipeline_registers_complete_candidate_without_activation(
         ensemble=1,
         feature_norm="none",
         base_timeframe="4h",
+        signal_layer="off",
         registry_dir=str(tmp_path / "registry"),
     )
     features = SimpleNamespace(
@@ -89,3 +92,15 @@ def test_pipeline_registers_complete_candidate_without_activation(
     assert run_config["disagreement_dr_max"] == 0.3
     assert run_config["base_timeframe"] == "4h"
     assert run_config["observation_progress_mode"] == "zero"
+
+
+def test_production_candidate_rejects_unreproducible_signal_layer(tmp_path: Path) -> None:
+    args = SimpleNamespace(signal_layer="append")
+
+    with pytest.raises(ValueError, match="signal_layer=off"):
+        production_pipeline.build_and_register_candidate(
+            args=args,
+            output_dir=tmp_path,
+            feature_set=SimpleNamespace(),
+            train_result={},
+        )

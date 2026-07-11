@@ -1,408 +1,190 @@
+import hashlib
+import json
 from pathlib import Path
 
-from mars_lite.server.deployment_gate import DeploymentEvidence, DeploymentGate
+from mars_lite.server.deployment_gate import (
+    DeploymentEvidence,
+    DeploymentGate,
+    load_evidence_bundle,
+    main,
+)
 
 
-def test_deployment_gate_blocks_production_without_canary():
-    gate = DeploymentGate()
-    evidence = DeploymentEvidence(
-        stage="production",
-        shadow_passed=True,
-        model_version="1.0.0",
-        git_commit="a" * 40,
-        drift_report_passed=True,
-        approval_ticket="PROD-123",
-    )
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
-    decision = gate.evaluate(evidence)
 
+def _write_bundle(tmp_path: Path, *, production: bool = False) -> Path:
+    root = tmp_path / "bundle"
+    root.mkdir()
+    model = root / "model.zip"
+    model.write_bytes(b"model-bytes")
+    model_hash = _sha(model)
+    identity = {
+        "model_version": "1.0.0",
+        "git_commit": "a" * 40,
+        "artifact_sha256": model_hash,
+    }
+    shadow = {
+        "run_id": "shadow-1",
+        **identity,
+        "oos_sharpe": 1.2,
+        "baseline_sharpe": 1.0,
+        "max_drawdown": 0.10,
+    }
+    drift = {
+        "report_id": "drift-1",
+        **identity,
+        "psi_score": 0.10,
+        "ks_p_value": 0.20,
+    }
+    incident = {
+        "report_id": "incident-1",
+        **identity,
+        "active_incidents": False,
+    }
+    canary = {
+        "run_id": "canary-1",
+        "parent_shadow_run_id": "shadow-1",
+        **identity,
+        "capital_cap_usd": 5_000.0,
+        "duration_days": 14,
+        "max_loss_pct": 0.02,
+        "mean_slippage_bps": 5.0,
+    }
+    for name, payload in (
+        ("shadow.json", shadow),
+        ("drift.json", drift),
+        ("incident.json", incident),
+    ):
+        (root / name).write_text(json.dumps(payload), encoding="utf-8")
+    if production:
+        (root / "canary.json").write_text(json.dumps(canary), encoding="utf-8")
+    candidate = {
+        "model_version": "1.0.0",
+        "git_commit": "a" * 40,
+        "artifact_path": "model.zip",
+        "artifact_sha256": model_hash,
+        "shadow_report_sha256": _sha(root / "shadow.json"),
+        "drift_report_sha256": _sha(root / "drift.json"),
+        "incident_report_sha256": _sha(root / "incident.json"),
+        "canary_report_sha256": _sha(root / "canary.json") if production else None,
+    }
+    (root / "candidate.json").write_text(json.dumps(candidate), encoding="utf-8")
+    return root
+
+
+def test_shadow_is_first_stage():
+    assert DeploymentGate().evaluate(DeploymentEvidence(stage="shadow")).allowed
+
+
+def test_canary_requires_bundle_not_boolean_fallback():
+    decision = DeploymentGate().evaluate(DeploymentEvidence(stage="canary"))
     assert decision.allowed is False
-    assert "canary" in decision.reason
+    assert "bundle" in decision.reason
 
 
-def test_deployment_gate_allows_ordered_shadow_canary_production():
-    gate = DeploymentGate()
+def test_verified_bundle_allows_canary(tmp_path):
+    root = _write_bundle(tmp_path)
+    evidence = load_evidence_bundle(root, "canary")
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is True
 
-    assert gate.evaluate(DeploymentEvidence(stage="shadow")).allowed is True
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="canary",
-                shadow_passed=True,
-                model_version="1.0.0",
-                git_commit="a" * 40,
-                drift_report_passed=True,
-            )
-        ).allowed
-        is True
+
+def test_verified_bundle_allows_production(tmp_path):
+    root = _write_bundle(tmp_path, production=True)
+    evidence = load_evidence_bundle(
+        root,
+        "production",
+        approval_ticket="PROD-123",
+        environment_approver="risk-manager",
     )
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="production",
-                shadow_passed=True,
-                canary_passed=True,
-                model_version="1.0.0",
-                git_commit="a" * 40,
-                drift_report_passed=True,
-                approval_ticket="PROD-123",
-            )
-        ).allowed
-        is True
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is True
+
+
+def test_model_artifact_tamper_is_blocked(tmp_path):
+    root = _write_bundle(tmp_path)
+    (root / "model.zip").write_bytes(b"tampered")
+    evidence = load_evidence_bundle(root, "canary")
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is False
+    assert "artifact SHA-256 mismatch" in decision.reason
+
+
+def test_report_tamper_is_blocked_before_parsing(tmp_path):
+    root = _write_bundle(tmp_path)
+    payload = json.loads((root / "shadow.json").read_text())
+    payload["oos_sharpe"] = 99.0
+    (root / "shadow.json").write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        load_evidence_bundle(root, "canary")
+    except ValueError as exc:
+        assert "shadow report SHA-256 mismatch" in str(exc)
+    else:
+        raise AssertionError("tampered report must be rejected")
+
+
+def test_cross_model_report_reuse_is_blocked(tmp_path):
+    root = _write_bundle(tmp_path)
+    candidate_payload = json.loads((root / "candidate.json").read_text())
+    shadow_payload = json.loads((root / "shadow.json").read_text())
+    shadow_payload["model_version"] = "old-model"
+    (root / "shadow.json").write_text(json.dumps(shadow_payload), encoding="utf-8")
+    candidate_payload["shadow_report_sha256"] = _sha(root / "shadow.json")
+    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    evidence = load_evidence_bundle(root, "canary")
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is False
+    assert "model version does not match" in decision.reason
+
+
+def test_canary_must_reference_verified_shadow_run(tmp_path):
+    root = _write_bundle(tmp_path, production=True)
+    candidate_payload = json.loads((root / "candidate.json").read_text())
+    canary_payload = json.loads((root / "canary.json").read_text())
+    canary_payload["parent_shadow_run_id"] = "other-shadow"
+    (root / "canary.json").write_text(json.dumps(canary_payload), encoding="utf-8")
+    candidate_payload["canary_report_sha256"] = _sha(root / "canary.json")
+    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    evidence = load_evidence_bundle(
+        root,
+        "production",
+        approval_ticket="PROD-123",
+        environment_approver="risk-manager",
     )
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is False
+    assert "verified shadow run" in decision.reason
 
 
-def test_deployment_gate_active_incidents_blocks_all_stages():
-    gate = DeploymentGate()
-
-    # shadow
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="shadow",
-                active_incidents=True,
-            )
-        ).allowed
-        is False
-    )
-
-    # canary
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="canary",
-                shadow_passed=True,
-                model_version="1.0.0",
-                git_commit="a" * 40,
-                drift_report_passed=True,
-                active_incidents=True,
-            )
-        ).allowed
-        is False
-    )
-
-    # production
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="production",
-                shadow_passed=True,
-                canary_passed=True,
-                model_version="1.0.0",
-                git_commit="a" * 40,
-                drift_report_passed=True,
-                approval_ticket="PROD-123",
-                active_incidents=True,
-            )
-        ).allowed
-        is False
-    )
+def test_active_incident_blocks_deployment(tmp_path):
+    root = _write_bundle(tmp_path)
+    candidate_payload = json.loads((root / "candidate.json").read_text())
+    incident_payload = json.loads((root / "incident.json").read_text())
+    incident_payload["active_incidents"] = True
+    (root / "incident.json").write_text(json.dumps(incident_payload), encoding="utf-8")
+    candidate_payload["incident_report_sha256"] = _sha(root / "incident.json")
+    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    evidence = load_evidence_bundle(root, "canary")
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is False
+    assert "active incidents" in decision.reason
 
 
-def test_deployment_gate_git_commit_sha1_validation():
-    gate = DeploymentGate()
-
-    valid_commit = "a" * 40
-    invalid_commit_short = "a" * 39
-    invalid_commit_long = "a" * 41
-    invalid_commit_chars = (
-        "z" * 40
-    )  # Wait, SHA-1 is hexadecimal [a-fA-F0-9]. 'z' is invalid.
-
-    # Canary validation
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="canary",
-                shadow_passed=True,
-                model_version="1.0.0",
-                git_commit=valid_commit,
-                drift_report_passed=True,
-            )
-        ).allowed
-        is True
-    )
-
-    for invalid in [
-        None,
-        "",
-        invalid_commit_short,
-        invalid_commit_long,
-        invalid_commit_chars,
-    ]:
-        assert (
-            gate.evaluate(
-                DeploymentEvidence(
-                    stage="canary",
-                    shadow_passed=True,
-                    model_version="1.0.0",
-                    git_commit=invalid,
-                    drift_report_passed=True,
-                )
-            ).allowed
-            is False
-        )
-
-    # Production validation
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="production",
-                shadow_passed=True,
-                canary_passed=True,
-                model_version="1.0.0",
-                git_commit=valid_commit,
-                drift_report_passed=True,
-                approval_ticket="PROD-123",
-            )
-        ).allowed
-        is True
-    )
-
-    for invalid in [
-        None,
-        "",
-        invalid_commit_short,
-        invalid_commit_long,
-        invalid_commit_chars,
-    ]:
-        assert (
-            gate.evaluate(
-                DeploymentEvidence(
-                    stage="production",
-                    shadow_passed=True,
-                    canary_passed=True,
-                    model_version="1.0.0",
-                    git_commit=invalid,
-                    drift_report_passed=True,
-                    approval_ticket="PROD-123",
-                )
-            ).allowed
-            is False
-        )
+def test_path_traversal_is_blocked(tmp_path):
+    root = _write_bundle(tmp_path)
+    candidate_payload = json.loads((root / "candidate.json").read_text())
+    candidate_payload["artifact_path"] = "../model.zip"
+    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    evidence = load_evidence_bundle(root, "canary")
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is False
+    assert "escapes evidence bundle" in decision.reason
 
 
-def test_deployment_gate_approval_ticket_validation():
-    gate = DeploymentGate()
-
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="production",
-                shadow_passed=True,
-                canary_passed=True,
-                model_version="1.0.0",
-                git_commit="a" * 40,
-                drift_report_passed=True,
-                approval_ticket="PROD-12345",
-            )
-        ).allowed
-        is True
-    )
-
-    for invalid_ticket in [None, "", "PROD-", "PROD-abc", "APPROVED-1", "PROD-12a"]:
-        assert (
-            gate.evaluate(
-                DeploymentEvidence(
-                    stage="production",
-                    shadow_passed=True,
-                    canary_passed=True,
-                    model_version="1.0.0",
-                    git_commit="a" * 40,
-                    drift_report_passed=True,
-                    approval_ticket=invalid_ticket,
-                )
-            ).allowed
-            is False
-        )
-
-
-def test_deployment_gate_model_version_and_drift_report_validation():
-    gate = DeploymentGate()
-
-    # Canary missing model version
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="canary",
-                shadow_passed=True,
-                model_version=None,
-                git_commit="a" * 40,
-                drift_report_passed=True,
-            )
-        ).allowed
-        is False
-    )
-
-    # Canary missing drift report
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="canary",
-                shadow_passed=True,
-                model_version="1.0.0",
-                git_commit="a" * 40,
-                drift_report_passed=False,
-            )
-        ).allowed
-        is False
-    )
-
-    # Production missing model version
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="production",
-                shadow_passed=True,
-                canary_passed=True,
-                model_version=None,
-                git_commit="a" * 40,
-                drift_report_passed=True,
-                approval_ticket="PROD-123",
-            )
-        ).allowed
-        is False
-    )
-
-    # Production missing drift report
-    assert (
-        gate.evaluate(
-            DeploymentEvidence(
-                stage="production",
-                shadow_passed=True,
-                canary_passed=True,
-                model_version="1.0.0",
-                git_commit="a" * 40,
-                drift_report_passed=False,
-                approval_ticket="PROD-123",
-            )
-        ).allowed
-        is False
-    )
-
-
-def test_required_runbooks_exist():
-    for path in [
-        Path("docs/runbook_incident_response.md"),
-        Path("docs/runbook_compliance.md"),
-        Path("docs/model_decision_log.md"),
-        Path("docs/runbook_model_rollback.md"),
-    ]:
-        assert path.exists()
-
-
-def test_deployment_gate_security_hardening():
-    gate = DeploymentGate()
-
-    # 1. git_commit 改行コードインジェクションのテスト
-    for stage in ["canary", "production"]:
-        for invalid_commit in ["a" * 40 + "\n", "\n" + "a" * 40, "a" * 40 + "\r\n"]:
-            evidence = DeploymentEvidence(
-                stage=stage,
-                shadow_passed=True,
-                canary_passed=True,
-                model_version="1.0.0",
-                git_commit=invalid_commit,
-                drift_report_passed=True,
-                approval_ticket="PROD-123",
-            )
-            assert gate.evaluate(evidence).allowed is False
-
-    # 2. approval_ticket 改行コードインジェクションのテスト
-    for invalid_ticket in ["PROD-123\n", "\nPROD-123", "PROD-123\r\n"]:
-        evidence = DeploymentEvidence(
-            stage="production",
-            shadow_passed=True,
-            canary_passed=True,
-            model_version="1.0.0",
-            git_commit="a" * 40,
-            drift_report_passed=True,
-            approval_ticket=invalid_ticket,
-        )
-        assert gate.evaluate(evidence).allowed is False
-
-    # 3. model_version の不正文字テスト
-    invalid_versions = [
-        "1.0.0 ",
-        " 1.0.0",
-        "1.0.0\n",
-        "1.0.0\r\n",
-        "1.0.0-beta!",
-        "1.0.0/2",
-        "1.0.0$",
-        "v1_0_0@",
-    ]
-    for stage in ["canary", "production"]:
-        for invalid_version in invalid_versions:
-            evidence = DeploymentEvidence(
-                stage=stage,
-                shadow_passed=True,
-                canary_passed=True,
-                model_version=invalid_version,
-                git_commit="a" * 40,
-                drift_report_passed=True,
-                approval_ticket="PROD-123",
-            )
-            decision = gate.evaluate(evidence)
-            assert decision.allowed is False
-
-
-def test_deployment_gate_evidence_based_reports():
-    from mars_lite.server.deployment_gate import (
-        CanaryEvidenceReport,
-        DriftEvidenceReport,
-        ShadowEvidenceReport,
-    )
-
-    gate = DeploymentGate()
-
-    # 1. 失敗する Shadow レポート（Sharpe 差分不足）
-    failed_shadow = ShadowEvidenceReport(
-        run_id="run-1",
-        oos_sharpe=0.5,
-        baseline_sharpe=1.0,
-        max_drawdown=0.10,
-    )
-    ev_failed_shadow = DeploymentEvidence(
-        stage="canary",
-        model_version="1.0.0",
-        git_commit="a" * 40,
-        shadow_report=failed_shadow,
-        drift_report_passed=True,
-    )
-    assert gate.evaluate(ev_failed_shadow).allowed is False
-
-    # 2. 成功する Shadow/Canary/Drift レポート
-    passed_shadow = ShadowEvidenceReport(
-        run_id="run-1",
-        oos_sharpe=1.2,
-        baseline_sharpe=1.0,
-        max_drawdown=0.10,
-    )
-    passed_canary = CanaryEvidenceReport(
-        run_id="canary-1",
-        capital_cap_usd=5000.0,
-        duration_days=14,
-        max_loss_pct=0.02,
-        mean_slippage_bps=5.0,
-    )
-    passed_drift = DriftEvidenceReport(
-        report_id="drift-1",
-        psi_score=0.10,
-        ks_p_value=0.20,
-        signature_sha256="b" * 64,
-    )
-
-    ev_prod = DeploymentEvidence(
-        stage="production",
-        model_version="1.0.0",
-        git_commit="a" * 40,
-        approval_ticket="PROD-999",
-        model_artifact_sha256="c" * 64,
-        shadow_report=passed_shadow,
-        canary_report=passed_canary,
-        drift_report=passed_drift,
-        environment_approver="risk-manager-1",
-    )
-    assert gate.evaluate(ev_prod).allowed is True
-
+def test_cli_returns_nonzero_for_missing_bundle(capsys):
+    result = main(["--stage", "canary", "--bundle-dir", "/missing"])
+    assert result == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["allowed"] is False

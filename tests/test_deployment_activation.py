@@ -70,6 +70,14 @@ def test_deploy_workflow_gates_before_registry_activation() -> None:
     gate_index = names.index("Evaluate deployment gate")
     activation_index = names.index("Register and atomically activate approved bundle")
     assert activation_index > gate_index
+
+    binding = next(
+        step for step in steps if step.get("name") == "Download and bind immutable evidence"
+    )
+    binding_script = binding["run"]
+    assert 'expected_artifact = "serving_candidate/manifest.json"' in binding_script
+    assert "candidate artifact digest does not match serving manifest" in binding_script
+
     activation = next(
         step
         for step in steps

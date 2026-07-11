@@ -304,10 +304,7 @@ class DeploymentGate:
             return "candidate manifest contains invalid SHA-256 digest"
 
         if candidate.artifact_path != _SERVING_MANIFEST_PATH:
-            return (
-                "candidate artifact_path must reference "
-                f"{_SERVING_MANIFEST_PATH}"
-            )
+            return f"candidate artifact_path must reference {_SERVING_MANIFEST_PATH}"
         try:
             artifact_path = _resolve_inside(artifact_root, candidate.artifact_path)
         except (TypeError, ValueError):

@@ -8,11 +8,44 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from mars_lite.serving.bundle import ServingBundle, load_bundle
 from mars_lite.serving.registry import ModelRegistry
 
 
 def _print_json(value: object) -> None:
     print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+def _register_idempotently(
+    registry: ModelRegistry, candidate_dir: Path
+) -> ServingBundle:
+    candidate = load_bundle(candidate_dir)
+    target = registry.version_dir(candidate.version)
+    if target.exists():
+        existing = load_bundle(target)
+        if existing.bundle_digest != candidate.bundle_digest:
+            raise ValueError(
+                f"version {candidate.version!r} already exists with a different digest"
+            )
+        return existing
+    return registry.register(candidate_dir)
+
+
+def _activate_idempotently(
+    registry: ModelRegistry, version: str, evidence_identity: str
+) -> ServingBundle:
+    target = load_bundle(registry.version_dir(version))
+    try:
+        active = registry.get_active_record()
+    except LookupError:
+        active = None
+    if (
+        active is not None
+        and active.version == version
+        and active.bundle_digest == target.bundle_digest
+    ):
+        return target
+    return registry.activate(version, evidence_identity)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,12 +74,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     registry = ModelRegistry(args.registry_dir)
     try:
         if args.command == "register":
-            bundle = registry.register(args.candidate_dir)
+            bundle = _register_idempotently(registry, args.candidate_dir)
             _print_json(
                 {"version": bundle.version, "bundle_digest": bundle.bundle_digest}
             )
         elif args.command == "activate":
-            bundle = registry.activate(args.version, args.evidence_identity)
+            bundle = _activate_idempotently(
+                registry, args.version, args.evidence_identity
+            )
             _print_json(
                 {"version": bundle.version, "bundle_digest": bundle.bundle_digest}
             )

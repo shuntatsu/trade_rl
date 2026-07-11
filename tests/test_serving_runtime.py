@@ -22,14 +22,15 @@ def create_bundle(
     (root / "metadata.json").write_text(
         (
             '{"schema_version":1,"model_version":"%s","git_sha":"abc123",'
-            '"symbols":%s,"observation_schema_version":1,"observation_dim":%d}'
+            '"symbols":%s,"observation_schema_version":1,'
+            '"observation_progress_mode":"zero","observation_dim":%d,"run_config":{}}'
         )
         % (version, str(list(symbols)).replace("'", '"'), len(symbols) * 2 + 4),
         encoding="utf-8",
     )
     (root / "preprocessing.json").write_text(
-        '{"feature_names":["ret"],"feature_norm":"none",'
-        '"feature_mask":[true],"post_mask_dim":1}',
+        '{"feature_names":["ret"],"global_feature_names":["market"],'
+        '"feature_norm":"none","feature_mask":[true],"post_mask_dim":1}',
         encoding="utf-8",
     )
     (root / "risk.json").write_text(
@@ -137,6 +138,7 @@ def test_current_weights_are_in_policy_observation_before_predict(
         snapshot_id="snap-1",
         symbols=("BTCUSDT", "ETHUSDT"),
         feature_names=("ret",),
+        global_feature_names=("market",),
         feature_history=np.zeros((5, 2, 1), dtype=np.float64),
         global_features=np.array([0.5], dtype=np.float64),
         close_history=np.ones((5, 2), dtype=np.float64),
@@ -178,6 +180,7 @@ def test_duplicate_request_fails_closed(tmp_path: Path) -> None:
         snapshot_id="snap-1",
         symbols=("BTCUSDT",),
         feature_names=("ret",),
+        global_feature_names=("market",),
         feature_history=np.zeros((5, 1, 1), dtype=np.float64),
         global_features=np.array([0.5], dtype=np.float64),
         close_history=np.ones((5, 1), dtype=np.float64),
@@ -193,8 +196,10 @@ def test_zero_risk_scales_are_preserved_in_observation(tmp_path: Path) -> None:
     registry = ModelRegistry(tmp_path / "registry")
     candidate = create_bundle(tmp_path / "v1", "v1", b"one")
     metadata_path = candidate / "metadata.json"
-    metadata = metadata_path.read_text(encoding="utf-8").replace(
-        '"observation_dim":6', '"observation_dim":10'
+    metadata = metadata_path.read_text(encoding="utf-8")
+    metadata = metadata.replace('"observation_dim":6', '"observation_dim":10')
+    metadata = metadata.replace(
+        '"run_config":{}', '"run_config":{"obs_risk_state":true}'
     )
     metadata_path.write_text(metadata, encoding="utf-8")
     build_manifest(candidate)
@@ -238,6 +243,7 @@ def test_zero_risk_scales_are_preserved_in_observation(tmp_path: Path) -> None:
         snapshot_id="snap-zero",
         symbols=("BTCUSDT",),
         feature_names=("ret",),
+        global_feature_names=("market",),
         feature_history=np.zeros((5, 1, 1)),
         global_features=np.array([0.0]),
         close_history=np.ones((5, 1)),

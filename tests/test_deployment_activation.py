@@ -72,7 +72,9 @@ def test_deploy_workflow_gates_before_registry_activation() -> None:
     assert activation_index > gate_index
 
     binding = next(
-        step for step in steps if step.get("name") == "Download and bind immutable evidence"
+        step
+        for step in steps
+        if step.get("name") == "Download and bind immutable evidence"
     )
     binding_script = binding["run"]
     assert 'expected_artifact = "serving_candidate/manifest.json"' in binding_script

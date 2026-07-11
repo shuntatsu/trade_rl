@@ -17,7 +17,9 @@ def test_build_observation_matches_current_layout() -> None:
         peak_value=1.0,
         progress=0.25,
     )
-    actual = build_observation(features, globals_, state, ObservationSchema())
+    actual = build_observation(
+        features, globals_, state, ObservationSchema(progress_mode="episode")
+    )
     expected = np.array(
         [1.0, 2.0, 0.2, 3.0, 4.0, -0.1, 5.0, 6.0, 0.1, 0.3, 0.25],
         dtype=np.float32,

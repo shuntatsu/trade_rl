@@ -268,11 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "rollback":
             print(
                 json.dumps(
-                    asdict(
-                        registry.rollback(
-                            getattr(args, "target_version", None)
-                        )
-                    )
+                    asdict(registry.rollback(getattr(args, "target_version", None)))
                 )
             )
         return 0

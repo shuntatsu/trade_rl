@@ -21,9 +21,9 @@ def test_liquidity_is_not_double_consumed():
         ExecutionOrder(pd.Timestamp("2026-01-01 00:00"), "BTCUSDT", "buy", 5.0),
         ExecutionOrder(pd.Timestamp("2026-01-01 00:00"), "BTCUSDT", "buy", 5.0),
     ]
-    result = ReplaySimulator(
-        fee_rate=0.0, max_participation_rate=0.5
-    ).simulate(_trades(), orders, initial_cash=100_000.0)
+    result = ReplaySimulator(fee_rate=0.0, max_participation_rate=0.5).simulate(
+        _trades(), orders, initial_cash=100_000.0
+    )
     assert result.fills[0].average_price == 100.0
     assert result.fills[1].average_price == 101.0
 

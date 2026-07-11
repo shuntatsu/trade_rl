@@ -176,7 +176,9 @@ class DeploymentGate:
             return GateDecision(False, f"unknown deployment stage: {evidence.stage}")
 
         if evidence.artifact_root is None or evidence.candidate is None:
-            return GateDecision(False, "evidence bundle and candidate artifact are required")
+            return GateDecision(
+                False, "evidence bundle and candidate artifact are required"
+            )
 
         candidate_error = self._validate_candidate(
             evidence.candidate, evidence.artifact_root
@@ -349,9 +351,7 @@ def load_evidence_bundle(
         shadow_report=_construct(
             ShadowEvidenceReport, _read_json(shadow_path), "shadow"
         ),
-        drift_report=_construct(
-            DriftEvidenceReport, _read_json(drift_path), "drift"
-        ),
+        drift_report=_construct(DriftEvidenceReport, _read_json(drift_path), "drift"),
         incident_report=_construct(
             IncidentEvidenceReport, _read_json(incident_path), "incident"
         ),

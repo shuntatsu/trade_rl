@@ -56,9 +56,7 @@ def test_net_exposure_limit():
 
 
 def test_worst_case_uses_one_sided_fill_scenarios():
-    verifier = PreTradeRiskVerifier(
-        PreTradeRiskConfig(max_worst_case_notional=1_200.0)
-    )
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_worst_case_notional=1_200.0))
     current = np.array([0.4, -0.2])
     target = np.array([0.5, -0.1])
     orders = [
@@ -79,9 +77,7 @@ def test_worst_case_uses_one_sided_fill_scenarios():
 
 
 def test_reduce_only_pending_order_does_not_increase_worst_case():
-    verifier = PreTradeRiskVerifier(
-        PreTradeRiskConfig(max_worst_case_notional=500.0)
-    )
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_worst_case_notional=500.0))
     verifier.validate(
         np.array([0.4]),
         1000.0,
@@ -105,9 +101,7 @@ def test_min_order_notional_uses_delta_not_target_position():
 
 def test_unchanged_large_position_does_not_trigger_min_order():
     verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=10.0))
-    verifier.validate(
-        np.array([0.5]), 1000.0, current_weights=np.array([0.5])
-    )
+    verifier.validate(np.array([0.5]), 1000.0, current_weights=np.array([0.5]))
 
 
 def test_liquidity_cap_uses_delta_plus_open_orders():
@@ -127,9 +121,7 @@ def test_liquidity_cap_uses_delta_plus_open_orders():
 
 
 def test_forbidden_symbol_allows_reduction_but_blocks_increase_or_flip():
-    verifier = PreTradeRiskVerifier(
-        PreTradeRiskConfig(forbidden_symbols={"DOGEUSDT"})
-    )
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(forbidden_symbols={"DOGEUSDT"}))
     verifier.validate(
         np.array([0.1]),
         1000.0,
@@ -169,9 +161,7 @@ class DummyFeatureSet:
 def test_env_integration_passes_current_weights_and_symbols():
     fs = DummyFeatureSet()
     verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_leverage=0.5))
-    env = PortfolioTradingEnv(
-        fs, pre_trade_verifier=verifier, initial_capital=100.0
-    )
+    env = PortfolioTradingEnv(fs, pre_trade_verifier=verifier, initial_capital=100.0)
     env.reset()
     with pytest.raises(PreTradeRejection):
         env.step(np.array([0.3, 0.3]))

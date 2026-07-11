@@ -132,7 +132,9 @@ def test_cross_model_report_reuse_is_blocked(tmp_path):
     shadow_payload["model_version"] = "old-model"
     (root / "shadow.json").write_text(json.dumps(shadow_payload), encoding="utf-8")
     candidate_payload["shadow_report_sha256"] = _sha(root / "shadow.json")
-    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    (root / "candidate.json").write_text(
+        json.dumps(candidate_payload), encoding="utf-8"
+    )
     evidence = load_evidence_bundle(root, "canary")
     decision = DeploymentGate().evaluate(evidence)
     assert decision.allowed is False
@@ -146,7 +148,9 @@ def test_canary_must_reference_verified_shadow_run(tmp_path):
     canary_payload["parent_shadow_run_id"] = "other-shadow"
     (root / "canary.json").write_text(json.dumps(canary_payload), encoding="utf-8")
     candidate_payload["canary_report_sha256"] = _sha(root / "canary.json")
-    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    (root / "candidate.json").write_text(
+        json.dumps(candidate_payload), encoding="utf-8"
+    )
     evidence = load_evidence_bundle(
         root,
         "production",
@@ -165,7 +169,9 @@ def test_active_incident_blocks_deployment(tmp_path):
     incident_payload["active_incidents"] = True
     (root / "incident.json").write_text(json.dumps(incident_payload), encoding="utf-8")
     candidate_payload["incident_report_sha256"] = _sha(root / "incident.json")
-    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    (root / "candidate.json").write_text(
+        json.dumps(candidate_payload), encoding="utf-8"
+    )
     evidence = load_evidence_bundle(root, "canary")
     decision = DeploymentGate().evaluate(evidence)
     assert decision.allowed is False
@@ -176,7 +182,9 @@ def test_path_traversal_is_blocked(tmp_path):
     root = _write_bundle(tmp_path)
     candidate_payload = json.loads((root / "candidate.json").read_text())
     candidate_payload["artifact_path"] = "../model.zip"
-    (root / "candidate.json").write_text(json.dumps(candidate_payload), encoding="utf-8")
+    (root / "candidate.json").write_text(
+        json.dumps(candidate_payload), encoding="utf-8"
+    )
     evidence = load_evidence_bundle(root, "canary")
     decision = DeploymentGate().evaluate(evidence)
     assert decision.allowed is False

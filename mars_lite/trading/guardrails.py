@@ -332,9 +332,7 @@ def main(
         default="evaluate",
     )
     parser.add_argument("--scale", type=float, default=0.0)
-    parser.add_argument(
-        "--reason", default="manual emergency intervention via CLI"
-    )
+    parser.add_argument("--reason", default="manual emergency intervention via CLI")
     parser.add_argument(
         "--executor",
         help="Execution adapter factory as module:factory; required for flatten",
@@ -342,9 +340,7 @@ def main(
     parser.add_argument("--idempotency-key")
     parser.add_argument("--position-tolerance", type=float, default=1e-9)
     parser.add_argument("--max-reconcile-rounds", type=int, default=3)
-    parser.add_argument(
-        "--output-format", choices=["json", "text"], default="json"
-    )
+    parser.add_argument("--output-format", choices=["json", "text"], default="json")
     args = parser.parse_args(argv)
 
     if args.action == "flatten":
@@ -371,9 +367,7 @@ def main(
             payload = {
                 "success": False,
                 "action": "flatten_not_executed",
-                "errors": [
-                    "real emergency flatten requires --executor module:factory"
-                ],
+                "errors": ["real emergency flatten requires --executor module:factory"],
             }
             _print_payload(payload, args.output_format)
             return 2

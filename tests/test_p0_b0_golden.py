@@ -16,7 +16,9 @@ from mars_lite.features.feature_pipeline import FeaturePipeline
 class TestP0B0GoldenRegression(unittest.TestCase):
     def test_b0_env_step_invariants(self):
         """B0設定 (コストなし/既定コスト、後処理なし) の決定論的挙動の不変性検証"""
-        src = SyntheticSource(seed=42, symbols=["AAA", "BBB", "CCC", "DDD"], n_days=60, alpha="cross")
+        src = SyntheticSource(
+            seed=42, symbols=["AAA", "BBB", "CCC", "DDD"], n_days=60, alpha="cross"
+        )
         fs = FeaturePipeline(src.symbols).build(src)
         env = PortfolioTradingEnv(
             fs=fs,
@@ -34,8 +36,8 @@ class TestP0B0GoldenRegression(unittest.TestCase):
         np.random.seed(123)
         actions = [
             np.array([0.2, -0.2, 0.3, -0.3], dtype=np.float32),
-            np.array([0.1,  0.1, -0.1, -0.1], dtype=np.float32),
-            np.array([0.0,  0.0,  0.0,  0.0], dtype=np.float32),
+            np.array([0.1, 0.1, -0.1, -0.1], dtype=np.float32),
+            np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32),
         ]
 
         total_reward = 0.0
@@ -48,6 +50,7 @@ class TestP0B0GoldenRegression(unittest.TestCase):
         self.assertGreaterEqual(env.turnover_total, 0.0)
         self.assertIn("turnover", info)
         self.assertAlmostEqual(total_reward, 0.0686707759064264, places=10)
+
 
 if __name__ == "__main__":
     unittest.main()

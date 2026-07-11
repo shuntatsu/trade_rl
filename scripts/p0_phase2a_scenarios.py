@@ -55,8 +55,12 @@ def main():
                     model_seed=ms,
                     timesteps=args.timesteps,
                 )
-                results.append({"type": "B0", "scenario_config": cfg, "alpha": alpha, **res_b0})
-                results.append({"type": cfg, "scenario_config": cfg, "alpha": alpha, **res_cfg})
+                results.append(
+                    {"type": "B0", "scenario_config": cfg, "alpha": alpha, **res_b0}
+                )
+                results.append(
+                    {"type": cfg, "scenario_config": cfg, "alpha": alpha, **res_cfg}
+                )
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
@@ -73,8 +77,12 @@ def main():
         cfg_dd = np.median([r["test_max_dd"] for r in sub_cfg]) * 100
         b0_mw = np.max([r["max_abs_weight"] for r in sub_b0])
         cfg_mw = np.max([r["max_abs_weight"] for r in sub_cfg])
-        print(f"B0   : Ret={b0_ret:>6.2f}%, MaxDD={b0_dd:>6.2f}%, MaxWeight={b0_mw:>5.2f}")
-        print(f"{cfg:<4} : Ret={cfg_ret:>6.2f}%, MaxDD={cfg_dd:>6.2f}%, MaxWeight={cfg_mw:>5.2f}")
+        print(
+            f"B0   : Ret={b0_ret:>6.2f}%, MaxDD={b0_dd:>6.2f}%, MaxWeight={b0_mw:>5.2f}"
+        )
+        print(
+            f"{cfg:<4} : Ret={cfg_ret:>6.2f}%, MaxDD={cfg_dd:>6.2f}%, MaxWeight={cfg_mw:>5.2f}"
+        )
 
 
 if __name__ == "__main__":

@@ -177,7 +177,9 @@ class ReplaySimulator:
         if order.order_type == "limit" and order.limit_price is None:
             raise ValueError("limit orders require limit_price")
         if order.latency_seconds < 0 or order.max_delay_seconds < 0:
-            raise ValueError("latency_seconds and max_delay_seconds must be non-negative")
+            raise ValueError(
+                "latency_seconds and max_delay_seconds must be non-negative"
+            )
 
         effective_start = pd.Timestamp(order.timestamp) + pd.Timedelta(
             seconds=order.latency_seconds
@@ -257,7 +259,9 @@ class ReplaySimulator:
         price_table = trades.pivot_table(
             index="timestamp", columns="symbol", values="price", aggfunc="last"
         ).sort_index()
-        combined_index = price_table.index.union(pd.DatetimeIndex(timeline)).sort_values()
+        combined_index = price_table.index.union(
+            pd.DatetimeIndex(timeline)
+        ).sort_values()
         price_grid = price_table.reindex(combined_index).ffill().reindex(timeline)
 
         cash = float(initial_cash)
@@ -317,7 +321,9 @@ def compare_bar_vs_replay(
         raise ValueError("tolerance must be positive")
     if annualization_factor <= 0:
         raise ValueError("annualization_factor must be positive")
-    bar_sharpe = _calc_sharpe(np.asarray(bar_returns, dtype=float), annualization_factor)
+    bar_sharpe = _calc_sharpe(
+        np.asarray(bar_returns, dtype=float), annualization_factor
+    )
     replay_sharpe = _calc_sharpe(
         np.asarray(replay_returns, dtype=float), annualization_factor
     )

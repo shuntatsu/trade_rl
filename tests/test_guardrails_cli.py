@@ -26,7 +26,10 @@ class FakeExecutor:
         return list(self.open_orders)
 
     def list_positions(self):
-        return [PositionSnapshot(symbol, quantity) for symbol, quantity in self.positions.items()]
+        return [
+            PositionSnapshot(symbol, quantity)
+            for symbol, quantity in self.positions.items()
+        ]
 
     def submit_reduce_only_market_order(self, symbol, side, quantity, client_order_id):
         self.submitted_client_ids.append(client_order_id)

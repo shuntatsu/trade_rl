@@ -72,11 +72,13 @@ def test_unknown_stage_is_rejected(stage):
 
 def test_candidate_newline_and_command_injection_are_rejected(tmp_path):
     root = _bundle(tmp_path)
-    for case_index, (field, value) in enumerate((
-        ("git_commit", "a" * 40 + "\n"),
-        ("model_version", "v1.0.0; rm -rf /"),
-        ("model_version", "X" * 100_000),
-    )):
+    for case_index, (field, value) in enumerate(
+        (
+            ("git_commit", "a" * 40 + "\n"),
+            ("model_version", "v1.0.0; rm -rf /"),
+            ("model_version", "X" * 100_000),
+        )
+    ):
         payload = json.loads((root / "candidate.json").read_text())
         payload[field] = value
         (root / "candidate.json").write_text(json.dumps(payload), encoding="utf-8")

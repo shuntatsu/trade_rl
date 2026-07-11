@@ -176,9 +176,7 @@ def run_single_trial(
     null_policy = NullPolicy(action_dim=action_dim)
 
     # チェックポイント保存リスト: (step, ppo_bytes, select_metrics, confirm_metrics)
-    checkpoints: List[
-        Tuple[int, bytes, Dict[str, Any], Dict[str, Any]]
-    ] = []
+    checkpoints: List[Tuple[int, bytes, Dict[str, Any], Dict[str, Any]]] = []
 
     class DiagnosticCallback(BaseCallback):
         def __init__(self):
@@ -307,7 +305,9 @@ def run_single_trial(
     }
 
 
-def analyze_matrix_5x5(runs: List[Dict[str, Any]], data_seeds: List[int], model_seeds: List[int]) -> Dict[str, Any]:
+def analyze_matrix_5x5(
+    runs: List[Dict[str, Any]], data_seeds: List[int], model_seeds: List[int]
+) -> Dict[str, Any]:
     matrix_selected = {}
     matrix_ret_best = {}
     matrix_turnover_best = {}
@@ -321,9 +321,15 @@ def analyze_matrix_5x5(runs: List[Dict[str, Any]], data_seeds: List[int], model_
         row_abs = {}
         row_gross = {}
         for m in model_seeds:
-            r = next((r for r in runs if r["data_seed"] == d and r["model_seed"] == m), None)
+            r = next(
+                (r for r in runs if r["data_seed"] == d and r["model_seed"] == m), None
+            )
             if r:
-                sel = "Null" if r["selected_type"] == "null_policy" else f"RL_{r['best_checkpoint_step']//1000}k"
+                sel = (
+                    "Null"
+                    if r["selected_type"] == "null_policy"
+                    else f"RL_{r['best_checkpoint_step'] // 1000}k"
+                )
                 row_sel[str(m)] = sel
                 row_ret[str(m)] = r["test_best_rl"]["total_return"]
                 row_to[str(m)] = r["test_best_rl"]["turnover_total"]
@@ -336,17 +342,19 @@ def analyze_matrix_5x5(runs: List[Dict[str, Any]], data_seeds: List[int], model_
         matrix_raw_gross[str(d)] = row_gross
 
     # 分散分析・効果分解
-    rets_2d = np.array([
-        [matrix_ret_best[str(d)].get(str(m), 0.0) for m in model_seeds]
-        for d in data_seeds
-    ])
+    rets_2d = np.array(
+        [
+            [matrix_ret_best[str(d)].get(str(m), 0.0) for m in model_seeds]
+            for d in data_seeds
+        ]
+    )
     grand_mean = float(np.mean(rets_2d))
     row_means = np.mean(rets_2d, axis=1) - grand_mean
     col_means = np.mean(rets_2d, axis=0) - grand_mean
 
     ss_data = float(len(model_seeds) * np.sum(row_means**2))
     ss_model = float(len(data_seeds) * np.sum(col_means**2))
-    ss_total = float(np.sum((rets_2d - grand_mean)**2))
+    ss_total = float(np.sum((rets_2d - grand_mean) ** 2))
     ss_inter = max(0.0, ss_total - ss_data - ss_model)
 
     return {
@@ -441,7 +449,9 @@ def main() -> int:
 
     neg_rets = [r["test_selected"]["total_return"] for r in neg_runs]
     neg_null_cnt = sum(1 for r in neg_runs if r["selected_type"] == "null_policy")
-    neg_catastrophic = sum(1 for r in neg_runs if r["test_selected"]["total_return"] < -0.05)
+    neg_catastrophic = sum(
+        1 for r in neg_runs if r["test_selected"]["total_return"] < -0.05
+    )
 
     pos_rets = [r["test_selected"]["total_return"] for r in pos_runs]
     pos_rl_cnt = sum(1 for r in pos_runs if r["selected_type"] != "null_policy")
@@ -493,12 +503,22 @@ def main() -> int:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
     print(f"\n{'=' * 70}\nPhase 1B 構成A (開発試験 5x5) サマリー\n{'=' * 70}")
-    print(f"A1 陰性対照 (alpha=none): {'PASSED' if verdict['A1_NEGATIVE_PASSED'] else 'FAILED'}")
-    print(f"  Null Policy 選択率: {neg_null_cnt}/{len(neg_runs)} ({neg_null_cnt/max(1,len(neg_runs)):.1%})")
+    print(
+        f"A1 陰性対照 (alpha=none): {'PASSED' if verdict['A1_NEGATIVE_PASSED'] else 'FAILED'}"
+    )
+    print(
+        f"  Null Policy 選択率: {neg_null_cnt}/{len(neg_runs)} ({neg_null_cnt / max(1, len(neg_runs)):.1%})"
+    )
     print(f"  損失 < -5% の試行数: {neg_catastrophic}/{len(neg_runs)}")
-    print(f"  ANOVA 効果割合: data_seed={matrix_analysis['negative']['anova_variance_share']['data_seed_effect_pct']:.1%}, model_seed={matrix_analysis['negative']['anova_variance_share']['model_seed_effect_pct']:.1%}")
-    print(f"\nA2 陽性対照 (alpha=cross): {'PASSED' if verdict['A2_POSITIVE_PASSED'] else 'FAILED'}")
-    print(f"  RL 選択率: {pos_rl_cnt}/{len(pos_runs)} ({pos_rl_cnt/max(1,len(pos_runs)):.1%})")
+    print(
+        f"  ANOVA 効果割合: data_seed={matrix_analysis['negative']['anova_variance_share']['data_seed_effect_pct']:.1%}, model_seed={matrix_analysis['negative']['anova_variance_share']['model_seed_effect_pct']:.1%}"
+    )
+    print(
+        f"\nA2 陽性対照 (alpha=cross): {'PASSED' if verdict['A2_POSITIVE_PASSED'] else 'FAILED'}"
+    )
+    print(
+        f"  RL 選択率: {pos_rl_cnt}/{len(pos_runs)} ({pos_rl_cnt / max(1, len(pos_runs)):.1%})"
+    )
     print(f"  B&H 勝率:   {pos_beats_bh}/{len(pos_runs)}")
     print(f"\n詳細レポート -> {out / 'phase1b_report.json'}")
     return 0 if (verdict["A1_NEGATIVE_PASSED"] and verdict["A2_POSITIVE_PASSED"]) else 1

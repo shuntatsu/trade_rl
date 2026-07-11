@@ -103,32 +103,62 @@ class PreTradeRiskVerifier:
                 target, current, symbols_list, self.config.forbidden_symbols
             )
 
-        if self.config.max_leverage is not None and gross_leverage > self.config.max_leverage:
+        if (
+            self.config.max_leverage is not None
+            and gross_leverage > self.config.max_leverage
+        ):
             raise PreTradeRejection(
                 reason="leverage_limit_exceeded",
-                details={"gross_leverage": gross_leverage, "max_leverage": self.config.max_leverage},
+                details={
+                    "gross_leverage": gross_leverage,
+                    "max_leverage": self.config.max_leverage,
+                },
             )
-        if self.config.max_net_exposure is not None and net_exposure > self.config.max_net_exposure:
+        if (
+            self.config.max_net_exposure is not None
+            and net_exposure > self.config.max_net_exposure
+        ):
             raise PreTradeRejection(
                 reason="net_exposure_limit_exceeded",
-                details={"net_exposure": net_exposure, "max_net_exposure": self.config.max_net_exposure},
+                details={
+                    "net_exposure": net_exposure,
+                    "max_net_exposure": self.config.max_net_exposure,
+                },
             )
 
         max_single = float(np.abs(target).max()) if len(target) else 0.0
-        if self.config.max_single_weight is not None and max_single > self.config.max_single_weight:
+        if (
+            self.config.max_single_weight is not None
+            and max_single > self.config.max_single_weight
+        ):
             raise PreTradeRejection(
                 reason="single_weight_limit_exceeded",
-                details={"max_single_weight_found": max_single, "max_single_weight_allowed": self.config.max_single_weight},
+                details={
+                    "max_single_weight_found": max_single,
+                    "max_single_weight_allowed": self.config.max_single_weight,
+                },
             )
-        if self.config.max_position_pct is not None and max_single > self.config.max_position_pct:
+        if (
+            self.config.max_position_pct is not None
+            and max_single > self.config.max_position_pct
+        ):
             raise PreTradeRejection(
                 reason="position_pct_limit_exceeded",
-                details={"max_position_pct_found": max_single, "max_position_pct_allowed": self.config.max_position_pct},
+                details={
+                    "max_position_pct_found": max_single,
+                    "max_position_pct_allowed": self.config.max_position_pct,
+                },
             )
-        if self.config.max_notional is not None and total_notional > self.config.max_notional:
+        if (
+            self.config.max_notional is not None
+            and total_notional > self.config.max_notional
+        ):
             raise PreTradeRejection(
                 reason="notional_limit_exceeded",
-                details={"total_notional": total_notional, "max_notional": self.config.max_notional},
+                details={
+                    "total_notional": total_notional,
+                    "max_notional": self.config.max_notional,
+                },
             )
 
         if self.config.max_worst_case_notional is not None:
@@ -155,24 +185,40 @@ class PreTradeRiskVerifier:
                 cap = self.config.symbol_liquidity_caps.get(symbol)
                 if cap is None:
                     continue
-                execution_notional = float(delta_notionals[index]) + pending_by_symbol.get(symbol, 0.0)
+                execution_notional = float(
+                    delta_notionals[index]
+                ) + pending_by_symbol.get(symbol, 0.0)
                 if execution_notional > cap:
                     raise PreTradeRejection(
                         reason="symbol_liquidity_cap_exceeded",
-                        details={"symbol": symbol, "execution_notional": execution_notional, "liquidity_cap": cap},
+                        details={
+                            "symbol": symbol,
+                            "execution_notional": execution_notional,
+                            "liquidity_cap": cap,
+                        },
                     )
 
         if self.config.min_order_notional is not None:
             for index, order_notional in enumerate(delta_notionals):
                 if 0 < order_notional < self.config.min_order_notional:
-                    symbol = symbols_list[index] if symbols_list is not None else f"index_{index}"
+                    symbol = (
+                        symbols_list[index]
+                        if symbols_list is not None
+                        else f"index_{index}"
+                    )
                     raise PreTradeRejection(
                         reason="min_order_notional_not_met",
-                        details={"symbol": symbol, "order_notional": float(order_notional), "min_order_notional": self.config.min_order_notional},
+                        details={
+                            "symbol": symbol,
+                            "order_notional": float(order_notional),
+                            "min_order_notional": self.config.min_order_notional,
+                        },
                     )
 
     @staticmethod
-    def _validate_open_orders(open_orders: Sequence[PendingOrder], symbols: list[str] | None) -> None:
+    def _validate_open_orders(
+        open_orders: Sequence[PendingOrder], symbols: list[str] | None
+    ) -> None:
         allowed = set(symbols) if symbols is not None else None
         for order in open_orders:
             if order.side not in ("buy", "sell"):
@@ -183,16 +229,26 @@ class PreTradeRiskVerifier:
                 raise ValueError(f"pending order symbol not in symbols: {order.symbol}")
 
     @staticmethod
-    def _validate_forbidden_symbols(target: np.ndarray, current: np.ndarray, symbols: list[str], forbidden: set[str]) -> None:
+    def _validate_forbidden_symbols(
+        target: np.ndarray, current: np.ndarray, symbols: list[str], forbidden: set[str]
+    ) -> None:
         for symbol, target_weight, current_weight in zip(symbols, target, current):
-            if symbol in forbidden and _increases_exposure(float(current_weight), float(target_weight)):
+            if symbol in forbidden and _increases_exposure(
+                float(current_weight), float(target_weight)
+            ):
                 raise PreTradeRejection(
                     reason="forbidden_symbol",
-                    details={"symbol": symbol, "current_weight": float(current_weight), "target_weight": float(target_weight)},
+                    details={
+                        "symbol": symbol,
+                        "current_weight": float(current_weight),
+                        "target_weight": float(target_weight),
+                    },
                 )
 
     @staticmethod
-    def _pending_execution_notional(open_orders: Sequence[PendingOrder]) -> dict[str, float]:
+    def _pending_execution_notional(
+        open_orders: Sequence[PendingOrder],
+    ) -> dict[str, float]:
         totals: dict[str, float] = {}
         for order in open_orders:
             totals[order.symbol] = totals.get(order.symbol, 0.0) + float(order.notional)
@@ -200,8 +256,12 @@ class PreTradeRiskVerifier:
 
     @staticmethod
     def _worst_case_notional(
-        *, target: np.ndarray, current: np.ndarray, portfolio_value: float,
-        symbols: list[str] | None, open_orders: Sequence[PendingOrder],
+        *,
+        target: np.ndarray,
+        current: np.ndarray,
+        portfolio_value: float,
+        symbols: list[str] | None,
+        open_orders: Sequence[PendingOrder],
     ) -> tuple[float, dict[str, float]]:
         names = symbols or [f"index_{index}" for index in range(len(target))]
         buy_pending = {name: 0.0 for name in names}
@@ -220,9 +280,15 @@ class PreTradeRiskVerifier:
         for index, symbol in enumerate(names):
             current_notional = float(current[index] * portfolio_value)
             proposed_delta = float((target[index] - current[index]) * portfolio_value)
-            buy_scenario = current_notional + buy_pending[symbol] + max(proposed_delta, 0.0)
-            sell_scenario = current_notional - sell_pending[symbol] + min(proposed_delta, 0.0)
-            per_symbol[symbol] = max(abs(current_notional), abs(buy_scenario), abs(sell_scenario))
+            buy_scenario = (
+                current_notional + buy_pending[symbol] + max(proposed_delta, 0.0)
+            )
+            sell_scenario = (
+                current_notional - sell_pending[symbol] + min(proposed_delta, 0.0)
+            )
+            per_symbol[symbol] = max(
+                abs(current_notional), abs(buy_scenario), abs(sell_scenario)
+            )
         return float(sum(per_symbol.values())), per_symbol
 
 

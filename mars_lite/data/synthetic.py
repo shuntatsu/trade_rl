@@ -55,7 +55,16 @@ def generate_market(
     cum24 = np.zeros(n_symbols)  # 直近24hリターンのEMA近似（meanrev用）
     decay24 = 1.0 - 1.0 / MINUTES_PER_DAY
 
-    use_cross = alpha in ("cross", "multi", "concentrated_alpha", "concentrated_alpha_crash", "persistent_cross", "fast_reversal", "vol_shock_up", "vol_shock_down")
+    use_cross = alpha in (
+        "cross",
+        "multi",
+        "concentrated_alpha",
+        "concentrated_alpha_crash",
+        "persistent_cross",
+        "fast_reversal",
+        "vol_shock_up",
+        "vol_shock_down",
+    )
     use_meanrev = alpha in ("meanrev", "multi")
     scale = 0.5 if alpha == "multi" else 1.0
 

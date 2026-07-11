@@ -28,6 +28,8 @@ class PendingOrderInput:
             raise ValueError(f"invalid pending order side: {self.side}")
         if not math.isfinite(self.notional) or self.notional <= 0:
             raise ValueError("pending order notional must be finite and positive")
+        if not isinstance(self.reduce_only, bool):
+            raise ValueError("pending order reduce_only must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -82,22 +84,37 @@ class InferenceState:
             for name, value in risk_state_values.items():
                 if value is None:
                     raise ValueError(f"{name} is required by the observation schema")
-        for name, value in risk_state_values.items():
-            if value is not None and not math.isfinite(value):
-                raise ValueError(f"{name} must be finite")
         for name, value in scalar_values.items():
             if not math.isfinite(value):
                 raise ValueError(f"{name} must be finite")
+        for name in ("vol_scale", "dd_scale", "disagreement_scale"):
+            value = risk_state_values[name]
+            if value is not None and (
+                not math.isfinite(value) or not 0.0 <= value <= 1.0
+            ):
+                raise ValueError(f"{name} must be finite and between 0 and 1")
+        if self.est_port_vol is not None and (
+            not math.isfinite(self.est_port_vol) or self.est_port_vol < 0
+        ):
+            raise ValueError("est_port_vol must be finite and non-negative")
         if self.portfolio_value <= 0:
             raise ValueError("portfolio_value must be positive")
         if self.day_start_value <= 0:
             raise ValueError("day_start_value must be positive")
-        if self.peak_value < self.portfolio_value:
-            raise ValueError("peak_value must be at least portfolio_value")
-        if self.consecutive_losses < 0:
-            raise ValueError("consecutive_losses must be non-negative")
+        if self.peak_value < max(self.portfolio_value, self.day_start_value):
+            raise ValueError("peak_value must be at least current and day-start value")
+        if (
+            isinstance(self.consecutive_losses, bool)
+            or not isinstance(self.consecutive_losses, int)
+            or self.consecutive_losses < 0
+        ):
+            raise ValueError("consecutive_losses must be a non-negative integer")
+        if self.turnover_mean < 0:
+            raise ValueError("turnover_mean must be non-negative")
         if self.turnover_std < 0:
             raise ValueError("turnover_std must be non-negative")
+        if not 0.0 <= self.disagreement <= 1.0:
+            raise ValueError("disagreement must be between 0 and 1")
         allowed = set(ordered_symbols)
         for order in self.pending_orders:
             order.validate(allowed)

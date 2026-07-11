@@ -33,7 +33,9 @@ def test_pipeline_registers_complete_candidate_without_activation(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        production_pipeline, "build_post_processor", lambda args, horizon: _PostProcessor()
+        production_pipeline,
+        "build_post_processor",
+        lambda args, horizon: _PostProcessor(),
     )
     monkeypatch.setattr(
         production_pipeline,

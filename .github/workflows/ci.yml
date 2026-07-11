@@ -26,6 +26,35 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
+      - name: Apply temporary reviewed patch
+        if: ${{ hashFiles('scripts/_temp_patch_m7_pr.py') != '' }}
+        run: |
+          uv run python scripts/_temp_patch_m7_pr.py
+          rm -f \
+            .github/workflows/patch-m7-docs-temp.yml \
+            .github/workflows/run-m7-patch-temp.yml \
+            scripts/_temp_patch_m7_pr.py
+          uv run ruff format mars_lite tests scripts
+
+      - name: Upload reviewed patch output
+        if: ${{ hashFiles('scripts/_temp_patch_m7_pr.py') == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-m7-patch
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            mars_lite/env/portfolio_env.py
+            mars_lite/learning/baselines.py
+            mars_lite/server/deployment_gate.py
+            tests/test_pre_trade_risk.py
+            tests/test_deployment_gate.py
+            docs/ARCHITECTURE.md
+            docs/PROFIT_DESIGN.md
+            docs/model_decision_log.md
+            docs/DOCUMENTATION_AUDIT_CHECKLIST.md
+            docs/deployment_evidence.md
+
       - name: Run ruff check
         run: uv run ruff check .
 

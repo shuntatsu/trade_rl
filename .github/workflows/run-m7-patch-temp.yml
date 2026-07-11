@@ -1,0 +1,53 @@
+name: Run Temporary M7 Patch
+
+on:
+  push:
+    branches:
+      - agent/fix-m7-production-blockers
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-m7-production-blockers
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - run: uv sync --all-extras --dev
+      - name: Apply deterministic patch
+        run: uv run python scripts/_temp_patch_m7_pr.py
+      - name: Format changed Python files
+        run: |
+          uv run ruff format \
+            mars_lite/env/portfolio_env.py \
+            mars_lite/learning/baselines.py \
+            mars_lite/server/deployment_gate.py \
+            tests/test_pre_trade_risk.py \
+            tests/test_deployment_gate.py
+      - name: Focused verification
+        run: |
+          uv run ruff check \
+            mars_lite/env/portfolio_env.py \
+            mars_lite/learning/baselines.py \
+            mars_lite/server/deployment_gate.py \
+            tests/test_pre_trade_risk.py \
+            tests/test_deployment_gate.py
+          uv run pytest tests/test_pre_trade_risk.py tests/test_deployment_gate.py -q
+          uv run mypy mars_lite --ignore-missing-imports
+      - name: Commit and remove temporary machinery
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f \
+            .github/workflows/patch-m7-docs-temp.yml \
+            .github/workflows/run-m7-patch-temp.yml \
+            scripts/_temp_patch_m7_pr.py
+          git add -A
+          git commit -m 'fix: harden deployment evidence and complete docs audit'
+          git push origin HEAD:agent/fix-m7-production-blockers

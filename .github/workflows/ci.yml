@@ -34,7 +34,7 @@ jobs:
       - name: Run ruff format
         run: |
           set -o pipefail
-          uv run ruff format --check . 2>&1 | tee ruff-format.log
+          uv run ruff format --check --diff . 2>&1 | tee ruff-format.log
 
       - name: Run mypy
         run: |

@@ -15,7 +15,6 @@ from typing import Dict, Optional
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
 from mars_lite.trading.pipeline import DecisionPipeline, MarketView, PortfolioState
@@ -276,7 +275,12 @@ class PortfolioTradingEnv(gym.Env):
         self._last_pp_info = pp_info
 
         if self.pre_trade_verifier is not None:
-            self.pre_trade_verifier.validate(target, self.portfolio_value)
+            self.pre_trade_verifier.validate(
+                target,
+                self.portfolio_value,
+                symbols=self.fs.symbols,
+                current_weights=prev,
+            )
 
         delta = target - prev
         turnover = float(np.abs(delta).sum())

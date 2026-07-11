@@ -1,0 +1,36 @@
+name: Temporary PR Formatter
+
+on:
+  push:
+    branches:
+      - agent/fix-m7-production-blockers
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-m7-production-blockers
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - run: uv sync --all-extras --dev
+      - name: Apply Ruff formatting
+        run: uv run ruff format mars_lite tests scripts
+      - name: Commit formatting
+        run: |
+          if git diff --quiet; then
+            echo 'No formatting changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mars_lite tests scripts
+          git commit -m 'style: apply Ruff formatting'
+          git push origin HEAD:agent/fix-m7-production-blockers

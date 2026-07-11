@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mars_lite.pipeline import production_pipeline
+from mars_lite.serving.bundle import load_bundle
 from mars_lite.serving.registry import ModelRegistry
 
 
@@ -15,7 +16,7 @@ class _PostProcessor:
 
 
 class _ObservationSpace:
-    shape = (5,)
+    shape = (9,)
 
 
 class _Environment:
@@ -42,7 +43,8 @@ def test_pipeline_registers_complete_candidate_without_activation(
         "build_env_kwargs",
         lambda args, processor, horizon: {
             "post_processor": processor,
-            "obs_risk_state": False,
+            "obs_risk_state": True,
+            "disagreement_dr_max": 0.3,
         },
     )
     monkeypatch.setattr(
@@ -76,6 +78,12 @@ def test_pipeline_registers_complete_candidate_without_activation(
     )
 
     registry = ModelRegistry(tmp_path / "registry")
+    registered = load_bundle(registry.version_dir("v1"))
+    run_config = registered.metadata["run_config"]
     assert candidate.is_dir()
     assert registry.list_versions() == ["v1"]
     assert not registry.active_path.exists()
+    assert registered.manifest.observation_dim == 9
+    assert run_config["obs_risk_state"] is True
+    assert run_config["disagreement_dr_max"] == 0.3
+    assert run_config["observation_progress_mode"] == "zero"

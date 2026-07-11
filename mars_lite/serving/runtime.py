@@ -6,13 +6,14 @@ import math
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 
 import numpy as np
 
 from mars_lite.env.observation import (
     ObservationSchema,
     ObservationState,
+    ProgressMode,
     build_observation,
 )
 from mars_lite.serving.audit_store import AuditStore
@@ -48,6 +49,7 @@ class FeatureSnapshot:
     snapshot_id: str
     symbols: tuple[str, ...]
     feature_names: tuple[str, ...]
+    global_feature_names: tuple[str, ...]
     feature_history: np.ndarray
     global_features: np.ndarray
     close_history: np.ndarray
@@ -71,9 +73,17 @@ class FeatureSnapshot:
             raise ValueError("feature_history must contain at least one bar")
         if features.shape[1:] != (len(self.symbols), len(self.feature_names)):
             raise ValueError("feature_history dimensions do not match schema")
+        if len(set(self.global_feature_names)) != len(self.global_feature_names):
+            raise ValueError("global_feature_names must be unique")
+        if not all(
+            isinstance(name, str) and name for name in self.global_feature_names
+        ):
+            raise ValueError("global_feature_names must contain non-empty strings")
         globals_ = np.asarray(self.global_features)
         if globals_.ndim != 1 or not np.isfinite(globals_).all():
             raise ValueError("global_features must be a finite one-dimensional array")
+        if len(globals_) != len(self.global_feature_names):
+            raise ValueError("global feature dimensions do not match schema")
         close = np.asarray(self.close_history)
         if close.ndim != 2 or close.shape != (features.shape[0], len(self.symbols)):
             raise ValueError("close_history dimensions do not match feature history")
@@ -132,6 +142,11 @@ class ServingRuntime:
     def readiness(self) -> ReadinessState:
         with self._lock:
             return self._readiness
+
+    def active_bundle(self) -> ServingBundle | None:
+        """Return the immutable bundle currently loaded in memory."""
+        with self._lock:
+            return self._loaded.bundle if self._loaded is not None else None
 
     def refresh(self) -> bool:
         try:
@@ -262,6 +277,9 @@ class ServingRuntime:
                 schema=ObservationSchema(
                     include_risk_state=components.include_observation_risk_state,
                     version=int(bundle.metadata["observation_schema_version"]),
+                    progress_mode=cast(
+                        ProgressMode, bundle.metadata["observation_progress_mode"]
+                    ),
                 ),
             )
             expected_dim = int(bundle.metadata["observation_dim"])
@@ -374,6 +392,9 @@ class ServingRuntime:
             raise ValueError("snapshot symbol order does not match bundle")
         if snapshot.feature_names != expected_names:
             raise ValueError("snapshot feature names do not match bundle")
+        expected_globals = tuple(bundle.preprocessing["global_feature_names"])
+        if snapshot.global_feature_names != expected_globals:
+            raise ValueError("snapshot global feature names do not match bundle")
         history = np.asarray(snapshot.feature_history, dtype=np.float64).copy()
         feature_norm = bundle.preprocessing["feature_norm"]
         if feature_norm == "rank_gauss":

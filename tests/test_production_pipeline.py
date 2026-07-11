@@ -94,7 +94,9 @@ def test_pipeline_registers_complete_candidate_without_activation(
     assert run_config["observation_progress_mode"] == "zero"
 
 
-def test_production_candidate_rejects_unreproducible_signal_layer(tmp_path: Path) -> None:
+def test_production_candidate_rejects_unreproducible_signal_layer(
+    tmp_path: Path,
+) -> None:
     args = SimpleNamespace(signal_layer="append")
 
     with pytest.raises(ValueError, match="signal_layer=off"):

@@ -9,12 +9,24 @@ import numpy as np
 
 from mars_lite.serving.bundle import ServingBundle
 from mars_lite.serving.contracts import InferenceState
-from mars_lite.serving.runtime import RuntimeComponents
+from mars_lite.serving.runtime import PolicyLike, RuntimeComponents
+
+
+def _load_policy(bundle: ServingBundle) -> PolicyLike:
+    """Load exactly the policy kind declared by the validated bundle metadata."""
+    model_kind = bundle.metadata.get("model_kind")
+    if model_kind == "single":
+        from stable_baselines3 import PPO
+
+        return PPO.load(str(bundle.model_path), device="cpu")
+    if model_kind == "ensemble":
+        from mars_lite.learning.policy_ensemble import SeedEnsemble
+
+        return SeedEnsemble.load(bundle.model_path, device="cpu")
+    raise ValueError(f"unsupported serving model_kind: {model_kind!r}")
 
 
 def default_component_factory(bundle: ServingBundle) -> RuntimeComponents:
-    from stable_baselines3 import PPO
-
     from mars_lite.trading.guardrails import (
         GuardrailConfig,
         GuardrailState,
@@ -34,7 +46,7 @@ def default_component_factory(bundle: ServingBundle) -> RuntimeComponents:
         PreTradeRiskVerifier,
     )
 
-    model = PPO.load(str(bundle.model_path), device="cpu")
+    model = _load_policy(bundle)
     post_config = bundle.metadata.get("post_processor")
     if post_config:
         post_processor = PortfolioPostProcessor(PostProcessConfig(**post_config))

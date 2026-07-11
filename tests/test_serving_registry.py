@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -10,10 +11,19 @@ def create_bundle(root: Path, version: str, payload: bytes) -> Path:
     root.mkdir()
     (root / "model.zip").write_bytes(payload)
     (root / "metadata.json").write_text(
-        '{"schema_version":1,"model_version":"%s","git_sha":"abc123",'
-        '"symbols":["BTCUSDT"],"observation_schema_version":1,'
-        '"observation_progress_mode":"zero","observation_dim":5,"run_config":{}}'
-        % version,
+        json.dumps(
+            {
+                "schema_version": 1,
+                "model_version": version,
+                "git_sha": "a" * 40,
+                "model_kind": "single",
+                "symbols": ["BTCUSDT"],
+                "observation_schema_version": 1,
+                "observation_progress_mode": "zero",
+                "observation_dim": 5,
+                "run_config": {},
+            }
+        ),
         encoding="utf-8",
     )
     (root / "preprocessing.json").write_text(

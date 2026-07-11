@@ -68,6 +68,12 @@ def build_and_register_candidate(
     train_result: dict[str, Any],
 ) -> Path:
     """Create a complete candidate bundle and register it without activation."""
+    signal_layer = str(getattr(args, "signal_layer", "off"))
+    if signal_layer != "off":
+        raise ValueError(
+            "production candidates require signal_layer=off until the Serving Plane "
+            "can reproduce the causal signal transform"
+        )
     version, git_sha = _resolve_identity(args)
     train_report = _load(output_dir / "train_report.json")
     feature_mask = train_report.get("feature_mask")

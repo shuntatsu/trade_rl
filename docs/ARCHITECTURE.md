@@ -1,359 +1,164 @@
-# Trade RL v3 — 検証済みアーキテクチャ
+# Architecture
 
-本書は実験による実証を経て確定した設計である。各仕様には根拠となる測定値を併記する。
-「なぜこの既定値なのか」に全て答えられる状態を保つこと。仕様を変える場合は
-同じベンチマーク（P0/汎用性スイート）で上回る証拠を示すこと。
+This document is the only normative description of the current Trade RL architecture. Code and tests take precedence when a discrepancy is discovered; the discrepancy must then be corrected here.
 
-## 0. 設計原則（このプロジェクトの憲法）
+## Status
 
-1. **証拠なき機能は既定にしない** — 全ての既定値はP0ベンチマーク・汎用性スイートでの
-   測定に基づく。効かなかったもの（例: ICマスク）はオプトインに格下げする
-2. **合否ゲート方式** — 「儲かるか」を運任せにせず、各段階に定量的な通過条件と
-   撤退基準を置く。ゲート不合格なら下流に進まない
-3. **train/serve一致** — 学習時と運用時で同じ前処理・後処理を通す。
-   環境のstep内に後処理を持つのはこのため
-4. **RLの担当範囲** — 予測はデータ/特徴の仕事。RLは「シグナルをコスト・リスク制約下で
-   ポジションに変換する逐次決定」を担う。この分担が崩れると学習しない
-5. **陰性対照を常に併走** — 「信号が無いとき取引しない」ことは
-   「信号があるとき稼ぐ」ことと同じ重みで検証する
+Production is **NO-GO** until [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) is complete with evidence.
 
-## 1. システム全景
+## Principles
 
+1. One authoritative implementation per production responsibility.
+2. Invalid artifacts, state, schemas, credentials, or market data fail closed.
+3. Evidence is bound to one exact bundle digest and Git commit.
+4. Training evaluation and serving share observation and decision contracts.
+5. Online serving is authenticated and read-only.
+6. Registry versions are immutable; activation is an atomic pointer update.
+7. Account state is explicit and supplied by the Trade Platform on every request.
+8. Research findings do not authorize Production behavior.
+
+## System boundaries
+
+### Control Plane
+
+The offline Control Plane owns:
+
+- data preparation and quality gates;
+- training, PBT, walk-forward, sealed-holdout evaluation, and statistical checks;
+- complete `ServingBundle` construction;
+- deployment evidence production and verification;
+- immutable registry registration;
+- activation and rollback through CLI and GitHub Actions.
+
+The Control Plane does not serve live signals. Its supported interfaces are CLI commands and trusted GitHub Actions workflows.
+
+### Serving Plane
+
+The online Serving Plane exposes only:
+
+- `GET /health`;
+- `GET /ready`;
+- authenticated `POST /api/signal/latest`.
+
+It does not expose training, model deletion, registry mutation, promotion, or rollback.
+
+## ServingBundle
+
+A bundle is the complete deterministic inference unit:
+
+```text
+serving_candidate/
+  manifest.json
+  model.zip | ensemble/
+  metadata.json
+  preprocessing.json
+  risk.json
 ```
-┌─ データ層 ──────────────────────────────────────────────┐
-│ DataSource抽象: PostgresSource(Platform DB) / CsvSource / Synthetic │
-│ fetch_futures.py: 先物kline + funding + aggTrades→1mオーダーフロー   │
-│ 品質ゲート(quality.py): 欠損率>10%・スパイク・重複ts → 銘柄除外      │
-└──────────────────────┬──────────────────────────────────┘
-┌─ 特徴量層 ────────────▼──────────────────────────────────┐
-│ FeaturePipeline: 銘柄×(TFブロック×4 + 基準特徴10)テンソル、        │
-│   確定バーのみmerge_asof整列（look-ahead構造的排除）、ローリングz    │
-│ ゲート1(signal_check): ウォークフォワードOOSランクIC ≥ 0.02        │
-│ リーク自己検査: shuffle→IC消失 / future-shift→IC増大 を毎回確認     │
-└──────────────────────┬──────────────────────────────────┘
-┌─ 学習層 ──────────────▼──────────────────────────────────┐
-│ PortfolioTradingEnv(後処理内蔵) × 8並列                            │
-│ TFGatedPortfolioExtractor → PPO(γ=0.5)                            │
-│ BCウォームスタート(Ridge教師・ICゲート合格時のみ)                    │
-│ ValSelection(初期スナップショット含む検証ベース選択)                  │
-│ SeedEnsemble(多シード平均+不一致度)                                │
-└──────────────────────┬──────────────────────────────────┘
-┌─ 評価層 ──────────────▼──────────────────────────────────┐
-│ ベースライン4種を常に並記 / walk_forward(コスト2倍感度・多シード)     │
-│ P0健全性 + 汎用性スイート(弱シグナル・アルファ型・未知市場)           │
-└──────────────────────┬──────────────────────────────────┘
-┌─ 運用層 ──────────────▼──────────────────────────────────┐
-│ /api/signal/latest: 生+後処理済みウェイト・鮮度・ガードレール状態     │
-│ guardrails: 鮮度/NaN/損失→フラット化、回転異常/連敗→グロス半減       │
-│ Trade Platform接点: 同一PostgreSQLのrl_テーブル + このAPIのみ        │
-└─────────────────────────────────────────────────────────┘
+
+The bundle contains:
+
+- model version and training Git SHA;
+- ordered symbols;
+- ordered per-symbol and global feature names;
+- feature normalization and zero-mask configuration;
+- observation schema and dimension;
+- serving-compatible progress mode;
+- environment inference settings;
+- post-processing configuration;
+- guardrail and pre-trade risk configuration;
+- evaluation summaries;
+- SHA-256 for every file and a canonical bundle digest.
+
+Any digest, file set, dimension, symbol order, feature order, or schema mismatch rejects the bundle.
+
+## Registry
+
+The only registry implementation is `mars_lite.serving.registry.ModelRegistry`.
+
+```text
+registry/
+  versions/<version>/...   immutable bundles
+  active.json              atomic active identity
+  activation-history.jsonl
 ```
 
-## 2. 確定仕様と根拠
+Registration copies and revalidates a candidate into an immutable version directory. It never activates the version. Activation validates the registered bundle and atomically replaces `active.json`. Failed registration or activation preserves the previous active version.
 
-### 2.1 学習レシピ（train_ppo の既定値）
+## Training and promotion flow
 
-| 仕様 | 値 | 根拠（同条件OOS測定） |
-|---|---|---|
-| 割引率 γ | **0.5** | 0.995では-26%（アドバンテージが約200バーのノイズを積算しSNR崩壊）→ 0.5で+46%に反転。行動の効果は次バーPnL+コストでほぼ即時 |
-| gae_lambda | 0.9 | γ=0.5とセットで検証 |
-| モデル選択 | **検証スライス(末尾15%)で定期評価し最良を採用**。初期スナップショットを候補に含む | 300k歩で訓練データ150周の過学習を観測（val単調悪化）。初期含有により無信号データで「取引しない」が自動選択される |
-| BC事前学習 | **Ridge教師**（学習スライスで当てはめ）・**ICゲート合格時のみ** | 平均回帰市場でridge+175% vs momentum教師+106% vs BCなし+97%。無信号データではBCが有害（-4〜-18%）のためゲート連動 |
-| 方策ネット | **TFGatedPortfolioExtractor** | フラット結合比で cross +1636%→+2129% / multi +924%→+1094%。主因はTFブロック共有エンコーダの構造的正則化 |
-| ネット規模 | `--net-size {small,large}`（既定 **small**） | small=encoder 2層・net_arch[64,64]（上記ベンチ値の構成）。large=encoder 3層・trunk 3層・net_arch[256,256,128]。**合成cross(IC0.36)・60k歩・3seedの比較では large は small と横ばい〜やや劣位（return mean 0.878 vs 0.894, Sharpe mean 49.8 vs 51.9）かつseed分散が増大**したため、原則1（証拠なき機能は既定にしない）に従い small を既定に据え置き。large は多様/実データでの汎用性を狙う場合のオプトイン（`--dropout 0.1` 併用と`--feature-norm rank_gauss`推奨、要再ベンチ） |
-| 入力正規化 | `--feature-norm {none,rank_gauss}`（既定 none） | rank_gauss=各特徴をローリング・ガウスランクでN(0,1)に写像（因果的・リークなし）。資産・レジーム間のスケール差・裾の重さへの過適合を抑え、汎用性を狙う。**wf比較(cross/meanrev・2fold×2seed・25k歩)では large+dropout0.1+rank_gauss の合成が、cross型でbaseline(small)に明確に劣位（ret_median +1.076 vs +1.152, Sharpe 38.0 vs 43.5）、meanrev型ではわずかに優位（+0.430 vs +0.413）**という一貫しない結果。単純な複雑化・入力分布正規化が汎用性を上げるという仮説はこの範囲では支持されず、既定offを維持 |
-| アンサンブル | 3シード平均（`--ensemble 3`） | 単独+1131%→アンサンブル+1496%（Sharpe 48.9→53.6） |
-| データ量 | 合成ベンチは240日以上 | 120日では検証窓が短すぎ選択が機能しない（検証スコアの分散過大） |
+```text
+build data
+  -> quality and leak checks
+  -> P0
+  -> PBT on development data
+  -> multi-fold walk-forward and cost sensitivity
+  -> final training
+  -> sealed holdout and baseline gate
+  -> complete ServingBundle candidate
+  -> immutable registration
+  -> Shadow/Canary evidence bound to bundle digest
+  -> deployment gate
+  -> environment approval
+  -> atomic activation
+```
 
-### 2.2 環境・報酬（PortfolioTradingEnv）
+A successful training run registers a candidate but does not activate it.
 
-- 行動: `Box(-1,1,n_symbols)` → レバレッジ1射影した目標ウェイト
-- 報酬: `100 × Δlog(V)`（コスト・funding込み）− `0.05 × 回転率`。
-  ×100はPPOの数値レンジ適正化（生では5e-5でエントロピー項に埋没した）
-- コスト: taker 5bps + スプレッド2bps + インパクト1bps、`cost_multiplier`で感度分析
-- funding: 8時間毎に `Σ w_i × funding_i` を授受
-- **後処理はstep内で適用**（次節）。報酬は執行後の挙動を反映する
+## Online inference flow
 
-### 2.3 後処理（PortfolioPostProcessor、学習・運用で同一）
+The Trade Platform sends:
 
-パイプライン: EMA平滑(α=0.5) → 集中上限(|w|≤0.4) → レバレッジ1射影 →
-ボラターゲット(年率0.5) → DDデリスク(10%開始) → no-tradeバンド(0.04)
+- request ID and market snapshot identity;
+- current weights in bundle symbol order;
+- portfolio, day-start, and peak values;
+- consecutive-loss and turnover state;
+- pending orders;
+- optional disagreement and risk-state values required by the model schema.
 
-根拠: 生方策比で **リターン+307%→+653%・Sharpe 22.5→35.5・回転率-71%・DD半減**。
-主効果は平滑+バンドによる過剰取引コストの抑制。設定はモデルメタデータに保存し
-`/api/signal/latest` が同一適用する（train/serve一致）。
+The Serving Plane executes:
 
-### 2.4 特徴量（FeaturePipeline）
+```text
+authenticate
+  -> claim request ID and reject replay
+  -> obtain cached immutable feature snapshot
+  -> validate symbols and feature schemas
+  -> restore preprocessing
+  -> build_observation with real current positions
+  -> policy.predict
+  -> DecisionPipeline
+  -> stateful guardrails using actual order turnover
+  -> pending-order-aware PreTradeRiskVerifier
+  -> response and structured audit event
+```
 
-- 4TFブロック（15m/1h/4h/1d × 7特徴）+ 基準特徴26（出来高異常・RCI・
-  多ホライズンリターン2・オーダーフロー3・funding3・デリバティブ4・
-  BTC相対・24hランク・一目均衡表10）+ クロスセクション6 + グローバル5
-- 一目均衡表（`mars_lite/features/ichimoku.py`）: 現在雲・転換線/基準線・
-  未来雲予測の10特徴、全てlook-aheadなし（先行スパンはshift(26)済み、
-  遅行スパンは特徴量から除外）
-- **重要知見**: 多スケール情報の大半は「基準TF上の多ホライズン特徴」
-  （ret_z1/z5/z20・24hランク・オーダーフロー・funding）が既に運ぶ。
-  TFブロックの積み増しより基準特徴の充実が効く（2スケールアルファ実験で
-  1hのみ構成が全TFフラットを上回った理由）
-- ICマスク（`--feature-mask`）はオプトイン: ゼロIC特徴は落とせるが冗長性は
-  落とせず、実験では中立〜微減
+The Trade Platform is the final execution and risk-enforcement boundary. It must refuse execution unless the response is valid and the risk verdict is approved.
 
-### 2.5 ゲート体系（順序と撤退基準）
+## Shared contracts
 
-| ゲート | 条件 | 不合格時 |
-|---|---|---|
-| 品質 | 欠損率≤10%・スパイク・ts整合 | 銘柄除外。2銘柄未満なら停止 |
-| リーク自己検査 | shuffle IC≈0 かつ future-shift ICが跳ねる | 評価コードを疑い停止 |
-| ゲート1（IC） | OOSランクIC≥0.02が6割以上のfoldで正 | RL学習に進まない（BCも無効化） |
-| P0（健全性） | 陽性でB&H・フラット超え、陰性で静止 | 学習系のバグを疑う |
-| ゲート2（対ルール） | ベースライン4種（特にクロスモメンタム則）超え | ルール+サイジングに縮退 |
-| P3（頑健性） | walk-forward多シード中央値がコスト2倍でも正 | 紙上運用に進まない |
-| 運用ガードレール | 鮮度・NaN・日次損失5%・DD20%・回転異常 | フラット化/グロス半減 |
+- `mars_lite.env.observation.build_observation` is the shared observation builder.
+- `mars_lite.trading.pipeline.DecisionPipeline` is the shared action-to-target path.
+- `mars_lite.trading.guardrails.evaluate_guardrails` evaluates real account state.
+- `mars_lite.trading.pre_trade_risk.PreTradeRiskVerifier` evaluates deltas, pending orders, liquidity, restrictions, and reduce-only behavior.
+- `mars_lite.serving.runtime.ServingRuntime` owns cached loading, safe hot-swap, inference orchestration, and readiness.
 
-### 2.6 資産クラス汎用性とベータ捕捉
+## Availability and hot-swap
 
-- **銘柄数スケール**: 銘柄共有エンコーダは任意Nに対応。10銘柄でcross alpha
-  +1288%（Sharpe 60.5）を確認。銘柄追加でモデル構造は不変
-- **株式等（funding/オーダーフロー無し）**: 欠損はゼロ埋めされNaN無し。
-  crypto固有特徴は死特徴になるがTFゲート/ICゲートが吸収。ただし立会時間・
-  ギャップは品質ゲートのgap_ratioで検知（session対応は今後）
-- **ベータ捕捉（B&H対策）**: 純粋な上昇相場（方向性ベータのみ、相対アルファ無し）で
-  当初RLは**−9.87%とB&Hに負けた**（教師がゼロサム=市場中立で方向性を捉えられず、
-  信号なき中で回転しコスト負け）。修正:
-  - `ts_momentum_teacher`（時系列モメンタム、**ネット方向性あり**）を追加
-  - `run_trend_gate`（fold符号一致付きの持続的トレンド検出。ランダムウォークの
-    実現ドリフト偽陽性を弾く。ノイズ8seedで偽陽性0）
-  - BC教師を `combined_teacher`（Ridge成分＝相対アルファ＋ts_momentum成分＝ベータ）に。
-    各成分を独立ゲートで有効化: cross-IC≥0.025でRidge、トレンド有意でts_momentum
-  - 結果: 上昇相場 **−9.87%→+20.54%**（黒字化、SharpeはB&Hと同等の3.25 vs 3.98）、
-    相対アルファ市場は **+2059%→+2327%**（改善）、ノイズは0%（安全維持）
+Serving loads the active bundle beside the currently loaded bundle. The new bundle becomes visible only after digest, schema, preprocessing, model-load, and readiness checks succeed. A bad new bundle leaves the old in-memory bundle serving and reports degraded readiness. With no healthy bundle, the signal route returns `503` and no actionable weights.
 
-### 2.7 実証済みの汎用性と限界
+## Trust boundaries
 
-- **未知市場**: 別シードの価格系列で捕捉率92.5%（仕組みを学習、パスの暗記でない）
-- **アルファ型**: 平均回帰市場でもRL全構成が黒字（+97〜175%）。
-  固定ルールは-48%と崩壊 — RLがルールに対して持つ本質的優位
-- **弱シグナル**: IC 0.11で単体は捕捉率47%（黒字は維持）だが、
-  **3シードアンサンブル＋不確実性スケーリングで +26.6%→+81.5%（Sharpe 4.7→13.9）**。
-  シードが割れる不確実局面でグロスを縮小することが弱シグナルで奏功。
-  この不一致度は `PortfolioTradingEnv.disagreement` 経由で後処理へ渡り、
-  評価/推論ループが `SeedEnsemble.disagreement()` から毎ステップ設定する
-- **本当のボトルネックはデータのアルファ量**。RL機構はもう主因ではない。
-  実データ（IC 0.02〜0.05想定）では上記アンサンブル+不確実性が本領を発揮する見込み
+Control and Serving processes use different credentials. Serving uses a bearer token, origin allowlist, local bind by default, audit logging, and request replay protection. Registry writes require a Control Plane identity. Secrets are supplied by deployment secret management and are not stored in the repository.
 
-### 2.8 RL強化 Stage A（オプトイン、未昇格）
+## Package map
 
-責務再設計（アーキテクチャ再設計セッション）の一環。「RLの担当範囲」
-（原則4）を広げる方向の実験。**いずれも既定offで、ここに記載の内容は
-単発run(単一シード・短ステップ)での動作確認に留まり、原則1（証拠なき
-機能は既定にしない）に従い既定へは未昇格**。既定化するには本表と同じ
-P0＋汎用性スイート×3シードでの再測定が必要（未実施、将来の作業）。
+- `mars_lite/data`, `mars_lite/features` — data and feature construction
+- `mars_lite/env`, `mars_lite/learning` — RL environment and training
+- `mars_lite/eval` — evaluation and replay simulation
+- `mars_lite/pipeline` — offline orchestration
+- `mars_lite/serving` — bundle, registry, contracts, runtime, audit, feature snapshots
+- `mars_lite/server` — read-only serving HTTP boundary and deployment gate
+- `mars_lite/trading` — execution costs, decision processing, guardrails, and pre-trade risk
 
-| フラグ | 内容 | 状況 |
-|---|---|---|
-| `--obs-risk-state` | 前ステップの後処理状態(vol_scale/dd_scale/disagreement_scale/est_port_vol)を観測に追加。方策がルール層（EMA平滑・ボラ目標・DDデリスク等）の挙動を予見できるようにする | 単発run(60k歩・alpha=cross)でP0陽性+18.2% vs 既定+17.8%・陰性静止維持を確認。TFGatedPortfolioExtractorがn_global変化に自動追随することも確認。中央値評価は未実施 |
-| `--disagreement-dr <x>` | 学習中もエピソード毎に不一致度をU(0,x)でランダムに与え、方策がアンサンブル不一致縮小レイヤーを経験できるようにする。単独方策の学習中は`disagreement`が常に0という train/eval不一致（2.7節）の緩和策 | 機構のみ実装・単体テスト済み。弱シグナルens3ベンチ(+81.5%/Sharpe13.9)に対する再ベンチは未実施 |
-| `--lambda-turnover 0.0` | 報酬の回転率罰則`−λ·turnover`は実コスト(`net`)に既に織り込まれた回転率への**追加**シェーピング項（二重課金と読める）。0にすると罰則なしにできる | 単発run(60k歩)ではdefault(0.04)と**bit-identicalな結果**（学習後の決定論的方策が変化せず）。BC事前学習の影響が強い短時間学習では効果が埋没した可能性があり、λの効果自体はenv.step単体では確認済み（reward値は変化する）。中央値評価は未実施につき既定0.04を維持 |
+## Explicit non-guarantees
 
-### 2.9 Stage B: リスクオーバーレイRL（オプトイン、未昇格）
-
-`mars_lite.trading.risk_overlay.RiskOverlay` は後処理④⑤⑥（ボラ目標・
-DDデリスク・不一致縮小、グロス量を決める段）を差し替え可能にする抽象。
-
-- `RuleRiskOverlay`: 既定。既存インライン実装(post_processor.py)から
-  忠実に抽出し、`tests/test_risk_overlay.py`で発火あり/なし4パターンの
-  ゴールデンテストにより数値的に同一であることを保証（既定挙動への影響ゼロ）
-- `RLRiskOverlay`: 配分（銘柄間の相対ウェイト）は凍結済みの配分エージェントに
-  任せ、グロスのスケール（どれだけリスクを取るか）だけを別の小型PPO
-  （net_arch[32,32]、観測6次元: gross/drawdown/disagreement/vol_ratio/
-  ret_mean/ret_std）に学習させる。`learning/overlay_trainer.py` の
-  `RiskOverlayEnv` は既存の `PortfolioTradingEnv` のPnL/コスト機構をそのまま
-  再利用し、独自の経済モデル実装によるバグを避けている
-- `--phase overlay`（`--overlay-timesteps`で学習量を指定）でルール比較の
-  実行が可能。**現時点では単一シード・単一シナリオでの動作確認のみ**
-  （1000歩のスモークではRLオーバーレイが安全側＝フラットに収束することを
-  確認）。昇格基準（P0＋汎用性スイート×3シードで中央値Sharpe超え・
-  maxDD以下・陰性対照の回転率非悪化）を満たすまでは`RuleRiskOverlay`が
-  既定のまま
-
-## 3. 運用設計（Trade Platform連携）
-
-- 接点は2つだけ: ①同一PostgreSQLの `rl_funding_rate` / `rl_orderflow_1m`
-  （fetch_futures.py --to postgres が管理）②`GET /api/signal/latest`
-- signal APIの返却: 生ウェイト・後処理済みウェイト・net/gross・データ鮮度・
-  ガードレール判定。Platform側はこれをBots画面/発注に変換するだけ
-- 現在 `scripts/run_server.py` が起動するのは
-  `mars_lite.server.metrics_server`（学習監視・バックテスト等フルAPI、
-  frontend/が前提とする実装）。この実装の `/api/signal/latest` は
-  `prev_weights` を渡せず常に無ポジション起点で後処理する旧来のインライン
-  実装で、HTFゲートも未適用（既知の制限）
-- `mars_lite.trading.pipeline.DecisionPipeline`（env.stepと後処理・HTF
-  ゲートを共有し構造的にtrain/serve一致を保証する新実装）は
-  `mars_lite.server.signal_server`（`prev_weights`/`portfolio_value`/
-  `peak_value` クエリパラメータ対応、`mars_lite.serving.model_store`で
-  バージョン管理）側でのみ使われている。**現状run_server.pyには未配線**
-  （metrics_server.py→signal_server.pyへの移行は将来判断、§4参照）
-- 再学習ループ（推奨、未自動化）: 週次で fetch → 品質ゲート → ゲート1 →
-  再学習+検証選択 → 旧モデルとOOSシャドー比較 → 勝った場合のみ昇格
-  （`mars_lite.server.model_registry` でバージョン管理・ロールバック。
-  signal_server.py経路を使う場合は`mars_lite.serving.model_store`）
-
-## 4. ロードマップ（優先順）
-
-1. **実データP1**（ローカルPCで）: `fetch_futures.py --days 180` →
-   `train_portfolio.py --phase train --source csv`。ゲート1が本当の勝負。
-   不合格なら特徴を変えるまで先に進まない（撤退基準）
-2. **基準特徴の拡充**（2.4の知見に基づく）: 多ホライズンz(60h/120h)、
-   建玉残高・清算・L/S比率（Binance公開API、fetch_futures拡張）
-3. **弱シグナル領域の改善**: 弱シグナルベンチ（strength 0.0005）を常設し、
-   ここでの捕捉率47%→改善を測る。候補: アンサンブル増強、不一致度スケーリングの結線
-4. **RL強化Stage A/B の正式ベンチマーク**（§2.8/2.9）: オプトイン実装済みの
-   観測強化・不一致度DR・リスクオーバーレイRLをP0＋汎用性スイート×3シードで
-   再測定し、既定化するか判断する
-5. **執行層**: 大きなリバランスをTWAP分割執行するAlmgren-Chriss型の
-   執行エージェントは、以前の単一銘柄実装（レガシー、削除済み）とは別に、
-   現行のポートフォリオ配分層の下に新規設計する必要がある（未着手）
-6. **レジーム特化アンサンブル**: `learning/regime_ensemble.py`
-   （ルールベースの分類器でbull/bear/rangeの専門家PPOをルーティング、
-   `--phase regime`で利用可能）は既に生きている。学習型メタコントローラ
-   （どの専門家をどう混ぜるかをRLで決める）への発展は単一方策が実データで
-   頭打ちになってから検討する
-7. **紙上運用2週間** → バックテストとの乖離分析 → 資金投入判断
-8. **本番シグナル配信のtrain/serve一致修正**: `scripts/run_server.py`が
-   起動する`metrics_server.py`の`/api/signal/latest`を、`DecisionPipeline`
-   共有・`prev_weights`受け渡し対応の`signal_server.py`実装へ移行するか、
-   metrics_server.py側に同じ修正を後移植するか判断する（§3参照。frontend/
-   はmetrics_server.pyのフルAPI前提のため、移行時はUI側の対応も要検討）
-
-## 5. ベンチマーク台帳（変更時は再測定すること）
-
-| ベンチ | コマンド | 現在の基準値 |
-|---|---|---|
-| P0健全性 | `train_portfolio.py --phase p0` | 陽性+377%/陰性静止（300k・postproc時点）※現行スタックでは更に上 |
-| フルスタック | ablation（100k） | +1496% / Sharpe 53.6 / 捕捉率104% |
-| 多時間軸 | mtf実験（100k） | TFゲートでcross+2129%/multi+1094% |
-| 弱シグナル(単体) | strength=0.0005（100k） | +26.6% / Sharpe 4.7 / 捕捉率47% |
-| 弱シグナル(ens3+不確実性) | strength=0.0005（100k×3seed） | +81.5% / Sharpe 13.9 |
-| アルファ型 | meanrev 0.05（100k） | ridge-BC +175% / ルール-48% |
-
-## 6. 既知の問題
-
-- **取引所実データソース（Hyperliquid/Bitget/OKX）のキャッシュがstaleに
-  なりうる**: いずれも`_fetch_candles`/`_load_candles`がキャッシュCSVの
-  存在有無だけを見て、要求日数（`--days`）をカバーしているかを確認していない。
-  一度短い日数で取得すると、後で長い日数を指定しても黙って古いキャッシュが
-  再利用される。回避策: `./data/{hyperliquid,bitget,okx}/` を手動で削除
-  してから再取得する。恒久修正は未着手（キャッシュ側にカバー日数を記録し、
-  不足時のみ再取得する必要がある）
-- **Hyperliquid公開APIの1h足は約209日分しか保持されていない**（実測、
-  2026-07時点で2025-12-10以前は0件が返る。バグではなくAPI側の仕様）。
-  `--source hyperliquid --days 500` のように長い日数を指定しても1h足では
-  実際に取れるのは約209日分止まりで、`--warmup-days 100`を引くと有効
-  約109日分にしかならない。4h足は約833日分、1d足は2000日分以上取得できる
-- **Bitget公開API（USDT-M先物）の1h足も実測期間が短い**: ある時点の実測では
-  約59日分（それ以前は0件）に留まった。取得可能期間は環境・時期により変動
-  しうるため、長期実データ検証にはOKXを優先する
-- **長期実データ検証にはOKX（`--source okx`）を推奨**: 実測でBTC-USDT-SWAPの
-  1h足が1000日以上遡って取得できることを確認済み（3ソース中もっとも長期）。
-  ただしfunding rate履歴のみ約92日分に制限される（OKX公開APIの仕様、
-  価格系特徴ほど重要でないため許容）
-
-## 7. 昇格判定基準（過学習の再発防止）
-
-**背景（実例）**: 2026-07、15銘柄OKXデータで`gate1_diagnostic.py`が
-`base_timeframe=4h, horizon=12, target=cs_demean`でIC=+0.020〜+0.044
-（feature-mask込み）・t=6.03・正fold率100%という強い結果を出した。この
-設定でウォームアップ込みの実学習（`--phase train`）を回したところ、
-**IC=-0.0026・t=-0.23・不安定判定と符号ごと反転**した。原因は
-`gate1_diagnostic.py`のネストCVがウォームアップ期間（特徴が不完全にゼロ埋め
-された区間）を除外せず、かつdevセット（3058〜12234本、10〜15銘柄分割の
-比較的小さいサンプル）に対する多数の(horizon×target)組み合わせの中から
-最良値を選ぶ操作自体が多重検定になっていたため。**t値6という一見強い数字も、
-何十通りも試した中の最良値であれば信用できない**（selection bias）。
-
-この失敗を繰り返さないための昇格ルール:
-
-1. **`gate1_diagnostic.py`はスクリーニングのみに使う**。「候補を絞る」
-   目的にとどめ、この結果**単体では**どのhorizon/targetも「使える」と
-   結論しない。次のステップ（wf検証）が唯一の判定材料。
-2. **正式な検証は`--phase wf`のみ**: `--folds 3 --n-seeds 3`以上、
-   コスト2倍のwalk-forward中央値で判定する。dev区間を`--holdout-frac`で
-   pbt/wfから隔離したholdoutは**最後に一度だけ**確認する（同じholdoutを
-   使ってパラメータを選び直したら、その時点でholdoutの意味が失われる）。
-3. **昇格の数値基準**: wf（コスト2倍）の中央値リターンが
-   (a) 0を上回り、(b) `flat`を上回り、(c) `trend_following`を上回る。
-   3つとも満たさない限り、どれだけ`gate1_diagnostic.py`の数字が良くても
-   昇格しない。
-4. **打ち手を使い切ったら「エッジ不足」と結論して撤退する**: 本章の打ち手
-   （§2.9のオーバーレイRL、`--fee-profile maker`、`--trend-sleeve`、
-   ユニバース拡大・長期データ、特徴拡充）を一通り試してもwf中央値が基準を
-   満たさない場合、「公開OHLCVベースの現行特徴量セットには実証可能な
-   エッジが無い」という結論を受け入れ、**同じデータ・特徴量で新しい
-   horizon/targetの組み合わせを試し続けることをやめる**。
-
-**実施結果（2026-07、10銘柄・実質1000日・OKX・maker profile・
-`target=raw horizon=24 decision-every=4`、上記ルール通りに`--phase wf
---folds 3 --n-seeds 3`で実施）**: 昇格基準を**不合格**。
-
-| 指標 | 値 |
-|---|---|
-| RLリターン中央値（全fold×seed、コスト2倍） | 0.0%（3fold中1foldは3seedとも無取引） |
-| `trend_following`リターン | Fold0 -22.1% / Fold1 -23.6% / Fold2 -21.6%（3fold全てで一貫して大負け） |
-
-併せて重要な発見: 単発の80/20分割では`trend_following`が+13.3%と出ていたが
-（本章の以前の版で「実測で最も安定して黒字化している」と誤って記載していた
-根拠）、これは**幸運な1区間だけの結果**で、3fold walk-forwardでは一貫して
-損失だった。原因は`trend_following_strategy`の48本ルックバック/24本
-リバランス（1h足で2日/1日）が短すぎ、真のトレンドではなく短期ノイズを
-追っている可能性が高い。**単発の train/test 分割の良い数字を「安定した
-戦略」の根拠にしてはいけない**という、本章の教訓そのものが`trend_following`
-自身にも当てはまっていた。
-
-→ この時点で撤退基準に達した。次の一手は同じ公開OHLCVデータでの
-horizon/target探索の継続ではなく、(a) オーダーフロー/デリバティブ特徴の
-追加（Binance経由、地域ブロックの無い環境が必要）、または
-(b) `trend_following_strategy`自体のルックバック再検証（現状のパラメータが
-未検証のまま何箇所からも参照されている）のどちらか。
-
-**追加実験（シグナルレイヤー、2026-07）**: 「予測（教師あり）とトレード
-（RL）の責務分離」という仮説を`mars_lite/features/signal_layer.py`で実装し
-（因果的ローリングRidge信号を観測に注入、`--signal-layer only`で観測を
-92特徴→信号1次元に圧縮）、同一のwf検証で再試行した。結果は**さらに悪化**:
-リターン中央値がコスト2倍で**-11.7%**（全特徴版の0.0%より明確に悪い、
-9fold×seed中9件が損失）。
-
-原因: 圧縮の土台にした信号自体が`target=raw horizon=24`の弱いRidge
-（IC=0.019、閾値未満）そのものであり、責務分離してもICが上がるわけでは
-ない。むしろ観測から失われたボラ・funding・オーダーフロー等の文脈情報が
-RLの暗黙的なリスク回避（「無取引」判断を含む）を支えていたらしく、それを
-失った結果、弱い信号だけを頼りに一貫して張り続けて損失が拡大した。
-**「予測とトレードの分離」自体は妥当な設計思想だが、土台の予測精度が
-閾値未満のままアーキテクチャだけ変えても収益化しない**という追加の反証
-になった。RLアーキテクチャ側の工夫（オーバーレイ・2スリーブ・信号分離）
-を今後試す前に、まず予測側のIC自体を閾値超えまで引き上げる特徴拡充が
-先決という結論を補強する。
-
-**追加実験（signal-layer append、2026-07）**: `only`（置き換え）が文脈情報の
-喪失で悪化したことを受け、`append`（既存92特徴+信号を両方保持）で同一条件の
-wf検証を再試行した。結果はコスト1倍・2倍とも**リターン中央値0.0%**（平均
--3.8%〜-4.7%）。§7の3条件で判定すると:
-
-| 条件 | 判定 |
-|---|---|
-| 中央値が0を上回る | ✗（同値） |
-| flatを上回る | ✗（同値） |
-| trend_followingを上回る | ✓（trend_followingは全fold一貫して大負け） |
-
-3条件中1つのみで**不合格**。ただし内容はこのセッションで最も健全だった:
-9fold×seed中7件が「無取引」を選択し、残り2件が張って損失（-15%〜-22%）。
-`trend_following`が全foldで一貫して大負けするのとは対照的に、**RLは
-「エッジが無い時は張らない」というリスク回避を正しく学習できている**。
-これは価値のある副産物だが、§7の「昇格」の定義（黒字化）は満たさない。
-
-**結論（このセッションでの撤退判断）**: `--fee-profile maker`（コスト1/3）・
-`--trend-sleeve`（2スリーブ）・`--signal-layer {only,append}`（予測とトレード
-分離）を実装し正式検証したが、いずれも黒字化には届かなかった。共通の
-ボトルネックは一貫して「予測側の絶対的なIC不足」（h=24でIC≈0.019、閾値
-0.02未満）であり、RLアーキテクチャ側の工夫では埋まらないことが繰り返し
-実証された。次の一手はオーダーフロー/デリバティブ特徴の追加
-（Binance経由、地域ブロックの無い環境が必要）一択に絞られる。
+Passing CI proves that tested contracts hold; it does not prove profitability or Production readiness. Synthetic results, historical backtests, and one-time experiments are not live-trading authorization.

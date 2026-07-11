@@ -71,7 +71,9 @@ def test_failed_copy_removes_partial_temporary_directory(
         registry.register(candidate)
 
     assert registry.list_versions() == []
-    assert not any(path.name.startswith(".v1") for path in registry.versions_dir.iterdir())
+    assert not any(
+        path.name.startswith(".v1") for path in registry.versions_dir.iterdir()
+    )
 
 
 def test_failed_active_pointer_write_preserves_previous_version(
@@ -99,5 +101,4 @@ def test_same_version_with_different_digest_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="already registered"):
         registry.register(conflicting)
-    assert registry.get_active_record if hasattr(registry, "get_active_record") else True
     assert registry.list_versions() == ["v1"]

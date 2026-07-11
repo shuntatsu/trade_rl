@@ -86,9 +86,7 @@ class PortfolioTradingEnv(gym.Env):
         self.decision_every = max(1, decision_every)
         self.obs_risk_state = obs_risk_state
         self.disagreement_dr_max = disagreement_dr_max
-        self.observation_schema = ObservationSchema(
-            include_risk_state=obs_risk_state
-        )
+        self.observation_schema = ObservationSchema(include_risk_state=obs_risk_state)
 
         self._exec_model = make_execution_model(
             fee_rate=fee_rate,

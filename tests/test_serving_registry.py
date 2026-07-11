@@ -66,12 +66,28 @@ def test_failed_activation_preserves_old_active(tmp_path: Path) -> None:
     assert registry.get_active_bundle().version == "v1"
 
 
-def test_registered_versions_are_immutable(tmp_path: Path) -> None:
+def test_same_digest_registration_and_activation_are_idempotent(tmp_path: Path) -> None:
     registry = ModelRegistry(tmp_path / "registry")
     v1 = create_bundle(tmp_path / "v1", version="v1", payload=b"one")
-    registry.register(v1)
-    with pytest.raises(ValueError, match="already registered"):
-        registry.register(v1)
+
+    first = registry.register(v1)
+    second = registry.register(v1)
+    assert second.bundle_digest == first.bundle_digest
+
+    registry.activate("v1", evidence_identity="run-1")
+    history_before = registry.history_path.read_text(encoding="utf-8")
+    registry.activate("v1", evidence_identity="run-1-retry")
+    assert registry.history_path.read_text(encoding="utf-8") == history_before
+
+
+def test_same_version_with_different_digest_is_rejected(tmp_path: Path) -> None:
+    registry = ModelRegistry(tmp_path / "registry")
+    first = create_bundle(tmp_path / "first", version="v1", payload=b"one")
+    collision = create_bundle(tmp_path / "collision", version="v1", payload=b"two")
+    registry.register(first)
+
+    with pytest.raises(ValueError, match="different digest"):
+        registry.register(collision)
 
 
 def test_registry_cli_register_activate_and_show(tmp_path: Path, capsys) -> None:

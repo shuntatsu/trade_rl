@@ -13,6 +13,7 @@ NORMATIVE_DOCS = {
     "DECISIONS.md",
     "RESEARCH_HISTORY.md",
 }
+JAPANESE_DOCS = NORMATIVE_DOCS | {"README.md"}
 
 
 def test_normative_documentation_set_is_complete() -> None:
@@ -22,10 +23,26 @@ def test_normative_documentation_set_is_complete() -> None:
     assert (ROOT / "README.md").is_file()
 
 
+def test_japanese_documentation_set_is_complete() -> None:
+    japanese_dir = ROOT / "docs" / "ja"
+    actual = {path.name for path in japanese_dir.glob("*.md")}
+    assert actual == JAPANESE_DOCS
+    assert (ROOT / "README.ja.md").is_file()
+
+
 def test_root_readme_declares_no_go_and_links_architecture() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "docs/ARCHITECTURE.md" in readme
     assert "Production: NO-GO" in readme
+    assert "README.ja.md" in readme
+    assert "docs/ja/README.md" in readme
+
+
+def test_japanese_docs_link_to_english_sources() -> None:
+    japanese_dir = ROOT / "docs" / "ja"
+    for name in sorted(NORMATIVE_DOCS):
+        text = (japanese_dir / name).read_text(encoding="utf-8")
+        assert f"../{name}" in text
 
 
 def test_normative_docs_do_not_describe_removed_paths_as_current() -> None:
@@ -47,3 +64,9 @@ def test_production_readiness_remains_no_go() -> None:
     readiness = (ROOT / "docs" / "PRODUCTION_READINESS.md").read_text(encoding="utf-8")
     assert "Current decision: **NO-GO**" in readiness
     assert "- [ ]" in readiness
+
+    japanese_readiness = (ROOT / "docs" / "ja" / "PRODUCTION_READINESS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "現在の判断: **NO-GO**" in japanese_readiness
+    assert "- [ ]" in japanese_readiness

@@ -1,5 +1,7 @@
 # Trade RL
 
+**English** | [日本語](README.ja.md)
+
 Trade RL is a portfolio reinforcement-learning research and deployment codebase for producing risk-constrained target weights across multiple instruments.
 
 ## Status
@@ -88,6 +90,7 @@ The Serving Plane contains no training, model deletion, promotion, rollback, or 
 
 ## Documentation
 
+- [Japanese documentation / 日本語ドキュメント](docs/ja/README.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current system architecture
 - [`docs/MODEL_LIFECYCLE.md`](docs/MODEL_LIFECYCLE.md) — candidate, evidence, registry, activation, rollback
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — deployment and incident procedures

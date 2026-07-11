@@ -14,13 +14,13 @@ ProgressMode = Literal["episode", "zero"]
 class ObservationSchema:
     include_risk_state: bool = False
     version: int = 1
-    progress_mode: ProgressMode = "episode"
+    progress_mode: ProgressMode = "zero"
 
     def validate(self) -> None:
         if self.version != 1:
             raise ValueError(f"unsupported observation schema version: {self.version}")
-        if self.progress_mode not in ("episode", "zero"):
-            raise ValueError(f"unsupported observation progress mode: {self.progress_mode}")
+        if self.progress_mode not in {"episode", "zero"}:
+            raise ValueError(f"unsupported progress mode: {self.progress_mode}")
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ def build_observation(
     per_symbol = np.concatenate([features, weights.reshape(-1, 1)], axis=1).ravel()
     drawdown = 1.0 - state.portfolio_value / state.peak_value
     gross = float(np.abs(weights).sum())
-    progress = 0.0 if schema.progress_mode == "zero" else state.progress
+    progress = state.progress if schema.progress_mode == "episode" else 0.0
     portfolio_globals = [drawdown, gross, progress]
     if schema.include_risk_state:
         portfolio_globals.extend(

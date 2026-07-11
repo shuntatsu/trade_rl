@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -20,12 +21,19 @@ def create_bundle(
     root.mkdir()
     (root / "model.zip").write_bytes(payload)
     (root / "metadata.json").write_text(
-        (
-            '{"schema_version":1,"model_version":"%s","git_sha":"abc123",'
-            '"symbols":%s,"observation_schema_version":1,'
-            '"observation_progress_mode":"zero","observation_dim":%d,"run_config":{}}'
-        )
-        % (version, str(list(symbols)).replace("'", '"'), len(symbols) * 2 + 4),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "model_version": version,
+                "git_sha": "a" * 40,
+                "model_kind": "single",
+                "symbols": list(symbols),
+                "observation_schema_version": 1,
+                "observation_progress_mode": "zero",
+                "observation_dim": len(symbols) * 2 + 4,
+                "run_config": {},
+            }
+        ),
         encoding="utf-8",
     )
     (root / "preprocessing.json").write_text(
@@ -196,12 +204,10 @@ def test_zero_risk_scales_are_preserved_in_observation(tmp_path: Path) -> None:
     registry = ModelRegistry(tmp_path / "registry")
     candidate = create_bundle(tmp_path / "v1", "v1", b"one")
     metadata_path = candidate / "metadata.json"
-    metadata = metadata_path.read_text(encoding="utf-8")
-    metadata = metadata.replace('"observation_dim":6', '"observation_dim":10')
-    metadata = metadata.replace(
-        '"run_config":{}', '"run_config":{"obs_risk_state":true}'
-    )
-    metadata_path.write_text(metadata, encoding="utf-8")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["observation_dim"] = 10
+    metadata["run_config"] = {"obs_risk_state": True}
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     build_manifest(candidate)
     registry.register(candidate)
     registry.activate("v1", evidence_identity="run-1")

@@ -1,9 +1,8 @@
 """Evidence-backed deployment gate for Shadow -> Canary -> Production.
 
-Canary and production promotion never accept self-reported booleans. They require
-a content-addressed evidence bundle downloaded from a prior trusted GitHub Actions run. The
-bundle is cross-checked for model identity and every referenced file is verified
-against its SHA-256 digest before promotion is allowed.
+Canary and Production promotion require immutable evidence downloaded from a trusted
+prior run. Evidence is bound to the exact ServingBundle manifest; the gate revalidates
+the complete bundle rather than trusting a standalone model file or self-reported flag.
 """
 
 from __future__ import annotations
@@ -17,12 +16,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from mars_lite.serving.bundle import load_bundle
+
 DeploymentStage = Literal["shadow", "canary", "production"]
 _HEX_40 = re.compile(r"[a-fA-F0-9]{40}")
 _HEX_64 = re.compile(r"[a-fA-F0-9]{64}")
-_MODEL_VERSION = re.compile(r"[a-zA-Z0-9_.-]+")
+_MODEL_VERSION = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,49}")
 _APPROVAL_TICKET = re.compile(r"PROD-\d+")
 _APPROVER = re.compile(r"[a-zA-Z0-9_.@-]+")
+_SERVING_MANIFEST_PATH = "serving_candidate/manifest.json"
 _SHADOW_MIN_SHARPE_DIFF = -0.3
 _SHADOW_MAX_DRAWDOWN = 0.20
 _CANARY_MAX_CAPITAL_USD = 10_000.0
@@ -63,10 +65,10 @@ class ShadowEvidenceReport:
             return False, "shadow report metrics must be finite"
         if not 0.0 <= float(self.max_drawdown) <= 1.0:
             return False, "shadow drawdown must be between 0 and 1"
-        diff = float(self.oos_sharpe) - float(self.baseline_sharpe)
-        if diff < _SHADOW_MIN_SHARPE_DIFF:
+        difference = float(self.oos_sharpe) - float(self.baseline_sharpe)
+        if difference < _SHADOW_MIN_SHARPE_DIFF:
             return False, (
-                f"shadow sharpe difference {diff:.2f} below threshold "
+                f"shadow sharpe difference {difference:.2f} below threshold "
                 f"{_SHADOW_MIN_SHARPE_DIFF}"
             )
         if float(self.max_drawdown) > _SHADOW_MAX_DRAWDOWN:
@@ -201,7 +203,6 @@ class DeploymentGate:
             return GateDecision(True, "shadow deployment is the first stage")
         if evidence.stage not in ("canary", "production"):
             return GateDecision(False, f"unknown deployment stage: {evidence.stage}")
-
         if evidence.artifact_root is None or evidence.candidate is None:
             return GateDecision(
                 False, "evidence bundle and candidate artifact are required"
@@ -227,17 +228,16 @@ class DeploymentGate:
         assert evidence.shadow_report is not None
         assert evidence.drift_report is not None
         assert evidence.incident_report is not None
-
         for label, report in required.items():
             assert report is not None
             identity_error = self._validate_identity(evidence.candidate, report, label)
             if identity_error:
                 return GateDecision(False, identity_error)
 
-        for label, report in (
-            ("shadow", evidence.shadow_report),
-            ("drift", evidence.drift_report),
-            ("incident", evidence.incident_report),
+        for report in (
+            evidence.shadow_report,
+            evidence.drift_report,
+            evidence.incident_report,
         ):
             passed, reason = report.is_passed()
             if not passed:
@@ -245,7 +245,6 @@ class DeploymentGate:
 
         if evidence.stage == "canary":
             return GateDecision(True, "verified shadow evidence accepted")
-
         if evidence.canary_report is None:
             return GateDecision(False, "production requires verified canary evidence")
         if evidence.candidate.canary_report_sha256 is None:
@@ -278,15 +277,12 @@ class DeploymentGate:
             evidence.environment_approver
         ):
             return GateDecision(False, "production requires valid environment approver")
-
         return GateDecision(True, "verified production evidence accepted")
 
     @staticmethod
     def _validate_candidate(
         candidate: CandidateArtifact, artifact_root: Path
     ) -> str | None:
-        if len(candidate.model_version) > 50:
-            return "model version exceeds maximum length of 50 characters"
         if not _MODEL_VERSION.fullmatch(candidate.model_version):
             return "candidate requires valid model version"
         if not _HEX_40.fullmatch(candidate.git_commit):
@@ -307,17 +303,28 @@ class DeploymentGate:
         if any(not _is_sha256(value) for value in digest_fields):
             return "candidate manifest contains invalid SHA-256 digest"
 
-        if not isinstance(candidate.artifact_path, str) or not candidate.artifact_path:
-            return "candidate requires model artifact path"
+        if candidate.artifact_path != _SERVING_MANIFEST_PATH:
+            return (
+                "candidate artifact_path must reference "
+                f"{_SERVING_MANIFEST_PATH}"
+            )
         try:
             artifact_path = _resolve_inside(artifact_root, candidate.artifact_path)
         except (TypeError, ValueError):
-            return "model artifact path escapes evidence bundle"
+            return "serving manifest path escapes evidence bundle"
         if not artifact_path.is_file():
-            return f"model artifact not found: {candidate.artifact_path}"
-        actual = sha256_file(artifact_path)
-        if actual != candidate.artifact_sha256.lower():
-            return "model artifact SHA-256 mismatch"
+            return f"serving manifest not found: {candidate.artifact_path}"
+        if sha256_file(artifact_path) != candidate.artifact_sha256.lower():
+            return "serving manifest SHA-256 mismatch"
+
+        try:
+            bundle = load_bundle(artifact_path.parent)
+        except (OSError, TypeError, ValueError) as exc:
+            return f"serving bundle validation failed: {exc}"
+        if bundle.version != candidate.model_version:
+            return "serving bundle model version does not match candidate"
+        if bundle.manifest.git_sha != candidate.git_commit:
+            return "serving bundle git commit does not match candidate"
         return None
 
     @staticmethod
@@ -404,7 +411,7 @@ def _read_json(path: Path) -> dict[str, Any]:
         raise ValueError(f"required evidence file not found: {path.name}")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid JSON in {path.name}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"evidence file must contain a JSON object: {path.name}")
@@ -416,12 +423,13 @@ def _verify_report_digest(path: Path, expected: str, label: str) -> None:
         raise ValueError(f"required evidence file not found: {path.name}")
     if not _is_sha256(expected):
         raise ValueError(f"{label} report digest is invalid")
-    actual = sha256_file(path)
-    if actual != expected.lower():
+    if sha256_file(path) != expected.lower():
         raise ValueError(f"{label} report SHA-256 mismatch")
 
 
 def _resolve_inside(root: Path, relative_path: str) -> Path:
+    if not isinstance(relative_path, str) or not relative_path:
+        raise ValueError("relative path is required")
     root_resolved = root.resolve()
     candidate = (root_resolved / relative_path).resolve()
     try:

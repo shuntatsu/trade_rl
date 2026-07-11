@@ -44,8 +44,6 @@ def test_normative_docs_do_not_describe_removed_paths_as_current() -> None:
 
 
 def test_production_readiness_remains_no_go() -> None:
-    readiness = (ROOT / "docs" / "PRODUCTION_READINESS.md").read_text(
-        encoding="utf-8"
-    )
+    readiness = (ROOT / "docs" / "PRODUCTION_READINESS.md").read_text(encoding="utf-8")
     assert "Current decision: **NO-GO**" in readiness
     assert "- [ ]" in readiness

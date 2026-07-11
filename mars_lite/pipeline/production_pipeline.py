@@ -170,7 +170,9 @@ def run(args: Any) -> int:
             f"sealed holdout={holdout.n_bars} bars"
         )
     else:
-        print("[WARN] insufficient data for a sealed holdout; phase-local splits remain")
+        print(
+            "[WARN] insufficient data for a sealed holdout; phase-local splits remain"
+        )
 
     _print_step(2, total_steps, "PBT hyperparameter search")
     if args.skip_pbt:
@@ -196,9 +198,7 @@ def run(args: Any) -> int:
             return 1
 
     _print_step(4, total_steps, "Final training and sealed gate")
-    train_result = phase_train(
-        args, output_dir, dev_fs=development, holdout_fs=holdout
-    )
+    train_result = phase_train(args, output_dir, dev_fs=development, holdout_fs=holdout)
     if train_result is None:
         print("[STOP] training exited before producing a candidate")
         return 1

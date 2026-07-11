@@ -51,3 +51,15 @@ def test_invalid_weight_dimension_fails_closed() -> None:
             ObservationState(np.zeros(1), 1.0, 1.0, 0.0),
             ObservationSchema(),
         )
+
+
+def test_zero_progress_mode_removes_training_episode_position() -> None:
+    features = np.zeros((1, 1), dtype=np.float32)
+    globals_ = np.zeros(1, dtype=np.float32)
+    observation = build_observation(
+        features,
+        globals_,
+        ObservationState(np.array([0.0]), 1.0, 1.0, 0.75),
+        ObservationSchema(progress_mode="zero"),
+    )
+    assert observation[-1] == 0.0

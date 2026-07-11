@@ -1,239 +1,124 @@
-"""
-mars_lite.server.signal_server のテスト
-
-/api/signal/latest が実際にモデル+データを通して200を返すこと
-（以前は存在しないenv._recent_returns()を呼びAttributeErrorで
-必ず落ちていた）と、モデル管理・データ一覧エンドポイントを確認する。
-"""
-
-import subprocess
-import sys
-from pathlib import Path
-
-import pytest
+import numpy as np
 from fastapi.testclient import TestClient
 
-from mars_lite.data.sources import CsvSource
-from mars_lite.features.feature_pipeline import FeaturePipeline
-from mars_lite.learning.trainer import train_ppo
-from mars_lite.server.signal_server import create_app
-from mars_lite.serving.model_store import ModelMetadata, save_bundle
-from mars_lite.trading.post_processor import make_default_processor
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+from mars_lite.server.signal_server import create_app, parse_inference_request
+from mars_lite.serving.contracts import InferenceResponse
+from mars_lite.serving.runtime import FeatureSnapshot, ReadinessState
 
 
-@pytest.fixture(scope="module")
-def trained_model_dir(tmp_path_factory):
-    """小さく学習したモデル+メタデータ+対応CSVデータを用意する
+class FakeProvider:
+    def get_snapshot(self):
+        return FeatureSnapshot(
+            snapshot_id="snap-1",
+            symbols=("BTCUSDT",),
+            feature_names=("ret",),
+            global_feature_names=("market",),
+            feature_history=np.zeros((5, 1, 1)),
+            global_features=np.array([0.0]),
+            close_history=np.ones((5, 1)),
+            data_age_hours=0.1,
+        )
 
-    scripts/generate_sample_data.py（実運用と同じ生成コード）でCSVを作り、
-    CsvSourceで読み込んで学習する。
-    """
-    base = tmp_path_factory.mktemp("signal_server_fixture")
-    models_dir = base / "output"
-    data_dir = base / "data"
-    models_dir.mkdir()
 
-    subprocess.run(
-        [
-            sys.executable,
-            str(_REPO_ROOT / "scripts" / "generate_sample_data.py"),
-            "--days",
-            "30",
-            "--alpha",
-            "cross",
-            "--seed",
-            "1",
-            "--output",
-            str(data_dir),
-        ],
-        check=True,
-        cwd=_REPO_ROOT,
-        capture_output=True,
+class FakeRuntime:
+    def __init__(self, status="ok"):
+        self.status = status
+
+    def refresh(self):
+        return True
+
+    def readiness(self):
+        return ReadinessState("ready", "v1", "digest")
+
+    def infer(self, request, snapshot):
+        return InferenceResponse(
+            status=self.status,
+            request_id=request.request_id,
+            market_snapshot_id=request.market_snapshot_id,
+            model_version="v1",
+            bundle_digest="digest",
+            target_weights={"BTCUSDT": 0.1} if self.status == "ok" else None,
+            reasons=() if self.status == "ok" else ("not ready",),
+            pre_trade_risk={"approved": self.status == "ok"},
+        )
+
+
+def payload():
+    return {
+        "request_id": "req-1",
+        "market_snapshot_id": "latest",
+        "state": {
+            "current_weights": {"BTCUSDT": 0.0},
+            "portfolio_value": 100.0,
+            "day_start_value": 100.0,
+            "peak_value": 100.0,
+            "consecutive_losses": 0,
+            "turnover_mean": 0.0,
+            "turnover_std": 1.0,
+            "pending_orders": [],
+        },
+    }
+
+
+def client(status="ok"):
+    return TestClient(
+        create_app(
+            runtime=FakeRuntime(status),
+            feature_provider=FakeProvider(),
+            auth_token="token",
+        )
     )
 
-    symbols = sorted(
-        d.name for d in data_dir.iterdir() if d.is_dir() and (d / "1m").is_dir()
+
+def test_health_and_readiness_are_public() -> None:
+    api = client()
+    assert api.get("/health").json() == {"status": "ok"}
+    ready = api.get("/ready")
+    assert ready.status_code == 200
+    assert ready.json()["active_version"] == "v1"
+
+
+def test_no_signal_returns_503() -> None:
+    response = client("no_signal").post(
+        "/api/signal/latest",
+        headers={"Authorization": "Bearer token"},
+        json=payload(),
     )
-    source = CsvSource(data_dir, symbols)
-    fs = FeaturePipeline(symbols).build(source)
-    pp = make_default_processor()
-    agent = train_ppo(
-        fs=fs,
-        timesteps=1500,
-        seed=0,
-        n_envs=1,
-        bc_warmstart=False,
-        post_processor=pp,
+    assert response.status_code == 503
+    assert response.json()["status"] == "no_signal"
+
+
+def test_malformed_pending_order_is_422() -> None:
+    body = payload()
+    body["state"]["pending_orders"] = [
+        {
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "notional": 10,
+            "reduce_only": "false",
+        }
+    ]
+    response = client().post(
+        "/api/signal/latest",
+        headers={"Authorization": "Bearer token"},
+        json=body,
     )
-    save_bundle(
-        models_dir,
-        "portfolio_model",
-        agent,
-        ModelMetadata(
-            symbols=symbols,
-            post_processor=pp.cfg.to_dict(),
-        ),
+    assert response.status_code == 422
+
+
+def test_request_parser_preserves_state() -> None:
+    parsed = parse_inference_request(payload())
+    assert parsed.state.portfolio_value == 100.0
+    assert parsed.state.current_weights == {"BTCUSDT": 0.0}
+
+
+def test_market_snapshot_is_bound_by_server() -> None:
+    body = payload()
+    body["market_snapshot_id"] = "stale-snapshot"
+    response = client().post(
+        "/api/signal/latest",
+        headers={"Authorization": "Bearer token"},
+        json=body,
     )
-
-    return models_dir, data_dir
-
-
-@pytest.fixture
-def client(trained_model_dir, monkeypatch):
-    models_dir, data_dir = trained_model_dir
-    # resolve_data_dirはCWD直下の"data"を優先するため、CWDをdata_dirの親に切替
-    monkeypatch.chdir(data_dir.parent)
-    app = create_app(output_dir=str(models_dir))
-    return TestClient(app)
-
-
-class TestSignalServer:
-    def test_health(self, client):
-        resp = client.get("/health")
-        assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
-
-    def test_list_models(self, client):
-        resp = client.get("/api/models")
-        assert resp.status_code == 200
-        ids = [m["id"] for m in resp.json()["models"]]
-        assert "portfolio_model" in ids
-
-    def test_get_model_detail(self, client):
-        resp = client.get("/api/models/portfolio_model")
-        assert resp.status_code == 200
-        assert "metadata" in resp.json()
-
-    def test_get_model_404(self, client):
-        resp = client.get("/api/models/does_not_exist")
-        assert resp.status_code == 404
-
-    def test_data_available(self, client, trained_model_dir):
-        resp = client.get("/api/data/available")
-        assert resp.status_code == 200
-        _, data_dir = trained_model_dir
-        available = resp.json()["available"]
-        assert len(available) > 0
-
-    def test_signal_latest_returns_200_not_crash(self, client):
-        """以前 env._recent_returns() 呼び出しでAttributeErrorになっていたバグの回帰テスト"""
-        resp = client.get("/api/signal/latest")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "weights" in body
-        assert "raw_weights" in body
-        assert "processed_weights" in body
-        assert "guardrail" in body
-        assert set(body["symbols"]) == set(body["weights"].keys())
-
-    def test_signal_latest_with_prev_weights(self, client):
-        resp = client.get("/api/signal/latest")
-        symbols = resp.json()["symbols"]
-        prev = ",".join("0.05" for _ in symbols)
-        resp2 = client.get(
-            f"/api/signal/latest?prev_weights={prev}&portfolio_value=0.9&peak_value=1.0"
-        )
-        assert resp2.status_code == 200
-
-    def test_signal_latest_bad_prev_weights_length(self, client):
-        resp = client.get("/api/signal/latest?prev_weights=0.1,0.2")
-        assert resp.status_code == 400
-
-    def test_signal_latest_malformed_prev_weights(self, client):
-        resp = client.get("/api/signal/latest?prev_weights=abc,def")
-        assert resp.status_code == 400
-
-    def test_signal_latest_404_without_model(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        app = create_app(output_dir=str(tmp_path / "empty_output"))
-        client = TestClient(app)
-        resp = client.get("/api/signal/latest")
-        assert resp.status_code == 404
-
-
-class TestRunConfigParity:
-    """回帰テスト: 学習時のenv設定(htf_gate/obs_risk_state等)がメタデータの
-    run_configに保存され、serve側で復元されることを確認する。これが無いと
-    観測形状の異なるモデルに対しserveが常定義既定env設定で推論してしまい、
-    train/serve一致が崩れる（DecisionPipelineの共有だけでは不十分）。
-    """
-
-    @staticmethod
-    @pytest.fixture(scope="class")
-    def trained_model_dir_with_run_config(tmp_path_factory):
-        base = tmp_path_factory.mktemp("run_config_fixture")
-        models_dir = base / "output"
-        data_dir = base / "data"
-        models_dir.mkdir()
-
-        subprocess.run(
-            [
-                sys.executable,
-                str(_REPO_ROOT / "scripts" / "generate_sample_data.py"),
-                "--days",
-                "30",
-                "--alpha",
-                "cross",
-                "--seed",
-                "2",
-                "--output",
-                str(data_dir),
-            ],
-            check=True,
-            cwd=_REPO_ROOT,
-            capture_output=True,
-        )
-        symbols = sorted(
-            d.name for d in data_dir.iterdir() if d.is_dir() and (d / "1m").is_dir()
-        )
-        source = CsvSource(data_dir, symbols)
-        fs = FeaturePipeline(symbols).build(source)
-        pp = make_default_processor()
-        # htf_gate + obs_risk_state 付きで学習（観測形状が既定と異なる）
-        env_kwargs = {"post_processor": pp, "htf_gate": True, "obs_risk_state": True}
-        agent = train_ppo(
-            fs=fs,
-            timesteps=1500,
-            seed=0,
-            n_envs=1,
-            bc_warmstart=False,
-            **env_kwargs,
-        )
-        run_config = {k: v for k, v in env_kwargs.items() if k != "post_processor"}
-        save_bundle(
-            models_dir,
-            "portfolio_model",
-            agent,
-            ModelMetadata(
-                symbols=symbols,
-                post_processor=pp.cfg.to_dict(),
-                run_config=run_config,
-            ),
-        )
-        return models_dir, data_dir
-
-    def test_run_config_saved_and_loaded(self, trained_model_dir_with_run_config):
-        from mars_lite.serving.model_store import load_metadata
-
-        models_dir, _ = trained_model_dir_with_run_config
-        meta = load_metadata(models_dir, "portfolio_model")
-        assert meta.run_config == {"htf_gate": True, "obs_risk_state": True}
-
-    def test_signal_latest_matches_trained_obs_shape(
-        self, trained_model_dir_with_run_config, monkeypatch
-    ):
-        """run_configがserve側のenv構築に反映され、観測形状不一致で
-        落ちない（＝正しい方策入力で推論できる）ことを確認する。
-        """
-        models_dir, data_dir = trained_model_dir_with_run_config
-        monkeypatch.chdir(data_dir.parent)
-        app = create_app(output_dir=str(models_dir))
-        client = TestClient(app)
-
-        resp = client.get("/api/signal/latest")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "weights" in body
-        assert set(body["symbols"]) == set(body["weights"].keys())
+    assert response.status_code == 422
+    assert "market_snapshot_id" in response.json()["detail"]

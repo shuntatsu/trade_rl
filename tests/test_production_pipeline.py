@@ -87,7 +87,7 @@ def test_pipeline_registers_complete_candidate_without_activation(
     assert candidate.is_dir()
     assert registry.list_versions() == ["v1"]
     assert not registry.active_path.exists()
-    assert registered.manifest.observation_dim == 9
+    assert registered.metadata["observation_dim"] == 9
     assert run_config["obs_risk_state"] is True
     assert run_config["disagreement_dr_max"] == 0.3
     assert run_config["base_timeframe"] == "4h"

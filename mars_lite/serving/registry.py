@@ -133,7 +133,12 @@ class ModelRegistry:
 
         with self._lock():
             if target.exists():
-                raise ValueError(f"version {bundle.version!r} is already registered")
+                existing = load_bundle(target)
+                if existing.bundle_digest == bundle.bundle_digest:
+                    return existing
+                raise ValueError(
+                    f"version {bundle.version!r} is already registered with a different digest"
+                )
             temporary = self.versions_dir / f".{bundle.version}.{uuid.uuid4().hex}.tmp"
             try:
                 shutil.copytree(source, temporary)
@@ -161,7 +166,11 @@ class ModelRegistry:
             value = json.loads(self.active_path.read_text(encoding="utf-8"))
             if not isinstance(value, dict):
                 raise TypeError
-            return ActiveBundleRecord.from_dict(value)
+            record = ActiveBundleRecord.from_dict(value)
+            self._validate_version(record.version)
+            if not record.evidence_identity:
+                raise ValueError("active evidence identity is empty")
+            return record
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             raise ValueError("invalid active registry pointer") from exc
 
@@ -207,6 +216,12 @@ class ModelRegistry:
                 raise KeyError(f"unknown model version: {version}")
             target = load_bundle(target_dir)
             previous = self._read_active_optional()
+            if (
+                previous is not None
+                and previous.version == target.version
+                and previous.bundle_digest == target.bundle_digest
+            ):
+                return target
             record = ActiveBundleRecord(
                 version=target.version,
                 bundle_digest=target.bundle_digest,
@@ -228,6 +243,8 @@ class ModelRegistry:
             if not target_dir.is_dir():
                 raise KeyError(f"unknown model version: {target_name}")
             target = load_bundle(target_dir)
+            if target.version == current.version:
+                return target
             record = ActiveBundleRecord(
                 version=target.version,
                 bundle_digest=target.bundle_digest,

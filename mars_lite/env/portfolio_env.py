@@ -16,6 +16,11 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
+from mars_lite.env.observation import (
+    ObservationSchema,
+    ObservationState,
+    build_observation,
+)
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.execution import make_execution_model
 from mars_lite.trading.pipeline import DecisionPipeline, MarketView, PortfolioState
@@ -81,6 +86,9 @@ class PortfolioTradingEnv(gym.Env):
         self.decision_every = max(1, decision_every)
         self.obs_risk_state = obs_risk_state
         self.disagreement_dr_max = disagreement_dr_max
+        self.observation_schema = ObservationSchema(
+            include_risk_state=obs_risk_state
+        )
 
         self._exec_model = make_execution_model(
             fee_rate=fee_rate,
@@ -170,31 +178,22 @@ class PortfolioTradingEnv(gym.Env):
         self._dsr_B = 0.0
 
     def _obs(self) -> np.ndarray:
-        feats = self.fs.features[self.t]  # (n_sym, n_feat)
-        per_sym = np.concatenate(
-            [feats, self.weights.reshape(-1, 1).astype(np.float32)], axis=1
-        ).flatten()
-        raw_globals = self.fs.global_features[self.t]
-        drawdown = 1.0 - self.portfolio_value / max(self.peak_value, 1e-9)
-        gross = float(np.abs(self.weights).sum())
-        progress = (self.t - self.start_idx) / max(self.episode_bars, 1)
-        port_globals = [drawdown, gross, progress]
-        if self.obs_risk_state:
-            # ルール層（後処理）が前ステップで方策の提案をどう変形したかを
-            # 観測に含める。既定offで、方策はこれらのルールを予見できず
-            # 衝突しやすい構造になっている（docs/ARCHITECTURE.md
-            # 「RLの担当範囲」原則4の緊張点）。opt-inでこの視認性を与え、
-            # ベンチマークで有効性を確認できたら既定にする候補
-            info = self._last_pp_info
-            port_globals += [
-                info.vol_scale,
-                info.dd_scale,
-                info.disagreement_scale,
-                info.est_port_vol,
-            ]
-        return np.concatenate(
-            [per_sym, raw_globals, np.array(port_globals, dtype=np.float32)]
-        ).astype(np.float32)
+        info = self._last_pp_info
+        return build_observation(
+            per_symbol_features=self.fs.features[self.t],
+            global_features=self.fs.global_features[self.t],
+            state=ObservationState(
+                weights=self.weights,
+                portfolio_value=self.portfolio_value,
+                peak_value=self.peak_value,
+                progress=(self.t - self.start_idx) / max(self.episode_bars, 1),
+                vol_scale=info.vol_scale,
+                dd_scale=info.dd_scale,
+                disagreement_scale=info.disagreement_scale,
+                est_port_vol=info.est_port_vol,
+            ),
+            schema=self.observation_schema,
+        )
 
     def _dsr_reward(self, r: float) -> float:
         eta = self.dsr_eta

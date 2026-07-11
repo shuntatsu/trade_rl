@@ -199,6 +199,15 @@ def _validate_bundle_schema(
         raise ValueError("unsupported metadata schema_version")
     if metadata.get("observation_schema_version") != 1:
         raise ValueError("unsupported observation_schema_version")
+    observation_dim = metadata.get("observation_dim")
+    if (
+        isinstance(observation_dim, bool)
+        or not isinstance(observation_dim, int)
+        or observation_dim <= 0
+    ):
+        raise ValueError("metadata.observation_dim must be a positive integer")
+    if metadata.get("observation_progress_mode") != "zero":
+        raise ValueError("metadata.observation_progress_mode must be 'zero'")
     symbols = metadata.get("symbols")
     if (
         not isinstance(symbols, list)
@@ -215,23 +224,44 @@ def _validate_bundle_schema(
         or not all(isinstance(name, str) and name for name in feature_names)
     ):
         raise ValueError("preprocessing.feature_names must be a non-empty string list")
+    global_feature_names = preprocessing.get("global_feature_names")
+    if (
+        not isinstance(global_feature_names, list)
+        or not all(isinstance(name, str) and name for name in global_feature_names)
+        or len(set(global_feature_names)) != len(global_feature_names)
+    ):
+        raise ValueError(
+            "preprocessing.global_feature_names must be a unique string list"
+        )
     feature_norm = preprocessing.get("feature_norm")
     if feature_norm not in {"none", "rank_gauss"}:
         raise ValueError("preprocessing.feature_norm must be none or rank_gauss")
     feature_mask = preprocessing.get("feature_mask")
-    if feature_mask is None:
-        expected_post_mask_dim = len(feature_names)
-    else:
+    if feature_mask is not None:
         if (
             not isinstance(feature_mask, list)
             or len(feature_mask) != len(feature_names)
             or not all(isinstance(item, bool) for item in feature_mask)
         ):
             raise ValueError("preprocessing.feature_mask must match feature_names")
-        expected_post_mask_dim = sum(feature_mask)
+    expected_post_mask_dim = len(feature_names)
     if preprocessing.get("post_mask_dim") != expected_post_mask_dim:
         raise ValueError(
-            "preprocessing.post_mask_dim does not match the enabled feature count"
+            "preprocessing.post_mask_dim must preserve the feature dimension"
+        )
+    run_config = metadata.get("run_config")
+    if not isinstance(run_config, dict):
+        raise ValueError("metadata.run_config must be an object")
+    include_risk_state = bool(run_config.get("obs_risk_state", False))
+    expected_observation_dim = (
+        len(symbols) * (len(feature_names) + 1)
+        + len(global_feature_names)
+        + 3
+        + (4 if include_risk_state else 0)
+    )
+    if observation_dim != expected_observation_dim:
+        raise ValueError(
+            "metadata.observation_dim does not match the declared observation schema"
         )
     if not isinstance(risk.get("guardrails"), dict) or not isinstance(
         risk.get("pre_trade"), dict

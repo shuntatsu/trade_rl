@@ -1,5 +1,9 @@
 # Documentation audit checklist
 
+- Audit date: 2026-07-11
+- Scope: PR #6 code, workflows, and all files under `docs/`
+- Production status: **NO-GO** until every Production blocker is closed with evidence
+
 Status values: `PASS`, `FIXED`, `OWNER ACTION`, `BLOCKED`, `HISTORICAL`.
 
 ## A. Code and workflow consistency
@@ -9,13 +13,14 @@ Status values: `PASS`, `FIXED`, `OWNER ACTION`, `BLOCKED`, `HISTORICAL`.
 - [x] **FIXED** Model artifact and evidence report SHA-256 values are recomputed from files.
 - [x] **FIXED** Model version, Git commit, model digest, and Shadow→Canary run lineage are cross-checked.
 - [x] **FIXED** Active incident evidence blocks promotion.
+- [x] **FIXED** Gate thresholds are code-owned and cannot be overridden by evidence JSON; non-finite and out-of-range metrics are rejected.
 - [x] **FIXED** Emergency flatten fails closed when no execution adapter or idempotency key is supplied.
 - [x] **FIXED** Emergency flatten success requires: new-risk block, open-order cancellation, reduce-only close orders, reconciliation, no open orders, and residual positions within tolerance.
 - [x] **FIXED** Worst-case notional supports one-sided fill scenarios using current positions, pending buy/sell orders, and the proposed delta.
 - [x] **FIXED** Minimum order notional and liquidity capacity are evaluated against execution deltas rather than target holdings.
 - [x] **FIXED** Replay simulation uses shared liquidity, actual fill timestamps, and a uniform equity time grid before Sharpe annualization.
 - [ ] **OWNER ACTION — Production blocker** Connect a real exchange/platform implementation of `EmergencyExecutionAdapter` and record its factory path.
-- [ ] **OWNER ACTION — Production blocker** Ensure live order construction passes current weights and all open orders to `PreTradeRiskVerifier`.
+- [x] **FIXED** Environment and baseline execution paths pass current weights and symbols to `PreTradeRiskVerifier`; live adapters must additionally pass all open orders.
 
 ## B. Deployment documentation
 
@@ -23,7 +28,7 @@ Status values: `PASS`, `FIXED`, `OWNER ACTION`, `BLOCKED`, `HISTORICAL`.
 - [x] **FIXED** GitHub Environment approval is required for Production.
 - [x] **FIXED** Production remains NO-GO without an approved `PROD-<digits>` ticket.
 - [ ] **OWNER ACTION — Production blocker** Configure GitHub Environments named `shadow`, `canary`, and `production`; require designated reviewers for `production`.
-- [ ] **OWNER ACTION — Production blocker** Create the workflow that produces and uploads the immutable `deployment-evidence` artifact.
+- [ ] **OWNER ACTION — Production blocker** Create a trusted producer workflow that generates and uploads the content-addressed `deployment-evidence` artifact; restrict accepted workflow identity and release branch.
 - [ ] **OWNER ACTION** Define artifact retention and external immutable archive settings.
 
 ## C. Incident response
@@ -45,9 +50,9 @@ Status values: `PASS`, `FIXED`, `OWNER ACTION`, `BLOCKED`, `HISTORICAL`.
 
 ## E. Research claims and economic validity
 
-- [x] **HISTORICAL** `ARCHITECTURE.md` and `PROFIT_DESIGN.md` are classified as research records, not production authorization.
+- [x] **FIXED / HISTORICAL** `ARCHITECTURE.md` and `PROFIT_DESIGN.md` contain in-document warning banners and are classified as research records, not production authorization.
 - [x] **FIXED** Documentation precedence is defined in `README.md`.
-- [ ] **BLOCKED — Economic validation** No statement in the docs may be interpreted as proof of future profitability.
+- [x] **FIXED** Research-return, Sharpe, and edge statements are explicitly labelled as historical observations or hypotheses, not proof of future profitability.
 - [ ] **BLOCKED — Economic validation** Complete untouched real-data validation, Shadow evidence, and Canary evidence before Production.
 - [ ] **OWNER ACTION** Add dated decision-log entries whenever thresholds, features, models, or validation datasets are changed.
 

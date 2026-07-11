@@ -177,6 +177,7 @@ def run_single_trial(
                 if score > self.best_score + min_improvement:
                     self.best_score = score
                     import copy
+
                     self.best_agent = copy.deepcopy(self.model)
             return True
 
@@ -274,19 +275,27 @@ def main():
     # 集計サマリー表示
     for alpha in args.alphas:
         print(f"\n--- Alpha: {alpha} ---")
-        print(f"{'Config':<8} {'RL_Select%':>10} {'Med_Ret%':>10} {'Med_Sortino':>12} {'Med_MaxDD%':>12} {'Tracking%':>10} {'Freeze%':>10} {'MaxWeight':>10}")
+        print(
+            f"{'Config':<8} {'RL_Select%':>10} {'Med_Ret%':>10} {'Med_Sortino':>12} {'Med_MaxDD%':>12} {'Tracking%':>10} {'Freeze%':>10} {'MaxWeight':>10}"
+        )
         for cfg in args.configs:
-            subset = [r for r in all_results if r["config_id"] == cfg and r["alpha"] == alpha]
+            subset = [
+                r for r in all_results if r["config_id"] == cfg and r["alpha"] == alpha
+            ]
             if not subset:
                 continue
-            rl_pct = sum(1 for r in subset if r["selected"] == "RL") / len(subset) * 100.0
+            rl_pct = (
+                sum(1 for r in subset if r["selected"] == "RL") / len(subset) * 100.0
+            )
             med_ret = np.median([r["test_return"] for r in subset]) * 100.0
             med_sort = np.median([r["test_sortino"] for r in subset])
             med_dd = np.median([r["test_max_dd"] for r in subset]) * 100.0
             med_track = np.median([r["tracking_ratio"] for r in subset]) * 100.0
             med_freeze = np.median([r["freeze_rate"] for r in subset]) * 100.0
             max_w = np.max([r["max_abs_weight"] for r in subset])
-            print(f"{cfg:<8} {rl_pct:>9.1f}% {med_ret:>9.2f}% {med_sort:>12.2f} {med_dd:>11.2f}% {med_track:>9.1f}% {med_freeze:>9.1f}% {max_w:>10.2f}")
+            print(
+                f"{cfg:<8} {rl_pct:>9.1f}% {med_ret:>9.2f}% {med_sort:>12.2f} {med_dd:>11.2f}% {med_track:>9.1f}% {med_freeze:>9.1f}% {max_w:>10.2f}"
+            )
 
 
 if __name__ == "__main__":

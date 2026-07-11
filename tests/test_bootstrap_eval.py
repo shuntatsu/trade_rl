@@ -96,7 +96,12 @@ def test_bootstrap_stationary_and_sensitivity():
 
     # Stationary Bootstrap のテスト
     stat_res = bootstrap_sharpe_difference(
-        candidate, baseline, n_bootstrap=200, method="stationary", block_size=10, seed=123
+        candidate,
+        baseline,
+        n_bootstrap=200,
+        method="stationary",
+        block_size=10,
+        seed=123,
     )
     assert stat_res["method"] == "stationary"
     assert stat_res["block_size"] == 10
@@ -108,4 +113,3 @@ def test_bootstrap_stationary_and_sensitivity():
     assert set(sens.keys()) == {5, 10}
     assert sens[5]["block_size"] == 5
     assert sens[10]["block_size"] == 10
-

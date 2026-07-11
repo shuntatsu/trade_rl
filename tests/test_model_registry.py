@@ -355,4 +355,3 @@ def test_rollback_with_target_version(tmp_path, capsys):
     out, _ = capsys.readouterr()
     data = json.loads(out.strip())
     assert data["version"] == "v2"
-

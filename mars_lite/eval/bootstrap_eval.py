@@ -40,7 +40,11 @@ def bootstrap_sharpe_difference(
         raise ValueError("annualization_factor must be positive")
 
     n = len(candidate)
-    b = block_size if block_size is not None and block_size > 0 else max(1, min(n, int(np.ceil(n ** 0.5))))
+    b = (
+        block_size
+        if block_size is not None and block_size > 0
+        else max(1, min(n, int(np.ceil(n**0.5))))
+    )
 
     rng = np.random.default_rng(seed)
     diffs = np.empty(n_bootstrap, dtype=float)
@@ -137,4 +141,3 @@ def _sharpe_diff(
     return calc_sharpe_ratio(
         candidate, annualization_factor=annualization_factor
     ) - calc_sharpe_ratio(baseline, annualization_factor=annualization_factor)
-

@@ -11,11 +11,12 @@ def _candidate(tmp_path: Path) -> Path:
     (root / "model.zip").write_bytes(b"model-v1")
     (root / "metadata.json").write_text(
         '{"schema_version":1,"model_version":"v1","git_sha":"abc123",'
-        '"symbols":["BTCUSDT"],"observation_schema_version":1}',
+        '"symbols":["BTCUSDT"],"observation_schema_version":1,'
+        '"observation_progress_mode":"zero","observation_dim":5,"run_config":{}}',
         encoding="utf-8",
     )
     (root / "preprocessing.json").write_text(
-        '{"feature_names":["ret"],"feature_norm":"none",'
+        '{"feature_names":["ret"],"global_feature_names":[],"feature_norm":"none",'
         '"feature_mask":[true],"post_mask_dim":1}',
         encoding="utf-8",
     )
@@ -46,10 +47,54 @@ def test_tampered_file_is_rejected(tmp_path: Path) -> None:
 def test_feature_mask_dimension_mismatch_fails_closed(tmp_path: Path) -> None:
     root = _candidate(tmp_path)
     (root / "preprocessing.json").write_text(
-        '{"feature_names":["a","b"],"feature_norm":"none",'
-        '"feature_mask":[true,false],"post_mask_dim":2}',
+        '{"feature_names":["a","b"],"global_feature_names":[],"feature_norm":"none",'
+        '"feature_mask":[true,false],"post_mask_dim":1}',
         encoding="utf-8",
     )
     build_manifest(root)
     with pytest.raises(ValueError, match="post_mask_dim"):
+        load_bundle(root)
+
+
+def test_zero_mask_preserves_feature_dimension(tmp_path: Path) -> None:
+    root = _candidate(tmp_path)
+    (root / "preprocessing.json").write_text(
+        '{"feature_names":["a","b"],"global_feature_names":[],"feature_norm":"none",'
+        '"feature_mask":[true,false],"post_mask_dim":2}',
+        encoding="utf-8",
+    )
+    metadata = (root / "metadata.json").read_text(encoding="utf-8")
+    (root / "metadata.json").write_text(
+        metadata.replace('"observation_dim":5', '"observation_dim":6'),
+        encoding="utf-8",
+    )
+    build_manifest(root)
+    loaded = load_bundle(root)
+    assert loaded.preprocessing["post_mask_dim"] == 2
+
+
+def test_episode_progress_bundle_is_rejected(tmp_path: Path) -> None:
+    root = _candidate(tmp_path)
+    metadata = (root / "metadata.json").read_text(encoding="utf-8")
+    (root / "metadata.json").write_text(
+        metadata.replace(
+            '"observation_progress_mode":"zero"',
+            '"observation_progress_mode":"episode"',
+        ),
+        encoding="utf-8",
+    )
+    build_manifest(root)
+    with pytest.raises(ValueError, match="observation_progress_mode"):
+        load_bundle(root)
+
+
+def test_observation_dimension_mismatch_is_rejected(tmp_path: Path) -> None:
+    root = _candidate(tmp_path)
+    metadata = (root / "metadata.json").read_text(encoding="utf-8")
+    (root / "metadata.json").write_text(
+        metadata.replace('"observation_dim":5', '"observation_dim":6'),
+        encoding="utf-8",
+    )
+    build_manifest(root)
+    with pytest.raises(ValueError, match="observation_dim"):
         load_bundle(root)

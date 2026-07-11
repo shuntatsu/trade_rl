@@ -181,3 +181,61 @@ def test_simulate_strategy_integration():
             pre_trade_verifier=verifier,
             min_trade_delta=0.0,
         )
+
+
+def test_env_integration_uses_execution_delta_for_minimum_order():
+    fs = DummyFeatureSet()
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=10.0))
+    env = PortfolioTradingEnv(
+        fs,
+        pre_trade_verifier=verifier,
+        initial_capital=100.0,
+        min_trade_delta=0.0,
+        lambda_turnover=0.0,
+    )
+    env.reset(options={"start_idx": 0})
+    env.step(np.array([0.2, 0.0]))
+    with pytest.raises(PreTradeRejection) as exc:
+        env.step(np.array([0.21, 0.0]))
+    assert exc.value.reason == "min_order_notional_not_met"
+    assert exc.value.details["symbol"] == "BTCUSDT"
+    assert 0.0 < exc.value.details["order_notional"] < 10.0
+
+
+def test_simulate_strategy_uses_post_threshold_execution_delta():
+    fs = DummyFeatureSet()
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=0.1))
+
+    def small_rebalance_strategy(fs, t, w):
+        if not w.any():
+            return np.array([0.2, 0.0])
+        return np.array([0.21, 0.0])
+
+    with pytest.raises(PreTradeRejection) as exc:
+        simulate_strategy(
+            fs,
+            small_rebalance_strategy,
+            pre_trade_verifier=verifier,
+            min_trade_delta=0.0,
+        )
+    assert exc.value.reason == "min_order_notional_not_met"
+    assert exc.value.details["symbol"] == "BTCUSDT"
+    assert 0.0 < exc.value.details["order_notional"] < 0.1
+
+
+def test_simulate_strategy_validates_after_min_trade_filter():
+    fs = DummyFeatureSet()
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=0.1))
+
+    def filtered_rebalance_strategy(fs, t, w):
+        if not w.any():
+            return np.array([0.2, 0.0])
+        return np.array([0.21, 0.0])
+
+    result = simulate_strategy(
+        fs,
+        filtered_rebalance_strategy,
+        pre_trade_verifier=verifier,
+        min_trade_delta=0.02,
+    )
+    assert result.n_bars == fs.n_bars - 1

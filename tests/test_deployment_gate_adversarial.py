@@ -9,6 +9,7 @@ from mars_lite.server.deployment_gate import (
     DeploymentGate,
     load_evidence_bundle,
 )
+from mars_lite.serving.candidate import create_candidate_bundle
 
 
 def _sha(path: Path) -> str:
@@ -18,12 +19,34 @@ def _sha(path: Path) -> str:
 def _bundle(tmp_path: Path) -> Path:
     root = tmp_path / "bundle"
     root.mkdir(parents=True)
-    model = root / "model.bin"
-    model.write_bytes(b"model")
+    source = tmp_path / "model-source.zip"
+    source.write_bytes(b"model")
+    serving = create_candidate_bundle(
+        destination=root / "serving_candidate",
+        model_source=source,
+        version="v1.0.0",
+        git_sha="a" * 40,
+        symbols=("BTCUSDT",),
+        feature_names=("ret",),
+        global_feature_names=(),
+        feature_norm="none",
+        feature_mask=None,
+        observation_dim=5,
+        observation_schema_version=1,
+        post_processor={},
+        run_config={
+            "base_timeframe": "1h",
+            "observation_progress_mode": "zero",
+        },
+        metrics={"gate2": {"passed": True}},
+        guardrails={},
+        pre_trade={},
+    )
+    manifest = serving / "manifest.json"
     identity = {
         "model_version": "v1.0.0",
         "git_commit": "a" * 40,
-        "artifact_sha256": _sha(model),
+        "artifact_sha256": _sha(manifest),
     }
     reports = {
         "shadow.json": {
@@ -50,7 +73,7 @@ def _bundle(tmp_path: Path) -> Path:
     candidate = {
         "model_version": identity["model_version"],
         "git_commit": identity["git_commit"],
-        "artifact_path": "model.bin",
+        "artifact_path": "serving_candidate/manifest.json",
         "artifact_sha256": identity["artifact_sha256"],
         "shadow_report_sha256": _sha(root / "shadow.json"),
         "drift_report_sha256": _sha(root / "drift.json"),
@@ -89,10 +112,7 @@ def test_candidate_newline_and_command_injection_are_rejected(tmp_path):
 
 def test_production_ticket_injection_is_rejected(tmp_path):
     root = _bundle(tmp_path)
-    evidence = load_evidence_bundle(
-        root,
-        "canary",
-    )
+    evidence = load_evidence_bundle(root, "canary")
     assert DeploymentGate().evaluate(evidence).allowed
     for ticket in ["PROD-123\n", " PROD-123", "PROD-123 ", "PROD-abc"]:
         result = DeploymentGate().evaluate(
@@ -117,3 +137,14 @@ def test_report_digest_cannot_be_replaced_by_well_formed_fake_hash(tmp_path):
     (root / "candidate.json").write_text(json.dumps(candidate), encoding="utf-8")
     with pytest.raises(ValueError, match="shadow report SHA-256 mismatch"):
         load_evidence_bundle(root, "canary")
+
+
+def test_manifest_sha_cannot_reference_another_well_formed_hash(tmp_path):
+    root = _bundle(tmp_path)
+    candidate = json.loads((root / "candidate.json").read_text())
+    candidate["artifact_sha256"] = "b" * 64
+    (root / "candidate.json").write_text(json.dumps(candidate), encoding="utf-8")
+    evidence = load_evidence_bundle(root, "canary")
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is False
+    assert "serving manifest SHA-256 mismatch" in decision.reason

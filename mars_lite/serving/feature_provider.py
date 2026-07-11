@@ -43,12 +43,21 @@ class CsvFeatureProvider:
             ):
                 return self._cached
 
+        from mars_lite.data.data_utils import TF_TO_MINUTES
         from mars_lite.data.sources import create_source
         from mars_lite.features.feature_pipeline import FeaturePipeline
 
         symbols = list(bundle.metadata["symbols"])
+        run_config = dict(bundle.metadata.get("run_config") or {})
+        base_timeframe = str(run_config.get("base_timeframe", "1h"))
+        if base_timeframe not in TF_TO_MINUTES:
+            raise ValueError(
+                f"unsupported bundled base_timeframe: {base_timeframe!r}"
+            )
         source = create_source("csv", symbols, data_dir=self.data_dir)
-        feature_set = FeaturePipeline(symbols).build(source)
+        feature_set = FeaturePipeline(
+            symbols, base_timeframe=base_timeframe
+        ).build(source)
         if tuple(feature_set.symbols) != tuple(symbols):
             raise ValueError(
                 "feature provider symbol order does not match active bundle"

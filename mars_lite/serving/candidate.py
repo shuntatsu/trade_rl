@@ -98,6 +98,8 @@ def create_candidate_bundle(
     source = Path(model_source)
     if not source.exists():
         raise FileNotFoundError(source)
+    if source.is_dir() and not any(source.glob("seed_*.zip")):
+        raise ValueError("ensemble model source requires at least one seed_*.zip file")
     root = Path(destination)
     if root.exists() and any(root.iterdir()):
         raise ValueError(f"candidate destination is not empty: {root}")

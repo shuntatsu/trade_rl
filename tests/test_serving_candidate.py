@@ -6,7 +6,7 @@ from mars_lite.serving.bundle import load_bundle
 from mars_lite.serving.candidate import create_candidate_bundle
 
 
-def _create(tmp_path: Path, **overrides):
+def _kwargs(tmp_path: Path, **overrides):
     model = tmp_path / "source.zip"
     model.write_bytes(b"model")
     kwargs = {
@@ -28,7 +28,11 @@ def _create(tmp_path: Path, **overrides):
         "pre_trade": {},
     }
     kwargs.update(overrides)
-    return create_candidate_bundle(**kwargs)
+    return kwargs
+
+
+def _create(tmp_path: Path, **overrides):
+    return create_candidate_bundle(**_kwargs(tmp_path, **overrides))
 
 
 def test_create_complete_single_model_candidate(tmp_path: Path) -> None:
@@ -37,7 +41,34 @@ def test_create_complete_single_model_candidate(tmp_path: Path) -> None:
     assert loaded.version == "v1"
     assert loaded.preprocessing["post_mask_dim"] == 2
     assert loaded.metadata["observation_dim"] == 7
+    assert loaded.metadata["model_kind"] == "single"
     assert loaded.model_path.name == "model.zip"
+
+
+def test_create_complete_ensemble_candidate(tmp_path: Path) -> None:
+    ensemble = tmp_path / "source-ensemble"
+    ensemble.mkdir()
+    (ensemble / "seed_0.zip").write_bytes(b"seed-0")
+    (ensemble / "seed_1.zip").write_bytes(b"seed-1")
+
+    candidate = _create(tmp_path, model_source=ensemble)
+    loaded = load_bundle(candidate)
+
+    assert loaded.metadata["model_kind"] == "ensemble"
+    assert loaded.model_path.name == "ensemble"
+    assert sorted(path.name for path in loaded.model_path.glob("seed_*.zip")) == [
+        "seed_0.zip",
+        "seed_1.zip",
+    ]
+
+
+def test_empty_or_unrecognized_ensemble_source_is_rejected(tmp_path: Path) -> None:
+    ensemble = tmp_path / "source-ensemble"
+    ensemble.mkdir()
+    (ensemble / "model.zip").write_bytes(b"not-a-seed-layout")
+
+    with pytest.raises(ValueError, match=r"seed_\*\.zip"):
+        _create(tmp_path, model_source=ensemble)
 
 
 def test_episode_progress_model_is_not_serving_compatible(tmp_path: Path) -> None:

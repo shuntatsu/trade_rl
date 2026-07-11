@@ -19,6 +19,7 @@ def compute_sha256(filepath: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+
 def main():
     import stable_baselines3 as sb3
     import torch
@@ -71,6 +72,7 @@ def main():
     print(f"Phase 1b 凍結マニフェストを作成しました: {out_path}")
     for k, v in file_hashes.items():
         print(f"  {k}: {v[:16]}...")
+
 
 if __name__ == "__main__":
     main()

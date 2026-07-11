@@ -173,7 +173,9 @@ class PortfolioPostProcessor:
 
         info.final_executed_weights = executed.copy()
         info.processed_gross = float(np.abs(executed).sum())
-        info.max_abs_weight = float(np.max(np.abs(executed))) if len(executed) > 0 else 0.0
+        info.max_abs_weight = (
+            float(np.max(np.abs(executed))) if len(executed) > 0 else 0.0
+        )
 
         desired_turnover = float(np.abs(info.after_concentration_cap - prev).sum())
         executed_turnover = float(np.abs(executed - prev).sum())

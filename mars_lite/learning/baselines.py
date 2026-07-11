@@ -213,12 +213,19 @@ def simulate_strategy(
         if gross > 1.0:
             target = target / gross
 
-        if pre_trade_verifier is not None:
-            pre_trade_verifier.validate(target, value)
-
         delta = target - weights
         delta[np.abs(delta) < min_trade_delta] = 0.0
-        weights = weights + delta
+        next_weights = weights + delta
+
+        if pre_trade_verifier is not None:
+            pre_trade_verifier.validate(
+                next_weights,
+                value,
+                symbols=fs.symbols,
+                current_weights=weights,
+            )
+
+        weights = next_weights
         turnover = float(np.abs(delta).sum())
         turnover_total += turnover
 

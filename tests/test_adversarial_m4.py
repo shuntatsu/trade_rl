@@ -96,11 +96,13 @@ def test_replay_sim_empty_returns():
     sim = ReplaySimulator(fee_rate=0.0, max_participation_rate=1.0)
     result = sim.simulate(trades, [], initial_cash=1_000.0)
 
-    # 注文がない場合、equity_curve は [initial_cash, final_equity] になる。
-    # どちらも 1000.0 なので returns は [0.0]。
-    assert len(result.returns) == 1
-    assert result.returns[0] == 0.0
-    assert result.sharpe == 0.0  # std が 0 なので 0.0 になるはず
+    # 注文がなくても、ReplayResult は市場時刻の固定間隔グリッドを保つ。
+    # これにより約定数に依存せず、Sharpe の年率換算と比較系列が一貫する。
+    assert result.equity_timestamps == list(trades["timestamp"])
+    assert result.equity_curve == [1_000.0] * len(trades)
+    assert result.returns == [0.0] * (len(trades) - 1)
+    assert result.sharpe == 0.0
+    assert result.annualization_factor == pytest.approx(365.25 * 24 * 60)
 
 
 def test_bootstrap_eval_constant_returns():

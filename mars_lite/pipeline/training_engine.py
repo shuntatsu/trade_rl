@@ -262,6 +262,11 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
     }
     if getattr(args, "htf_gate", False):
         ekw["htf_gate"] = True
+    if getattr(args, "obs_risk_state", False):
+        ekw["obs_risk_state"] = True
+    disagreement_dr = float(getattr(args, "disagreement_dr", 0.0))
+    if disagreement_dr > 0.0:
+        ekw["disagreement_dr_max"] = disagreement_dr
     explicit = getattr(args, "decision_every", 1)
     if explicit and explicit > 1:
         ekw["decision_every"] = explicit

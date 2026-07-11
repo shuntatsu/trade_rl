@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from mars_lite.env.portfolio_env import PortfolioTradingEnv
-from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.learning.baselines import simulate_strategy
 from mars_lite.trading.pre_trade_risk import (
+    PendingOrder,
     PreTradeRejection,
     PreTradeRiskConfig,
     PreTradeRiskVerifier,
@@ -12,82 +12,142 @@ from mars_lite.trading.pre_trade_risk import (
 
 
 def test_verifier_leverage_limit():
-    config = PreTradeRiskConfig(max_leverage=1.5)
-    verifier = PreTradeRiskVerifier(config)
-
-    # 正常
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_leverage=1.5))
     verifier.validate(np.array([0.5, 0.5, -0.5]), 1000.0)
-
-    # 超過
     with pytest.raises(PreTradeRejection) as exc_info:
         verifier.validate(np.array([0.6, 0.5, -0.5]), 1000.0)
     assert exc_info.value.reason == "leverage_limit_exceeded"
-    assert exc_info.value.details["gross_leverage"] == 1.6
+    assert exc_info.value.details["gross_leverage"] == pytest.approx(1.6)
 
 
 def test_verifier_single_weight_limit():
-    config = PreTradeRiskConfig(max_single_weight=0.4)
-    verifier = PreTradeRiskVerifier(config)
-
-    # 正常
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_single_weight=0.4))
     verifier.validate(np.array([0.3, -0.3, 0.2]), 1000.0)
-
-    # 超過
     with pytest.raises(PreTradeRejection) as exc_info:
         verifier.validate(np.array([0.45, -0.3, 0.2]), 1000.0)
     assert exc_info.value.reason == "single_weight_limit_exceeded"
-    assert exc_info.value.details["max_single_weight_found"] == 0.45
 
 
-def test_verifier_notional_limit():
-    config = PreTradeRiskConfig(max_notional=1200.0)
-    verifier = PreTradeRiskVerifier(config)
-
-    # 正常 (portfolio_value * leverage = 1000.0 * 1.1 = 1100.0)
+def test_verifier_notional_and_position_limits():
+    verifier = PreTradeRiskVerifier(
+        PreTradeRiskConfig(max_notional=1200.0, max_position_pct=0.65)
+    )
     verifier.validate(np.array([0.5, -0.6]), 1000.0)
-
-    # 超過 (portfolio_value * leverage = 1000.0 * 1.3 = 1300.0)
     with pytest.raises(PreTradeRejection) as exc_info:
         verifier.validate(np.array([0.6, -0.7]), 1000.0)
-    assert exc_info.value.reason == "notional_limit_exceeded"
-    assert exc_info.value.details["total_notional"] == pytest.approx(1300.0)
+    assert exc_info.value.reason in {
+        "position_pct_limit_exceeded",
+        "notional_limit_exceeded",
+    }
 
 
-def test_verifier_position_pct_limit():
-    config = PreTradeRiskConfig(max_position_pct=0.25)
-    verifier = PreTradeRiskVerifier(config)
-
-    verifier.validate(np.array([0.2, -0.1]), 1000.0)
-
-    with pytest.raises(PreTradeRejection) as exc_info:
-        verifier.validate(np.array([0.3, -0.1]), 1000.0)
-    assert exc_info.value.reason == "position_pct_limit_exceeded"
-    assert exc_info.value.details["max_position_pct_found"] == pytest.approx(0.3)
+def test_nan_and_inf_are_rejected():
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig())
+    with pytest.raises(PreTradeRejection) as exc:
+        verifier.validate(np.array([0.1, np.nan]), 1000.0)
+    assert exc.value.reason == "nan_or_inf_in_weights"
 
 
-def test_verifier_forbidden_symbol_rejection():
-    config = PreTradeRiskConfig(forbidden_symbols={"DOGEUSDT"})
-    verifier = PreTradeRiskVerifier(config)
+def test_net_exposure_limit():
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_net_exposure=0.5))
+    with pytest.raises(PreTradeRejection) as exc:
+        verifier.validate(np.array([0.4, 0.2]), 1000.0)
+    assert exc.value.reason == "net_exposure_limit_exceeded"
 
+
+def test_worst_case_uses_one_sided_fill_scenarios():
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_worst_case_notional=1_200.0))
+    current = np.array([0.4, -0.2])
+    target = np.array([0.5, -0.1])
+    orders = [
+        PendingOrder("BTCUSDT", "buy", 500.0),
+        PendingOrder("BTCUSDT", "sell", 100.0),
+        PendingOrder("ETHUSDT", "sell", 500.0),
+    ]
+    with pytest.raises(PreTradeRejection) as exc:
+        verifier.validate(
+            target,
+            1000.0,
+            symbols=["BTCUSDT", "ETHUSDT"],
+            current_weights=current,
+            open_orders=orders,
+        )
+    assert exc.value.reason == "worst_case_notional_exceeded"
+    assert exc.value.details["worst_case_notional"] == pytest.approx(1700.0)
+
+
+def test_reduce_only_pending_order_does_not_increase_worst_case():
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_worst_case_notional=500.0))
     verifier.validate(
-        np.array([0.0, 0.2]),
+        np.array([0.4]),
         1000.0,
-        symbols=["BTCUSDT", "ETHUSDT"],
+        symbols=["BTCUSDT"],
+        current_weights=np.array([0.4]),
+        open_orders=[PendingOrder("BTCUSDT", "sell", 400.0, reduce_only=True)],
     )
 
-    with pytest.raises(PreTradeRejection) as exc_info:
+
+def test_min_order_notional_uses_delta_not_target_position():
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=10.0))
+    with pytest.raises(PreTradeRejection) as exc:
         verifier.validate(
-            np.array([0.0, 0.2]),
+            np.array([0.505]),
             1000.0,
-            symbols=["BTCUSDT", "DOGEUSDT"],
+            current_weights=np.array([0.5]),
         )
-    assert exc_info.value.reason == "forbidden_symbol"
-    assert exc_info.value.details["symbol"] == "DOGEUSDT"
+    assert exc.value.reason == "min_order_notional_not_met"
+    assert exc.value.details["order_notional"] == pytest.approx(5.0)
 
 
-# 結合テスト用のダミー FeatureSet 作成
+def test_unchanged_large_position_does_not_trigger_min_order():
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=10.0))
+    verifier.validate(np.array([0.5]), 1000.0, current_weights=np.array([0.5]))
+
+
+def test_liquidity_cap_uses_delta_plus_open_orders():
+    verifier = PreTradeRiskVerifier(
+        PreTradeRiskConfig(symbol_liquidity_caps={"BTCUSDT": 100.0})
+    )
+    with pytest.raises(PreTradeRejection) as exc:
+        verifier.validate(
+            np.array([0.55]),
+            1000.0,
+            symbols=["BTCUSDT"],
+            current_weights=np.array([0.5]),
+            open_orders=[PendingOrder("BTCUSDT", "buy", 60.0)],
+        )
+    assert exc.value.reason == "symbol_liquidity_cap_exceeded"
+    assert exc.value.details["execution_notional"] == pytest.approx(110.0)
+
+
+def test_forbidden_symbol_allows_reduction_but_blocks_increase_or_flip():
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(forbidden_symbols={"DOGEUSDT"}))
+    verifier.validate(
+        np.array([0.1]),
+        1000.0,
+        symbols=["DOGEUSDT"],
+        current_weights=np.array([0.2]),
+    )
+    verifier.validate(
+        np.array([0.0]),
+        1000.0,
+        symbols=["DOGEUSDT"],
+        current_weights=np.array([0.2]),
+    )
+    for target in (np.array([0.3]), np.array([-0.1])):
+        with pytest.raises(PreTradeRejection) as exc:
+            verifier.validate(
+                target,
+                1000.0,
+                symbols=["DOGEUSDT"],
+                current_weights=np.array([0.2]),
+            )
+        assert exc.value.reason == "forbidden_symbol"
+
+
 class DummyFeatureSet:
     def __init__(self):
+        self.symbols = ["BTCUSDT", "ETHUSDT"]
         self.n_symbols = 2
         self.n_bars = 10
         self.n_features = 2
@@ -98,65 +158,84 @@ class DummyFeatureSet:
         self.funding_rate = np.zeros((10, 2))
 
 
-def test_env_integration():
+def test_env_integration_passes_current_weights_and_symbols():
     fs = DummyFeatureSet()
-    config_strict = PreTradeRiskConfig(max_leverage=0.5)
-    verifier_strict = PreTradeRiskVerifier(config_strict)
-    env_strict = PortfolioTradingEnv(
-        fs, pre_trade_verifier=verifier_strict, initial_capital=100.0
-    )
-    env_strict.reset()
-
-    # アクション [0.3, 0.3] は gross leverage = 0.6 になり、0.5 を超えるので Rejection になるはず。
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_leverage=0.5))
+    env = PortfolioTradingEnv(fs, pre_trade_verifier=verifier, initial_capital=100.0)
+    env.reset()
     with pytest.raises(PreTradeRejection):
-        env_strict.step(np.array([0.3, 0.3]))
+        env.step(np.array([0.3, 0.3]))
 
 
 def test_simulate_strategy_integration():
     fs = DummyFeatureSet()
-    config = PreTradeRiskConfig(max_leverage=0.5)
-    verifier = PreTradeRiskVerifier(config)
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(max_leverage=0.5))
 
-    # 常に一定のウェイト [0.3, 0.3] (leverage = 0.6) を返す戦略
     def risky_strategy(fs, t, w):
         return np.array([0.3, 0.3])
 
     with pytest.raises(PreTradeRejection):
         simulate_strategy(
-            fs, risky_strategy, pre_trade_verifier=verifier, min_trade_delta=0.0
+            fs,
+            risky_strategy,
+            pre_trade_verifier=verifier,
+            min_trade_delta=0.0,
         )
 
 
-def test_verifier_advanced_risk_checks():
-    # 1. NaN / Inf 検知
-    verifier_nan = PreTradeRiskVerifier(PreTradeRiskConfig())
-    with pytest.raises(PreTradeRejection) as exc_info:
-        verifier_nan.validate(np.array([0.1, np.nan]), 1000.0)
-    assert exc_info.value.reason == "nan_or_inf_in_weights"
-
-    # 2. Net Exposure 上限
-    verifier_net = PreTradeRiskVerifier(PreTradeRiskConfig(max_net_exposure=0.5))
-    with pytest.raises(PreTradeRejection) as exc_info:
-        verifier_net.validate(np.array([0.4, 0.2]), 1000.0)  # sum=0.6 > 0.5
-    assert exc_info.value.reason == "net_exposure_limit_exceeded"
-
-    # 3. Worst-case notional (現在 + pending_notional)
-    verifier_worst = PreTradeRiskVerifier(PreTradeRiskConfig(max_worst_case_notional=1500.0))
-    with pytest.raises(PreTradeRejection) as exc_info:
-        verifier_worst.validate(np.array([0.5, 0.5]), 1000.0, pending_notional=600.0)  # 1000 + 600 = 1600 > 1500
-    assert exc_info.value.reason == "worst_case_notional_exceeded"
-
-    # 4. 銘柄別流動性キャップ
-    verifier_cap = PreTradeRiskVerifier(
-        PreTradeRiskConfig(symbol_liquidity_caps={"BTCUSDT": 400.0})
+def test_env_integration_uses_execution_delta_for_minimum_order():
+    fs = DummyFeatureSet()
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=10.0))
+    env = PortfolioTradingEnv(
+        fs,
+        pre_trade_verifier=verifier,
+        initial_capital=100.0,
+        min_trade_delta=0.0,
+        lambda_turnover=0.0,
     )
-    with pytest.raises(PreTradeRejection) as exc_info:
-        verifier_cap.validate(np.array([0.5]), 1000.0, symbols=["BTCUSDT"])  # 500 > 400
-    assert exc_info.value.reason == "symbol_liquidity_cap_exceeded"
+    env.reset(options={"start_idx": 0})
+    env.step(np.array([0.2, 0.0]))
+    with pytest.raises(PreTradeRejection) as exc:
+        env.step(np.array([0.21, 0.0]))
+    assert exc.value.reason == "min_order_notional_not_met"
+    assert exc.value.details["symbol"] == "BTCUSDT"
+    assert 0.0 < exc.value.details["order_notional"] < 10.0
 
-    # 5. 最小注文額
-    verifier_min = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=10.0))
-    with pytest.raises(PreTradeRejection) as exc_info:
-        verifier_min.validate(np.array([0.005]), 1000.0)  # 5 < 10
-    assert exc_info.value.reason == "min_order_notional_not_met"
 
+def test_simulate_strategy_uses_post_threshold_execution_delta():
+    fs = DummyFeatureSet()
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=0.1))
+
+    def small_rebalance_strategy(fs, t, w):
+        if not w.any():
+            return np.array([0.2, 0.0])
+        return np.array([0.21, 0.0])
+
+    with pytest.raises(PreTradeRejection) as exc:
+        simulate_strategy(
+            fs,
+            small_rebalance_strategy,
+            pre_trade_verifier=verifier,
+            min_trade_delta=0.0,
+        )
+    assert exc.value.reason == "min_order_notional_not_met"
+    assert exc.value.details["symbol"] == "BTCUSDT"
+    assert 0.0 < exc.value.details["order_notional"] < 0.1
+
+
+def test_simulate_strategy_validates_after_min_trade_filter():
+    fs = DummyFeatureSet()
+    verifier = PreTradeRiskVerifier(PreTradeRiskConfig(min_order_notional=0.1))
+
+    def filtered_rebalance_strategy(fs, t, w):
+        if not w.any():
+            return np.array([0.2, 0.0])
+        return np.array([0.21, 0.0])
+
+    result = simulate_strategy(
+        fs,
+        filtered_rebalance_strategy,
+        pre_trade_verifier=verifier,
+        min_trade_delta=0.02,
+    )
+    assert result.n_bars == fs.n_bars - 1

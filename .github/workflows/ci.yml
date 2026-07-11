@@ -27,13 +27,34 @@ jobs:
         run: uv sync --all-extras --dev
 
       - name: Run ruff check
-        run: uv run ruff check .
+        run: |
+          set -o pipefail
+          uv run ruff check . 2>&1 | tee ruff-check.log
 
       - name: Run ruff format
-        run: uv run ruff format --check .
+        run: |
+          set -o pipefail
+          uv run ruff format --check --diff . 2>&1 | tee ruff-format.log
 
       - name: Run mypy
-        run: uv run mypy mars_lite
+        run: |
+          set -o pipefail
+          uv run mypy mars_lite 2>&1 | tee mypy.log
 
       - name: Run pytest
-        run: uv run pytest --cov=mars_lite --cov-fail-under=70 tests/
+        run: |
+          set -o pipefail
+          uv run pytest --cov=mars_lite --cov-fail-under=70 tests/ 2>&1 | tee pytest.log
+
+      - name: Upload CI diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-diagnostics-${{ github.run_id }}
+          path: |
+            ruff-check.log
+            ruff-format.log
+            mypy.log
+            pytest.log
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,7 +1,9 @@
 """
-mars_lite.pipeline.phases の純粋関数（build_post_processor/build_env_kwargs）
-のテスト。CLI引数からの後処理器・env構築引数の組み立てロジックを検証する
-（学習を伴うphase_*本体の統合テストは別途・重いため対象外）。
+CLI引数から後処理器・学習環境引数を組み立てる純粋関数のテスト。
+
+低頻度化は decision_every が担い、horizon による後処理の二重スケーリングは
+行わない。ServingBundleへ保存・復元できる任意の観測／不一致設定は学習envへ
+明示的に伝播する。
 """
 
 from types import SimpleNamespace
@@ -31,7 +33,6 @@ def _args(**overrides):
 
 class TestBuildPostProcessor:
     def test_default_horizon4_matches_make_default_processor(self):
-        """horizon=4は後方互換値（ema_alpha=0.5, no_trade_band=0.04）と一致するはず"""
         pp = build_post_processor(_args(), horizon=4)
         assert pp.cfg.ema_alpha == pytest.approx(0.5)
         assert pp.cfg.no_trade_band == pytest.approx(0.04)
@@ -40,14 +41,13 @@ class TestBuildPostProcessor:
     def test_legacy_mode_ignores_horizon_scaling(self):
         pp = build_post_processor(_args(postproc="legacy"), horizon=8)
         assert pp.cfg.target_vol is None
-        assert pp.cfg.dd_derisk_start == 1.0  # make_legacy_processorの既定
+        assert pp.cfg.dd_derisk_start == 1.0
 
-    def test_larger_horizon_smooths_more_and_widens_band(self):
-        """horizonが大きい(低頻度アルファ)ほどema_alphaは下がり(平滑強め)no_trade_bandは広がる"""
+    def test_horizon_does_not_double_scale_post_processing(self):
         pp4 = build_post_processor(_args(), horizon=4)
         pp8 = build_post_processor(_args(), horizon=8)
-        assert pp8.cfg.ema_alpha < pp4.cfg.ema_alpha
-        assert pp8.cfg.no_trade_band > pp4.cfg.no_trade_band
+        assert pp8.cfg.ema_alpha == pytest.approx(pp4.cfg.ema_alpha)
+        assert pp8.cfg.no_trade_band == pytest.approx(pp4.cfg.no_trade_band)
 
     def test_target_vol_zero_disables_vol_targeting(self):
         pp = build_post_processor(_args(target_vol=0.0), horizon=4)
@@ -95,7 +95,7 @@ class TestBuildEnvKwargs:
         ekw_off = build_env_kwargs(_args(disagreement_dr=0.0), pp, horizon=4)
         assert "disagreement_dr_max" not in ekw_off
         ekw_on = build_env_kwargs(_args(disagreement_dr=0.3), pp, horizon=4)
-        assert ekw_on["disagreement_dr_max"] == 0.3
+        assert ekw_on["disagreement_dr_max"] == pytest.approx(0.3)
 
     def test_explicit_decision_every_wins_over_auto(self):
         from mars_lite.trading.post_processor import make_default_processor
@@ -117,7 +117,7 @@ class TestBuildEnvKwargs:
             pp,
             horizon=8,
         )
-        assert ekw["decision_every"] == 4  # max(1, horizon // 2)
+        assert ekw["decision_every"] == 4
 
     def test_no_auto_decision_every_without_scan_horizons(self):
         from mars_lite.trading.post_processor import make_default_processor

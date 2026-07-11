@@ -53,7 +53,7 @@ def test_pipeline_registers_complete_candidate_without_activation(
         lambda feature_set, **kwargs: _Environment(),
     )
     args = SimpleNamespace(
-        git_sha="abc123",
+        git_sha="a" * 40,
         model_version="v1",
         horizon=4,
         ensemble=1,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -10,6 +11,9 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from mars_lite.serving.bundle import build_manifest, load_bundle
+
+_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$")
+_GIT_SHA_RE = re.compile(r"^[a-fA-F0-9]{40}$")
 
 
 def _jsonable(value: Any) -> Any:
@@ -64,8 +68,10 @@ def create_candidate_bundle(
         raise ValueError(
             "observation_progress_mode must be 'zero' for serving-compatible models"
         )
-    if not version or not git_sha:
-        raise ValueError("version and git_sha are required")
+    if not _VERSION_RE.fullmatch(version):
+        raise ValueError("version must be a valid identifier of at most 50 characters")
+    if not _GIT_SHA_RE.fullmatch(git_sha):
+        raise ValueError("git_sha must be a 40-character hexadecimal commit hash")
     ordered_symbols = tuple(symbols)
     ordered_features = tuple(feature_names)
     ordered_globals = tuple(global_feature_names)
@@ -86,6 +92,8 @@ def create_candidate_bundle(
         raise ValueError("observation_dim must be positive")
     if observation_schema_version != 1:
         raise ValueError("unsupported observation_schema_version")
+    if rank_window <= 0 or rank_min_periods <= 0 or rank_min_periods > rank_window:
+        raise ValueError("rank normalization window settings are invalid")
 
     source = Path(model_source)
     if not source.exists():

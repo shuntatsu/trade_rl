@@ -8,6 +8,7 @@ from mars_lite.server.deployment_gate import (
     load_evidence_bundle,
     main,
 )
+from mars_lite.serving.candidate import create_candidate_bundle
 
 
 def _sha(path: Path) -> str:
@@ -16,14 +17,36 @@ def _sha(path: Path) -> str:
 
 def _write_bundle(tmp_path: Path, *, production: bool = False) -> Path:
     root = tmp_path / "bundle"
-    root.mkdir()
-    model = root / "model.zip"
-    model.write_bytes(b"model-bytes")
-    model_hash = _sha(model)
+    root.mkdir(parents=True)
+    source = tmp_path / "model-source.zip"
+    source.write_bytes(b"model-bytes")
+    serving = create_candidate_bundle(
+        destination=root / "serving_candidate",
+        model_source=source,
+        version="1.0.0",
+        git_sha="a" * 40,
+        symbols=("BTCUSDT",),
+        feature_names=("ret",),
+        global_feature_names=(),
+        feature_norm="none",
+        feature_mask=None,
+        observation_dim=5,
+        observation_schema_version=1,
+        post_processor={},
+        run_config={
+            "base_timeframe": "1h",
+            "observation_progress_mode": "zero",
+        },
+        metrics={"gate2": {"passed": True}},
+        guardrails={},
+        pre_trade={},
+    )
+    manifest = serving / "manifest.json"
+    manifest_hash = _sha(manifest)
     identity = {
         "model_version": "1.0.0",
         "git_commit": "a" * 40,
-        "artifact_sha256": model_hash,
+        "artifact_sha256": manifest_hash,
     }
     shadow = {
         "run_id": "shadow-1",
@@ -63,8 +86,8 @@ def _write_bundle(tmp_path: Path, *, production: bool = False) -> Path:
     candidate = {
         "model_version": "1.0.0",
         "git_commit": "a" * 40,
-        "artifact_path": "model.zip",
-        "artifact_sha256": model_hash,
+        "artifact_path": "serving_candidate/manifest.json",
+        "artifact_sha256": manifest_hash,
         "shadow_report_sha256": _sha(root / "shadow.json"),
         "drift_report_sha256": _sha(root / "drift.json"),
         "incident_report_sha256": _sha(root / "incident.json"),
@@ -87,8 +110,7 @@ def test_canary_requires_bundle_not_boolean_fallback():
 def test_verified_bundle_allows_canary(tmp_path):
     root = _write_bundle(tmp_path)
     evidence = load_evidence_bundle(root, "canary")
-    decision = DeploymentGate().evaluate(evidence)
-    assert decision.allowed is True
+    assert DeploymentGate().evaluate(evidence).allowed is True
 
 
 def test_verified_bundle_allows_production(tmp_path):
@@ -99,17 +121,17 @@ def test_verified_bundle_allows_production(tmp_path):
         approval_ticket="PROD-123",
         environment_approver="risk-manager",
     )
-    decision = DeploymentGate().evaluate(evidence)
-    assert decision.allowed is True
+    assert DeploymentGate().evaluate(evidence).allowed is True
 
 
-def test_model_artifact_tamper_is_blocked(tmp_path):
+def test_serving_bundle_file_tamper_is_blocked(tmp_path):
     root = _write_bundle(tmp_path)
-    (root / "model.zip").write_bytes(b"tampered")
+    (root / "serving_candidate" / "model.zip").write_bytes(b"tampered")
     evidence = load_evidence_bundle(root, "canary")
     decision = DeploymentGate().evaluate(evidence)
     assert decision.allowed is False
-    assert "artifact SHA-256 mismatch" in decision.reason
+    assert "serving bundle validation failed" in decision.reason
+    assert "digest mismatch" in decision.reason
 
 
 def test_report_tamper_is_blocked_before_parsing(tmp_path):
@@ -178,17 +200,20 @@ def test_active_incident_blocks_deployment(tmp_path):
     assert "active incidents" in decision.reason
 
 
-def test_path_traversal_is_blocked(tmp_path):
+def test_arbitrary_artifact_path_is_blocked(tmp_path):
     root = _write_bundle(tmp_path)
     candidate_payload = json.loads((root / "candidate.json").read_text())
-    candidate_payload["artifact_path"] = "../model.zip"
+    candidate_payload["artifact_path"] = "serving_candidate/model.zip"
+    candidate_payload["artifact_sha256"] = _sha(
+        root / "serving_candidate" / "model.zip"
+    )
     (root / "candidate.json").write_text(
         json.dumps(candidate_payload), encoding="utf-8"
     )
     evidence = load_evidence_bundle(root, "canary")
     decision = DeploymentGate().evaluate(evidence)
     assert decision.allowed is False
-    assert "escapes evidence bundle" in decision.reason
+    assert "serving_candidate/manifest.json" in decision.reason
 
 
 def test_cli_returns_nonzero_for_missing_bundle(capsys):

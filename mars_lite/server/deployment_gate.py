@@ -1,7 +1,7 @@
 """Evidence-backed deployment gate for Shadow -> Canary -> Production.
 
 Canary and production promotion never accept self-reported booleans. They require
-an immutable evidence bundle downloaded from a prior GitHub Actions run. The
+a content-addressed evidence bundle downloaded from a prior trusted GitHub Actions run. The
 bundle is cross-checked for model identity and every referenced file is verified
 against its SHA-256 digest before promotion is allowed.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,14 @@ _HEX_64 = re.compile(r"[a-fA-F0-9]{64}")
 _MODEL_VERSION = re.compile(r"[a-zA-Z0-9_.-]+")
 _APPROVAL_TICKET = re.compile(r"PROD-\d+")
 _APPROVER = re.compile(r"[a-zA-Z0-9_.@-]+")
+_SHADOW_MIN_SHARPE_DIFF = -0.3
+_SHADOW_MAX_DRAWDOWN = 0.20
+_CANARY_MAX_CAPITAL_USD = 10_000.0
+_CANARY_MIN_DURATION_DAYS = 7
+_CANARY_MAX_LOSS_PCT = 0.05
+_CANARY_MAX_SLIPPAGE_BPS = 15.0
+_DRIFT_MAX_PSI = 0.25
+_DRIFT_MIN_KS_P = 0.01
 
 
 @dataclass(frozen=True)
@@ -47,20 +56,23 @@ class ShadowEvidenceReport:
     oos_sharpe: float
     baseline_sharpe: float
     max_drawdown: float
-    min_sharpe_diff: float = -0.3
-    max_allowed_drawdown: float = 0.20
 
     def is_passed(self) -> tuple[bool, str]:
-        diff = self.oos_sharpe - self.baseline_sharpe
-        if diff < self.min_sharpe_diff:
+        metrics = (self.oos_sharpe, self.baseline_sharpe, self.max_drawdown)
+        if not all(math.isfinite(float(value)) for value in metrics):
+            return False, "shadow report metrics must be finite"
+        if not 0.0 <= float(self.max_drawdown) <= 1.0:
+            return False, "shadow drawdown must be between 0 and 1"
+        diff = float(self.oos_sharpe) - float(self.baseline_sharpe)
+        if diff < _SHADOW_MIN_SHARPE_DIFF:
             return False, (
                 f"shadow sharpe difference {diff:.2f} below threshold "
-                f"{self.min_sharpe_diff}"
+                f"{_SHADOW_MIN_SHARPE_DIFF}"
             )
-        if self.max_drawdown > self.max_allowed_drawdown:
+        if float(self.max_drawdown) > _SHADOW_MAX_DRAWDOWN:
             return False, (
                 f"shadow drawdown {self.max_drawdown:.1%} exceeds allowed "
-                f"{self.max_allowed_drawdown:.1%}"
+                f"{_SHADOW_MAX_DRAWDOWN:.1%}"
             )
         return True, "shadow report passed"
 
@@ -76,31 +88,40 @@ class CanaryEvidenceReport:
     duration_days: int
     max_loss_pct: float
     mean_slippage_bps: float
-    max_allowed_capital_usd: float = 10_000.0
-    min_duration_days: int = 7
-    max_allowed_loss_pct: float = 0.05
-    max_allowed_slippage_bps: float = 15.0
 
     def is_passed(self) -> tuple[bool, str]:
-        if self.capital_cap_usd > self.max_allowed_capital_usd:
+        metrics = (self.capital_cap_usd, self.max_loss_pct, self.mean_slippage_bps)
+        if not all(math.isfinite(float(value)) for value in metrics):
+            return False, "canary report metrics must be finite"
+        if isinstance(self.duration_days, bool) or not isinstance(
+            self.duration_days, int
+        ):
+            return False, "canary duration_days must be an integer"
+        if float(self.capital_cap_usd) < 0.0:
+            return False, "canary capital must be non-negative"
+        if not 0.0 <= float(self.max_loss_pct) <= 1.0:
+            return False, "canary max loss must be between 0 and 1"
+        if float(self.mean_slippage_bps) < 0.0:
+            return False, "canary slippage must be non-negative"
+        if float(self.capital_cap_usd) > _CANARY_MAX_CAPITAL_USD:
             return False, (
                 f"canary capital {self.capital_cap_usd} exceeds cap "
-                f"{self.max_allowed_capital_usd}"
+                f"{_CANARY_MAX_CAPITAL_USD}"
             )
-        if self.duration_days < self.min_duration_days:
+        if self.duration_days < _CANARY_MIN_DURATION_DAYS:
             return False, (
                 f"canary duration {self.duration_days} days below minimum "
-                f"{self.min_duration_days} days"
+                f"{_CANARY_MIN_DURATION_DAYS} days"
             )
-        if self.max_loss_pct > self.max_allowed_loss_pct:
+        if float(self.max_loss_pct) > _CANARY_MAX_LOSS_PCT:
             return False, (
                 f"canary max loss {self.max_loss_pct:.1%} exceeds allowed "
-                f"{self.max_allowed_loss_pct:.1%}"
+                f"{_CANARY_MAX_LOSS_PCT:.1%}"
             )
-        if self.mean_slippage_bps > self.max_allowed_slippage_bps:
+        if float(self.mean_slippage_bps) > _CANARY_MAX_SLIPPAGE_BPS:
             return False, (
                 f"canary slippage {self.mean_slippage_bps:.1f}bps exceeds allowed "
-                f"{self.max_allowed_slippage_bps:.1f}bps"
+                f"{_CANARY_MAX_SLIPPAGE_BPS:.1f}bps"
             )
         return True, "canary report passed"
 
@@ -113,19 +134,23 @@ class DriftEvidenceReport:
     artifact_sha256: str
     psi_score: float
     ks_p_value: float
-    max_allowed_psi: float = 0.25
-    min_allowed_ks_p: float = 0.01
 
     def is_passed(self) -> tuple[bool, str]:
-        if self.psi_score > self.max_allowed_psi:
+        metrics = (self.psi_score, self.ks_p_value)
+        if not all(math.isfinite(float(value)) for value in metrics):
+            return False, "drift report metrics must be finite"
+        if float(self.psi_score) < 0.0:
+            return False, "drift PSI must be non-negative"
+        if not 0.0 <= float(self.ks_p_value) <= 1.0:
+            return False, "drift KS p-value must be between 0 and 1"
+        if float(self.psi_score) > _DRIFT_MAX_PSI:
             return False, (
-                f"drift PSI {self.psi_score:.3f} exceeds maximum "
-                f"{self.max_allowed_psi:.3f}"
+                f"drift PSI {self.psi_score:.3f} exceeds maximum {_DRIFT_MAX_PSI:.3f}"
             )
-        if self.ks_p_value < self.min_allowed_ks_p:
+        if float(self.ks_p_value) < _DRIFT_MIN_KS_P:
             return False, (
                 f"drift KS p-value {self.ks_p_value:.4f} below minimum "
-                f"{self.min_allowed_ks_p:.4f}"
+                f"{_DRIFT_MIN_KS_P:.4f}"
             )
         return True, "drift report passed"
 
@@ -139,6 +164,8 @@ class IncidentEvidenceReport:
     active_incidents: bool
 
     def is_passed(self) -> tuple[bool, str]:
+        if type(self.active_incidents) is not bool:
+            return False, "active_incidents must be a boolean"
         if self.active_incidents:
             return False, "deployment blocked due to active incidents"
         return True, "incident report passed"

@@ -6,7 +6,6 @@ import argparse
 import json
 import re
 import time
-import urllib.error
 import urllib.request
 from typing import Any, Callable
 
@@ -82,14 +81,7 @@ def verify_with_retries(
                 )
                 return True
             print(f"attempt {attempt}: served identity mismatch: {payload}")
-        except (
-            OSError,
-            RuntimeError,
-            UnicodeDecodeError,
-            ValueError,
-            json.JSONDecodeError,
-            urllib.error.URLError,
-        ) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             print(f"attempt {attempt}: readiness check failed: {exc}")
         if attempt < attempts:
             sleep(interval_seconds)

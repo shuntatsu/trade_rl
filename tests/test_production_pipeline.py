@@ -307,3 +307,28 @@ def test_p0_uses_candidate_timing_without_mutating_release_args(
     assert production_pipeline.run(args) == 0
     assert seen == {"horizon": 12, "decision_every": 4, "days": 90}
     assert (args.horizon, args.decision_every, args.days) == (12, 4, 365)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("horizon", 0, "horizon must be positive"),
+        ("decision_every", 0, "decision_every must be positive"),
+        ("p0_days", 0, "p0_days must be positive"),
+    ],
+)
+def test_invalid_p0_timing_is_rejected_before_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: int,
+    message: str,
+) -> None:
+    registered: list[object] = []
+    _stub_pipeline(monkeypatch, features=_Features(), registered=registered)
+    args = _run_args(tmp_path, **{field: value})
+
+    with pytest.raises(ValueError, match=message):
+        production_pipeline.run(args)
+
+    assert registered == []

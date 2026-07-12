@@ -94,7 +94,7 @@ def phase_p0(args, output_dir: Path) -> None:
             "horizon": int(args.horizon),
             "decision_every": int(args.decision_every),
             "days": int(args.days),
-        }
+        },
     }
 
     for label, alpha in [

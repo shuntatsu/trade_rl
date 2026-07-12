@@ -5,7 +5,6 @@ from typing import Any, Optional
 import numpy as np
 
 from mars_lite.env.baseline_residual_env import BaselineResidualTradingEnv
-from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 
 
 def _book_metrics(
@@ -96,11 +95,7 @@ def evaluate_relative_agent(
     env = BaselineResidualTradingEnv(fs, episode_bars=episode_bars, **kwargs)
     obs, _ = env.reset(options={"start_idx": effective_start})
 
-    processor = getattr(getattr(env, "_pipeline", None), "post_processor", None)
-    pp_cfg = getattr(processor, "cfg", None)
-    bars_per_year = int(getattr(pp_cfg, "bars_per_year", BARS_PER_YEAR_1H))
-    if bars_per_year <= 0:
-        raise ValueError("post-processor bars_per_year must be positive")
+    bars_per_year = env.bars_per_year
 
     actions: list[np.ndarray] = []
     trend_mixes: list[float] = []

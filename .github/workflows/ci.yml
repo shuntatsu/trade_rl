@@ -46,6 +46,10 @@ jobs:
           set -o pipefail
           uv run pytest --cov=mars_lite --cov-fail-under=70 tests/ 2>&1 | tee pytest.log
 
+      - name: Format sources for diagnostics
+        if: failure()
+        run: uv run ruff format .
+
       - name: Upload CI diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -56,5 +60,8 @@ jobs:
             ruff-format.log
             mypy.log
             pytest.log
+            mars_lite/
+            tests/
+            scripts/
           if-no-files-found: ignore
           retention-days: 7

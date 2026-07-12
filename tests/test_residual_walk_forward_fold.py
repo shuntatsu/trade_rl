@@ -79,7 +79,9 @@ def test_fold_fits_alpha_on_inner_train_and_reuses_selected_agent(
     calls: list[tuple[object, float]] = []
     selected_agent = object()
 
-    monkeypatch.setattr(residual_walk_forward, "FrozenResidualAlpha", _FrozenAlphaFactory)
+    monkeypatch.setattr(
+        residual_walk_forward, "FrozenResidualAlpha", _FrozenAlphaFactory
+    )
     monkeypatch.setattr(
         residual_walk_forward,
         "run_leak_self_test",
@@ -100,7 +102,9 @@ def test_fold_fits_alpha_on_inner_train_and_reuses_selected_agent(
             start_idx=history_bars,
         ),
     )
-    monkeypatch.setattr(residual_walk_forward, "build_post_processor", lambda *a, **k: object())
+    monkeypatch.setattr(
+        residual_walk_forward, "build_post_processor", lambda *a, **k: object()
+    )
     monkeypatch.setattr(
         residual_walk_forward,
         "build_env_kwargs",

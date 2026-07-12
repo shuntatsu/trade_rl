@@ -5,6 +5,7 @@ import pytest
 from mars_lite.pipeline.gates import (
     diagnostic_baseline,
     evaluate_baseline_only_gate,
+    evaluate_direct_gate2,
     evaluate_residual_gate2,
 )
 
@@ -19,13 +20,30 @@ def test_oracles_are_diagnostic_only() -> None:
     assert diagnostic_baseline("trend_following") is False
 
 
+def test_direct_gate2_ignores_oracle_and_alternative_strategy_losses() -> None:
+    result = evaluate_direct_gate2(
+        agent=_metrics(0.12),
+        baselines={
+            "flat": _metrics(0.0),
+            "trend_following": _metrics(0.08),
+            "trend_v2": _metrics(0.20),
+            "oracle_dp": _metrics(99_999.0),
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["mandatory_comparisons"] == ("flat", "trend_following")
+    assert result["details"]["oracle_dp"]["mandatory"] is False
+    assert result["details"]["trend_v2"]["diagnostic_only"] is True
+
+
 def test_residual_gate2_ignores_oracle_results() -> None:
     result = evaluate_residual_gate2(
         hybrid=_metrics(0.12, 0.14),
         shadow=_metrics(0.08, 0.10),
         flat=_metrics(0.0, 0.0),
         paired_p_value=0.01,
-        diagnostic_results={"oracle_dp": _metrics(99999.0, 0.0)},
+        diagnostic_results={"oracle_dp": _metrics(99_999.0, 0.0)},
         max_drawdown_slack=0.05,
     )
 

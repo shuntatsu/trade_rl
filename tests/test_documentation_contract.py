@@ -13,13 +13,15 @@ NORMATIVE_DOCS = {
     "DECISIONS.md",
     "RESEARCH_HISTORY.md",
 }
-JAPANESE_DOCS = NORMATIVE_DOCS | {"README.md"}
+SUPPLEMENTAL_DOCS = {"BASELINE_RESIDUAL_RL.md"}
+ROOT_DOCS = NORMATIVE_DOCS | SUPPLEMENTAL_DOCS
+JAPANESE_DOCS = ROOT_DOCS | {"README.md"}
 
 
-def test_normative_documentation_set_is_complete() -> None:
+def test_root_documentation_set_is_complete() -> None:
     docs_dir = ROOT / "docs"
     actual = {path.name for path in docs_dir.glob("*.md")}
-    assert actual == NORMATIVE_DOCS
+    assert actual == ROOT_DOCS
     assert (ROOT / "README.md").is_file()
 
 
@@ -40,7 +42,7 @@ def test_root_readme_declares_no_go_and_links_architecture() -> None:
 
 def test_japanese_docs_link_to_english_sources() -> None:
     japanese_dir = ROOT / "docs" / "ja"
-    for name in sorted(NORMATIVE_DOCS):
+    for name in sorted(ROOT_DOCS):
         text = (japanese_dir / name).read_text(encoding="utf-8")
         assert f"../{name}" in text
 

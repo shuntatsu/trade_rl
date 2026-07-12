@@ -77,7 +77,9 @@ class CsvFeatureProvider:
         if base_timeframe not in SUPPORTED_BASE_TIMEFRAMES:
             raise ValueError(f"unsupported bundled base_timeframe: {base_timeframe!r}")
         source = create_source("csv", symbols, data_dir=self.data_dir)
-        feature_set = FeaturePipeline(symbols, base_timeframe=base_timeframe).build(source)
+        feature_set = FeaturePipeline(symbols, base_timeframe=base_timeframe).build(
+            source
+        )
         if tuple(feature_set.symbols) != tuple(symbols):
             raise ValueError(
                 "feature provider symbol order does not match active bundle"

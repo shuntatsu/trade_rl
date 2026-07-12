@@ -209,6 +209,39 @@ def test_bundle_rejects_failed_required_gate(tmp_path: Path) -> None:
         load_bundle(root)
 
 
+@pytest.mark.parametrize("gate", ["p0", "walk_forward", "gate2"])
+def test_bundle_rejects_not_required_mandatory_gate(
+    tmp_path: Path, gate: str
+) -> None:
+    root = _candidate(tmp_path)
+
+    def mutate(metadata: dict[str, object]) -> None:
+        eligibility = metadata["release_eligibility"]
+        assert isinstance(eligibility, dict)
+        gates = eligibility["required_gates"]
+        assert isinstance(gates, dict)
+        gates[gate] = "not_required"
+
+    _rewrite_json(root, "metadata.json", mutate)
+    build_manifest(root)
+    with pytest.raises(ValueError, match=gate):
+        load_bundle(root)
+
+
+def test_bundle_rejects_duplicate_optimization_steps(tmp_path: Path) -> None:
+    root = _candidate(tmp_path)
+
+    def mutate(metadata: dict[str, object]) -> None:
+        eligibility = metadata["release_eligibility"]
+        assert isinstance(eligibility, dict)
+        eligibility["optimization_steps_skipped"] = ["pbt", "pbt"]
+
+    _rewrite_json(root, "metadata.json", mutate)
+    build_manifest(root)
+    with pytest.raises(ValueError, match="must be unique"):
+        load_bundle(root)
+
+
 def test_bundle_rejects_incomplete_release_risk(tmp_path: Path) -> None:
     root = _candidate(tmp_path)
 

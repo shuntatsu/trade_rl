@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import threading
 import time
 from pathlib import Path
@@ -10,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from mars_lite.serving.runtime import FeatureSnapshot, ServingRuntime
+from mars_lite.serving.snapshot_identity import compute_snapshot_id
 
 _SUPPORTED_BASE_TIMEFRAMES = {"15m", "1h", "4h", "1d"}
 
@@ -77,19 +77,30 @@ class CsvFeatureProvider:
         age_hours = float((now_ns - last_timestamp) / np.timedelta64(1, "h"))
         if age_hours < 0:
             age_hours = 0.0
-        identity_source = (
-            f"{bundle.bundle_digest}:{str(last_timestamp)}:{feature_set.n_bars}"
-        ).encode("utf-8")
-        snapshot = FeatureSnapshot(
-            snapshot_id=hashlib.sha256(identity_source).hexdigest(),
+        feature_history_array = np.asarray(feature_history, dtype=np.float64)
+        global_features_array = np.asarray(
+            feature_set.global_features[-1], dtype=np.float64
+        )
+        close_history_array = np.asarray(close_history, dtype=np.float64)
+        snapshot_id = compute_snapshot_id(
+            bundle_digest=bundle.bundle_digest,
+            base_timeframe=base_timeframe,
+            timestamps=np.asarray(timestamps),
             symbols=tuple(feature_set.symbols),
             feature_names=tuple(feature_set.feature_names),
             global_feature_names=tuple(feature_set.global_feature_names),
-            feature_history=np.asarray(feature_history, dtype=np.float64),
-            global_features=np.asarray(
-                feature_set.global_features[-1], dtype=np.float64
-            ),
-            close_history=np.asarray(close_history, dtype=np.float64),
+            feature_history=feature_history_array,
+            global_features=global_features_array,
+            close_history=close_history_array,
+        )
+        snapshot = FeatureSnapshot(
+            snapshot_id=snapshot_id,
+            symbols=tuple(feature_set.symbols),
+            feature_names=tuple(feature_set.feature_names),
+            global_feature_names=tuple(feature_set.global_feature_names),
+            feature_history=feature_history_array,
+            global_features=global_features_array,
+            close_history=close_history_array,
             data_age_hours=age_hours,
         )
         snapshot.validate()

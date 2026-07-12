@@ -35,14 +35,6 @@ jobs:
       - trade-rl-deploy
     environment: ${{ inputs.stage }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
-
-      - run: uv sync --all-extras --dev
-
       - name: Validate deployment source
         if: inputs.stage != 'shadow'
         env:
@@ -53,6 +45,14 @@ jobs:
             echo "canary and production deployments must run from main" >&2
             exit 2
           fi
+
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --all-extras --dev
 
       - name: Download and bind immutable evidence
         if: inputs.stage != 'shadow'

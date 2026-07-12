@@ -49,6 +49,7 @@ jobs:
             tests/test_residual_matrix.py \
             tests/test_residual_env_configuration.py \
             tests/test_residual_alpha_artifact.py \
+            tests/test_relative_evaluation.py \
             tests/test_train_eval_serve_parity.py \
             2>&1 | tee residual-contracts.log
 

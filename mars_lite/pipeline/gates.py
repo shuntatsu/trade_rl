@@ -118,6 +118,8 @@ def evaluate_residual_gate2(
     hybrid: MetricMap,
     shadow: MetricMap,
     flat: MetricMap,
+    cost2x_hybrid: MetricMap,
+    cost2x_shadow: MetricMap,
     paired_p_value: float,
     diagnostic_results: Mapping[str, MetricMap] | None = None,
     max_drawdown_slack: float = 0.05,
@@ -134,6 +136,12 @@ def evaluate_residual_gate2(
     shadow_return = _finite_metric(shadow, "total_return", "shadow")
     shadow_dd = _finite_metric(shadow, "max_drawdown", "shadow")
     flat_return = _finite_metric(flat, "total_return", "flat")
+    cost2x_hybrid_return = _finite_metric(
+        cost2x_hybrid, "total_return", "cost2x_hybrid"
+    )
+    cost2x_shadow_return = _finite_metric(
+        cost2x_shadow, "total_return", "cost2x_shadow"
+    )
     p_value = _finite_probability(paired_p_value, "paired_p_value")
     if not math.isfinite(max_drawdown_slack) or max_drawdown_slack < 0.0:
         raise ValueError("max_drawdown_slack must be finite and non-negative")
@@ -144,6 +152,7 @@ def evaluate_residual_gate2(
         "beats_flat": hybrid_return > flat_return,
         "beats_shadow": hybrid_return > shadow_return,
         "drawdown_within_slack": hybrid_dd <= shadow_dd + max_drawdown_slack,
+        "cost2x_beats_shadow": cost2x_hybrid_return >= cost2x_shadow_return,
         "paired_superiority_significant": p_value < significance_level,
     }
     diagnostics = {
@@ -161,6 +170,10 @@ def evaluate_residual_gate2(
         "mandatory_comparisons": ("flat", "shadow"),
         "checks": checks,
         "paired_p_value": p_value,
+        "cost2x": {
+            "hybrid_return": cost2x_hybrid_return,
+            "shadow_return": cost2x_shadow_return,
+        },
         "diagnostic_results": diagnostics,
     }
 

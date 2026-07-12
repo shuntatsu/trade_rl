@@ -48,6 +48,7 @@ def _eligibility(**overrides: object):
         "skip_gate": False,
         "sealed_holdout_used": True,
         "p0_passed": True,
+        "signal_gate_passed": True,
         "walk_forward_passed": True,
         "gate2_passed": True,
         "significance_passed": None,
@@ -101,6 +102,7 @@ def _stub_pipeline(
     *,
     features: _Features,
     registered: list[object],
+    signal_gate_passed: bool = True,
 ) -> None:
     def phase_p0(args, output_dir: Path) -> None:
         (output_dir / "p0_report.json").write_text(
@@ -114,6 +116,10 @@ def _stub_pipeline(
         )
 
     def phase_train(args, output_dir: Path, dev_fs=None, holdout_fs=None):
+        (output_dir / "train_report.json").write_text(
+            json.dumps({"signal_gate": {"passed": signal_gate_passed}}),
+            encoding="utf-8",
+        )
         return {
             "agent_res": {"total_return": 0.1, "equity_curve": [1.0, 1.1]},
             "baselines": {},
@@ -239,6 +245,23 @@ def test_release_run_rejects_missing_sealed_holdout(
     _stub_pipeline(monkeypatch, features=_Features(n_bars=80), registered=registered)
 
     with pytest.raises(RuntimeError, match="sealed holdout"):
+        production_pipeline.run(_run_args(tmp_path))
+
+    assert registered == []
+
+
+def test_release_run_rejects_missing_signal_gate_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registered: list[object] = []
+    _stub_pipeline(
+        monkeypatch,
+        features=_Features(),
+        registered=registered,
+        signal_gate_passed=False,
+    )
+
+    with pytest.raises(RuntimeError, match="passed signal gate"):
         production_pipeline.run(_run_args(tmp_path))
 
     assert registered == []

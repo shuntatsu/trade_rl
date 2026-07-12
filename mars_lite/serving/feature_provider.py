@@ -20,19 +20,23 @@ from mars_lite.serving.snapshot_identity import compute_snapshot_id
 def required_history_bars(
     rank_window: int,
     vol_lookback: int,
-    trend_config: Mapping[str, object],
+    trend_config: Mapping[str, int],
 ) -> int:
-    trend_lookback = max(
-        int(trend_config.get("fast_lookback", 0)),
-        int(trend_config.get("base_lookback", 0)),
-        int(trend_config.get("slow_lookback", 0)),
+    trend_values = (
+        trend_config.get("fast_lookback", 0),
+        trend_config.get("base_lookback", 0),
+        trend_config.get("slow_lookback", 0),
+        trend_config.get("rebalance_every", 0),
     )
-    trend_rebalance = int(trend_config.get("rebalance_every", 0))
+    if rank_window <= 0 or vol_lookback < 0 or any(value < 0 for value in trend_values):
+        raise ValueError("history windows must be non-negative and rank_window positive")
+    trend_lookback = max(trend_values[:3])
+    trend_rebalance = trend_values[3]
     # Absolute-time TrendFamily evaluates at the last rebalance slot. At an
     # arbitrary inference bar that slot can be up to rebalance_every-1 bars
     # behind the endpoint, so retain both the lookback and that offset.
     trend_history = trend_lookback + max(trend_rebalance, 1)
-    return max(int(rank_window), int(vol_lookback) + 1, trend_history, 2)
+    return max(rank_window, vol_lookback + 1, trend_history, 2)
 
 
 class CsvFeatureProvider:
@@ -90,7 +94,16 @@ class CsvFeatureProvider:
         rank_window = int(bundle.preprocessing.get("rank_window", 250))
         post_config = dict(bundle.metadata.get("post_processor") or {})
         vol_lookback = int(post_config.get("vol_lookback", 60))
-        trend_config = dict(bundle.metadata.get("trend_family") or {})
+        raw_trend_config = dict(bundle.metadata.get("trend_family") or {})
+        trend_config = {
+            key: int(raw_trend_config.get(key, 0))
+            for key in (
+                "fast_lookback",
+                "base_lookback",
+                "slow_lookback",
+                "rebalance_every",
+            )
+        }
         history_bars = required_history_bars(
             rank_window,
             vol_lookback,

@@ -81,9 +81,7 @@ class MarketExecutionCore:
             raise ValueError("target must be finite")
 
         last_start_exclusive = max(0, self.fs.n_bars - 2)
-        bars_advanced = max(
-            0, min(int(bars), last_start_exclusive - int(start_t))
-        )
+        bars_advanced = max(0, min(int(bars), last_start_exclusive - int(start_t)))
         if bars_advanced == 0:
             return IntervalExecution(
                 book=book.copy(),
@@ -115,7 +113,11 @@ class MarketExecutionCore:
             funding = float(np.sum(target_weights * self.fs.funding_rate[t + 1]))
             gross = float(np.dot(target_weights, r_vec))
             net = gross - funding - (cost if offset == 0 else 0.0)
-            if not np.isfinite(gross) or not np.isfinite(funding) or not np.isfinite(net):
+            if (
+                not np.isfinite(gross)
+                or not np.isfinite(funding)
+                or not np.isfinite(net)
+            ):
                 raise ValueError("interval execution produced a non-finite value")
             next_book.portfolio_value *= 1.0 + net
             next_book.peak_value = max(next_book.peak_value, next_book.portfolio_value)

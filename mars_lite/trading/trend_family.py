@@ -33,12 +33,15 @@ class TrendFamily:
 
     def _validate_config(self) -> None:
         cfg = self.config
-        if min(
-            cfg.fast_lookback,
-            cfg.base_lookback,
-            cfg.slow_lookback,
-            cfg.rebalance_every,
-        ) <= 0:
+        if (
+            min(
+                cfg.fast_lookback,
+                cfg.base_lookback,
+                cfg.slow_lookback,
+                cfg.rebalance_every,
+            )
+            <= 0
+        ):
             raise ValueError("lookbacks and rebalance_every must be positive")
         if cfg.base_timeframe not in TF_TO_MINUTES:
             raise ValueError(f"unsupported base_timeframe: {cfg.base_timeframe}")
@@ -59,9 +62,7 @@ class TrendFamily:
         if not np.all(np.isfinite(close[: t + 1])) or np.any(close[: t + 1] <= 0):
             raise ValueError("close history must be finite and positive")
 
-        bar_ns = (
-            int(TF_TO_MINUTES[self.config.base_timeframe]) * 60 * 1_000_000_000
-        )
+        bar_ns = int(TF_TO_MINUTES[self.config.base_timeframe]) * 60 * 1_000_000_000
         slot = int(timestamps[t] // bar_ns)
         rebalance_slot = slot - (slot % self.config.rebalance_every)
         rebalance_ns = rebalance_slot * bar_ns

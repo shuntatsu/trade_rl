@@ -23,9 +23,7 @@ class HTFProposalConstraint:
         self.threshold = float(threshold)
         self.neutral_scale = float(neutral_scale)
 
-    def apply(
-        self, proposal: np.ndarray, htf_trend: np.ndarray
-    ) -> HTFConstraintResult:
+    def apply(self, proposal: np.ndarray, htf_trend: np.ndarray) -> HTFConstraintResult:
         weights = np.asarray(proposal, dtype=np.float64).reshape(-1)
         trend = np.asarray(htf_trend, dtype=np.float64).reshape(-1)
         if weights.shape != trend.shape:

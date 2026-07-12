@@ -99,9 +99,9 @@ class DecisionPipeline:
         )
         if htf_result is not None:
             pp_info.extra["htf_zeroed_fraction"] = htf_result.zeroed_fraction
-            pp_info.extra[
-                "htf_neutral_scaled_fraction"
-            ] = htf_result.neutral_scaled_fraction
+            pp_info.extra["htf_neutral_scaled_fraction"] = (
+                htf_result.neutral_scaled_fraction
+            )
             pp_info.extra["htf_constrained_weights"] = desired.copy()
         return target, pp_info
 

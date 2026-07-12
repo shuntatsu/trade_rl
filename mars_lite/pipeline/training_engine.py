@@ -183,10 +183,7 @@ def train_ppo(
     tf_prefixes = []
     for name in fs.feature_names:
         prefix = name.split("_")[0]
-        if (
-            prefix in ("15m", "30m", "1h", "4h", "1d")
-            and prefix not in tf_prefixes
-        ):
+        if prefix in ("15m", "30m", "1h", "4h", "1d") and prefix not in tf_prefixes:
             tf_prefixes.append(prefix)
 
     if extractor == "tfgated" and tf_prefixes:
@@ -342,7 +339,9 @@ def train_ppo(
         agent = val_cb.restore_best(agent)
         setattr(agent, "validation_selection", val_cb)
         if verbose:
-            print(f"[train_ppo] Restored validation-selected model: {val_cb.best_score}")
+            print(
+                f"[train_ppo] Restored validation-selected model: {val_cb.best_score}"
+            )
     return agent
 
 

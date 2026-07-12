@@ -143,12 +143,16 @@ def evaluate_relative_agent(
             "excess_total_return": float(hybrid_metrics["total_return"])
             - float(shadow_metrics["total_return"]),
             "excess_log_return": excess_log_return,
-            "mean_base_bar_excess": float(differences.mean()) if differences.size else 0.0,
+            "mean_base_bar_excess": float(differences.mean())
+            if differences.size
+            else 0.0,
             **bootstrap,
         },
         "actions": {
             "count": int(len(actions)),
-            "trend_mix": stats(action_matrix[:, 0] if action_matrix.size else np.array([])),
+            "trend_mix": stats(
+                action_matrix[:, 0] if action_matrix.size else np.array([])
+            ),
             "alpha": stats(action_matrix[:, 1] if action_matrix.size else np.array([])),
             "alpha_budget": stats(np.asarray(alpha_budgets)),
             "contrarian_alpha_fraction": float(np.mean(np.asarray(alpha_budgets) < 0.0))

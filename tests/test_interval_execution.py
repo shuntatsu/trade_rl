@@ -61,9 +61,7 @@ def test_holding_same_target_in_next_interval_has_zero_turnover() -> None:
         fs,
         make_execution_model(fee_rate=0.001, spread_rate=0.0, impact_rate=0.0),
     )
-    first = core.execute_interval(
-        BookState.zero(1), np.array([1.0]), start_t=0, bars=2
-    )
+    first = core.execute_interval(BookState.zero(1), np.array([1.0]), start_t=0, bars=2)
     second = core.execute_interval(first.book, np.array([1.0]), start_t=2, bars=2)
 
     assert second.interval_turnover == 0.0

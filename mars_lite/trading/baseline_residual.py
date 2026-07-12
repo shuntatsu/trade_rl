@@ -36,9 +36,7 @@ class BaselineResidualComposer:
     ) -> CompositionResult:
         residual_action = np.asarray(action, dtype=np.float64).reshape(-1)
         if residual_action.shape != (2,):
-            raise ValueError(
-                f"action shape must be (2,), got {residual_action.shape}"
-            )
+            raise ValueError(f"action shape must be (2,), got {residual_action.shape}")
         if not np.all(np.isfinite(residual_action)):
             raise ValueError("action must be finite")
         residual_action = np.clip(residual_action, -1.0, 1.0)
@@ -60,14 +58,11 @@ class BaselineResidualComposer:
             trend_weights = (1.0 - magnitude) * base + magnitude * slow
 
         alpha_budget = (
-            self.alpha_budget_max * float(residual_action[1])
-            if alpha_enabled
-            else 0.0
+            self.alpha_budget_max * float(residual_action[1]) if alpha_enabled else 0.0
         )
         proposal = (
-            (1.0 - abs(alpha_budget)) * trend_weights
-            + alpha_budget * alpha_weights
-        )
+            1.0 - abs(alpha_budget)
+        ) * trend_weights + alpha_budget * alpha_weights
         proposal = self._project_gross(proposal)
         return CompositionResult(
             proposal=proposal,
@@ -78,8 +73,4 @@ class BaselineResidualComposer:
 
     def _project_gross(self, weights: np.ndarray) -> np.ndarray:
         gross = float(np.abs(weights).sum())
-        return (
-            weights * (self.max_gross / gross)
-            if gross > self.max_gross
-            else weights
-        )
+        return weights * (self.max_gross / gross) if gross > self.max_gross else weights

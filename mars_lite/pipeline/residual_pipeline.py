@@ -68,7 +68,9 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
     val_end = int(n * 0.82)
     test_start = val_end + max(24, args.horizon)
     if train_end < 200 or val_end - val_start < 100 or n - test_start < 100:
-        raise ValueError("insufficient bars for train/validation/test residual workflow")
+        raise ValueError(
+            "insufficient bars for train/validation/test residual workflow"
+        )
     train_fs = fs.slice(0, train_end)
     val_fs = fs.slice(val_start, val_end)
     test_fs = fs.slice(test_start, n)
@@ -156,7 +158,9 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
             bootstrap_seed=args.seed,
         )
         shadow_returns = np.asarray(
-            BaselineResidualReturnView(identity, test_fs, evaluation_kwargs).shadow_returns,
+            BaselineResidualReturnView(
+                identity, test_fs, evaluation_kwargs
+            ).shadow_returns,
             dtype=np.float64,
         )
         positive = _moving_block_mean_test(shadow_returns, seed=args.seed)

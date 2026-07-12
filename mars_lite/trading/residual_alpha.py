@@ -112,9 +112,13 @@ class FrozenResidualAlpha:
 
     def predict_at(self, fs, t: int) -> np.ndarray:
         if tuple(fs.feature_names) != self.feature_names:
-            raise ValueError("feature order does not match frozen residual alpha artifact")
+            raise ValueError(
+                "feature order does not match frozen residual alpha artifact"
+            )
         if tuple(fs.symbols) != self.symbols:
-            raise ValueError("symbol order does not match frozen residual alpha artifact")
+            raise ValueError(
+                "symbol order does not match frozen residual alpha artifact"
+            )
         if not 0 <= t < fs.n_bars:
             raise IndexError("t out of range")
         if not self.enabled:

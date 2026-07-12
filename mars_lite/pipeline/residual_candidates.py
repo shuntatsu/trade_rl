@@ -89,7 +89,9 @@ def train_select_residual_candidates(
     d_policies: list[object] = []
     d_model_path: Path | None = None
     if alpha.enabled:
-        c_kwargs = _evaluation_kwargs(env_kwargs, trend_family, alpha, alpha_enabled=True)
+        c_kwargs = _evaluation_kwargs(
+            env_kwargs, trend_family, alpha, alpha_enabled=True
+        )
         development_results["C"] = evaluate_relative_agent(
             fixed_alpha,
             val_fs,
@@ -113,7 +115,9 @@ def train_select_residual_candidates(
             env_kwargs=env_kwargs,
             output=output,
         )
-        d_kwargs = _evaluation_kwargs(env_kwargs, trend_family, alpha, alpha_enabled=True)
+        d_kwargs = _evaluation_kwargs(
+            env_kwargs, trend_family, alpha, alpha_enabled=True
+        )
         development_results["D"] = evaluate_relative_agent(
             d_agent,
             val_fs,

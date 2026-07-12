@@ -57,7 +57,9 @@ def _moving_block_mean_test(
             start = int(rng.integers(0, max(1, n - block_size + 1)))
             sampled.extend(range(start, min(start + block_size, n)))
         means[draw] = float(values[np.asarray(sampled[:n])].mean())
-    lower, upper = np.quantile(means, [0.025, 0.975])
+    quantiles = np.asarray(np.quantile(means, [0.025, 0.975]), dtype=np.float64)
+    lower = float(quantiles[0])
+    upper = float(quantiles[1])
     if observed <= 0.0:
         p_value = 1.0
     else:
@@ -65,8 +67,8 @@ def _moving_block_mean_test(
         p_value = float(np.mean(centered >= observed))
     return {
         "p_value": p_value,
-        "lower_ci": float(lower),
-        "upper_ci": float(upper),
+        "lower_ci": lower,
+        "upper_ci": upper,
         "block_size": block_size,
     }
 

@@ -50,9 +50,6 @@ def derive_release_eligibility(
     )
     required_gates: dict[str, GateState] = {
         "p0": "skipped" if skip_p0 else "passed" if p0_passed else "failed",
-        "signal_gate": (
-            "skipped" if skip_gate else "passed" if signal_gate_passed else "failed"
-        ),
         "walk_forward": (
             "skipped" if skip_wf else "passed" if walk_forward_passed else "failed"
         ),
@@ -68,6 +65,7 @@ def derive_release_eligibility(
     eligible = (
         not forced
         and not skipped_gates
+        and signal_gate_passed
         and sealed_holdout_used
         and all(
             state in {"passed", "not_required"} for state in required_gates.values()

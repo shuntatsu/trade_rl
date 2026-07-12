@@ -12,6 +12,46 @@ def diagnostic_baseline(name: str) -> bool:
     return name == "oracle_dp" or name.startswith("oracle_ic")
 
 
+def evaluate_residual_alpha_gate(
+    report: Mapping[str, object],
+    *,
+    threshold: float = 0.02,
+    min_positive_ratio: float = 0.6,
+    min_t_stat: float = 1.0,
+) -> dict[str, Any]:
+    """Apply the residual-alpha contract to a selected model's WF report."""
+
+    model = str(report.get("model", ""))
+    if model not in {"ridge", "gbm"}:
+        raise ValueError("residual alpha report must identify ridge or gbm")
+    try:
+        mean_ic = float(report["mean_oos_ic"])
+        positive_ratio = float(report["positive_fold_ratio"])
+        t_stat = float(report["t_stat"])
+        n_folds = int(report["n_folds"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("residual alpha report is incomplete") from exc
+    values = (mean_ic, positive_ratio, t_stat, threshold, min_positive_ratio, min_t_stat)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("residual alpha gate values must be finite")
+    if n_folds <= 0:
+        raise ValueError("residual alpha gate requires at least one OOS fold")
+    checks = {
+        "mean_oos_ic": mean_ic >= threshold,
+        "positive_fold_ratio": positive_ratio >= min_positive_ratio,
+        "stability": t_stat >= min_t_stat,
+    }
+    return {
+        **dict(report),
+        "model": model,
+        "passed": all(checks.values()),
+        "checks": checks,
+        "threshold": threshold,
+        "min_positive_ratio": min_positive_ratio,
+        "min_t_stat": min_t_stat,
+    }
+
+
 def _finite_metric(metrics: MetricMap, key: str, label: str) -> float:
     try:
         value = float(metrics[key])

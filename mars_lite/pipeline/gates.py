@@ -29,6 +29,40 @@ def _finite_probability(value: float, label: str) -> float:
     return value
 
 
+def evaluate_direct_gate2(
+    *,
+    agent: MetricMap,
+    baselines: Mapping[str, MetricMap],
+) -> dict[str, object]:
+    """Evaluate the legacy direct policy against executable mandatory baselines only."""
+
+    if "flat" not in baselines or "trend_following" not in baselines:
+        raise ValueError("direct Gate 2 requires flat and trend_following baselines")
+    agent_return = _finite_metric(agent, "total_return", "agent")
+    details: dict[str, dict[str, object]] = {}
+    for name, metrics in baselines.items():
+        baseline_return = _finite_metric(metrics, "total_return", name)
+        details[name] = {
+            "rl_return": agent_return,
+            "baseline_return": baseline_return,
+            "rl_beat": agent_return > baseline_return,
+            "mandatory": name in {"flat", "trend_following"},
+            "diagnostic_only": name not in {"flat", "trend_following"},
+        }
+    checks = {
+        "beats_flat": bool(details["flat"]["rl_beat"]),
+        "beats_trend_following": bool(details["trend_following"]["rl_beat"]),
+    }
+    return {
+        "passed": all(checks.values()),
+        "candidate_mode": "direct_weights_v1",
+        "mandatory_comparisons": ("flat", "trend_following"),
+        "checks": checks,
+        "rl_beat_trend_following": checks["beats_trend_following"],
+        "details": details,
+    }
+
+
 def evaluate_residual_gate2(
     *,
     hybrid: MetricMap,
@@ -41,8 +75,8 @@ def evaluate_residual_gate2(
 ) -> dict[str, object]:
     """Evaluate a residual-RL candidate against executable mandatory references.
 
-    Perfect/noisy oracles can be attached for diagnosis, but their results never
-    affect the pass decision.
+    Perfect/noisy oracles and alternative strategies can be attached for diagnosis,
+    but their results never affect the pass decision.
     """
 
     hybrid_return = _finite_metric(hybrid, "total_return", "hybrid")
@@ -63,7 +97,12 @@ def evaluate_residual_gate2(
         "paired_superiority_significant": p_value < significance_level,
     }
     diagnostics = {
-        name: {"metrics": dict(metrics), "mandatory": not diagnostic_baseline(name)}
+        name: {
+            "metrics": dict(metrics),
+            "mandatory": False,
+            "diagnostic_only": True,
+            "oracle": diagnostic_baseline(name),
+        }
         for name, metrics in (diagnostic_results or {}).items()
     }
     return {

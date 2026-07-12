@@ -129,14 +129,15 @@ class RelativeValSelectionCallback(BaseCallback):
         *,
         eval_freq: int,
         env_kwargs: Optional[dict] = None,
-        start_idx: int = 0,
+        start_idx: int | None = None,
         verbose: int = 0,
     ):
         super().__init__(verbose)
         self.val_fs = val_fs
         self.eval_freq = int(eval_freq)
         self.env_kwargs = dict(env_kwargs or {})
-        self.start_idx = int(start_idx)
+        inferred_start = getattr(val_fs, "_evaluation_start_idx", 0)
+        self.start_idx = int(inferred_start if start_idx is None else start_idx)
         self.history: list[RelativeCheckpointScore] = []
         self.identity_params: Optional[bytes] = None
         self.best_params: Optional[bytes] = None

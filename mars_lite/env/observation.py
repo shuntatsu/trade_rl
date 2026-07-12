@@ -17,7 +17,7 @@ class ObservationSchema:
     progress_mode: ProgressMode = "zero"
 
     def validate(self) -> None:
-        if self.version != 1:
+        if self.version not in {1, 2}:
             raise ValueError(f"unsupported observation schema version: {self.version}")
         if self.progress_mode not in {"episode", "zero"}:
             raise ValueError(f"unsupported progress mode: {self.progress_mode}")

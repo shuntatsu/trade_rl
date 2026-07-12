@@ -74,7 +74,11 @@ def test_baseline_only_bundle_has_no_policy_model(tmp_path: Path) -> None:
         action_schema="baseline_residual_v1",
         policy_mode="baseline_only",
         residual_alpha_source=alpha,
-        trend_family_config={"fast_lookback": 24, "base_lookback": 48, "slow_lookback": 96},
+        trend_family_config={
+            "fast_lookback": 24,
+            "base_lookback": 48,
+            "slow_lookback": 96,
+        },
         composer_config={"alpha_budget_max": 0.30, "max_gross": 1.0},
     )
 

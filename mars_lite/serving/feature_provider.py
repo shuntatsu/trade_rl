@@ -72,7 +72,13 @@ class CsvFeatureProvider:
         rank_window = int(bundle.preprocessing.get("rank_window", 250))
         post_config = dict(bundle.metadata.get("post_processor") or {})
         vol_lookback = int(post_config.get("vol_lookback", 60))
-        history_bars = max(rank_window, vol_lookback + 1, 2)
+        trend_config = dict(bundle.metadata.get("trend_family") or {})
+        trend_lookback = max(
+            int(trend_config.get("fast_lookback", 0)),
+            int(trend_config.get("base_lookback", 0)),
+            int(trend_config.get("slow_lookback", 0)),
+        )
+        history_bars = max(rank_window, vol_lookback + 1, trend_lookback + 1, 2)
         endpoint = resolve_completed_bar_endpoint(
             feature_set.timestamps,
             base_timeframe=base_timeframe,
@@ -108,6 +114,7 @@ class CsvFeatureProvider:
             global_features=global_features_array,
             close_history=close_history_array,
             data_age_hours=endpoint.data_age_hours,
+            timestamps=np.asarray(timestamps),
         )
         snapshot.validate()
         with self._lock:

@@ -94,7 +94,7 @@ def test_approved_candidate_identity_becomes_served_identity(tmp_path: Path) -> 
     assert readiness.release_git_sha == approved.git_sha
 
 
-def test_deploy_workflow_gates_before_registry_activation_and_live_verification() -> None:
+def test_deploy_workflow_orders_gate_activation_and_verification() -> None:
     workflow = yaml.safe_load(
         Path(".github/workflows/deploy.yml").read_text(encoding="utf-8")
     )

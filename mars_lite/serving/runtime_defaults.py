@@ -12,8 +12,26 @@ from mars_lite.serving.contracts import InferenceState
 from mars_lite.serving.runtime import PolicyLike, RuntimeComponents
 
 
+class IdentityResidualPolicy:
+    """Serving policy for approved baseline-only bundles."""
+
+    def predict(self, observation: np.ndarray, deterministic: bool = True):
+        value = np.asarray(observation)
+        shape = (2,) if value.ndim == 1 else (value.shape[0], 2)
+        return np.zeros(shape, dtype=np.float32), None
+
+
 def _load_policy(bundle: ServingBundle) -> PolicyLike:
     """Load exactly the policy kind declared by the validated bundle metadata."""
+
+    policy_mode = bundle.metadata.get("policy_mode")
+    if policy_mode == "baseline_only":
+        return IdentityResidualPolicy()
+    if policy_mode == "ppo_residual_ensemble":
+        from mars_lite.learning.residual_ensemble import ResidualActionEnsemble
+
+        return ResidualActionEnsemble.load(bundle.model_path, device="cpu")
+
     model_kind = bundle.metadata.get("model_kind")
     if model_kind == "single":
         from stable_baselines3 import PPO
@@ -85,6 +103,15 @@ def default_component_factory(bundle: ServingBundle) -> RuntimeComponents:
         )
         return target, asdict(info)
 
+    augment_features = None
+    decide_with_context = None
+    if bundle.metadata.get("action_schema") == "baseline_residual_v1":
+        from mars_lite.serving.residual_serving import build_residual_serving_adapters
+
+        augment_features, decide_with_context = build_residual_serving_adapters(
+            bundle, pipeline
+        )
+
     def guard(
         target: np.ndarray,
         current: np.ndarray,
@@ -147,4 +174,6 @@ def default_component_factory(bundle: ServingBundle) -> RuntimeComponents:
         serving_progress=float(bundle.metadata.get("serving_progress", 0.0)),
         vol_lookback=int(post_processor.cfg.vol_lookback),
         htf_feature_name=("4h_ret_z20" if run_config.get("htf_gate") else None),
+        augment_features=augment_features,
+        decide_with_context=decide_with_context,
     )

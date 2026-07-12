@@ -25,6 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbols", type=str, nargs="+", default=None)
     parser.add_argument("--days", type=int, default=240, help="syntheticの生成日数")
     parser.add_argument(
+        "--p0-days",
+        type=int,
+        default=240,
+        help="P0合成データの生成日数。候補のhorizon/decision_everyは変更しない",
+    )
+    parser.add_argument(
         "--base-timeframe",
         choices=["15m", "1h", "4h", "1d"],
         default="1h",

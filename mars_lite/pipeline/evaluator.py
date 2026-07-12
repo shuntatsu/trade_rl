@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -89,7 +89,13 @@ def phase_p0(args, output_dir: Path) -> None:
     from mars_lite.data.sources import SyntheticSource
     from mars_lite.features.feature_pipeline import FeaturePipeline
 
-    results = {}
+    results: dict[str, Any] = {
+        "config": {
+            "horizon": int(args.horizon),
+            "decision_every": int(args.decision_every),
+            "days": int(args.days),
+        },
+    }
 
     for label, alpha in [
         ("positive(alpha=cross)", "cross"),

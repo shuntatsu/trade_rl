@@ -192,3 +192,10 @@ Control processとServing processは別のcredentialを使用します。Serving
 ## 明示的な非保証事項
 
 CI合格は、テスト対象の契約が成立していることを示すだけです。収益性やProduction readinessを証明しません。合成結果、過去backtest、単発実験は、ライブ取引の許可ではありません。
+
+## ローカル検証の境界
+
+Control PlaneのP0は候補の`horizon`と`decision_every`を保持し、`--p0-days`は合成データの実行期間だけを制御します。Serving Planeは最新のcompleted barを選んだ後、実際の推論入力からcontent-addressed snapshotを生成し、bar closeからstalenessを計算します。
+
+`mars_lite.server.signal_server`が唯一の正規Servingです。旧dashboardは`TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1`で明示的に有効化する必要があります。filesystem Registryは意図的にsingle-nodeであり、分散協調機構ではありません。
+

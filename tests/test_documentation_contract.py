@@ -70,3 +70,35 @@ def test_production_readiness_remains_no_go() -> None:
     )
     assert "現在の判断: **NO-GO**" in japanese_readiness
     assert "- [ ]" in japanese_readiness
+
+
+def test_local_validation_contract_is_documented_in_both_languages() -> None:
+    english = "\n".join(
+        [
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "PRODUCTION_READINESS.md").read_text(encoding="utf-8"),
+        ]
+    )
+    japanese = "\n".join(
+        [
+            (ROOT / "README.ja.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "ja" / "ARCHITECTURE.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "ja" / "OPERATIONS.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "ja" / "PRODUCTION_READINESS.md").read_text(
+                encoding="utf-8"
+            ),
+        ]
+    )
+    required = (
+        "--p0-days",
+        "content-addressed",
+        "completed bar",
+        "TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1",
+        "uv run python scripts/run_local_gameday.py",
+        "single-node",
+    )
+    for phrase in required:
+        assert phrase in english
+        assert phrase in japanese

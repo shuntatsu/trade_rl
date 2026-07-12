@@ -113,3 +113,18 @@ Serving Planeには、学習、モデル削除、昇格、rollback、Registry変
 日本語ドキュメント一覧は[`docs/ja/README.md`](docs/ja/README.md)を参照してください。
 
 承認済みの仕様書と実装計画は`docs/superpowers/`に履歴資料として保持されています。
+
+## ローカル検証
+
+P0はrelease候補で解決された`horizon`と`decision_every`をそのまま使用します。明示的な`--p0-days`は合成データ期間だけを変更し、候補のタイミング設定を置き換えません。
+
+Serving snapshotはcontent-addressedであり、順序付きschema、選択timestamp、feature値、global値、close履歴をhash化します。CSV providerはcompleted barだけを使い、`15m`、`1h`、`4h`、`1d`についてbar closeから鮮度を計算します。
+
+取引所へ接続しないLocal GameDay:
+
+```bash
+uv run python scripts/run_local_gameday.py
+```
+
+旧dashboard serverは開発専用で、意図的な直接opt-inを除き`TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1`が必要です。filesystem Registryはsingle-nodeのローカル実装です。この検証の成功はmulti-node、testnet、本番GOを証明しません。
+

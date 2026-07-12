@@ -190,3 +190,10 @@ Control and Serving processes use different credentials. Serving uses a bearer t
 ## Explicit non-guarantees
 
 Passing CI proves that tested contracts hold; it does not prove profitability or Production readiness. Synthetic results, historical backtests, and one-time experiments are not live-trading authorization.
+
+## Local validation boundaries
+
+The Control Plane's P0 gate preserves the candidate `horizon` and `decision_every`; `--p0-days` controls only synthetic runtime. The Serving Plane creates a content-addressed snapshot from the exact inference inputs after selecting the latest completed bar and computes staleness from bar close.
+
+`mars_lite.server.signal_server` remains authoritative. The legacy dashboard is gated by `TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1`. The filesystem Registry is deliberately single-node and is not a distributed coordination mechanism.
+

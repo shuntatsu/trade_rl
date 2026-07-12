@@ -276,3 +276,59 @@ def test_research_run_may_continue_without_holdout_when_not_registering(
     args = _run_args(tmp_path, no_register=True, risk_config=None)
     assert production_pipeline.run(args) == 0
     assert registered == []
+
+
+def test_p0_uses_candidate_timing_without_mutating_release_args(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, int] = {}
+    registered: list[object] = []
+    _stub_pipeline(monkeypatch, features=_Features(), registered=registered)
+
+    def phase_p0(args, output_dir: Path) -> None:
+        seen.update(
+            horizon=args.horizon,
+            decision_every=args.decision_every,
+            days=args.days,
+        )
+        (output_dir / "p0_report.json").write_text(
+            '{"gate":{"P0_PASSED":true}}', encoding="utf-8"
+        )
+
+    monkeypatch.setattr(production_pipeline, "phase_p0", phase_p0)
+    args = _run_args(
+        tmp_path,
+        horizon=12,
+        decision_every=4,
+        days=365,
+        p0_days=90,
+    )
+
+    assert production_pipeline.run(args) == 0
+    assert seen == {"horizon": 12, "decision_every": 4, "days": 90}
+    assert (args.horizon, args.decision_every, args.days) == (12, 4, 365)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("horizon", 0, "horizon must be positive"),
+        ("decision_every", 0, "decision_every must be positive"),
+        ("p0_days", 0, "p0_days must be positive"),
+    ],
+)
+def test_invalid_p0_timing_is_rejected_before_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: int,
+    message: str,
+) -> None:
+    registered: list[object] = []
+    _stub_pipeline(monkeypatch, features=_Features(), registered=registered)
+    args = _run_args(tmp_path, **{field: value})
+
+    with pytest.raises(ValueError, match=message):
+        production_pipeline.run(args)
+
+    assert registered == []

@@ -126,3 +126,16 @@ Before GO approval, run a testnet exercise that proves:
 - audit records are sufficient to reconstruct the event.
 
 Attach commands, timestamps, identities, outputs, and reviewer approval to the readiness checklist.
+
+## Local validation drill
+
+Before any testnet exercise, run:
+
+```bash
+uv run python scripts/run_local_gameday.py
+```
+
+The command validates candidate-aligned P0 configuration (`--p0-days` affects only sample duration), content-addressed snapshot mutation, completed bar freshness, stale-data flattening, replay rejection, mismatched-bundle preservation, and rollback. It performs no exchange action or network request.
+
+To launch the legacy training dashboard intentionally, set `TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1`; do not use it as the Serving Plane. The local filesystem Registry is single-node only.
+

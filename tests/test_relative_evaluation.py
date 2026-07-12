@@ -1,9 +1,11 @@
 import numpy as np
 
-from mars_lite.env.baseline_residual_env import BaselineResidualTradingEnv
 from mars_lite.eval.relative_evaluation import evaluate_relative_agent
 from mars_lite.features.feature_pipeline import FeatureSet
-from mars_lite.trading.post_processor import make_legacy_processor
+from mars_lite.trading.post_processor import (
+    make_default_processor,
+    make_legacy_processor,
+)
 from mars_lite.trading.trend_family import TrendFamily, TrendFamilyConfig
 
 
@@ -31,27 +33,31 @@ def _feature_set(n_bars: int = 180) -> FeatureSet:
     )
 
 
+def _env_kwargs(post_processor):
+    return {
+        "trend_family": TrendFamily(
+            TrendFamilyConfig(
+                fast_lookback=12,
+                base_lookback=24,
+                slow_lookback=48,
+                rebalance_every=12,
+            )
+        ),
+        "decision_every": 4,
+        "post_processor": post_processor,
+        "min_trade_delta": 0.0,
+        "fee_rate": 0.0,
+        "spread_rate": 0.0,
+        "impact_rate": 0.0,
+    }
+
+
 def test_identity_agent_has_zero_excess_and_complete_report() -> None:
     fs = _feature_set()
     result = evaluate_relative_agent(
         IdentityAgent(),
         fs,
-        env_kwargs={
-            "trend_family": TrendFamily(
-                TrendFamilyConfig(
-                    fast_lookback=12,
-                    base_lookback=24,
-                    slow_lookback=48,
-                    rebalance_every=12,
-                )
-            ),
-            "decision_every": 4,
-            "post_processor": make_legacy_processor(0.0),
-            "min_trade_delta": 0.0,
-            "fee_rate": 0.0,
-            "spread_rate": 0.0,
-            "impact_rate": 0.0,
-        },
+        env_kwargs=_env_kwargs(make_legacy_processor(0.0)),
         start_idx=60,
     )
 
@@ -61,3 +67,21 @@ def test_identity_agent_has_zero_excess_and_complete_report() -> None:
     assert result["identity"]["action_schema"] == "baseline_residual_v1"
     assert result["execution"]["decision_every"] == 4
     assert result["actions"]["count"] > 0
+
+
+def test_evaluation_uses_post_processor_annualization_factor() -> None:
+    processor = make_default_processor(
+        target_vol=None,
+        ema_alpha=1.0,
+        no_trade_band=0.0,
+        bars_per_year=365,
+    )
+
+    result = evaluate_relative_agent(
+        IdentityAgent(),
+        _feature_set(),
+        env_kwargs=_env_kwargs(processor),
+        start_idx=60,
+    )
+
+    assert result["execution"]["annualization_factor"] == 365

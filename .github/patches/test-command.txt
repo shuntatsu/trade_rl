@@ -1,0 +1,1 @@
+uv run pytest tests/test_snapshot_identity.py tests/test_feature_provider.py -q

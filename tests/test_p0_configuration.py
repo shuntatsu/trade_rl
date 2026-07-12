@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from mars_lite.pipeline import evaluator
+from mars_lite.pipeline.cli import build_parser
 
 
 class _FeatureSet:
@@ -127,3 +128,10 @@ def test_p0_report_records_effective_candidate_timing(tmp_path, monkeypatch) -> 
         "decision_every": 4,
         "days": 90,
     }
+
+
+def test_p0_days_cli_is_explicit() -> None:
+    parser = build_parser()
+
+    assert parser.parse_args([]).p0_days == 240
+    assert parser.parse_args(["--p0-days", "90"]).p0_days == 90

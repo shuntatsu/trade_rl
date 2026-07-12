@@ -1,1 +1,0 @@
-uv run pytest tests/test_production_pipeline.py tests/test_p0_configuration.py -q

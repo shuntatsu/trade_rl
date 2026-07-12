@@ -1,1 +1,0 @@
-test: cover explicit P0 days CLI

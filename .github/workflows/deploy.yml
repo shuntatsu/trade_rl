@@ -30,7 +30,9 @@ permissions:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on:
+      - self-hosted
+      - trade-rl-deploy
     environment: ${{ inputs.stage }}
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +78,7 @@ jobs:
           uv run python - <<'PY'
           import hashlib
           import json
+          import os
           from pathlib import Path
 
           from mars_lite.serving.bundle import load_bundle
@@ -94,13 +97,20 @@ jobs:
           bundle = load_bundle(root / "serving_candidate")
           if bundle.version != evidence["model_version"]:
               raise SystemExit("serving bundle version does not match evidence candidate")
-          if bundle.manifest.git_sha != evidence["git_commit"]:
+          if bundle.git_sha != evidence["git_commit"]:
               raise SystemExit("serving bundle git SHA does not match evidence candidate")
+
+          github_env = Path(os.environ["GITHUB_ENV"])
+          with github_env.open("a", encoding="utf-8") as handle:
+              handle.write(f"MODEL_VERSION={bundle.version}\n")
+              handle.write(f"BUNDLE_DIGEST={bundle.bundle_digest.lower()}\n")
+              handle.write(f"RELEASE_GIT_SHA={bundle.git_sha.lower()}\n")
           print(
               json.dumps(
                   {
                       "version": bundle.version,
                       "bundle_digest": bundle.bundle_digest,
+                      "release_git_sha": bundle.git_sha,
                       "manifest_sha256": manifest_sha,
                   }
               )
@@ -128,23 +138,49 @@ jobs:
               --environment-approver "$ENVIRONMENT_APPROVER"
           fi
 
+      - name: Validate deployment target
+        if: inputs.stage != 'shadow'
+        env:
+          TRADE_RL_REGISTRY_DIR: ${{ vars.TRADE_RL_REGISTRY_DIR }}
+          TRADE_RL_SERVING_READY_URL: ${{ vars.TRADE_RL_SERVING_READY_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${TRADE_RL_REGISTRY_DIR:-}"
+          case "$TRADE_RL_REGISTRY_DIR" in
+            /*) ;;
+            *) echo "TRADE_RL_REGISTRY_DIR must be an absolute path" >&2; exit 4 ;;
+          esac
+          test -n "${TRADE_RL_SERVING_READY_URL:-}"
+          case "$TRADE_RL_SERVING_READY_URL" in
+            http://*|https://*) ;;
+            *) echo "TRADE_RL_SERVING_READY_URL must use http or https" >&2; exit 4 ;;
+          esac
+
       - name: Register and atomically activate approved bundle
         if: inputs.stage != 'shadow'
         env:
           STAGE: ${{ inputs.stage }}
           EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
-          REGISTRY_DIR: ${{ vars.TRADE_RL_REGISTRY_DIR }}
+          TRADE_RL_REGISTRY_DIR: ${{ vars.TRADE_RL_REGISTRY_DIR }}
         run: |
           set -euo pipefail
-          if [ -z "$REGISTRY_DIR" ]; then
-            echo "TRADE_RL_REGISTRY_DIR environment variable is required" >&2
-            exit 4
-          fi
-          MODEL_VERSION=$(uv run python -c 'from mars_lite.serving.bundle import load_bundle; print(load_bundle("deployment_bundle/serving_candidate").version)')
           uv run python scripts/manage_registry.py \
-            --registry-dir "$REGISTRY_DIR" \
+            --registry-dir "$TRADE_RL_REGISTRY_DIR" \
             register deployment_bundle/serving_candidate
           uv run python scripts/manage_registry.py \
-            --registry-dir "$REGISTRY_DIR" \
+            --registry-dir "$TRADE_RL_REGISTRY_DIR" \
             activate "$MODEL_VERSION" \
             --evidence-identity "github-actions:${EVIDENCE_RUN_ID}:${STAGE}"
+
+      - name: Verify served identity
+        if: inputs.stage != 'shadow'
+        env:
+          TRADE_RL_SERVING_READY_URL: ${{ vars.TRADE_RL_SERVING_READY_URL }}
+        run: >-
+          uv run python scripts/verify_served_identity.py
+          --url "$TRADE_RL_SERVING_READY_URL"
+          --version "$MODEL_VERSION"
+          --digest "$BUNDLE_DIGEST"
+          --release-git-sha "$RELEASE_GIT_SHA"
+          --attempts 12
+          --interval-seconds 5

@@ -400,9 +400,10 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
         "post_processor": pp,
         "min_trade_delta": min_trade_delta,
         "reward_scale": getattr(args, "reward_scale", 100.0),
-        "decision_every": decision_every,
         **FEE_PROFILES[getattr(args, "fee_profile", "taker")],
     }
+    if action_mode == "baseline-residual" or decision_every > 1:
+        env_kwargs["decision_every"] = decision_every
     if action_mode == "direct":
         env_kwargs["lambda_turnover"] = getattr(args, "lambda_turnover", 0.04)
     if getattr(args, "htf_gate", False):

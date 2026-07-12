@@ -73,37 +73,55 @@ def _eligible_relative_result(result: dict[str, Any], drawdown_slack: float) -> 
 def select_residual_configuration(
     development_results: dict[str, dict[str, Any]],
     *,
+    cost2x_results: dict[str, dict[str, Any]],
     drawdown_slack: float = 0.05,
 ) -> dict[str, Any]:
-    """Apply the preregistered A/B/C/D selection rule on development data only.
+    """Apply the preregistered A/B/C/D rule using 1x and 2x development costs.
 
     A is pure base trend. B is PPO trend mixing. C is a fixed +15% alpha diagnostic.
     D is PPO trend mixing plus alpha. C is never itself release-selected; it establishes
     the hurdle that D must beat before the combined RL design is adopted.
     """
 
-    if "A" not in development_results:
-        raise ValueError("development matrix requires configuration A")
+    if "A" not in development_results or "A" not in cost2x_results:
+        raise ValueError("development matrices require configuration A")
+    if set(development_results) != set(cost2x_results):
+        raise ValueError(
+            "1x and 2x development matrices must contain identical configs"
+        )
     scores = {
         name: float(result["paired"]["excess_log_return"])
         for name, result in development_results.items()
     }
-    eligible = {
+    cost2x_scores = {
+        name: float(result["paired"]["excess_log_return"])
+        for name, result in cost2x_results.items()
+    }
+    base_eligible = {
         name: _eligible_relative_result(result, drawdown_slack)
         for name, result in development_results.items()
+    }
+    cost2x_eligible = {name: score >= 0.0 for name, score in cost2x_scores.items()}
+    eligible = {
+        name: base_eligible[name] and cost2x_eligible[name]
+        for name in development_results
     }
     selected = "A"
     reasons = ["A is the identity baseline"]
 
     if eligible.get("B", False):
         selected = "B"
-        reasons.append("B adds positive development excess within drawdown slack")
+        reasons.append(
+            "B adds positive development excess within drawdown slack and survives 2x costs"
+        )
 
     if eligible.get("D", False):
         hurdle = max(scores.get("B", 0.0), scores.get("C", 0.0))
         if scores["D"] > hurdle:
             selected = "D"
-            reasons.append("D strictly beats both B and fixed-alpha diagnostic C")
+            reasons.append(
+                "D strictly beats both B and fixed-alpha diagnostic C and survives 2x costs"
+            )
         else:
             reasons.append("D did not beat the stronger of B and C")
 
@@ -113,6 +131,9 @@ def select_residual_configuration(
             "baseline_only" if selected == "A" else "ppo_residual_ensemble"
         ),
         "scores": scores,
+        "cost2x_scores": cost2x_scores,
+        "base_eligible": base_eligible,
+        "cost2x_eligible": cost2x_eligible,
         "eligible": eligible,
         "reasons": reasons,
         "drawdown_slack": drawdown_slack,
@@ -249,12 +270,18 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
     identity = IdentityResidualAgent()
     fixed_alpha = FixedResidualAgent((0.0, 0.5))
     development_results: dict[str, dict[str, Any]] = {}
+    development_cost2x_results: dict[str, dict[str, Any]] = {}
+    a_kwargs = _evaluation_kwargs(env_kwargs, trend_family, alpha, alpha_enabled=False)
     development_results["A"] = evaluate_relative_agent(
         identity,
         val_fs,
-        env_kwargs=_evaluation_kwargs(
-            env_kwargs, trend_family, alpha, alpha_enabled=False
-        ),
+        env_kwargs=a_kwargs,
+        bootstrap_seed=args.seed,
+    )
+    development_cost2x_results["A"] = evaluate_relative_agent(
+        identity,
+        val_fs,
+        env_kwargs={**a_kwargs, "cost_multiplier": 2.0},
         bootstrap_seed=args.seed,
     )
 
@@ -269,22 +296,34 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         env_kwargs=env_kwargs,
         output=output,
     )
+    b_kwargs = _evaluation_kwargs(env_kwargs, trend_family, alpha, alpha_enabled=False)
     development_results["B"] = evaluate_relative_agent(
         b_agent,
         val_fs,
-        env_kwargs=_evaluation_kwargs(
-            env_kwargs, trend_family, alpha, alpha_enabled=False
-        ),
+        env_kwargs=b_kwargs,
+        bootstrap_seed=args.seed,
+    )
+    development_cost2x_results["B"] = evaluate_relative_agent(
+        b_agent,
+        val_fs,
+        env_kwargs={**b_kwargs, "cost_multiplier": 2.0},
         bootstrap_seed=args.seed,
     )
 
     if alpha.enabled:
+        c_kwargs = _evaluation_kwargs(
+            env_kwargs, trend_family, alpha, alpha_enabled=True
+        )
         development_results["C"] = evaluate_relative_agent(
             fixed_alpha,
             val_fs,
-            env_kwargs=_evaluation_kwargs(
-                env_kwargs, trend_family, alpha, alpha_enabled=True
-            ),
+            env_kwargs=c_kwargs,
+            bootstrap_seed=args.seed,
+        )
+        development_cost2x_results["C"] = evaluate_relative_agent(
+            fixed_alpha,
+            val_fs,
+            env_kwargs={**c_kwargs, "cost_multiplier": 2.0},
             bootstrap_seed=args.seed,
         )
         d_agent, d_policies, d_model_path = _train_residual_ensemble(
@@ -298,12 +337,19 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
             env_kwargs=env_kwargs,
             output=output,
         )
+        d_kwargs = _evaluation_kwargs(
+            env_kwargs, trend_family, alpha, alpha_enabled=True
+        )
         development_results["D"] = evaluate_relative_agent(
             d_agent,
             val_fs,
-            env_kwargs=_evaluation_kwargs(
-                env_kwargs, trend_family, alpha, alpha_enabled=True
-            ),
+            env_kwargs=d_kwargs,
+            bootstrap_seed=args.seed,
+        )
+        development_cost2x_results["D"] = evaluate_relative_agent(
+            d_agent,
+            val_fs,
+            env_kwargs={**d_kwargs, "cost_multiplier": 2.0},
             bootstrap_seed=args.seed,
         )
     else:
@@ -311,7 +357,10 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         d_policies = []
         d_model_path = None
 
-    selection = select_residual_configuration(development_results)
+    selection = select_residual_configuration(
+        development_results,
+        cost2x_results=development_cost2x_results,
+    )
     selected = str(selection["selected"])
     if selected == "D":
         assert d_agent is not None and d_model_path is not None
@@ -391,6 +440,8 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
             hybrid=relative["hybrid"],
             shadow=relative["shadow"],
             flat={"total_return": 0.0, "max_drawdown": 0.0},
+            cost2x_hybrid=cost2x["hybrid"],
+            cost2x_shadow=cost2x["shadow"],
             paired_p_value=float(relative["paired"]["p_value"]),
             diagnostic_results=baseline_payload,
         )
@@ -413,6 +464,7 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         "signal_gate": signal_gate,
         "alpha_enabled": alpha.enabled,
         "development_matrix": development_results,
+        "development_matrix_cost2x": development_cost2x_results,
         "selection": selection,
         "relative": relative,
         "cost2x": cost2x,

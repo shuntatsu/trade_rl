@@ -125,7 +125,7 @@ if text.count(old_select) != 1:
     raise RuntimeError("unexpected residual selection layout")
 text = text.replace(old_select, new_select)
 
-old_init = '''    development_results: dict[str, dict[str, Any]] = {}
+old_init = """    development_results: dict[str, dict[str, Any]] = {}
     development_results["A"] = evaluate_relative_agent(
         identity,
         val_fs,
@@ -134,8 +134,8 @@ old_init = '''    development_results: dict[str, dict[str, Any]] = {}
         ),
         bootstrap_seed=args.seed,
     )
-'''
-new_init = '''    development_results: dict[str, dict[str, Any]] = {}
+"""
+new_init = """    development_results: dict[str, dict[str, Any]] = {}
     development_cost2x_results: dict[str, dict[str, Any]] = {}
     a_kwargs = _evaluation_kwargs(
         env_kwargs, trend_family, alpha, alpha_enabled=False
@@ -152,12 +152,12 @@ new_init = '''    development_results: dict[str, dict[str, Any]] = {}
         env_kwargs={**a_kwargs, "cost_multiplier": 2.0},
         bootstrap_seed=args.seed,
     )
-'''
+"""
 if text.count(old_init) != 1:
     raise RuntimeError("unexpected development matrix initialization")
 text = text.replace(old_init, new_init)
 
-old_b = '''    development_results["B"] = evaluate_relative_agent(
+old_b = """    development_results["B"] = evaluate_relative_agent(
         b_agent,
         val_fs,
         env_kwargs=_evaluation_kwargs(
@@ -165,8 +165,8 @@ old_b = '''    development_results["B"] = evaluate_relative_agent(
         ),
         bootstrap_seed=args.seed,
     )
-'''
-new_b = '''    b_kwargs = _evaluation_kwargs(
+"""
+new_b = """    b_kwargs = _evaluation_kwargs(
         env_kwargs, trend_family, alpha, alpha_enabled=False
     )
     development_results["B"] = evaluate_relative_agent(
@@ -181,12 +181,12 @@ new_b = '''    b_kwargs = _evaluation_kwargs(
         env_kwargs={**b_kwargs, "cost_multiplier": 2.0},
         bootstrap_seed=args.seed,
     )
-'''
+"""
 if text.count(old_b) != 1:
     raise RuntimeError("unexpected B matrix evaluation")
 text = text.replace(old_b, new_b)
 
-old_c = '''        development_results["C"] = evaluate_relative_agent(
+old_c = """        development_results["C"] = evaluate_relative_agent(
             fixed_alpha,
             val_fs,
             env_kwargs=_evaluation_kwargs(
@@ -194,8 +194,8 @@ old_c = '''        development_results["C"] = evaluate_relative_agent(
             ),
             bootstrap_seed=args.seed,
         )
-'''
-new_c = '''        c_kwargs = _evaluation_kwargs(
+"""
+new_c = """        c_kwargs = _evaluation_kwargs(
             env_kwargs, trend_family, alpha, alpha_enabled=True
         )
         development_results["C"] = evaluate_relative_agent(
@@ -210,12 +210,12 @@ new_c = '''        c_kwargs = _evaluation_kwargs(
             env_kwargs={**c_kwargs, "cost_multiplier": 2.0},
             bootstrap_seed=args.seed,
         )
-'''
+"""
 if text.count(old_c) != 1:
     raise RuntimeError("unexpected C matrix evaluation")
 text = text.replace(old_c, new_c)
 
-old_d = '''        development_results["D"] = evaluate_relative_agent(
+old_d = """        development_results["D"] = evaluate_relative_agent(
             d_agent,
             val_fs,
             env_kwargs=_evaluation_kwargs(
@@ -223,8 +223,8 @@ old_d = '''        development_results["D"] = evaluate_relative_agent(
             ),
             bootstrap_seed=args.seed,
         )
-'''
-new_d = '''        d_kwargs = _evaluation_kwargs(
+"""
+new_d = """        d_kwargs = _evaluation_kwargs(
             env_kwargs, trend_family, alpha, alpha_enabled=True
         )
         development_results["D"] = evaluate_relative_agent(
@@ -239,31 +239,31 @@ new_d = '''        d_kwargs = _evaluation_kwargs(
             env_kwargs={**d_kwargs, "cost_multiplier": 2.0},
             bootstrap_seed=args.seed,
         )
-'''
+"""
 if text.count(old_d) != 1:
     raise RuntimeError("unexpected D matrix evaluation")
 text = text.replace(old_d, new_d)
 
-old_selection = '''    selection = select_residual_configuration(development_results)
-'''
-new_selection = '''    selection = select_residual_configuration(
+old_selection = """    selection = select_residual_configuration(development_results)
+"""
+new_selection = """    selection = select_residual_configuration(
         development_results,
         cost2x_results=development_cost2x_results,
     )
-'''
+"""
 if text.count(old_selection) != 1:
     raise RuntimeError("unexpected selection call")
 text = text.replace(old_selection, new_selection)
 
-old_gate = '''        gate = evaluate_residual_gate2(
+old_gate = """        gate = evaluate_residual_gate2(
             hybrid=relative["hybrid"],
             shadow=relative["shadow"],
             flat={"total_return": 0.0, "max_drawdown": 0.0},
             paired_p_value=float(relative["paired"]["p_value"]),
             diagnostic_results=baseline_payload,
         )
-'''
-new_gate = '''        gate = evaluate_residual_gate2(
+"""
+new_gate = """        gate = evaluate_residual_gate2(
             hybrid=relative["hybrid"],
             shadow=relative["shadow"],
             flat={"total_return": 0.0, "max_drawdown": 0.0},
@@ -272,18 +272,18 @@ new_gate = '''        gate = evaluate_residual_gate2(
             paired_p_value=float(relative["paired"]["p_value"]),
             diagnostic_results=baseline_payload,
         )
-'''
+"""
 if text.count(old_gate) != 1:
     raise RuntimeError("unexpected residual Gate 2 call")
 text = text.replace(old_gate, new_gate)
 
-old_report = '''        "development_matrix": development_results,
+old_report = """        "development_matrix": development_results,
         "selection": selection,
-'''
-new_report = '''        "development_matrix": development_results,
+"""
+new_report = """        "development_matrix": development_results,
         "development_matrix_cost2x": development_cost2x_results,
         "selection": selection,
-'''
+"""
 if text.count(old_report) != 1:
     raise RuntimeError("unexpected development report layout")
 text = text.replace(old_report, new_report)

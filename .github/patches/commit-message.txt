@@ -1,1 +1,1 @@
-test: require content-addressed snapshots
+test: require completed-bar freshness

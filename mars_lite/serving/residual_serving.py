@@ -37,6 +37,19 @@ def build_residual_serving_adapters(bundle, pipeline: DecisionPipeline):
     )
     expected_symbols = tuple(bundle.metadata["symbols"])
     expected_features = tuple(bundle.preprocessing["feature_names"])
+    declared_alpha_enabled = bundle.metadata.get("residual_alpha_enabled")
+    if not isinstance(declared_alpha_enabled, bool):
+        raise ValueError("baseline residual bundle requires residual_alpha_enabled")
+    if alpha.symbols != expected_symbols:
+        raise ValueError("residual alpha symbol order does not match bundle")
+    if alpha.feature_names != expected_features:
+        raise ValueError("residual alpha feature order does not match bundle")
+    if declared_alpha_enabled and not alpha.enabled:
+        raise ValueError(
+            "bundle enables residual alpha but the frozen artifact failed its gate"
+        )
+    if bundle.metadata.get("policy_mode") == "baseline_only" and declared_alpha_enabled:
+        raise ValueError("baseline_only bundle must disable residual alpha")
 
     def augment_features(snapshot, latest: np.ndarray):
         timestamps = getattr(snapshot, "timestamps", None)
@@ -63,7 +76,11 @@ def build_residual_serving_adapters(bundle, pipeline: DecisionPipeline):
                 1, len(expected_symbols), len(expected_features)
             ),
         )
-        alpha_weights = alpha.predict_at(alpha_fs, 0)
+        alpha_weights = (
+            alpha.predict_at(alpha_fs, 0)
+            if declared_alpha_enabled
+            else np.zeros(len(expected_symbols), dtype=np.float64)
+        )
         augmented = np.concatenate(
             [
                 np.asarray(latest, dtype=np.float64),
@@ -92,7 +109,7 @@ def build_residual_serving_adapters(bundle, pipeline: DecisionPipeline):
             raw_action,
             trends,
             alpha_array,
-            alpha_enabled=alpha.enabled,
+            alpha_enabled=declared_alpha_enabled,
         )
         current = state.weights_array(expected_symbols)
         target, info = pipeline.process_proposal(
@@ -109,6 +126,7 @@ def build_residual_serving_adapters(bundle, pipeline: DecisionPipeline):
             "action_schema": "baseline_residual_v1",
             "raw_action": np.asarray(raw_action, dtype=np.float64).tolist(),
             "trend_mix": composition.trend_mix,
+            "alpha_enabled": declared_alpha_enabled,
             "alpha_budget": composition.alpha_budget,
             "trend_weights": composition.trend_weights.tolist(),
             "alpha_weights": alpha_array.tolist(),

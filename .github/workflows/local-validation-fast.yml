@@ -23,7 +23,10 @@ jobs:
         id: patch
         shell: bash
         run: |
-          if [[ -f .github/patches/pending.patch ]]; then
+          if [[ -f .github/patches/apply.py ]]; then
+            python .github/patches/apply.py
+            echo "applied=true" >> "$GITHUB_OUTPUT"
+          elif [[ -f .github/patches/pending.patch ]]; then
             git apply --check -p1 .github/patches/pending.patch
             git apply -p1 .github/patches/pending.patch
             echo "applied=true" >> "$GITHUB_OUTPUT"
@@ -48,6 +51,7 @@ jobs:
         run: |
           message="$(cat .github/patches/commit-message.txt 2>/dev/null || echo 'fix: apply local validation task patch')"
           rm -f \
+            .github/patches/apply.py \
             .github/patches/pending.patch \
             .github/patches/test-command.txt \
             .github/patches/commit-message.txt

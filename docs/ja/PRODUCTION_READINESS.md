@@ -13,29 +13,44 @@
 - [ ] 正確なrelease headでmypyに合格している。
 - [ ] 正確なrelease headで完全なpytest suiteに合格している。
 - [ ] Coverageが70%以上である。
-- [ ] Architecture reviewのCriticalおよびImportant findingが解消されている。
+- [ ] Architecture reviewのCriticalおよびImportant findingが解消されるか、責任ownerによって明示的に受容されている。
+
+## Control Plane release eligibility
+
+- [ ] 承認済み実行で`--force`、`--skip-p0`、`--skip-wf`、`--skip-gate`を使用していない。
+- [ ] 空でないsealed holdoutが、PBT、Walk-Forward選択、feature選択、最終学習から分離されている。
+- [ ] Gate 2が最終modelをそのsealed holdout上で評価している。
+- [ ] P0、Walk-Forward、Gate 2、必要なsignificance gateに合格している。
+- [ ] Bundleの`release_eligibility` recordが承認済み実行証拠と一致している。
+- [ ] 研究専用実行から登録可能な候補が生成されないことを実証している。
 
 ## Artifactとmodel identity
 
 - [ ] 承認されたControl Plane runから、完全なServingBundleが1つ生成されている。
 - [ ] Bundleのmodel version、Git SHA、file digest、canonical digestが記録されている。
-- [ ] ShadowおよびCanary証拠が、正確に同じbundle identityを参照している。
+- [ ] Bundle検証が、適格なrelease metadataと完全なrisk policyを確認している。
+- [ ] ShadowおよびCanary証拠が、正確に同じBundle identityを参照している。
 - [ ] Deployment gateのsource run制限とrelease branch制限が設定されている。
+- [ ] 稼働中Serving release Git SHAがBundle Git SHAと一致している。
 - [ ] Activation済みRegistry identityが、Servingの返すversion／digestと一致する。
-- [ ] 登録済みknown-good versionへのrollbackが実証されている。
+- [ ] Post-activation workflowがlive `/ready`を通じてversion、digest、release Git SHAを検証している。
+- [ ] code互換な登録済みknown-good versionへのrollbackが実証されている。
 
 ## Serving Plane
 
 - [ ] Servingがhealth、readiness、認証付きsignal routeだけを公開している。
 - [ ] Machine-to-machine tokenとrotation手順が設定されている。
 - [ ] Network bind、proxy、TLS、origin allowlistが設定されている。
+- [ ] `TRADE_RL_RELEASE_GIT_SHA`が不変deployed releaseから注入されている。
 - [ ] 現在positionと口座状態がrequestごとに提供される。
 - [ ] Request IDとmarket snapshot identityが固有で、auditされている。
-- [ ] 破損activation時に、以前の健全なBundleを維持する。
+- [ ] 破損またはGit SHA不一致activation時に、以前の健全なBundleを維持する。
 - [ ] 健全なBundleがない場合、実行可能なweightを含めず`503`を返す。
 
 ## Riskと執行
 
+- [ ] Release risk policyがleverage、single-symbol weight、net exposure、worst-case notional、minimum order notionalの有限limitを含む。
+- [ ] Liquidity capが順序付きBundle symbolを過不足なくカバーし、forbidden symbolが明示的に記録されている。
 - [ ] Trade Platformが注文前に、返されたpre-trade risk判定を強制する。
 - [ ] Pending order、symbol restriction、liquidity、reduce-only、exposure limitをend-to-endで検証している。
 - [ ] 実取引所／platform用`EmergencyExecutionAdapter`が実装され、review済みである。
@@ -46,8 +61,11 @@
 
 - [ ] `shadow`、`canary`、`production` GitHub Environmentが存在する。
 - [ ] Productionに必要な独立reviewerが設定されている。
-- [ ] `TRADE_RL_REGISTRY_DIR`がstageに適したpersistent storageを指している。
+- [ ] `trade-rl-deploy` labelを持つself-hosted runnerが隔離・管理されている。
+- [ ] `TRADE_RL_REGISTRY_DIR`がServingと共有されるstage適切な絶対persistent pathである。
+- [ ] `TRADE_RL_SERVING_READY_URL`が正しいstage `/ready` endpointを指している。
 - [ ] 証拠producer identityが信頼され、branch制限されている。
+- [ ] 意図的にidentityを不一致にした場合、deploymentが失敗することを実証している。
 - [ ] Secretがrepository外に保存され、rotationがテストされている。
 
 ## 運用とコンプライアンス

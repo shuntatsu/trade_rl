@@ -1,0 +1,121 @@
+--- trade_rl_task3_green/mars_lite/server/metrics_server.py	2026-07-12 06:50:13.000000000 +0000
++++ trade_rl_task4_green/mars_lite/server/metrics_server.py	2026-07-12 07:10:54.001443815 +0000
+@@ -1,12 +1,13 @@
+-"""
+-メトリクスサーバーモジュール
++"""Legacy development-only training dashboard server.
+ 
+-FastAPIベースのWebSocket + REST APIサーバー。
+-学習メトリクスのリアルタイム配信とモデル管理を提供。
++This module is not the authoritative Serving Plane. Production and signal-serving
++processes must use :mod:`mars_lite.server.signal_server` through
++``scripts/run_server.py``.
+ """
+ 
+ import asyncio
+ import json
++import os
+ import time
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional, Set
+@@ -28,6 +29,15 @@
+ from mars_lite.learning.training_callback import MetricsHistory, get_metrics_history
+ 
+ 
++def _require_development_opt_in(development_only: bool) -> None:
++    if development_only or os.getenv("TRADE_RL_ENABLE_LEGACY_METRICS_SERVER") == "1":
++        return
++    raise RuntimeError(
++        "legacy metrics server is development-only; set "
++        "TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1 or pass development_only=True"
++    )
++
++
+ class NumpyJSONEncoder(json.JSONEncoder):
+     """NumPy型をJSONシリアライズ可能にするエンコーダ"""
+ 
+@@ -89,6 +99,8 @@
+ def create_app(
+     metrics_history: Optional[MetricsHistory] = None,
+     output_dir: str = "./output",
++    *,
++    development_only: bool = False,
+ ) -> "FastAPI":
+     """
+     FastAPIアプリケーションを作成
+@@ -100,6 +112,7 @@
+     Returns:
+         FastAPIアプリケーション
+     """
++    _require_development_opt_in(development_only)
+     if not HAS_FASTAPI:
+         raise ImportError(
+             "FastAPI is required. Install with: pip install fastapi uvicorn[standard]"
+@@ -756,6 +769,8 @@
+     port: int = 8001,
+     metrics_history: Optional[MetricsHistory] = None,
+     output_dir: str = "./output",
++    *,
++    development_only: bool = False,
+ ) -> None:
+     """
+     サーバーを起動
+@@ -771,7 +786,9 @@
+             "FastAPI is required. Install with: pip install fastapi uvicorn[standard]"
+         )
+ 
+-    app = create_app(metrics_history, output_dir)
++    app = create_app(
++        metrics_history, output_dir, development_only=development_only
++    )
+     uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
+ 
+ 
+@@ -780,6 +797,8 @@
+     port: int = 8001,
+     metrics_history: Optional[MetricsHistory] = None,
+     output_dir: str = "./output",
++    *,
++    development_only: bool = False,
+ ) -> None:
+     """
+     サーバーを非同期で起動（学習と並行実行用）
+@@ -795,7 +814,9 @@
+             "FastAPI is required. Install with: pip install fastapi uvicorn[standard]"
+         )
+ 
+-    app = create_app(metrics_history, output_dir)
++    app = create_app(
++        metrics_history, output_dir, development_only=development_only
++    )
+     config = uvicorn.Config(
+         app, host=host, port=port, log_level="warning", access_log=False
+     )
+@@ -810,6 +831,11 @@
+     parser.add_argument("--host", default="0.0.0.0", help="Host address")
+     parser.add_argument("--port", type=int, default=8001, help="Port number")
+     parser.add_argument("--output-dir", default="./output", help="Output directory")
++    parser.add_argument(
++        "--development-only",
++        action="store_true",
++        help="explicitly opt in to the legacy training dashboard",
++    )
+ 
+     args = parser.parse_args()
+ 
+@@ -820,4 +846,5 @@
+         host=args.host,
+         port=args.port,
+         output_dir=args.output_dir,
++        development_only=args.development_only,
+     )
+--- trade_rl_task3_green/scripts/train.py	2026-07-12 06:50:13.000000000 +0000
++++ trade_rl_task4_green/scripts/train.py	2026-07-12 07:10:54.001917647 +0000
+@@ -585,6 +585,7 @@
+                 host="0.0.0.0",
+                 port=args.port,
+                 output_dir=str(output_dir),
++                development_only=True,
+             )
+ 
+         server_thread = threading.Thread(target=start_server, daemon=True)

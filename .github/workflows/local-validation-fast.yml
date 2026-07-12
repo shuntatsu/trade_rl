@@ -30,25 +30,45 @@ jobs:
       - name: Ruff format verification
         run: uv run ruff format --check --diff .
       - name: Mypy
-        run: uv run mypy mars_lite
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy mars_lite 2>&1 | tee mypy-local-validation.log
       - name: Focused tests
-        run: >-
-          uv run pytest
-          tests/test_production_pipeline.py
-          tests/test_p0_configuration.py
-          tests/test_snapshot_identity.py
-          tests/test_market_time.py
-          tests/test_feature_provider.py
-          tests/test_legacy_metrics_server.py
-          tests/test_local_gameday.py
-          tests/test_serving_runtime.py
-          tests/test_signal_server.py
-          tests/test_serving_registry.py
-          tests/test_documentation_contract.py
-          -q
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest \
+            tests/test_production_pipeline.py \
+            tests/test_p0_configuration.py \
+            tests/test_snapshot_identity.py \
+            tests/test_market_time.py \
+            tests/test_feature_provider.py \
+            tests/test_legacy_metrics_server.py \
+            tests/test_local_gameday.py \
+            tests/test_serving_runtime.py \
+            tests/test_signal_server.py \
+            tests/test_serving_registry.py \
+            tests/test_documentation_contract.py \
+            -q 2>&1 | tee focused-local-validation.log
       - name: Run local GameDay CLI
-        run: uv run python scripts/run_local_gameday.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python scripts/run_local_gameday.py 2>&1 | tee gameday-local-validation.log
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-validation-diagnostics-${{ github.run_id }}
+          path: |
+            mypy-local-validation.log
+            focused-local-validation.log
+            gameday-local-validation.log
+          if-no-files-found: ignore
+          retention-days: 2
       - name: Commit formatter output
+        if: success()
         shell: bash
         run: |
           if git diff --quiet; then

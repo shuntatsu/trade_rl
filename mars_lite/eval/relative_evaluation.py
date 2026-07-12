@@ -8,17 +8,21 @@ from mars_lite.env.baseline_residual_env import BaselineResidualTradingEnv
 from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 
 
-def _book_metrics(book, initial_capital: float) -> dict[str, float | int]:
+def _book_metrics(
+    book, initial_capital: float, bars_per_year: int
+) -> dict[str, float | int]:
+    if bars_per_year <= 0:
+        raise ValueError("bars_per_year must be positive")
     returns = np.asarray(book.returns_history, dtype=np.float64)
     sharpe = (
-        float(returns.mean() / returns.std() * np.sqrt(BARS_PER_YEAR_1H))
+        float(returns.mean() / returns.std() * np.sqrt(bars_per_year))
         if returns.size and returns.std() > 0.0
         else 0.0
     )
     downside = np.minimum(returns, 0.0)
     downside_std = float(np.sqrt(np.mean(downside**2))) if returns.size else 0.0
     sortino = (
-        float(returns.mean() / downside_std * np.sqrt(BARS_PER_YEAR_1H))
+        float(returns.mean() / downside_std * np.sqrt(bars_per_year))
         if downside_std > 0.0
         else 0.0
     )
@@ -92,6 +96,11 @@ def evaluate_relative_agent(
     env = BaselineResidualTradingEnv(fs, episode_bars=episode_bars, **kwargs)
     obs, _ = env.reset(options={"start_idx": effective_start})
 
+    pp_cfg = getattr(env.post_processor, "cfg", None)
+    bars_per_year = int(getattr(pp_cfg, "bars_per_year", BARS_PER_YEAR_1H))
+    if bars_per_year <= 0:
+        raise ValueError("post-processor bars_per_year must be positive")
+
     actions: list[np.ndarray] = []
     trend_mixes: list[float] = []
     alpha_budgets: list[float] = []
@@ -117,8 +126,8 @@ def evaluate_relative_agent(
         stage_gross["executed"].append(float(np.abs(env.hybrid.weights).sum()))
         done = term or trunc
 
-    hybrid_metrics = _book_metrics(env.hybrid, env.initial_capital)
-    shadow_metrics = _book_metrics(env.shadow, env.initial_capital)
+    hybrid_metrics = _book_metrics(env.hybrid, env.initial_capital, bars_per_year)
+    shadow_metrics = _book_metrics(env.shadow, env.initial_capital, bars_per_year)
     hybrid_returns = np.asarray(env.hybrid.returns_history, dtype=np.float64)
     shadow_returns = np.asarray(env.shadow.returns_history, dtype=np.float64)
     differences = hybrid_returns - shadow_returns
@@ -175,7 +184,7 @@ def evaluate_relative_agent(
             "decision_steps": len(actions),
             "base_bars_advanced": len(hybrid_returns),
             "context_bars": effective_start,
-            "annualization_factor": BARS_PER_YEAR_1H,
+            "annualization_factor": bars_per_year,
             "return_series": "base_bar",
         },
     }

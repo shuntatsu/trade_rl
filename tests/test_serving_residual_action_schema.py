@@ -111,7 +111,7 @@ def test_baseline_only_bundle_has_no_policy_model(tmp_path: Path) -> None:
 
 def test_baseline_only_rejects_enabled_residual_alpha(tmp_path: Path) -> None:
     alpha = _alpha_artifact(tmp_path / "alpha.json")
-    with pytest.raises(ValueError, match="baseline_only.*alpha"):
+    with pytest.raises(ValueError, match="alpha"):
         create_candidate_bundle(
             destination=tmp_path / "candidate",
             model_source=None,

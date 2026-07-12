@@ -24,6 +24,8 @@ class FrozenResidualAlpha:
     dataset_identity: str
     ridge_weights: tuple[float, ...] | None = None
     gbm_model_string: str | None = None
+    feature_mean: tuple[float, ...] | None = None
+    feature_std: tuple[float, ...] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -77,12 +79,20 @@ class FrozenResidualAlpha:
 
         ridge_weights = None
         gbm_model_string = None
+        feature_mean = None
+        feature_std = None
         if model == "ridge":
             from mars_lite.features.signal_check import _ridge_fit, _ridge_predict
 
-            weights = _ridge_fit(X, y)
-            train_pred = _ridge_predict(X, weights)
+            mean = np.mean(X, axis=0)
+            std = np.std(X, axis=0)
+            std = np.where(std > 1e-12, std, 1.0)
+            standardized = (X - mean) / std
+            weights = _ridge_fit(standardized, y)
+            train_pred = _ridge_predict(standardized, weights)
             ridge_weights = tuple(float(value) for value in weights)
+            feature_mean = tuple(float(value) for value in mean)
+            feature_std = tuple(float(value) for value in std)
         else:
             from mars_lite.features.gbm_forecaster import fit_gbm, predict_gbm
 
@@ -108,6 +118,8 @@ class FrozenResidualAlpha:
             dataset_identity=identity,
             ridge_weights=ridge_weights,
             gbm_model_string=gbm_model_string,
+            feature_mean=feature_mean,
+            feature_std=feature_std,
         )
 
     def predict_at(self, fs, t: int) -> np.ndarray:
@@ -130,8 +142,15 @@ class FrozenResidualAlpha:
         if self.model == "ridge":
             if self.ridge_weights is None:
                 raise ValueError("ridge artifact is missing weights")
+            if self.feature_mean is None or self.feature_std is None:
+                raise ValueError("ridge artifact is missing preprocessing statistics")
+            mean = np.asarray(self.feature_mean, dtype=np.float64)
+            std = np.asarray(self.feature_std, dtype=np.float64)
+            if mean.shape != (features.shape[1],) or std.shape != (features.shape[1],):
+                raise ValueError("ridge preprocessing shape does not match features")
+            standardized = (features - mean) / std
             weights = np.asarray(self.ridge_weights, dtype=np.float64)
-            Xb = np.hstack([features, np.ones((len(features), 1))])
+            Xb = np.hstack([standardized, np.ones((len(standardized), 1))])
             raw = Xb @ weights
         else:
             if self.gbm_model_string is None:
@@ -160,8 +179,9 @@ class FrozenResidualAlpha:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         payload["feature_names"] = tuple(payload["feature_names"])
         payload["symbols"] = tuple(payload["symbols"])
-        if payload.get("ridge_weights") is not None:
-            payload["ridge_weights"] = tuple(payload["ridge_weights"])
+        for key in ("ridge_weights", "feature_mean", "feature_std"):
+            if payload.get(key) is not None:
+                payload[key] = tuple(payload[key])
         return cls(**payload)
 
 

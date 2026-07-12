@@ -45,6 +45,11 @@ def test_fit_cutoff_excludes_unrealized_horizon() -> None:
 
     assert artifact.fit_cutoff_index == fs.n_bars - 4
     assert artifact.feature_names == tuple(fs.feature_names)
+    assert artifact.feature_mean is not None
+    assert artifact.feature_std is not None
+    assert len(artifact.feature_mean) == fs.n_features
+    assert len(artifact.feature_std) == fs.n_features
+    assert all(value > 0.0 for value in artifact.feature_std)
 
 
 def test_prediction_is_market_neutral_and_gross_bounded() -> None:

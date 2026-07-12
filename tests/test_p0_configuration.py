@@ -76,8 +76,12 @@ def test_p0_report_records_effective_candidate_timing(tmp_path, monkeypatch) -> 
 
     monkeypatch.setattr(sources, "SyntheticSource", _Source)
     monkeypatch.setattr(feature_pipeline, "FeaturePipeline", _Pipeline)
-    monkeypatch.setattr(evaluator, "run_signal_check", lambda fs, horizon: _SignalReport())
-    monkeypatch.setattr(evaluator, "build_post_processor", lambda args, horizon: object())
+    monkeypatch.setattr(
+        evaluator, "run_signal_check", lambda fs, horizon: _SignalReport()
+    )
+    monkeypatch.setattr(
+        evaluator, "build_post_processor", lambda args, horizon: object()
+    )
     monkeypatch.setattr(evaluator, "build_env_kwargs", lambda args, pp, horizon: {})
     monkeypatch.setattr(evaluator, "train_ppo", lambda **kwargs: _Agent())
     monkeypatch.setattr(
@@ -100,9 +104,7 @@ def test_p0_report_records_effective_candidate_timing(tmp_path, monkeypatch) -> 
     )
     monkeypatch.setattr(evaluator, "report_comparison", lambda *args, **kwargs: None)
     monkeypatch.setattr(evaluator, "plot_comparison", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        evaluator, "generate_and_save_manifest", lambda **kwargs: None
-    )
+    monkeypatch.setattr(evaluator, "generate_and_save_manifest", lambda **kwargs: None)
 
     args = SimpleNamespace(
         days=90,

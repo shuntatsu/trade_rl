@@ -43,12 +43,24 @@ jobs:
 
       - run: uv sync --all-extras --dev
 
+      - name: Validate deployment source
+        if: inputs.stage != 'shadow'
+        env:
+          EXPECTED_RELEASE_REF: refs/heads/main
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "$EXPECTED_RELEASE_REF" ]; then
+            echo "canary and production deployments must run from main" >&2
+            exit 2
+          fi
+
       - name: Download and bind immutable evidence
         if: inputs.stage != 'shadow'
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
           EVIDENCE_ARTIFACT_NAME: ${{ inputs.evidence_artifact_name }}
+          EXPECTED_RELEASE_BRANCH: main
         run: |
           set -euo pipefail
           if [ -z "$EVIDENCE_RUN_ID" ]; then
@@ -64,9 +76,14 @@ jobs:
 
           CANDIDATE_COMMIT=$(python -c 'import json; print(json.load(open("deployment_bundle/candidate.json", encoding="utf-8"))["git_commit"])')
           RUN_HEAD_SHA=$(gh run view "$EVIDENCE_RUN_ID" --repo "${GITHUB_REPOSITORY}" --json headSha --jq .headSha)
+          RUN_HEAD_BRANCH=$(gh run view "$EVIDENCE_RUN_ID" --repo "${GITHUB_REPOSITORY}" --json headBranch --jq .headBranch)
           RUN_CONCLUSION=$(gh run view "$EVIDENCE_RUN_ID" --repo "${GITHUB_REPOSITORY}" --json conclusion --jq .conclusion)
           if [ "$RUN_CONCLUSION" != "success" ]; then
             echo "evidence source run did not complete successfully: $RUN_CONCLUSION" >&2
+            exit 3
+          fi
+          if [ "$RUN_HEAD_BRANCH" != "$EXPECTED_RELEASE_BRANCH" ]; then
+            echo "evidence source run must originate from main" >&2
             exit 3
           fi
           if [ "$RUN_HEAD_SHA" != "$CANDIDATE_COMMIT" ]; then

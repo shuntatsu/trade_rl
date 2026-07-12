@@ -103,15 +103,49 @@ uv run python scripts/run_pipeline.py \
   --output output/baseline_residual_research
 ```
 
+## Residual Walk-Forward
+
+The legacy direct-weight Walk-Forward continues to write `walk_forward_cost1x.json` and `walk_forward_cost2x.json`. Those files do not evaluate the residual architecture.
+
+Run the nested residual Walk-Forward explicitly:
+
+```bash
+uv run python scripts/run_pipeline.py \
+  --action-mode baseline-residual \
+  --phase wf \
+  --no-register \
+  --source postgres \
+  --pg-source binance \
+  --base-timeframe 1h \
+  --decision-every 4 \
+  --horizon 12 \
+  --timesteps 102400 \
+  --folds 3 \
+  --ensemble 3 \
+  --n-seeds 3 \
+  --signal-model gbm \
+  --run-tier research \
+  --output output/realdata_residual_wf
+```
+
+The authoritative result is `residual_walk_forward.json`. Every outer fold performs an inner train/validation split, selects A/B/D before reading the outer OOS result, and evaluates the same selected policy under 1x and 2x costs. The report records both hybrid and shadow trade counts, so zero residual action can be distinguished from a zero-trade portfolio. Per-fold artifacts are written below `residual_wf/fold_<k>/` and are never registered.
+
 ## Artifacts
 
-The research runner writes:
+The single-split research runner writes:
 
 - `residual_alpha.json` — frozen residual-alpha model and content-bound data identity;
 - `B_trend_mix_model.zip` or `B_trend_mix_ensemble/`;
 - `D_combined_model.zip` or `D_combined_ensemble/` when the alpha gate passes;
 - `residual_train_report.json` — A/B/C/D development results at 1x and 2x costs, frozen selection, final relative evaluation, gates, and diagnostics;
 - `residual_model_manifest.json` — dataset, training, selected policy mode, and selected alpha-activation identity.
+
+The residual Walk-Forward runner writes:
+
+- `residual_walk_forward.json` — cross-fold selection, activity, return, cost, fallback, and warning summary;
+- `residual_wf/fold_<k>/residual_alpha.json` — fold-local frozen alpha artifact;
+- `residual_wf/fold_<k>/fold_report.json` — fold boundaries, development matrix, frozen selection, and 1x/2x OOS diagnostics;
+- fold-local B/D model artifacts when trained.
 
 ## Serving schema
 
@@ -129,6 +163,6 @@ Residual ServingBundles use:
 
 ## Release boundary
 
-Residual candidate construction and Serving validation are implemented, but the top-level registration path intentionally remains disabled. A residual invocation without `--no-register` raises an error until the sealed multi-fold residual walk-forward and release-evidence workflow is implemented and verified.
+Residual single-split and nested Walk-Forward research paths are implemented, but the top-level registration path intentionally remains disabled. A residual invocation without `--no-register` raises an error until the sealed release-evidence workflow, promotion policy, and operational validation are implemented and verified.
 
-This boundary is deliberate. A single development/test run, successful CI, or a valid bundle shape does not establish profitability or Production readiness. Production remains **NO-GO**.
+This boundary is deliberate. Walk-Forward completion, successful CI, or a valid bundle shape does not establish profitability or Production readiness. Production remains **NO-GO**.

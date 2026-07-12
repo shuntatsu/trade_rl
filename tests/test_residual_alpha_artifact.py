@@ -79,6 +79,28 @@ def test_disabled_gate_returns_zero_weights() -> None:
     np.testing.assert_array_equal(artifact.predict_at(fs, 150), np.zeros(3))
 
 
+def test_dataset_identity_changes_when_training_values_change() -> None:
+    original = _feature_set()
+    changed = _feature_set()
+    changed.features = changed.features.copy()
+    changed.features[50, 0, 0] += 0.25
+
+    original_artifact = FrozenResidualAlpha.fit(
+        original,
+        horizon=4,
+        model="ridge",
+        gate_result={"passed": False},
+    )
+    changed_artifact = FrozenResidualAlpha.fit(
+        changed,
+        horizon=4,
+        model="ridge",
+        gate_result={"passed": False},
+    )
+
+    assert original_artifact.dataset_identity != changed_artifact.dataset_identity
+
+
 def test_save_load_does_not_refit_and_rejects_feature_order(tmp_path: Path) -> None:
     fs = _feature_set()
     artifact = FrozenResidualAlpha.fit(

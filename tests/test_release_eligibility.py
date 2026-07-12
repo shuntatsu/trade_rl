@@ -61,8 +61,15 @@ def test_skipped_signal_gate_is_not_misreported_as_gate2() -> None:
 
     assert result.eligible is False
     assert result.skipped_gates == ("signal_gate",)
-    assert result.required_gates["signal_gate"] == "skipped"
+    assert "signal_gate" not in result.required_gates
     assert result.required_gates["gate2"] == "passed"
+
+
+def test_failed_signal_gate_is_disqualifying() -> None:
+    result = _derive(signal_gate_passed=False, significance_passed=True)
+
+    assert result.eligible is False
+    assert result.skipped_gates == ()
 
 
 def test_failed_mandatory_gate_is_disqualifying() -> None:
@@ -83,7 +90,6 @@ def test_serialization_preserves_immutable_contract_fields() -> None:
         "sealed_holdout_used": True,
         "required_gates": {
             "p0": "passed",
-            "signal_gate": "passed",
             "walk_forward": "passed",
             "gate2": "passed",
             "significance": "not_required",

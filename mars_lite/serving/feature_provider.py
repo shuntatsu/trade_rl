@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 
+from mars_lite.serving.market_time import (
+    SUPPORTED_BASE_TIMEFRAMES,
+    resolve_completed_bar_endpoint,
+)
 from mars_lite.serving.runtime import FeatureSnapshot, ServingRuntime
 from mars_lite.serving.snapshot_identity import compute_snapshot_id
-
-_SUPPORTED_BASE_TIMEFRAMES = {"15m", "1h", "4h", "1d"}
 
 
 class CsvFeatureProvider:
@@ -21,12 +24,14 @@ class CsvFeatureProvider:
         runtime: ServingRuntime,
         data_dir: str | Path,
         cache_ttl_seconds: float = 30.0,
+        clock: Callable[[], np.datetime64] | None = None,
     ) -> None:
         if cache_ttl_seconds < 0:
             raise ValueError("cache_ttl_seconds must be non-negative")
         self.runtime = runtime
         self.data_dir = Path(data_dir)
         self.cache_ttl_seconds = cache_ttl_seconds
+        self._clock = clock or (lambda: np.datetime64("now", "ns"))
         self._lock = threading.RLock()
         self._cached: FeatureSnapshot | None = None
         self._cached_digest: str | None = None
@@ -51,7 +56,7 @@ class CsvFeatureProvider:
         symbols = list(bundle.metadata["symbols"])
         run_config = dict(bundle.metadata.get("run_config") or {})
         base_timeframe = str(run_config.get("base_timeframe", "1h"))
-        if base_timeframe not in _SUPPORTED_BASE_TIMEFRAMES:
+        if base_timeframe not in SUPPORTED_BASE_TIMEFRAMES:
             raise ValueError(f"unsupported bundled base_timeframe: {base_timeframe!r}")
         source = create_source("csv", symbols, data_dir=self.data_dir)
         feature_set = FeaturePipeline(symbols, base_timeframe=base_timeframe).build(
@@ -68,18 +73,19 @@ class CsvFeatureProvider:
         post_config = dict(bundle.metadata.get("post_processor") or {})
         vol_lookback = int(post_config.get("vol_lookback", 60))
         history_bars = max(rank_window, vol_lookback + 1, 2)
-        start = max(0, feature_set.n_bars - history_bars)
-        timestamps = feature_set.timestamps[start:]
-        feature_history = feature_set.features[start:]
-        close_history = feature_set.close[start:]
-        last_timestamp = np.datetime64(timestamps[-1], "ns")
-        now_ns = np.datetime64("now", "ns")
-        age_hours = float((now_ns - last_timestamp) / np.timedelta64(1, "h"))
-        if age_hours < 0:
-            age_hours = 0.0
+        endpoint = resolve_completed_bar_endpoint(
+            feature_set.timestamps,
+            base_timeframe=base_timeframe,
+            now_utc=self._clock(),
+        )
+        end = endpoint.end_exclusive
+        start = max(0, end - history_bars)
+        timestamps = feature_set.timestamps[start:end]
+        feature_history = feature_set.features[start:end]
+        close_history = feature_set.close[start:end]
         feature_history_array = np.asarray(feature_history, dtype=np.float64)
         global_features_array = np.asarray(
-            feature_set.global_features[-1], dtype=np.float64
+            feature_set.global_features[end - 1], dtype=np.float64
         )
         close_history_array = np.asarray(close_history, dtype=np.float64)
         snapshot_id = compute_snapshot_id(
@@ -101,7 +107,7 @@ class CsvFeatureProvider:
             feature_history=feature_history_array,
             global_features=global_features_array,
             close_history=close_history_array,
-            data_age_hours=age_hours,
+            data_age_hours=endpoint.data_age_hours,
         )
         snapshot.validate()
         with self._lock:

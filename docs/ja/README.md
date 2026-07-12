@@ -9,6 +9,7 @@
 ## 文書一覧
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — システム境界、ServingBundle、Registry、オンライン推論フロー
+- [`BASELINE_RESIDUAL_RL.md`](BASELINE_RESIDUAL_RL.md) — Baseline-Anchored Residual研究経路とrelease境界
 - [`MODEL_LIFECYCLE.md`](MODEL_LIFECYCLE.md) — 学習から登録、証拠、activation、rollbackまで
 - [`OPERATIONS.md`](OPERATIONS.md) — Control Plane実行、デプロイ、Serving起動、インシデント対応
 - [`SECURITY.md`](SECURITY.md) — 認証、Artifact完全性、request完全性、fail-closed条件

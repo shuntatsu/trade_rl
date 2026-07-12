@@ -84,6 +84,7 @@ def test_train_and_serve_generate_identical_target(tmp_path) -> None:
             },
             "composer": {"alpha_budget_max": 0.30, "max_gross": 1.0},
             "residual_alpha_file": alpha_path.name,
+            "residual_alpha_enabled": False,
         },
         preprocessing={"feature_names": fs.feature_names},
     )

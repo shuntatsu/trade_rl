@@ -7,6 +7,37 @@ from mars_lite.serving.bundle import build_manifest
 from mars_lite.serving.registry import ModelRegistry
 
 
+def _release_eligibility() -> dict[str, object]:
+    return {
+        "eligible": True,
+        "forced": False,
+        "skipped_gates": [],
+        "optimization_steps_skipped": [],
+        "sealed_holdout_used": True,
+        "required_gates": {
+            "p0": "passed",
+            "walk_forward": "passed",
+            "gate2": "passed",
+            "significance": "not_required",
+        },
+    }
+
+
+def _release_risk() -> dict[str, object]:
+    return {
+        "guardrails": {},
+        "pre_trade": {
+            "max_leverage": 1.0,
+            "max_single_weight": 0.5,
+            "max_net_exposure": 1.0,
+            "max_worst_case_notional": 100_000.0,
+            "min_order_notional": 10.0,
+            "symbol_liquidity_caps": {"BTCUSDT": 50_000.0},
+            "forbidden_symbols": [],
+        },
+    }
+
+
 def create_bundle(root: Path, version: str, payload: bytes) -> Path:
     root.mkdir()
     (root / "model.zip").write_bytes(payload)
@@ -22,6 +53,7 @@ def create_bundle(root: Path, version: str, payload: bytes) -> Path:
                 "observation_progress_mode": "zero",
                 "observation_dim": 5,
                 "run_config": {},
+                "release_eligibility": _release_eligibility(),
             }
         ),
         encoding="utf-8",
@@ -32,7 +64,7 @@ def create_bundle(root: Path, version: str, payload: bytes) -> Path:
         encoding="utf-8",
     )
     (root / "risk.json").write_text(
-        '{"guardrails":{},"pre_trade":{}}', encoding="utf-8"
+        json.dumps(_release_risk()), encoding="utf-8"
     )
     build_manifest(root)
     return root

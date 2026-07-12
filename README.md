@@ -58,7 +58,9 @@ uv run python scripts/run_pipeline.py \
 
 A release-capable run requires a non-empty sealed holdout, passing mandatory gates, and a complete risk policy. `--force`, `--skip-p0`, `--skip-wf`, or `--skip-gate` makes a run research-only: it may produce reports, but it cannot construct or register a candidate. Use `--no-register` for intentional research runs.
 
-A successful eligible run constructs and registers an immutable candidate bundle. It does **not** activate the candidate. Activation is reserved for the deployment workflow after evidence and environment approval.
+The baseline-anchored residual policy is currently exposed as an explicit research-only path. See [`docs/BASELINE_RESIDUAL_RL.md`](docs/BASELINE_RESIDUAL_RL.md). Registration remains fail-closed until its sealed multi-fold release workflow is implemented and evidenced.
+
+A successful eligible training run constructs and registers an immutable candidate bundle. It does **not** activate the candidate. Activation is reserved for the deployment workflow after evidence and environment approval.
 
 Registry operations are available through:
 
@@ -103,6 +105,7 @@ The Serving Plane contains no training, model deletion, promotion, rollback, or 
 
 - [Japanese documentation / 日本語ドキュメント](docs/ja/README.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current system architecture
+- [`docs/BASELINE_RESIDUAL_RL.md`](docs/BASELINE_RESIDUAL_RL.md) — baseline-anchored residual research path and release boundary
 - [`docs/MODEL_LIFECYCLE.md`](docs/MODEL_LIFECYCLE.md) — candidate, evidence, registry, activation, rollback
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — deployment and incident procedures
 - [`docs/SECURITY.md`](docs/SECURITY.md) — trust boundaries and threats
@@ -126,4 +129,3 @@ uv run python scripts/run_local_gameday.py
 ```
 
 The legacy dashboard server is development-only and requires `TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1` unless an intentional development caller opts in directly. The filesystem Registry is a single-node local implementation; passing this drill does not establish multi-node or testnet readiness.
-

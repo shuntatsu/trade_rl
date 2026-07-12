@@ -1,23 +1,109 @@
+from __future__ import annotations
+
 from typing import Optional
 
 import numpy as np
 
+from mars_lite.env.baseline_residual_env import BaselineResidualTradingEnv
 from mars_lite.env.portfolio_env import PortfolioTradingEnv
 from mars_lite.features.feature_pipeline import FeatureSet
 
 
-def make_env_fns(fs: FeatureSet, n_envs: int, seed: int, **env_kwargs):
+def validate_run_tier(
+    run_tier: str,
+    *,
+    timesteps: int,
+    n_envs: int,
+    n_steps: int,
+    n_seeds: int,
+) -> dict[str, int | str]:
+    requirements = {
+        "smoke": (5, 1),
+        "research": (50, 3),
+        "release": (100, 5),
+    }
+    if run_tier not in requirements:
+        raise ValueError(f"unknown run tier: {run_tier}")
+    if min(timesteps, n_envs, n_steps, n_seeds) <= 0:
+        raise ValueError("timesteps, n_envs, n_steps, and n_seeds must be positive")
+    required_updates, required_seeds = requirements[run_tier]
+    one_rollout = n_envs * n_steps
+    updates = timesteps // one_rollout
+    if updates < required_updates:
+        raise ValueError(
+            f"{run_tier} requires at least {required_updates} updates "
+            f"({required_updates * one_rollout:,} timesteps)"
+        )
+    if n_seeds < required_seeds:
+        raise ValueError(f"{run_tier} requires at least {required_seeds} seeds")
+    return {
+        "run_tier": run_tier,
+        "updates": updates,
+        "required_updates": required_updates,
+        "required_seeds": required_seeds,
+        "one_rollout_steps": one_rollout,
+    }
+
+
+def make_env_fns(
+    fs: FeatureSet,
+    n_envs: int,
+    seed: int,
+    *,
+    env_class=PortfolioTradingEnv,
+    **env_kwargs,
+):
     from stable_baselines3.common.monitor import Monitor
 
     def make_one(rank: int):
         def _init():
-            env = PortfolioTradingEnv(fs, **env_kwargs)
+            env = env_class(fs, **env_kwargs)
             env.reset(seed=seed + rank)
             return Monitor(env)
 
         return _init
 
     return [make_one(i) for i in range(n_envs)]
+
+
+def zero_initialize_action_head(agent, exploration_log_std: float = -2.0) -> None:
+    """Make the initial deterministic residual action exactly the identity action."""
+
+    import torch
+
+    policy = agent.policy
+    with torch.no_grad():
+        policy.action_net.weight.zero_()
+        policy.action_net.bias.zero_()
+        log_std = getattr(policy, "log_std", None)
+        if log_std is not None:
+            log_std.fill_(float(exploration_log_std))
+
+
+def _resolve_env(
+    fs: FeatureSet,
+    action_mode: str,
+    env_kwargs: dict,
+    *,
+    trend_family=None,
+    alpha_provider=None,
+    alpha_enabled: bool = True,
+):
+    if action_mode == "direct":
+        return PortfolioTradingEnv, dict(env_kwargs)
+    if action_mode != "baseline-residual":
+        raise ValueError(f"unknown action_mode: {action_mode}")
+    residual_kwargs = dict(env_kwargs)
+    residual_kwargs.pop("lambda_turnover", None)
+    residual_kwargs.pop("use_dsr", None)
+    residual_kwargs.pop("dsr_eta", None)
+    residual_kwargs.pop("disagreement_dr_max", None)
+    residual_kwargs.update(
+        trend_family=trend_family,
+        alpha_provider=alpha_provider,
+        alpha_enabled=alpha_enabled,
+    )
+    return BaselineResidualTradingEnv, residual_kwargs
 
 
 def train_ppo(
@@ -31,7 +117,7 @@ def train_ppo(
     verbose: int = 0,
     callbacks=None,
     val_fs: FeatureSet = None,
-    val_eval_freq: int = 20_000,
+    val_eval_freq: Optional[int] = None,
     bc_warmstart: bool = True,
     bc_epochs: int = 15,
     bc_teacher: str = "auto",
@@ -39,17 +125,33 @@ def train_ppo(
     horizon: int = 4,
     signal_target: str = "raw",
     oracle_noisy_ic: Optional[float] = None,
+    action_mode: str = "direct",
+    run_tier: Optional[str] = None,
+    n_seeds: int = 1,
+    trend_family=None,
+    alpha_provider=None,
+    alpha_enabled: bool = True,
     **env_kwargs,
 ):
-    """signal_target: ICゲート判定とRidge教師の予測対象（raw/cs_demean/vol_norm）。
-    絶対リターンに信号が無く相対アルファのみ有意な市場では cs_demean を指定すると、
-    ゲート判定・Ridge教師の両方が同じ市場中立の対象を見る。
+    """Train direct-weight or baseline-residual PPO.
+
+    Residual mode disables BC, zero-initializes the action mean, aggregates base bars
+    inside the environment, and restores only checkpoints that beat the shadow trend.
     """
+
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import CallbackList
     from stable_baselines3.common.vec_env import DummyVecEnv
 
-    from mars_lite.learning.val_selection import ValSelectionCallback
+    n_steps = 256
+    if run_tier is not None:
+        validate_run_tier(
+            run_tier,
+            timesteps=timesteps,
+            n_envs=n_envs,
+            n_steps=n_steps,
+            n_seeds=n_seeds,
+        )
 
     full_fs = fs
     if val_fs is None and fs.n_bars > 400:
@@ -57,16 +159,32 @@ def train_ppo(
         val_fs = fs.slice(cut, fs.n_bars)
         fs = fs.slice(0, cut)
 
-    env = DummyVecEnv(make_env_fns(fs, n_envs, seed, **env_kwargs))
-    probe = PortfolioTradingEnv(fs, **env_kwargs)
+    env_class, resolved_env_kwargs = _resolve_env(
+        fs,
+        action_mode,
+        env_kwargs,
+        trend_family=trend_family,
+        alpha_provider=alpha_provider,
+        alpha_enabled=alpha_enabled,
+    )
+    env = DummyVecEnv(
+        make_env_fns(
+            fs,
+            n_envs,
+            seed,
+            env_class=env_class,
+            **resolved_env_kwargs,
+        )
+    )
+    probe = env_class(fs, **resolved_env_kwargs)
 
     from mars_lite.features.feature_pipeline import TF_BLOCK_FEATURES
 
     tf_prefixes = []
     for name in fs.feature_names:
-        p = name.split("_")[0]
-        if p in ("15m", "30m", "1h", "4h", "1d") and p not in tf_prefixes:
-            tf_prefixes.append(p)
+        prefix = name.split("_")[0]
+        if prefix in ("15m", "30m", "1h", "4h", "1d") and prefix not in tf_prefixes:
+            tf_prefixes.append(prefix)
 
     if extractor == "tfgated" and tf_prefixes:
         from mars_lite.models.portfolio_extractor import TFGatedPortfolioExtractor
@@ -77,8 +195,6 @@ def train_ppo(
                 **probe.obs_layout,
                 "n_tf_blocks": len(tf_prefixes),
                 "tf_block_size": len(TF_BLOCK_FEATURES),
-                # size="small"がARCHITECTURE.mdのベンチ実績構成。"large"は容量を
-                # 増やした未検証構成（要再ベンチ）なのでここでは明示的に固定する
                 "size": "small",
             },
             "net_arch": dict(pi=[64, 64], vf=[64, 64]),
@@ -100,7 +216,7 @@ def train_ppo(
         env,
         policy_kwargs=policy_kwargs,
         learning_rate=lr_schedule,
-        n_steps=256,
+        n_steps=n_steps,
         batch_size=256,
         n_epochs=6,
         gamma=gamma,
@@ -112,6 +228,10 @@ def train_ppo(
         device="cpu",
         verbose=verbose,
     )
+
+    if action_mode == "baseline-residual":
+        zero_initialize_action_head(agent)
+        bc_warmstart = False
 
     if bc_warmstart:
         from mars_lite.learning.bc_warmstart import (
@@ -140,12 +260,12 @@ def train_ppo(
                     ridge_target=signal_target,
                 )
                 if verbose:
-                    comps = []
+                    components = []
                     if use_ridge:
-                        comps.append(f"ridge(ic={ic.mean_oos_ic:.3f})")
+                        components.append(f"ridge(ic={ic.mean_oos_ic:.3f})")
                     if use_trend:
-                        comps.append(f"trend(t={trend['t_stat']:.1f})")
-                    print(f"[BC auto] teacher = {' + '.join(comps)}")
+                        components.append(f"trend(t={trend['t_stat']:.1f})")
+                    print(f"[BC auto] teacher = {' + '.join(components)}")
             elif verbose:
                 print("[BC auto] no gate passed -> BC disabled (flat prior)")
         elif bc_teacher == "ridge":
@@ -172,24 +292,43 @@ def train_ppo(
             elif verbose:
                 print(
                     f"[BC oracle] IC gate failed (ic={ic.mean_oos_ic:.3f}) "
-                    "-> oracle teacher disabled (flat prior); "
-                    "特権教師を模倣する意味がない（ノイズの丸暗記になる）"
+                    "-> oracle teacher disabled (flat prior)"
                 )
         else:
             teacher = soft_momentum_teacher()
 
         if teacher is not None:
-            X, A = generate_teacher_dataset(fs, teacher, env_kwargs)
+            X, A = generate_teacher_dataset(fs, teacher, resolved_env_kwargs)
             bc_pretrain(agent, X, A, epochs=bc_epochs, verbose=verbose)
 
     val_cb = None
     if val_fs is not None:
-        val_cb = ValSelectionCallback(
-            val_fs,
-            eval_freq=val_eval_freq,
-            env_kwargs=env_kwargs,
-            verbose=verbose,
-        )
+        if action_mode == "baseline-residual":
+            from mars_lite.learning.relative_val_selection import (
+                RelativeValSelectionCallback,
+                rollout_aligned_eval_freq,
+            )
+
+            effective_eval_freq = val_eval_freq or rollout_aligned_eval_freq(
+                total_timesteps=timesteps,
+                one_rollout_steps=n_envs * n_steps,
+                n_eval_targets=10,
+            )
+            val_cb = RelativeValSelectionCallback(
+                val_fs,
+                eval_freq=effective_eval_freq,
+                env_kwargs=resolved_env_kwargs,
+                verbose=verbose,
+            )
+        else:
+            from mars_lite.learning.val_selection import ValSelectionCallback
+
+            val_cb = ValSelectionCallback(
+                val_fs,
+                eval_freq=val_eval_freq or 20_000,
+                env_kwargs=resolved_env_kwargs,
+                verbose=verbose,
+            )
         callbacks = CallbackList(
             ([callbacks] if callbacks is not None else []) + [val_cb]
         )
@@ -198,9 +337,10 @@ def train_ppo(
 
     if val_cb is not None:
         agent = val_cb.restore_best(agent)
+        setattr(agent, "validation_selection", val_cb)
         if verbose:
             print(
-                f"[train_ppo] Restored best-val model (score={val_cb.best_score:+.4f})"
+                f"[train_ppo] Restored validation-selected model: {val_cb.best_score}"
             )
     return agent
 
@@ -212,36 +352,24 @@ def build_post_processor(args, horizon: int = 4):
         make_legacy_processor,
     )
 
-    # no_trade_band は --min-trade-delta 由来の単一の値にする。以前は
-    # full/legacyの両モードでハードコード値(0.04/make_legacy_processorの
-    # 既定0.02)を使っており、--min-trade-delta が実際のno-tradeバンドに
-    # 一切反映されない二重管理バグだった（実データのflat崩壊アブレーション
-    # で発覚: --min-trade-delta 0を指定してもno_trade_bandは0.04のままで、
-    # 「発注抑制を除去した」つもりの実験が実は何も変わっていなかった）。
+    action_mode = getattr(args, "action_mode", "direct")
     no_trade_band = getattr(args, "min_trade_delta", 0.04)
+    if action_mode == "baseline-residual":
+        no_trade_band = 0.0
 
     mode = getattr(args, "postproc", "full")
     if mode == "legacy":
         return make_legacy_processor(no_trade_band)
-    tv = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
-    # 低頻度化は decision_every が担うため、ema_alpha/no_trade_band を
-    # horizon で強くスケールしない（マイクロノイズ除去に役割を限定する）。
+    target_vol = None if getattr(args, "target_vol", 0.5) <= 0 else args.target_vol
     ema_alpha = 0.5
     max_weight = 0.4
-    # 不変条件: no_trade_band <= ema_alpha * max_weight * 0.5
-    # これを破ると「1ステップで動ける最大量 < 発注しきい値」となり、
-    # ウェイトが初期値(通常0)から一歩も動けず永久に据え置かれる
-    # （decision_every とは独立に発生するデッドゾーン）。
     cap = ema_alpha * max_weight * 0.5
     if no_trade_band > cap:
         no_trade_band = cap
-    # ④ボラターゲティングの年率換算はbase_timeframeの実バー数に合わせる。
-    # 1h想定のまま4h等を使うと推定年率ボラが水増しされ、target_volへの
-    # スケーリングが過剰にグロスを絞ってしまう。
     base_tf = getattr(args, "base_timeframe", "1h")
     bars_per_year = int(24 * 60 / TF_TO_MINUTES[base_tf] * 365)
     return make_default_processor(
-        target_vol=tv,
+        target_vol=target_vol,
         ema_alpha=ema_alpha,
         no_trade_band=no_trade_band,
         beta_neutral=getattr(args, "beta_neutral", False),
@@ -249,49 +377,59 @@ def build_post_processor(args, horizon: int = 4):
     )
 
 
+def _resolve_decision_every(args, horizon: int) -> int:
+    raw = getattr(args, "decision_every", 1)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        raise ValueError("decision_every must be a positive integer")
+    effective = raw
+    if raw == 1 and getattr(args, "scan_horizons", False) and horizon > 1:
+        effective = max(1, horizon // 2)
+    args.decision_every = effective
+    return effective
+
+
 def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
     from mars_lite.trading.execution import FEE_PROFILES
 
+    action_mode = getattr(args, "action_mode", "direct")
     min_trade_delta = getattr(args, "min_trade_delta", 0.04)
-    ekw = {
+    if action_mode == "baseline-residual":
+        min_trade_delta = 0.0
+    decision_every = _resolve_decision_every(args, horizon)
+    env_kwargs = {
         "post_processor": pp,
         "min_trade_delta": min_trade_delta,
-        "lambda_turnover": getattr(args, "lambda_turnover", 0.04),
         "reward_scale": getattr(args, "reward_scale", 100.0),
         **FEE_PROFILES[getattr(args, "fee_profile", "taker")],
     }
+    if action_mode == "baseline-residual" or decision_every > 1:
+        env_kwargs["decision_every"] = decision_every
+    if action_mode == "direct":
+        env_kwargs["lambda_turnover"] = getattr(args, "lambda_turnover", 0.04)
     if getattr(args, "htf_gate", False):
-        ekw["htf_gate"] = True
+        env_kwargs["htf_gate"] = True
     if getattr(args, "obs_risk_state", False):
-        ekw["obs_risk_state"] = True
-    disagreement_dr = float(getattr(args, "disagreement_dr", 0.0))
-    if disagreement_dr > 0.0:
-        ekw["disagreement_dr_max"] = disagreement_dr
-    explicit = getattr(args, "decision_every", 1)
-    if explicit and explicit > 1:
-        ekw["decision_every"] = explicit
-    elif getattr(args, "scan_horizons", False) and horizon > 1:
-        auto_every = max(1, horizon // 2)
-        if auto_every > 1:
-            ekw["decision_every"] = auto_every
+        env_kwargs["obs_risk_state"] = True
+    if action_mode == "direct":
+        disagreement_dr = float(getattr(args, "disagreement_dr", 0.0))
+        if disagreement_dr > 0.0:
+            env_kwargs["disagreement_dr_max"] = disagreement_dr
 
-    # 実効設定を可視化する（--min-trade-deltaがno_trade_bandに反映されて
-    # いるかを毎回目視確認できるようにする。過去にno_trade_bandがハード
-    # コードされ--min-trade-deltaが無視される二重管理バグがあったため）。
     pp_cfg = getattr(pp, "cfg", None)
     effective_no_trade_band = getattr(pp_cfg, "no_trade_band", None)
     if pp_cfg is not None and effective_no_trade_band != min_trade_delta:
         print(
             f"[WARN] no_trade_band({effective_no_trade_band}) != "
-            f"min_trade_delta({min_trade_delta})。post_processor構築経路を確認すること。"
+            f"min_trade_delta({min_trade_delta})"
         )
     print(
         "[Effective config] "
+        f"action_mode={action_mode} "
         f"no_trade_band={effective_no_trade_band} "
         f"ema_alpha={getattr(pp_cfg, 'ema_alpha', None)} "
         f"target_vol={getattr(pp_cfg, 'target_vol', None)} "
-        f"lambda_turnover={ekw['lambda_turnover']} "
+        f"lambda_turnover={env_kwargs.get('lambda_turnover', 0.0)} "
         f"min_trade_delta={min_trade_delta} "
-        f"decision_every={ekw.get('decision_every', 1)}"
+        f"decision_every={decision_every}"
     )
-    return ekw
+    return env_kwargs

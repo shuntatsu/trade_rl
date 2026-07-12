@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,30 @@ from mars_lite.serving.market_time import (
 )
 from mars_lite.serving.runtime import FeatureSnapshot, ServingRuntime
 from mars_lite.serving.snapshot_identity import compute_snapshot_id
+
+
+def required_history_bars(
+    rank_window: int,
+    vol_lookback: int,
+    trend_config: Mapping[str, int],
+) -> int:
+    trend_values = (
+        trend_config.get("fast_lookback", 0),
+        trend_config.get("base_lookback", 0),
+        trend_config.get("slow_lookback", 0),
+        trend_config.get("rebalance_every", 0),
+    )
+    if rank_window <= 0 or vol_lookback < 0 or any(value < 0 for value in trend_values):
+        raise ValueError(
+            "history windows must be non-negative and rank_window positive"
+        )
+    trend_lookback = max(trend_values[:3])
+    trend_rebalance = trend_values[3]
+    # Absolute-time TrendFamily evaluates at the last rebalance slot. At an
+    # arbitrary inference bar that slot can be up to rebalance_every-1 bars
+    # behind the endpoint, so retain both the lookback and that offset.
+    trend_history = trend_lookback + max(trend_rebalance, 1)
+    return max(rank_window, vol_lookback + 1, trend_history, 2)
 
 
 class CsvFeatureProvider:
@@ -72,7 +96,21 @@ class CsvFeatureProvider:
         rank_window = int(bundle.preprocessing.get("rank_window", 250))
         post_config = dict(bundle.metadata.get("post_processor") or {})
         vol_lookback = int(post_config.get("vol_lookback", 60))
-        history_bars = max(rank_window, vol_lookback + 1, 2)
+        raw_trend_config = dict(bundle.metadata.get("trend_family") or {})
+        trend_config = {
+            key: int(raw_trend_config.get(key, 0))
+            for key in (
+                "fast_lookback",
+                "base_lookback",
+                "slow_lookback",
+                "rebalance_every",
+            )
+        }
+        history_bars = required_history_bars(
+            rank_window,
+            vol_lookback,
+            trend_config,
+        )
         endpoint = resolve_completed_bar_endpoint(
             feature_set.timestamps,
             base_timeframe=base_timeframe,
@@ -108,6 +146,7 @@ class CsvFeatureProvider:
             global_features=global_features_array,
             close_history=close_history_array,
             data_age_hours=endpoint.data_age_hours,
+            timestamps=np.asarray(timestamps),
         )
         snapshot.validate()
         with self._lock:

@@ -44,6 +44,19 @@ GuardrailFn = Callable[
     tuple[np.ndarray, Mapping[str, Any]],
 ]
 RiskFn = Callable[[np.ndarray, InferenceState, Sequence[str]], Mapping[str, Any]]
+FeatureAugmentFn = Callable[
+    ["FeatureSnapshot", np.ndarray], tuple[np.ndarray, Mapping[str, Any]]
+]
+ContextDecisionFn = Callable[
+    [
+        np.ndarray,
+        InferenceState,
+        np.ndarray | None,
+        np.ndarray | None,
+        Mapping[str, Any],
+    ],
+    tuple[np.ndarray, Mapping[str, Any]],
+]
 ComponentFactory = Callable[[ServingBundle], "RuntimeComponents"]
 
 
@@ -65,6 +78,7 @@ class FeatureSnapshot:
     global_features: np.ndarray
     close_history: np.ndarray
     data_age_hours: float
+    timestamps: np.ndarray | None = None
 
     def validate(self) -> None:
         if not self.snapshot_id:
@@ -100,6 +114,13 @@ class FeatureSnapshot:
             raise ValueError("close_history dimensions do not match feature history")
         if not np.isfinite(close).all() or np.any(close <= 0):
             raise ValueError("close_history must be finite and positive")
+        if self.timestamps is not None:
+            timestamps = np.asarray(self.timestamps).astype("datetime64[ns]")
+            if timestamps.ndim != 1 or len(timestamps) != features.shape[0]:
+                raise ValueError("timestamps must match feature history")
+            timestamp_ns = timestamps.astype(np.int64)
+            if len(timestamp_ns) > 1 and np.any(np.diff(timestamp_ns) <= 0):
+                raise ValueError("timestamps must be strictly increasing")
         if not math.isfinite(self.data_age_hours) or self.data_age_hours < 0:
             raise ValueError("data_age_hours must be finite and non-negative")
 
@@ -114,6 +135,8 @@ class RuntimeComponents:
     serving_progress: float = 0.0
     vol_lookback: int = 0
     htf_feature_name: str | None = None
+    augment_features: FeatureAugmentFn | None = None
+    decide_with_context: ContextDecisionFn | None = None
 
 
 @dataclass(frozen=True)
@@ -298,6 +321,9 @@ class ServingRuntime:
             latest, recent_returns, htf_trend = self._prepare_features(
                 bundle, components, snapshot
             )
+            decision_context: Mapping[str, Any] = {}
+            if components.augment_features is not None:
+                latest, decision_context = components.augment_features(snapshot, latest)
             symbols = tuple(bundle.metadata["symbols"])
             current = request.state.weights_array(
                 symbols,
@@ -348,12 +374,22 @@ class ServingRuntime:
                     f"observation dimension {observation.shape[0]} != {expected_dim}"
                 )
             raw_action, _ = components.model.predict(observation, deterministic=True)
-            target, decision_info = components.decide(
-                np.asarray(raw_action, dtype=np.float64).reshape(-1),
-                request.state,
-                recent_returns,
-                htf_trend,
-            )
+            action_array = np.asarray(raw_action, dtype=np.float64).reshape(-1)
+            if components.decide_with_context is not None:
+                target, decision_info = components.decide_with_context(
+                    action_array,
+                    request.state,
+                    recent_returns,
+                    htf_trend,
+                    decision_context,
+                )
+            else:
+                target, decision_info = components.decide(
+                    action_array,
+                    request.state,
+                    recent_returns,
+                    htf_trend,
+                )
             target = np.asarray(target, dtype=np.float64).reshape(-1)
             if target.shape != current.shape or not np.isfinite(target).all():
                 raise ValueError("decision pipeline returned invalid target weights")

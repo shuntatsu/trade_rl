@@ -7,6 +7,8 @@ from pathlib import Path
 
 from mars_lite.pipeline.cli import build_parser
 from mars_lite.pipeline.production_pipeline import run
+from mars_lite.pipeline.residual_pipeline import run_baseline_residual
+from mars_lite.pipeline.residual_release_boundary import validate_residual_invocation
 
 
 def main() -> int:
@@ -35,7 +37,32 @@ def main() -> int:
             "be registered"
         ),
     )
+    parser.add_argument(
+        "--action-mode",
+        choices=["direct", "baseline-residual"],
+        default="direct",
+        help=(
+            "direct=legacy per-symbol action; baseline-residual=two-dimensional "
+            "trend/alpha residual action"
+        ),
+    )
+    parser.add_argument(
+        "--run-tier",
+        choices=["smoke", "research", "release"],
+        default="research",
+        help="minimum PPO update and seed contract for baseline-residual runs",
+    )
+    parser.add_argument("--baseline-max-drawdown", type=float, default=0.30)
     args = parser.parse_args()
+
+    validate_residual_invocation(
+        action_mode=args.action_mode,
+        no_register=bool(args.no_register),
+    )
+    if args.action_mode == "baseline-residual":
+        run_baseline_residual(args, Path(args.output))
+        return 0
+
     release_disqualifying_override = any(
         (args.force, args.skip_p0, args.skip_wf, args.skip_gate)
     )

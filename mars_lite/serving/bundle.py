@@ -347,7 +347,10 @@ def _validate_manifest_paths(root: Path, manifest: ServingBundleManifest) -> Non
 
 def _validate_model_layout(metadata: dict[str, Any], files: Mapping[str, str]) -> None:
     model_kind = metadata.get("model_kind")
+    action_schema = metadata.get("action_schema", "direct_weights_v1")
+    policy_mode = metadata.get("policy_mode")
     has_single = "model.zip" in files
+    has_alpha = "residual_alpha.json" in files
     ensemble_members = sorted(
         name for name in files if _ENSEMBLE_MEMBER_RE.fullmatch(name)
     )
@@ -362,8 +365,27 @@ def _validate_model_layout(metadata: dict[str, Any], files: Mapping[str, str]) -
             raise ValueError(
                 "ensemble model_kind requires one or more ensemble/seed_<n>.zip files"
             )
+    elif model_kind == "baseline_only":
+        if has_single or ensemble_members or has_other_ensemble_files:
+            raise ValueError("baseline_only model_kind must not contain policy models")
     else:
-        raise ValueError("metadata.model_kind must be 'single' or 'ensemble'")
+        raise ValueError(
+            "metadata.model_kind must be 'single', 'ensemble', or 'baseline_only'"
+        )
+
+    if action_schema == "baseline_residual_v1":
+        if not has_alpha:
+            raise ValueError("baseline_residual_v1 requires residual_alpha.json")
+        if policy_mode == "baseline_only" and model_kind != "baseline_only":
+            raise ValueError(
+                "baseline_only policy_mode requires baseline_only model_kind"
+            )
+        if policy_mode == "ppo_residual_ensemble" and model_kind != "ensemble":
+            raise ValueError("ppo_residual_ensemble requires ensemble model_kind")
+        if policy_mode not in {"baseline_only", "ppo_residual_ensemble"}:
+            raise ValueError("unsupported baseline residual policy_mode")
+    elif model_kind == "baseline_only":
+        raise ValueError("baseline_only requires baseline_residual_v1 action schema")
 
 
 def _validate_bundle_schema(
@@ -374,8 +396,19 @@ def _validate_bundle_schema(
     _validate_identity(
         metadata.get("model_version"), metadata.get("git_sha"), location="metadata"
     )
-    if metadata.get("observation_schema_version") != 1:
-        raise ValueError("unsupported observation_schema_version")
+    action_schema = metadata.get("action_schema", "direct_weights_v1")
+    if action_schema not in {"direct_weights_v1", "baseline_residual_v1"}:
+        raise ValueError("unsupported action_schema")
+    expected_schema_version = 2 if action_schema == "baseline_residual_v1" else 1
+    if metadata.get("observation_schema_version") != expected_schema_version:
+        raise ValueError("unsupported observation_schema_version for action schema")
+    if action_schema == "baseline_residual_v1":
+        if not isinstance(metadata.get("trend_family"), dict):
+            raise ValueError("baseline residual metadata requires trend_family")
+        if not isinstance(metadata.get("composer"), dict):
+            raise ValueError("baseline residual metadata requires composer")
+        if metadata.get("residual_alpha_file") != "residual_alpha.json":
+            raise ValueError("baseline residual metadata requires residual_alpha_file")
     observation_dim = metadata.get("observation_dim")
     if (
         isinstance(observation_dim, bool)
@@ -448,8 +481,9 @@ def _validate_bundle_schema(
     ):
         raise ValueError("run_config.disagreement_dr_max must be between 0 and 1")
 
+    per_symbol_extra = 5 if action_schema == "baseline_residual_v1" else 1
     expected_observation_dim = (
-        len(symbols) * (len(feature_names) + 1)
+        len(symbols) * (len(feature_names) + per_symbol_extra)
         + len(global_feature_names)
         + 3
         + (4 if obs_risk_state else 0)

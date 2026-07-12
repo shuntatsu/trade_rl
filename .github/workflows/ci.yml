@@ -41,6 +41,20 @@ jobs:
           set -o pipefail
           uv run mypy mars_lite 2>&1 | tee mypy.log
 
+      - name: Run critical residual contracts
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/test_documentation_contract.py \
+            tests/test_phases.py \
+            tests/test_serving_residual_action_schema.py \
+            tests/test_residual_matrix.py \
+            tests/test_residual_env_configuration.py \
+            tests/test_residual_alpha_artifact.py \
+            tests/test_relative_evaluation.py \
+            tests/test_train_eval_serve_parity.py \
+            2>&1 | tee residual-contracts.log
+
       - name: Run pytest
         run: |
           set -o pipefail
@@ -55,6 +69,7 @@ jobs:
             ruff-check.log
             ruff-format.log
             mypy.log
+            residual-contracts.log
             pytest.log
           if-no-files-found: ignore
           retention-days: 7

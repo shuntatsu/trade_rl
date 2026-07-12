@@ -13,6 +13,7 @@ import numpy as np
 from mars_lite.pipeline.release_eligibility import ReleaseEligibility
 from mars_lite.pipeline.release_risk import ReleaseRiskPolicy
 from mars_lite.serving.bundle import build_manifest, load_bundle
+from mars_lite.trading.residual_alpha import FrozenResidualAlpha
 
 _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$")
 _GIT_SHA_RE = re.compile(r"^[a-fA-F0-9]{40}$")
@@ -70,6 +71,7 @@ def create_candidate_bundle(
     action_schema: str = "direct_weights_v1",
     policy_mode: str | None = None,
     residual_alpha_source: str | Path | None = None,
+    residual_alpha_enabled: bool | None = None,
     trend_family_config: Mapping[str, Any] | None = None,
     composer_config: Mapping[str, Any] | None = None,
     shadow_baseline: str = "base_trend_v2",
@@ -129,6 +131,10 @@ def create_candidate_bundle(
         Path(residual_alpha_source) if residual_alpha_source is not None else None
     )
     if action_schema == "baseline_residual_v1":
+        if not isinstance(residual_alpha_enabled, bool):
+            raise ValueError(
+                "baseline_residual_v1 requires explicit residual_alpha_enabled"
+            )
         policy_mode = policy_mode or (
             "baseline_only" if source is None else "ppo_residual_ensemble"
         )
@@ -136,7 +142,18 @@ def create_candidate_bundle(
             raise ValueError(f"unsupported residual policy_mode: {policy_mode}")
         if alpha_source is None or not alpha_source.is_file():
             raise ValueError("baseline_residual_v1 requires residual_alpha_source")
+        alpha_artifact = FrozenResidualAlpha.load(alpha_source)
+        if alpha_artifact.symbols != ordered_symbols:
+            raise ValueError("residual alpha symbol order does not match candidate")
+        if alpha_artifact.feature_names != ordered_features:
+            raise ValueError("residual alpha feature order does not match candidate")
+        if residual_alpha_enabled and not alpha_artifact.enabled:
+            raise ValueError(
+                "residual_alpha_enabled requires a gate-passing residual alpha artifact"
+            )
         if policy_mode == "baseline_only":
+            if residual_alpha_enabled:
+                raise ValueError("baseline_only must disable residual alpha")
             if source is not None:
                 raise ValueError("baseline_only must not include a policy model")
             model_kind = "baseline_only"
@@ -149,6 +166,10 @@ def create_candidate_bundle(
                 )
             model_kind = "ensemble"
     else:
+        if residual_alpha_enabled is not None:
+            raise ValueError(
+                "residual_alpha_enabled is only valid for baseline_residual_v1"
+            )
         if source is None or not source.exists():
             raise FileNotFoundError(source or "missing direct model_source")
         if source.is_dir() and not any(source.glob("seed_*.zip")):
@@ -198,6 +219,7 @@ def create_candidate_bundle(
                     "composer": dict(composer_config or {}),
                     "shadow_baseline": shadow_baseline,
                     "residual_alpha_file": "residual_alpha.json",
+                    "residual_alpha_enabled": residual_alpha_enabled,
                 }
             )
         _write_json(root / "metadata.json", metadata)

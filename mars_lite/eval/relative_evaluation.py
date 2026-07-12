@@ -78,14 +78,21 @@ def evaluate_relative_agent(
     fs,
     *,
     env_kwargs: Optional[dict[str, Any]] = None,
-    start_idx: int = 0,
+    start_idx: int | None = None,
     bootstrap_seed: int = 0,
 ) -> dict[str, Any]:
+    effective_start = int(
+        getattr(fs, "_evaluation_start_idx", 0)
+        if start_idx is None
+        else start_idx
+    )
+    if not 0 <= effective_start < max(1, fs.n_bars - 2):
+        raise ValueError("start_idx is outside the evaluation executable range")
     kwargs = dict(env_kwargs or {})
     kwargs.pop("episode_bars", None)
-    episode_bars = max(1, fs.n_bars - 2 - start_idx)
+    episode_bars = max(1, fs.n_bars - 2 - effective_start)
     env = BaselineResidualTradingEnv(fs, episode_bars=episode_bars, **kwargs)
-    obs, _ = env.reset(options={"start_idx": start_idx})
+    obs, _ = env.reset(options={"start_idx": effective_start})
 
     actions: list[np.ndarray] = []
     trend_mixes: list[float] = []
@@ -169,6 +176,7 @@ def evaluate_relative_agent(
             "decision_every": env.decision_every,
             "decision_steps": len(actions),
             "base_bars_advanced": len(hybrid_returns),
+            "context_bars": effective_start,
             "annualization_factor": BARS_PER_YEAR_1H,
             "return_series": "base_bar",
         },

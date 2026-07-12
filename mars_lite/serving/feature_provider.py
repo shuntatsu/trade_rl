@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,24 @@ from mars_lite.serving.market_time import (
 )
 from mars_lite.serving.runtime import FeatureSnapshot, ServingRuntime
 from mars_lite.serving.snapshot_identity import compute_snapshot_id
+
+
+def required_history_bars(
+    rank_window: int,
+    vol_lookback: int,
+    trend_config: Mapping[str, object],
+) -> int:
+    trend_lookback = max(
+        int(trend_config.get("fast_lookback", 0)),
+        int(trend_config.get("base_lookback", 0)),
+        int(trend_config.get("slow_lookback", 0)),
+    )
+    trend_rebalance = int(trend_config.get("rebalance_every", 0))
+    # Absolute-time TrendFamily evaluates at the last rebalance slot. At an
+    # arbitrary inference bar that slot can be up to rebalance_every-1 bars
+    # behind the endpoint, so retain both the lookback and that offset.
+    trend_history = trend_lookback + max(trend_rebalance, 1)
+    return max(int(rank_window), int(vol_lookback) + 1, trend_history, 2)
 
 
 class CsvFeatureProvider:
@@ -71,17 +89,11 @@ class CsvFeatureProvider:
         post_config = dict(bundle.metadata.get("post_processor") or {})
         vol_lookback = int(post_config.get("vol_lookback", 60))
         trend_config = dict(bundle.metadata.get("trend_family") or {})
-        trend_lookback = max(
-            int(trend_config.get("fast_lookback", 0)),
-            int(trend_config.get("base_lookback", 0)),
-            int(trend_config.get("slow_lookback", 0)),
+        history_bars = required_history_bars(
+            rank_window,
+            vol_lookback,
+            trend_config,
         )
-        trend_rebalance = int(trend_config.get("rebalance_every", 0))
-        # Absolute-time TrendFamily evaluates at the last rebalance slot. At an
-        # arbitrary inference bar that slot can be up to rebalance_every-1 bars
-        # behind the endpoint, so retain both the lookback and that offset.
-        trend_history = trend_lookback + max(trend_rebalance, 1)
-        history_bars = max(rank_window, vol_lookback + 1, trend_history, 2)
         endpoint = resolve_completed_bar_endpoint(
             feature_set.timestamps,
             base_timeframe=base_timeframe,

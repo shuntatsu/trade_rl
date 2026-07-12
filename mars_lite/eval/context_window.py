@@ -30,6 +30,9 @@ def with_history_context(
     context_start = max(0, start - history_bars)
     contextual = fs.slice(context_start, end)
     start_idx = start - context_start
+    # train_ppo keeps the FeatureSet-only public validation interface. The
+    # relative callback reads this explicit marker and never scores context bars.
+    setattr(contextual, "_evaluation_start_idx", start_idx)
     return ContextualEvaluationWindow(
         feature_set=contextual,
         start_idx=start_idx,

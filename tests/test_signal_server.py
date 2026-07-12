@@ -28,9 +28,7 @@ class FakeRuntime:
         return True
 
     def readiness(self):
-        return ReadinessState(
-            "ready", "v1", "digest", release_git_sha="a" * 40
-        )
+        return ReadinessState("ready", "v1", "digest", release_git_sha="a" * 40)
 
     def infer(self, request, snapshot):
         return InferenceResponse(

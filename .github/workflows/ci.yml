@@ -45,6 +45,8 @@ jobs:
         run: |
           set -o pipefail
           uv run pytest -q \
+            tests/test_documentation_contract.py \
+            tests/test_phases.py \
             tests/test_serving_residual_action_schema.py \
             tests/test_residual_matrix.py \
             tests/test_residual_env_configuration.py \

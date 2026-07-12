@@ -96,7 +96,7 @@ def evaluate_relative_agent(
     env = BaselineResidualTradingEnv(fs, episode_bars=episode_bars, **kwargs)
     obs, _ = env.reset(options={"start_idx": effective_start})
 
-    processor = getattr(env.pipeline, "post_processor", None)
+    processor = getattr(getattr(env, "_pipeline", None), "post_processor", None)
     pp_cfg = getattr(processor, "cfg", None)
     bars_per_year = int(getattr(pp_cfg, "bars_per_year", BARS_PER_YEAR_1H))
     if bars_per_year <= 0:

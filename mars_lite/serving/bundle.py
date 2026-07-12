@@ -164,9 +164,7 @@ def _validate_release_risk(risk: Mapping[str, Any], symbols: list[str]) -> None:
     max_net_exposure = _positive_finite(
         pre_trade["max_net_exposure"], "max_net_exposure"
     )
-    _positive_finite(
-        pre_trade["max_worst_case_notional"], "max_worst_case_notional"
-    )
+    _positive_finite(pre_trade["max_worst_case_notional"], "max_worst_case_notional")
     min_order_notional = _positive_finite(
         pre_trade["min_order_notional"], "min_order_notional"
     )

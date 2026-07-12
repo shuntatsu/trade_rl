@@ -116,3 +116,112 @@ def test_feature_provider_snapshot_id_changes_when_content_changes(
     ).get_snapshot()
 
     assert first.snapshot_id != second.snapshot_id
+
+
+def test_feature_provider_excludes_incomplete_latest_4h_bar(
+    tmp_path, monkeypatch
+) -> None:
+    import mars_lite.data.sources as sources
+    import mars_lite.features.feature_pipeline as feature_pipeline
+
+    monkeypatch.setattr(sources, "create_source", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        feature_pipeline,
+        "FeaturePipeline",
+        lambda *args, **kwargs: SimpleNamespace(build=lambda source: _feature_set()),
+    )
+    provider = CsvFeatureProvider(
+        runtime=_Runtime(_bundle("4h")),
+        data_dir=tmp_path,
+        cache_ttl_seconds=0,
+        clock=lambda: np.datetime64("2026-07-11T07:00:00", "ns"),
+    )
+
+    snapshot = provider.get_snapshot()
+
+    assert snapshot.feature_history.shape[0] == 1
+    assert snapshot.feature_history[-1, 0, 0] == pytest.approx(0.1)
+    assert snapshot.data_age_hours == pytest.approx(3.0)
+
+
+def test_feature_provider_ages_daily_data_from_bar_close(tmp_path, monkeypatch) -> None:
+    import mars_lite.data.sources as sources
+    import mars_lite.features.feature_pipeline as feature_pipeline
+
+    feature_set = _feature_set()
+    feature_set.timestamps = np.asarray(
+        ["2026-07-10T00:00:00", "2026-07-11T00:00:00"],
+        dtype="datetime64[ns]",
+    )
+    monkeypatch.setattr(sources, "create_source", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        feature_pipeline,
+        "FeaturePipeline",
+        lambda *args, **kwargs: SimpleNamespace(build=lambda source: feature_set),
+    )
+    provider = CsvFeatureProvider(
+        runtime=_Runtime(_bundle("1d")),
+        data_dir=tmp_path,
+        cache_ttl_seconds=0,
+        clock=lambda: np.datetime64("2026-07-12T12:00:00", "ns"),
+    )
+
+    snapshot = provider.get_snapshot()
+
+    assert snapshot.data_age_hours == pytest.approx(12.0)
+
+
+def test_feature_provider_rejects_when_no_bar_is_complete(tmp_path, monkeypatch) -> None:
+    import mars_lite.data.sources as sources
+    import mars_lite.features.feature_pipeline as feature_pipeline
+
+    feature_set = _feature_set()
+    feature_set.timestamps = np.asarray(
+        ["2026-07-12T08:00:00", "2026-07-12T09:00:00"],
+        dtype="datetime64[ns]",
+    )
+    monkeypatch.setattr(sources, "create_source", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        feature_pipeline,
+        "FeaturePipeline",
+        lambda *args, **kwargs: SimpleNamespace(build=lambda source: feature_set),
+    )
+    provider = CsvFeatureProvider(
+        runtime=_Runtime(_bundle("1h")),
+        data_dir=tmp_path,
+        cache_ttl_seconds=0,
+        clock=lambda: np.datetime64("2026-07-12T08:30:00", "ns"),
+    )
+
+    with pytest.raises(ValueError, match="no completed bar"):
+        provider.get_snapshot()
+
+
+def test_incomplete_bar_mutation_does_not_change_snapshot_id(
+    tmp_path, monkeypatch
+) -> None:
+    import mars_lite.data.sources as sources
+    import mars_lite.features.feature_pipeline as feature_pipeline
+
+    values = iter([0.2, 0.9])
+
+    class FakePipeline:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build(self, source):
+            return _feature_set(next(values))
+
+    monkeypatch.setattr(sources, "create_source", lambda *args, **kwargs: object())
+    monkeypatch.setattr(feature_pipeline, "FeaturePipeline", FakePipeline)
+    kwargs = {
+        "runtime": _Runtime(_bundle("4h")),
+        "data_dir": tmp_path,
+        "cache_ttl_seconds": 0,
+        "clock": lambda: np.datetime64("2026-07-11T07:00:00", "ns"),
+    }
+
+    first = CsvFeatureProvider(**kwargs).get_snapshot()
+    second = CsvFeatureProvider(**kwargs).get_snapshot()
+
+    assert first.snapshot_id == second.snapshot_id

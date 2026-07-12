@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Mapping
+from typing import Any, Mapping
 
 MetricMap = Mapping[str, float]
 
@@ -33,7 +33,7 @@ def evaluate_direct_gate2(
     *,
     agent: MetricMap,
     baselines: Mapping[str, MetricMap],
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Evaluate the legacy direct policy against executable mandatory baselines only."""
 
     if "flat" not in baselines or "trend_following" not in baselines:
@@ -72,7 +72,7 @@ def evaluate_residual_gate2(
     diagnostic_results: Mapping[str, MetricMap] | None = None,
     max_drawdown_slack: float = 0.05,
     significance_level: float = 0.05,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Evaluate a residual-RL candidate against executable mandatory references.
 
     Perfect/noisy oracles and alternative strategies can be attached for diagnosis,
@@ -123,7 +123,7 @@ def evaluate_baseline_only_gate(
     positive_return_p_value: float,
     max_drawdown_limit: float,
     significance_level: float = 0.05,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Evaluate a pure executable trend baseline without self-comparison."""
 
     holdout_return = _finite_metric(holdout, "total_return", "holdout")

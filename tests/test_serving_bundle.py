@@ -210,9 +210,7 @@ def test_bundle_rejects_failed_required_gate(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("gate", ["p0", "walk_forward", "gate2"])
-def test_bundle_rejects_not_required_mandatory_gate(
-    tmp_path: Path, gate: str
-) -> None:
+def test_bundle_rejects_not_required_mandatory_gate(tmp_path: Path, gate: str) -> None:
     root = _candidate(tmp_path)
 
     def mutate(metadata: dict[str, object]) -> None:

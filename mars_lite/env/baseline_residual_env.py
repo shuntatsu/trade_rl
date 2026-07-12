@@ -85,6 +85,13 @@ class BaselineResidualTradingEnv(gym.Env):
         self._vol_lookback = (
             post_processor.cfg.vol_lookback if post_processor is not None else 0
         )
+        self.bars_per_year = int(
+            post_processor.cfg.bars_per_year
+            if post_processor is not None
+            else BARS_PER_YEAR_1H
+        )
+        if self.bars_per_year <= 0:
+            raise ValueError("post-processor bars_per_year must be positive")
         execution_model = make_execution_model(
             fee_rate=fee_rate,
             spread_rate=spread_rate,
@@ -278,7 +285,7 @@ class BaselineResidualTradingEnv(gym.Env):
         def metrics(book: BookState) -> dict[str, float | int]:
             returns = np.asarray(book.returns_history, dtype=np.float64)
             sharpe = (
-                float(returns.mean() / returns.std() * np.sqrt(BARS_PER_YEAR_1H))
+                float(returns.mean() / returns.std() * np.sqrt(self.bars_per_year))
                 if returns.size and returns.std() > 0.0
                 else 0.0
             )

@@ -79,8 +79,7 @@ def build_residual_fold_specs(
 
         sizes = {
             "inner_train_too_short": inner_train_end,
-            "inner_validation_too_short": inner_validation_end
-            - inner_validation_start,
+            "inner_validation_too_short": inner_validation_end - inner_validation_start,
             "outer_test_too_short": outer_test_end - outer_test_start,
         }
         minimums = {

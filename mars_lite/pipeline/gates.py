@@ -31,7 +31,14 @@ def evaluate_residual_alpha_gate(
         n_folds = int(report["n_folds"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("residual alpha report is incomplete") from exc
-    values = (mean_ic, positive_ratio, t_stat, threshold, min_positive_ratio, min_t_stat)
+    values = (
+        mean_ic,
+        positive_ratio,
+        t_stat,
+        threshold,
+        min_positive_ratio,
+        min_t_stat,
+    )
     if not all(math.isfinite(value) for value in values):
         raise ValueError("residual alpha gate values must be finite")
     if n_folds <= 0:

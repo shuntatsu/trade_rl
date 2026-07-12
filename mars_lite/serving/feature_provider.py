@@ -29,7 +29,9 @@ def required_history_bars(
         trend_config.get("rebalance_every", 0),
     )
     if rank_window <= 0 or vol_lookback < 0 or any(value < 0 for value in trend_values):
-        raise ValueError("history windows must be non-negative and rank_window positive")
+        raise ValueError(
+            "history windows must be non-negative and rank_window positive"
+        )
     trend_lookback = max(trend_values[:3])
     trend_rebalance = trend_values[3]
     # Absolute-time TrendFamily evaluates at the last rebalance slot. At an

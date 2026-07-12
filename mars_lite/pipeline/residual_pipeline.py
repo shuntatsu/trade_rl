@@ -7,17 +7,19 @@ from typing import Any
 import numpy as np
 
 from mars_lite.eval.context_window import with_history_context
+from mars_lite.eval.gate1_diagnostics import walk_forward_ic
 from mars_lite.eval.relative_evaluation import (
     _moving_block_mean_test,
     evaluate_relative_agent,
 )
-from mars_lite.features.signal_check import run_leak_self_test, run_signal_check
+from mars_lite.features.signal_check import run_leak_self_test
 from mars_lite.learning.baselines import run_all_baselines
 from mars_lite.learning.manifest import generate_and_save_manifest
 from mars_lite.learning.residual_ensemble import ResidualActionEnsemble
 from mars_lite.pipeline.dataset_builder import build_feature_set
 from mars_lite.pipeline.gates import (
     evaluate_baseline_only_gate,
+    evaluate_residual_alpha_gate,
     evaluate_residual_gate2,
 )
 from mars_lite.pipeline.training_engine import (
@@ -224,17 +226,20 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
     val_fs = val_window.feature_set
     test_fs = test_window.feature_set
 
-    signal_gate = run_signal_check(
+    signal_model = str(getattr(args, "signal_model", "gbm"))
+    model_gate_report = walk_forward_ic(
         train_fs,
         horizon=args.horizon,
         target="cs_demean",
+        model=signal_model,
     )
+    signal_gate = evaluate_residual_alpha_gate(model_gate_report)
     alpha = FrozenResidualAlpha.fit(
         train_fs,
         horizon=args.horizon,
         target="cs_demean",
-        model=getattr(args, "signal_model", "gbm"),
-        gate_result=signal_gate.to_dict(),
+        model=signal_model,
+        gate_result=signal_gate,
     )
     alpha.save(output / "residual_alpha.json")
 
@@ -405,7 +410,7 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
             "test_context_bars": test_window.start_idx,
         },
         "leak_self_test": leak,
-        "signal_gate": signal_gate.to_dict(),
+        "signal_gate": signal_gate,
         "alpha_enabled": alpha.enabled,
         "development_matrix": development_results,
         "selection": selection,

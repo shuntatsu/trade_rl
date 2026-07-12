@@ -25,12 +25,15 @@ RL policyが変更できるのは次の2つだけです。
 
 - `TrendFamily`は価格履歴とUTC bar timestampだけに依存し、現在の口座weightやslice相対indexには依存しません。
 - environmentの1 actionは`decision_every`本分を1区間として進め、集約rewardを1つ返します。
+- 解決済み`decision_every`はすべてのResidual environmentへ明示的に渡し、run設定にも実効値を書き戻します。0や不正値はfail-closedで拒否します。
 - Hybrid bookとshadow bookは独立したportfolio stateを持ちますが、価格、funding、cost、HTF制約、post-processing、hard risk checkは同一です。
 - Rewardはhybrid区間log returnからshadow base-trend区間log returnを引いた値です。
 - Identity actionは、テスト済み数値誤差内でshadowのweight、cost、PnLと一致しなければなりません。
 - residual-alpha artifactは、label確定済みdevelopment dataだけでfitします。HoldoutとServingでは凍結済みartifactをloadし、再fitしません。
+- residual-alphaのdataset identityはmetadataだけでなく、順序付きschema、timestamp、学習特徴値、target生成に使う価格履歴をhash化します。
 - HTFはstateful post-processingより前にdesired proposalへ作用します。neutral signalが制約済みpositionを繰り返し半減させることはありません。
 - 完全oracleとnoisy oracleは診断専用で、必須release gateには入りません。
+- Sharpe／Sortinoの年率換算は固定1h値ではなく、稼働中post-processorのbase timeframe係数を使用します。
 
 ## Development matrix
 
@@ -45,12 +48,12 @@ D: PPO trend mixing + PPO alpha budget
 
 選択規則:
 
-- Bは、development excess returnが正で、drawdown許容幅を超えない場合だけ候補になります。
-- Cはrelease policyとして選択しません。凍結alpha sleeve単体の価値を測る診断です。
-- Dは適格で、かつBとCの両方を厳密に上回る場合だけ選択します。
-- それ以外はA（`baseline_only`）へfallbackします。
+- Bは、development excess returnが正で、drawdown許容幅を超えず、developmentの2倍costでも非負の場合だけ候補になります。
+- Cはrelease policyとして選択しません。凍結alpha sleeve単体の価値を測る診断です。Dでalphaを有効化するには、C自身がAを上回り、developmentの2倍costにも耐える必要があります。
+- DはB／C／Dの適格条件を満たし、2倍costに耐え、通常costでBとCの両方を厳密に上回る場合だけ選択します。
+- それ以外は、trend mixingが適格ならB、適格でなければA（`baseline_only`）へfallbackします。
 
-選択済み構成だけを最終test区間で1回評価し、cost 1x／2xを報告します。
+固定済みの選択構成だけを最終test区間で1回評価し、cost 1x／2xを報告します。
 
 ## Checkpoint selection
 
@@ -104,11 +107,11 @@ uv run python scripts/run_pipeline.py \
 
 研究runnerは次を出力します。
 
-- `residual_alpha.json` — 凍結residual-alpha modelとdata identity
+- `residual_alpha.json` — 凍結residual-alpha modelと内容に結び付いたdata identity
 - `B_trend_mix_model.zip`または`B_trend_mix_ensemble/`
 - alpha gate合格時の`D_combined_model.zip`または`D_combined_ensemble/`
-- `residual_train_report.json` — A/B/C/D development結果、固定済み選択、最終relative評価、cost 2x、gate、診断
-- `residual_model_manifest.json` — datasetと学習identity
+- `residual_train_report.json` — cost 1x／2xのA/B/C/D development結果、固定済み選択、最終relative評価、gate、診断
+- `residual_model_manifest.json` — dataset、学習、選択policy mode、選択済みalpha有効化状態のidentity
 
 ## Serving schema
 
@@ -119,9 +122,10 @@ Residual ServingBundleは次を使用します。
 - policy mode: `ppo_residual_ensemble`または`baseline_only`
 - 絶対時刻TrendFamily設定
 - 凍結`residual_alpha.json`
+- 選択構成に結び付いた明示的な`residual_alpha_enabled`
 - composerとHTF proposal constraint設定
 
-`baseline_only` BundleはPPO modelを持ちません。Servingがidentity actionを供給し、同じtrend、alpha、composer、HTF、post-processing、guardrail、risk経路を実行します。Schema不一致、timestamp欠落、alpha artifact欠落、feature順序不一致、model layout不整合はfail-closedで拒否します。
+`baseline_only` BundleはPPO modelを持たず、residual alphaを常に無効化します。B Bundleも、凍結artifactの研究gateが合格していてもresidual alphaを無効化し、選択されたD Bundleだけが有効化します。`baseline_only`ではServingがidentity actionを供給し、同じtrend、composer、HTF、post-processing、guardrail、risk経路を実行します。Schema不一致、timestamp欠落、alpha artifact欠落、symbol／feature順序不一致、model layout不整合、またはgate不合格artifactを有効化する宣言はfail-closedで拒否します。
 
 ## Release境界
 

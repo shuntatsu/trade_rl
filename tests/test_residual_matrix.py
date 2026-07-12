@@ -42,6 +42,17 @@ def test_selects_combined_rl_only_when_d_beats_b_and_c() -> None:
     assert selected["selected"] == "D"
 
 
+def test_d_cannot_enable_alpha_when_fixed_alpha_c_does_not_beat_a() -> None:
+    selected = select_residual_configuration(
+        _matrix(0.0, 0.02, -0.01, 0.05),
+        cost2x_results=_matrix(0.0, 0.005, -0.01, 0.02),
+    )
+
+    assert selected["selected"] == "B"
+    assert selected["eligible"]["C"] is False
+    assert selected["eligible"]["D"] is True
+
+
 def test_rejects_high_drawdown_candidate() -> None:
     selected = select_residual_configuration(
         {"A": _result(0.0), "B": _result(0.04, 0.20, 0.10), "C": _result(0.0)},

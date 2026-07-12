@@ -1,1 +1,1 @@
-uv run pytest tests/test_local_gameday.py tests/test_serving_runtime.py tests/test_signal_server.py tests/test_serving_registry.py -q
+uv run pytest tests/test_documentation_contract.py -q

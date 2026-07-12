@@ -103,11 +103,27 @@ def test_deploy_workflow_orders_gate_activation_and_verification() -> None:
 
     steps = job["steps"]
     names = [step.get("name") for step in steps if isinstance(step, dict)]
+    source_index = names.index("Validate deployment source")
+    binding_index = names.index("Download and bind immutable evidence")
     gate_index = names.index("Evaluate deployment gate")
     target_index = names.index("Validate deployment target")
     activation_index = names.index("Register and atomically activate approved bundle")
     verification_index = names.index("Verify served identity")
-    assert gate_index < target_index < activation_index < verification_index
+    assert (
+        source_index
+        < binding_index
+        < gate_index
+        < target_index
+        < activation_index
+        < verification_index
+    )
+
+    source = next(
+        step for step in steps if step.get("name") == "Validate deployment source"
+    )
+    source_script = source["run"]
+    assert "refs/heads/main" in source["env"]["EXPECTED_RELEASE_REF"]
+    assert "deployments must run from main" in source_script
 
     binding = next(
         step
@@ -115,6 +131,9 @@ def test_deploy_workflow_orders_gate_activation_and_verification() -> None:
         if step.get("name") == "Download and bind immutable evidence"
     )
     binding_script = binding["run"]
+    assert binding["env"]["EXPECTED_RELEASE_BRANCH"] == "main"
+    assert "RUN_HEAD_BRANCH" in binding_script
+    assert "evidence source run must originate from main" in binding_script
     assert 'expected_artifact = "serving_candidate/manifest.json"' in binding_script
     assert "candidate artifact digest does not match serving manifest" in binding_script
     assert "MODEL_VERSION=" in binding_script

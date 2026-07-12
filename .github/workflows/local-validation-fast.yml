@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   focused:
     if: >-
@@ -13,13 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
       - run: uv sync --all-extras --dev
+      - name: Apply Ruff formatter
+        run: uv run ruff format .
       - name: Ruff lint
         run: uv run ruff check .
-      - name: Ruff format
+      - name: Ruff format verification
         run: uv run ruff format --check --diff .
       - name: Mypy
         run: uv run mypy mars_lite
@@ -40,3 +48,14 @@ jobs:
           -q
       - name: Run local GameDay CLI
         run: uv run python scripts/run_local_gameday.py
+      - name: Commit formatter output
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: format local validation changes"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

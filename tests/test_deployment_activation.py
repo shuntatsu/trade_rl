@@ -123,8 +123,9 @@ def test_deploy_workflow_orders_gate_activation_and_verification() -> None:
         step for step in steps if step.get("name") == "Validate deployment source"
     )
     source_script = source["run"]
+    assert "if" not in source
     assert "refs/heads/main" in source["env"]["EXPECTED_RELEASE_REF"]
-    assert "deployments must run from main" in source_script
+    assert "deployment workflows must run from main" in source_script
 
     binding = next(
         step

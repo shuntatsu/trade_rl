@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from mars_lite.pipeline import residual_pipeline
-from mars_lite.pipeline.residual_pipeline import train_select_residual_candidates
+from mars_lite.pipeline import residual_candidates
+from mars_lite.pipeline.residual_candidates import train_select_residual_candidates
 
 
 class _Alpha:
@@ -51,9 +51,9 @@ def test_candidate_training_builds_abcd_and_resolves_selected_agent(
             _relative(0.01),
         ]
     )
-    monkeypatch.setattr(residual_pipeline, "_train_residual_ensemble", fake_train)
+    monkeypatch.setattr(residual_candidates, "_train_residual_ensemble", fake_train)
     monkeypatch.setattr(
-        residual_pipeline,
+        residual_candidates,
         "evaluate_relative_agent",
         lambda *args, **kwargs: next(evaluations),
     )
@@ -94,9 +94,9 @@ def test_candidate_training_omits_cd_when_alpha_gate_fails(
             _relative(0.0),
         ]
     )
-    monkeypatch.setattr(residual_pipeline, "_train_residual_ensemble", fake_train)
+    monkeypatch.setattr(residual_candidates, "_train_residual_ensemble", fake_train)
     monkeypatch.setattr(
-        residual_pipeline,
+        residual_candidates,
         "evaluate_relative_agent",
         lambda *args, **kwargs: next(evaluations),
     )

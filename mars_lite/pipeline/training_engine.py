@@ -377,6 +377,17 @@ def build_post_processor(args, horizon: int = 4):
     )
 
 
+def _resolve_decision_every(args, horizon: int) -> int:
+    raw = getattr(args, "decision_every", 1)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        raise ValueError("decision_every must be a positive integer")
+    effective = raw
+    if raw == 1 and getattr(args, "scan_horizons", False) and horizon > 1:
+        effective = max(1, horizon // 2)
+    args.decision_every = effective
+    return effective
+
+
 def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
     from mars_lite.trading.execution import FEE_PROFILES
 
@@ -384,10 +395,12 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
     min_trade_delta = getattr(args, "min_trade_delta", 0.04)
     if action_mode == "baseline-residual":
         min_trade_delta = 0.0
+    decision_every = _resolve_decision_every(args, horizon)
     env_kwargs = {
         "post_processor": pp,
         "min_trade_delta": min_trade_delta,
         "reward_scale": getattr(args, "reward_scale", 100.0),
+        "decision_every": decision_every,
         **FEE_PROFILES[getattr(args, "fee_profile", "taker")],
     }
     if action_mode == "direct":
@@ -400,13 +413,6 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
         disagreement_dr = float(getattr(args, "disagreement_dr", 0.0))
         if disagreement_dr > 0.0:
             env_kwargs["disagreement_dr_max"] = disagreement_dr
-    explicit = getattr(args, "decision_every", 1)
-    if explicit and explicit > 1:
-        env_kwargs["decision_every"] = explicit
-    elif getattr(args, "scan_horizons", False) and horizon > 1:
-        auto_every = max(1, horizon // 2)
-        if auto_every > 1:
-            env_kwargs["decision_every"] = auto_every
 
     pp_cfg = getattr(pp, "cfg", None)
     effective_no_trade_band = getattr(pp_cfg, "no_trade_band", None)
@@ -423,6 +429,6 @@ def build_env_kwargs(args, pp, horizon: int = 4) -> dict:
         f"target_vol={getattr(pp_cfg, 'target_vol', None)} "
         f"lambda_turnover={env_kwargs.get('lambda_turnover', 0.0)} "
         f"min_trade_delta={min_trade_delta} "
-        f"decision_every={env_kwargs.get('decision_every', 1)}"
+        f"decision_every={decision_every}"
     )
     return env_kwargs

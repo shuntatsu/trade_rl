@@ -15,9 +15,7 @@ def _payload(**overrides):
         "symbols": ("BTCUSDT",),
         "feature_names": ("ret", "vol"),
         "global_feature_names": ("hour_sin",),
-        "feature_history": np.asarray(
-            [[[1.5, 2.0]], [[2.5, 4.0]]], dtype=np.float64
-        ),
+        "feature_history": np.asarray([[[1.5, 2.0]], [[2.5, 4.0]]], dtype=np.float64),
         "global_features": np.asarray([0.5], dtype=np.float64),
         "close_history": np.asarray([[100.0], [101.0]], dtype=np.float64),
     }

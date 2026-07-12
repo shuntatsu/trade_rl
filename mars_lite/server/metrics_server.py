@@ -786,9 +786,7 @@ def run_server(
             "FastAPI is required. Install with: pip install fastapi uvicorn[standard]"
         )
 
-    app = create_app(
-        metrics_history, output_dir, development_only=development_only
-    )
+    app = create_app(metrics_history, output_dir, development_only=development_only)
     uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
 
 
@@ -814,9 +812,7 @@ async def run_server_async(
             "FastAPI is required. Install with: pip install fastapi uvicorn[standard]"
         )
 
-    app = create_app(
-        metrics_history, output_dir, development_only=development_only
-    )
+    app = create_app(metrics_history, output_dir, development_only=development_only)
     config = uvicorn.Config(
         app, host=host, port=port, log_level="warning", access_log=False
     )

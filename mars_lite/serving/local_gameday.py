@@ -343,8 +343,7 @@ def _run(root: Path) -> dict[str, Any]:
             raise AssertionError("duplicate request was not rejected")
         events = audit.list_events(limit=100)
         if not any(
-            event["event_type"] == "replay"
-            and event["request_id"] == "replay-request"
+            event["event_type"] == "replay" and event["request_id"] == "replay-request"
             for event in events
         ):
             raise AssertionError("replay audit event was not recorded")

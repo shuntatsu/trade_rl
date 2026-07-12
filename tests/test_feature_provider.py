@@ -171,7 +171,9 @@ def test_feature_provider_ages_daily_data_from_bar_close(tmp_path, monkeypatch) 
     assert snapshot.data_age_hours == pytest.approx(12.0)
 
 
-def test_feature_provider_rejects_when_no_bar_is_complete(tmp_path, monkeypatch) -> None:
+def test_feature_provider_rejects_when_no_bar_is_complete(
+    tmp_path, monkeypatch
+) -> None:
     import mars_lite.data.sources as sources
     import mars_lite.features.feature_pipeline as feature_pipeline
 

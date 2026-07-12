@@ -84,9 +84,7 @@ def test_local_validation_contract_is_documented_in_both_languages() -> None:
     japanese = "\n".join(
         [
             (ROOT / "README.ja.md").read_text(encoding="utf-8"),
-            (ROOT / "docs" / "ja" / "ARCHITECTURE.md").read_text(
-                encoding="utf-8"
-            ),
+            (ROOT / "docs" / "ja" / "ARCHITECTURE.md").read_text(encoding="utf-8"),
             (ROOT / "docs" / "ja" / "OPERATIONS.md").read_text(encoding="utf-8"),
             (ROOT / "docs" / "ja" / "PRODUCTION_READINESS.md").read_text(
                 encoding="utf-8"

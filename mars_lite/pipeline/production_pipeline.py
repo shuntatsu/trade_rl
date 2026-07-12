@@ -7,6 +7,7 @@ exclusively to the deployment control plane after evidence and environment appro
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 from dataclasses import asdict
@@ -42,6 +43,21 @@ def _load(path: Path) -> dict[str, Any]:
 
 def _print_step(number: int, total: int, title: str) -> None:
     print(f"\n{'=' * 70}\nSTEP {number}/{total}: {title}\n{'=' * 70}")
+
+
+def _build_p0_args(args: Any) -> Any:
+    horizon = int(args.horizon)
+    decision_every = int(args.decision_every)
+    p0_days = int(getattr(args, "p0_days", 240))
+    if horizon <= 0:
+        raise ValueError("horizon must be positive")
+    if decision_every <= 0:
+        raise ValueError("decision_every must be positive")
+    if p0_days <= 0:
+        raise ValueError("p0_days must be positive")
+    p0_args = copy.copy(args)
+    p0_args.days = p0_days
+    return p0_args
 
 
 def _resolve_identity(args: Any) -> tuple[str, str]:
@@ -173,12 +189,7 @@ def run(args: Any) -> int:
     if args.skip_p0:
         print("[skip]")
     else:
-        original = (args.horizon, args.decision_every, args.days)
-        args.horizon, args.decision_every, args.days = 4, 1, 240
-        try:
-            phase_p0(args, output_dir)
-        finally:
-            args.horizon, args.decision_every, args.days = original
+        phase_p0(_build_p0_args(args), output_dir)
         gate = _load(output_dir / "p0_report.json")["gate"]
         p0_passed = bool(gate["P0_PASSED"])
         if not p0_passed and not args.force:

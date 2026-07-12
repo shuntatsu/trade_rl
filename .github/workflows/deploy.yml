@@ -36,13 +36,12 @@ jobs:
     environment: ${{ inputs.stage }}
     steps:
       - name: Validate deployment source
-        if: inputs.stage != 'shadow'
         env:
           EXPECTED_RELEASE_REF: refs/heads/main
         run: |
           set -euo pipefail
           if [ "$GITHUB_REF" != "$EXPECTED_RELEASE_REF" ]; then
-            echo "canary and production deployments must run from main" >&2
+            echo "deployment workflows must run from main" >&2
             exit 2
           fi
 

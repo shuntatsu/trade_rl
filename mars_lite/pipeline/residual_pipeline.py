@@ -80,7 +80,7 @@ def select_residual_configuration(
 
     A is pure base trend. B is PPO trend mixing. C is a fixed +15% alpha diagnostic.
     D is PPO trend mixing plus alpha. C is never itself release-selected; it establishes
-    the hurdle that D must beat before the combined RL design is adopted.
+    both whether residual alpha has standalone value and the hurdle that D must beat.
     """
 
     if "A" not in development_results or "A" not in cost2x_results:
@@ -116,14 +116,19 @@ def select_residual_configuration(
         )
 
     if eligible.get("D", False):
-        hurdle = max(scores.get("B", 0.0), scores.get("C", 0.0))
-        if scores["D"] > hurdle:
-            selected = "D"
+        if not eligible.get("C", False):
             reasons.append(
-                "D strictly beats both B and fixed-alpha diagnostic C and survives 2x costs"
+                "D was rejected because fixed-alpha diagnostic C did not beat A"
             )
         else:
-            reasons.append("D did not beat the stronger of B and C")
+            hurdle = max(scores.get("B", 0.0), scores["C"])
+            if scores["D"] > hurdle:
+                selected = "D"
+                reasons.append(
+                    "D strictly beats both B and fixed-alpha diagnostic C and survives 2x costs"
+                )
+            else:
+                reasons.append("D did not beat the stronger of B and C")
 
     return {
         "selected": selected,
@@ -462,7 +467,8 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         },
         "leak_self_test": leak,
         "signal_gate": signal_gate,
-        "alpha_enabled": alpha.enabled,
+        "alpha_enabled": selected_alpha_enabled,
+        "alpha_artifact_gate_passed": alpha.enabled,
         "development_matrix": development_results,
         "development_matrix_cost2x": development_cost2x_results,
         "selection": selection,
@@ -495,6 +501,7 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         additional_metadata={
             "action_schema": "baseline_residual_v1",
             "policy_mode": report["mode"],
+            "residual_alpha_enabled": selected_alpha_enabled,
             "alpha_dataset_identity": alpha.dataset_identity,
             "selection_frozen_before_test": True,
         },

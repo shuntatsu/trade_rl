@@ -15,8 +15,46 @@ from mars_lite.serving.runtime import (
 )
 
 
+def _eligibility() -> dict[str, object]:
+    return {
+        "eligible": True,
+        "forced": False,
+        "skipped_gates": [],
+        "optimization_steps_skipped": [],
+        "sealed_holdout_used": True,
+        "required_gates": {
+            "p0": "passed",
+            "walk_forward": "passed",
+            "gate2": "passed",
+            "significance": "not_required",
+        },
+    }
+
+
+def _risk(symbols: tuple[str, ...]) -> dict[str, object]:
+    return {
+        "guardrails": {},
+        "pre_trade": {
+            "max_leverage": 1.0,
+            "max_single_weight": 0.5,
+            "max_net_exposure": 1.0,
+            "max_worst_case_notional": 100_000.0,
+            "min_order_notional": 10.0,
+            "symbol_liquidity_caps": {
+                symbol: 50_000.0 for symbol in symbols
+            },
+            "forbidden_symbols": [],
+        },
+    }
+
+
 def create_bundle(
-    root: Path, version: str, payload: bytes, symbols=("BTCUSDT",)
+    root: Path,
+    version: str,
+    payload: bytes,
+    symbols: tuple[str, ...] = ("BTCUSDT",),
+    *,
+    git_sha: str = "a" * 40,
 ) -> Path:
     root.mkdir()
     (root / "model.zip").write_bytes(payload)
@@ -25,13 +63,14 @@ def create_bundle(
             {
                 "schema_version": 1,
                 "model_version": version,
-                "git_sha": "a" * 40,
+                "git_sha": git_sha,
                 "model_kind": "single",
                 "symbols": list(symbols),
                 "observation_schema_version": 1,
                 "observation_progress_mode": "zero",
                 "observation_dim": len(symbols) * 2 + 4,
                 "run_config": {},
+                "release_eligibility": _eligibility(),
             }
         ),
         encoding="utf-8",
@@ -42,7 +81,7 @@ def create_bundle(
         encoding="utf-8",
     )
     (root / "risk.json").write_text(
-        '{"guardrails":{},"pre_trade":{}}', encoding="utf-8"
+        json.dumps(_risk(symbols)), encoding="utf-8"
     )
     build_manifest(root)
     return root
@@ -111,6 +150,79 @@ def test_corrupt_new_bundle_keeps_old_runtime_active(tmp_path: Path) -> None:
     ready = runtime.readiness()
     assert ready.status == "degraded"
     assert ready.active_version == "v1"
+
+
+def test_strict_runtime_rejects_bundle_from_different_git_sha(
+    tmp_path: Path,
+) -> None:
+    registry = ModelRegistry(tmp_path / "registry")
+    previous = create_bundle(
+        tmp_path / "v1", "v1", b"one", git_sha="a" * 40
+    )
+    mismatched = create_bundle(
+        tmp_path / "v2", "v2", b"two", git_sha="b" * 40
+    )
+    registry.register(previous)
+    registry.activate("v1", evidence_identity="run-1")
+    runtime = ServingRuntime(
+        registry=registry,
+        audit_store=AuditStore(tmp_path / "audit.sqlite3"),
+        component_factory=ComponentFactory([0.0]),
+        release_git_sha="a" * 40,
+        strict_release_binding=True,
+    )
+    assert runtime.refresh() is True
+
+    registry.register(mismatched)
+    registry.activate("v2", evidence_identity="run-2")
+
+    assert runtime.refresh() is False
+    ready = runtime.readiness()
+    assert runtime.active_version == "v1"
+    assert ready.status == "degraded"
+    assert ready.active_version == "v1"
+    assert ready.release_git_sha == "a" * 40
+    assert "git sha mismatch" in str(ready.reason).lower()
+
+
+def test_strict_runtime_loads_matching_git_sha(tmp_path: Path) -> None:
+    registry = ModelRegistry(tmp_path / "registry")
+    candidate = create_bundle(
+        tmp_path / "v1", "v1", b"one", git_sha="a" * 40
+    )
+    registered = registry.register(candidate)
+    registry.activate("v1", evidence_identity="run-1")
+    runtime = ServingRuntime(
+        registry=registry,
+        audit_store=AuditStore(tmp_path / "audit.sqlite3"),
+        component_factory=ComponentFactory([0.0]),
+        release_git_sha="A" * 40,
+        strict_release_binding=True,
+    )
+
+    assert runtime.refresh() is True
+    ready = runtime.readiness()
+    assert ready.active_version == "v1"
+    assert ready.bundle_digest == registered.bundle_digest
+    assert ready.release_git_sha == "a" * 40
+
+
+def test_strict_runtime_requires_valid_release_git_sha(tmp_path: Path) -> None:
+    registry = ModelRegistry(tmp_path / "registry")
+
+    with pytest.raises(ValueError, match="release_git_sha"):
+        ServingRuntime(
+            registry=registry,
+            audit_store=AuditStore(tmp_path / "audit.sqlite3"),
+            strict_release_binding=True,
+        )
+    with pytest.raises(ValueError, match="40-character hexadecimal"):
+        ServingRuntime(
+            registry=registry,
+            audit_store=AuditStore(tmp_path / "audit-2.sqlite3"),
+            release_git_sha="not-a-sha",
+            strict_release_binding=True,
+        )
 
 
 def test_current_weights_are_in_policy_observation_before_predict(

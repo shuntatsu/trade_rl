@@ -32,6 +32,7 @@ def derive_release_eligibility(
     skip_gate: bool,
     sealed_holdout_used: bool,
     p0_passed: bool,
+    signal_gate_passed: bool,
     walk_forward_passed: bool,
     gate2_passed: bool,
     significance_passed: bool | None,
@@ -42,17 +43,20 @@ def derive_release_eligibility(
         name
         for name, skipped in (
             ("p0", skip_p0),
+            ("signal_gate", skip_gate),
             ("walk_forward", skip_wf),
-            ("gate2", skip_gate),
         )
         if skipped
     )
     required_gates: dict[str, GateState] = {
         "p0": "skipped" if skip_p0 else "passed" if p0_passed else "failed",
+        "signal_gate": (
+            "skipped" if skip_gate else "passed" if signal_gate_passed else "failed"
+        ),
         "walk_forward": (
             "skipped" if skip_wf else "passed" if walk_forward_passed else "failed"
         ),
-        "gate2": "skipped" if skip_gate else "passed" if gate2_passed else "failed",
+        "gate2": "passed" if gate2_passed else "failed",
         "significance": (
             "not_required"
             if significance_passed is None

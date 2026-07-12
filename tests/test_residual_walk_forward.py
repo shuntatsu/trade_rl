@@ -35,7 +35,7 @@ def _relative(
 
 def test_fold_specs_are_expanding_and_oos_ranges_do_not_overlap() -> None:
     specs, skipped = build_residual_fold_specs(
-        n_bars=1_000,
+        n_bars=2_000,
         n_folds=3,
         purge_bars=24,
         horizon=12,

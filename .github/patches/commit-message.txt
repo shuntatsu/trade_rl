@@ -1,0 +1,1 @@
+test: require content-addressed snapshots

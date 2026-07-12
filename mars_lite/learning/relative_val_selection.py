@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
+from stable_baselines3.common.callbacks import BaseCallback
 
 
 def rollout_aligned_eval_freq(
@@ -81,3 +84,104 @@ def choose_relative_checkpoint(
             -score.step,
         ),
     )
+
+
+def quick_relative_evaluate(
+    agent,
+    fs,
+    *,
+    env_kwargs: Optional[dict] = None,
+    n_blocks: int = 3,
+    step: int = 0,
+) -> RelativeCheckpointScore:
+    from mars_lite.env.baseline_residual_env import BaselineResidualTradingEnv
+
+    kwargs = dict(env_kwargs or {})
+    kwargs.pop("episode_bars", None)
+    env = BaselineResidualTradingEnv(fs, episode_bars=fs.n_bars - 2, **kwargs)
+    obs, _ = env.reset(options={"start_idx": 0})
+    excess: list[float] = []
+    done = False
+    while not done:
+        action, _ = agent.predict(obs, deterministic=True)
+        obs, _, term, trunc, info = env.step(action)
+        excess.append(float(info["excess_log_return"]))
+        done = term or trunc
+    blocks = [float(np.sum(block)) for block in np.array_split(excess, n_blocks)]
+    return RelativeCheckpointScore.from_blocks(
+        step=step,
+        blocks=blocks,
+        drawdown_excess=env.hybrid.max_drawdown - env.shadow.max_drawdown,
+        turnover_excess=env.hybrid.turnover_total - env.shadow.turnover_total,
+    )
+
+
+class RelativeValSelectionCallback(BaseCallback):
+    """Select checkpoints only when they add validation value over base trend."""
+
+    def __init__(
+        self,
+        val_fs,
+        *,
+        eval_freq: int,
+        env_kwargs: Optional[dict] = None,
+        verbose: int = 0,
+    ):
+        super().__init__(verbose)
+        self.val_fs = val_fs
+        self.eval_freq = int(eval_freq)
+        self.env_kwargs = dict(env_kwargs or {})
+        self.history: list[RelativeCheckpointScore] = []
+        self.identity_params: Optional[bytes] = None
+        self.best_params: Optional[bytes] = None
+        self.best_score = RelativeCheckpointScore.identity()
+
+    @staticmethod
+    def _serialize(model) -> bytes:
+        buffer = io.BytesIO()
+        model.save(buffer)
+        return buffer.getvalue()
+
+    def _evaluate_and_save(self) -> None:
+        score = quick_relative_evaluate(
+            self.model,
+            self.val_fs,
+            env_kwargs=self.env_kwargs,
+            step=self.num_timesteps,
+        )
+        self.history.append(score)
+        selected = choose_relative_checkpoint(self.history)
+        if selected.step == score.step and selected.eligible:
+            self.best_score = selected
+            self.best_params = self._serialize(self.model)
+        if self.verbose >= 1:
+            print(
+                f"[RelativeValSelection] step={score.step:,} "
+                f"median_excess={score.median_excess:+.6f} "
+                f"positive_blocks={score.positive_block_ratio:.0%}"
+            )
+
+    def _on_training_start(self) -> None:
+        self.identity_params = self._serialize(self.model)
+        self._evaluate_and_save()
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps % self.eval_freq < self.training_env.num_envs:
+            self._evaluate_and_save()
+        return True
+
+    def _on_training_end(self) -> None:
+        if not self.history or self.history[-1].step != self.num_timesteps:
+            self._evaluate_and_save()
+
+    def restore_best(self, agent):
+        from stable_baselines3 import PPO
+
+        payload = self.best_params or self.identity_params
+        if payload is None:
+            return agent
+        restored = PPO.load(io.BytesIO(payload), device=agent.device)
+        agent.set_parameters(restored.get_parameters())
+        if self.best_params is None:
+            self.best_score = RelativeCheckpointScore.identity()
+        return agent

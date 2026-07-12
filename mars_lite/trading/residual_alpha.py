@@ -185,15 +185,50 @@ class FrozenResidualAlpha:
         return cls(**payload)
 
 
+def _update_identity_array(
+    digest: "hashlib._Hash", name: str, value: np.ndarray, *, dtype: str
+) -> None:
+    array = np.ascontiguousarray(np.asarray(value, dtype=dtype))
+    if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
+        raise ValueError(f"{name} contains non-finite values")
+    descriptor = json.dumps(
+        {"name": name, "dtype": array.dtype.str, "shape": list(array.shape)},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest.update(len(descriptor).to_bytes(8, "big"))
+    digest.update(descriptor)
+    payload = array.tobytes(order="C")
+    digest.update(len(payload).to_bytes(8, "big"))
+    digest.update(payload)
+
+
 def _dataset_identity(fs, cutoff: int) -> str:
-    timestamps = np.asarray(fs.timestamps).astype("datetime64[ns]").astype(np.int64)
-    payload = {
+    if cutoff <= 0 or cutoff >= fs.n_bars:
+        raise ValueError("dataset identity cutoff is outside the dataset")
+    metadata = {
+        "schema": "frozen-residual-alpha-dataset-v2",
         "symbols": list(fs.symbols),
         "feature_names": list(fs.feature_names),
         "cutoff": int(cutoff),
-        "first_timestamp": int(timestamps[0]),
-        "last_training_timestamp": int(timestamps[cutoff - 1]),
-        "shape": list(np.asarray(fs.features[:cutoff]).shape),
     }
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    timestamps = np.asarray(fs.timestamps).astype("datetime64[ns]").astype("<i8")
+    if np.any(timestamps == np.iinfo(np.int64).min):
+        raise ValueError("timestamps contain NaT")
+    _update_identity_array(digest, "timestamps", timestamps, dtype="<i8")
+    _update_identity_array(
+        digest,
+        "training_features",
+        np.asarray(fs.features)[:cutoff],
+        dtype="<f8",
+    )
+    _update_identity_array(
+        digest,
+        "target_close_history",
+        np.asarray(fs.close),
+        dtype="<f8",
+    )
+    return digest.hexdigest()

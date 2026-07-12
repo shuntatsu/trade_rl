@@ -18,6 +18,17 @@ _GIT_SHA_RE = re.compile(r"^[a-fA-F0-9]{40}$")
 _SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
 _ENSEMBLE_MEMBER_RE = re.compile(r"^ensemble/seed_[0-9]+\.zip$")
 _SUPPORTED_BASE_TIMEFRAMES = {"15m", "1h", "4h", "1d"}
+_REQUIRED_GATE_NAMES = {"p0", "walk_forward", "gate2", "significance"}
+_ACCEPTED_GATE_STATES = {"passed", "not_required"}
+_REQUIRED_PRE_TRADE_FIELDS = {
+    "max_leverage",
+    "max_single_weight",
+    "max_net_exposure",
+    "max_worst_case_notional",
+    "min_order_notional",
+    "symbol_liquidity_caps",
+    "forbidden_symbols",
+}
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -94,6 +105,99 @@ def _require_unique_strings(value: Any, location: str, *, non_empty: bool) -> li
     return value
 
 
+def _positive_finite(value: Any, location: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{location} must be finite and positive")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise ValueError(f"{location} must be finite and positive")
+    return number
+
+
+def validate_release_eligibility(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate immutable release classification embedded in metadata.json."""
+
+    value = metadata.get("release_eligibility")
+    if not isinstance(value, dict):
+        raise ValueError("missing release eligibility metadata")
+    if value.get("eligible") is not True:
+        raise ValueError("release eligibility must be true")
+    if value.get("forced") is not False:
+        raise ValueError("forced bundle is not release eligible")
+    if value.get("skipped_gates") != []:
+        raise ValueError("release eligibility contains skipped gates")
+    if value.get("sealed_holdout_used") is not True:
+        raise ValueError("release eligibility requires a sealed holdout")
+
+    optimization_steps = value.get("optimization_steps_skipped")
+    if not isinstance(optimization_steps, list) or not all(
+        isinstance(item, str) and item for item in optimization_steps
+    ):
+        raise ValueError("release eligibility optimization steps are invalid")
+    if set(optimization_steps) - {"pbt"}:
+        raise ValueError("release eligibility contains unknown optimization steps")
+
+    gates = value.get("required_gates")
+    if not isinstance(gates, dict) or set(gates) != _REQUIRED_GATE_NAMES:
+        raise ValueError("release eligibility has invalid required gates")
+    for name, state in gates.items():
+        if state not in _ACCEPTED_GATE_STATES:
+            raise ValueError(f"required gate {name} is {state}")
+    return dict(value)
+
+
+def _validate_release_risk(risk: Mapping[str, Any], symbols: list[str]) -> None:
+    guardrails = risk.get("guardrails")
+    pre_trade = risk.get("pre_trade")
+    if not isinstance(guardrails, dict) or not isinstance(pre_trade, dict):
+        raise ValueError("risk.json requires guardrails and pre_trade objects")
+
+    missing = sorted(_REQUIRED_PRE_TRADE_FIELDS - set(pre_trade))
+    if missing:
+        raise ValueError(
+            f"risk.pre_trade missing required release fields: {', '.join(missing)}"
+        )
+    max_leverage = _positive_finite(pre_trade["max_leverage"], "max_leverage")
+    max_single_weight = _positive_finite(
+        pre_trade["max_single_weight"], "max_single_weight"
+    )
+    max_net_exposure = _positive_finite(
+        pre_trade["max_net_exposure"], "max_net_exposure"
+    )
+    _positive_finite(
+        pre_trade["max_worst_case_notional"], "max_worst_case_notional"
+    )
+    min_order_notional = _positive_finite(
+        pre_trade["min_order_notional"], "min_order_notional"
+    )
+    if max_single_weight > 1.0 or max_single_weight > max_leverage:
+        raise ValueError("max_single_weight exceeds its semantic bound")
+    if max_net_exposure > max_leverage:
+        raise ValueError("max_net_exposure must be <= max_leverage")
+
+    caps = pre_trade["symbol_liquidity_caps"]
+    if not isinstance(caps, dict):
+        raise ValueError("symbol_liquidity_caps must be an object")
+    if set(caps) != set(symbols):
+        raise ValueError("symbol_liquidity_caps must exactly cover bundle symbols")
+    validated_caps = {
+        symbol: _positive_finite(caps[symbol], f"liquidity cap {symbol}")
+        for symbol in symbols
+    }
+    if min_order_notional > min(validated_caps.values()):
+        raise ValueError("min_order_notional exceeds a symbol liquidity cap")
+
+    forbidden = pre_trade["forbidden_symbols"]
+    if not isinstance(forbidden, list) or not all(
+        isinstance(item, str) and item for item in forbidden
+    ):
+        raise ValueError("forbidden_symbols must be a list of strings")
+    if len(set(forbidden)) != len(forbidden):
+        raise ValueError("forbidden_symbols must contain unique values")
+    if set(forbidden) - set(symbols):
+        raise ValueError("forbidden_symbols must belong to bundle symbols")
+
+
 def compute_bundle_digest(files: Mapping[str, str]) -> str:
     """Return the deterministic digest of a path-to-SHA256 mapping."""
     normalized = dict(sorted(files.items()))
@@ -158,8 +262,16 @@ class ServingBundle:
         return self.manifest.model_version
 
     @property
+    def git_sha(self) -> str:
+        return self.manifest.git_sha
+
+    @property
     def bundle_digest(self) -> str:
         return self.manifest.bundle_digest
+
+    @property
+    def release_eligibility(self) -> dict[str, Any]:
+        return validate_release_eligibility(self.metadata)
 
     @property
     def model_path(self) -> Path:
@@ -272,6 +384,7 @@ def _validate_bundle_schema(
     symbols = _require_unique_strings(
         metadata.get("symbols"), "metadata.symbols", non_empty=True
     )
+    validate_release_eligibility(metadata)
 
     feature_names = _require_unique_strings(
         preprocessing.get("feature_names"),
@@ -341,10 +454,7 @@ def _validate_bundle_schema(
         raise ValueError(
             "metadata.observation_dim does not match the declared observation schema"
         )
-    if not isinstance(risk.get("guardrails"), dict) or not isinstance(
-        risk.get("pre_trade"), dict
-    ):
-        raise ValueError("risk.json requires guardrails and pre_trade objects")
+    _validate_release_risk(risk, symbols)
 
     _validate_finite(metadata, "metadata")
     _validate_finite(preprocessing, "preprocessing")

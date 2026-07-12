@@ -1,5 +1,7 @@
 import numpy as np
+import pytest
 
+from mars_lite.env.baseline_residual_env import BaselineResidualTradingEnv
 from mars_lite.eval.relative_evaluation import evaluate_relative_agent
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.trading.post_processor import (
@@ -85,3 +87,24 @@ def test_evaluation_uses_post_processor_annualization_factor() -> None:
     )
 
     assert result["execution"]["annualization_factor"] == 365
+
+
+def test_terminal_metrics_use_post_processor_annualization_factor() -> None:
+    processor = make_default_processor(
+        target_vol=None,
+        ema_alpha=1.0,
+        no_trade_band=0.0,
+        bars_per_year=365,
+    )
+    env = BaselineResidualTradingEnv(
+        _feature_set(),
+        episode_bars=8,
+        **_env_kwargs(processor),
+    )
+    returns = np.asarray([0.01, -0.005, 0.002], dtype=np.float64)
+    env.hybrid.returns_history = returns.tolist()
+
+    terminal = env._terminal_info()
+    expected = float(returns.mean() / returns.std() * np.sqrt(365))
+
+    assert terminal["hybrid"]["sharpe"] == pytest.approx(expected)

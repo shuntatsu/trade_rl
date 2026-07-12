@@ -28,9 +28,7 @@ def test_server_requires_release_git_sha(tmp_path: Path) -> None:
 
 def test_server_rejects_invalid_release_git_sha(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="40-character hexadecimal"):
-        build_app_from_env(
-            _env(tmp_path, TRADE_RL_RELEASE_GIT_SHA="not-a-commit")
-        )
+        build_app_from_env(_env(tmp_path, TRADE_RL_RELEASE_GIT_SHA="not-a-commit"))
 
 
 def test_server_builds_with_strict_release_identity(tmp_path: Path) -> None:

@@ -58,6 +58,8 @@ uv run python scripts/run_pipeline.py \
 
 release可能な実行には、空でないsealed holdout、すべての必須gate合格、完全なrisk policyが必要です。`--force`、`--skip-p0`、`--skip-wf`、`--skip-gate`のいずれかを使うと研究専用実行になり、reportは生成できても候補Bundleの構築・Registry登録はできません。意図的な研究実行には`--no-register`を使用します。
 
+Baseline-Anchored Residual policyは現在、明示的な研究専用経路として提供されています。詳細は[`docs/ja/BASELINE_RESIDUAL_RL.md`](docs/ja/BASELINE_RESIDUAL_RL.md)を参照してください。sealed multi-fold release workflowが実装・証拠化されるまで、Registry登録はfail-closedで拒否されます。
+
 適格な実行は、不変の候補Bundleを構築してRegistryへ登録します。ただし、候補を**activationしません**。activationは、証拠検証とEnvironment承認を通過した後、デプロイworkflowだけが実行します。
 
 Registry操作:
@@ -102,6 +104,7 @@ Serving Planeには、学習、モデル削除、昇格、rollback、Registry変
 ## ドキュメント
 
 - [`docs/ja/ARCHITECTURE.md`](docs/ja/ARCHITECTURE.md) — 現行システムアーキテクチャ
+- [`docs/ja/BASELINE_RESIDUAL_RL.md`](docs/ja/BASELINE_RESIDUAL_RL.md) — Baseline-Anchored Residual研究経路とrelease境界
 - [`docs/ja/MODEL_LIFECYCLE.md`](docs/ja/MODEL_LIFECYCLE.md) — 候補、証拠、Registry、activation、rollback
 - [`docs/ja/OPERATIONS.md`](docs/ja/OPERATIONS.md) — デプロイとインシデント対応
 - [`docs/ja/SECURITY.md`](docs/ja/SECURITY.md) — 信頼境界と脅威
@@ -127,4 +130,3 @@ uv run python scripts/run_local_gameday.py
 ```
 
 旧dashboard serverは開発専用で、意図的な直接opt-inを除き`TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1`が必要です。filesystem Registryはsingle-nodeのローカル実装です。この検証の成功はmulti-node、testnet、本番GOを証明しません。
-

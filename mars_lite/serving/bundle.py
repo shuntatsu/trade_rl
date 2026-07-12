@@ -134,15 +134,21 @@ def validate_release_eligibility(metadata: Mapping[str, Any]) -> dict[str, Any]:
         isinstance(item, str) and item for item in optimization_steps
     ):
         raise ValueError("release eligibility optimization steps are invalid")
+    if len(set(optimization_steps)) != len(optimization_steps):
+        raise ValueError("release eligibility optimization steps must be unique")
     if set(optimization_steps) - {"pbt"}:
         raise ValueError("release eligibility contains unknown optimization steps")
 
     gates = value.get("required_gates")
     if not isinstance(gates, dict) or set(gates) != _REQUIRED_GATE_NAMES:
         raise ValueError("release eligibility has invalid required gates")
-    for name, state in gates.items():
-        if state not in _ACCEPTED_GATE_STATES:
+    for name in ("p0", "walk_forward", "gate2"):
+        state = gates[name]
+        if state != "passed":
             raise ValueError(f"required gate {name} is {state}")
+    significance_state = gates["significance"]
+    if significance_state not in _ACCEPTED_GATE_STATES:
+        raise ValueError(f"required gate significance is {significance_state}")
     return dict(value)
 
 

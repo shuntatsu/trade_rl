@@ -9,13 +9,14 @@ Production is **NO-GO** until [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.m
 ## Principles
 
 1. One authoritative implementation per production responsibility.
-2. Invalid artifacts, state, schemas, credentials, or market data fail closed.
+2. Invalid artifacts, state, schemas, credentials, market data, or release identities fail closed.
 3. Evidence is bound to one exact bundle digest and Git commit.
 4. Training evaluation and serving share observation and decision contracts.
 5. Online serving is authenticated and read-only.
 6. Registry versions are immutable; activation is an atomic pointer update.
 7. Account state is explicit and supplied by the Trade Platform on every request.
-8. Research findings do not authorize Production behavior.
+8. Research findings and override runs do not authorize Production behavior.
+9. Deployment is incomplete until the live Serving Plane reports the approved version, bundle digest, and running release Git SHA.
 
 ## System boundaries
 
@@ -25,10 +26,12 @@ The offline Control Plane owns:
 
 - data preparation and quality gates;
 - training, PBT, walk-forward, sealed-holdout evaluation, and statistical checks;
+- release-eligibility derivation from resolved pipeline state;
+- complete risk-policy validation;
 - complete `ServingBundle` construction;
 - deployment evidence production and verification;
 - immutable registry registration;
-- activation and rollback through CLI and GitHub Actions.
+- activation and rollback through CLI and trusted GitHub Actions.
 
 The Control Plane does not serve live signals. Its supported interfaces are CLI commands and trusted GitHub Actions workflows.
 
@@ -58,6 +61,8 @@ serving_candidate/
 The bundle contains:
 
 - model version and training Git SHA;
+- immutable release eligibility, including override and mandatory-gate state;
+- proof that the sealed holdout was used;
 - ordered symbols;
 - ordered per-symbol and global feature names;
 - feature normalization and zero-mask configuration;
@@ -65,11 +70,13 @@ The bundle contains:
 - serving-compatible progress mode;
 - environment inference settings;
 - post-processing configuration;
-- guardrail and pre-trade risk configuration;
+- complete guardrail and pre-trade risk configuration;
 - evaluation summaries;
 - SHA-256 for every file and a canonical bundle digest.
 
-Any digest, file set, dimension, symbol order, feature order, or schema mismatch rejects the bundle.
+A release bundle is rejected when it was forced, skipped a mandatory gate, lacks sealed-holdout proof, contains a failed mandatory gate, or lacks any required risk limit. Risk liquidity caps must exactly cover the ordered bundle symbols.
+
+Any digest, file set, dimension, symbol order, feature order, schema, release eligibility, or risk-policy mismatch rejects the bundle.
 
 ## Registry
 
@@ -84,25 +91,42 @@ registry/
 
 Registration copies and revalidates a candidate into an immutable version directory. It never activates the version. Activation validates the registered bundle and atomically replaces `active.json`. Failed registration or activation preserves the previous active version.
 
+The deployment runner must access the same persistent Registry storage as the stage Serving Plane. A GitHub-hosted ephemeral filesystem is not a deployment target.
+
 ## Training and promotion flow
 
 ```text
 build data
   -> quality and leak checks
+  -> sealed development/holdout split
   -> P0
-  -> PBT on development data
-  -> multi-fold walk-forward and cost sensitivity
-  -> final training
-  -> sealed holdout and baseline gate
+  -> optional PBT on development data
+  -> mandatory multi-fold walk-forward and cost sensitivity
+  -> final training on development data
+  -> Gate 2 on sealed holdout
+  -> derive immutable release eligibility
+  -> validate explicit release risk policy
   -> complete ServingBundle candidate
   -> immutable registration
   -> Shadow/Canary evidence bound to bundle digest
-  -> deployment gate
-  -> environment approval
-  -> atomic activation
+  -> deployment gate and environment approval
+  -> atomic activation in persistent stage Registry
+  -> live /ready identity verification
 ```
 
-A successful training run registers a candidate but does not activate it.
+A successful eligible training run registers a candidate but does not activate it. `--force`, `--skip-p0`, `--skip-wf`, or `--skip-gate` makes a run ineligible for candidate construction and registration. `--skip-pbt` is recorded but does not by itself disqualify a release because PBT is an optimization step rather than a safety gate.
+
+## Deployment identity handshake
+
+For Canary and Production, the deployment workflow must:
+
+1. validate evidence against the exact immutable ServingBundle;
+2. use a self-hosted deployment runner with access to persistent stage Registry storage;
+3. register and atomically activate the approved version;
+4. poll the configured stage `/ready` endpoint;
+5. require the reported `active_version`, `bundle_digest`, and `release_git_sha` to equal the approved identity.
+
+A `degraded` response is acceptable only when it reports the newly approved identity. A degraded response still serving a previous bundle fails deployment. An unreachable or mismatched endpoint also fails deployment and requires an explicit operator rollback decision.
 
 ## Online inference flow
 
@@ -139,22 +163,26 @@ The Trade Platform is the final execution and risk-enforcement boundary. It must
 - `mars_lite.trading.pipeline.DecisionPipeline` is the shared action-to-target path.
 - `mars_lite.trading.guardrails.evaluate_guardrails` evaluates real account state.
 - `mars_lite.trading.pre_trade_risk.PreTradeRiskVerifier` evaluates deltas, pending orders, liquidity, restrictions, and reduce-only behavior.
-- `mars_lite.serving.runtime.ServingRuntime` owns cached loading, safe hot-swap, inference orchestration, and readiness.
+- `mars_lite.pipeline.release_eligibility.derive_release_eligibility` is the only release-classification path.
+- `mars_lite.pipeline.release_risk.load_release_risk_policy` validates release risk policy files.
+- `mars_lite.serving.runtime.ServingRuntime` owns cached loading, safe hot-swap, Git-SHA binding, inference orchestration, and readiness.
 
 ## Availability and hot-swap
 
-Serving loads the active bundle beside the currently loaded bundle. The new bundle becomes visible only after digest, schema, preprocessing, model-load, and readiness checks succeed. A bad new bundle leaves the old in-memory bundle serving and reports degraded readiness. With no healthy bundle, the signal route returns `503` and no actionable weights.
+Production serving starts with `TRADE_RL_RELEASE_GIT_SHA` and strict release binding enabled. The active bundle Git SHA must equal the running release SHA.
+
+Serving loads the active bundle beside the currently loaded bundle. The new bundle becomes visible only after digest, release eligibility, risk policy, schema, preprocessing, Git-SHA binding, model-load, and readiness checks succeed. A bad new bundle leaves the old in-memory bundle serving and reports degraded readiness. With no healthy bundle, the signal route returns `503` and no actionable weights.
 
 ## Trust boundaries
 
-Control and Serving processes use different credentials. Serving uses a bearer token, origin allowlist, local bind by default, audit logging, and request replay protection. Registry writes require a Control Plane identity. Secrets are supplied by deployment secret management and are not stored in the repository.
+Control and Serving processes use different credentials. Serving uses a bearer token, origin allowlist, local bind by default, audit logging, and request replay protection. Registry writes require a Control Plane identity. Deployment uses a dedicated self-hosted runner label and stage-scoped GitHub Environment variables. Secrets are supplied by deployment secret management and are not stored in the repository.
 
 ## Package map
 
 - `mars_lite/data`, `mars_lite/features` — data and feature construction
 - `mars_lite/env`, `mars_lite/learning` — RL environment and training
 - `mars_lite/eval` — evaluation and replay simulation
-- `mars_lite/pipeline` — offline orchestration
+- `mars_lite/pipeline` — offline orchestration and release eligibility/risk validation
 - `mars_lite/serving` — bundle, registry, contracts, runtime, audit, feature snapshots
 - `mars_lite/server` — read-only serving HTTP boundary and deployment gate
 - `mars_lite/trading` — execution costs, decision processing, guardrails, and pre-trade risk

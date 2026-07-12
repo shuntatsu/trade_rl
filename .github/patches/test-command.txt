@@ -1,1 +1,0 @@
-uv run pytest tests/test_legacy_metrics_server.py tests/test_signal_server.py -q

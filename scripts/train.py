@@ -585,6 +585,7 @@ def main():
                 host="0.0.0.0",
                 port=args.port,
                 output_dir=str(output_dir),
+                development_only=True,
             )
 
         server_thread = threading.Thread(target=start_server, daemon=True)

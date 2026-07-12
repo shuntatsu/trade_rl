@@ -1,20 +1,5 @@
---- trade_rl_task1_current/mars_lite/pipeline/production_pipeline.py	2026-07-12 06:51:25.121808746 +0000
-+++ trade_rl_red/mars_lite/pipeline/production_pipeline.py	2026-07-12 06:54:55.799451720 +0000
-@@ -49,12 +49,6 @@
-     horizon = int(args.horizon)
-     decision_every = int(args.decision_every)
-     p0_days = int(getattr(args, "p0_days", 240))
--    if horizon <= 0:
--        raise ValueError("horizon must be positive")
--    if decision_every <= 0:
--        raise ValueError("decision_every must be positive")
--    if p0_days <= 0:
--        raise ValueError("p0_days must be positive")
-     p0_args = copy.copy(args)
-     p0_args.days = p0_days
-     return p0_args
 --- trade_rl_task1_current/tests/test_production_pipeline.py	2026-07-12 06:50:13.000000000 +0000
-+++ trade_rl_red/tests/test_production_pipeline.py	2026-07-12 06:54:55.799972057 +0000
++++ trade_rl_green/tests/test_production_pipeline.py	2026-07-12 06:56:47.579086532 +0000
 @@ -307,3 +307,28 @@
      assert production_pipeline.run(args) == 0
      assert seen == {"horizon": 12, "decision_every": 4, "days": 90}
@@ -44,3 +29,14 @@
 +        production_pipeline.run(args)
 +
 +    assert registered == []
+--- trade_rl_task1_current/mars_lite/pipeline/evaluator.py	2026-07-12 06:51:25.121326976 +0000
++++ trade_rl_green/mars_lite/pipeline/evaluator.py	2026-07-12 06:56:47.580086956 +0000
+@@ -94,7 +94,7 @@
+             "horizon": int(args.horizon),
+             "decision_every": int(args.decision_every),
+             "days": int(args.days),
+-        }
++        },
+     }
+ 
+     for label, alpha in [

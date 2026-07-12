@@ -63,9 +63,7 @@ def create_bundle(root: Path, version: str, payload: bytes) -> Path:
         '"feature_mask":[true],"post_mask_dim":1}',
         encoding="utf-8",
     )
-    (root / "risk.json").write_text(
-        json.dumps(_release_risk()), encoding="utf-8"
-    )
+    (root / "risk.json").write_text(json.dumps(_release_risk()), encoding="utf-8")
     build_manifest(root)
     return root
 

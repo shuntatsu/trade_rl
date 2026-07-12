@@ -8,7 +8,22 @@ from mars_lite.eval.residual_walk_forward import run_residual_walk_forward
 
 
 class _FeatureSet:
-    n_bars = 1_000
+    n_bars = 2_000
+
+
+def _args() -> SimpleNamespace:
+    return SimpleNamespace(
+        folds=3,
+        horizon=12,
+        purge_bars=24,
+        decision_every=4,
+        ensemble=3,
+        n_seeds=3,
+        run_tier="research",
+        min_trade_delta=0.04,
+        lambda_turnover=0.04,
+        seed=0,
+    )
 
 
 def test_runner_writes_only_authoritative_residual_report(
@@ -43,17 +58,7 @@ def test_runner_writes_only_authoritative_residual_report(
         },
     )
 
-    args = SimpleNamespace(
-        folds=3,
-        horizon=12,
-        purge_bars=24,
-        decision_every=4,
-        ensemble=3,
-        n_seeds=3,
-        run_tier="research",
-        min_trade_delta=0.04,
-        lambda_turnover=0.04,
-    )
+    args = _args()
     report = run_residual_walk_forward(args, tmp_path)
 
     assert report["mode"] == "baseline_residual_walk_forward_v1"
@@ -82,20 +87,9 @@ def test_runner_does_not_write_success_report_when_fold_fails(
         raise RuntimeError("fold failed")
 
     monkeypatch.setattr(residual_walk_forward, "run_residual_fold", explode)
-    args = SimpleNamespace(
-        folds=3,
-        horizon=12,
-        purge_bars=24,
-        decision_every=4,
-        ensemble=3,
-        n_seeds=3,
-        run_tier="research",
-        min_trade_delta=0.04,
-        lambda_turnover=0.04,
-    )
 
     try:
-        run_residual_walk_forward(args, tmp_path)
+        run_residual_walk_forward(_args(), tmp_path)
     except RuntimeError as exc:
         assert str(exc) == "fold failed"
     else:

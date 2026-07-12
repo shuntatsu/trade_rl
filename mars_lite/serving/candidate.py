@@ -83,9 +83,13 @@ def create_candidate_bundle(
     if not ordered_symbols or len(set(ordered_symbols)) != len(ordered_symbols):
         raise ValueError("symbols must be unique and non-empty")
     if set(risk_policy.symbol_liquidity_caps) != set(ordered_symbols):
-        raise ValueError("risk policy liquidity caps must exactly match candidate symbols")
+        raise ValueError(
+            "risk policy liquidity caps must exactly match candidate symbols"
+        )
     if set(risk_policy.forbidden_symbols) - set(ordered_symbols):
-        raise ValueError("risk policy forbidden symbols must belong to candidate symbols")
+        raise ValueError(
+            "risk policy forbidden symbols must belong to candidate symbols"
+        )
     if not ordered_features or len(set(ordered_features)) != len(ordered_features):
         raise ValueError("feature_names must be unique and non-empty")
     if len(set(ordered_globals)) != len(ordered_globals):

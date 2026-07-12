@@ -243,6 +243,14 @@ def run(args: Any) -> int:
     if train_result is None:
         print("[STOP] training exited before producing a candidate")
         return 1
+    train_report = _load(output_dir / "train_report.json")
+    signal_gate = train_report.get("signal_gate")
+    signal_gate_passed = (
+        isinstance(signal_gate, dict) and signal_gate.get("passed") is True
+    )
+    if release_intent and not signal_gate_passed:
+        raise RuntimeError("release candidate requires a passed signal gate")
+
     gate2_passed = bool(train_result["gate2"]["passed"])
     if not gate2_passed and not args.force:
         print("[STOP] gate2 failed")
@@ -276,6 +284,7 @@ def run(args: Any) -> int:
         skip_gate=bool(args.skip_gate),
         sealed_holdout_used=sealed_holdout_available,
         p0_passed=p0_passed,
+        signal_gate_passed=signal_gate_passed,
         walk_forward_passed=walk_forward_passed,
         gate2_passed=gate2_passed,
         significance_passed=significance_passed,

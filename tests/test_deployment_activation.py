@@ -102,6 +102,7 @@ def test_deploy_workflow_orders_gate_activation_and_verification() -> None:
     assert job["runs-on"] == ["self-hosted", "trade-rl-deploy"]
 
     steps = job["steps"]
+    assert steps[0]["name"] == "Validate deployment source"
     names = [step.get("name") for step in steps if isinstance(step, dict)]
     source_index = names.index("Validate deployment source")
     binding_index = names.index("Download and bind immutable evidence")

@@ -37,6 +37,7 @@ def _eligibility():
         skip_gate=False,
         sealed_holdout_used=True,
         p0_passed=True,
+        signal_gate_passed=True,
         walk_forward_passed=True,
         gate2_passed=True,
         significance_passed=None,

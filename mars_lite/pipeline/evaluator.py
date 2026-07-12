@@ -15,6 +15,7 @@ from mars_lite.features.signal_check import run_signal_check
 from mars_lite.learning.baselines import run_all_baselines
 from mars_lite.learning.manifest import generate_and_save_manifest
 from mars_lite.pipeline.dataset_builder import build_feature_set
+from mars_lite.pipeline.gates import evaluate_direct_gate2
 from mars_lite.pipeline.training_engine import (
     build_env_kwargs,
     build_post_processor,
@@ -437,26 +438,14 @@ def phase_train(
         )
 
     rl_ret = float(agent_res["total_return"])
-    gate2_details = {}
-    gate2_passed = True
-    for bname, bres in baselines.items():
-        bd = bres.to_dict() if hasattr(bres, "to_dict") else bres
-        beat = bool(rl_ret > float(bd.get("total_return", 0.0)))
-        gate2_details[bname] = {
-            "rl_return": rl_ret,
-            "baseline_return": float(bd.get("total_return", 0.0)),
-            "rl_beat": beat,
-        }
-        if not beat:
-            gate2_passed = False
-    tf_baseline = gate2_details.get("trend_following", {})
-    gate2 = {
-        "passed": bool(gate2_passed),
-        "rl_beat_trend_following": bool(tf_baseline.get("rl_beat", False))
-        if "rl_beat" in tf_baseline
-        else None,
-        "details": gate2_details,
+    baseline_metrics = {
+        name: result.to_dict() if hasattr(result, "to_dict") else result
+        for name, result in baselines.items()
     }
+    gate2 = evaluate_direct_gate2(agent=agent_res, baselines=baseline_metrics)
+    gate2_passed = bool(gate2["passed"])
+    gate2_details = gate2["details"]
+    tf_baseline = gate2_details["trend_following"]
     # 金銭管理アロケータとの比較（診断用。gate2の合否自体は変えない＝RLと
     # 金銭管理は代替アプローチであり、RLゲートを金銭管理で落とすのは筋違い）。
     if mm_res is not None:
@@ -486,7 +475,7 @@ def phase_train(
         )
     print(
         f"\n[Gate 2] {'PASS' if gate2_passed else 'FAIL'} "
-        f"RL vs all baselines. trend_following: "
+        f"RL vs mandatory flat + trend_following. trend_following: "
         f"{'BEAT' if tf_baseline.get('rl_beat') else 'LOST'}"
     )
 

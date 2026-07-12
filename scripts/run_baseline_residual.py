@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from mars_lite.eval.residual_walk_forward import run_residual_walk_forward
 from mars_lite.pipeline.cli import build_parser
 from mars_lite.pipeline.residual_pipeline import run_baseline_residual
 
@@ -30,7 +31,10 @@ def main() -> int:
         default=0.30,
     )
     args = parser.parse_args()
-    run_baseline_residual(args, Path(args.output))
+    if args.phase == "wf":
+        run_residual_walk_forward(args, Path(args.output))
+    else:
+        run_baseline_residual(args, Path(args.output))
     return 0
 
 

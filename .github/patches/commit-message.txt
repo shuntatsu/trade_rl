@@ -1,1 +1,1 @@
-test: require completed-bar freshness
+fix: isolate legacy metrics server

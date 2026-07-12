@@ -10,6 +10,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from mars_lite.pipeline.release_eligibility import ReleaseEligibility
+from mars_lite.pipeline.release_risk import ReleaseRiskPolicy
 from mars_lite.serving.bundle import build_manifest, load_bundle
 
 _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$")
@@ -59,11 +61,14 @@ def create_candidate_bundle(
     run_config: Mapping[str, Any],
     metrics: Mapping[str, Any],
     guardrails: Mapping[str, Any],
-    pre_trade: Mapping[str, Any],
+    risk_policy: ReleaseRiskPolicy,
+    release_eligibility: ReleaseEligibility,
     rank_window: int = 250,
     rank_min_periods: int = 40,
 ) -> Path:
-    """Create and validate a single-model or ensemble candidate directory."""
+    """Create and validate a release-eligible model bundle candidate."""
+    if not release_eligibility.eligible:
+        raise ValueError("ineligible research run cannot create a release candidate")
     if run_config.get("observation_progress_mode") != "zero":
         raise ValueError(
             "observation_progress_mode must be 'zero' for serving-compatible models"
@@ -77,6 +82,14 @@ def create_candidate_bundle(
     ordered_globals = tuple(global_feature_names)
     if not ordered_symbols or len(set(ordered_symbols)) != len(ordered_symbols):
         raise ValueError("symbols must be unique and non-empty")
+    if set(risk_policy.symbol_liquidity_caps) != set(ordered_symbols):
+        raise ValueError(
+            "risk policy liquidity caps must exactly match candidate symbols"
+        )
+    if set(risk_policy.forbidden_symbols) - set(ordered_symbols):
+        raise ValueError(
+            "risk policy forbidden symbols must belong to candidate symbols"
+        )
     if not ordered_features or len(set(ordered_features)) != len(ordered_features):
         raise ValueError("feature_names must be unique and non-empty")
     if len(set(ordered_globals)) != len(ordered_globals):
@@ -127,6 +140,7 @@ def create_candidate_bundle(
                 "post_processor": dict(post_processor),
                 "run_config": dict(run_config),
                 "metrics": dict(metrics),
+                "release_eligibility": release_eligibility.to_dict(),
             },
         )
         _write_json(
@@ -145,7 +159,7 @@ def create_candidate_bundle(
         )
         _write_json(
             root / "risk.json",
-            {"guardrails": dict(guardrails), "pre_trade": dict(pre_trade)},
+            {"guardrails": dict(guardrails), "pre_trade": risk_policy.to_dict()},
         )
         build_manifest(root)
         load_bundle(root)

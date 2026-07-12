@@ -19,11 +19,18 @@ from mars_lite.env.portfolio_env import PortfolioTradingEnv
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.pipeline.dataset_builder import build_feature_set
 from mars_lite.pipeline.evaluator import phase_p0, phase_pbt, phase_train, phase_wf
+from mars_lite.pipeline.release_eligibility import (
+    ReleaseEligibility,
+    derive_release_eligibility,
+)
+from mars_lite.pipeline.release_risk import (
+    ReleaseRiskPolicy,
+    load_release_risk_policy,
+)
 from mars_lite.pipeline.training_engine import build_env_kwargs, build_post_processor
 from mars_lite.serving.candidate import create_candidate_bundle
 from mars_lite.serving.registry import ModelRegistry
 from mars_lite.trading.guardrails import GuardrailConfig
-from mars_lite.trading.pre_trade_risk import PreTradeRiskConfig
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -66,14 +73,18 @@ def build_and_register_candidate(
     output_dir: Path,
     feature_set: FeatureSet,
     train_result: dict[str, Any],
+    risk_policy: ReleaseRiskPolicy,
+    release_eligibility: ReleaseEligibility,
 ) -> Path:
-    """Create a complete candidate bundle and register it without activation."""
+    """Create a complete eligible candidate bundle and register without activation."""
     signal_layer = str(getattr(args, "signal_layer", "off"))
     if signal_layer != "off":
         raise ValueError(
             "production candidates require signal_layer=off until the Serving Plane "
             "can reproduce the causal signal transform"
         )
+    if not release_eligibility.eligible:
+        raise ValueError("ineligible research run cannot create a release candidate")
     version, git_sha = _resolve_identity(args)
     train_report = _load(output_dir / "train_report.json")
     feature_mask = train_report.get("feature_mask")
@@ -121,7 +132,8 @@ def build_and_register_candidate(
         run_config=run_config,
         metrics=metrics,
         guardrails=asdict(GuardrailConfig()),
-        pre_trade=asdict(PreTradeRiskConfig()),
+        risk_policy=risk_policy,
+        release_eligibility=release_eligibility,
     )
 
     registry_dir = Path(
@@ -140,6 +152,23 @@ def run(args: Any) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     total_steps = 5
 
+    registration_requested = not bool(args.no_register)
+    release_disqualifying_override = any(
+        (args.force, args.skip_p0, args.skip_wf, args.skip_gate)
+    )
+    release_intent = registration_requested and not release_disqualifying_override
+    if registration_requested and release_disqualifying_override:
+        print(
+            "[research-only] release-disqualifying override detected; "
+            "candidate creation and registration are disabled"
+        )
+    if release_intent and getattr(args, "risk_config", None) is None:
+        raise ValueError("release candidate requires --risk-config")
+
+    p0_passed = False
+    walk_forward_passed = False
+    significance_passed: bool | None = None
+
     _print_step(1, total_steps, "P0 system sanity gate")
     if args.skip_p0:
         print("[skip]")
@@ -151,7 +180,8 @@ def run(args: Any) -> int:
         finally:
             args.horizon, args.decision_every, args.days = original
         gate = _load(output_dir / "p0_report.json")["gate"]
-        if not gate["P0_PASSED"] and not args.force:
+        p0_passed = bool(gate["P0_PASSED"])
+        if not p0_passed and not args.force:
             print("[STOP] P0 failed")
             return 1
 
@@ -177,8 +207,11 @@ def run(args: Any) -> int:
             f"sealed holdout={holdout.n_bars} bars"
         )
     else:
-        print(
-            "[WARN] insufficient data for a sealed holdout; phase-local splits remain"
+        print("[WARN] insufficient data for a sealed holdout")
+    sealed_holdout_available = holdout is not None and holdout.n_bars > 0
+    if release_intent and not sealed_holdout_available:
+        raise RuntimeError(
+            "release candidate requires a non-empty sealed holdout after purge"
         )
 
     _print_step(2, total_steps, "PBT hyperparameter search")
@@ -200,7 +233,8 @@ def run(args: Any) -> int:
         phase_wf(args, output_dir, fs=development)
         report = _load(output_dir / "walk_forward_cost2x.json")
         median_return = report["summary"]["agent_total_return"]["median"]
-        if median_return <= args.wf_cost_gate and not args.force:
+        walk_forward_passed = bool(median_return > args.wf_cost_gate)
+        if not walk_forward_passed and not args.force:
             print(f"[STOP] cost-2x WF median {median_return:+.2%} failed")
             return 1
 
@@ -209,7 +243,16 @@ def run(args: Any) -> int:
     if train_result is None:
         print("[STOP] training exited before producing a candidate")
         return 1
-    if not train_result["gate2"]["passed"] and not args.force:
+    train_report = _load(output_dir / "train_report.json")
+    signal_gate = train_report.get("signal_gate")
+    signal_gate_passed = (
+        isinstance(signal_gate, dict) and signal_gate.get("passed") is True
+    )
+    if release_intent and not signal_gate_passed:
+        raise RuntimeError("release candidate requires a passed signal gate")
+
+    gate2_passed = bool(train_result["gate2"]["passed"])
+    if not gate2_passed and not args.force:
         print("[STOP] gate2 failed")
         return 1
 
@@ -228,21 +271,41 @@ def run(args: Any) -> int:
         result = bootstrap_sharpe_difference(
             agent_returns[:length], baseline_returns[:length], seed=args.seed
         )
-        if result["p_value"] >= 0.05 and not args.force:
+        significance_passed = bool(result["p_value"] < 0.05)
+        if not significance_passed and not args.force:
             print(f"[STOP] superiority is not significant: p={result['p_value']:.4f}")
             return 1
 
+    eligibility = derive_release_eligibility(
+        forced=bool(args.force),
+        skip_p0=bool(args.skip_p0),
+        skip_pbt=bool(args.skip_pbt),
+        skip_wf=bool(args.skip_wf),
+        skip_gate=bool(args.skip_gate),
+        sealed_holdout_used=sealed_holdout_available,
+        p0_passed=p0_passed,
+        signal_gate_passed=signal_gate_passed,
+        walk_forward_passed=walk_forward_passed,
+        gate2_passed=gate2_passed,
+        significance_passed=significance_passed,
+    )
+
     _print_step(5, total_steps, "Serving candidate construction and registration")
-    if args.no_register:
-        print("[skip]")
-    else:
+    if release_intent and eligibility.eligible:
         schema_features = development or full_features
+        risk_policy = load_release_risk_policy(
+            args.risk_config, symbols=tuple(schema_features.symbols)
+        )
         build_and_register_candidate(
             args=args,
             output_dir=output_dir,
             feature_set=schema_features,
             train_result=train_result,
+            risk_policy=risk_policy,
+            release_eligibility=eligibility,
         )
+    else:
+        print("[skip] research-only or ineligible run; no candidate registered")
 
     print("\nControl-plane pipeline complete. Candidate activation was not performed.")
     return 0

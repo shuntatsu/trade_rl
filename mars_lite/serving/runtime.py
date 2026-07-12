@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -25,6 +26,8 @@ from mars_lite.serving.contracts import (
 )
 from mars_lite.serving.registry import ModelRegistry
 
+_GIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+
 
 class PolicyLike(Protocol):
     def predict(
@@ -42,6 +45,14 @@ GuardrailFn = Callable[
 ]
 RiskFn = Callable[[np.ndarray, InferenceState, Sequence[str]], Mapping[str, Any]]
 ComponentFactory = Callable[[ServingBundle], "RuntimeComponents"]
+
+
+def validate_release_git_sha(value: str) -> str:
+    """Validate and normalize the immutable code identity used by strict serving."""
+
+    if _GIT_SHA_RE.fullmatch(value) is None:
+        raise ValueError("release_git_sha must be a 40-character hexadecimal SHA")
+    return value.lower()
 
 
 @dataclass(frozen=True)
@@ -111,6 +122,7 @@ class ReadinessState:
     active_version: str | None
     bundle_digest: str | None
     reason: str | None = None
+    release_git_sha: str | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +139,8 @@ class ServingRuntime:
         registry: ModelRegistry,
         audit_store: AuditStore,
         component_factory: ComponentFactory | None = None,
+        release_git_sha: str | None = None,
+        strict_release_binding: bool = False,
     ) -> None:
         self.registry = registry
         self.audit_store = audit_store
@@ -135,13 +149,32 @@ class ServingRuntime:
 
             component_factory = default_component_factory
         self.component_factory = component_factory
+        if strict_release_binding and release_git_sha is None:
+            raise ValueError("release_git_sha is required in strict serving mode")
+        self.release_git_sha = (
+            validate_release_git_sha(release_git_sha)
+            if release_git_sha is not None
+            else None
+        )
+        self.strict_release_binding = bool(strict_release_binding)
         self._lock = threading.RLock()
         self._loaded: _LoadedRuntime | None = None
-        self._readiness = ReadinessState("unavailable", None, None, "not loaded")
+        self._readiness = ReadinessState(
+            "unavailable",
+            None,
+            None,
+            reason="not loaded",
+            release_git_sha=self.release_git_sha,
+        )
 
     def readiness(self) -> ReadinessState:
         with self._lock:
             return self._readiness
+
+    @property
+    def active_version(self) -> str | None:
+        with self._lock:
+            return self._loaded.bundle.version if self._loaded is not None else None
 
     def active_bundle(self) -> ServingBundle | None:
         """Return the immutable bundle currently loaded in memory."""
@@ -151,13 +184,24 @@ class ServingRuntime:
     def refresh(self) -> bool:
         try:
             bundle = self.registry.get_active_bundle()
+            if self.strict_release_binding:
+                assert self.release_git_sha is not None
+                if bundle.git_sha.lower() != self.release_git_sha:
+                    raise ValueError(
+                        "bundle git sha mismatch: "
+                        f"bundle={bundle.git_sha.lower()} "
+                        f"running={self.release_git_sha}"
+                    )
             with self._lock:
                 if (
                     self._loaded is not None
                     and self._loaded.bundle.bundle_digest == bundle.bundle_digest
                 ):
                     self._readiness = ReadinessState(
-                        "ready", bundle.version, bundle.bundle_digest
+                        "ready",
+                        bundle.version,
+                        bundle.bundle_digest,
+                        release_git_sha=self.release_git_sha,
                     )
                     return True
             components = self.component_factory(bundle)
@@ -174,30 +218,46 @@ class ServingRuntime:
             with self._lock:
                 self._loaded = candidate
                 self._readiness = ReadinessState(
-                    "ready", bundle.version, bundle.bundle_digest
+                    "ready",
+                    bundle.version,
+                    bundle.bundle_digest,
+                    release_git_sha=self.release_git_sha,
                 )
             self.audit_store.append_event(
                 event_type="bundle_loaded",
                 model_version=bundle.version,
                 bundle_digest=bundle.bundle_digest,
-                payload={"status": "ready"},
+                payload={
+                    "status": "ready",
+                    "release_git_sha": self.release_git_sha,
+                },
             )
             return True
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
             with self._lock:
                 if self._loaded is None:
-                    self._readiness = ReadinessState("unavailable", None, None, reason)
+                    self._readiness = ReadinessState(
+                        "unavailable",
+                        None,
+                        None,
+                        reason=reason,
+                        release_git_sha=self.release_git_sha,
+                    )
                 else:
                     self._readiness = ReadinessState(
                         "degraded",
                         self._loaded.bundle.version,
                         self._loaded.bundle.bundle_digest,
-                        reason,
+                        reason=reason,
+                        release_git_sha=self.release_git_sha,
                     )
             self.audit_store.append_event(
                 event_type="bundle_load_rejected",
-                payload={"reason": reason},
+                payload={
+                    "reason": reason,
+                    "release_git_sha": self.release_git_sha,
+                },
             )
             return False
 

@@ -1,0 +1,12 @@
+{
+  "forbidden_symbols": [],
+  "max_leverage": 1.0,
+  "max_net_exposure": 0.6,
+  "max_single_weight": 0.2,
+  "max_worst_case_notional": 100000.0,
+  "min_order_notional": 10.0,
+  "symbol_liquidity_caps": {
+    "BTCUSDT": 50000.0,
+    "ETHUSDT": 30000.0
+  }
+}

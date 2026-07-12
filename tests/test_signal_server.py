@@ -28,7 +28,7 @@ class FakeRuntime:
         return True
 
     def readiness(self):
-        return ReadinessState("ready", "v1", "digest")
+        return ReadinessState("ready", "v1", "digest", release_git_sha="a" * 40)
 
     def infer(self, request, snapshot):
         return InferenceResponse(
@@ -76,6 +76,8 @@ def test_health_and_readiness_are_public() -> None:
     ready = api.get("/ready")
     assert ready.status_code == 200
     assert ready.json()["active_version"] == "v1"
+    assert ready.json()["bundle_digest"] == "digest"
+    assert ready.json()["release_git_sha"] == "a" * 40
 
 
 def test_no_signal_returns_503() -> None:

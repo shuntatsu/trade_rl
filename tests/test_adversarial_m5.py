@@ -3,8 +3,38 @@ from pathlib import Path
 
 import pytest
 
+from mars_lite.pipeline.release_eligibility import derive_release_eligibility
+from mars_lite.pipeline.release_risk import ReleaseRiskPolicy
 from mars_lite.serving.candidate import create_candidate_bundle
 from mars_lite.serving.registry import ModelRegistry
+
+
+def _eligibility():
+    return derive_release_eligibility(
+        forced=False,
+        skip_p0=False,
+        skip_pbt=False,
+        skip_wf=False,
+        skip_gate=False,
+        sealed_holdout_used=True,
+        p0_passed=True,
+        signal_gate_passed=True,
+        walk_forward_passed=True,
+        gate2_passed=True,
+        significance_passed=None,
+    )
+
+
+def _risk() -> ReleaseRiskPolicy:
+    return ReleaseRiskPolicy(
+        max_leverage=1.0,
+        max_single_weight=0.5,
+        max_net_exposure=1.0,
+        max_worst_case_notional=100_000.0,
+        min_order_notional=10.0,
+        symbol_liquidity_caps={"BTCUSDT": 50_000.0},
+        forbidden_symbols=(),
+    )
 
 
 def _candidate(root: Path, version: str, payload: bytes) -> Path:
@@ -26,7 +56,8 @@ def _candidate(root: Path, version: str, payload: bytes) -> Path:
         run_config={"observation_progress_mode": "zero"},
         metrics={},
         guardrails={},
-        pre_trade={},
+        risk_policy=_risk(),
+        release_eligibility=_eligibility(),
     )
 
 

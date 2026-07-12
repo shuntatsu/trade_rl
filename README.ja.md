@@ -16,9 +16,11 @@ Trade RLは、複数の金融商品に対してリスク制約付きの目標ウ
 
 ```text
 Control Plane
-  データ -> 品質ゲート -> 学習 -> Walk-Forward／Holdout評価
-         -> ServingBundle候補 -> 証拠 -> 不変Registry
-         -> 承認後の原子的activation
+  データ -> 品質ゲート -> development／sealed holdout分割
+         -> 学習 -> Walk-Forward／holdout評価
+         -> release eligibility判定 + 必須risk policy
+         -> 不変ServingBundle候補 -> 証拠 -> Registry
+         -> 承認後の原子的activation -> live identity検証
 
 Serving Plane
   認証済み口座状態 + キャッシュ済み市場スナップショット
@@ -42,16 +44,21 @@ uv run pytest --cov=mars_lite --cov-fail-under=70 tests/
 
 ## Control Plane
 
+release候補を生成する前に、[`config/release-risk.example.json`](config/release-risk.example.json)をコピーして編集してください。`symbol_liquidity_caps`は、実際に解決されたBundleのsymbolを過不足なく含める必要があります。
+
 完全な検証・学習パイプラインを実行します。
 
 ```bash
 uv run python scripts/run_pipeline.py \
   --source postgres \
   --git-sha "$(git rev-parse HEAD)" \
-  --model-version model-YYYYMMDD-N
+  --model-version model-YYYYMMDD-N \
+  --risk-config config/release-risk.example.json
 ```
 
-成功した実行は、不変の候補Bundleを構築してRegistryへ登録します。ただし、候補を**activationしません**。activationは、証拠検証とEnvironment承認を通過した後、デプロイworkflowだけが実行します。
+release可能な実行には、空でないsealed holdout、すべての必須gate合格、完全なrisk policyが必要です。`--force`、`--skip-p0`、`--skip-wf`、`--skip-gate`のいずれかを使うと研究専用実行になり、reportは生成できても候補Bundleの構築・Registry登録はできません。意図的な研究実行には`--no-register`を使用します。
+
+適格な実行は、不変の候補Bundleを構築してRegistryへ登録します。ただし、候補を**activationしません**。activationは、証拠検証とEnvironment承認を通過した後、デプロイworkflowだけが実行します。
 
 Registry操作:
 
@@ -66,6 +73,7 @@ uv run python scripts/manage_registry.py --registry-dir output/model_registry sh
 
 ```text
 TRADE_RL_SERVING_TOKEN      必須Bearer token
+TRADE_RL_RELEASE_GIT_SHA    稼働中releaseの正確な40桁Git SHA
 TRADE_RL_REGISTRY_DIR       Registryディレクトリ
 TRADE_RL_AUDIT_DB           SQLite監査・リプレイ防止DB
 TRADE_RL_DATA_DIR           市場データディレクトリ
@@ -77,6 +85,7 @@ TRADE_RL_PORT               既定値 8001
 Servingを開始します。
 
 ```bash
+export TRADE_RL_RELEASE_GIT_SHA="$(git rev-parse HEAD)"
 uv run python scripts/run_server.py
 ```
 
@@ -85,6 +94,8 @@ uv run python scripts/run_server.py
 - `GET /health`
 - `GET /ready`
 - `POST /api/signal/latest`（`Authorization: Bearer ...`が必要）
+
+`/ready`は、active model version、Bundle digest、稼働中release Git SHAを返します。Productionのstrict servingは、稼働中コードと異なるGit SHAで構築されたBundleを拒否し、直前の健全なin-memory Bundleを維持します。
 
 Serving Planeには、学習、モデル削除、昇格、rollback、Registry変更用のrouteはありません。
 

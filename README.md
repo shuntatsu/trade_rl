@@ -16,9 +16,11 @@ No return, Sharpe ratio, benchmark result, or synthetic experiment in this repos
 
 ```text
 Control Plane
-  data -> quality gates -> training -> walk-forward/holdout evaluation
-       -> ServingBundle candidate -> evidence -> immutable registry
-       -> approved atomic activation
+  data -> quality gates -> sealed development/holdout split
+       -> training -> walk-forward and holdout evaluation
+       -> release eligibility + mandatory risk policy
+       -> immutable ServingBundle candidate -> evidence -> registry
+       -> approved atomic activation -> live served-identity verification
 
 Serving Plane
   authenticated account state + cached market snapshot
@@ -42,16 +44,21 @@ uv run pytest --cov=mars_lite --cov-fail-under=70 tests/
 
 ## Control Plane
 
+Before a release-capable run, copy and edit [`config/release-risk.example.json`](config/release-risk.example.json). `symbol_liquidity_caps` must exactly cover the resolved bundle symbols.
+
 Run the complete validation and training pipeline:
 
 ```bash
 uv run python scripts/run_pipeline.py \
   --source postgres \
   --git-sha "$(git rev-parse HEAD)" \
-  --model-version model-YYYYMMDD-N
+  --model-version model-YYYYMMDD-N \
+  --risk-config config/release-risk.example.json
 ```
 
-A successful run constructs and registers an immutable candidate bundle. It does **not** activate the candidate. Activation is reserved for the deployment workflow after evidence and environment approval.
+A release-capable run requires a non-empty sealed holdout, passing mandatory gates, and a complete risk policy. `--force`, `--skip-p0`, `--skip-wf`, or `--skip-gate` makes a run research-only: it may produce reports, but it cannot construct or register a candidate. Use `--no-register` for intentional research runs.
+
+A successful eligible run constructs and registers an immutable candidate bundle. It does **not** activate the candidate. Activation is reserved for the deployment workflow after evidence and environment approval.
 
 Registry operations are available through:
 
@@ -66,6 +73,7 @@ Required environment variables:
 
 ```text
 TRADE_RL_SERVING_TOKEN      required bearer token
+TRADE_RL_RELEASE_GIT_SHA    exact 40-character SHA of the running release
 TRADE_RL_REGISTRY_DIR       registry directory
 TRADE_RL_AUDIT_DB           SQLite audit/replay database
 TRADE_RL_DATA_DIR           market-data directory
@@ -77,6 +85,7 @@ TRADE_RL_PORT               default 8001
 Start serving:
 
 ```bash
+export TRADE_RL_RELEASE_GIT_SHA="$(git rev-parse HEAD)"
 uv run python scripts/run_server.py
 ```
 
@@ -85,6 +94,8 @@ Exposed routes:
 - `GET /health`
 - `GET /ready`
 - `POST /api/signal/latest` with `Authorization: Bearer ...`
+
+`/ready` reports the active model version, bundle digest, and running release Git SHA. Strict Production serving rejects an active bundle built from a different Git SHA and preserves the previous healthy in-memory bundle.
 
 The Serving Plane contains no training, model deletion, promotion, rollback, or registry-mutation routes.
 

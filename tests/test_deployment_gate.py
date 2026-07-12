@@ -2,17 +2,48 @@ import hashlib
 import json
 from pathlib import Path
 
+from mars_lite.pipeline.release_eligibility import derive_release_eligibility
+from mars_lite.pipeline.release_risk import ReleaseRiskPolicy
 from mars_lite.server.deployment_gate import (
     DeploymentEvidence,
     DeploymentGate,
     load_evidence_bundle,
     main,
 )
+from mars_lite.serving.bundle import build_manifest
 from mars_lite.serving.candidate import create_candidate_bundle
 
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _eligibility():
+    return derive_release_eligibility(
+        forced=False,
+        skip_p0=False,
+        skip_pbt=False,
+        skip_wf=False,
+        skip_gate=False,
+        sealed_holdout_used=True,
+        p0_passed=True,
+        signal_gate_passed=True,
+        walk_forward_passed=True,
+        gate2_passed=True,
+        significance_passed=None,
+    )
+
+
+def _risk() -> ReleaseRiskPolicy:
+    return ReleaseRiskPolicy(
+        max_leverage=1.0,
+        max_single_weight=0.5,
+        max_net_exposure=1.0,
+        max_worst_case_notional=100_000.0,
+        min_order_notional=10.0,
+        symbol_liquidity_caps={"BTCUSDT": 50_000.0},
+        forbidden_symbols=(),
+    )
 
 
 def _write_bundle(tmp_path: Path, *, production: bool = False) -> Path:
@@ -39,7 +70,8 @@ def _write_bundle(tmp_path: Path, *, production: bool = False) -> Path:
         },
         metrics={"gate2": {"passed": True}},
         guardrails={},
-        pre_trade={},
+        risk_policy=_risk(),
+        release_eligibility=_eligibility(),
     )
     manifest = serving / "manifest.json"
     manifest_hash = _sha(manifest)
@@ -97,6 +129,15 @@ def _write_bundle(tmp_path: Path, *, production: bool = False) -> Path:
     return root
 
 
+def _refresh_candidate_manifest_hash(root: Path) -> None:
+    candidate_path = root / "candidate.json"
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    manifest = root / "serving_candidate" / "manifest.json"
+    manifest_hash = _sha(manifest)
+    candidate["artifact_sha256"] = manifest_hash
+    candidate_path.write_text(json.dumps(candidate), encoding="utf-8")
+
+
 def test_shadow_is_first_stage():
     assert DeploymentGate().evaluate(DeploymentEvidence(stage="shadow")).allowed
 
@@ -132,6 +173,21 @@ def test_serving_bundle_file_tamper_is_blocked(tmp_path):
     assert decision.allowed is False
     assert "serving bundle validation failed" in decision.reason
     assert "digest mismatch" in decision.reason
+
+
+def test_recomputed_ineligible_bundle_is_blocked(tmp_path):
+    root = _write_bundle(tmp_path)
+    metadata_path = root / "serving_candidate" / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["release_eligibility"]["forced"] = True
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    build_manifest(root / "serving_candidate")
+    _refresh_candidate_manifest_hash(root)
+
+    evidence = load_evidence_bundle(root, "canary")
+    decision = DeploymentGate().evaluate(evidence)
+    assert decision.allowed is False
+    assert "forced bundle" in decision.reason
 
 
 def test_report_tamper_is_blocked_before_parsing(tmp_path):

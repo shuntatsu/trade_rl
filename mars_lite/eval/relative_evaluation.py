@@ -82,9 +82,7 @@ def evaluate_relative_agent(
     bootstrap_seed: int = 0,
 ) -> dict[str, Any]:
     effective_start = int(
-        getattr(fs, "_evaluation_start_idx", 0)
-        if start_idx is None
-        else start_idx
+        getattr(fs, "_evaluation_start_idx", 0) if start_idx is None else start_idx
     )
     if not 0 <= effective_start < max(1, fs.n_bars - 2):
         raise ValueError("start_idx is outside the evaluation executable range")

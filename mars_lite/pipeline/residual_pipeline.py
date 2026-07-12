@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from mars_lite.eval.context_window import with_history_context
 from mars_lite.eval.relative_evaluation import (
     _moving_block_mean_test,
     evaluate_relative_agent,
@@ -201,9 +202,27 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         raise ValueError(
             "insufficient bars for train/validation/test residual workflow"
         )
+    trend_config = TrendFamilyConfig(
+        base_timeframe=getattr(args, "base_timeframe", "1h")
+    )
+    trend_family = TrendFamily(trend_config)
+    history_bars = (
+        max(
+            trend_config.fast_lookback,
+            trend_config.base_lookback,
+            trend_config.slow_lookback,
+        )
+        + trend_config.rebalance_every
+    )
     train_fs = fs.slice(0, train_end)
-    val_fs = fs.slice(val_start, val_end)
-    test_fs = fs.slice(test_start, n)
+    val_window = with_history_context(
+        fs, start=val_start, end=val_end, history_bars=history_bars
+    )
+    test_window = with_history_context(
+        fs, start=test_start, end=n, history_bars=history_bars
+    )
+    val_fs = val_window.feature_set
+    test_fs = test_window.feature_set
 
     signal_gate = run_signal_check(
         train_fs,
@@ -219,9 +238,6 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
     )
     alpha.save(output / "residual_alpha.json")
 
-    trend_family = TrendFamily(
-        TrendFamilyConfig(base_timeframe=getattr(args, "base_timeframe", "1h"))
-    )
     post_processor = build_post_processor(args, horizon=args.horizon)
     env_kwargs = build_env_kwargs(args, post_processor, horizon=args.horizon)
 
@@ -337,6 +353,7 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         fee_rate=env_kwargs["fee_rate"],
         spread_rate=env_kwargs["spread_rate"],
         impact_rate=env_kwargs["impact_rate"],
+        start_idx=test_window.start_idx,
     )
     baseline_payload = _slim_baselines(baselines)
 
@@ -382,8 +399,10 @@ def run_baseline_residual(args, output_dir: str | Path) -> dict[str, Any]:
         ),
         "split": {
             "train_bars": train_fs.n_bars,
-            "validation_bars": val_fs.n_bars,
-            "test_bars": test_fs.n_bars,
+            "validation_bars": val_window.scored_bars,
+            "validation_context_bars": val_window.start_idx,
+            "test_bars": test_window.scored_bars,
+            "test_context_bars": test_window.start_idx,
         },
         "leak_self_test": leak,
         "signal_gate": signal_gate.to_dict(),
@@ -432,12 +451,13 @@ class BaselineResidualReturnView:
     def __init__(self, agent, fs, env_kwargs: dict[str, Any]):
         from mars_lite.env.baseline_residual_env import BaselineResidualTradingEnv
 
+        start_idx = int(getattr(fs, "_evaluation_start_idx", 0))
         env = BaselineResidualTradingEnv(
             fs,
-            episode_bars=fs.n_bars - 2,
+            episode_bars=max(1, fs.n_bars - 2 - start_idx),
             **env_kwargs,
         )
-        obs, _ = env.reset(options={"start_idx": 0})
+        obs, _ = env.reset(options={"start_idx": start_idx})
         done = False
         while not done:
             action, _ = agent.predict(obs, deterministic=True)

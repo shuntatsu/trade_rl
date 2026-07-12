@@ -28,9 +28,12 @@ def evaluate_residual_alpha_gate(
         mean_ic = float(report["mean_oos_ic"])
         positive_ratio = float(report["positive_fold_ratio"])
         t_stat = float(report["t_stat"])
-        n_folds = int(report["n_folds"])
+        raw_n_folds = report["n_folds"]
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("residual alpha report is incomplete") from exc
+    if isinstance(raw_n_folds, bool) or not isinstance(raw_n_folds, int):
+        raise ValueError("residual alpha n_folds must be an integer")
+    n_folds = raw_n_folds
     values = (
         mean_ic,
         positive_ratio,

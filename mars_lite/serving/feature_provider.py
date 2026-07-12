@@ -59,9 +59,7 @@ class CsvFeatureProvider:
         if base_timeframe not in SUPPORTED_BASE_TIMEFRAMES:
             raise ValueError(f"unsupported bundled base_timeframe: {base_timeframe!r}")
         source = create_source("csv", symbols, data_dir=self.data_dir)
-        feature_set = FeaturePipeline(symbols, base_timeframe=base_timeframe).build(
-            source
-        )
+        feature_set = FeaturePipeline(symbols, base_timeframe=base_timeframe).build(source)
         if tuple(feature_set.symbols) != tuple(symbols):
             raise ValueError(
                 "feature provider symbol order does not match active bundle"
@@ -78,7 +76,12 @@ class CsvFeatureProvider:
             int(trend_config.get("base_lookback", 0)),
             int(trend_config.get("slow_lookback", 0)),
         )
-        history_bars = max(rank_window, vol_lookback + 1, trend_lookback + 1, 2)
+        trend_rebalance = int(trend_config.get("rebalance_every", 0))
+        # Absolute-time TrendFamily evaluates at the last rebalance slot. At an
+        # arbitrary inference bar that slot can be up to rebalance_every-1 bars
+        # behind the endpoint, so retain both the lookback and that offset.
+        trend_history = trend_lookback + max(trend_rebalance, 1)
+        history_bars = max(rank_window, vol_lookback + 1, trend_history, 2)
         endpoint = resolve_completed_bar_endpoint(
             feature_set.timestamps,
             base_timeframe=base_timeframe,

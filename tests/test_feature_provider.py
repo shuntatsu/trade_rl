@@ -26,7 +26,7 @@ def _bundle(base_timeframe: str = "4h"):
     )
 
 
-def _feature_set():
+def _feature_set(feature_value: float = 0.2):
     return SimpleNamespace(
         n_bars=2,
         symbols=["BTCUSDT"],
@@ -34,7 +34,7 @@ def _feature_set():
             ["2026-07-11T00:00:00", "2026-07-11T04:00:00"],
             dtype="datetime64[ns]",
         ),
-        features=np.asarray([[[0.1]], [[0.2]]], dtype=np.float64),
+        features=np.asarray([[[0.1]], [[feature_value]]], dtype=np.float64),
         global_features=np.asarray([[0.0], [0.1]], dtype=np.float64),
         close=np.asarray([[100.0], [101.0]], dtype=np.float64),
         feature_names=["ret"],
@@ -84,3 +84,35 @@ def test_feature_provider_rejects_unknown_bundled_timeframe(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="unsupported bundled base_timeframe"):
         provider.get_snapshot()
+
+
+def test_feature_provider_snapshot_id_changes_when_content_changes(
+    tmp_path, monkeypatch
+) -> None:
+    import mars_lite.data.sources as sources
+    import mars_lite.features.feature_pipeline as feature_pipeline
+
+    values = iter([0.2, 0.3])
+
+    class FakePipeline:
+        def __init__(self, symbols, base_timeframe="1h"):
+            pass
+
+        def build(self, source):
+            return _feature_set(next(values))
+
+    monkeypatch.setattr(sources, "create_source", lambda *args, **kwargs: object())
+    monkeypatch.setattr(feature_pipeline, "FeaturePipeline", FakePipeline)
+
+    first = CsvFeatureProvider(
+        runtime=_Runtime(_bundle("4h")),
+        data_dir=tmp_path,
+        cache_ttl_seconds=0,
+    ).get_snapshot()
+    second = CsvFeatureProvider(
+        runtime=_Runtime(_bundle("4h")),
+        data_dir=tmp_path,
+        cache_ttl_seconds=0,
+    ).get_snapshot()
+
+    assert first.snapshot_id != second.snapshot_id

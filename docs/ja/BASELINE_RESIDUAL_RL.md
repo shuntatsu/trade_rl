@@ -103,15 +103,49 @@ uv run python scripts/run_pipeline.py \
   --output output/baseline_residual_research
 ```
 
+## Residual Walk-Forward
+
+従来のdirect-weight Walk-Forwardは、引き続き`walk_forward_cost1x.json`と`walk_forward_cost2x.json`を出力します。これらはResidualアーキテクチャの評価結果ではありません。
+
+Residual専用のnested Walk-Forwardは明示的に実行します。
+
+```bash
+uv run python scripts/run_pipeline.py \
+  --action-mode baseline-residual \
+  --phase wf \
+  --no-register \
+  --source postgres \
+  --pg-source binance \
+  --base-timeframe 1h \
+  --decision-every 4 \
+  --horizon 12 \
+  --timesteps 102400 \
+  --folds 3 \
+  --ensemble 3 \
+  --n-seeds 3 \
+  --signal-model gbm \
+  --run-tier research \
+  --output output/realdata_residual_wf
+```
+
+正規の結果ファイルは`residual_walk_forward.json`です。各outer foldの内部でtrain／validationを分離し、outer OOS結果を見る前にA／B／Dを選択します。その後、同じ選択済みpolicyをcost 1x／2xで評価します。Reportにはhybridとshadow双方の取引回数を記録するため、residual actionがゼロなのか、portfolio全体が取引ゼロなのかを区別できます。foldごとのartifactは`residual_wf/fold_<k>/`へ保存し、Registryには登録しません。
+
 ## Artifact
 
-研究runnerは次を出力します。
+単一分割の研究runnerは次を出力します。
 
 - `residual_alpha.json` — 凍結residual-alpha modelと内容に結び付いたdata identity
 - `B_trend_mix_model.zip`または`B_trend_mix_ensemble/`
 - alpha gate合格時の`D_combined_model.zip`または`D_combined_ensemble/`
 - `residual_train_report.json` — cost 1x／2xのA/B/C/D development結果、固定済み選択、最終relative評価、gate、診断
 - `residual_model_manifest.json` — dataset、学習、選択policy mode、選択済みalpha有効化状態のidentity
+
+Residual Walk-Forward runnerは次を出力します。
+
+- `residual_walk_forward.json` — fold横断の構成選択、activity、return、cost、fallback、warning集計
+- `residual_wf/fold_<k>/residual_alpha.json` — fold内trainだけでfitした凍結alpha artifact
+- `residual_wf/fold_<k>/fold_report.json` — fold境界、development matrix、固定済み選択、cost 1x／2x OOS診断
+- 学習されたfold-local B／D model artifact
 
 ## Serving schema
 
@@ -129,6 +163,6 @@ Residual ServingBundleは次を使用します。
 
 ## Release境界
 
-Residual candidate構築とServing検証は実装されていますが、top-level登録経路は意図的に無効です。`--no-register`なしでResidual経路を実行すると、sealed multi-fold residual Walk-Forwardとrelease evidence workflowが実装・検証されるまでerrorになります。
+Residualの単一分割研究経路とnested Walk-Forwardは実装されていますが、top-level登録経路は意図的に無効です。`--no-register`なしでResidual経路を実行すると、sealed release evidence、promotion policy、運用検証が実装・確認されるまでerrorになります。
 
-これは意図的な安全境界です。単一development／test実行、CI合格、正しいBundle形状だけでは、収益性やProduction readinessは証明されません。Productionは引き続き**NO-GO**です。
+これは意図的な安全境界です。Walk-Forward完了、CI合格、正しいBundle形状だけでは、収益性やProduction readinessは証明されません。Productionは引き続き**NO-GO**です。

@@ -12,6 +12,18 @@ from mars_lite.trading.residual_alpha import FrozenResidualAlpha
 from mars_lite.trading.trend_family import TrendFamily, TrendFamilyConfig, TrendTargets
 
 
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
 def build_residual_serving_adapters(bundle, pipeline: DecisionPipeline):
     """Build stateless observation augmentation and context-aware decision functions."""
 
@@ -105,7 +117,7 @@ def build_residual_serving_adapters(bundle, pipeline: DecisionPipeline):
                 "processed_gross": info.processed_gross,
                 "desired_turnover": info.desired_turnover,
                 "executed_turnover": info.executed_turnover,
-                "extra": dict(info.extra),
+                "extra": _jsonable(info.extra),
             },
         }
         return target, decision_info

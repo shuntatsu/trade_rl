@@ -20,6 +20,9 @@ def build_app_from_env(environ: Mapping[str, str] | None = None) -> FastAPI:
     token = env.get("TRADE_RL_SERVING_TOKEN", "").strip()
     if not token:
         raise RuntimeError("TRADE_RL_SERVING_TOKEN is required")
+    release_git_sha = env.get("TRADE_RL_RELEASE_GIT_SHA", "").strip()
+    if not release_git_sha:
+        raise RuntimeError("TRADE_RL_RELEASE_GIT_SHA is required for Production serving")
     registry_dir = Path(env.get("TRADE_RL_REGISTRY_DIR", "output/model_registry"))
     audit_db = Path(env.get("TRADE_RL_AUDIT_DB", "output/serving/audit.sqlite3"))
     data_dir = Path(env.get("TRADE_RL_DATA_DIR", "data"))
@@ -32,6 +35,8 @@ def build_app_from_env(environ: Mapping[str, str] | None = None) -> FastAPI:
     runtime = ServingRuntime(
         registry=registry,
         audit_store=AuditStore(audit_db),
+        release_git_sha=release_git_sha,
+        strict_release_binding=True,
     )
     runtime.refresh()
     provider = CsvFeatureProvider(runtime=runtime, data_dir=data_dir)

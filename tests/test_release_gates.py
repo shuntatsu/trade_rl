@@ -42,6 +42,8 @@ def test_residual_gate2_ignores_oracle_results() -> None:
         hybrid=_metrics(0.12, 0.14),
         shadow=_metrics(0.08, 0.10),
         flat=_metrics(0.0, 0.0),
+        cost2x_hybrid=_metrics(0.04, 0.15),
+        cost2x_shadow=_metrics(0.03, 0.11),
         paired_p_value=0.01,
         diagnostic_results={"oracle_dp": _metrics(99_999.0, 0.0)},
         max_drawdown_slack=0.05,
@@ -50,6 +52,7 @@ def test_residual_gate2_ignores_oracle_results() -> None:
     assert result["passed"] is True
     assert result["mandatory_comparisons"] == ("flat", "shadow")
     assert result["diagnostic_results"]["oracle_dp"]["mandatory"] is False
+    assert result["checks"]["cost2x_beats_shadow"] is True
 
 
 def test_residual_gate2_requires_hybrid_to_beat_shadow() -> None:
@@ -57,11 +60,27 @@ def test_residual_gate2_requires_hybrid_to_beat_shadow() -> None:
         hybrid=_metrics(0.07),
         shadow=_metrics(0.08),
         flat=_metrics(0.0),
+        cost2x_hybrid=_metrics(0.03),
+        cost2x_shadow=_metrics(0.02),
         paired_p_value=0.01,
     )
 
     assert result["passed"] is False
     assert result["checks"]["beats_shadow"] is False
+
+
+def test_residual_gate2_rejects_cost2x_underperformance() -> None:
+    result = evaluate_residual_gate2(
+        hybrid=_metrics(0.12),
+        shadow=_metrics(0.08),
+        flat=_metrics(0.0),
+        cost2x_hybrid=_metrics(0.01),
+        cost2x_shadow=_metrics(0.02),
+        paired_p_value=0.01,
+    )
+
+    assert result["passed"] is False
+    assert result["checks"]["cost2x_beats_shadow"] is False
 
 
 def test_baseline_only_gate_does_not_compare_baseline_with_itself() -> None:
@@ -84,5 +103,7 @@ def test_gate_rejects_non_finite_metrics() -> None:
             hybrid=_metrics(math.nan),
             shadow=_metrics(0.1),
             flat=_metrics(0.0),
+            cost2x_hybrid=_metrics(0.0),
+            cost2x_shadow=_metrics(0.0),
             paired_p_value=0.01,
         )

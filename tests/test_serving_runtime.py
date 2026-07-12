@@ -40,9 +40,7 @@ def _risk(symbols: tuple[str, ...]) -> dict[str, object]:
             "max_net_exposure": 1.0,
             "max_worst_case_notional": 100_000.0,
             "min_order_notional": 10.0,
-            "symbol_liquidity_caps": {
-                symbol: 50_000.0 for symbol in symbols
-            },
+            "symbol_liquidity_caps": {symbol: 50_000.0 for symbol in symbols},
             "forbidden_symbols": [],
         },
     }
@@ -80,9 +78,7 @@ def create_bundle(
         '"feature_norm":"none","feature_mask":[true],"post_mask_dim":1}',
         encoding="utf-8",
     )
-    (root / "risk.json").write_text(
-        json.dumps(_risk(symbols)), encoding="utf-8"
-    )
+    (root / "risk.json").write_text(json.dumps(_risk(symbols)), encoding="utf-8")
     build_manifest(root)
     return root
 
@@ -156,12 +152,8 @@ def test_strict_runtime_rejects_bundle_from_different_git_sha(
     tmp_path: Path,
 ) -> None:
     registry = ModelRegistry(tmp_path / "registry")
-    previous = create_bundle(
-        tmp_path / "v1", "v1", b"one", git_sha="a" * 40
-    )
-    mismatched = create_bundle(
-        tmp_path / "v2", "v2", b"two", git_sha="b" * 40
-    )
+    previous = create_bundle(tmp_path / "v1", "v1", b"one", git_sha="a" * 40)
+    mismatched = create_bundle(tmp_path / "v2", "v2", b"two", git_sha="b" * 40)
     registry.register(previous)
     registry.activate("v1", evidence_identity="run-1")
     runtime = ServingRuntime(
@@ -187,9 +179,7 @@ def test_strict_runtime_rejects_bundle_from_different_git_sha(
 
 def test_strict_runtime_loads_matching_git_sha(tmp_path: Path) -> None:
     registry = ModelRegistry(tmp_path / "registry")
-    candidate = create_bundle(
-        tmp_path / "v1", "v1", b"one", git_sha="a" * 40
-    )
+    candidate = create_bundle(tmp_path / "v1", "v1", b"one", git_sha="a" * 40)
     registered = registry.register(candidate)
     registry.activate("v1", evidence_identity="run-1")
     runtime = ServingRuntime(

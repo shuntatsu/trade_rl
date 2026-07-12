@@ -83,9 +83,7 @@ def load_release_risk_policy(
     max_single_weight = _positive_finite(
         "max_single_weight", payload["max_single_weight"]
     )
-    max_net_exposure = _positive_finite(
-        "max_net_exposure", payload["max_net_exposure"]
-    )
+    max_net_exposure = _positive_finite("max_net_exposure", payload["max_net_exposure"])
     if max_single_weight > 1.0:
         raise ValueError("max_single_weight must be <= 1.0")
     if max_single_weight > max_leverage:
@@ -119,9 +117,7 @@ def load_release_risk_policy(
         raise ValueError("forbidden_symbols must not contain duplicates")
     unknown_forbidden = sorted(set(raw_forbidden) - symbol_set)
     if unknown_forbidden:
-        raise ValueError(
-            f"unknown forbidden symbols: {', '.join(unknown_forbidden)}"
-        )
+        raise ValueError(f"unknown forbidden symbols: {', '.join(unknown_forbidden)}")
 
     max_worst_case_notional = _positive_finite(
         "max_worst_case_notional", payload["max_worst_case_notional"]

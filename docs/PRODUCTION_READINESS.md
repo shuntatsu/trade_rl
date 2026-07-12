@@ -78,3 +78,13 @@ A checked box requires attached evidence, not an assertion. Code owners may chec
 ## GO rule
 
 Production may be marked GO only when every applicable item is checked with evidence and no unresolved Critical or Important finding remains. Until then, all documentation and interfaces must continue to report **NO-GO**.
+
+## Local validation evidence
+
+- [ ] Exact release head records candidate timing in P0 and uses `--p0-days` only for synthetic duration.
+- [ ] Content-addressed snapshot tests prove selected-value mutation changes identity.
+- [ ] Completed bar freshness tests pass for `1h`, `4h`, and `1d`.
+- [ ] `uv run python scripts/run_local_gameday.py` passes all seven local scenarios.
+- [ ] Legacy dashboard startup requires `TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1` or explicit development opt-in.
+- [ ] Reviewers accept that the filesystem Registry remains single-node and local evidence is not multi-node or testnet evidence.
+

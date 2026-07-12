@@ -80,3 +80,13 @@
 ## GOルール
 
 適用されるすべての項目が証拠付きでチェックされ、未解決のCriticalまたはImportant findingが存在しない場合に限り、ProductionをGOへ変更できます。それまでは、すべての文書とinterfaceで**NO-GO**を維持しなければなりません。
+
+## ローカル検証証拠
+
+- [ ] 正確なrelease headでP0が候補タイミングを記録し、`--p0-days`を合成データ期間だけに使用している。
+- [ ] Content-addressed snapshot testで、選択済み値のmutationによりidentityが変化する。
+- [ ] `1h`、`4h`、`1d`のcompleted bar鮮度testが合格している。
+- [ ] `uv run python scripts/run_local_gameday.py`が7つのローカルscenarioすべてに合格している。
+- [ ] 旧dashboard起動に`TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1`または明示的なdevelopment opt-inが必要である。
+- [ ] filesystem Registryがsingle-nodeのままであり、ローカル証拠はmulti-nodeやtestnet証拠ではないとreviewerが確認している。
+

@@ -112,3 +112,18 @@ The Serving Plane contains no training, model deletion, promotion, rollback, or 
 - [`docs/RESEARCH_HISTORY.md`](docs/RESEARCH_HISTORY.md) — non-authoritative research history
 
 Approved specifications and implementation plans are retained under `docs/superpowers/`.
+
+## Local validation
+
+P0 uses the release candidate's resolved `horizon` and `decision_every`. The explicit `--p0-days` option changes only the synthetic sample duration; it does not replace candidate timing.
+
+Serving snapshots are content-addressed: the snapshot identity hashes the ordered schema, selected timestamps, feature values, global values, and close history. The CSV provider uses only a completed bar and measures age from that bar's close time for `15m`, `1h`, `4h`, and `1d` data.
+
+Run the exchange-free local drill with:
+
+```bash
+uv run python scripts/run_local_gameday.py
+```
+
+The legacy dashboard server is development-only and requires `TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1` unless an intentional development caller opts in directly. The filesystem Registry is a single-node local implementation; passing this drill does not establish multi-node or testnet readiness.
+

@@ -10,9 +10,6 @@ on:
       - main
       - master
 
-permissions:
-  contents: write
-
 jobs:
   test:
     name: CI Pipeline
@@ -20,8 +17,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -50,22 +45,6 @@ jobs:
         run: |
           set -o pipefail
           uv run pytest --cov=mars_lite --cov-fail-under=70 tests/ 2>&1 | tee pytest.log
-
-      - name: Apply deterministic formatting to PR branch
-        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          git fetch origin "$HEAD_REF"
-          git checkout -B "$HEAD_REF" "origin/$HEAD_REF"
-          uv run ruff format .
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mars_lite tests scripts
-          if ! git diff --cached --quiet; then
-            git commit -m "style: apply ruff formatting"
-            git push origin "HEAD:$HEAD_REF"
-          fi
 
       - name: Upload CI diagnostics
         if: failure()

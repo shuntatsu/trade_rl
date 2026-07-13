@@ -117,9 +117,7 @@ def test_builder_is_prefix_invariant() -> None:
     np.testing.assert_allclose(
         prefix.global_features, full.global_features[:n], atol=0.0, rtol=0.0
     )
-    np.testing.assert_array_equal(
-        prefix.feature_available, full.feature_available[:n]
-    )
+    np.testing.assert_array_equal(prefix.feature_available, full.feature_available[:n])
     np.testing.assert_allclose(
         prefix.feature_staleness, full.feature_staleness[:n], atol=0.0, rtol=0.0
     )

@@ -44,7 +44,9 @@ def test_baseline_bundle_serves_identity_action_without_policy_loader(
     np.testing.assert_array_equal(action, np.zeros(2, dtype=np.float32))
 
 
-def test_residual_bundle_loads_policy_and_validates_action_schema(tmp_path: Path) -> None:
+def test_residual_bundle_loads_policy_and_validates_action_schema(
+    tmp_path: Path,
+) -> None:
     loader = FakeLoader()
     runtime = ServingRuntime(policy_loader=loader)
 

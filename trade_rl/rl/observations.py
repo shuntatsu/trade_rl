@@ -6,9 +6,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendTargets
+
+OBSERVATION_SCHEMA_VERSION = "causal_observation_v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +58,54 @@ class ObservationBuilder:
             n_symbols=dataset.n_symbols,
             per_symbol_width=dataset.n_features * 3 + 9,
             global_width=len(dataset.global_feature_names) + 10,
+        )
+
+    def schema_digest(self, dataset: MarketDataset) -> str:
+        """Return the stable ordered observation contract for one dataset schema."""
+
+        layout = self.layout(dataset)
+        return content_digest(
+            {
+                "schema_version": OBSERVATION_SCHEMA_VERSION,
+                "symbols": dataset.symbols,
+                "feature_names": dataset.feature_names,
+                "global_feature_names": dataset.global_feature_names,
+                "feature_config_digest": dataset.feature_config_digest,
+                "normalization_digest": dataset.normalization_digest,
+                "per_symbol_fields": (
+                    "features",
+                    "feature_available",
+                    "feature_staleness",
+                    "tradable",
+                    "symbol_active",
+                    "trend_fast",
+                    "trend_base",
+                    "trend_slow",
+                    "alpha",
+                    "hybrid_weight",
+                    "shadow_weight",
+                    "hybrid_minus_shadow",
+                ),
+                "global_state_fields": (
+                    "hybrid_log_value",
+                    "shadow_log_value",
+                    "hybrid_drawdown",
+                    "shadow_drawdown",
+                    "relative_log_value",
+                    "hybrid_gross",
+                    "shadow_gross",
+                    "hybrid_risk_scale",
+                    "shadow_risk_scale",
+                    "episode_progress",
+                ),
+                "layout": {
+                    "n_symbols": layout.n_symbols,
+                    "per_symbol_width": layout.per_symbol_width,
+                    "global_width": layout.global_width,
+                    "size": layout.size,
+                    "dtype": "float32",
+                },
+            }
         )
 
     def build(self, value: ObservationInput) -> np.ndarray:

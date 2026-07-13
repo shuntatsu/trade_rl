@@ -270,9 +270,7 @@ class MarketDataset:
         if not 0 <= index < self.n_bars:
             raise IndexError("market notional index is outside the dataset")
         price_vector = (
-            self.open[index]
-            if prices is None
-            else np.asarray(prices, dtype=np.float64)
+            self.open[index] if prices is None else np.asarray(prices, dtype=np.float64)
         )
         price_vector = np.asarray(price_vector, dtype=np.float64).reshape(-1)
         if (
@@ -283,6 +281,8 @@ class MarketDataset:
         if np.any(price_vector <= 0.0):
             raise ValueError("market notional prices must be strictly positive")
 
+        contract_multipliers = self.contract_multipliers
+        assert contract_multipliers is not None
         result = np.empty(self.n_symbols, dtype=np.float64)
         for symbol_index, unit in enumerate(self.volume_units):
             raw_volume = self.volume[index, symbol_index]
@@ -293,7 +293,7 @@ class MarketDataset:
             else:
                 result[symbol_index] = (
                     raw_volume
-                    * self.contract_multipliers[symbol_index]
+                    * contract_multipliers[symbol_index]
                     * price_vector[symbol_index]
                 )
         return result

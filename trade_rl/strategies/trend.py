@@ -116,16 +116,17 @@ class TrendStrategy:
     def _target(dataset: MarketDataset, index: int, lookback: int) -> np.ndarray:
         if index < lookback:
             raise ValueError("insufficient history for trend target")
+        symbol_active = dataset.symbol_active
+        assert symbol_active is not None
         eligible = np.all(
-            dataset.symbol_active[index - lookback : index + 1],
+            symbol_active[index - lookback : index + 1],
             axis=0,
         )
         result = np.zeros(dataset.n_symbols, dtype=np.float64)
         if not np.any(eligible):
             return result
         momentum = np.log(
-            dataset.close[index, eligible]
-            / dataset.close[index - lookback, eligible]
+            dataset.close[index, eligible] / dataset.close[index - lookback, eligible]
         )
         centered = momentum - float(momentum.mean())
         gross = float(np.abs(centered).sum())

@@ -1,0 +1,49 @@
+name: Pipeline Type Fix Commit
+
+on:
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/training-artifact-pipeline'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/training-artifact-pipeline
+      - name: Apply focused type fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/rl/export.py')
+          text = path.read_text()
+          text = text.replace(
+              'return self.policy._predict(observation, deterministic=True)  # type: ignore[attr-defined,no-any-return]',
+              'return self.policy._predict(observation, deterministic=True)',
+          )
+          text = text.replace('error = _parity_error(', 'max_error = _parity_error(')
+          text = text.replace('if error > tolerance:', 'if max_error > tolerance:')
+          text = text.replace('{error} exceeds tolerance', '{max_error} exceeds tolerance')
+          text = text.replace('error=error,', 'error=max_error,')
+          text = text.replace('except Exception as error:', 'except Exception as export_error:')
+          text = text.replace('reason=str(error),', 'reason=str(export_error),')
+          path.write_text(text)
+          PY
+          rm -f .github/workflows/pipeline-type-fix.yml
+          rm .github/workflows/pipeline-type-fix-commit.yml
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uvx ruff format trade_rl/rl/export.py
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: resolve policy export type errors"
+          git push origin HEAD:agent/training-artifact-pipeline

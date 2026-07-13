@@ -7,6 +7,7 @@ import pytest
 
 from tests.serving.helpers import INITIAL_CAPITAL, OBSERVATION_SIZE, create_bundle
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundleManifest, load_serving_bundle
 
 
@@ -18,7 +19,7 @@ def test_baseline_bundle_validates_complete_environment_identity(
     assert bundle.manifest.policy_mode is PolicyMode.BASELINE_ONLY
     assert bundle.manifest.policy_digest is None
     assert bundle.manifest.release_digest == "f" * 64
-    assert bundle.manifest.observation_schema == "baseline_residual_observation_v2"
+    assert bundle.manifest.observation_schema == OBSERVATION_SCHEMA
     assert bundle.manifest.observation_size == OBSERVATION_SIZE
     assert bundle.manifest.environment_digest == "d" * 64
     assert bundle.manifest.initial_capital == pytest.approx(INITIAL_CAPITAL)
@@ -39,7 +40,7 @@ def test_baseline_bundle_rejects_policy_digest(tmp_path: Path) -> None:
             bundle_digest="9" * 64,
             dataset_id="a" * 64,
             action_schema="baseline_residual_v1",
-            observation_schema="baseline_residual_observation_v2",
+            observation_schema=OBSERVATION_SCHEMA,
             observation_size=OBSERVATION_SIZE,
             environment_digest="d" * 64,
             initial_capital=INITIAL_CAPITAL,
@@ -65,7 +66,7 @@ def test_bundle_rejects_invalid_observation_size_or_aum(tmp_path: Path) -> None:
             root=root,
             dataset_id="a" * 64,
             action_schema="baseline_residual_v1",
-            observation_schema="baseline_residual_observation_v2",
+            observation_schema=OBSERVATION_SCHEMA,
             observation_size=OBSERVATION_SIZE,
             environment_digest="d" * 64,
             initial_capital=0.0,

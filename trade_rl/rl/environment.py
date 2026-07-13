@@ -180,6 +180,9 @@ class ResidualMarketEnv(gym.Env):
         alpha = np.asarray(value, dtype=np.float64).reshape(-1)
         if alpha.shape != (self.dataset.n_symbols,) or not np.isfinite(alpha).all():
             raise ValueError("alpha provider returned an invalid vector")
+        eligible = self.dataset.eligibility_mask(index, require_features=True)
+        alpha = alpha.copy()
+        alpha[~eligible] = 0.0
         gross = float(np.abs(alpha).sum())
         return alpha / gross if gross > 1.0 else alpha
 
@@ -260,10 +263,12 @@ class ResidualMarketEnv(gym.Env):
         target = np.asarray(proposal, dtype=np.float64).reshape(-1).copy()
         if target.shape != (self.dataset.n_symbols,) or not np.isfinite(target).all():
             raise ValueError("proposal does not match dataset symbols")
-        next_index = min(self.current_index + 1, self.dataset.n_bars - 1)
-        tradable = self.dataset.tradable[next_index]
+        eligible = self.dataset.eligibility_mask(
+            self.current_index,
+            require_features=True,
+        )
         current = book.weights
-        target[~tradable] = current[~tradable]
+        target[~eligible] = current[~eligible]
         return self.pre_trade_risk.constrain(
             target,
             current=current,

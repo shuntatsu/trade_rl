@@ -6,8 +6,4 @@ from trade_rl.risk.pretrade import (
     RiskConstrainedTarget,
 )
 
-__all__ = [
-    "PreTradeRisk",
-    "PreTradeRiskConfig",
-    "RiskConstrainedTarget",
-]
+__all__ = ["PreTradeRisk", "PreTradeRiskConfig", "RiskConstrainedTarget"]

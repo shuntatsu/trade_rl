@@ -1,0 +1,24 @@
+name: Export Consolidated Source
+
+on:
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.head_ref == 'agent/consolidated-integration'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/consolidated-integration
+      - name: Archive source
+        run: tar --exclude=.git --exclude=.venv -czf consolidated-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-source
+          path: consolidated-source.tar.gz

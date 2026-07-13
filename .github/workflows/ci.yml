@@ -33,23 +33,23 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff
-        id: ruff
-        continue-on-error: true
-        run: uv run ruff check . 2>&1 | tee ruff.log
+        run: uv run ruff check .
 
-      - name: Upload Ruff diagnostics
+      - name: Format
+        id: format
+        continue-on-error: true
+        run: uv run ruff format --check --diff . 2>&1 | tee format.log
+
+      - name: Upload format diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ruff-diagnostics
-          path: ruff.log
+          name: format-diagnostics
+          path: format.log
 
-      - name: Fail on Ruff errors
-        if: steps.ruff.outcome == 'failure'
+      - name: Fail on format errors
+        if: steps.format.outcome == 'failure'
         run: exit 1
-
-      - name: Format
-        run: uv run ruff format --check --diff .
 
       - name: Mypy
         run: uv run mypy trade_rl

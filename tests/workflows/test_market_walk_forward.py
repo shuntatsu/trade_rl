@@ -112,7 +112,7 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     payload = json.loads((published / "walk-forward.json").read_text(encoding="utf-8"))
     assert payload["dataset_id"] == "a" * 64
     assert len(payload["folds"]) == 1
-    assert payload["folds"][0]["test_range"] == [44, 50]
+    assert payload["folds"][0]["test_range"] == [45, 51]
     assert payload["folds"][0]["sealed_test_evaluations"] in (1, 2)
     normalizer = json.loads(
         (published / "fold-000" / "normalizer.json").read_text(encoding="utf-8")

@@ -1,4 +1,4 @@
-"""Extended executable CLI with artifact-producing research commands."""
+"""Artifact-producing command handlers for the authoritative CLI."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
-from trade_rl.cli.app import main as legacy_main
 from trade_rl.workflows.market_walk_forward import execute_market_walk_forward
 from trade_rl.workflows.training_run import execute_training_run
 
@@ -117,7 +116,7 @@ def main(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
-    """Dispatch artifact-producing commands and preserve the existing CLI."""
+    """Dispatch only artifact-producing commands delegated by ``cli.app``."""
 
     arguments = list(sys.argv[1:] if argv is None else argv)
     output = stdout or sys.stdout
@@ -126,7 +125,7 @@ def main(
         return _run_training(arguments[2:], stdout=output, stderr=errors)
     if arguments[:2] == ["walk-forward", "run"]:
         return _run_walk_forward(arguments[2:], stdout=output, stderr=errors)
-    return legacy_main(arguments, stdout=output)
+    raise ValueError("unsupported artifact-producing CLI command")
 
 
 if __name__ == "__main__":

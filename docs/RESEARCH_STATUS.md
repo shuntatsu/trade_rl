@@ -27,3 +27,13 @@ Random training episodes end as time-limit truncations without forced liquidatio
 Policy observations do not include synthetic episode progress or next-bar tradability. Next-open execution uses the last completed bar's volume as its capacity proxy, while actual next-bar tradability remains part of transition dynamics.
 
 Every policy ensemble records the observation schema, complete PPO configuration digest, requested timesteps, observed actual timesteps, and resolved compute device. Low GPU utilization for the current small single-environment MLP is not treated as a quality failure; throughput and sealed OOS evidence remain the relevant criteria.
+
+## Nested walk-forward execution contract
+
+The maintained workflow now has a concrete adapter-driven fold runner. Candidate training receives only the fold train and checkpoint-validation ranges. Frozen candidates and the identity baseline are compared only on the configuration-selection range. The selected candidate and baseline are then evaluated on the sealed outer-test range exactly once; baseline fallback avoids a duplicate test evaluation.
+
+All fold results bind dataset identity, selected configuration, policy digest when applicable, selection evidence, and sealed-test evidence. Selected and baseline OOS series are stitched separately and a final content digest identifies the complete walk-forward evaluation.
+
+Gate decisions now preserve the evaluated dataset, selected policy identity when applicable, and final evaluation digest. Release construction fails closed when those identities do not match the selection and dataset artifacts.
+
+The remaining gap is application-specific adapter integration: a real-data loader, fold-local preprocessing, PPO trainer, and evaluator must be connected to these typed requests. The repository still makes no profitability or production-readiness claim.

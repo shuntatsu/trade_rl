@@ -17,8 +17,8 @@ jobs:
         with:
           ref: agent/consolidated-integration
       - name: Archive source
-        run: tar --exclude=.git --exclude=.venv -czf consolidated-source.tar.gz .
+        run: tar --exclude=.git --exclude=.venv -czf "$RUNNER_TEMP/consolidated-source.tar.gz" .
       - uses: actions/upload-artifact@v4
         with:
           name: consolidated-source
-          path: consolidated-source.tar.gz
+          path: ${{ runner.temp }}/consolidated-source.tar.gz

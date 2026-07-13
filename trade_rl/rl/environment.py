@@ -232,6 +232,14 @@ class ResidualMarketEnv(gym.Env):
     def decision_bars(self) -> int:
         return self._decision_bars
 
+    @property
+    def reward_window_bars(self) -> int:
+        return self._reward_window_bars
+
+    @property
+    def reward_minimum_history_bars(self) -> int:
+        return self._reward_minimum_history_bars
+
     @staticmethod
     def _drawdown(book: BookState) -> float:
         return 1.0 - book.portfolio_value / max(book.peak_value, book.portfolio_value)
@@ -378,24 +386,28 @@ class ResidualMarketEnv(gym.Env):
         ):
             raise RuntimeError(f"{name} liquidation left residual positions")
 
-    def _liquidate_pair(self) -> tuple[ExecutionResult, ExecutionResult]:
-        hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
+    def _liquidate_hybrid(self) -> ExecutionResult:
+        liquidation = self.hybrid_executor.liquidate_at_close(
             self.hybrid,
             index=self.current_index,
         )
+        self._require_complete_liquidation(
+            name="hybrid",
+            liquidation=liquidation,
+        )
+        self.hybrid = self._merge_liquidation_return(liquidation)
+        return liquidation
+
+    def _liquidate_pair(self) -> tuple[ExecutionResult, ExecutionResult]:
+        hybrid_liquidation = self._liquidate_hybrid()
         shadow_liquidation = self.shadow_executor.liquidate_at_close(
             self.shadow,
             index=self.current_index,
         )
         self._require_complete_liquidation(
-            name="hybrid",
-            liquidation=hybrid_liquidation,
-        )
-        self._require_complete_liquidation(
             name="shadow",
             liquidation=shadow_liquidation,
         )
-        self.hybrid = self._merge_liquidation_return(hybrid_liquidation)
         self.shadow = self._merge_liquidation_return(shadow_liquidation)
         return hybrid_liquidation, shadow_liquidation
 
@@ -450,9 +462,8 @@ class ResidualMarketEnv(gym.Env):
         elif self._drawdown(self.hybrid) >= self.config.reward.drawdown_stop:
             self._emergency_deleverage = True
             drawdown_stop_terminal = True
-            hybrid_liquidation, shadow_liquidation = self._liquidate_pair()
+            hybrid_liquidation = self._liquidate_hybrid()
             hybrid_log_return += hybrid_liquidation.interval_log_return
-            shadow_log_return += shadow_liquidation.interval_log_return
 
         threshold = self.config.initial_capital * self.config.minimum_equity_fraction
         hybrid_terminated = self.hybrid.portfolio_value <= threshold
@@ -503,11 +514,11 @@ class ResidualMarketEnv(gym.Env):
             "reward_context_before": reward_context_before,
             "reward_context_after": reward_context_after,
             "reward_growth_raw": reward_breakdown.growth_raw,
-            "reward_baseline_penalty_delta": (reward_breakdown.baseline_penalty_delta),
+            "reward_baseline_penalty_delta": reward_breakdown.baseline_penalty_delta,
             "reward_baseline_penalty_weighted": (
                 reward_breakdown.baseline_penalty_weighted
             ),
-            "reward_drawdown_penalty_delta": (reward_breakdown.drawdown_penalty_delta),
+            "reward_drawdown_penalty_delta": reward_breakdown.drawdown_penalty_delta,
             "reward_drawdown_penalty_weighted": (
                 reward_breakdown.drawdown_penalty_weighted
             ),
@@ -519,6 +530,7 @@ class ResidualMarketEnv(gym.Env):
             "rolling_baseline_log_growth": (
                 reward_context_after.rolling_shadow_log_growth
             ),
+            "rolling_growth_gap": reward_context_after.rolling_growth_gap,
             "baseline_shortfall": reward_context_after.baseline_shortfall,
             "baseline_tolerance": reward_context_after.baseline_tolerance,
             "baseline_penalty": reward_context_after.baseline_penalty,
@@ -530,8 +542,9 @@ class ResidualMarketEnv(gym.Env):
             "portfolio_value_after": self.hybrid.portfolio_value,
             "peak_value": self.hybrid.peak_value,
         }
-        if hybrid_liquidation is not None and shadow_liquidation is not None:
+        if hybrid_liquidation is not None:
             info["hybrid_liquidation"] = hybrid_liquidation
+        if shadow_liquidation is not None:
             info["shadow_liquidation"] = shadow_liquidation
         if terminated or truncated:
             info.update(self._terminal_info())

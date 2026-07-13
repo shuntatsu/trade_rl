@@ -96,7 +96,9 @@ def stitch_oos(
                 or current.opening_state_digest is None
                 or current.closing_state_digest is None
             ):
-                raise ValueError("continuous account folds require state handoff digests")
+                raise ValueError(
+                    "continuous account folds require state handoff digests"
+                )
             if previous.closing_state_digest != current.opening_state_digest:
                 raise ValueError("continuous account state handoff identity mismatch")
         combined.extend(current.returns.values)

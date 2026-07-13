@@ -68,12 +68,12 @@ def test_runtime_rejects_unreleased_bundle_by_default(tmp_path: Path) -> None:
     runtime = ServingRuntime()
 
     with pytest.raises(ValueError, match="release"):
-        runtime.activate(
-            create_bundle(tmp_path / "unreleased", release_digest=None)
-        )
+        runtime.activate(create_bundle(tmp_path / "unreleased", release_digest=None))
 
 
-def test_research_runtime_can_explicitly_allow_unreleased_bundle(tmp_path: Path) -> None:
+def test_research_runtime_can_explicitly_allow_unreleased_bundle(
+    tmp_path: Path,
+) -> None:
     runtime = ServingRuntime(allow_unreleased=True)
 
     snapshot = runtime.activate(

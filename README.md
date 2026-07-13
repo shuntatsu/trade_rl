@@ -53,9 +53,9 @@ The orchestration is concrete and tested, but the repository deliberately does n
 
 The maintained environment maximizes the hybrid book's net interval log growth after execution costs and funding. It applies only two light shaping terms: newly worsening 30-day baseline underperformance beyond a 1.5% tolerance, and newly worsening staged drawdown severity above a 5% free region. Existing penalty levels are not charged repeatedly and recoveries do not receive artificial bonuses.
 
-The policy observation exposes the rolling hybrid and shadow log growth, baseline shortfall, current hinge level, and emergency-deleverage state. Zero residual action still produces an identical hybrid and shadow book, but its reward is now the baseline strategy's absolute growth rather than zero.
+The policy observation exposes rolling hybrid and shadow log growth, their growth gap, baseline shortfall, scaled tolerance, current hinge level, and emergency-deleverage state. Zero residual action still produces an identical hybrid and shadow book, but its reward is now the baseline strategy's absolute growth rather than zero.
 
-A 20% hybrid drawdown triggers fail-closed paired liquidation at the current close and a true terminal transition. The final reward includes actual liquidation costs and does not add a fixed terminal jackpot or penalty. Random training-window endings remain truncations without forced liquidation.
+A 20% hybrid drawdown triggers fail-closed liquidation of the hybrid policy book at the current close and a true terminal transition. The independent shadow book is not charged for a policy failure and remains available for paired diagnostics. The final reward includes actual hybrid liquidation costs and does not add a fixed terminal jackpot or penalty. Random training-window endings remain truncations without forced liquidation, while explicit sealed evaluation can still liquidate both books.
 
 ## AUM and environment identity
 

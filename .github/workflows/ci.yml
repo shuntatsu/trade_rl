@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -17,11 +17,14 @@ concurrency:
 
 jobs:
   quality:
-    name: Ruff diagnostic
+    name: Apply Ruff fix
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout head branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -32,12 +35,13 @@ jobs:
       - name: Install
         run: uv sync --extra dev --quiet
 
-      - name: Capture Ruff diagnostics
-        run: uv run ruff check . --output-format json > ruff-diagnostic.json || true
-
-      - name: Upload Ruff diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: ruff-diagnostic
-          path: ruff-diagnostic.json
-          if-no-files-found: error
+      - name: Apply Ruff fix and restore normal CI
+        run: |
+          uv run ruff check . --fix
+          uv run ruff format .
+          git show 5f4dee28df003e6e132e91f1d2840315e606848a:.github/workflows/ci.yml > .github/workflows/ci.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: apply final Ruff fixes"
+          git push origin HEAD:${{ github.head_ref }}

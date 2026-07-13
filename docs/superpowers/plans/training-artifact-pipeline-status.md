@@ -1,3 +1,3 @@
 # Training Artifact Pipeline Status
 
-Implementation is in full verification. Ruff, formatting, and Mypy pass; focused import-boundary diagnostics are running before the functional test pass.
+Implementation is in functional verification. Ruff, formatting, Mypy, and import architecture pass; focused pytest diagnostics are running for the training, walk-forward, serving, export, and artifact contracts.

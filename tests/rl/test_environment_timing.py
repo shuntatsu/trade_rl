@@ -5,6 +5,7 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.rewards import AbsoluteGrowthRewardConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -65,7 +66,7 @@ def environment(*, decision_every: int = 4) -> ResidualMarketEnv:
         config=ResidualMarketEnvConfig(
             episode_bars=40,
             decision_every=decision_every,
-            reward_scale=100.0,
+            reward=AbsoluteGrowthRewardConfig(scale=100.0),
             initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
@@ -78,7 +79,11 @@ def test_identity_action_matches_shadow_book_exactly() -> None:
 
     for _ in range(5):
         _, reward, terminated, truncated, info = env.step(np.zeros(2))
-        assert reward == pytest.approx(0.0, abs=1e-12)
+        assert reward == pytest.approx(info["reward_total_scaled"])
+        assert reward == pytest.approx(
+            100.0 * info["hybrid_execution"].interval_log_return
+        )
+        assert info["reward_baseline_penalty_delta"] == pytest.approx(0.0)
         np.testing.assert_allclose(env.hybrid.weights, env.shadow.weights, atol=1e-12)
         assert env.hybrid.portfolio_value == pytest.approx(
             env.shadow.portfolio_value,
@@ -116,8 +121,9 @@ def test_identity_action_matches_shadow_with_seeded_random_slippage() -> None:
     env.reset(seed=17, options={"start_idx": 24})
 
     for _ in range(4):
-        _, reward, terminated, truncated, _ = env.step(np.zeros(2))
-        assert reward == pytest.approx(0.0, abs=1e-12)
+        _, reward, terminated, truncated, info = env.step(np.zeros(2))
+        assert reward == pytest.approx(info["reward_total_scaled"])
+        assert info["reward_baseline_penalty_delta"] == pytest.approx(0.0)
         np.testing.assert_allclose(env.hybrid.quantities, env.shadow.quantities)
         assert env.hybrid.portfolio_value == pytest.approx(env.shadow.portfolio_value)
         if terminated or truncated:
@@ -170,7 +176,10 @@ def test_one_action_receives_one_interval_reward() -> None:
     assert env.current_index == 32
     assert info["bars_advanced"] == 8
     assert info["decision_step_index"] == 1
-    assert reward == pytest.approx(100.0 * info["excess_log_return"])
+    assert info["reward_growth_raw"] == pytest.approx(
+        info["hybrid_execution"].interval_log_return
+    )
+    assert reward == pytest.approx(info["reward_total_scaled"])
 
 
 def test_observation_and_action_spaces_have_stable_shapes() -> None:
@@ -227,6 +236,7 @@ def test_explicit_liquidation_is_terminal_only_and_flat() -> None:
 
     assert terminated is True
     assert truncated is False
+    assert info["termination_reason"] == "evaluation_liquidation"
     assert "hybrid_liquidation" in info
     assert "shadow_liquidation" in info
     np.testing.assert_allclose(env.hybrid.quantities, np.zeros(2))

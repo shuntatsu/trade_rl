@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 
@@ -15,12 +15,8 @@ def test_only_trade_rl_is_packaged() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert config["project"]["name"] == "trade-rl"
-    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == [
-        "trade_rl*"
-    ]
-    assert config["project"]["scripts"] == {
-        "trade-rl": "trade_rl.cli.app:main"
-    }
+    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == ["trade_rl*"]
+    assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli.app:main"}
 
 
 def test_source_contains_no_maintained_direct_action_mode() -> None:

@@ -9,6 +9,7 @@ from mars_lite.pipeline.cli import build_parser
 from mars_lite.pipeline.production_pipeline import run
 from mars_lite.pipeline.residual_pipeline import run_baseline_residual
 from mars_lite.pipeline.residual_release_boundary import validate_residual_invocation
+from mars_lite.pipeline.residual_walk_forward import run_residual_walk_forward
 
 
 def main() -> int:
@@ -60,7 +61,10 @@ def main() -> int:
         no_register=bool(args.no_register),
     )
     if args.action_mode == "baseline-residual":
-        run_baseline_residual(args, Path(args.output))
+        if args.phase == "wf":
+            run_residual_walk_forward(args, Path(args.output))
+        else:
+            run_baseline_residual(args, Path(args.output))
         return 0
 
     release_disqualifying_override = any(

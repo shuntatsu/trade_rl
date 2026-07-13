@@ -60,6 +60,10 @@ def test_identity_action_matches_shadow_book_exactly() -> None:
         if terminated or truncated:
             break
 
+    assert env.shadow.n_trades > 0
+    assert env.hybrid.n_trades == env.shadow.n_trades
+    assert np.abs(env.shadow.weights).sum() > 0.0
+
 
 def test_one_action_returns_one_aggregated_reward() -> None:
     env = _env(decision_every=8)

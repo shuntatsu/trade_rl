@@ -47,12 +47,25 @@ jobs:
           uv run pytest -q \
             tests/test_documentation_contract.py \
             tests/test_phases.py \
+            tests/test_baseline_residual_env.py \
             tests/test_serving_residual_action_schema.py \
             tests/test_residual_matrix.py \
             tests/test_residual_env_configuration.py \
             tests/test_residual_alpha_artifact.py \
             tests/test_relative_evaluation.py \
             tests/test_train_eval_serve_parity.py \
+            tests/test_residual_candidate_training.py \
+            tests/test_residual_model_digest.py \
+            tests/test_residual_pipeline_shared_candidates.py \
+            tests/test_residual_wf_config.py \
+            tests/test_residual_walk_forward.py \
+            tests/test_residual_walk_forward_architecture.py \
+            tests/test_residual_walk_forward_atomicity.py \
+            tests/test_residual_walk_forward_fold.py \
+            tests/test_residual_walk_forward_runner.py \
+            tests/test_residual_walk_forward_cli.py \
+            tests/test_baseline_annualization.py \
+            tests/test_baseline_rebalance_phase.py \
             2>&1 | tee residual-contracts.log
 
       - name: Run pytest

@@ -83,6 +83,7 @@ def evaluate_relative_agent(
     env_kwargs: Optional[dict[str, Any]] = None,
     start_idx: int | None = None,
     bootstrap_seed: int = 0,
+    include_return_series: bool = False,
 ) -> dict[str, Any]:
     effective_start = int(
         getattr(fs, "_evaluation_start_idx", 0) if start_idx is None else start_idx
@@ -144,7 +145,7 @@ def evaluate_relative_agent(
             "max": float(values.max()),
         }
 
-    return {
+    result: dict[str, Any] = {
         "identity": {
             "action_schema": "baseline_residual_v1",
             "shadow_baseline": "base_trend_v2",
@@ -184,3 +185,10 @@ def evaluate_relative_agent(
             "return_series": "base_bar",
         },
     }
+    if include_return_series:
+        result["return_series"] = {
+            "kind": "base_bar",
+            "hybrid": [float(value) for value in hybrid_returns],
+            "shadow": [float(value) for value in shadow_returns],
+        }
+    return result

@@ -69,6 +69,23 @@ def test_identity_agent_has_zero_excess_and_complete_report() -> None:
     assert result["identity"]["action_schema"] == "baseline_residual_v1"
     assert result["execution"]["decision_every"] == 4
     assert result["actions"]["count"] > 0
+    assert "return_series" not in result
+
+
+def test_evaluation_can_include_aligned_base_bar_return_series() -> None:
+    result = evaluate_relative_agent(
+        IdentityAgent(),
+        _feature_set(),
+        env_kwargs=_env_kwargs(make_legacy_processor(0.0)),
+        start_idx=60,
+        include_return_series=True,
+    )
+
+    series = result["return_series"]
+    assert series["kind"] == "base_bar"
+    assert len(series["hybrid"]) == result["hybrid"]["n_base_bars"]
+    assert len(series["shadow"]) == result["shadow"]["n_base_bars"]
+    assert series["hybrid"] == series["shadow"]
 
 
 def test_evaluation_uses_post_processor_annualization_factor() -> None:

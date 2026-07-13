@@ -10,6 +10,10 @@ from dataclasses import asdict
 from typing import TextIO
 
 from trade_rl import __version__
+from trade_rl.data.artifact import write_market_dataset_artifact
+from trade_rl.data.builder import MarketDatasetBuilder
+from trade_rl.data.config import load_market_build_request
+from trade_rl.data.source import CsvMarketDataSource
 from trade_rl.rl.training import ResidualTrainingConfig, gamma_from_half_life
 from trade_rl.workflows.walk_forward import WalkForwardWorkflowConfig
 
@@ -35,6 +39,27 @@ def _status_handler(
         return 0
 
     return handler
+
+
+def _data_build(args: argparse.Namespace, stdout: TextIO) -> int:
+    request = load_market_build_request(args.config)
+    dataset = MarketDatasetBuilder(request.config).build(
+        CsvMarketDataSource(request.source_root),
+        request.instruments,
+    )
+    artifact_digest = write_market_dataset_artifact(args.output, dataset)
+    _write_json(
+        stdout,
+        {
+            "artifact_digest": artifact_digest,
+            "dataset_id": dataset.dataset_id,
+            "n_bars": dataset.n_bars,
+            "n_features": dataset.n_features,
+            "n_symbols": dataset.n_symbols,
+            "schema": "market_dataset_build_result_v1",
+        },
+    )
+    return 0
 
 
 def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
@@ -128,11 +153,12 @@ def _add_status_group(
     *,
     name: str,
     help_text: str,
-) -> None:
+) -> argparse._SubParsersAction:
     group = subparsers.add_parser(name, help=help_text)
     commands = group.add_subparsers(dest=f"{name}_command", required=True)
     status = commands.add_parser("status", help=f"show {name} boundary status")
     status.set_defaults(handler=_status_handler(name))
+    return commands
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -147,7 +173,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    _add_status_group(subparsers, name="data", help_text="dataset validation")
+    data_commands = _add_status_group(
+        subparsers,
+        name="data",
+        help_text="dataset validation and construction",
+    )
+    data_build = data_commands.add_parser(
+        "build",
+        help="build a deterministic market dataset artifact from CSV inputs",
+    )
+    data_build.add_argument("--config", required=True)
+    data_build.add_argument("--output", required=True)
+    data_build.set_defaults(handler=_data_build)
+
     _add_status_group(subparsers, name="signal", help_text="signal artifacts and gates")
 
     train = subparsers.add_parser("train", help="residual-policy training")

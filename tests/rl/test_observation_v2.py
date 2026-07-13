@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.rl.observations import build_observation, observation_layout
+from trade_rl.rl.observations import (
+    OBSERVATION_SCHEMA,
+    build_observation,
+    observation_layout,
+)
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendTargets
 
@@ -56,20 +60,39 @@ def positioned_book(weights: np.ndarray) -> BookState:
     return book
 
 
-def test_observation_contains_masks_both_books_and_risk_state() -> None:
+def observation(*, end_index: int) -> np.ndarray:
+    dataset = market()
+    return build_observation(
+        dataset=dataset,
+        index=1,
+        trends=TrendTargets(
+            fast=np.array([0.4, -0.4]),
+            base=np.array([0.3, -0.3]),
+            slow=np.array([0.2, -0.2]),
+        ),
+        alpha=np.array([0.1, -0.1]),
+        hybrid=positioned_book(np.array([0.5, -0.2])),
+        shadow=positioned_book(np.array([0.3, -0.3])),
+        start_index=0,
+        end_index=end_index,
+        hybrid_risk_scale=0.8,
+        shadow_risk_scale=0.9,
+    )
+
+
+def test_observation_contains_current_masks_both_books_and_risk_state() -> None:
     dataset = market()
     hybrid = positioned_book(np.array([0.5, -0.2]))
     shadow = positioned_book(np.array([0.3, -0.3]))
-    trends = TrendTargets(
-        fast=np.array([0.4, -0.4]),
-        base=np.array([0.3, -0.3]),
-        slow=np.array([0.2, -0.2]),
-    )
 
-    observation = build_observation(
+    result = build_observation(
         dataset=dataset,
         index=1,
-        trends=trends,
+        trends=TrendTargets(
+            fast=np.array([0.4, -0.4]),
+            base=np.array([0.3, -0.3]),
+            slow=np.array([0.2, -0.2]),
+        ),
         alpha=np.array([0.1, -0.1]),
         hybrid=hybrid,
         shadow=shadow,
@@ -80,19 +103,26 @@ def test_observation_contains_masks_both_books_and_risk_state() -> None:
     )
 
     layout = observation_layout(dataset)
-    assert observation.shape == (layout.size,)
-    per_symbol = observation[: dataset.n_symbols * layout.per_symbol_width].reshape(
+    assert result.shape == (layout.size,)
+    per_symbol = result[: dataset.n_symbols * layout.per_symbol_width].reshape(
         dataset.n_symbols,
         layout.per_symbol_width,
     )
     assert per_symbol[0, dataset.n_features] == pytest.approx(0.5)
     assert per_symbol[0, dataset.n_features + 1] == pytest.approx(1.0)
-    assert per_symbol[1, dataset.n_features + 1] == pytest.approx(0.0)
+    assert per_symbol[1, dataset.n_features + 1] == pytest.approx(1.0)
     np.testing.assert_allclose(per_symbol[:, -3], hybrid.weights)
     np.testing.assert_allclose(per_symbol[:, -2], shadow.weights)
     np.testing.assert_allclose(per_symbol[:, -1], hybrid.weights - shadow.weights)
 
-    globals_ = observation[-layout.global_width :]
-    assert globals_[-3] == pytest.approx(0.8)
-    assert globals_[-2] == pytest.approx(0.9)
-    assert globals_[-1] == pytest.approx(1.0 / 3.0)
+    globals_ = result[-layout.global_width :]
+    assert globals_[-2] == pytest.approx(0.8)
+    assert globals_[-1] == pytest.approx(0.9)
+
+
+def test_observation_does_not_reveal_random_episode_end() -> None:
+    np.testing.assert_allclose(observation(end_index=3), observation(end_index=4))
+
+
+def test_observation_schema_is_explicitly_versioned() -> None:
+    assert OBSERVATION_SCHEMA == "baseline_residual_observation_v2"

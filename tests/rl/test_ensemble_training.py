@@ -3,12 +3,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import gymnasium as gym
+import numpy as np
 import pytest
+from gymnasium import spaces
 
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.rl.training import (
     PolicyTrainingResult,
     ResidualTrainingConfig,
+    StableBaselines3PPOBackend,
     gamma_from_half_life,
     train_residual_ensemble,
 )
@@ -33,6 +37,47 @@ class FakeBackend:
             actual_timesteps=config.rounded_timesteps,
             resolved_device="cpu",
         )
+
+
+class TinyContinuousEnv(gym.Env):
+    metadata = {"render_modes": []}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(2,),
+            dtype=np.float32,
+        )
+        self.action_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(1,),
+            dtype=np.float32,
+        )
+        self.steps = 0
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, object] | None = None,
+    ) -> tuple[np.ndarray, dict[str, object]]:
+        super().reset(seed=seed)
+        del options
+        self.steps = 0
+        return np.zeros(2, dtype=np.float32), {}
+
+    def step(
+        self,
+        action: np.ndarray,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        self.steps += 1
+        observation = np.array([self.steps / 4.0, 0.0], dtype=np.float32)
+        reward = -float(np.square(action).sum())
+        terminated = self.steps >= 4
+        return observation, reward, terminated, False, {}
 
 
 def manifest(dataset_id: str = "a" * 64) -> DatasetManifest:
@@ -102,6 +147,35 @@ def test_training_config_rejects_incoherent_ppo_settings() -> None:
             seeds=(0,),
             device="",
         )
+
+
+def test_sb3_backend_trains_saves_loads_and_reports_device(tmp_path: Path) -> None:
+    from stable_baselines3 import PPO
+
+    config = ResidualTrainingConfig(
+        timesteps=8,
+        gamma=0.99,
+        seeds=(0,),
+        n_steps=8,
+        batch_size=8,
+        n_epochs=1,
+        device="cpu",
+    )
+    output_path = tmp_path / "policy.zip"
+
+    result = StableBaselines3PPOBackend(TinyContinuousEnv).train(
+        seed=0,
+        config=config,
+        output_path=output_path,
+    )
+
+    assert result.checkpoint_path == output_path
+    assert output_path.is_file()
+    assert result.actual_timesteps == 8
+    assert result.resolved_device == "cpu"
+    restored = PPO.load(str(output_path))
+    action, _ = restored.predict(np.zeros(2, dtype=np.float32), deterministic=True)
+    assert np.asarray(action).shape == (1,)
 
 
 def test_train_residual_ensemble_creates_one_member_per_seed(tmp_path: Path) -> None:

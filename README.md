@@ -41,6 +41,14 @@ uv run trade-rl walk-forward plan \
 
 The `data`, `signal`, `evaluate`, `registry`, and `serve` command groups expose the corresponding architectural boundaries. Additional application adapters should be added behind these boundaries rather than inside domain or evaluation code.
 
+## Concrete nested walk-forward
+
+`ConcreteFoldRunner` executes one nested fold through candidate training, checkpoint validation, configuration selection, baseline fallback, and sealed outer-OOS evaluation. Training and evaluation implementations remain injected adapters. Each adapter receives immutable `IndexRange` requests rather than unrestricted fold data.
+
+`execute_walk_forward` runs all planned folds, validates dataset and fold identity, stitches selected and baseline OOS return series independently, computes both metric sets, and produces a content-addressed final evaluation digest. Gate decisions bind the evaluated dataset, selected policy identity when applicable, and final evaluation digest; release construction rejects mismatched identities.
+
+The repository still does not provide an exchange downloader or a project-specific real-data trainer/evaluator adapter. Those adapters must construct fold-local datasets and models without widening the declared ranges.
+
 ## GPU utilization
 
 The maintained PPO uses a small MLP and currently trains through one environment. In this shape, environment stepping, NumPy accounting, and rollout collection can dominate wall-clock time, so low GPU utilization is expected and does not by itself indicate that training is broken.

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,6 +51,14 @@ def _tuple_fields(payload: dict[str, Any], *names: str) -> dict[str, Any]:
     return resolved
 
 
+def _boolean(value: object, *, field: str, default: bool) -> bool:
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a boolean")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class TrainingRunConfig:
     training: ResidualTrainingConfig
@@ -79,8 +89,8 @@ class TrainingRunConfig:
             self.export_torchscript, bool
         ):
             raise ValueError("export flags must be booleans")
-        if self.export_tolerance <= 0.0:
-            raise ValueError("export_tolerance must be positive")
+        if not math.isfinite(self.export_tolerance) or self.export_tolerance <= 0.0:
+            raise ValueError("export_tolerance must be finite and positive")
         if self.git_commit is not None and not self.git_commit:
             raise ValueError("git_commit must be non-empty when provided")
         if self.schema_version != "training_run_config_v1":
@@ -105,39 +115,40 @@ class TrainingRunConfig:
         )
         environment_data.pop("reward_config", None)
         environment_data.pop("execution_cost", None)
-        environment = ResidualMarketEnvConfig(
-            **environment_data,
-            reward_config=reward,
-            execution_cost=execution,
-        )
         exports = _mapping(payload.get("exports"), field="exports")
+        git_commit = payload.get("git_commit")
+        if git_commit is not None and not isinstance(git_commit, str):
+            raise ValueError("git_commit must be a string or null")
+        schema_version = payload.get("schema_version", "training_run_config_v1")
+        if not isinstance(schema_version, str):
+            raise ValueError("schema_version must be a string")
         return cls(
             training=ResidualTrainingConfig(**training_data),
-            environment=environment,
+            environment=ResidualMarketEnvConfig(
+                **environment_data,
+                reward_config=reward,
+                execution_cost=execution,
+            ),
             risk=PreTradeRiskConfig(
                 **_mapping(payload.get("risk"), field="risk")
             ),
             reward=reward,
-            trend=TrendConfig(
-                **_mapping(payload.get("trend"), field="trend")
-            ),
-            action=ActionSpec(
-                **_mapping(payload.get("action"), field="action")
-            ),
+            trend=TrendConfig(**_mapping(payload.get("trend"), field="trend")),
+            action=ActionSpec(**_mapping(payload.get("action"), field="action")),
             alpha_contract=AlphaContract(
                 **_mapping(payload.get("alpha_contract"), field="alpha_contract")
             ),
-            export_onnx=bool(exports.get("onnx", False)),
-            export_torchscript=bool(exports.get("torchscript", False)),
+            export_onnx=_boolean(
+                exports.get("onnx"), field="exports.onnx", default=False
+            ),
+            export_torchscript=_boolean(
+                exports.get("torchscript"),
+                field="exports.torchscript",
+                default=False,
+            ),
             export_tolerance=float(exports.get("tolerance", 1e-5)),
-            git_commit=(
-                None
-                if payload.get("git_commit") is None
-                else str(payload.get("git_commit"))
-            ),
-            schema_version=str(
-                payload.get("schema_version", "training_run_config_v1")
-            ),
+            git_commit=git_commit,
+            schema_version=schema_version,
         )
 
     @classmethod
@@ -193,7 +204,7 @@ def _dataset_manifest(dataset: MarketDataset, *, created_at: datetime) -> Datase
 def _environment_factory(
     dataset: MarketDataset,
     config: TrainingRunConfig,
-):
+) -> Callable[[], ResidualMarketEnv]:
     def create() -> ResidualMarketEnv:
         return ResidualMarketEnv(
             dataset,
@@ -225,6 +236,21 @@ def _validate_for_store(path: Path) -> bool:
 
 def _ensemble_payload(manifest: PolicyEnsembleManifest) -> dict[str, object]:
     return asdict(manifest)
+
+
+def _policy_loader_payload(
+    ensemble: PolicyEnsembleManifest,
+    *,
+    algorithm: str,
+) -> dict[str, object]:
+    return {
+        "algorithm": algorithm,
+        "members": tuple(
+            f"members/member-{index:03d}/policy.zip"
+            for index in range(ensemble.expected_members)
+        ),
+        "schema_version": "sb3_policy_loader_v1",
+    }
 
 
 def execute_training_run(
@@ -270,20 +296,20 @@ def execute_training_run(
                 "trend": asdict(config.trend),
             },
         )
-        backend = StableBaselines3Backend(_environment_factory(dataset, config))
         ensemble = train_residual_ensemble(
             dataset=_dataset_manifest(dataset, created_at=resolved_created_at),
             environment_dataset_id=dataset.dataset_id,
             config=config.training,
-            backend=backend,
+            backend=StableBaselines3Backend(_environment_factory(dataset, config)),
             output_dir=stage / "members",
             created_at=resolved_created_at,
         )
         _write_json(stage / "ensemble.json", _ensemble_payload(ensemble))
+        _write_json(
+            stage / "policy-loader.json",
+            _policy_loader_payload(ensemble, algorithm=config.training.algorithm),
+        )
 
-        # Export generation is connected in trade_rl.rl.export. Keeping the flags in
-        # the run identity now makes future availability fail closed rather than
-        # silently changing the training contract.
         if config.export_onnx or config.export_torchscript:
             from trade_rl.rl.export import export_ensemble_members
 

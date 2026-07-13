@@ -1,3 +1,3 @@
 # Integration Conflict Map Trigger
 
-Temporary PR-only trigger for branch merge conflict diagnostics.
+Second PR-only trigger for corrected sequential branch merge diagnostics.

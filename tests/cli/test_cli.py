@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from io import StringIO
 
+import pytest
+
 from trade_rl.cli.app import build_parser, main
 
 
@@ -54,7 +56,7 @@ def test_walk_forward_plan_outputs_typed_fold_plan() -> None:
     assert payload["folds"][0]["test"] == [106, 126]
 
 
-def test_train_config_outputs_validated_residual_configuration() -> None:
+def test_train_config_defaults_to_validated_long_horizon_gamma() -> None:
     stdout = StringIO()
 
     exit_code = main(
@@ -63,8 +65,6 @@ def test_train_config_outputs_validated_residual_configuration() -> None:
             "config",
             "--timesteps",
             "1024",
-            "--gamma",
-            "0.5",
             "--seed",
             "0",
             "--seed",
@@ -76,11 +76,54 @@ def test_train_config_outputs_validated_residual_configuration() -> None:
     payload = json.loads(stdout.getvalue())
     assert exit_code == 0
     assert payload == {
-        "gamma": 0.5,
-        "schema": "residual_training_config_v1",
+        "allow_low_gamma": False,
+        "gamma": 0.99,
+        "schema": "residual_training_config_v2",
         "seeds": [0, 1],
         "timesteps": 1024,
     }
+
+
+def test_train_config_rejects_low_gamma_without_explicit_override() -> None:
+    with pytest.raises(ValueError, match="allow_low_gamma"):
+        main(
+            [
+                "train",
+                "config",
+                "--timesteps",
+                "1024",
+                "--gamma",
+                "0.5",
+                "--seed",
+                "0",
+            ],
+            stdout=StringIO(),
+        )
+
+
+def test_train_config_accepts_explicit_low_gamma_research_ablation() -> None:
+    stdout = StringIO()
+
+    exit_code = main(
+        [
+            "train",
+            "config",
+            "--timesteps",
+            "1024",
+            "--gamma",
+            "0.5",
+            "--allow-low-gamma",
+            "--seed",
+            "0",
+        ],
+        stdout=stdout,
+    )
+
+    payload = json.loads(stdout.getvalue())
+    assert exit_code == 0
+    assert payload["gamma"] == 0.5
+    assert payload["allow_low_gamma"] is True
+    assert payload["schema"] == "residual_training_config_v2"
 
 
 def test_version_command_uses_trade_rl_package_name() -> None:

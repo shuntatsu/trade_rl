@@ -54,7 +54,40 @@ dataset = MarketDatasetBuilder(config).build(
 )
 ```
 
-Each CSV uses `timestamp,open,high,low,close,volume` and may add `funding_rate` and `tradable`. Policy observations use only row `t`; next-bar tradability remains execution truth and is never exposed to the policy.
+Each CSV uses `timestamp,open,high,low,close,volume` and may add `available_at`, `funding_rate`, and `tradable`. `timestamp` is the market event time; `available_at` is the earliest timestamp at which that row was knowable. A delayed row is never injected retroactively into a same-time feature. The prior causal feature may remain carried with increasing staleness until a new on-time feature is available.
+
+One point-in-time eligibility mask is shared by Trend, alpha, and pre-trade target construction. It requires the instrument to be active, tradable, and information-available throughout the requested trailing window. Future execution-state tradability remains the executor's responsibility and is not used to construct the current target.
+
+## Deterministic dataset artifacts
+
+A strict JSON build request can drive the maintained CLI path:
+
+```json
+{
+  "source_root": "data/market",
+  "base_timeframe": "1h",
+  "features": [
+    {"name": "ret_1", "kind": "log_return", "lookback": 1}
+  ],
+  "instruments": [
+    {
+      "symbol": "BTCUSDT",
+      "listed_at": "2019-09-01T00:00:00Z",
+      "volume_unit": "quote_notional"
+    }
+  ]
+}
+```
+
+```bash
+uv run trade-rl data build --config market-build.json --output output/dataset
+```
+
+The output contains a canonical `manifest.json` and deterministic `arrays.npz`. Both are digest-verified when reloaded. Identical configuration and source bytes produce identical dataset and artifact identities.
+
+## Observation and Serving identity
+
+Training and Serving use the same `ObservationBuilder`. Serving bundles bind the ordered observation schema digest and exact vector size in addition to `dataset_id` and the action schema. Structured inference fails closed before policy execution when the dataset identity, observation schema, or vector size does not match the active bundle.
 
 ## Install
 
@@ -66,6 +99,7 @@ uv sync --extra dev
 
 ```bash
 uv run trade-rl --version
+uv run trade-rl data build --config market-build.json --output output/dataset
 uv run trade-rl train config --timesteps 1024 --gamma 0.5 --seed 0 --seed 1
 uv run trade-rl walk-forward plan \
   --bars 220 --train-bars 80 --checkpoint-bars 10 \

@@ -1,5 +1,10 @@
-"""Pre-trade portfolio constraints."""
+"""Operational and pre-trade portfolio constraints."""
 
+from trade_rl.risk.guardrails import (
+    GuardrailTarget,
+    OperationalGuardrailConfig,
+    OperationalGuardrails,
+)
 from trade_rl.risk.pretrade import (
     PreTradeRisk,
     PreTradeRiskConfig,
@@ -7,6 +12,9 @@ from trade_rl.risk.pretrade import (
 )
 
 __all__ = [
+    "GuardrailTarget",
+    "OperationalGuardrailConfig",
+    "OperationalGuardrails",
     "PreTradeRisk",
     "PreTradeRiskConfig",
     "RiskConstrainedTarget",

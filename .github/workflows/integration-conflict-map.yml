@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - agent/action-environment-comprehensive-hardening
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
 
 permissions:
   contents: read
 
 jobs:
   map:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

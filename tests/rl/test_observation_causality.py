@@ -23,6 +23,8 @@ def raw_series(
     *,
     next_tradable: bool = True,
     future_shift: float = 0.0,
+    current_tradable: bool = True,
+    delay_current: bool = False,
 ) -> RawMarketSeries:
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
         n_bars
@@ -31,9 +33,14 @@ def raw_series(
     close[21:] *= np.exp(future_shift)
     open_price = np.concatenate([close[:1], close[:-1]])
     tradable = np.ones(n_bars, dtype=np.bool_)
+    tradable[20] = current_tradable
     tradable[21] = next_tradable
+    available_at = timestamps.copy()
+    if delay_current:
+        available_at[20] = timestamps[21]
     return RawMarketSeries(
         timestamps=timestamps,
+        available_at=available_at,
         open=open_price,
         high=np.maximum(open_price, close) * 1.001,
         low=np.minimum(open_price, close) * 0.999,
@@ -48,6 +55,8 @@ def dataset(
     *,
     next_tradable: bool = True,
     future_shift: float = 0.0,
+    current_tradable: bool = True,
+    delay_current: bool = False,
 ) -> MarketDataset:
     config = MarketBuildConfig(
         base_timeframe="1h",
@@ -62,9 +71,19 @@ def dataset(
     )
     source = InMemoryMarketDataSource(
         {
-            "A": raw_series(64, next_tradable=next_tradable, future_shift=future_shift),
+            "A": raw_series(
+                64,
+                next_tradable=next_tradable,
+                future_shift=future_shift,
+                current_tradable=current_tradable,
+                delay_current=delay_current,
+            ),
             "B": raw_series(
-                64, next_tradable=next_tradable, future_shift=-future_shift
+                64,
+                next_tradable=next_tradable,
+                future_shift=-future_shift,
+                current_tradable=current_tradable,
+                delay_current=delay_current,
             ),
         }
     )
@@ -109,6 +128,13 @@ def test_next_bar_tradability_is_not_visible_at_decision_time() -> None:
     )
 
 
+def test_delayed_current_tradability_is_not_visible_to_policy() -> None:
+    np.testing.assert_array_equal(
+        observation(dataset(current_tradable=True, delay_current=True)),
+        observation(dataset(current_tradable=False, delay_current=True)),
+    )
+
+
 def test_future_market_mutation_does_not_change_current_observation() -> None:
     np.testing.assert_array_equal(
         observation(dataset(future_shift=0.0)),
@@ -133,5 +159,5 @@ def test_observation_contains_per_feature_masks_and_staleness() -> None:
         per_symbol[:, n : 2 * n], market.feature_available[20]
     )
     np.testing.assert_allclose(per_symbol[:, 2 * n : 3 * n], feature_staleness[20])
-    np.testing.assert_array_equal(per_symbol[:, 3 * n], market.tradable[20])
+    np.testing.assert_array_equal(per_symbol[:, 3 * n], market.observable_tradable(20))
     np.testing.assert_array_equal(per_symbol[:, 3 * n + 1], symbol_active[20])

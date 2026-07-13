@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
@@ -17,6 +18,7 @@ def create_bundle(
     dataset_id: str = "a" * 64,
     observation_schema_digest: str = "d" * 64,
     observation_size: int = 5,
+    market_inputs_digest: str | None = None,
 ) -> Path:
     root.mkdir(parents=True)
     artifact_paths = ["dataset.json", "signal.json", "selection.json"]
@@ -39,6 +41,7 @@ def create_bundle(
         action_schema="baseline_residual_v1",
         observation_schema_digest=observation_schema_digest,
         observation_size=observation_size,
+        market_inputs_digest=(market_inputs_digest or MarketInputResolver().digest),
         policy_mode=policy_mode,
         policy_digest=policy_digest,
         signal_digest="b" * 64,

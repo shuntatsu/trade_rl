@@ -8,6 +8,11 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from trade_rl.data.contracts import VolumeUnit
+from trade_rl.data.identity import (
+    canonical_identity_json,
+    compute_market_dataset_id,
+    parse_identity_json,
+)
 from trade_rl.domain.common import require_sha256, require_unique_non_empty
 
 _HOURS_PER_YEAR = 365.0 * 24.0
@@ -58,6 +63,7 @@ class MarketDataset:
     contract_multipliers: np.ndarray | None = None
     feature_config_digest: str = _ZERO_DIGEST
     normalization_digest: str = _ZERO_DIGEST
+    identity_payload_json: str | None = None
     _bar_duration_ns: int = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -152,7 +158,7 @@ class MarketDataset:
             dtype=np.dtype(np.bool_),
         )
         information_available_value = (
-            symbol_active & tradable & (available_at <= event_times)
+            symbol_active & (available_at <= event_times)
             if self.information_available is None
             else self.information_available
         )
@@ -249,6 +255,36 @@ class MarketDataset:
         ):
             raise ValueError("OHLC values violate bar price invariants")
 
+        identity_payload_json = self.identity_payload_json
+        if identity_payload_json is not None:
+            payload = parse_identity_json(identity_payload_json)
+            canonical_payload_json = canonical_identity_json(payload)
+            resolved_id = compute_market_dataset_id(
+                payload,
+                {
+                    "timestamps": timestamps,
+                    "available_at": available_at,
+                    "information_available": information_available,
+                    "features": features,
+                    "global_features": global_features,
+                    "open": open_price,
+                    "high": high,
+                    "low": low,
+                    "close": close,
+                    "volume": volume,
+                    "funding_rate": funding,
+                    "tradable": tradable,
+                    "symbol_active": symbol_active,
+                    "feature_available": feature_available,
+                    "feature_staleness": feature_staleness,
+                },
+            )
+            if resolved_id != self.dataset_id:
+                raise ValueError(
+                    "dataset_id does not match identity payload and arrays"
+                )
+            identity_payload_json = canonical_payload_json
+
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "feature_names", feature_names)
         object.__setattr__(self, "global_feature_names", global_names)
@@ -269,6 +305,7 @@ class MarketDataset:
         object.__setattr__(self, "feature_available", feature_available)
         object.__setattr__(self, "feature_staleness", feature_staleness)
         object.__setattr__(self, "contract_multipliers", contract_multipliers)
+        object.__setattr__(self, "identity_payload_json", identity_payload_json)
         object.__setattr__(self, "_bar_duration_ns", bar_duration_ns)
 
     @property
@@ -295,6 +332,15 @@ class MarketDataset:
         if resolved <= 0 or not math.isclose(raw, resolved, abs_tol=1e-9):
             raise ValueError("hours must resolve to an integral number of bars")
         return resolved
+
+    def observable_tradable(self, index: int) -> np.ndarray:
+        """Return only current tradability that was knowable at the event time."""
+
+        if not 0 <= index < self.n_bars:
+            raise IndexError("observable tradability index is outside the dataset")
+        information_available = self.information_available
+        assert information_available is not None
+        return (self.tradable[index] & information_available[index]).copy()
 
     def eligibility_mask(
         self,

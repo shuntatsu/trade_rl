@@ -7,6 +7,11 @@ from trade_rl.rl.actions import (
     ResidualComposition,
 )
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.market_inputs import (
+    CausalAlphaProvider,
+    CausalMarketView,
+    MarketInputResolver,
+)
 from trade_rl.rl.training import (
     PolicyTrainingBackend,
     ResidualTrainingConfig,
@@ -17,6 +22,9 @@ from trade_rl.rl.training import (
 __all__ = [
     "ACTION_SCHEMA",
     "BaselineResidualComposer",
+    "CausalAlphaProvider",
+    "CausalMarketView",
+    "MarketInputResolver",
     "PolicyTrainingBackend",
     "ResidualAction",
     "ResidualComposition",

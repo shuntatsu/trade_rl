@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
-
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
@@ -16,6 +13,7 @@ from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import BaselineResidualComposer, ResidualAction
+from trade_rl.rl.market_inputs import CausalAlphaProvider, MarketInputResolver
 from trade_rl.rl.observations import build_observation, observation_layout
 from trade_rl.rl.rewards import relative_interval_reward
 from trade_rl.simulation.accounting import BookState
@@ -25,10 +23,6 @@ from trade_rl.simulation.execution import (
     MarketExecutor,
 )
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
-
-
-class AlphaProvider(Protocol):
-    def predict_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,19 +93,29 @@ class ResidualMarketEnv(gym.Env):
         dataset: MarketDataset,
         *,
         trend_strategy: TrendStrategy | None = None,
-        alpha_provider: AlphaProvider
-        | Callable[[MarketDataset, int], np.ndarray]
-        | None = None,
+        alpha_provider: CausalAlphaProvider | None = None,
         alpha_enabled: bool = False,
+        market_input_resolver: MarketInputResolver | None = None,
         composer: BaselineResidualComposer | None = None,
         pre_trade_risk: PreTradeRisk | None = None,
         config: ResidualMarketEnvConfig | None = None,
     ) -> None:
         super().__init__()
         self.dataset = dataset
-        self.trend_strategy = trend_strategy or TrendStrategy()
-        self.alpha_provider = alpha_provider
-        self.alpha_enabled = bool(alpha_enabled)
+        if market_input_resolver is not None and (
+            trend_strategy is not None or alpha_provider is not None or alpha_enabled
+        ):
+            raise ValueError(
+                "market_input_resolver cannot be combined with individual market inputs"
+            )
+        self.market_input_resolver = market_input_resolver or MarketInputResolver(
+            trend_strategy=trend_strategy or TrendStrategy(),
+            alpha_provider=alpha_provider,
+            alpha_enabled=bool(alpha_enabled),
+        )
+        self.trend_strategy = self.market_input_resolver.trend_strategy
+        self.alpha_provider = self.market_input_resolver.alpha_provider
+        self.alpha_enabled = self.market_input_resolver.alpha_enabled
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.config = config or ResidualMarketEnvConfig()
@@ -170,27 +174,10 @@ class ResidualMarketEnv(gym.Env):
         return 1.0 - book.portfolio_value / max(book.peak_value, book.portfolio_value)
 
     def _alpha_at(self, index: int) -> np.ndarray:
-        if not self.alpha_enabled or self.alpha_provider is None:
-            return np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        provider = self.alpha_provider
-        if hasattr(provider, "predict_at"):
-            value = provider.predict_at(self.dataset, index)
-        else:
-            value = provider(self.dataset, index)
-        alpha = np.asarray(value, dtype=np.float64).reshape(-1)
-        if alpha.shape != (self.dataset.n_symbols,) or not np.isfinite(alpha).all():
-            raise ValueError("alpha provider returned an invalid vector")
-        eligible = self.dataset.eligibility_mask(index, require_features=True)
-        alpha = alpha.copy()
-        alpha[~eligible] = 0.0
-        gross = float(np.abs(alpha).sum())
-        return alpha / gross if gross > 1.0 else alpha
+        return self.market_input_resolver.resolve(self.dataset, index)[1]
 
     def _market_inputs(self) -> tuple[TrendTargets, np.ndarray]:
-        return (
-            self.trend_strategy.targets(self.dataset, self.current_index),
-            self._alpha_at(self.current_index),
-        )
+        return self.market_input_resolver.resolve(self.dataset, self.current_index)
 
     def _observation(self) -> np.ndarray:
         trends, alpha = self._market_inputs()

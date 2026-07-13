@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -17,27 +17,39 @@ concurrency:
 
 jobs:
   quality:
-    name: Apply verified causal hardening
+    name: Rebuilt Core
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout head branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
 
-      - name: Verify transfer and apply patch
-        run: |
-          cat .github/hardening-v2/part* > /tmp/causal-hardening.patch
-          test "$(wc -c < /tmp/causal-hardening.patch)" = "64051"
-          test "$(git hash-object /tmp/causal-hardening.patch)" = "b30039232d41234c5589b4e7e447934381118368"
-          git apply --check /tmp/causal-hardening.patch
-          git apply /tmp/causal-hardening.patch
-          git show 5f4dee28df003e6e132e91f1d2840315e606848a:.github/workflows/ci.yml > .github/workflows/ci.yml
-          rm -rf .github/hardening-v2 .github/hardening-patch .github/hardening-payload
-          rm -f .github/workflows/apply-causal-hardening.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: close final causal data contract gaps"
-          git push origin HEAD:${{ github.head_ref }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check --diff .
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Dead-code report
+        continue-on-error: true
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Tests and coverage
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+
+      - name: CLI smoke test
+        run: uv run trade-rl --version

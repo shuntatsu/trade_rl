@@ -7,6 +7,7 @@ import pytest
 
 from tests.serving.helpers import create_bundle
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.serving.bundle import ServingBundleManifest, load_serving_bundle
 
 
@@ -18,6 +19,7 @@ def test_baseline_bundle_validates_all_file_digests(tmp_path: Path) -> None:
     assert bundle.manifest.release_digest is None
     assert bundle.manifest.observation_schema_digest == "d" * 64
     assert bundle.manifest.observation_size == 5
+    assert bundle.manifest.market_inputs_digest == MarketInputResolver().digest
     assert bundle.root == tmp_path / "bundle"
 
 
@@ -37,6 +39,7 @@ def test_baseline_bundle_rejects_policy_digest(tmp_path: Path) -> None:
             action_schema="baseline_residual_v1",
             observation_schema_digest="f" * 64,
             observation_size=5,
+            market_inputs_digest=MarketInputResolver().digest,
             policy_mode=PolicyMode.BASELINE_ONLY,
             policy_digest="e" * 64,
             signal_digest="b" * 64,

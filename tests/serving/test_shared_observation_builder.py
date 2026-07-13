@@ -13,6 +13,7 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.observations import ObservationBuilder, ObservationInput
 from trade_rl.serving.runtime import ServingRuntime
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -59,9 +60,10 @@ def test_environment_and_serving_use_identical_observation_bytes() -> None:
     trend = TrendStrategy(
         TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
     )
+    resolver = MarketInputResolver(trend_strategy=trend)
     env = ResidualMarketEnv(
         market,
-        trend_strategy=trend,
+        market_input_resolver=resolver,
         config=ResidualMarketEnvConfig(
             episode_bars=24,
             decision_every=4,
@@ -82,7 +84,10 @@ def test_environment_and_serving_use_identical_observation_bytes() -> None:
         hybrid_risk_scale=env.pre_trade_risk.risk_scale(env._drawdown(env.hybrid)),
         shadow_risk_scale=env.pre_trade_risk.risk_scale(env._drawdown(env.shadow)),
     )
-    serving = ServingRuntime(observation_builder=observation_builder)
+    serving = ServingRuntime(
+        observation_builder=observation_builder,
+        market_input_resolver=resolver,
+    )
 
     serving_observation = serving.build_observation(structured)
 

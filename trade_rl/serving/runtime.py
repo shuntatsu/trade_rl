@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
@@ -12,6 +12,7 @@ import numpy as np
 
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
+from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.observations import ObservationBuilder, ObservationInput
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
@@ -43,6 +44,7 @@ class RuntimeSnapshot:
     action_schema: str
     observation_schema_digest: str
     observation_size: int
+    market_inputs_digest: str
     policy_mode: PolicyMode
     policy_digest: str | None
     signal_digest: str
@@ -58,9 +60,11 @@ class ServingRuntime:
         self,
         policy_loader: PolicyLoader | None = None,
         observation_builder: ObservationBuilder | None = None,
+        market_input_resolver: MarketInputResolver | None = None,
     ) -> None:
         self.policy_loader = policy_loader
         self.observation_builder = observation_builder or ObservationBuilder()
+        self.market_input_resolver = market_input_resolver or MarketInputResolver()
         self._lock = RLock()
         self._snapshot: RuntimeSnapshot | None = None
         self._policy: LoadedPolicy | None = None
@@ -74,6 +78,7 @@ class ServingRuntime:
             action_schema=manifest.action_schema,
             observation_schema_digest=manifest.observation_schema_digest,
             observation_size=manifest.observation_size,
+            market_inputs_digest=manifest.market_inputs_digest,
             policy_mode=manifest.policy_mode,
             policy_digest=manifest.policy_digest,
             signal_digest=manifest.signal_digest,
@@ -89,6 +94,11 @@ class ServingRuntime:
         if bundle.manifest.action_schema != ACTION_SCHEMA:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"
+            )
+
+        if bundle.manifest.market_inputs_digest != self.market_input_resolver.digest:
+            raise ValueError(
+                "serving bundle market inputs do not match runtime market inputs"
             )
 
         if bundle.manifest.policy_mode is PolicyMode.BASELINE_ONLY:
@@ -141,24 +151,46 @@ class ServingRuntime:
         return raw_action.copy()
 
     def build_observation(self, value: ObservationInput) -> np.ndarray:
-        """Build serving input through the same causal contract as training."""
+        """Recompute untrusted Trend and Alpha through the causal runtime contract."""
 
-        return self.observation_builder.build(value)
+        trends, alpha = self.market_input_resolver.resolve(
+            value.dataset,
+            value.index,
+        )
+        return self.observation_builder.build(
+            replace(value, trends=trends, alpha=alpha)
+        )
+
+    @staticmethod
+    def _validate_input_contract(
+        snapshot: RuntimeSnapshot,
+        *,
+        dataset_id: str,
+        observation_schema_digest: str,
+        market_inputs_digest: str,
+    ) -> None:
+        if dataset_id != snapshot.dataset_id:
+            raise ValueError(
+                "serving dataset identity does not match the active bundle"
+            )
+        if observation_schema_digest != snapshot.observation_schema_digest:
+            raise ValueError(
+                "serving observation schema does not match the active bundle"
+            )
+        if market_inputs_digest != snapshot.market_inputs_digest:
+            raise ValueError("serving market inputs do not match the active bundle")
 
     def predict_state(self, value: ObservationInput) -> np.ndarray:
         """Validate, build, and score one structured current-time market state."""
 
         snapshot, policy = self._active()
         dataset = value.dataset
-        if dataset.dataset_id != snapshot.dataset_id:
-            raise ValueError(
-                "serving dataset identity does not match the active bundle"
-            )
-        schema_digest = self.observation_builder.schema_digest(dataset)
-        if schema_digest != snapshot.observation_schema_digest:
-            raise ValueError(
-                "serving observation schema does not match the active bundle"
-            )
+        self._validate_input_contract(
+            snapshot,
+            dataset_id=dataset.dataset_id,
+            observation_schema_digest=self.observation_builder.schema_digest(dataset),
+            market_inputs_digest=self.market_input_resolver.digest,
+        )
         vector = self._validated_vector(
             self.build_observation(value),
             expected_size=snapshot.observation_size,
@@ -168,8 +200,21 @@ class ServingRuntime:
                 raise RuntimeError("serving bundle changed during prediction")
             return self._validated_action(policy, vector)
 
-    def predict(self, observation: np.ndarray) -> np.ndarray:
+    def predict(
+        self,
+        observation: np.ndarray,
+        *,
+        dataset_id: str,
+        observation_schema_digest: str,
+        market_inputs_digest: str,
+    ) -> np.ndarray:
         snapshot, policy = self._active()
+        self._validate_input_contract(
+            snapshot,
+            dataset_id=dataset_id,
+            observation_schema_digest=observation_schema_digest,
+            market_inputs_digest=market_inputs_digest,
+        )
         vector = self._validated_vector(
             observation,
             expected_size=snapshot.observation_size,

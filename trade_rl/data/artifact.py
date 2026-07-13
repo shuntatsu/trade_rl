@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
+import tempfile
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -14,9 +16,10 @@ import numpy as np
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import VolumeUnit
+from trade_rl.data.identity import canonical_identity_json, parse_identity_json
 from trade_rl.data.market import MarketDataset
 
-MARKET_ARTIFACT_SCHEMA = "market_dataset_artifact_v1"
+MARKET_ARTIFACT_SCHEMA = "market_dataset_artifact_v2"
 MARKET_ARTIFACT_MANIFEST = "manifest.json"
 MARKET_ARTIFACT_ARRAYS = "arrays.npz"
 
@@ -84,9 +87,12 @@ def _write_arrays(path: Path, dataset: MarketDataset) -> None:
 def _manifest_payload(
     dataset: MarketDataset, *, arrays_digest: str
 ) -> dict[str, object]:
+    if dataset.identity_payload_json is None:
+        raise ValueError("market dataset artifact requires an identity payload")
     return {
         "schema": MARKET_ARTIFACT_SCHEMA,
         "dataset_id": dataset.dataset_id,
+        "identity_payload": parse_identity_json(dataset.identity_payload_json),
         "symbols": dataset.symbols,
         "feature_names": dataset.feature_names,
         "global_feature_names": dataset.global_feature_names,
@@ -100,23 +106,38 @@ def _manifest_payload(
     }
 
 
-def write_market_dataset_artifact(root: str | Path, dataset: MarketDataset) -> str:
-    """Write an atomic deterministic artifact and return its manifest digest."""
-
-    output = Path(root)
-    output.mkdir(parents=True, exist_ok=True)
-    arrays_path = output / MARKET_ARTIFACT_ARRAYS
-    temporary_arrays = arrays_path.with_name(f".{arrays_path.name}.tmp")
-    _write_arrays(temporary_arrays, dataset)
-    temporary_arrays.replace(arrays_path)
-
+def _write_staged_artifact(root: Path, dataset: MarketDataset) -> str:
+    arrays_path = root / MARKET_ARTIFACT_ARRAYS
+    _write_arrays(arrays_path, dataset)
     payload = _manifest_payload(dataset, arrays_digest=_file_digest(arrays_path))
     artifact_digest = content_digest(payload)
     manifest = {**payload, "artifact_digest": artifact_digest}
-    manifest_path = output / MARKET_ARTIFACT_MANIFEST
-    temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
-    temporary_manifest.write_bytes(canonical_json_bytes(manifest))
-    temporary_manifest.replace(manifest_path)
+    (root / MARKET_ARTIFACT_MANIFEST).write_bytes(canonical_json_bytes(manifest))
+    return artifact_digest
+
+
+def write_market_dataset_artifact(root: str | Path, dataset: MarketDataset) -> str:
+    """Atomically publish one immutable deterministic market artifact directory."""
+
+    output = Path(root)
+    if output.exists():
+        raise FileExistsError(f"market artifact destination already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output.name}.staging-",
+            dir=str(output.parent),
+        )
+    )
+    try:
+        artifact_digest = _write_staged_artifact(staging, dataset)
+        loaded = load_market_dataset_artifact(staging)
+        if loaded.dataset_id != dataset.dataset_id:
+            raise ValueError("staged market artifact changed dataset identity")
+        staging.rename(output)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return artifact_digest
 
 
@@ -191,6 +212,9 @@ def load_market_dataset_artifact(root: str | Path) -> MarketDataset:
     if _strings(manifest.get("array_fields"), field="array_fields") != _ARRAY_FIELDS:
         raise ValueError("market artifact array field order is unsupported")
 
+    identity_payload = dict(
+        _mapping(manifest.get("identity_payload"), field="identity_payload")
+    )
     arrays = _read_arrays(arrays_path)
     return MarketDataset(
         dataset_id=_string(manifest.get("dataset_id"), field="dataset_id"),
@@ -228,6 +252,7 @@ def load_market_dataset_artifact(root: str | Path) -> MarketDataset:
             manifest.get("normalization_digest"),
             field="normalization_digest",
         ),
+        identity_payload_json=canonical_identity_json(identity_payload),
         periods_per_year=_integer(
             manifest.get("periods_per_year"),
             field="periods_per_year",

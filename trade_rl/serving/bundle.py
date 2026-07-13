@@ -61,6 +61,7 @@ class ServingBundleManifest:
     action_schema: str
     observation_schema_digest: str
     observation_size: int
+    market_inputs_digest: str
     policy_mode: PolicyMode
     policy_digest: str | None
     signal_digest: str
@@ -68,7 +69,7 @@ class ServingBundleManifest:
     release_digest: str | None
     files: tuple[BundleFile, ...]
     created_at: datetime
-    schema_version: str = "serving_bundle_v2"
+    schema_version: str = "serving_bundle_v3"
 
     def __post_init__(self) -> None:
         require_sha256(self.bundle_digest, field="bundle_digest")
@@ -80,6 +81,7 @@ class ServingBundleManifest:
         )
         if self.observation_size <= 0:
             raise ValueError("observation_size must be positive")
+        require_sha256(self.market_inputs_digest, field="market_inputs_digest")
         require_sha256(self.signal_digest, field="signal_digest")
         require_sha256(self.selection_digest, field="selection_digest")
         if self.policy_mode is PolicyMode.BASELINE_ONLY:
@@ -110,6 +112,7 @@ class ServingBundleManifest:
             "files": self.files,
             "observation_schema_digest": self.observation_schema_digest,
             "observation_size": self.observation_size,
+            "market_inputs_digest": self.market_inputs_digest,
             "policy_digest": self.policy_digest,
             "policy_mode": self.policy_mode,
             "release_digest": self.release_digest,
@@ -127,6 +130,7 @@ class ServingBundleManifest:
         action_schema: str,
         observation_schema_digest: str,
         observation_size: int,
+        market_inputs_digest: str,
         policy_mode: PolicyMode,
         policy_digest: str | None,
         signal_digest: str,
@@ -156,10 +160,11 @@ class ServingBundleManifest:
             "files": ordered,
             "observation_schema_digest": observation_schema_digest,
             "observation_size": observation_size,
+            "market_inputs_digest": market_inputs_digest,
             "policy_digest": policy_digest,
             "policy_mode": policy_mode,
             "release_digest": release_digest,
-            "schema_version": "serving_bundle_v2",
+            "schema_version": "serving_bundle_v3",
             "selection_digest": selection_digest,
             "signal_digest": signal_digest,
         }
@@ -169,6 +174,7 @@ class ServingBundleManifest:
             action_schema=action_schema,
             observation_schema_digest=observation_schema_digest,
             observation_size=observation_size,
+            market_inputs_digest=market_inputs_digest,
             policy_mode=policy_mode,
             policy_digest=policy_digest,
             signal_digest=signal_digest,
@@ -251,6 +257,10 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         observation_size=_integer(
             payload.get("observation_size"),
             field="observation_size",
+        ),
+        market_inputs_digest=_string(
+            payload.get("market_inputs_digest"),
+            field="market_inputs_digest",
         ),
         policy_mode=PolicyMode(
             _string(payload.get("policy_mode"), field="policy_mode")

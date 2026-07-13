@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
-from collections.abc import Iterable
 from datetime import datetime, timezone
 
 import numpy as np
 
-from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -18,6 +14,12 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
     NormalizationMode,
+)
+from trade_rl.data.identity import (
+    MARKET_DATASET_IDENTITY_SCHEMA,
+    canonical_identity_json,
+    compute_market_dataset_id,
+    content_and_arrays_digest,
 )
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import MarketDataSource, RawMarketSeries
@@ -28,42 +30,6 @@ _NS_PER_HOUR = 3_600_000_000_000
 def _utc_datetime64(value: datetime) -> np.datetime64:
     resolved = value.astimezone(timezone.utc).replace(tzinfo=None)
     return np.datetime64(resolved, "ns")
-
-
-def _update_digest_array(
-    digest: "hashlib._Hash",
-    name: str,
-    value: np.ndarray,
-) -> None:
-    array = np.ascontiguousarray(value)
-    if np.issubdtype(array.dtype, np.datetime64):
-        array = array.astype("datetime64[ns]").astype("<i8")
-    elif array.dtype == np.dtype(np.bool_):
-        array = array.astype(np.uint8)
-    elif np.issubdtype(array.dtype, np.floating):
-        array = array.astype("<f8")
-    elif np.issubdtype(array.dtype, np.integer):
-        array = array.astype("<i8")
-    descriptor = json.dumps(
-        {"name": name, "dtype": array.dtype.str, "shape": list(array.shape)},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    digest.update(len(descriptor).to_bytes(8, "big"))
-    digest.update(descriptor)
-    payload = array.tobytes(order="C")
-    digest.update(len(payload).to_bytes(8, "big"))
-    digest.update(payload)
-
-
-def _content_and_arrays_digest(
-    metadata: object,
-    arrays: Iterable[tuple[str, np.ndarray]],
-) -> str:
-    digest = hashlib.sha256(canonical_json_bytes(metadata))
-    for name, array in arrays:
-        _update_digest_array(digest, name, array)
-    return digest.hexdigest()
 
 
 def _rolling_zscore(
@@ -366,16 +332,20 @@ class MarketDatasetBuilder:
             (n_bars, len(self.config.global_feature_names)), dtype=np.float64
         )
         global_features[:, 0] = symbol_active.mean(axis=1)
-        global_features[:, 1] = tradable.mean(axis=1)
+        observable_tradable = tradable & information_available
+        global_features[:, 1] = observable_tradable.mean(axis=1)
         for index in range(n_bars):
             sample = one_bar_returns[index, one_bar_available[index]]
             if sample.size:
                 global_features[index, 2] = float(np.mean(sample))
                 global_features[index, 3] = float(np.std(sample))
 
+        features = features.astype(np.float32)
+        global_features = global_features.astype(np.float32)
+        feature_staleness = feature_staleness.astype(np.float32)
         feature_names = tuple(spec.name for spec in self.config.features)
         feature_config_digest = content_digest(self.config.canonical_payload())
-        normalization_digest = _content_and_arrays_digest(
+        normalization_digest = content_and_arrays_digest(
             {
                 "schema": "normalization_state_v1",
                 "feature_config_digest": feature_config_digest,
@@ -387,7 +357,7 @@ class MarketDatasetBuilder:
             ),
         )
         metadata = {
-            "schema": "market_dataset_identity_v4",
+            "schema": MARKET_DATASET_IDENTITY_SCHEMA,
             "config": self.config.canonical_payload(),
             "feature_config_digest": feature_config_digest,
             "normalization_digest": normalization_digest,
@@ -398,25 +368,25 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
-        dataset_id = _content_and_arrays_digest(
+        dataset_id = compute_market_dataset_id(
             metadata,
-            (
-                ("timestamps", timestamps),
-                ("available_at", available_at),
-                ("information_available", information_available),
-                ("features", features),
-                ("global_features", global_features),
-                ("open", open_price),
-                ("high", high),
-                ("low", low),
-                ("close", close),
-                ("volume", volume),
-                ("funding_rate", funding_rate),
-                ("tradable", tradable),
-                ("symbol_active", symbol_active),
-                ("feature_available", feature_available),
-                ("feature_staleness", feature_staleness),
-            ),
+            {
+                "timestamps": timestamps,
+                "available_at": available_at,
+                "information_available": information_available,
+                "features": features,
+                "global_features": global_features,
+                "open": open_price,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": volume,
+                "funding_rate": funding_rate,
+                "tradable": tradable,
+                "symbol_active": symbol_active,
+                "feature_available": feature_available,
+                "feature_staleness": feature_staleness,
+            },
         )
         periods_per_year = int(round(365.0 * 24.0 / self.config.bar_hours))
         return MarketDataset(
@@ -446,5 +416,6 @@ class MarketDatasetBuilder:
             ),
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
+            identity_payload_json=canonical_identity_json(metadata),
             periods_per_year=periods_per_year,
         )

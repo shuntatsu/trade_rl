@@ -13,8 +13,21 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.market_inputs import CausalMarketView
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
+
+
+class RecordingAlphaProvider:
+    identity_digest = "1" * 64
+
+    def __init__(self) -> None:
+        self.seen_bars: list[int] = []
+
+    def predict(self, market: CausalMarketView) -> np.ndarray:
+        self.seen_bars.append(len(market.timestamps))
+        assert not hasattr(market, "close")
+        return np.array([0.2, 0.6, 0.2])
 
 
 def _market(*, next_tradable: bool = True, suspended_symbol: int | None = None):
@@ -104,11 +117,13 @@ def test_alpha_is_zeroed_outside_current_eligible_universe() -> None:
     tradable[16, 1] = False
     object.__setattr__(market, "tradable", tradable)
 
+    provider = RecordingAlphaProvider()
     env = _environment(
         market,
-        alpha_provider=lambda dataset, index: np.array([0.2, 0.6, 0.2]),
+        alpha_provider=provider,
         alpha_enabled=True,
     )
     env.reset(options={"start_idx": 16})
 
     np.testing.assert_allclose(env._alpha_at(16), np.array([0.2, 0.0, 0.2]))
+    assert provider.seen_bars == [17, 17]

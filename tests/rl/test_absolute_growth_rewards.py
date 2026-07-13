@@ -119,6 +119,39 @@ def test_baseline_hinge_uses_scaled_tolerance_after_minimum_history() -> None:
     assert context.rolling_growth_gap == pytest.approx(-expected_shortfall)
 
 
+def test_baseline_outperformance_has_zero_shortfall_and_hinge() -> None:
+    context = build_reward_context(
+        hybrid_returns=(0.0, 0.01),
+        shadow_returns=(0.0, 0.0),
+        hybrid_drawdown=0.0,
+        window_bars=2,
+        minimum_history_bars=1,
+        config=config(),
+    )
+
+    assert context.rolling_growth_gap > 0.0
+    assert context.baseline_shortfall == pytest.approx(0.0)
+    assert context.baseline_penalty == pytest.approx(0.0)
+
+
+def test_rolling_window_discards_expired_returns_and_caps_tolerance() -> None:
+    context = build_reward_context(
+        hybrid_returns=(-0.50, 0.0, 0.0, 0.0),
+        shadow_returns=(0.0, 0.0, 0.0, 0.0),
+        hybrid_drawdown=0.0,
+        window_bars=3,
+        minimum_history_bars=1,
+        config=config(),
+    )
+
+    assert context.history_bars == 3
+    assert context.rolling_hybrid_log_growth == pytest.approx(0.0)
+    assert context.rolling_shadow_log_growth == pytest.approx(0.0)
+    assert context.baseline_shortfall == pytest.approx(0.0)
+    assert context.baseline_tolerance == pytest.approx(0.015)
+    assert context.baseline_penalty == pytest.approx(0.0)
+
+
 def test_reward_context_rejects_mismatched_book_histories() -> None:
     with pytest.raises(ValueError, match="equal length"):
         build_reward_context(

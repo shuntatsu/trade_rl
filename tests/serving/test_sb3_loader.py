@@ -9,6 +9,7 @@ import pytest
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.integrations.sb3_serving import StableBaselines3PolicyLoader
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import (
@@ -16,7 +17,6 @@ from trade_rl.serving.bundle import (
     load_serving_bundle,
     write_serving_bundle_manifest,
 )
-from trade_rl.serving.sb3_loader import StableBaselines3PolicyLoader
 
 
 class FakeModel:

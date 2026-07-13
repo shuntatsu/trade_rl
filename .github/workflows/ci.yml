@@ -36,17 +36,20 @@ jobs:
         run: uv run ruff check .
 
       - name: Format
-        id: format
+        run: uv run ruff format --check --diff .
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Dead-code report
         continue-on-error: true
-        run: uv run ruff format --check --diff . 2>&1 | tee format.log
+        run: uv run vulture trade_rl tests --min-confidence 100
 
-      - name: Upload format diff
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-format-diff
-          path: format.log
+      - name: Tests and coverage
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
 
-      - name: Fail on format errors
-        if: steps.format.outcome == 'failure'
-        run: exit 1
+      - name: CLI smoke test
+        run: uv run trade-rl --version

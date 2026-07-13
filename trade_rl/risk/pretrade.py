@@ -11,13 +11,13 @@ import numpy as np
 @dataclass(frozen=True, slots=True)
 class PreTradeRiskConfig:
     max_gross: float = 1.0
-    max_abs_weight: float = 1.0
-    max_turnover: float = 2.0
-    drawdown_start: float = 1.0
-    drawdown_stop: float = 1.0
+    max_abs_weight: float = 0.40
+    max_turnover: float = 1.0
+    drawdown_start: float = 0.10
+    drawdown_stop: float = 0.20
 
     def __post_init__(self) -> None:
-        for field, value in (
+        for field_name, value in (
             ("max_gross", self.max_gross),
             ("max_abs_weight", self.max_abs_weight),
             ("max_turnover", self.max_turnover),
@@ -25,7 +25,7 @@ class PreTradeRiskConfig:
             ("drawdown_stop", self.drawdown_stop),
         ):
             if not math.isfinite(value):
-                raise ValueError(f"{field} must be finite")
+                raise ValueError(f"{field_name} must be finite")
         if not 0.0 < self.max_gross <= 1.0:
             raise ValueError("max_gross must be within (0, 1]")
         if not 0.0 < self.max_abs_weight <= self.max_gross:
@@ -47,6 +47,7 @@ class RiskConstrainedTarget:
     constrained_turnover: float
     was_constrained: bool
     reasons: tuple[str, ...]
+    risk_scale: float
 
 
 class PreTradeRisk:
@@ -54,6 +55,17 @@ class PreTradeRisk:
 
     def __init__(self, config: PreTradeRiskConfig | None = None) -> None:
         self.config = config or PreTradeRiskConfig()
+
+    def risk_scale(self, drawdown: float) -> float:
+        if not math.isfinite(drawdown) or not 0.0 <= drawdown <= 1.0:
+            raise ValueError("drawdown must be finite and within [0, 1]")
+        start = self.config.drawdown_start
+        stop = self.config.drawdown_stop
+        if drawdown <= start:
+            return 1.0
+        if drawdown >= stop or stop == start:
+            return 0.0
+        return 1.0 - (drawdown - start) / (stop - start)
 
     def constrain(
         self,
@@ -68,8 +80,7 @@ class PreTradeRisk:
             raise ValueError("target and current weights must have the same shape")
         if not np.isfinite(requested).all() or not np.isfinite(existing).all():
             raise ValueError("target and current weights must be finite")
-        if not math.isfinite(drawdown) or not 0.0 <= drawdown <= 1.0:
-            raise ValueError("drawdown must be finite and within [0, 1]")
+        scale = self.risk_scale(drawdown)
 
         weights = requested.copy()
         reasons: list[str] = []
@@ -88,9 +99,8 @@ class PreTradeRisk:
             weights *= self.config.max_gross / gross
             reasons.append("max_gross")
 
-        drawdown_scale = self._drawdown_scale(drawdown)
-        if drawdown_scale < 1.0:
-            weights *= drawdown_scale
+        if scale < 1.0:
+            weights *= scale
             reasons.append("drawdown_deleveraging")
 
         requested_turnover = float(np.abs(requested - existing).sum())
@@ -114,15 +124,5 @@ class PreTradeRisk:
             constrained_turnover=constrained_turnover,
             was_constrained=bool(reasons),
             reasons=tuple(reasons),
+            risk_scale=scale,
         )
-
-    def _drawdown_scale(self, drawdown: float) -> float:
-        start = self.config.drawdown_start
-        stop = self.config.drawdown_stop
-        if drawdown <= start:
-            return 1.0
-        if drawdown >= stop:
-            return 0.0
-        if stop == start:
-            return 0.0
-        return 1.0 - (drawdown - start) / (stop - start)

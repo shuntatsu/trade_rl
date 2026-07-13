@@ -155,9 +155,9 @@ class MarketExecutor:
         turnover_denominator: float,
     ) -> _FillResult:
         price_vector = np.asarray(prices, dtype=np.float64).reshape(-1)
-        market_notional_vector = np.asarray(
-            market_notional, dtype=np.float64
-        ).reshape(-1)
+        market_notional_vector = np.asarray(market_notional, dtype=np.float64).reshape(
+            -1
+        )
         trade_mask = np.asarray(tradable, dtype=np.bool_).reshape(-1)
         desired = np.asarray(desired_quantities, dtype=np.float64).reshape(-1)
         expected_shape = (self.dataset.n_symbols,)

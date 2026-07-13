@@ -137,7 +137,10 @@ class BookState:
     ) -> None:
         prices = _finite_vector(fill_prices, field_name="fill_prices")
         targets = _finite_vector(target_quantities, field_name="target_quantities")
-        if prices.shape != self.quantities.shape or targets.shape != self.quantities.shape:
+        if (
+            prices.shape != self.quantities.shape
+            or targets.shape != self.quantities.shape
+        ):
             raise ValueError("execution vectors must match the book")
         if np.any(prices <= 0.0):
             raise ValueError("fill_prices must be strictly positive")

@@ -6,6 +6,7 @@ from io import StringIO
 import pytest
 
 from trade_rl.cli.app import build_parser, main
+from trade_rl.rl.observations import OBSERVATION_SCHEMA
 
 
 def test_cli_exposes_one_authoritative_command_tree() -> None:
@@ -94,7 +95,7 @@ def test_train_config_outputs_explicit_ppo_configuration() -> None:
     assert payload["batch_size"] == 64
     assert payload["learning_rate"] == pytest.approx(0.0001)
     assert payload["device"] == "cuda"
-    assert payload["observation_schema"] == "baseline_residual_observation_v2"
+    assert payload["observation_schema"] == OBSERVATION_SCHEMA
 
 
 def test_train_config_can_resolve_gamma_from_real_time_half_life() -> None:

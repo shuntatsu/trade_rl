@@ -1,0 +1,25 @@
+name: Pipeline Ruff Diagnostics
+
+on:
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Capture Ruff
+        continue-on-error: true
+        run: uvx ruff check . --output-format concise > ruff.txt 2>&1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-ruff
+          path: ruff.txt

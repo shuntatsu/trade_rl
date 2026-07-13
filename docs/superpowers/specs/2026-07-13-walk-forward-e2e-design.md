@@ -6,7 +6,7 @@ Provide one concrete, deterministic workflow that executes nested walk-forward r
 
 ## Scope
 
-This slice does not add a production data downloader or claim profitable performance. It consumes an already validated `MarketDataset` and injected policy-training/evaluation adapters. The workflow itself owns chronology, identity checks, selection isolation, and sealed-test discipline.
+This slice does not add a production data downloader or claim profitable performance. It consumes validated data through injected policy-training and evaluation adapters. The workflow itself owns chronology, identity checks, selection isolation, and sealed-test discipline.
 
 ## Contracts
 
@@ -22,14 +22,18 @@ This slice does not add a production data downloader or claim profitable perform
 ## Architecture
 
 - `trade_rl/workflows/fold_runner.py`: concrete adapter-driven fold executor and immutable request/result records.
-- `trade_rl/workflows/walk_forward.py`: orchestration over all folds and chronological stitching.
-- `trade_rl/domain/evaluation.py`: evaluation artifact identity used by Gate decisions.
+- `trade_rl/workflows/walk_forward.py`: orchestration over all folds and chronological selected/baseline stitching.
+- `trade_rl/domain/evaluation.py`: final evaluation identity carried by Gate decisions.
 - `trade_rl/domain/selection.py`: selection records remain the authoritative selected-mode identity.
-- CLI: a dry-run command validates that a supplied configuration produces a complete executable plan; real data adapters remain separate.
+- `trade-rl walk-forward plan`: validates pure fold boundaries; actual execution is exposed as a typed Python workflow so project-specific data and model adapters remain outside the domain layer.
 
 ## Selection rule
 
 A residual configuration is selectable only when its selection score is finite and strictly above the baseline score by a configured minimum uplift. Ties are resolved deterministically by configuration name. If no candidate clears the threshold, select `baseline_only`.
+
+## Gate identity
+
+Configuration-selection evidence and final sealed-OOS evidence are distinct identities. A Gate binds the evaluated dataset, selected policy digest when a single policy is applicable, and the final evaluation digest. A Release records both the selection-evaluation digest and gate-evaluation digest and rejects dataset or policy mismatches.
 
 ## Non-goals
 

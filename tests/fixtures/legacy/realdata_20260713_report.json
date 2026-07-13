@@ -1,0 +1,110 @@
+{
+  "mode": "baseline_only",
+  "action_schema": "baseline_residual_v1",
+  "selected_configuration": "A",
+  "selected_model_path": null,
+  "signal_gate": {
+    "model": "gbm",
+    "horizon": 12,
+    "target": "cs_demean",
+    "mean_oos_ic": 0.017169972628289704,
+    "positive_fold_ratio": 0.8,
+    "t_stat": 1.6541410391288442,
+    "passed": false,
+    "checks": {
+      "mean_oos_ic": false,
+      "positive_fold_ratio": true,
+      "stability": true
+    },
+    "threshold": 0.02
+  },
+  "alpha_enabled": false,
+  "alpha_artifact_gate_passed": false,
+  "development_matrix": {
+    "A": {
+      "hybrid": {
+        "total_return": -0.2294564535496162,
+        "sharpe": -4.1300033767761795
+      },
+      "shadow": {
+        "total_return": -0.2294564535496162,
+        "sharpe": -4.1300033767761795
+      },
+      "paired": {
+        "excess_total_return": 0.0,
+        "excess_log_return": 0.0,
+        "p_value": 1.0
+      }
+    },
+    "B": {
+      "hybrid": {
+        "total_return": -0.2307234559382666,
+        "sharpe": -4.242958355944286
+      },
+      "paired": {
+        "excess_total_return": -0.0012670023886504067,
+        "excess_log_return": -0.001645650270956811,
+        "p_value": 1.0
+      }
+    }
+  },
+  "selection": {
+    "selected": "A",
+    "policy_mode": "baseline_only",
+    "scores": {
+      "A": 0.0,
+      "B": -0.001645650270956811
+    },
+    "eligible": {
+      "A": false,
+      "B": false
+    },
+    "reasons": [
+      "A is the identity baseline"
+    ]
+  },
+  "relative": {
+    "hybrid": {
+      "total_return": 0.23499421308975021,
+      "sharpe": 2.366825462783599,
+      "max_drawdown": 0.12243686900901107
+    },
+    "shadow": {
+      "total_return": 0.23499421308975021,
+      "sharpe": 2.3668254627835985,
+      "max_drawdown": 0.12243686900901107
+    },
+    "paired": {
+      "excess_total_return": 0.0,
+      "excess_log_return": 0.0,
+      "p_value": 1.0
+    }
+  },
+  "cost2x": {
+    "hybrid": {
+      "total_return": 0.1599508186145191,
+      "sharpe": 1.724228595639757
+    },
+    "shadow": {
+      "total_return": 0.1599508186145191,
+      "sharpe": 1.7242285956397576
+    },
+    "paired": {
+      "excess_total_return": 0.0,
+      "excess_log_return": 0.0,
+      "p_value": 1.0
+    }
+  },
+  "gate": {
+    "passed": false,
+    "candidate_mode": "baseline_only",
+    "checks": {
+      "trend_development_gate": false,
+      "positive_holdout_return": true,
+      "drawdown_within_policy": true,
+      "cost2x_non_negative": true,
+      "positive_return_significant": false
+    },
+    "positive_return_p_value": 0.11
+  }
+}

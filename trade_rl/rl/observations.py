@@ -47,7 +47,10 @@ def build_observation(
     if book.weights.shape != (dataset.n_symbols,):
         raise ValueError("book weights shape does not match dataset symbols")
     alpha_vector = np.asarray(alpha, dtype=np.float64).reshape(-1)
-    if alpha_vector.shape != (dataset.n_symbols,) or not np.isfinite(alpha_vector).all():
+    if (
+        alpha_vector.shape != (dataset.n_symbols,)
+        or not np.isfinite(alpha_vector).all()
+    ):
         raise ValueError("alpha vector does not match dataset symbols")
     if end_index <= start_index:
         raise ValueError("episode end_index must be greater than start_index")

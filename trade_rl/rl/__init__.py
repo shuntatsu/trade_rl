@@ -8,6 +8,11 @@ from trade_rl.rl.actions import (
 )
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
+from trade_rl.rl.rewards import (
+    AbsoluteGrowthRewardConfig,
+    RewardBreakdown,
+    RewardContext,
+)
 from trade_rl.rl.training import (
     PolicyTrainingBackend,
     PolicyTrainingResult,
@@ -19,6 +24,7 @@ from trade_rl.rl.training import (
 __all__ = [
     "ACTION_SCHEMA",
     "OBSERVATION_SCHEMA",
+    "AbsoluteGrowthRewardConfig",
     "BaselineResidualComposer",
     "PolicyTrainingBackend",
     "PolicyTrainingResult",
@@ -27,6 +33,8 @@ __all__ = [
     "ResidualMarketEnv",
     "ResidualMarketEnvConfig",
     "ResidualTrainingConfig",
+    "RewardBreakdown",
+    "RewardContext",
     "StableBaselines3PPOBackend",
     "train_residual_ensemble",
 ]

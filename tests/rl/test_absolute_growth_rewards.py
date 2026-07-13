@@ -48,6 +48,7 @@ def test_default_reward_configuration_matches_approved_design() -> None:
         {"drawdown_high": 0.09},
         {"drawdown_stop": 0.14},
         {"drawdown_slopes": (1.0, 0.0, 8.0)},
+        {"drawdown_slopes": (1.0, 0.5, 8.0)},
     ],
 )
 def test_reward_configuration_rejects_invalid_values(kwargs: dict[str, object]) -> None:
@@ -57,6 +58,26 @@ def test_reward_configuration_rejects_invalid_values(kwargs: dict[str, object]) 
 
 def test_baseline_hinge_is_disabled_before_minimum_history() -> None:
     reward = config()
+    hybrid = [0.0] * 40 + [-0.01]
+    shadow = [0.0] * 41
+
+    context = build_reward_context(
+        hybrid_returns=hybrid,
+        shadow_returns=shadow,
+        hybrid_drawdown=0.01,
+        window_bars=180,
+        minimum_history_bars=42,
+        config=reward,
+    )
+
+    assert context.history_bars == 41
+    assert context.baseline_tolerance == pytest.approx(0.015 * 41 / 180)
+    assert context.baseline_shortfall > context.baseline_tolerance
+    assert context.baseline_penalty == pytest.approx(0.0)
+
+
+def test_baseline_hinge_activates_at_exact_minimum_history() -> None:
+    reward = AbsoluteGrowthRewardConfig(baseline_tolerance=0.0)
     hybrid = [0.0] * 41 + [-0.01]
     shadow = [0.0] * 42
 
@@ -70,9 +91,8 @@ def test_baseline_hinge_is_disabled_before_minimum_history() -> None:
     )
 
     assert context.history_bars == 42
-    assert context.baseline_tolerance == pytest.approx(0.015 * 42 / 180)
-    assert context.baseline_shortfall > context.baseline_tolerance
-    assert context.baseline_penalty == pytest.approx(0.0)
+    assert context.baseline_shortfall == pytest.approx(-math.log1p(-0.01))
+    assert context.baseline_penalty == pytest.approx(context.baseline_shortfall)
 
 
 def test_baseline_hinge_uses_scaled_tolerance_after_minimum_history() -> None:
@@ -96,6 +116,19 @@ def test_baseline_hinge_uses_scaled_tolerance_after_minimum_history() -> None:
     assert context.baseline_penalty == pytest.approx(
         expected_shortfall - expected_tolerance
     )
+    assert context.rolling_growth_gap == pytest.approx(-expected_shortfall)
+
+
+def test_reward_context_rejects_mismatched_book_histories() -> None:
+    with pytest.raises(ValueError, match="equal length"):
+        build_reward_context(
+            hybrid_returns=(0.01,),
+            shadow_returns=(0.01, 0.02),
+            hybrid_drawdown=0.0,
+            window_bars=180,
+            minimum_history_bars=42,
+            config=config(),
+        )
 
 
 def test_drawdown_severity_is_continuous_and_staged() -> None:
@@ -108,6 +141,22 @@ def test_drawdown_severity_is_continuous_and_staged() -> None:
     assert drawdown_severity(0.15, reward) == pytest.approx(0.20)
     assert drawdown_severity(0.175, reward) == pytest.approx(0.40)
     assert drawdown_severity(0.20, reward) == pytest.approx(0.60)
+    assert drawdown_severity(0.100001, reward) > drawdown_severity(0.10, reward)
+    assert drawdown_severity(0.150001, reward) > drawdown_severity(0.15, reward)
+
+
+def test_absolute_log_growth_is_the_primary_reward() -> None:
+    reward = absolute_growth_reward(
+        hybrid_log_return=0.012,
+        before=RewardContext(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0),
+        after=RewardContext(0.012, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1),
+        config=config(),
+    )
+
+    assert reward.growth_raw == pytest.approx(0.012)
+    assert reward.baseline_penalty_weighted == pytest.approx(0.0)
+    assert reward.drawdown_penalty_weighted == pytest.approx(0.0)
+    assert reward.total_scaled == pytest.approx(1.2)
 
 
 def test_reward_penalizes_only_new_hinge_and_drawdown_worsening() -> None:

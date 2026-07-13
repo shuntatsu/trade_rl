@@ -2,6 +2,8 @@ name: Report main tree
 on:
   push:
     branches: [apply/realistic-env-hardening-final]
+  pull_request:
+    branches: [main]
 permissions:
   contents: read
 jobs:

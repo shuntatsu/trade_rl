@@ -34,6 +34,7 @@ class RawMarketSeries:
     volume: np.ndarray
     funding_rate: np.ndarray
     tradable: np.ndarray
+    funding_available: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         timestamps = _readonly(self.timestamps)
@@ -47,6 +48,11 @@ class RawMarketSeries:
         if np.any(np.diff(timestamp_ns) <= 0):
             raise ValueError("timestamps must be strictly increasing")
 
+        funding_available = (
+            np.ones(timestamps.shape, dtype=np.bool_)
+            if self.funding_available is None
+            else self.funding_available
+        )
         arrays = {
             "open": _readonly(self.open, dtype=np.dtype(np.float64)),
             "high": _readonly(self.high, dtype=np.dtype(np.float64)),
@@ -57,6 +63,9 @@ class RawMarketSeries:
                 self.funding_rate, dtype=np.dtype(np.float64)
             ),
             "tradable": _readonly(self.tradable, dtype=np.dtype(np.bool_)),
+            "funding_available": _readonly(
+                funding_available, dtype=np.dtype(np.bool_)
+            ),
         }
         expected = timestamps.shape
         for field_name, array in arrays.items():
@@ -150,6 +159,7 @@ class CsvMarketDataSource:
         close: list[float] = []
         volume: list[float] = []
         funding: list[float] = []
+        funding_available: list[bool] = []
         tradable: list[bool] = []
         with path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
@@ -166,11 +176,9 @@ class CsvMarketDataSource:
                     close.append(float(row["close"]))
                     volume.append(float(row["volume"]))
                     raw_funding = row.get("funding_rate")
-                    funding.append(
-                        0.0
-                        if raw_funding is None or not raw_funding.strip()
-                        else float(raw_funding)
-                    )
+                    has_funding = raw_funding is not None and bool(raw_funding.strip())
+                    funding_available.append(has_funding)
+                    funding.append(float(raw_funding) if has_funding else 0.0)
                     tradable.append(_parse_bool(row.get("tradable"), default=True))
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"invalid market CSV row {row_index}: {exc}") from exc
@@ -184,4 +192,5 @@ class CsvMarketDataSource:
             volume=np.asarray(volume, dtype=np.float64),
             funding_rate=np.asarray(funding, dtype=np.float64),
             tradable=np.asarray(tradable, dtype=np.bool_),
+            funding_available=np.asarray(funding_available, dtype=np.bool_),
         )

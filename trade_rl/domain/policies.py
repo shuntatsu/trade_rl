@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -34,13 +35,15 @@ class PolicyEnsembleManifest:
     action_schema: str
     observation_schema: str
     training_config_digest: str
+    environment_digest: str
+    initial_capital: float
     requested_timesteps: int
     actual_timesteps: int
     resolved_device: str
     expected_members: int
     members: tuple[PolicyMember, ...]
     created_at: datetime
-    schema_version: str = "policy_ensemble_v2"
+    schema_version: str = "policy_ensemble_v3"
 
     def __post_init__(self) -> None:
         require_sha256(self.digest, field="digest")
@@ -51,6 +54,9 @@ class PolicyEnsembleManifest:
             self.training_config_digest,
             field="training_config_digest",
         )
+        require_sha256(self.environment_digest, field="environment_digest")
+        if not math.isfinite(self.initial_capital) or self.initial_capital <= 0.0:
+            raise ValueError("initial_capital must be finite and positive")
         require_non_empty(self.resolved_device, field="resolved_device")
         require_aware_datetime(self.created_at, field="created_at")
         require_non_empty(self.schema_version, field="schema_version")

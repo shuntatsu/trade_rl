@@ -108,9 +108,7 @@ def test_local_validation_contract_is_documented_in_both_languages() -> None:
 
 def test_residual_walk_forward_architecture_is_normative() -> None:
     english = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-    japanese = (ROOT / "docs" / "ja" / "ARCHITECTURE.md").read_text(
-        encoding="utf-8"
-    )
+    japanese = (ROOT / "docs" / "ja" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     english_required = (
         "Residual Walk-Forward",
         "Control Plane orchestration",

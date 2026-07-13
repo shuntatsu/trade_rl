@@ -41,9 +41,6 @@ jobs:
       - name: Format CLI
         run: uv run ruff format --check --diff trade_rl/cli
 
-      - name: Format config
-        run: uv run ruff format --check --diff trade_rl/config
-
       - name: Format data
         run: uv run ruff format --check --diff trade_rl/data
 

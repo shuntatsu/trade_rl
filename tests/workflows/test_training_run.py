@@ -102,6 +102,13 @@ def test_execute_training_run_trains_serializes_and_publishes(tmp_path: Path) ->
     assert (published / "ensemble.json").is_file()
     assert (published / "training-config.json").is_file()
     assert (published / "dataset-reference.json").is_file()
+    assert (published / "policy-loader.json").is_file()
+    loader = json.loads((published / "policy-loader.json").read_text(encoding="utf-8"))
+    assert loader == {
+        "algorithm": "ppo",
+        "members": ["members/member-000/policy.zip"],
+        "schema_version": "sb3_policy_loader_v1",
+    }
     assert (published / "run.json").is_file()
     pointer = json.loads((store_root / "latest.json").read_text(encoding="utf-8"))
     assert pointer == {"path": "runs/tiny-run", "run_id": "tiny-run"}

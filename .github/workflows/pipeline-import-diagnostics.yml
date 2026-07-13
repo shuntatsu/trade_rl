@@ -1,0 +1,26 @@
+name: Pipeline Import Diagnostics
+
+on:
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  imports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Capture import-linter
+        continue-on-error: true
+        run: uv run lint-imports > imports.txt 2>&1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-imports
+          path: imports.txt

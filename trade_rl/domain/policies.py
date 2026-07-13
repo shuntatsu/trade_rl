@@ -28,7 +28,7 @@ class PolicyMember:
 
 @dataclass(frozen=True, slots=True)
 class PolicyEnsembleManifest:
-    """Manifest for a complete baseline-residual PPO ensemble."""
+    """Manifest for a complete baseline-residual policy ensemble."""
 
     digest: str
     dataset_id: str
@@ -43,7 +43,14 @@ class PolicyEnsembleManifest:
     expected_members: int
     members: tuple[PolicyMember, ...]
     created_at: datetime
-    schema_version: str = "policy_ensemble_v3"
+    action_size: int = 2
+    action_names: tuple[str, ...] = ()
+    action_spec_digest: str | None = None
+    observation_size: int | None = None
+    alpha_artifact_digest: str | None = None
+    factor_artifact_digest: str | None = None
+    normalizer_digest: str | None = None
+    schema_version: str = "policy_ensemble_v4"
 
     def __post_init__(self) -> None:
         require_sha256(self.digest, field="digest")
@@ -70,6 +77,34 @@ class PolicyEnsembleManifest:
             raise ValueError(
                 "policy ensemble member count does not match expected_members"
             )
+        if (
+            isinstance(self.action_size, bool)
+            or not isinstance(self.action_size, int)
+            or self.action_size <= 0
+        ):
+            raise ValueError("action_size must be a positive integer")
+        if len(self.action_names) != self.action_size:
+            raise ValueError("action_names must match action_size")
+        if len(set(self.action_names)) != len(self.action_names) or any(
+            not name for name in self.action_names
+        ):
+            raise ValueError("action_names must be unique and non-empty")
+        if self.action_spec_digest is None:
+            raise ValueError("action_spec_digest is required")
+        require_sha256(self.action_spec_digest, field="action_spec_digest")
+        if self.observation_size is not None and (
+            isinstance(self.observation_size, bool)
+            or not isinstance(self.observation_size, int)
+            or self.observation_size <= 0
+        ):
+            raise ValueError("observation_size must be a positive integer")
+        for field_name, value in (
+            ("alpha_artifact_digest", self.alpha_artifact_digest),
+            ("factor_artifact_digest", self.factor_artifact_digest),
+            ("normalizer_digest", self.normalizer_digest),
+        ):
+            if value is not None:
+                require_sha256(value, field=field_name)
         seeds = tuple(member.seed for member in self.members)
         if len(set(seeds)) != len(seeds):
             raise ValueError("policy ensemble seeds must be unique")

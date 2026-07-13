@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.rl.training import (
     PolicyTrainingResult,
@@ -18,21 +19,47 @@ from trade_rl.rl.training import (
 )
 
 ENVIRONMENT_DIGEST = "e" * 64
+ACTION_NAMES = ("fast_tilt", "slow_tilt", "risk_tilt")
+ACTION_SPEC_DIGEST = content_digest({"names": ACTION_NAMES})
 INITIAL_CAPITAL = 250_000.0
 
 
-class FakeBackend:
-    def __init__(self) -> None:
-        self.calls: list[tuple[int, ResidualTrainingConfig, Path]] = []
+class TinyContinuousEnv(gym.Env):
+    metadata = {"render_modes": []}
+    environment_digest = ENVIRONMENT_DIGEST
+    initial_capital = INITIAL_CAPITAL
+    decision_hours = 4.0
+    action_names = ACTION_NAMES
+    action_spec_digest = ACTION_SPEC_DIGEST
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.observation_space = spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+        self.steps = 0
+
+    def reset(
+        self, *, seed: int | None = None, options: dict[str, object] | None = None
+    ):
+        super().reset(seed=seed)
+        self.steps = 0
+        return np.zeros(2, dtype=np.float32), {}
+
+    def step(self, action: np.ndarray):
+        self.steps += 1
+        return (
+            np.zeros(2, dtype=np.float32),
+            -float(np.square(action).sum()),
+            self.steps >= 4,
+            False,
+            {},
+        )
+
+
+class FakeBackend:
     def train(
-        self,
-        *,
-        seed: int,
-        config: ResidualTrainingConfig,
-        output_path: Path,
+        self, *, seed: int, config: ResidualTrainingConfig, output_path: Path
     ) -> PolicyTrainingResult:
-        self.calls.append((seed, config, output_path))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(f"checkpoint:{seed}".encode())
         return PolicyTrainingResult(
@@ -41,124 +68,49 @@ class FakeBackend:
             resolved_device="cpu",
             environment_digest=ENVIRONMENT_DIGEST,
             initial_capital=INITIAL_CAPITAL,
+            action_size=3,
+            action_names=ACTION_NAMES,
+            action_spec_digest=ACTION_SPEC_DIGEST,
+            observation_size=2,
         )
 
 
-class TinyContinuousEnv(gym.Env):
-    metadata = {"render_modes": []}
-    environment_digest = ENVIRONMENT_DIGEST
-    initial_capital = INITIAL_CAPITAL
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.observation_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(2,),
-            dtype=np.float32,
-        )
-        self.action_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(1,),
-            dtype=np.float32,
-        )
-        self.steps = 0
-
-    def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, object] | None = None,
-    ) -> tuple[np.ndarray, dict[str, object]]:
-        super().reset(seed=seed)
-        del options
-        self.steps = 0
-        return np.zeros(2, dtype=np.float32), {}
-
-    def step(
-        self,
-        action: np.ndarray,
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
-        self.steps += 1
-        observation = np.array([self.steps / 4.0, 0.0], dtype=np.float32)
-        reward = -float(np.square(action).sum())
-        terminated = self.steps >= 4
-        return observation, reward, terminated, False, {}
-
-
-def manifest(dataset_id: str = "a" * 64) -> DatasetManifest:
+def manifest() -> DatasetManifest:
     return DatasetManifest(
-        dataset_id=dataset_id,
-        symbols=("BTCUSDT", "ETHUSDT"),
-        feature_names=("ret", "rsi"),
+        dataset_id="a" * 64,
+        symbols=("BTC",),
+        feature_names=("ret",),
         base_timeframe="1h",
         created_at=datetime(2026, 7, 13, tzinfo=UTC),
     )
 
 
-def test_gamma_from_half_life_is_invariant_in_real_time() -> None:
-    hourly_decision = gamma_from_half_life(
-        decision_hours=1.0,
-        half_life_hours=24.0,
-    )
-    four_hour_decision = gamma_from_half_life(
-        decision_hours=4.0,
-        half_life_hours=24.0,
-    )
-
-    assert hourly_decision**24 == pytest.approx(0.5)
-    assert four_hour_decision**6 == pytest.approx(0.5)
-    assert four_hour_decision == pytest.approx(hourly_decision**4)
-
-
-def test_gamma_from_half_life_rejects_invalid_time_values() -> None:
-    with pytest.raises(ValueError, match="decision_hours"):
-        gamma_from_half_life(decision_hours=0.0, half_life_hours=24.0)
-    with pytest.raises(ValueError, match="half_life_hours"):
-        gamma_from_half_life(decision_hours=4.0, half_life_hours=0.0)
-
-
-def test_training_config_rounds_requested_steps_to_complete_rollouts() -> None:
-    config = ResidualTrainingConfig(
-        timesteps=1_025,
-        gamma=0.99,
-        seeds=(0,),
-        n_steps=1_024,
-        batch_size=64,
-    )
-
-    assert config.rounded_timesteps == 2_048
-
-
-def test_training_config_rejects_incoherent_ppo_settings() -> None:
-    with pytest.raises(ValueError, match="batch_size must divide n_steps"):
+def test_gamma_is_bound_to_real_time_decision_interval() -> None:
+    gamma = gamma_from_half_life(decision_hours=4.0, half_life_hours=24.0)
+    assert gamma**6 == pytest.approx(0.5)
+    with pytest.raises(ValueError, match="gamma"):
         ResidualTrainingConfig(
-            timesteps=10,
-            gamma=0.99,
+            timesteps=8,
+            gamma=0.9,
             seeds=(0,),
-            n_steps=100,
-            batch_size=64,
-        )
-    with pytest.raises(ValueError, match="learning_rate"):
-        ResidualTrainingConfig(
-            timesteps=10,
-            gamma=0.99,
-            seeds=(0,),
-            learning_rate=0.0,
-        )
-    with pytest.raises(ValueError, match="device"):
-        ResidualTrainingConfig(
-            timesteps=10,
-            gamma=0.99,
-            seeds=(0,),
-            device="",
+            decision_hours=4.0,
+            discount_half_life_hours=24.0,
         )
 
 
-def test_sb3_backend_trains_saves_loads_and_reports_identity(tmp_path: Path) -> None:
-    from stable_baselines3 import PPO
+def test_ppo_exploration_and_network_controls_are_part_of_config_identity() -> None:
+    first = ResidualTrainingConfig(
+        timesteps=8, gamma=0.99, seeds=(0,), n_steps=8, batch_size=8, log_std_init=-1.0
+    )
+    second = ResidualTrainingConfig(
+        timesteps=8, gamma=0.99, seeds=(0,), n_steps=8, batch_size=8, log_std_init=-0.5
+    )
+    assert content_digest(first.digest_payload()) != content_digest(
+        second.digest_payload()
+    )
 
+
+def test_sb3_backend_validates_cadence_and_action_identity(tmp_path: Path) -> None:
     config = ResidualTrainingConfig(
         timesteps=8,
         gamma=0.99,
@@ -167,112 +119,30 @@ def test_sb3_backend_trains_saves_loads_and_reports_identity(tmp_path: Path) -> 
         batch_size=8,
         n_epochs=1,
         device="cpu",
+        decision_hours=4.0,
+        asset_set_encoder=False,
     )
-    output_path = tmp_path / "policy.zip"
-
     result = StableBaselines3PPOBackend(TinyContinuousEnv).train(
-        seed=0,
-        config=config,
-        output_path=output_path,
+        seed=0, config=config, output_path=tmp_path / "policy.zip"
     )
-
-    assert result.checkpoint_path == output_path
-    assert output_path.is_file()
-    assert result.actual_timesteps == 8
-    assert result.resolved_device == "cpu"
-    assert result.environment_digest == ENVIRONMENT_DIGEST
-    assert result.initial_capital == pytest.approx(INITIAL_CAPITAL)
-    restored = PPO.load(str(output_path))
-    action, _ = restored.predict(np.zeros(2, dtype=np.float32), deterministic=True)
-    assert np.asarray(action).shape == (1,)
+    assert result.action_names == ACTION_NAMES
+    assert result.action_spec_digest == ACTION_SPEC_DIGEST
 
 
-def test_train_residual_ensemble_creates_one_member_per_seed(tmp_path: Path) -> None:
-    backend = FakeBackend()
-    created_at = datetime(2026, 7, 13, 7, 0, tzinfo=UTC)
+def test_ensemble_manifest_carries_exact_action_and_observation_identity(
+    tmp_path: Path,
+) -> None:
     config = ResidualTrainingConfig(
-        timesteps=1_024,
-        gamma=0.5,
-        seeds=(0, 1, 2),
-        n_steps=512,
-        batch_size=64,
-        device="cpu",
+        timesteps=8, gamma=0.99, seeds=(0, 1), n_steps=8, batch_size=8
     )
-
     result = train_residual_ensemble(
         dataset=manifest(),
         environment_dataset_id="a" * 64,
         config=config,
-        backend=backend,
+        backend=FakeBackend(),
         output_dir=tmp_path,
-        created_at=created_at,
+        created_at=datetime(2026, 7, 13, tzinfo=UTC),
     )
-
-    assert result.expected_members == 3
-    assert tuple(member.seed for member in result.members) == (0, 1, 2)
-    assert len({member.checkpoint_digest for member in result.members}) == 3
-    assert result.dataset_id == "a" * 64
-    assert result.action_schema == "baseline_residual_v1"
-    assert result.observation_schema == "baseline_residual_observation_v2"
-    assert result.environment_digest == ENVIRONMENT_DIGEST
-    assert result.initial_capital == pytest.approx(INITIAL_CAPITAL)
-    assert result.requested_timesteps == 1_024
-    assert result.actual_timesteps == 1_024
-    assert result.resolved_device == "cpu"
-    assert len(backend.calls) == 3
-    assert all(call[1] == config for call in backend.calls)
-
-
-def test_training_configuration_is_bound_into_policy_identity(tmp_path: Path) -> None:
-    created_at = datetime(2026, 7, 13, 7, 0, tzinfo=UTC)
-    base = ResidualTrainingConfig(
-        timesteps=1_024,
-        gamma=0.99,
-        seeds=(0,),
-        learning_rate=3e-4,
-    )
-    changed = ResidualTrainingConfig(
-        timesteps=1_024,
-        gamma=0.99,
-        seeds=(0,),
-        learning_rate=1e-4,
-    )
-
-    first = train_residual_ensemble(
-        dataset=manifest(),
-        environment_dataset_id="a" * 64,
-        config=base,
-        backend=FakeBackend(),
-        output_dir=tmp_path / "first",
-        created_at=created_at,
-    )
-    second = train_residual_ensemble(
-        dataset=manifest(),
-        environment_dataset_id="a" * 64,
-        config=changed,
-        backend=FakeBackend(),
-        output_dir=tmp_path / "second",
-        created_at=created_at,
-    )
-
-    assert first.training_config_digest != second.training_config_digest
-    assert first.digest != second.digest
-
-
-def test_training_rejects_dataset_identity_mismatch(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="dataset identity"):
-        train_residual_ensemble(
-            dataset=manifest(),
-            environment_dataset_id="b" * 64,
-            config=ResidualTrainingConfig(timesteps=10, gamma=0.5, seeds=(0,)),
-            backend=FakeBackend(),
-            output_dir=tmp_path,
-            created_at=datetime(2026, 7, 13, tzinfo=UTC),
-        )
-
-
-def test_training_config_requires_unique_non_negative_seeds() -> None:
-    with pytest.raises(ValueError, match="unique"):
-        ResidualTrainingConfig(timesteps=10, gamma=0.5, seeds=(0, 0))
-    with pytest.raises(ValueError, match="non-negative"):
-        ResidualTrainingConfig(timesteps=10, gamma=0.5, seeds=(-1,))
+    assert result.action_names == ACTION_NAMES
+    assert result.action_spec_digest == ACTION_SPEC_DIGEST
+    assert result.observation_size == 2

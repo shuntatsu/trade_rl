@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.rl.training import (
     PolicyTrainingResult,
@@ -49,6 +50,12 @@ class EnvironmentBackend:
             resolved_device="cpu",
             environment_digest=ENVIRONMENT_DIGEST,
             initial_capital=capital,
+            action_size=3,
+            action_names=("fast_tilt", "slow_tilt", "risk_tilt"),
+            action_spec_digest=content_digest(
+                {"names": ("fast_tilt", "slow_tilt", "risk_tilt")}
+            ),
+            observation_size=8,
         )
 
 
@@ -79,7 +86,7 @@ def test_policy_manifest_records_environment_and_aum(tmp_path: Path) -> None:
 
 
 def test_ensemble_rejects_inconsistent_aum_across_seeds(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="initial capital"):
+    with pytest.raises(ValueError, match=r"initial[_ ]capital"):
         train_residual_ensemble(
             dataset=manifest(),
             environment_dataset_id=DATASET_ID,

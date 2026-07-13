@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from trade_rl.evaluation.comparisons import compare_paired_returns
@@ -31,8 +33,8 @@ def test_paired_comparison_keeps_arithmetic_and_log_excess_separate() -> None:
         candidate_total - benchmark_total
     )
     assert result.excess_log_return == pytest.approx(
-        sum(__import__("math").log1p(value) for value in candidate.values)
-        - sum(__import__("math").log1p(value) for value in benchmark.values)
+        sum(math.log1p(value) for value in candidate.values)
+        - sum(math.log1p(value) for value in benchmark.values)
     )
     assert result.mean_period_excess == pytest.approx(0.01)
     assert 0.0 <= result.p_value <= 1.0
@@ -72,7 +74,11 @@ def test_bootstrap_is_deterministic_for_an_explicit_seed() -> None:
             series((0.01,), kind=ReturnKind.DECISION_STEP),
             "kind",
         ),
-        (series((0.01,), periods_per_year=8_760), series((0.01,), periods_per_year=365), "annualization"),
+        (
+            series((0.01,), periods_per_year=8_760),
+            series((0.01,), periods_per_year=365),
+            "annualization",
+        ),
     ],
 )
 def test_paired_comparison_rejects_incompatible_series(

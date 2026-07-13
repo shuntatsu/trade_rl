@@ -38,14 +38,17 @@ class ExecutionCostConfig:
         ):
             if not math.isfinite(value):
                 raise ValueError(f"{field_name} must be finite")
-        if min(
-            self.fee_rate,
-            self.spread_rate,
-            self.impact_rate,
-            self.multiplier,
-            self.slippage_std,
-            self.tail_slippage_multiplier,
-        ) < 0.0:
+        if (
+            min(
+                self.fee_rate,
+                self.spread_rate,
+                self.impact_rate,
+                self.multiplier,
+                self.slippage_std,
+                self.tail_slippage_multiplier,
+            )
+            < 0.0
+        ):
             raise ValueError("execution rates and multipliers must be non-negative")
         if not 0.0 < self.max_participation_rate <= 1.0:
             raise ValueError("max_participation_rate must be within (0, 1]")
@@ -276,9 +279,7 @@ class MarketExecutor:
             intrabar_asset_returns = (
                 self.dataset.close[next_index] / self.dataset.open[next_index] - 1.0
             )
-            intrabar_return = float(
-                np.dot(result_book.weights, intrabar_asset_returns)
-            )
+            intrabar_return = float(np.dot(result_book.weights, intrabar_asset_returns))
             gross_factor *= (1.0 + gap_return) * (1.0 + intrabar_return)
 
             funding_return = -float(

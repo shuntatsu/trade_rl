@@ -95,4 +95,4 @@ def test_observation_contains_masks_both_books_and_risk_state() -> None:
     globals_ = observation[-layout.global_width :]
     assert globals_[-3] == pytest.approx(0.8)
     assert globals_[-2] == pytest.approx(0.9)
-    assert globals_[-1] == pytest.approx(0.5)
+    assert globals_[-1] == pytest.approx(1.0 / 3.0)

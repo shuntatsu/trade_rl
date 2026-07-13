@@ -46,29 +46,33 @@ class ResidualMarketEnvConfig:
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
 
     def __post_init__(self) -> None:
-        for field_name, value in (
+        for positive_field_name, positive_value in (
             ("episode_hours", self.episode_hours),
             ("decision_hours", self.decision_hours),
             ("reward_scale", self.reward_scale),
             ("initial_capital", self.initial_capital),
             ("minimum_equity_fraction", self.minimum_equity_fraction),
         ):
-            if not math.isfinite(value) or value <= 0.0:
-                raise ValueError(f"{field_name} must be finite and positive")
-        for field_name, value in (
+            if not math.isfinite(positive_value) or positive_value <= 0.0:
+                raise ValueError(f"{positive_field_name} must be finite and positive")
+        for optional_field_name, optional_value in (
             ("episode_bars", self.episode_bars),
             ("decision_every", self.decision_every),
         ):
-            if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            if optional_value is not None and (
+                isinstance(optional_value, bool)
+                or not isinstance(optional_value, int)
+                or optional_value <= 0
             ):
-                raise ValueError(f"{field_name} must be a positive integer")
-        for field_name, value in (
+                raise ValueError(f"{optional_field_name} must be a positive integer")
+        for penalty_field_name, penalty_value in (
             ("downside_penalty", self.downside_penalty),
             ("excess_drawdown_penalty", self.excess_drawdown_penalty),
         ):
-            if not math.isfinite(value) or value < 0.0:
-                raise ValueError(f"{field_name} must be finite and non-negative")
+            if not math.isfinite(penalty_value) or penalty_value < 0.0:
+                raise ValueError(
+                    f"{penalty_field_name} must be finite and non-negative"
+                )
 
     def resolve_episode_bars(self, dataset: MarketDataset) -> int:
         return (
@@ -240,7 +244,9 @@ class ResidualMarketEnv(gym.Env):
             self.config.initial_capital,
             initial_prices,
         )
-        execution_seed = self.config.execution_cost.random_seed if seed is None else seed
+        execution_seed = (
+            self.config.execution_cost.random_seed if seed is None else seed
+        )
         self.hybrid_executor.reset_random_state(execution_seed)
         self.shadow_executor.reset_random_state(execution_seed)
         self._decision_step_index = 0
@@ -273,9 +279,9 @@ class ResidualMarketEnv(gym.Env):
             return result
         if result.returns_history:
             previous = result.returns_history[-1]
-            result.returns_history[-1] = (
-                (1.0 + previous) * (1.0 + liquidation.interval_net_return) - 1.0
-            )
+            result.returns_history[-1] = (1.0 + previous) * (
+                1.0 + liquidation.interval_net_return
+            ) - 1.0
         else:
             result.returns_history.append(liquidation.interval_net_return)
         result.peak_value = max(result.peak_value, result.portfolio_value)

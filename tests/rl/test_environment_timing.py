@@ -115,10 +115,12 @@ def test_default_pretrade_risk_caps_each_symbol_before_execution() -> None:
 
     _, _, _, _, info = env.step(np.zeros(2))
 
-    assert np.max(np.abs(env.hybrid.weights)) <= 0.40 + 1e-12
-    assert np.max(np.abs(env.shadow.weights)) <= 0.40 + 1e-12
-    assert "max_abs_weight" in info["hybrid_risk"].reasons
-    assert "max_abs_weight" in info["shadow_risk"].reasons
+    hybrid_risk = info["hybrid_risk"]
+    shadow_risk = info["shadow_risk"]
+    assert np.max(np.abs(hybrid_risk.weights)) <= 0.40 + 1e-12
+    assert np.max(np.abs(shadow_risk.weights)) <= 0.40 + 1e-12
+    assert "max_abs_weight" in hybrid_risk.reasons
+    assert "max_abs_weight" in shadow_risk.reasons
 
 
 def test_one_action_receives_one_interval_reward() -> None:

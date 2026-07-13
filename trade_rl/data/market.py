@@ -12,6 +12,7 @@ from trade_rl.domain.common import require_sha256, require_unique_non_empty
 
 _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000
+_ZERO_DIGEST = "0" * 64
 
 
 def _readonly_array(
@@ -45,16 +46,16 @@ class MarketDataset:
     volume: np.ndarray
     funding_rate: np.ndarray
     tradable: np.ndarray
-    symbol_active: np.ndarray
     feature_available: np.ndarray
-    feature_staleness: np.ndarray
     feature_names: tuple[str, ...]
     global_feature_names: tuple[str, ...]
-    volume_units: tuple[VolumeUnit, ...]
-    contract_multipliers: np.ndarray
-    feature_config_digest: str
-    normalization_digest: str
     periods_per_year: int
+    symbol_active: np.ndarray | None = None
+    feature_staleness: np.ndarray | None = None
+    volume_units: tuple[VolumeUnit, ...] = ()
+    contract_multipliers: np.ndarray | None = None
+    feature_config_digest: str = _ZERO_DIGEST
+    normalization_digest: str = _ZERO_DIGEST
     _bar_duration_ns: int = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -86,23 +87,10 @@ class MarketDataset:
         volume = _readonly_array(self.volume, dtype=np.dtype(np.float64))
         funding = _readonly_array(self.funding_rate, dtype=np.dtype(np.float64))
         tradable = _readonly_array(self.tradable, dtype=np.dtype(np.bool_))
-        symbol_active = _readonly_array(
-            self.symbol_active,
-            dtype=np.dtype(np.bool_),
-        )
         feature_available = _readonly_array(
             self.feature_available,
             dtype=np.dtype(np.bool_),
         )
-        feature_staleness = _readonly_array(
-            self.feature_staleness,
-            dtype=np.dtype(np.float32),
-        )
-        contract_multipliers = _readonly_array(
-            self.contract_multipliers,
-            dtype=np.dtype(np.float64),
-        )
-        volume_units = tuple(VolumeUnit(value) for value in self.volume_units)
 
         if timestamps.ndim != 1:
             raise ValueError("timestamps must be one-dimensional")
@@ -128,11 +116,45 @@ class MarketDataset:
         if self.periods_per_year != int(round(expected_periods)):
             raise ValueError("periods_per_year does not match timestamp cadence")
 
+        price_shape = (n_bars, n_symbols)
+        symbol_active_value = (
+            np.ones(price_shape, dtype=np.bool_)
+            if self.symbol_active is None
+            else self.symbol_active
+        )
+        feature_staleness_value = (
+            np.where(feature_available, 0.0, 1.0)
+            if self.feature_staleness is None
+            else self.feature_staleness
+        )
+        volume_units_value = (
+            tuple(VolumeUnit.BASE_ASSET for _ in symbols)
+            if not self.volume_units
+            else self.volume_units
+        )
+        contract_multipliers_value = (
+            np.ones(n_symbols, dtype=np.float64)
+            if self.contract_multipliers is None
+            else self.contract_multipliers
+        )
+        symbol_active = _readonly_array(
+            symbol_active_value,
+            dtype=np.dtype(np.bool_),
+        )
+        feature_staleness = _readonly_array(
+            feature_staleness_value,
+            dtype=np.dtype(np.float32),
+        )
+        contract_multipliers = _readonly_array(
+            contract_multipliers_value,
+            dtype=np.dtype(np.float64),
+        )
+        volume_units = tuple(VolumeUnit(value) for value in volume_units_value)
+
         if features.shape != (n_bars, n_symbols, len(feature_names)):
             raise ValueError("features shape does not match bars, symbols, and names")
         if global_features.shape != (n_bars, len(global_names)):
             raise ValueError("global_features shape does not match bars and names")
-        price_shape = (n_bars, n_symbols)
         for field_name, array in (
             ("open", open_price),
             ("high", high),
@@ -247,9 +269,16 @@ class MarketDataset:
 
         if not 0 <= index < self.n_bars:
             raise IndexError("market notional index is outside the dataset")
-        price_vector = self.open[index] if prices is None else np.asarray(prices, dtype=np.float64)
+        price_vector = (
+            self.open[index]
+            if prices is None
+            else np.asarray(prices, dtype=np.float64)
+        )
         price_vector = np.asarray(price_vector, dtype=np.float64).reshape(-1)
-        if price_vector.shape != (self.n_symbols,) or not np.isfinite(price_vector).all():
+        if (
+            price_vector.shape != (self.n_symbols,)
+            or not np.isfinite(price_vector).all()
+        ):
             raise ValueError("market notional prices do not match dataset symbols")
         if np.any(price_vector <= 0.0):
             raise ValueError("market notional prices must be strictly positive")

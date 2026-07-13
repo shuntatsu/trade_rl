@@ -211,7 +211,9 @@ def run_walk_forward(
             median_index = int(np.argsort(seed_sharpes)[len(seed_sharpes) // 2])
             fold_return_series.append(seed_returns[median_index])
 
-        fee_kwargs = {key: env_kwargs[key] for key in FEE_KWARG_KEYS if key in env_kwargs}
+        fee_kwargs = {
+            key: env_kwargs[key] for key in FEE_KWARG_KEYS if key in env_kwargs
+        }
         baseline_results = run_all_baselines(
             fs,
             cost_multiplier=cost_multiplier,

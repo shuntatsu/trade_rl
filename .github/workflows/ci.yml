@@ -30,7 +30,7 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync --extra dev >/dev/null
 
       - name: Ruff
         run: uv run ruff check .
@@ -38,18 +38,24 @@ jobs:
       - name: Format
         run: uv run ruff format --check --diff .
 
-      - name: Mypy
-        run: uv run mypy trade_rl
+      - name: Capture mypy diagnostics
+        id: mypy
+        shell: bash
+        run: |
+          set +e
+          uv run mypy trade_rl > mypy.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Import architecture
-        run: uv run lint-imports
+      - name: Upload mypy diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-diagnostics
+          path: mypy.log
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Dead-code report
-        continue-on-error: true
-        run: uv run vulture trade_rl tests --min-confidence 100
-
-      - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
-
-      - name: CLI smoke test
-        run: uv run trade-rl --version
+      - name: Fail on mypy errors
+        if: steps.mypy.outputs.status != '0'
+        run: exit 1

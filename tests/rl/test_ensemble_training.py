@@ -8,6 +8,7 @@ import pytest
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.rl.training import (
     ResidualTrainingConfig,
+    gamma_from_half_life,
     train_residual_ensemble,
 )
 
@@ -38,6 +39,28 @@ def manifest(dataset_id: str = "a" * 64) -> DatasetManifest:
         base_timeframe="1h",
         created_at=datetime(2026, 7, 13, tzinfo=UTC),
     )
+
+
+def test_gamma_from_half_life_is_invariant_in_real_time() -> None:
+    hourly_decision = gamma_from_half_life(
+        decision_hours=1.0,
+        half_life_hours=24.0,
+    )
+    four_hour_decision = gamma_from_half_life(
+        decision_hours=4.0,
+        half_life_hours=24.0,
+    )
+
+    assert hourly_decision**24 == pytest.approx(0.5)
+    assert four_hour_decision**6 == pytest.approx(0.5)
+    assert four_hour_decision == pytest.approx(hourly_decision**4)
+
+
+def test_gamma_from_half_life_rejects_invalid_time_values() -> None:
+    with pytest.raises(ValueError, match="decision_hours"):
+        gamma_from_half_life(decision_hours=0.0, half_life_hours=24.0)
+    with pytest.raises(ValueError, match="half_life_hours"):
+        gamma_from_half_life(decision_hours=4.0, half_life_hours=0.0)
 
 
 def test_train_residual_ensemble_creates_one_member_per_seed(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from dataclasses import asdict
 from typing import TextIO
 
 from trade_rl import __version__
+from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.rl.training import ResidualTrainingConfig, gamma_from_half_life
 from trade_rl.workflows.walk_forward import WalkForwardWorkflowConfig
 
@@ -44,7 +45,6 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
                 "explicit --gamma cannot be combined with discount half-life options"
             )
         gamma = float(args.gamma)
-        schema = "residual_training_config_v1"
         timing: dict[str, float] = {}
     else:
         if args.decision_hours is None or args.discount_half_life_hours is None:
@@ -58,7 +58,6 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
             decision_hours=decision_hours,
             half_life_hours=half_life_hours,
         )
-        schema = "residual_training_config_v2"
         timing = {
             "decision_hours": decision_hours,
             "discount_half_life_hours": half_life_hours,
@@ -68,14 +67,40 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
         timesteps=args.timesteps,
         gamma=gamma,
         seeds=tuple(args.seed),
+        learning_rate=args.learning_rate,
+        n_steps=args.n_steps,
+        batch_size=args.batch_size,
+        n_epochs=args.n_epochs,
+        gae_lambda=args.gae_lambda,
+        clip_range=args.clip_range,
+        normalize_advantage=not args.no_normalize_advantage,
+        ent_coef=args.ent_coef,
+        vf_coef=args.vf_coef,
+        max_grad_norm=args.max_grad_norm,
+        policy=args.policy,
+        device=args.device,
     )
     _write_json(
         stdout,
         {
+            "actual_timesteps": config.rounded_timesteps,
+            "batch_size": config.batch_size,
+            "clip_range": config.clip_range,
+            "device": config.device,
+            "ent_coef": config.ent_coef,
+            "gae_lambda": config.gae_lambda,
             "gamma": config.gamma,
-            "schema": schema,
+            "learning_rate": config.learning_rate,
+            "max_grad_norm": config.max_grad_norm,
+            "n_epochs": config.n_epochs,
+            "n_steps": config.n_steps,
+            "normalize_advantage": config.normalize_advantage,
+            "observation_schema": OBSERVATION_SCHEMA,
+            "policy": config.policy,
+            "requested_timesteps": config.timesteps,
+            "schema": "residual_training_config_v3",
             "seeds": list(config.seeds),
-            "timesteps": config.timesteps,
+            "vf_coef": config.vf_coef,
             **timing,
         },
     )
@@ -160,6 +185,18 @@ def build_parser() -> argparse.ArgumentParser:
     train_config.add_argument("--gamma", type=float)
     train_config.add_argument("--decision-hours", type=float)
     train_config.add_argument("--discount-half-life-hours", type=float)
+    train_config.add_argument("--learning-rate", type=float, default=3e-4)
+    train_config.add_argument("--n-steps", type=int, default=2_048)
+    train_config.add_argument("--batch-size", type=int, default=64)
+    train_config.add_argument("--n-epochs", type=int, default=10)
+    train_config.add_argument("--gae-lambda", type=float, default=0.95)
+    train_config.add_argument("--clip-range", type=float, default=0.2)
+    train_config.add_argument("--ent-coef", type=float, default=0.0)
+    train_config.add_argument("--vf-coef", type=float, default=0.5)
+    train_config.add_argument("--max-grad-norm", type=float, default=0.5)
+    train_config.add_argument("--policy", default="MlpPolicy")
+    train_config.add_argument("--device", default="auto")
+    train_config.add_argument("--no-normalize-advantage", action="store_true")
     train_config.add_argument("--seed", type=int, action="append", required=True)
     train_config.set_defaults(handler=_train_config)
 

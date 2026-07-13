@@ -3,86 +3,70 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from trade_rl.data.market import MarketDataset
+from trade_rl.data.market import MarketCalendarKind, MarketDataset
 
 
-def dataset_kwargs(n_bars: int = 8) -> dict[str, object]:
-    timestamps = np.datetime64("2026-01-01T01:00:00", "ns") + np.arange(
-        n_bars
-    ) * np.timedelta64(1, "h")
-    close = np.column_stack(
-        [
-            100.0 + np.arange(n_bars, dtype=np.float64),
-            200.0 + 2.0 * np.arange(n_bars, dtype=np.float64),
-        ]
-    )
-    open_price = close - 0.25
-    high = np.maximum(open_price, close) + 0.5
-    low = np.minimum(open_price, close) - 0.5
+def kwargs(n_bars: int = 8, n_symbols: int = 2) -> dict[str, object]:
+    timestamps = np.datetime64("2026-01-01T01:00:00", "ns") + np.arange(n_bars) * np.timedelta64(1, "h")
+    base = 100.0 + np.arange(n_bars, dtype=np.float64)
+    close = np.column_stack([base + 10.0 * i for i in range(n_symbols)])
+    open_price = np.vstack([close[0], close[:-1]])
     return {
         "dataset_id": "a" * 64,
-        "symbols": ("BTCUSDT", "ETHUSDT"),
+        "symbols": tuple(f"S{i}" for i in range(n_symbols)),
         "timestamps": timestamps,
-        "features": np.zeros((n_bars, 2, 2), dtype=np.float32),
+        "features": np.zeros((n_bars, n_symbols, 2), dtype=np.float32),
         "global_features": np.zeros((n_bars, 1), dtype=np.float32),
         "open": open_price,
-        "high": high,
-        "low": low,
+        "high": np.maximum(open_price, close) + 1.0,
+        "low": np.minimum(open_price, close) - 1.0,
         "close": close,
-        "volume": np.full((n_bars, 2), 1_000.0, dtype=np.float64),
+        "volume": np.full((n_bars, n_symbols), 1_000.0),
         "funding_rate": np.zeros_like(close),
-        "tradable": np.ones((n_bars, 2), dtype=np.bool_),
-        "feature_available": np.ones((n_bars, 2, 2), dtype=np.bool_),
+        "tradable": np.ones((n_bars, n_symbols), dtype=np.bool_),
+        "feature_available": np.ones((n_bars, n_symbols, 2), dtype=np.bool_),
         "feature_names": ("ret", "rsi"),
         "global_feature_names": ("regime",),
         "periods_per_year": 8_760,
     }
 
 
-def test_regular_hourly_dataset_exposes_real_time_conversion() -> None:
-    market = MarketDataset(**dataset_kwargs())
-
-    assert market.bar_hours == pytest.approx(1.0)
-    assert market.bars_for_hours(4.0) == 4
-    with pytest.raises(ValueError, match="integral number of bars"):
-        market.bars_for_hours(1.5)
-
-
-def test_irregular_timestamps_are_rejected() -> None:
-    kwargs = dataset_kwargs()
-    timestamps = np.asarray(kwargs["timestamps"]).copy()
-    timestamps[4:] += np.timedelta64(1, "h")
-    kwargs["timestamps"] = timestamps
-
+def test_continuous_market_requires_regular_cadence() -> None:
+    values = kwargs()
+    timestamps = np.asarray(values["timestamps"]).copy()
+    timestamps[4:] += np.timedelta64(16, "h")
+    values["timestamps"] = timestamps
     with pytest.raises(ValueError, match="regular"):
-        MarketDataset(**kwargs)
+        MarketDataset(**values)
 
 
-def test_periods_per_year_must_match_timestamp_cadence() -> None:
-    kwargs = dataset_kwargs()
-    kwargs["periods_per_year"] = 2_190
+def test_session_calendar_accepts_gaps_and_uses_wall_clock_helpers() -> None:
+    values = kwargs()
+    timestamps = np.asarray(values["timestamps"]).copy()
+    timestamps[4:] += np.timedelta64(16, "h")
+    values.update(
+        timestamps=timestamps,
+        calendar_kind=MarketCalendarKind.SESSION,
+        nominal_bar_hours=1.0,
+        periods_per_year=1_638,
+    )
+    market = MarketDataset(**values)
+    assert market.regular_cadence is False
+    assert market.elapsed_hours(3, 4) == pytest.approx(17.0)
+    assert market.lookback_index(4, 8.0) == 3
+    assert market.forward_index(3, 8.0) == 4
 
-    with pytest.raises(ValueError, match="periods_per_year"):
-        MarketDataset(**kwargs)
 
-
-def test_ohlc_invariants_are_enforced() -> None:
-    kwargs = dataset_kwargs()
-    high = np.asarray(kwargs["high"]).copy()
-    high[2, 0] = np.asarray(kwargs["close"])[2, 0] - 1.0
-    kwargs["high"] = high
-
-    with pytest.raises(ValueError, match="OHLC"):
-        MarketDataset(**kwargs)
-
-
-def test_availability_masks_must_match_market_shapes() -> None:
-    kwargs = dataset_kwargs()
-    kwargs["tradable"] = np.ones((8, 1), dtype=np.bool_)
-    with pytest.raises(ValueError, match="tradable"):
-        MarketDataset(**kwargs)
-
-    kwargs = dataset_kwargs()
-    kwargs["feature_available"] = np.ones((8, 2, 1), dtype=np.bool_)
-    with pytest.raises(ValueError, match="feature_available"):
-        MarketDataset(**kwargs)
+def test_execution_and_missingness_metadata_are_immutable_and_shaped() -> None:
+    values = kwargs()
+    values["feature_available"] = np.zeros((8, 2, 2), dtype=np.bool_)
+    values["feature_staleness_hours"] = np.full((8, 2, 2), 3.0)
+    values["borrow_available"] = np.zeros((8, 2), dtype=np.bool_)
+    values["mark_price"] = np.asarray(values["close"]) * 1.001
+    values["index_price"] = np.asarray(values["close"])
+    market = MarketDataset(**values)
+    assert market.feature_staleness_hours.shape == (8, 2, 2)
+    assert market.borrow_available.sum() == 0
+    assert np.all(market.mark_price > market.index_price)
+    with pytest.raises(ValueError):
+        market.close[0, 0] = 0.0

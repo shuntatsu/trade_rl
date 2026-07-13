@@ -1,0 +1,50 @@
+[importlinter]
+root_package = trade_rl
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Trade RL responsibility layers
+type = layers
+layers =
+    trade_rl.cli
+    trade_rl.workflows
+    trade_rl.serving
+    trade_rl.rl
+    trade_rl.risk
+    trade_rl.simulation
+    trade_rl.strategies
+    trade_rl.data
+    trade_rl.evaluation
+    trade_rl.artifacts
+    trade_rl.domain
+
+[importlinter:contract:domain]
+name = Domain remains standard-library only
+type = forbidden
+source_modules =
+    trade_rl.domain
+forbidden_modules =
+    numpy
+    gymnasium
+    stable_baselines3
+    torch
+    trade_rl.artifacts
+    trade_rl.evaluation
+    trade_rl.data
+    trade_rl.strategies
+    trade_rl.simulation
+    trade_rl.risk
+    trade_rl.rl
+    trade_rl.serving
+    trade_rl.workflows
+    trade_rl.cli
+
+[importlinter:contract:serving]
+name = Serving cannot import training or workflows
+type = forbidden
+source_modules =
+    trade_rl.serving
+forbidden_modules =
+    trade_rl.rl.training
+    trade_rl.workflows
+    stable_baselines3

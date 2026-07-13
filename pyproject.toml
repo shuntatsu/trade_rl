@@ -1,51 +1,38 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=75.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mars_lite"
-version = "0.1.0"
-description = "ポートフォリオ配分RLエージェント（Trade RL / mars_lite）"
+name = "trade-rl"
+version = "0.2.0"
+description = "Baseline-anchored residual reinforcement learning for portfolio research"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=1.26.0,<2.0.0",
-    "pandas>=2.2.0",
-    "pyarrow>=14.0.0",
-    "requests>=2.28.0",
-    "gymnasium>=0.29.0",
+    "gymnasium==0.29.1",
     "stable-baselines3==2.3.2",
     "torch==2.3.1",
-    "tqdm>=4.65.0",
-    "rich>=13.0.0",
-    "matplotlib>=3.7.0",
-    "fastapi>=0.100.0",
-    "uvicorn[standard]>=0.23.0",
-    "websockets>=11.0",
-    "psycopg[binary]>=3.1",
     "packaging<24.0",
-    "optuna>=3.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-    "httpx>=0.24.0",
-    "types-requests>=2.28.0",
+    "pytest>=8.3.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.15.0",
+    "mypy>=1.14.0",
+    "hypothesis>=6.120.0",
+    "import-linter>=2.1",
+    "vulture>=2.14",
 ]
-# 研究用の追加ライブラリ（予測器強化・リスクベース構築・レジーム検知）。
-# coreパイプラインはこれ無しでも動く（import は遅延＋ガードする）。
-research = [
-    "lightgbm>=4.3.0",
-    "skfolio>=0.20.1",
-]
+
+[project.scripts]
+trade-rl = "trade_rl.cli.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["mars_lite*"]
+include = ["trade_rl*"]
 
 [tool.ruff]
 line-length = 88
@@ -53,37 +40,38 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
-ignore = ["E501", "E712", "F841", "E402", "E741", "E722", "F823", "F401"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["trade_rl", "tests"]
 
 [tool.mypy]
 python_version = "3.12"
-ignore_missing_imports = true
+files = ["trade_rl"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
 warn_unused_configs = true
-follow_imports = "skip"
-strict_optional = false
-disable_error_code = ["arg-type", "return-value", "var-annotated", "assignment", "attr-defined", "union-attr", "operator"]
+warn_unused_ignores = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+pretty = true
 
 [[tool.mypy.overrides]]
-module = "psycopg.*"
-ignore_errors = true
+module = ["gymnasium.*", "stable_baselines3.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers --strict-config"
 
 [tool.coverage.run]
-omit = [
-    "mars_lite/evolution/*",
-    "mars_lite/models/*",
-    "mars_lite/pipeline/*",
-    "mars_lite/utils/*",
-    "mars_lite/eval/walk_forward.py",
-    "mars_lite/server/metrics_server.py",
-    "mars_lite/data/postgres_store.py",
-    "mars_lite/learning/model_manager.py",
-    "mars_lite/learning/training_callback.py",
-    "mars_lite/learning/pbt_search.py",
-    "mars_lite/learning/policy_ensemble.py",
-    "mars_lite/learning/val_selection.py",
-    "mars_lite/learning/curriculum_callback.py",
-]
+source = ["trade_rl"]
+branch = true
 
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80

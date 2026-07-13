@@ -32,17 +32,32 @@ class PolicyEnsembleManifest:
     digest: str
     dataset_id: str
     action_schema: str
+    observation_schema: str
+    training_config_digest: str
+    requested_timesteps: int
+    actual_timesteps: int
+    resolved_device: str
     expected_members: int
     members: tuple[PolicyMember, ...]
     created_at: datetime
-    schema_version: str = "policy_ensemble_v1"
+    schema_version: str = "policy_ensemble_v2"
 
     def __post_init__(self) -> None:
         require_sha256(self.digest, field="digest")
         require_sha256(self.dataset_id, field="dataset_id")
         require_non_empty(self.action_schema, field="action_schema")
+        require_non_empty(self.observation_schema, field="observation_schema")
+        require_sha256(
+            self.training_config_digest,
+            field="training_config_digest",
+        )
+        require_non_empty(self.resolved_device, field="resolved_device")
         require_aware_datetime(self.created_at, field="created_at")
         require_non_empty(self.schema_version, field="schema_version")
+        if self.requested_timesteps <= 0:
+            raise ValueError("requested_timesteps must be positive")
+        if self.actual_timesteps < self.requested_timesteps:
+            raise ValueError("actual_timesteps cannot be below requested_timesteps")
         if self.expected_members <= 0:
             raise ValueError("expected_members must be positive")
         if len(self.members) != self.expected_members:

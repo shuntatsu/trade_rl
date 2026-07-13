@@ -10,6 +10,7 @@ from trade_rl.evaluation.walk_forward.folds import WalkForwardFold, build_folds
 from trade_rl.evaluation.walk_forward.stitching import (
     FoldOOSResult,
     StitchedOOS,
+    StitchMode,
     stitch_oos,
 )
 
@@ -31,6 +32,7 @@ class WalkForwardWorkflowConfig:
     step_bars: int | None = None
     max_folds: int | None = None
     expanding_train: bool = True
+    stitch_mode: StitchMode = StitchMode.INDEPENDENT_FOLDS
 
     def build_folds(self) -> tuple[WalkForwardFold, ...]:
         return build_folds(
@@ -77,7 +79,7 @@ def run_walk_forward(
         result = runner.run_fold(fold)
         _validate_fold_result(fold, result)
         results.append(result)
-    stitched = stitch_oos(tuple(results))
+    stitched = stitch_oos(tuple(results), mode=config.stitch_mode)
     return WalkForwardWorkflowResult(
         folds=folds,
         fold_results=tuple(results),

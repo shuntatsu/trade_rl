@@ -1,6 +1,6 @@
 # Trade RL
 
-Trade RL is a research-grade baseline-anchored residual reinforcement-learning core for portfolio allocation. The maintained policy does not choose arbitrary portfolio weights directly. It makes bounded residual decisions around a deterministic trend baseline, while an independent shadow book provides the reward and evaluation reference.
+Trade RL is a research-grade baseline-anchored residual reinforcement-learning core for portfolio allocation. The maintained policy does not choose arbitrary portfolio weights directly. It makes bounded residual decisions around a deterministic trend baseline, while an independent shadow book supplies non-inferiority diagnostics and sealed evaluation evidence.
 
 > Production status: **NO-GO**. The repository provides research, evaluation, artifact and serving contracts. It does not claim a profitable or production-authorized strategy.
 
@@ -49,11 +49,19 @@ The `data`, `signal`, `evaluate`, `registry`, and `serve` command groups expose 
 
 The orchestration is concrete and tested, but the repository deliberately does not guess the project's storage format, preprocessing graph, checkpoint-selection policy, or data source. A real-data integration must provide adapters that fit preprocessing inside the train range, choose checkpoints only with checkpoint-validation data, and evaluate frozen candidates only on the requested selection or outer-test range.
 
+## Absolute-growth reward
+
+The maintained environment maximizes the hybrid book's net interval log growth after execution costs and funding. It applies only two light shaping terms: newly worsening 30-day baseline underperformance beyond a 1.5% tolerance, and newly worsening staged drawdown severity above a 5% free region. Existing penalty levels are not charged repeatedly and recoveries do not receive artificial bonuses.
+
+The policy observation exposes the rolling hybrid and shadow log growth, baseline shortfall, current hinge level, and emergency-deleverage state. Zero residual action still produces an identical hybrid and shadow book, but its reward is now the baseline strategy's absolute growth rather than zero.
+
+A 20% hybrid drawdown triggers fail-closed paired liquidation at the current close and a true terminal transition. The final reward includes actual liquidation costs and does not add a fixed terminal jackpot or penalty. Random training-window endings remain truncations without forced liquidation.
+
 ## AUM and environment identity
 
 `ResidualMarketEnvConfig.initial_capital` has no silent default. Every training or evaluation adapter must provide the intended quote-currency AUM explicitly. This is required because participation limits, market impact, turnover costs, minimum-equity termination, and liquidation feasibility all change with portfolio size.
 
-The environment computes a content digest over the dataset identity, resolved episode and decision cadence, trend horizons, risk limits, execution-cost model, reward settings, action and observation schemas, alpha mode, and initial capital. Every policy ensemble records this environment digest and AUM, and ensemble construction rejects members trained with different environment identities or capital scales.
+The environment computes a content digest over the dataset identity, resolved episode and decision cadence, trend horizons, risk limits, execution-cost model, complete reward configuration, action and observation schemas, alpha mode, and initial capital. Every policy ensemble records this environment digest and AUM, and ensemble construction rejects members trained with different environment identities or capital scales.
 
 A model trained with a one-dollar account is therefore not silently interchangeable with a model intended for a 100,000-dollar or 1,000,000-dollar account. Capacity should ultimately be reported across several predeclared AUM scenarios rather than inferred from a scale-free backtest.
 

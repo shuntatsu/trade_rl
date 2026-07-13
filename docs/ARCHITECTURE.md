@@ -15,13 +15,14 @@ trade_rl/
   risk/          pure hard/soft pre-trade constraints
   simulation/    execution, costs, carry, margin and accounting
   evaluation/    metrics, paired tests, folds, gates and AUM capacity
-  rl/            actions, observations, normalization, rewards, environment, policies, training
-  workflows/     typed orchestration
-  serving/       identity-bound bundles, registry and fail-closed runtime
-  cli/           typed configuration entry points
+  rl/            actions, observations, normalization, rewards, environment, policies, training, export
+  serving/       framework-independent bundles, registry and fail-closed runtime
+  integrations/  framework-specific adapters such as Stable-Baselines3 serving
+  workflows/     typed training, walk-forward and publication orchestration
+  cli/           single authoritative configuration and execution entry point
 ```
 
-The dependency direction remains `cli -> workflows -> serving/rl/evaluation/artifacts`, `serving -> rl actions/artifacts/domain`, `rl -> risk/simulation/strategies/data/evaluation/artifacts/domain`, and `domain -> standard library`.
+The dependency direction remains `cli -> workflows -> integrations -> serving -> rl/evaluation/artifacts`, `integrations -> serving and external model frameworks`, `serving -> rl actions/artifacts/domain`, `rl -> risk/simulation/strategies/data/evaluation/artifacts/domain`, and `domain -> standard library`. The serving layer does not import Stable-Baselines3 directly.
 
 ## Action contract
 
@@ -49,8 +50,26 @@ Observation schema v3 carries feature values, feature-level availability/stalene
 
 Reward schema v3 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on new excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
 
-## Training, evaluation and serving
+## Dataset and run artifacts
 
-Training verifies decision cadence, action names/spec digest, observation size, environment digest and AUM. Shared per-asset encoding plus masked attention supports inactive assets and avoids arbitrary symbol-order dependence. PPO, SAC, TD3 and TQC are compared only under the same sealed walk-forward protocol.
+The maintained dataset artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. Loading verifies file digest, exact array allow-list, shape, dtype, ordering and `MarketDataset` invariants. `MarketDatasetView` carries an immutable half-open absolute range and rejects subviews outside its parent range.
+
+Training outputs are first written to `ArtifactStore/.staging/<run-id>`. `run.json` binds every declared file by relative path, byte size and SHA-256 together with dataset, environment, training-config and ensemble identities. Only a fully validated run is atomically moved to `runs/<run-id>` and made current through `latest.json`; partial failures are moved to `failed/<run-id>`.
+
+## Training and nested walk-forward
+
+`trade-rl train run` loads a validated dataset artifact, constructs the real residual market environment, trains one Stable-Baselines3 checkpoint per seed, writes canonical configuration and ensemble manifests, creates the serving loader declaration, optionally exports deterministic actors, validates the complete run and publishes atomically.
+
+`trade-rl walk-forward run` uses the existing nested fold contract with concrete market adapters. Each fold receives disjoint train, checkpoint-validation, configuration-selection and sealed-test ranges. Observation normalization is fit only from train observations and frozen thereafter. Candidate and seed selection can use checkpoint and selection ranges; sealed outer-test returns are computed only after selection and never flow back into training or selection.
+
+Final `policy.zip` files are authoritative model artifacts. The current concrete checkpoint selector compares final seed/member checkpoints on the checkpoint-validation range; it does not yet emit intermediate optimizer-state checkpoints during one SB3 learning call.
+
+## Export contract
+
+ONNX and TorchScript export a deterministic actor wrapper rather than the optimizer or replay state. Each export is compared with Stable-Baselines3 deterministic predictions on a fixed finite observation corpus. Shape, finite values and maximum absolute error must satisfy the configured tolerance. Requested ONNX failure rejects the run. TorchScript is best-effort and records an explicit `unsupported` result when conversion cannot be proven safe.
+
+## Serving
 
 Serving bundle v3 binds action size/names/spec digest, observation schema/size, environment, normalizer, alpha/factor artifacts and release identity. Runtime actions must be finite, correctly shaped and inside `[-1, 1]`; violations fail closed.
+
+`StableBaselines3PolicyLoader` lives in the integration layer. It verifies the bundle-declared `policy-loader.json`, loads every declared PPO, SAC, TD3 or TQC member, requires every member to return a valid dynamic action vector, and averages actions only when the complete ensemble succeeds. The serving runtime remains model-framework independent and accepts the loader through its `PolicyLoader` interface.

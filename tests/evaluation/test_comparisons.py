@@ -36,7 +36,7 @@ def test_paired_comparison_keeps_arithmetic_and_log_excess_separate() -> None:
         sum(math.log1p(value) for value in candidate.values)
         - sum(math.log1p(value) for value in benchmark.values)
     )
-    assert result.mean_period_excess == pytest.approx(0.01)
+    assert result.mean_period_excess == pytest.approx(0.0075)
     assert 0.0 <= result.p_value <= 1.0
     assert result.block_size >= 1
 

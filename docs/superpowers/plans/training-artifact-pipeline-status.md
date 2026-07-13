@@ -1,3 +1,3 @@
 # Training Artifact Pipeline Status
 
-Implementation is in verification. The final focused Ruff correction is being committed before the complete type, architecture, training, walk-forward, export, and CLI test pass.
+Implementation is in full verification. Ruff corrections are complete; this update runs formatting, Mypy, architecture checks, actual training, nested walk-forward, SB3 serving, ONNX/TorchScript parity, coverage, and CLI smoke tests.

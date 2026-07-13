@@ -7,10 +7,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.rl.rewards import RewardContext
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendTargets
 
-OBSERVATION_SCHEMA = "baseline_residual_observation_v2"
+OBSERVATION_SCHEMA = "baseline_residual_observation_v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +29,7 @@ def observation_layout(dataset: MarketDataset) -> ObservationLayout:
     return ObservationLayout(
         n_symbols=dataset.n_symbols,
         per_symbol_width=dataset.n_features + 9,
-        global_width=len(dataset.global_feature_names) + 9,
+        global_width=len(dataset.global_feature_names) + 14,
     )
 
 
@@ -53,13 +54,17 @@ def build_observation(
     end_index: int,
     hybrid_risk_scale: float,
     shadow_risk_scale: float,
+    reward_context: RewardContext,
+    emergency_deleverage: bool,
 ) -> np.ndarray:
-    """Build causal market, hybrid, shadow, and risk-state policy inputs."""
+    """Build causal market, book, risk, and reward-state policy inputs."""
 
     if not 0 <= index < dataset.n_bars:
         raise ValueError("observation index is outside the dataset")
     if end_index <= start_index:
         raise ValueError("episode end_index must be greater than start_index")
+    if not isinstance(emergency_deleverage, bool):
+        raise ValueError("emergency_deleverage must be a boolean")
     _validate_book(hybrid, dataset, field_name="hybrid")
     _validate_book(shadow, dataset, field_name="shadow")
     alpha_vector = np.asarray(alpha, dtype=np.float64).reshape(-1)
@@ -110,6 +115,11 @@ def build_observation(
                     float(np.abs(shadow_weights).sum()),
                     hybrid_risk_scale,
                     shadow_risk_scale,
+                    reward_context.rolling_hybrid_log_growth,
+                    reward_context.rolling_shadow_log_growth,
+                    reward_context.baseline_shortfall,
+                    reward_context.baseline_penalty,
+                    float(emergency_deleverage),
                 ],
                 dtype=np.float64,
             ),

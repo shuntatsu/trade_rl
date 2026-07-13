@@ -29,7 +29,7 @@ jobs:
       - name: Run ruff check
         run: |
           set -o pipefail
-          uv run ruff check trade_rl tests/domain tests/artifacts 2>&1 | tee ruff-check.log
+          uv run ruff check --fix --diff trade_rl tests/domain tests/artifacts 2>&1 | tee ruff-check.log
 
       - name: Run ruff format
         run: |

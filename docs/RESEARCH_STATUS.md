@@ -44,4 +44,12 @@ All fold results bind dataset identity, selected configuration, policy digest wh
 
 Gate decisions now preserve the evaluated dataset, selected policy identity when applicable, and final evaluation digest. Release construction fails closed when those identities do not match the selection and dataset artifacts.
 
+## Serving and activation contract
+
+Serving bundle schema v2 binds the action schema, observation schema, flattened observation size, environment digest, initial capital, dataset, signal, selection, policy, release, and every included file into one immutable digest.
+
+Runtime activation rejects action- or observation-schema mismatches before loading a replacement policy. Inference rejects vectors whose length differs from the active observation contract. Both runtime and registry require an approved release identity by default, while unreleased research bundles require the explicit `allow_unreleased=True` override.
+
+This closes the previous gap where a bundle could contain a valid policy output shape but receive a different feature layout, observation width, environment configuration, or capital scale.
+
 The remaining gap is application-specific adapter integration: a real-data loader, fold-local preprocessing, PPO trainer, and evaluator must be connected to these typed requests. The repository still makes no profitability or production-readiness claim.

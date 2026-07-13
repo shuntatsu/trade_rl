@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import TextIO
 
@@ -19,7 +19,9 @@ def _write_json(stdout: TextIO, payload: object) -> None:
     stdout.write("\n")
 
 
-def _status_handler(area: str):
+def _status_handler(
+    area: str,
+) -> Callable[[argparse.Namespace, TextIO], int]:
     def handler(_: argparse.Namespace, stdout: TextIO) -> int:
         _write_json(
             stdout,

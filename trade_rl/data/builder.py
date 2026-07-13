@@ -311,9 +311,7 @@ class MarketDatasetBuilder:
             row_present[:, symbol_index] = aligned["row_present"]
             raw_tradable[:, symbol_index] = aligned["tradable"]
             funding_available[:, symbol_index] = aligned["funding_available"]
-            information_available[:, symbol_index] = aligned[
-                "information_available"
-            ]
+            information_available[:, symbol_index] = aligned["information_available"]
             available_at[:, symbol_index] = aligned["available_at"]
 
             listed = _utc_datetime64(contract.listed_at)
@@ -355,8 +353,7 @@ class MarketDatasetBuilder:
         for symbol_index in range(n_symbols):
             for index in range(1, n_bars):
                 mask = (
-                    causal_row_present[:, symbol_index]
-                    & symbol_active[:, symbol_index]
+                    causal_row_present[:, symbol_index] & symbol_active[:, symbol_index]
                 )
                 if not _contiguous_window(mask, index - 1, index + 1):
                     continue

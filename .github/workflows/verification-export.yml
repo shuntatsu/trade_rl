@@ -1,0 +1,28 @@
+name: Verification Export
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: Format workspace copy
+        run: uv run ruff format .
+      - name: Archive workspace
+        run: tar --exclude=.git --exclude=.venv -czf verification-workspace.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verification-workspace
+          path: verification-workspace.tar.gz
+          if-no-files-found: error
+          retention-days: 1

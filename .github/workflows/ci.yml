@@ -30,29 +30,26 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev >/dev/null
+        run: uv sync --extra dev
 
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Capture full format diagnostics
-        id: full-format
-        shell: bash
-        run: |
-          set +e
-          uv run ruff format --check --diff . > full-format.diff 2>&1
-          status=$?
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+      - name: Format
+        run: uv run ruff format --check --diff .
 
-      - name: Upload full format diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-format-diagnostics
-          path: full-format.diff
-          if-no-files-found: error
-          retention-days: 1
+      - name: Mypy
+        run: uv run mypy trade_rl
 
-      - name: Fail on format differences
-        if: steps.full-format.outputs.status != '0'
-        run: exit 1
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Dead-code report
+        continue-on-error: true
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Tests and coverage
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+
+      - name: CLI smoke test
+        run: uv run trade-rl --version

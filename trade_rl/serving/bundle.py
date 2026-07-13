@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -59,6 +60,10 @@ class ServingBundleManifest:
     bundle_digest: str
     dataset_id: str
     action_schema: str
+    observation_schema: str
+    observation_size: int
+    environment_digest: str
+    initial_capital: float
     policy_mode: PolicyMode
     policy_digest: str | None
     signal_digest: str
@@ -66,12 +71,22 @@ class ServingBundleManifest:
     release_digest: str | None
     files: tuple[BundleFile, ...]
     created_at: datetime
-    schema_version: str = "serving_bundle_v1"
+    schema_version: str = "serving_bundle_v2"
 
     def __post_init__(self) -> None:
         require_sha256(self.bundle_digest, field="bundle_digest")
         require_sha256(self.dataset_id, field="dataset_id")
         require_non_empty(self.action_schema, field="action_schema")
+        require_non_empty(self.observation_schema, field="observation_schema")
+        if (
+            isinstance(self.observation_size, bool)
+            or not isinstance(self.observation_size, int)
+            or self.observation_size <= 0
+        ):
+            raise ValueError("observation_size must be a positive integer")
+        require_sha256(self.environment_digest, field="environment_digest")
+        if not math.isfinite(self.initial_capital) or self.initial_capital <= 0.0:
+            raise ValueError("initial_capital must be finite and positive")
         require_sha256(self.signal_digest, field="signal_digest")
         require_sha256(self.selection_digest, field="selection_digest")
         if self.policy_mode is PolicyMode.BASELINE_ONLY:
@@ -99,7 +114,11 @@ class ServingBundleManifest:
             "action_schema": self.action_schema,
             "created_at": self.created_at,
             "dataset_id": self.dataset_id,
+            "environment_digest": self.environment_digest,
             "files": self.files,
+            "initial_capital": self.initial_capital,
+            "observation_schema": self.observation_schema,
+            "observation_size": self.observation_size,
             "policy_digest": self.policy_digest,
             "policy_mode": self.policy_mode,
             "release_digest": self.release_digest,
@@ -115,6 +134,10 @@ class ServingBundleManifest:
         root: Path,
         dataset_id: str,
         action_schema: str,
+        observation_schema: str,
+        observation_size: int,
+        environment_digest: str,
+        initial_capital: float,
         policy_mode: PolicyMode,
         policy_digest: str | None,
         signal_digest: str,
@@ -141,11 +164,15 @@ class ServingBundleManifest:
             "action_schema": action_schema,
             "created_at": created_at,
             "dataset_id": dataset_id,
+            "environment_digest": environment_digest,
             "files": ordered,
+            "initial_capital": initial_capital,
+            "observation_schema": observation_schema,
+            "observation_size": observation_size,
             "policy_digest": policy_digest,
             "policy_mode": policy_mode,
             "release_digest": release_digest,
-            "schema_version": "serving_bundle_v1",
+            "schema_version": "serving_bundle_v2",
             "selection_digest": selection_digest,
             "signal_digest": signal_digest,
         }
@@ -153,6 +180,10 @@ class ServingBundleManifest:
             bundle_digest=content_digest(payload),
             dataset_id=dataset_id,
             action_schema=action_schema,
+            observation_schema=observation_schema,
+            observation_size=observation_size,
+            environment_digest=environment_digest,
+            initial_capital=initial_capital,
             policy_mode=policy_mode,
             policy_digest=policy_digest,
             signal_digest=signal_digest,
@@ -205,6 +236,12 @@ def _integer(value: object, *, field: str) -> int:
     return value
 
 
+def _number(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field} must be a number")
+    return float(value)
+
+
 def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
     raw_files = payload.get("files")
     if not isinstance(raw_files, list):
@@ -228,6 +265,22 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         bundle_digest=_string(payload.get("bundle_digest"), field="bundle_digest"),
         dataset_id=_string(payload.get("dataset_id"), field="dataset_id"),
         action_schema=_string(payload.get("action_schema"), field="action_schema"),
+        observation_schema=_string(
+            payload.get("observation_schema"),
+            field="observation_schema",
+        ),
+        observation_size=_integer(
+            payload.get("observation_size"),
+            field="observation_size",
+        ),
+        environment_digest=_string(
+            payload.get("environment_digest"),
+            field="environment_digest",
+        ),
+        initial_capital=_number(
+            payload.get("initial_capital"),
+            field="initial_capital",
+        ),
         policy_mode=PolicyMode(
             _string(payload.get("policy_mode"), field="policy_mode")
         ),

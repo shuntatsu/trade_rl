@@ -18,11 +18,11 @@ from mars_lite.features.signal_check import run_leak_self_test
 from mars_lite.learning.baselines import run_all_baselines
 from mars_lite.pipeline.dataset_builder import build_feature_set
 from mars_lite.pipeline.gates import evaluate_residual_alpha_gate
-from mars_lite.pipeline.residual_candidates import train_select_residual_candidates
-from mars_lite.pipeline.residual_pipeline import (
+from mars_lite.pipeline.residual_candidates import (
     _evaluation_kwargs,
     _is_fallback,
     _slim_baselines,
+    train_select_residual_candidates,
 )
 from mars_lite.pipeline.training_engine import build_env_kwargs, build_post_processor
 from mars_lite.trading.execution import FEE_KWARG_KEYS
@@ -110,7 +110,8 @@ def run_residual_fold(
     candidates = train_select_residual_candidates(
         args=fold_args,
         train_fs=train_fs,
-        val_fs=selection_fs,
+        checkpoint_val_fs=checkpoint_fs,
+        selection_fs=selection_fs,
         trend_family=trend_family,
         alpha=alpha,
         env_kwargs=env_kwargs,

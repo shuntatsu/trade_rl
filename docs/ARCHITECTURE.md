@@ -2,80 +2,74 @@
 
 ## Status
 
-`trade_rl` is a research-grade baseline-anchored residual reinforcement-learning core. It is not authorized for production trading. The software architecture and the empirical strategy result are evaluated separately; a clean architecture does not make a failed research gate pass.
-
-## Authoritative package
-
-Only `trade_rl` is maintained. The former `mars_lite`, direct-action PPO, legacy scripts, and legacy tests have been removed. Git history is the archive; there is no compatibility layer.
+`trade_rl` is a research-grade baseline-anchored residual-RL core. It is not authorized for production trading. Architecture quality and empirical profitability are separate gates.
 
 ## Responsibility map
 
 ```text
 trade_rl/
-  domain/        immutable identities and state invariants
-  artifacts/     canonical serialization, hashing, staging, publication
-  data/          validated in-memory market dataset contracts
-  strategies/    deterministic baseline strategies
-  risk/          pure pre-trade portfolio constraints
-  simulation/    execution, costs, funding and accounting
-  evaluation/    metrics, paired comparisons, bootstrap, gates, folds
-  rl/            residual actions, observations, rewards, environment, training
-  workflows/     typed application orchestration
-  serving/       immutable bundles, registry activation and runtime snapshots
-  cli/           argument parsing and conversion to typed configuration
+  domain/        immutable dataset, policy, selection and release identities
+  artifacts/     canonical serialization, hashing and atomic publication
+  data/          market calendar, feature and execution-data contracts
+  strategies/    deterministic causal baselines
+  risk/          pure hard/soft pre-trade constraints
+  simulation/    execution, costs, carry, margin and accounting
+  evaluation/    metrics, paired tests, folds, gates and AUM capacity
+  rl/            actions, observations, normalization, rewards, environment, policies, training, export
+  serving/       framework-independent bundles, registry and fail-closed runtime
+  integrations/  framework-specific adapters such as Stable-Baselines3 serving
+  workflows/     typed training, walk-forward and publication orchestration
+  cli/           single authoritative configuration and execution entry point
 ```
 
-The directory tree reflects real responsibilities. Empty placeholder packages are not added.
+The dependency direction remains `cli -> workflows -> integrations -> serving -> rl/evaluation/artifacts`, `integrations -> serving and external model frameworks`, `serving -> rl actions/artifacts/domain`, `rl -> risk/simulation/strategies/data/evaluation/artifacts/domain`, and `domain -> standard library`. The serving layer does not import Stable-Baselines3 directly.
 
-## Dependency direction
+## Action contract
 
-The permitted direction is:
+`baseline_residual_v2` contains `fast_tilt`, `slow_tilt`, `risk_tilt`, optional `alpha_scale`, and zero or more named factor controls. The environment derives the exact dimension from `ActionSpec`; alpha-disabled environments do not expose an unused alpha coordinate. Zero action is exact baseline identity. Training may clip with diagnostics; evaluation and serving can reject out-of-range actions fail closed.
 
-```text
-cli -> workflows -> serving / rl / evaluation / artifacts
-serving -> rl actions / artifacts / domain
-rl -> risk / simulation / strategies / data / evaluation / artifacts / domain
-simulation -> data
-strategies -> data
-evaluation -> domain
-artifacts -> domain
-domain -> Python standard library only
-```
+## Baseline contract
 
-`trade_rl.domain` does not import NumPy, Gymnasium, Stable-Baselines3, filesystem code, serving code, or CLI code. Training code does not import the serving runtime. Serving code does not import the training backend.
+Trend baselines distinguish time-series direction from cross-sectional ranking. `auto` uses time-series trend for a one-symbol universe and cross-sectional trend for multiple symbols. Directional modes preserve signal confidence and cash allocation rather than always normalizing to full gross exposure.
 
-Import Linter enforces these boundaries in CI.
+## Market and execution contract
 
-## Policy model
+Bar timestamps are close times and decisions first execute at the next open. Continuous datasets require regular cadence; session datasets use wall-clock lookup helpers across overnight, weekend and holiday gaps. Execution uses only information available at the decision and execution timestamps. Hybrid and shadow books share one episode RNG stream while different episodes receive distinct deterministic seeds.
 
-The maintained action schema is `baseline_residual_v1`:
+The execution layer models partial fills, fees, spread, impact, random and tail slippage, per-bar constraints, minimum notional, lot/tick rules, borrow, carry, latency, market/limit orders, margin, dividends, splits and delisting recovery. Economic failures become structured terminal transitions; malformed market data remains an exception.
 
-1. `trend_mix` interpolates from the base trend target toward the fast or slow target.
-2. `alpha_budget` controls a separately gated alpha vector.
-3. The zero vector is the exact baseline identity action.
+## Risk ordering
 
-There is no maintained direct-action mode.
+Turnover is a soft operational constraint. Concentration, gross leverage and emergency drawdown limits are hard constraints applied afterward and validated again. A hard deleveraging requirement may override turnover, and every projection exposes reasons and L1 distance.
 
-## Environment timing
+## Observation and normalization
 
-One policy action controls one complete decision interval. Market execution advances through every base bar in that interval, then emits one reward based on the hybrid book's excess log return over an independent shadow baseline book. Base-bar returns remain available for annualized evaluation and are never silently mixed with decision-step returns.
+Observation schema v3 carries feature values, feature-level availability/staleness/reasons, active/tradable state, all baseline and factor inputs, current and requested portfolios, fill/cost/capacity state, cash/net/gross/margin state and previous action. Remaining time is included only for an explicitly finite-horizon MDP. Normalization statistics are fitted on an explicit train range, frozen elsewhere, content-addressed, and preserve mask/categorical coordinates exactly.
 
-## Evaluation
+## Reward contract
 
-All total-return, Sharpe, Sortino, drawdown, turnover, cost, funding and paired-excess calculations live in `trade_rl.evaluation`. Every return series declares its temporal identity and annualization factor.
+Reward schema v3 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on new excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
 
-Walk-forward evaluation is split into pure fold construction, fold-local execution, sealed outer-OOS results and chronological stitching. Purge boundaries and non-overlapping outer test windows are explicit invariants.
+## Dataset and run artifacts
 
-## Artifacts
+The maintained dataset artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. Loading verifies file digest, exact array allow-list, shape, dtype, ordering and `MarketDataset` invariants. `MarketDatasetView` carries an immutable half-open absolute range and rejects subviews outside its parent range.
 
-Dataset, signal, policy ensemble, evaluation, selection and release identities are separate immutable records. Artifacts use canonical JSON and SHA-256 content digests. Run publication is staged, validated, and atomically pointed to as latest. A failed run cannot overwrite the last successful run.
+Training outputs are first written to `ArtifactStore/.staging/<run-id>`. `run.json` binds every declared file by relative path, byte size and SHA-256 together with dataset, environment, training-config and ensemble identities. Only a fully validated run is atomically moved to `runs/<run-id>` and made current through `latest.json`; partial failures are moved to `failed/<run-id>`.
+
+## Training and nested walk-forward
+
+`trade-rl train run` loads a validated dataset artifact, constructs the real residual market environment, trains one Stable-Baselines3 checkpoint per seed, writes canonical configuration and ensemble manifests, creates the serving loader declaration, optionally exports deterministic actors, validates the complete run and publishes atomically.
+
+`trade-rl walk-forward run` uses the existing nested fold contract with concrete market adapters. Each fold receives disjoint train, checkpoint-validation, configuration-selection and sealed-test ranges. Observation normalization is fit only from train observations and frozen thereafter. Candidate and seed selection can use checkpoint and selection ranges; sealed outer-test returns are computed only after selection and never flow back into training or selection.
+
+Final `policy.zip` files are authoritative model artifacts. The current concrete checkpoint selector compares final seed/member checkpoints on the checkpoint-validation range; it does not yet emit intermediate optimizer-state checkpoints during one SB3 learning call.
+
+## Export contract
+
+ONNX and TorchScript export a deterministic actor wrapper rather than the optimizer or replay state. Each export is compared with Stable-Baselines3 deterministic predictions on a fixed finite observation corpus. Shape, finite values and maximum absolute error must satisfy the configured tolerance. Requested ONNX failure rejects the run. TorchScript is best-effort and records an explicit `unsupported` result when conversion cannot be proven safe.
 
 ## Serving
 
-Serving bundles list every file with a size and SHA-256 digest. A registry validates a bundle before installing it and atomically changes the active pointer. The runtime fully validates and loads a replacement policy before swapping its in-memory snapshot; failed hot swaps preserve the previous snapshot.
+Serving bundle v3 binds action size/names/spec digest, observation schema/size, environment, normalizer, alpha/factor artifacts and release identity. Runtime actions must be finite, correctly shaped and inside `[-1, 1]`; violations fail closed.
 
-A baseline-only bundle explicitly has no policy digest. It is a research or safety fallback identity, not evidence of production eligibility.
-
-## Quality gates
-
-CI runs Ruff, formatting checks, mypy, Import Linter, Vulture advisory reporting, unit and property-based tests, migration tests and branch coverage. The architecture contract also verifies that legacy execution trees and direct-action mode are absent.
+`StableBaselines3PolicyLoader` lives in the integration layer. It verifies the bundle-declared `policy-loader.json`, loads every declared PPO, SAC, TD3 or TQC member, requires every member to return a valid dynamic action vector, and averages actions only when the complete ensemble succeeds. The serving runtime remains model-framework independent and accepts the loader through its `PolicyLoader` interface.

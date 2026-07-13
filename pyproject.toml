@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trade-rl"
-version = "0.2.0"
+version = "0.3.0"
 description = "Baseline-anchored residual reinforcement learning for portfolio research"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.26.0,<2.0.0",
     "gymnasium==0.29.1",
     "stable-baselines3==2.3.2",
+    "sb3-contrib==2.3.0",
     "torch==2.3.1",
     "packaging<24.0",
 ]
@@ -25,6 +26,10 @@ dev = [
     "hypothesis>=6.120.0",
     "import-linter>=2.1",
     "vulture>=2.14",
+]
+export = [
+    "onnx==1.16.2",
+    "onnxruntime==1.18.1",
 ]
 
 [project.scripts]
@@ -60,7 +65,13 @@ show_error_codes = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["gymnasium.*", "stable_baselines3.*"]
+module = [
+    "gymnasium.*",
+    "stable_baselines3.*",
+    "sb3_contrib.*",
+    "onnx.*",
+    "onnxruntime.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

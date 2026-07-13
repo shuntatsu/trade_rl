@@ -5,6 +5,9 @@ from datetime import UTC, datetime
 from trade_rl.domain.evaluation import GateCheck
 from trade_rl.evaluation.gates import resolve_gate
 
+DATASET_ID = "a" * 64
+EVALUATION_DIGEST = "b" * 64
+
 
 def test_optional_failure_does_not_block_gate() -> None:
     checks = (
@@ -14,11 +17,16 @@ def test_optional_failure_does_not_block_gate() -> None:
 
     result = resolve_gate(
         checks,
+        dataset_id=DATASET_ID,
+        selected_policy_digest=None,
+        evaluation_digest=EVALUATION_DIGEST,
         decided_at=datetime(2026, 7, 13, tzinfo=UTC),
     )
 
     assert result.passed is True
     assert result.failed_mandatory_checks == ()
+    assert result.dataset_id == DATASET_ID
+    assert result.evaluation_digest == EVALUATION_DIGEST
 
 
 def test_mandatory_failure_blocks_gate() -> None:
@@ -29,6 +37,9 @@ def test_mandatory_failure_blocks_gate() -> None:
 
     result = resolve_gate(
         checks,
+        dataset_id=DATASET_ID,
+        selected_policy_digest="c" * 64,
+        evaluation_digest=EVALUATION_DIGEST,
         decided_at=datetime(2026, 7, 13, tzinfo=UTC),
     )
 
@@ -36,3 +47,4 @@ def test_mandatory_failure_blocks_gate() -> None:
     assert tuple(check.name for check in result.failed_mandatory_checks) == (
         "significant",
     )
+    assert result.selected_policy_digest == "c" * 64

@@ -26,10 +26,11 @@ class ReleaseManifest:
     dataset_id: str
     signal_digest: str
     selection_evaluation_digest: str
+    gate_evaluation_digest: str
     selected_policy_digest: str | None
     bundle_digest: str
     created_at: datetime
-    schema_version: str = "release_manifest_v1"
+    schema_version: str = "release_manifest_v2"
 
     def __post_init__(self) -> None:
         require_non_empty(self.version, field="version")
@@ -39,6 +40,10 @@ class ReleaseManifest:
         require_sha256(
             self.selection_evaluation_digest,
             field="selection_evaluation_digest",
+        )
+        require_sha256(
+            self.gate_evaluation_digest,
+            field="gate_evaluation_digest",
         )
         if self.selected_policy_digest is not None:
             require_sha256(
@@ -75,12 +80,17 @@ class ReleaseManifest:
             raise ValueError("dataset identity mismatch between dataset and selection")
         if signal.digest != selection.signal_digest:
             raise ValueError("signal digest mismatch between signal and selection")
+        if gate.dataset_id != selection.dataset_id:
+            raise ValueError("gate dataset identity mismatch")
+        if gate.selected_policy_digest != selection.selected_policy_digest:
+            raise ValueError("gate selected policy identity mismatch")
         return cls(
             version=version,
             git_commit=git_commit,
             dataset_id=dataset.dataset_id,
             signal_digest=signal.digest,
             selection_evaluation_digest=selection.evaluation_digest,
+            gate_evaluation_digest=gate.evaluation_digest,
             selected_policy_digest=selection.selected_policy_digest,
             bundle_digest=bundle_digest,
             created_at=created_at,

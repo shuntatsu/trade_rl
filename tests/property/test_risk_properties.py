@@ -34,7 +34,7 @@ def risk_cases(draw: st.DrawFn) -> RiskCase:
     max_turnover = draw(
         st.floats(
             min_value=0.0,
-            max_value=2.0,
+            max_value=2.0 * max_gross,
             allow_nan=False,
             allow_infinity=False,
         )
@@ -112,4 +112,8 @@ def test_risk_output_always_satisfies_hard_limits(case: RiskCase) -> None:
     assert np.isfinite(result.weights).all()
     assert np.max(np.abs(result.weights)) <= case.max_abs_weight + 1e-10
     assert np.abs(result.weights).sum() <= case.max_gross + 1e-10
-    assert np.abs(result.weights - case.current).sum() <= case.max_turnover + 1e-10
+    realized_turnover = float(np.abs(result.weights - case.current).sum())
+    if result.turnover_overridden:
+        assert "hard_risk_turnover_override" in result.reasons
+    else:
+        assert realized_turnover <= case.max_turnover + 1e-10

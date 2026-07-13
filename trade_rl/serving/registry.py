@@ -33,24 +33,31 @@ def _atomic_write(path: Path, payload: bytes) -> None:
 class ServingRegistry:
     """Validated immutable bundle versions with an atomic active pointer."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, allow_unreleased: bool = False) -> None:
         self.root = root
+        self.allow_unreleased = allow_unreleased
         self.staging_root = root / ".staging"
         self.versions_root = root / "versions"
         self.active_pointer = root / "active.json"
         for path in (self.root, self.staging_root, self.versions_root):
             path.mkdir(parents=True, exist_ok=True)
 
+    def _require_activatable(self, bundle: ServingBundle) -> None:
+        if bundle.manifest.release_digest is None and not self.allow_unreleased:
+            raise ValueError("serving bundle requires an approved release identity")
+
     def activate(self, source: Path) -> ServingBundle:
         """Validate a source bundle before copying and replacing active identity."""
 
         source_bundle = load_serving_bundle(source)
+        self._require_activatable(source_bundle)
         digest = source_bundle.manifest.bundle_digest
         require_sha256(digest, field="bundle_digest")
         destination = self.versions_root / digest
 
         if destination.exists():
             installed = load_serving_bundle(destination)
+            self._require_activatable(installed)
             if installed.manifest.bundle_digest != digest:
                 raise ValueError(
                     "installed bundle digest does not match directory identity"
@@ -61,6 +68,7 @@ class ServingRegistry:
                 shutil.rmtree(stage)
             shutil.copytree(source, stage)
             staged = load_serving_bundle(stage)
+            self._require_activatable(staged)
             if staged.manifest.bundle_digest != digest:
                 shutil.rmtree(stage, ignore_errors=True)
                 raise ValueError("staged bundle digest changed during registry copy")
@@ -100,6 +108,7 @@ class ServingRegistry:
         if resolved_root not in resolved_path.parents:
             raise ValueError("active registry pointer escapes the registry root")
         bundle = load_serving_bundle(path)
+        self._require_activatable(bundle)
         if bundle.manifest.bundle_digest != digest:
             raise ValueError("active registry pointer digest mismatch")
         return bundle

@@ -49,6 +49,7 @@ def test_environment_resolves_episode_and_decision_hours_to_bars() -> None:
         config=ResidualMarketEnvConfig(
             episode_hours=32.0,
             decision_hours=8.0,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -70,6 +71,7 @@ def test_legacy_explicit_bar_config_overrides_hour_defaults() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=12,
             decision_every=3,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -78,7 +80,7 @@ def test_legacy_explicit_bar_config_overrides_hour_defaults() -> None:
     assert env.decision_bars == 3
 
 
-def test_end_of_episode_liquidation_charges_cost_and_flattens_book() -> None:
+def test_end_of_episode_liquidation_charges_cost_and_is_terminal() -> None:
     dataset = market()
     env = ResidualMarketEnv(
         dataset,
@@ -88,6 +90,7 @@ def test_end_of_episode_liquidation_charges_cost_and_flattens_book() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=4,
             decision_every=4,
+            initial_capital=1_000.0,
             liquidate_on_end=True,
             execution_cost=ExecutionCostConfig(
                 fee_rate=0.001,
@@ -101,8 +104,8 @@ def test_end_of_episode_liquidation_charges_cost_and_flattens_book() -> None:
 
     _, _, terminated, truncated, info = env.step(np.zeros(2))
 
-    assert terminated is False
-    assert truncated is True
+    assert terminated is True
+    assert truncated is False
     np.testing.assert_allclose(env.hybrid.quantities, np.zeros(2), atol=1e-12)
     np.testing.assert_allclose(env.shadow.quantities, np.zeros(2), atol=1e-12)
     assert env.hybrid.total_cost > 0.0

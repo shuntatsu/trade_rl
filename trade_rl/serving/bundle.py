@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -59,6 +60,10 @@ class ServingBundleManifest:
     bundle_digest: str
     dataset_id: str
     action_schema: str
+    observation_schema: str
+    observation_size: int
+    environment_digest: str
+    initial_capital: float
     policy_mode: PolicyMode
     policy_digest: str | None
     signal_digest: str
@@ -66,12 +71,45 @@ class ServingBundleManifest:
     release_digest: str | None
     files: tuple[BundleFile, ...]
     created_at: datetime
-    schema_version: str = "serving_bundle_v1"
+    action_size: int = 2
+    action_names: tuple[str, ...] = ()
+    action_spec_digest: str | None = None
+    alpha_artifact_digest: str | None = None
+    factor_artifact_digest: str | None = None
+    normalizer_digest: str | None = None
+    schema_version: str = "serving_bundle_v3"
 
     def __post_init__(self) -> None:
         require_sha256(self.bundle_digest, field="bundle_digest")
         require_sha256(self.dataset_id, field="dataset_id")
         require_non_empty(self.action_schema, field="action_schema")
+        require_non_empty(self.observation_schema, field="observation_schema")
+        if (
+            isinstance(self.observation_size, bool)
+            or not isinstance(self.observation_size, int)
+            or self.observation_size <= 0
+        ):
+            raise ValueError("observation_size must be a positive integer")
+        if (
+            isinstance(self.action_size, bool)
+            or not isinstance(self.action_size, int)
+            or self.action_size <= 0
+        ):
+            raise ValueError("action_size must be a positive integer")
+        if self.schema_version == "serving_bundle_v3":
+            if len(self.action_names) != self.action_size:
+                raise ValueError("action_names must match action_size")
+            if len(set(self.action_names)) != len(self.action_names) or any(
+                not name for name in self.action_names
+            ):
+                raise ValueError("action_names must be unique and non-empty")
+            if self.action_spec_digest is None:
+                raise ValueError("serving bundle v3 requires action_spec_digest")
+        if self.action_spec_digest is not None:
+            require_sha256(self.action_spec_digest, field="action_spec_digest")
+        require_sha256(self.environment_digest, field="environment_digest")
+        if not math.isfinite(self.initial_capital) or self.initial_capital <= 0.0:
+            raise ValueError("initial_capital must be finite and positive")
         require_sha256(self.signal_digest, field="signal_digest")
         require_sha256(self.selection_digest, field="selection_digest")
         if self.policy_mode is PolicyMode.BASELINE_ONLY:
@@ -83,6 +121,13 @@ class ServingBundleManifest:
             require_sha256(self.policy_digest, field="policy_digest")
         if self.release_digest is not None:
             require_sha256(self.release_digest, field="release_digest")
+        for field_name, value in (
+            ("alpha_artifact_digest", self.alpha_artifact_digest),
+            ("factor_artifact_digest", self.factor_artifact_digest),
+            ("normalizer_digest", self.normalizer_digest),
+        ):
+            if value is not None:
+                require_sha256(value, field=field_name)
         if not self.files:
             raise ValueError("serving bundle must contain artifact files")
         paths = tuple(file.path for file in self.files)
@@ -95,11 +140,38 @@ class ServingBundleManifest:
             raise ValueError("bundle digest does not match manifest content")
 
     def digest_payload(self) -> dict[str, object]:
+        if self.schema_version == "serving_bundle_v2":
+            return {
+                "action_schema": self.action_schema,
+                "created_at": self.created_at,
+                "dataset_id": self.dataset_id,
+                "environment_digest": self.environment_digest,
+                "files": self.files,
+                "initial_capital": self.initial_capital,
+                "observation_schema": self.observation_schema,
+                "observation_size": self.observation_size,
+                "policy_digest": self.policy_digest,
+                "policy_mode": self.policy_mode,
+                "release_digest": self.release_digest,
+                "schema_version": self.schema_version,
+                "selection_digest": self.selection_digest,
+                "signal_digest": self.signal_digest,
+            }
         return {
+            "action_names": self.action_names,
             "action_schema": self.action_schema,
+            "action_size": self.action_size,
+            "action_spec_digest": self.action_spec_digest,
+            "alpha_artifact_digest": self.alpha_artifact_digest,
             "created_at": self.created_at,
             "dataset_id": self.dataset_id,
+            "environment_digest": self.environment_digest,
+            "factor_artifact_digest": self.factor_artifact_digest,
             "files": self.files,
+            "initial_capital": self.initial_capital,
+            "normalizer_digest": self.normalizer_digest,
+            "observation_schema": self.observation_schema,
+            "observation_size": self.observation_size,
             "policy_digest": self.policy_digest,
             "policy_mode": self.policy_mode,
             "release_digest": self.release_digest,
@@ -115,6 +187,10 @@ class ServingBundleManifest:
         root: Path,
         dataset_id: str,
         action_schema: str,
+        observation_schema: str,
+        observation_size: int,
+        environment_digest: str,
+        initial_capital: float,
         policy_mode: PolicyMode,
         policy_digest: str | None,
         signal_digest: str,
@@ -122,6 +198,12 @@ class ServingBundleManifest:
         release_digest: str | None,
         artifact_paths: tuple[str, ...],
         created_at: datetime,
+        action_size: int = 2,
+        action_names: tuple[str, ...] = (),
+        action_spec_digest: str | None = None,
+        alpha_artifact_digest: str | None = None,
+        factor_artifact_digest: str | None = None,
+        normalizer_digest: str | None = None,
     ) -> ServingBundleManifest:
         files: list[BundleFile] = []
         for raw_path in artifact_paths:
@@ -138,14 +220,24 @@ class ServingBundleManifest:
             )
         ordered = tuple(sorted(files, key=lambda item: item.path))
         payload = {
+            "action_names": action_names,
             "action_schema": action_schema,
+            "action_size": action_size,
+            "action_spec_digest": action_spec_digest,
+            "alpha_artifact_digest": alpha_artifact_digest,
             "created_at": created_at,
             "dataset_id": dataset_id,
+            "environment_digest": environment_digest,
+            "factor_artifact_digest": factor_artifact_digest,
             "files": ordered,
+            "initial_capital": initial_capital,
+            "normalizer_digest": normalizer_digest,
+            "observation_schema": observation_schema,
+            "observation_size": observation_size,
             "policy_digest": policy_digest,
             "policy_mode": policy_mode,
             "release_digest": release_digest,
-            "schema_version": "serving_bundle_v1",
+            "schema_version": "serving_bundle_v3",
             "selection_digest": selection_digest,
             "signal_digest": signal_digest,
         }
@@ -153,6 +245,10 @@ class ServingBundleManifest:
             bundle_digest=content_digest(payload),
             dataset_id=dataset_id,
             action_schema=action_schema,
+            observation_schema=observation_schema,
+            observation_size=observation_size,
+            environment_digest=environment_digest,
+            initial_capital=initial_capital,
             policy_mode=policy_mode,
             policy_digest=policy_digest,
             signal_digest=signal_digest,
@@ -160,6 +256,12 @@ class ServingBundleManifest:
             release_digest=release_digest,
             files=ordered,
             created_at=created_at,
+            action_size=action_size,
+            action_names=action_names,
+            action_spec_digest=action_spec_digest,
+            alpha_artifact_digest=alpha_artifact_digest,
+            factor_artifact_digest=factor_artifact_digest,
+            normalizer_digest=normalizer_digest,
         )
 
 
@@ -199,10 +301,24 @@ def _optional_string(value: object, *, field: str) -> str | None:
     return _string(value, field=field)
 
 
+def _string_tuple(value: object, *, field: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{field} must be a list of strings")
+    return tuple(value)
+
+
 def _integer(value: object, *, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field} must be an integer")
     return value
+
+
+def _number(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field} must be a number")
+    return float(value)
 
 
 def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
@@ -224,10 +340,27 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         )
     created_at_raw = _string(payload.get("created_at"), field="created_at")
     created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+    schema_version = _string(payload.get("schema_version"), field="schema_version")
     return ServingBundleManifest(
         bundle_digest=_string(payload.get("bundle_digest"), field="bundle_digest"),
         dataset_id=_string(payload.get("dataset_id"), field="dataset_id"),
         action_schema=_string(payload.get("action_schema"), field="action_schema"),
+        observation_schema=_string(
+            payload.get("observation_schema"),
+            field="observation_schema",
+        ),
+        observation_size=_integer(
+            payload.get("observation_size"),
+            field="observation_size",
+        ),
+        environment_digest=_string(
+            payload.get("environment_digest"),
+            field="environment_digest",
+        ),
+        initial_capital=_number(
+            payload.get("initial_capital"),
+            field="initial_capital",
+        ),
         policy_mode=PolicyMode(
             _string(payload.get("policy_mode"), field="policy_mode")
         ),
@@ -246,7 +379,25 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         ),
         files=tuple(files),
         created_at=created_at,
-        schema_version=_string(payload.get("schema_version"), field="schema_version"),
+        action_size=_integer(payload.get("action_size", 2), field="action_size"),
+        action_names=_string_tuple(payload.get("action_names"), field="action_names"),
+        action_spec_digest=_optional_string(
+            payload.get("action_spec_digest"),
+            field="action_spec_digest",
+        ),
+        alpha_artifact_digest=_optional_string(
+            payload.get("alpha_artifact_digest"),
+            field="alpha_artifact_digest",
+        ),
+        factor_artifact_digest=_optional_string(
+            payload.get("factor_artifact_digest"),
+            field="factor_artifact_digest",
+        ),
+        normalizer_digest=_optional_string(
+            payload.get("normalizer_digest"),
+            field="normalizer_digest",
+        ),
+        schema_version=schema_version,
     )
 
 

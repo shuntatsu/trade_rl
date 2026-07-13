@@ -10,20 +10,29 @@ from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
 def dataset(n_bars: int = 160) -> MarketDataset:
-    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+    timestamps = np.datetime64("2026-01-01T01:00:00", "ns") + np.arange(
         n_bars
     ) * np.timedelta64(1, "h")
     up = np.exp(np.arange(n_bars, dtype=np.float64) * 0.002)
     down = np.exp(-np.arange(n_bars, dtype=np.float64) * 0.001)
     close = np.column_stack([up, down])
+    open_price = np.vstack([close[0], close[:-1]])
+    high = np.maximum(open_price, close) * 1.001
+    low = np.minimum(open_price, close) * 0.999
     return MarketDataset(
         dataset_id="a" * 64,
         symbols=("UP", "DOWN"),
         timestamps=timestamps,
         features=np.zeros((n_bars, 2, 2), dtype=np.float32),
         global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=open_price,
+        high=high,
+        low=low,
         close=close,
+        volume=np.full((n_bars, 2), 1_000_000.0, dtype=np.float64),
         funding_rate=np.zeros_like(close),
+        tradable=np.ones((n_bars, 2), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 2), dtype=np.bool_),
         feature_names=("ret", "rsi"),
         global_feature_names=("regime",),
         periods_per_year=8_760,

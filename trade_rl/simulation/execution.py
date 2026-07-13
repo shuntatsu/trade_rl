@@ -1,4 +1,4 @@
-"""Deterministic base-bar execution, costs, funding, and weight drift."""
+"""Next-open execution, liquidity costs, funding, and self-financing marks."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import numpy as np
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import BookState
 
+_TOLERANCE = 1e-12
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionCostConfig:
@@ -17,24 +19,59 @@ class ExecutionCostConfig:
     spread_rate: float = 0.0002
     impact_rate: float = 0.0001
     multiplier: float = 1.0
+    max_participation_rate: float = 0.05
+    slippage_std: float = 0.0
+    tail_slippage_probability: float = 0.0
+    tail_slippage_multiplier: float = 5.0
+    random_seed: int = 0
 
     def __post_init__(self) -> None:
-        for field, value in (
+        for field_name, value in (
             ("fee_rate", self.fee_rate),
             ("spread_rate", self.spread_rate),
             ("impact_rate", self.impact_rate),
             ("multiplier", self.multiplier),
+            ("max_participation_rate", self.max_participation_rate),
+            ("slippage_std", self.slippage_std),
+            ("tail_slippage_probability", self.tail_slippage_probability),
+            ("tail_slippage_multiplier", self.tail_slippage_multiplier),
         ):
-            if not math.isfinite(value) or value < 0.0:
-                raise ValueError(f"{field} must be finite and non-negative")
+            if not math.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+        if min(
+            self.fee_rate,
+            self.spread_rate,
+            self.impact_rate,
+            self.multiplier,
+            self.slippage_std,
+            self.tail_slippage_multiplier,
+        ) < 0.0:
+            raise ValueError("execution rates and multipliers must be non-negative")
+        if not 0.0 < self.max_participation_rate <= 1.0:
+            raise ValueError("max_participation_rate must be within (0, 1]")
+        if not 0.0 <= self.tail_slippage_probability <= 1.0:
+            raise ValueError("tail_slippage_probability must be within [0, 1]")
+        if isinstance(self.random_seed, bool) or self.random_seed < 0:
+            raise ValueError("random_seed must be a non-negative integer")
 
     @property
     def rate_per_turnover(self) -> float:
-        return self.multiplier * (self.fee_rate + self.spread_rate + self.impact_rate)
+        """Nominal rate excluding participation-dependent and random costs."""
+
+        return self.multiplier * (self.fee_rate + self.spread_rate)
 
     @classmethod
     def zero(cls) -> ExecutionCostConfig:
-        return cls(fee_rate=0.0, spread_rate=0.0, impact_rate=0.0)
+        return cls(
+            fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            multiplier=1.0,
+            max_participation_rate=1.0,
+            slippage_std=0.0,
+            tail_slippage_probability=0.0,
+            tail_slippage_multiplier=0.0,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +84,21 @@ class ExecutionResult:
     interval_funding: float
     interval_net_return: float
     interval_log_return: float
+    requested_turnover: float
+    filled_turnover: float
+    unfilled_turnover: float
+    fill_count: int
+    rebalance_events: int
+
+
+@dataclass(frozen=True, slots=True)
+class _FillResult:
+    requested_turnover: float
+    filled_turnover: float
+    unfilled_turnover: float
+    cost_amount: float
+    fill_count: int
+    rebalance_events: int
 
 
 def _target_weights(value: np.ndarray, *, n_symbols: int) -> np.ndarray:
@@ -56,25 +108,13 @@ def _target_weights(value: np.ndarray, *, n_symbols: int) -> np.ndarray:
     if not np.isfinite(target).all():
         raise ValueError("target weights must be finite")
     gross = float(np.abs(target).sum())
-    if gross > 1.0 + 1e-12:
+    if gross > 1.0 + _TOLERANCE:
         raise ValueError("target gross exposure cannot exceed one")
     return target
 
 
-def _drift_weights(weights: np.ndarray, asset_returns: np.ndarray) -> np.ndarray:
-    gross_return = float(np.dot(weights, asset_returns))
-    denominator = 1.0 + gross_return
-    if denominator <= 0.0:
-        return np.zeros_like(weights)
-    drifted = weights * (1.0 + asset_returns) / denominator
-    gross = float(np.abs(drifted).sum())
-    if gross > 1.0:
-        drifted /= gross
-    return drifted
-
-
 class MarketExecutor:
-    """Execute one decision target over a contiguous base-bar interval."""
+    """Execute one decision target over contiguous bars at each next-bar open."""
 
     def __init__(
         self,
@@ -83,6 +123,96 @@ class MarketExecutor:
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        self._rng = np.random.default_rng(self.cost.random_seed)
+
+    def reset_random_state(self, seed: int | None = None) -> None:
+        resolved = self.cost.random_seed if seed is None else seed
+        if isinstance(resolved, bool) or resolved < 0:
+            raise ValueError("seed must be a non-negative integer")
+        self._rng = np.random.default_rng(resolved)
+
+    def _slippage_rates(self, size: int) -> np.ndarray:
+        if self.cost.slippage_std == 0.0 or size == 0:
+            return np.zeros(size, dtype=np.float64)
+        rates = np.abs(self._rng.normal(0.0, self.cost.slippage_std, size=size))
+        if self.cost.tail_slippage_probability > 0.0:
+            tails = self._rng.random(size) < self.cost.tail_slippage_probability
+            rates[tails] *= self.cost.tail_slippage_multiplier
+        return rates
+
+    def _rebalance(
+        self,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        prices: np.ndarray,
+        volume: np.ndarray,
+        tradable: np.ndarray,
+    ) -> _FillResult:
+        equity = book.portfolio_value
+        if equity <= 0.0:
+            raise ValueError("book equity must be positive before execution")
+        price_vector = np.asarray(prices, dtype=np.float64).reshape(-1)
+        volume_vector = np.asarray(volume, dtype=np.float64).reshape(-1)
+        trade_mask = np.asarray(tradable, dtype=np.bool_).reshape(-1)
+        expected_shape = (self.dataset.n_symbols,)
+        if (
+            price_vector.shape != expected_shape
+            or volume_vector.shape != expected_shape
+            or trade_mask.shape != expected_shape
+        ):
+            raise ValueError("execution market vectors do not match symbols")
+        if np.any(price_vector <= 0.0) or np.any(volume_vector < 0.0):
+            raise ValueError("execution prices and volume are invalid")
+
+        desired_quantities = target * equity / price_vector
+        requested_delta = desired_quantities - book.quantities
+        requested_notional = requested_delta * price_vector
+        requested_turnover = float(np.abs(requested_notional).sum() / equity)
+
+        market_notional = price_vector * volume_vector
+        capacity = self.cost.max_participation_rate * market_notional
+        capacity = np.where(trade_mask, capacity, 0.0)
+        filled_notional = np.sign(requested_notional) * np.minimum(
+            np.abs(requested_notional),
+            capacity,
+        )
+        filled_delta = filled_notional / price_vector
+        target_quantities = book.quantities + filled_delta
+        filled_turnover = float(np.abs(filled_notional).sum() / equity)
+        unfilled_turnover = max(0.0, requested_turnover - filled_turnover)
+
+        positive_market = market_notional > 0.0
+        participation = np.zeros_like(market_notional)
+        participation[positive_market] = (
+            np.abs(filled_notional[positive_market])
+            / market_notional[positive_market]
+        )
+        impact = self.cost.impact_rate * np.sqrt(participation)
+        slippage = self._slippage_rates(len(price_vector))
+        unit_cost = self.cost.multiplier * (
+            self.cost.fee_rate + self.cost.spread_rate + impact + slippage
+        )
+        cost_amount = float(np.sum(np.abs(filled_notional) * unit_cost))
+        if not math.isfinite(cost_amount) or cost_amount >= equity:
+            raise ValueError("execution cost would exhaust the portfolio")
+
+        fills_before = book.fill_count
+        events_before = book.rebalance_events
+        book.execute(
+            fill_prices=price_vector,
+            target_quantities=target_quantities,
+            cost_amount=cost_amount,
+            turnover=filled_turnover,
+        )
+        return _FillResult(
+            requested_turnover=requested_turnover,
+            filled_turnover=filled_turnover,
+            unfilled_turnover=unfilled_turnover,
+            cost_amount=cost_amount,
+            fill_count=book.fill_count - fills_before,
+            rebalance_events=book.rebalance_events - events_before,
+        )
 
     def execute_interval(
         self,
@@ -102,46 +232,102 @@ class MarketExecutor:
         resolved_target = _target_weights(target, n_symbols=self.dataset.n_symbols)
         result_book = book.clone()
         starting_value = result_book.portfolio_value
-        turnover = float(np.abs(resolved_target - result_book.weights).sum())
-        cost_fraction = turnover * self.cost.rate_per_turnover
-        if cost_fraction >= 1.0:
-            raise ValueError("execution cost would exhaust the portfolio")
-        cost_amount = starting_value * cost_fraction
-        result_book.weights = resolved_target.copy()
-        result_book.record_rebalance(turnover=turnover, cost_amount=cost_amount)
-
+        requested_turnover = 0.0
+        filled_turnover = 0.0
+        unfilled_turnover = 0.0
+        total_cost = 0.0
+        total_funding = 0.0
+        total_fills = 0
+        total_events = 0
         gross_factor = 1.0
-        funding_return_total = 0.0
+
         for offset in range(bars):
-            index = start_index + offset
-            asset_returns = (
-                self.dataset.close[index + 1] / self.dataset.close[index] - 1.0
+            close_index = start_index + offset
+            next_index = close_index + 1
+            period_start_value = result_book.portfolio_value
+
+            result_book.revalue(self.dataset.open[next_index])
+            value_at_open = result_book.portfolio_value
+            gap_return = value_at_open / period_start_value - 1.0
+
+            fill = self._rebalance(
+                result_book,
+                resolved_target,
+                prices=self.dataset.open[next_index],
+                volume=self.dataset.volume[next_index],
+                tradable=self.dataset.tradable[next_index],
             )
-            weights = result_book.weights
-            gross_return = float(np.dot(weights, asset_returns))
-            funding_return = -float(np.dot(weights, self.dataset.funding_rate[index]))
-            applied_cost = cost_fraction if offset == 0 else 0.0
-            net_return = gross_return + funding_return - applied_cost
-            if not math.isfinite(net_return) or net_return <= -1.0:
-                raise ValueError("execution produced an invalid base-bar return")
-            value_before = result_book.portfolio_value
-            next_weights = _drift_weights(weights, asset_returns)
-            result_book.record_base_bar(
-                net_return=net_return,
-                next_weights=next_weights,
-                funding_amount=value_before * funding_return,
+            requested_turnover += fill.requested_turnover
+            filled_turnover += fill.filled_turnover
+            unfilled_turnover += fill.unfilled_turnover
+            total_cost += fill.cost_amount
+            total_fills += fill.fill_count
+            total_events += fill.rebalance_events
+
+            intrabar_asset_returns = (
+                self.dataset.close[next_index] / self.dataset.open[next_index] - 1.0
             )
-            gross_factor *= 1.0 + gross_return
-            funding_return_total += funding_return
+            intrabar_return = float(
+                np.dot(result_book.weights, intrabar_asset_returns)
+            )
+            gross_factor *= (1.0 + gap_return) * (1.0 + intrabar_return)
+
+            funding_return = -float(
+                np.dot(result_book.weights, self.dataset.funding_rate[next_index])
+            )
+            funding_amount = result_book.portfolio_value * funding_return
+            total_funding += funding_amount
+            result_book.mark_to_market(
+                mark_prices=self.dataset.close[next_index],
+                funding_amount=funding_amount,
+                period_start_value=period_start_value,
+            )
 
         interval_net_return = result_book.portfolio_value / starting_value - 1.0
+        if interval_net_return <= -1.0 or not math.isfinite(interval_net_return):
+            raise ValueError("execution produced an invalid interval return")
         return ExecutionResult(
             book=result_book,
             next_index=start_index + bars,
             bars_advanced=bars,
             interval_gross_return=gross_factor - 1.0,
-            interval_cost=cost_fraction,
-            interval_funding=funding_return_total,
+            interval_cost=total_cost,
+            interval_funding=total_funding,
             interval_net_return=interval_net_return,
             interval_log_return=math.log1p(interval_net_return),
+            requested_turnover=requested_turnover,
+            filled_turnover=filled_turnover,
+            unfilled_turnover=unfilled_turnover,
+            fill_count=total_fills,
+            rebalance_events=total_events,
+        )
+
+    def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
+        if not 0 <= index < self.dataset.n_bars:
+            raise ValueError("liquidation index is outside the dataset")
+        result_book = book.clone()
+        result_book.revalue(self.dataset.close[index])
+        starting_value = result_book.portfolio_value
+        fill = self._rebalance(
+            result_book,
+            np.zeros(self.dataset.n_symbols, dtype=np.float64),
+            prices=self.dataset.close[index],
+            volume=self.dataset.volume[index],
+            tradable=self.dataset.tradable[index],
+        )
+        interval_net_return = result_book.portfolio_value / starting_value - 1.0
+        return ExecutionResult(
+            book=result_book,
+            next_index=index,
+            bars_advanced=0,
+            interval_gross_return=0.0,
+            interval_cost=fill.cost_amount,
+            interval_funding=0.0,
+            interval_net_return=interval_net_return,
+            interval_log_return=math.log1p(interval_net_return),
+            requested_turnover=fill.requested_turnover,
+            filled_turnover=fill.filled_turnover,
+            unfilled_turnover=fill.unfilled_turnover,
+            fill_count=fill.fill_count,
+            rebalance_events=fill.rebalance_events,
         )

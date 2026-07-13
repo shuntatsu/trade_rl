@@ -78,7 +78,7 @@ def test_legacy_explicit_bar_config_overrides_hour_defaults() -> None:
     assert env.decision_bars == 3
 
 
-def test_end_of_episode_liquidation_charges_cost_and_flattens_book() -> None:
+def test_end_of_episode_liquidation_charges_cost_and_is_terminal() -> None:
     dataset = market()
     env = ResidualMarketEnv(
         dataset,
@@ -101,8 +101,8 @@ def test_end_of_episode_liquidation_charges_cost_and_flattens_book() -> None:
 
     _, _, terminated, truncated, info = env.step(np.zeros(2))
 
-    assert terminated is False
-    assert truncated is True
+    assert terminated is True
+    assert truncated is False
     np.testing.assert_allclose(env.hybrid.quantities, np.zeros(2), atol=1e-12)
     np.testing.assert_allclose(env.shadow.quantities, np.zeros(2), atol=1e-12)
     assert env.hybrid.total_cost > 0.0

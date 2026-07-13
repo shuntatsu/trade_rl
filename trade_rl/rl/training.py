@@ -67,9 +67,7 @@ class ResidualTrainingConfig:
                 or not isinstance(integer_value, int)
                 or integer_value <= 0
             ):
-                raise ValueError(
-                    f"{integer_field_name} must be a positive integer"
-                )
+                raise ValueError(f"{integer_field_name} must be a positive integer")
         if self.n_steps % self.batch_size != 0:
             raise ValueError("batch_size must divide n_steps for one environment")
         if not math.isfinite(self.gamma) or not 0.0 < self.gamma <= 1.0:

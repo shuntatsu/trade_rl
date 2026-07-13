@@ -51,7 +51,9 @@ class ExecutionCostConfig:
             raise ValueError("max_participation_rate must be within (0, 1]")
         if not 0.0 <= self.tail_slippage_probability <= 1.0:
             raise ValueError("tail_slippage_probability must be within [0, 1]")
-        if isinstance(self.random_seed, bool) or self.random_seed < 0:
+        if isinstance(self.random_seed, bool) or not isinstance(self.random_seed, int):
+            raise ValueError("random_seed must be a non-negative integer")
+        if self.random_seed < 0:
             raise ValueError("random_seed must be a non-negative integer")
 
     @property
@@ -93,9 +95,8 @@ class ExecutionResult:
 
 @dataclass(frozen=True, slots=True)
 class _FillResult:
-    requested_turnover: float
-    filled_turnover: float
-    unfilled_turnover: float
+    requested_notional: float
+    filled_notional: float
     cost_amount: float
     fill_count: int
     rebalance_events: int
@@ -114,7 +115,7 @@ def _target_weights(value: np.ndarray, *, n_symbols: int) -> np.ndarray:
 
 
 class MarketExecutor:
-    """Execute one decision target over contiguous bars at each next-bar open."""
+    """Execute one decision target while holding filled quantities until the next decision."""
 
     def __init__(
         self,
@@ -127,7 +128,7 @@ class MarketExecutor:
 
     def reset_random_state(self, seed: int | None = None) -> None:
         resolved = self.cost.random_seed if seed is None else seed
-        if isinstance(resolved, bool) or resolved < 0:
+        if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
             raise ValueError("seed must be a non-negative integer")
         self._rng = np.random.default_rng(resolved)
 
@@ -140,52 +141,49 @@ class MarketExecutor:
             rates[tails] *= self.cost.tail_slippage_multiplier
         return rates
 
-    def _rebalance(
+    def _fill_toward_quantities(
         self,
         book: BookState,
-        target: np.ndarray,
+        desired_quantities: np.ndarray,
         *,
         prices: np.ndarray,
         volume: np.ndarray,
         tradable: np.ndarray,
+        turnover_denominator: float,
     ) -> _FillResult:
-        equity = book.portfolio_value
-        if equity <= 0.0:
-            raise ValueError("book equity must be positive before execution")
         price_vector = np.asarray(prices, dtype=np.float64).reshape(-1)
         volume_vector = np.asarray(volume, dtype=np.float64).reshape(-1)
         trade_mask = np.asarray(tradable, dtype=np.bool_).reshape(-1)
+        desired = np.asarray(desired_quantities, dtype=np.float64).reshape(-1)
         expected_shape = (self.dataset.n_symbols,)
-        if (
-            price_vector.shape != expected_shape
-            or volume_vector.shape != expected_shape
-            or trade_mask.shape != expected_shape
+        if any(
+            vector.shape != expected_shape
+            for vector in (price_vector, volume_vector, trade_mask, desired)
         ):
             raise ValueError("execution market vectors do not match symbols")
+        if not np.isfinite(desired).all():
+            raise ValueError("desired quantities must be finite")
         if np.any(price_vector <= 0.0) or np.any(volume_vector < 0.0):
             raise ValueError("execution prices and volume are invalid")
+        if not math.isfinite(turnover_denominator) or turnover_denominator <= 0.0:
+            raise ValueError("turnover denominator must be finite and positive")
 
-        desired_quantities = target * equity / price_vector
-        requested_delta = desired_quantities - book.quantities
-        requested_notional = requested_delta * price_vector
-        requested_turnover = float(np.abs(requested_notional).sum() / equity)
-
+        requested_delta = desired - book.quantities
+        requested_notional_vector = requested_delta * price_vector
         market_notional = price_vector * volume_vector
         capacity = self.cost.max_participation_rate * market_notional
         capacity = np.where(trade_mask, capacity, 0.0)
-        filled_notional = np.sign(requested_notional) * np.minimum(
-            np.abs(requested_notional),
+        filled_notional_vector = np.sign(requested_notional_vector) * np.minimum(
+            np.abs(requested_notional_vector),
             capacity,
         )
-        filled_delta = filled_notional / price_vector
-        target_quantities = book.quantities + filled_delta
-        filled_turnover = float(np.abs(filled_notional).sum() / equity)
-        unfilled_turnover = max(0.0, requested_turnover - filled_turnover)
+        filled_delta = filled_notional_vector / price_vector
+        next_quantities = book.quantities + filled_delta
 
         positive_market = market_notional > 0.0
         participation = np.zeros_like(market_notional)
         participation[positive_market] = (
-            np.abs(filled_notional[positive_market])
+            np.abs(filled_notional_vector[positive_market])
             / market_notional[positive_market]
         )
         impact = self.cost.impact_rate * np.sqrt(participation)
@@ -193,22 +191,22 @@ class MarketExecutor:
         unit_cost = self.cost.multiplier * (
             self.cost.fee_rate + self.cost.spread_rate + impact + slippage
         )
-        cost_amount = float(np.sum(np.abs(filled_notional) * unit_cost))
-        if not math.isfinite(cost_amount) or cost_amount >= equity:
+        cost_amount = float(np.sum(np.abs(filled_notional_vector) * unit_cost))
+        if not math.isfinite(cost_amount) or cost_amount >= book.portfolio_value:
             raise ValueError("execution cost would exhaust the portfolio")
 
         fills_before = book.fill_count
         events_before = book.rebalance_events
+        filled_notional = float(np.abs(filled_notional_vector).sum())
         book.execute(
             fill_prices=price_vector,
-            target_quantities=target_quantities,
+            target_quantities=next_quantities,
             cost_amount=cost_amount,
-            turnover=filled_turnover,
+            turnover=filled_notional / turnover_denominator,
         )
         return _FillResult(
-            requested_turnover=requested_turnover,
-            filled_turnover=filled_turnover,
-            unfilled_turnover=unfilled_turnover,
+            requested_notional=float(np.abs(requested_notional_vector).sum()),
+            filled_notional=filled_notional,
             cost_amount=cost_amount,
             fill_count=book.fill_count - fills_before,
             rebalance_events=book.rebalance_events - events_before,
@@ -232,14 +230,15 @@ class MarketExecutor:
         resolved_target = _target_weights(target, n_symbols=self.dataset.n_symbols)
         result_book = book.clone()
         starting_value = result_book.portfolio_value
-        requested_turnover = 0.0
-        filled_turnover = 0.0
-        unfilled_turnover = 0.0
+        decision_equity = 0.0
+        initial_requested_notional = 0.0
+        filled_notional_total = 0.0
         total_cost = 0.0
         total_funding = 0.0
         total_fills = 0
         total_events = 0
         gross_factor = 1.0
+        desired_quantities: np.ndarray | None = None
 
         for offset in range(bars):
             close_index = start_index + offset
@@ -249,17 +248,27 @@ class MarketExecutor:
             result_book.revalue(self.dataset.open[next_index])
             value_at_open = result_book.portfolio_value
             gap_return = value_at_open / period_start_value - 1.0
+            if desired_quantities is None:
+                decision_equity = value_at_open
+                desired_quantities = (
+                    resolved_target * decision_equity / self.dataset.open[next_index]
+                )
+                initial_requested_notional = float(
+                    np.abs(
+                        (desired_quantities - result_book.quantities)
+                        * self.dataset.open[next_index]
+                    ).sum()
+                )
 
-            fill = self._rebalance(
+            fill = self._fill_toward_quantities(
                 result_book,
-                resolved_target,
+                desired_quantities,
                 prices=self.dataset.open[next_index],
                 volume=self.dataset.volume[next_index],
                 tradable=self.dataset.tradable[next_index],
+                turnover_denominator=decision_equity,
             )
-            requested_turnover += fill.requested_turnover
-            filled_turnover += fill.filled_turnover
-            unfilled_turnover += fill.unfilled_turnover
+            filled_notional_total += fill.filled_notional
             total_cost += fill.cost_amount
             total_fills += fill.fill_count
             total_events += fill.rebalance_events
@@ -286,6 +295,9 @@ class MarketExecutor:
         interval_net_return = result_book.portfolio_value / starting_value - 1.0
         if interval_net_return <= -1.0 or not math.isfinite(interval_net_return):
             raise ValueError("execution produced an invalid interval return")
+        requested_turnover = initial_requested_notional / decision_equity
+        filled_turnover = filled_notional_total / decision_equity
+        unfilled_turnover = max(0.0, requested_turnover - filled_turnover)
         return ExecutionResult(
             book=result_book,
             next_index=start_index + bars,
@@ -308,14 +320,18 @@ class MarketExecutor:
         result_book = book.clone()
         result_book.revalue(self.dataset.close[index])
         starting_value = result_book.portfolio_value
-        fill = self._rebalance(
+        desired_quantities = np.zeros(self.dataset.n_symbols, dtype=np.float64)
+        fill = self._fill_toward_quantities(
             result_book,
-            np.zeros(self.dataset.n_symbols, dtype=np.float64),
+            desired_quantities,
             prices=self.dataset.close[index],
             volume=self.dataset.volume[index],
             tradable=self.dataset.tradable[index],
+            turnover_denominator=starting_value,
         )
         interval_net_return = result_book.portfolio_value / starting_value - 1.0
+        requested_turnover = fill.requested_notional / starting_value
+        filled_turnover = fill.filled_notional / starting_value
         return ExecutionResult(
             book=result_book,
             next_index=index,
@@ -325,9 +341,9 @@ class MarketExecutor:
             interval_funding=0.0,
             interval_net_return=interval_net_return,
             interval_log_return=math.log1p(interval_net_return),
-            requested_turnover=fill.requested_turnover,
-            filled_turnover=fill.filled_turnover,
-            unfilled_turnover=fill.unfilled_turnover,
+            requested_turnover=requested_turnover,
+            filled_turnover=filled_turnover,
+            unfilled_turnover=max(0.0, requested_turnover - filled_turnover),
             fill_count=fill.fill_count,
             rebalance_events=fill.rebalance_events,
         )

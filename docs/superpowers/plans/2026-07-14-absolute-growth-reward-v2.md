@@ -79,10 +79,12 @@
 - Modify: `docs/RESEARCH_STATUS.md`
 
 - [x] Document the new objective, rolling hinge, drawdown schedule, observation schema, and zero-action reward semantics.
-- [ ] Run `uv run ruff check .`.
-- [ ] Run `uv run ruff format --check --diff .`.
-- [ ] Run `uv run mypy trade_rl`.
-- [ ] Run `uv run lint-imports`.
-- [ ] Run `uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing`.
-- [ ] Run `uv run trade-rl --version`.
-- [ ] Inspect the final diff and CI evidence before claiming completion.
+- [x] Run `uv run ruff check .`.
+- [x] Run `uv run ruff format --check --diff .`.
+- [x] Run `uv run mypy trade_rl`.
+- [x] Run `uv run lint-imports`.
+- [x] Run `uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing`.
+- [x] Run `uv run trade-rl --version`.
+- [x] Inspect the final diff and CI evidence before claiming completion.
+
+Verification is performed through the repository's normal CI workflow on the exact audited branch head. The final PR description records the successful run identity.

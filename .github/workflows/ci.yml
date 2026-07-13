@@ -56,6 +56,7 @@ jobs:
             tests/test_train_eval_serve_parity.py \
             tests/test_residual_candidate_training.py \
             tests/test_residual_walk_forward.py \
+            tests/test_residual_walk_forward_architecture.py \
             tests/test_residual_walk_forward_fold.py \
             tests/test_residual_walk_forward_runner.py \
             tests/test_residual_walk_forward_cli.py \

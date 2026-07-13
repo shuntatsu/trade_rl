@@ -35,6 +35,7 @@ class RawMarketSeries:
     funding_rate: np.ndarray
     tradable: np.ndarray
     funding_available: np.ndarray | None = None
+    available_at: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         timestamps = _readonly(self.timestamps)
@@ -47,6 +48,22 @@ class RawMarketSeries:
             raise ValueError("timestamps must not contain NaT")
         if np.any(np.diff(timestamp_ns) <= 0):
             raise ValueError("timestamps must be strictly increasing")
+
+        available_at_value = (
+            timestamps if self.available_at is None else self.available_at
+        )
+        available_at = _readonly(available_at_value)
+        if available_at.ndim != 1 or not np.issubdtype(
+            available_at.dtype, np.datetime64
+        ):
+            raise ValueError("available_at must be a one-dimensional datetime64 array")
+        if available_at.shape != timestamps.shape:
+            raise ValueError("available_at shape must match timestamps")
+        available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+        if np.any(available_ns == np.iinfo(np.int64).min):
+            raise ValueError("available_at must not contain NaT")
+        if np.any(available_ns < timestamp_ns):
+            raise ValueError("available_at cannot be earlier than the event timestamp")
 
         funding_available = (
             np.ones(timestamps.shape, dtype=np.bool_)
@@ -86,6 +103,7 @@ class RawMarketSeries:
             raise ValueError("OHLC values violate bar price invariants")
 
         object.__setattr__(self, "timestamps", timestamps.astype("datetime64[ns]"))
+        object.__setattr__(self, "available_at", available_at.astype("datetime64[ns]"))
         for field_name, array in arrays.items():
             object.__setattr__(self, field_name, array)
 
@@ -153,6 +171,7 @@ class CsvMarketDataSource:
             raise FileNotFoundError(f"market CSV for {symbol} does not exist: {path}")
 
         timestamps: list[np.datetime64] = []
+        available_at: list[np.datetime64] = []
         open_price: list[float] = []
         high: list[float] = []
         low: list[float] = []
@@ -169,7 +188,14 @@ class CsvMarketDataSource:
                 raise ValueError(f"market CSV is missing columns: {missing}")
             for row_index, row in enumerate(reader, start=2):
                 try:
-                    timestamps.append(_parse_timestamp(row["timestamp"]))
+                    event_timestamp = _parse_timestamp(row["timestamp"])
+                    timestamps.append(event_timestamp)
+                    raw_available_at = row.get("available_at")
+                    available_at.append(
+                        event_timestamp
+                        if raw_available_at is None or not raw_available_at.strip()
+                        else _parse_timestamp(raw_available_at)
+                    )
                     open_price.append(float(row["open"]))
                     high.append(float(row["high"]))
                     low.append(float(row["low"]))
@@ -191,6 +217,7 @@ class CsvMarketDataSource:
 
         return RawMarketSeries(
             timestamps=np.asarray(timestamps, dtype="datetime64[ns]"),
+            available_at=np.asarray(available_at, dtype="datetime64[ns]"),
             open=np.asarray(open_price, dtype=np.float64),
             high=np.asarray(high, dtype=np.float64),
             low=np.asarray(low, dtype=np.float64),

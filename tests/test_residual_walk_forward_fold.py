@@ -113,9 +113,7 @@ def test_fold_fits_alpha_on_policy_train_and_reuses_selected_agent(
     monkeypatch.setattr(
         residual_walk_forward,
         "build_post_processor",
-        lambda *a, **k: SimpleNamespace(
-            cfg=SimpleNamespace(bars_per_year=8_760)
-        ),
+        lambda *a, **k: SimpleNamespace(cfg=SimpleNamespace(bars_per_year=8_760)),
     )
     monkeypatch.setattr(
         residual_walk_forward,

@@ -23,6 +23,25 @@ def _readonly_array(
     return array
 
 
+def _matrix_or_default(
+    value: np.ndarray | None,
+    *,
+    default: np.ndarray,
+    dtype: np.dtype[np.generic],
+) -> np.ndarray:
+    return _readonly_array(default if value is None else value, dtype=dtype)
+
+
+def _vector_or_default(
+    value: np.ndarray | None,
+    *,
+    default: np.ndarray,
+) -> np.ndarray:
+    return _readonly_array(
+        default if value is None else value, dtype=np.dtype(np.float64)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class MarketDataset:
     """Shape-checked regular-time market arrays bound to one content identity.
@@ -47,6 +66,17 @@ class MarketDataset:
     feature_names: tuple[str, ...]
     global_feature_names: tuple[str, ...]
     periods_per_year: int
+    mark_price: np.ndarray | None = None
+    index_price: np.ndarray | None = None
+    taker_fee_rate: np.ndarray | None = None
+    spread_rate: np.ndarray | None = None
+    quantity_step: np.ndarray | None = None
+    min_notional: np.ndarray | None = None
+    maintenance_margin_rate: np.ndarray | None = None
+    episode_sampling_weight: np.ndarray | None = None
+    feature_age_hours: np.ndarray | None = None
+    warmup_complete: np.ndarray | None = None
+    market_data_age_hours: np.ndarray | None = None
     _bar_duration_ns: int = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -123,6 +153,83 @@ class MarketDataset:
         if feature_available.shape != features.shape:
             raise ValueError("feature_available shape does not match features")
 
+        mark_price = _matrix_or_default(
+            self.mark_price,
+            default=close,
+            dtype=np.dtype(np.float64),
+        )
+        index_price = _matrix_or_default(
+            self.index_price,
+            default=close,
+            dtype=np.dtype(np.float64),
+        )
+        taker_fee_rate = (
+            None
+            if self.taker_fee_rate is None
+            else _readonly_array(self.taker_fee_rate, dtype=np.dtype(np.float64))
+        )
+        spread_rate = (
+            None
+            if self.spread_rate is None
+            else _readonly_array(self.spread_rate, dtype=np.dtype(np.float64))
+        )
+        quantity_step = _vector_or_default(
+            self.quantity_step,
+            default=np.zeros(n_symbols, dtype=np.float64),
+        )
+        min_notional = _vector_or_default(
+            self.min_notional,
+            default=np.zeros(n_symbols, dtype=np.float64),
+        )
+        maintenance_margin_rate = _vector_or_default(
+            self.maintenance_margin_rate,
+            default=np.full(n_symbols, 0.005, dtype=np.float64),
+        )
+        episode_sampling_weight = _vector_or_default(
+            self.episode_sampling_weight,
+            default=np.ones(n_bars, dtype=np.float64),
+        )
+        default_age = np.where(feature_available, 0.0, bar_hours)
+        feature_age_hours = _matrix_or_default(
+            self.feature_age_hours,
+            default=default_age,
+            dtype=np.dtype(np.float64),
+        )
+        warmup_complete = _readonly_array(
+            np.ones(n_bars, dtype=np.bool_)
+            if self.warmup_complete is None
+            else self.warmup_complete,
+            dtype=np.dtype(np.bool_),
+        )
+        market_data_age_hours = _vector_or_default(
+            self.market_data_age_hours,
+            default=np.zeros(n_bars, dtype=np.float64),
+        )
+
+        for field_name, array, expected_shape in (
+            ("mark_price", mark_price, price_shape),
+            ("index_price", index_price, price_shape),
+            *(
+                (("taker_fee_rate", taker_fee_rate, price_shape),)
+                if taker_fee_rate is not None
+                else ()
+            ),
+            *(
+                (("spread_rate", spread_rate, price_shape),)
+                if spread_rate is not None
+                else ()
+            ),
+            ("quantity_step", quantity_step, (n_symbols,)),
+            ("min_notional", min_notional, (n_symbols,)),
+            ("maintenance_margin_rate", maintenance_margin_rate, (n_symbols,)),
+            ("episode_sampling_weight", episode_sampling_weight, (n_bars,)),
+            ("feature_age_hours", feature_age_hours, features.shape),
+            ("warmup_complete", warmup_complete, (n_bars,)),
+            ("market_data_age_hours", market_data_age_hours, (n_bars,)),
+        ):
+            if array.shape != expected_shape:
+                raise ValueError(f"{field_name} has an invalid shape")
+
         for field_name, array in (
             ("features", features),
             ("global_features", global_features),
@@ -132,11 +239,28 @@ class MarketDataset:
             ("close", close),
             ("volume", volume),
             ("funding_rate", funding),
+            ("mark_price", mark_price),
+            ("index_price", index_price),
+            *(
+                (("taker_fee_rate", taker_fee_rate),)
+                if taker_fee_rate is not None
+                else ()
+            ),
+            *(("spread_rate", spread_rate),) if spread_rate is not None else (),
+            ("quantity_step", quantity_step),
+            ("min_notional", min_notional),
+            ("maintenance_margin_rate", maintenance_margin_rate),
+            ("episode_sampling_weight", episode_sampling_weight),
+            ("feature_age_hours", feature_age_hours),
+            ("market_data_age_hours", market_data_age_hours),
         ):
             if not np.isfinite(array).all():
                 raise ValueError(f"{field_name} must contain only finite values")
-        if any(np.any(price <= 0.0) for price in (open_price, high, low, close)):
-            raise ValueError("OHLC prices must be strictly positive")
+        if any(
+            np.any(price <= 0.0)
+            for price in (open_price, high, low, close, mark_price, index_price)
+        ):
+            raise ValueError("OHLC, mark, and index prices must be strictly positive")
         if np.any(volume < 0.0):
             raise ValueError("volume must be non-negative")
         if (
@@ -147,6 +271,31 @@ class MarketDataset:
             or np.any(high < close)
         ):
             raise ValueError("OHLC values violate bar price invariants")
+        for field_name, rates in (
+            *(
+                (("taker_fee_rate", taker_fee_rate),)
+                if taker_fee_rate is not None
+                else ()
+            ),
+            *(("spread_rate", spread_rate),) if spread_rate is not None else (),
+            ("maintenance_margin_rate", maintenance_margin_rate),
+        ):
+            if np.any(rates < 0.0) or np.any(rates >= 1.0):
+                raise ValueError(f"{field_name} must be within [0, 1)")
+        if np.any(quantity_step < 0.0):
+            raise ValueError("quantity_step must be non-negative")
+        if np.any(min_notional < 0.0):
+            raise ValueError("min_notional must be non-negative")
+        if np.any(episode_sampling_weight < 0.0) or not np.any(
+            episode_sampling_weight > 0.0
+        ):
+            raise ValueError(
+                "episode_sampling_weight must be non-negative with positive mass"
+            )
+        if np.any(feature_age_hours < 0.0):
+            raise ValueError("feature_age_hours must be non-negative")
+        if np.any(market_data_age_hours < 0.0):
+            raise ValueError("market_data_age_hours must be non-negative")
 
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "feature_names", feature_names)
@@ -162,6 +311,17 @@ class MarketDataset:
         object.__setattr__(self, "funding_rate", funding)
         object.__setattr__(self, "tradable", tradable)
         object.__setattr__(self, "feature_available", feature_available)
+        object.__setattr__(self, "mark_price", mark_price)
+        object.__setattr__(self, "index_price", index_price)
+        object.__setattr__(self, "taker_fee_rate", taker_fee_rate)
+        object.__setattr__(self, "spread_rate", spread_rate)
+        object.__setattr__(self, "quantity_step", quantity_step)
+        object.__setattr__(self, "min_notional", min_notional)
+        object.__setattr__(self, "maintenance_margin_rate", maintenance_margin_rate)
+        object.__setattr__(self, "episode_sampling_weight", episode_sampling_weight)
+        object.__setattr__(self, "feature_age_hours", feature_age_hours)
+        object.__setattr__(self, "warmup_complete", warmup_complete)
+        object.__setattr__(self, "market_data_age_hours", market_data_age_hours)
         object.__setattr__(self, "_bar_duration_ns", bar_duration_ns)
 
     @property
@@ -179,6 +339,51 @@ class MarketDataset:
     @property
     def bar_hours(self) -> float:
         return self._bar_duration_ns / _NS_PER_HOUR
+
+    @property
+    def mark_prices(self) -> np.ndarray:
+        assert self.mark_price is not None
+        return self.mark_price
+
+    @property
+    def index_prices(self) -> np.ndarray:
+        assert self.index_price is not None
+        return self.index_price
+
+    @property
+    def quantity_steps(self) -> np.ndarray:
+        assert self.quantity_step is not None
+        return self.quantity_step
+
+    @property
+    def minimum_notionals(self) -> np.ndarray:
+        assert self.min_notional is not None
+        return self.min_notional
+
+    @property
+    def maintenance_margin_rates(self) -> np.ndarray:
+        assert self.maintenance_margin_rate is not None
+        return self.maintenance_margin_rate
+
+    @property
+    def sampling_weights(self) -> np.ndarray:
+        assert self.episode_sampling_weight is not None
+        return self.episode_sampling_weight
+
+    @property
+    def feature_ages(self) -> np.ndarray:
+        assert self.feature_age_hours is not None
+        return self.feature_age_hours
+
+    @property
+    def warmup_mask(self) -> np.ndarray:
+        assert self.warmup_complete is not None
+        return self.warmup_complete
+
+    @property
+    def market_data_ages(self) -> np.ndarray:
+        assert self.market_data_age_hours is not None
+        return self.market_data_age_hours
 
     def bars_for_hours(self, hours: float) -> int:
         if not math.isfinite(hours) or hours <= 0.0:

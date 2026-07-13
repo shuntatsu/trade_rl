@@ -40,9 +40,7 @@ class GateDecision:
             raise ValueError("gate check names must be unique")
         require_aware_datetime(self.decided_at, field="decided_at")
         require_non_empty(self.schema_version, field="schema_version")
-        mandatory_passed = all(
-            check.passed for check in self.checks if check.mandatory
-        )
+        mandatory_passed = all(check.passed for check in self.checks if check.mandatory)
         if self.passed != mandatory_passed:
             raise ValueError(
                 "gate passed flag must equal the conjunction of mandatory checks"

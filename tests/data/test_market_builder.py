@@ -14,7 +14,11 @@ from trade_rl.data.contracts import (
     NormalizationMode,
     VolumeUnit,
 )
-from trade_rl.data.source import CsvMarketDataSource, InMemoryMarketDataSource, RawMarketSeries
+from trade_rl.data.source import (
+    CsvMarketDataSource,
+    InMemoryMarketDataSource,
+    RawMarketSeries,
+)
 
 
 def raw_series(n_bars: int, *, scale: float = 1.0) -> RawMarketSeries:
@@ -104,7 +108,12 @@ def test_builder_is_prefix_invariant() -> None:
 
     n = prefix.n_bars
     np.testing.assert_array_equal(prefix.timestamps, full.timestamps[:n])
-    np.testing.assert_allclose(prefix.features, full.features[:n], atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(
+        prefix.features,
+        full.features[:n],
+        atol=0.0,
+        rtol=0.0,
+    )
     np.testing.assert_allclose(
         prefix.global_features, full.global_features[:n], atol=0.0, rtol=0.0
     )
@@ -127,6 +136,8 @@ def test_builder_uses_point_in_time_universe() -> None:
     )
 
     eth = 1
+    assert dataset.symbol_active is not None
+    assert dataset.feature_staleness is not None
     assert not dataset.symbol_active[9, eth]
     assert dataset.symbol_active[10, eth]
     assert not dataset.symbol_active[50, eth]
@@ -140,7 +151,9 @@ def test_dataset_identity_binds_order_config_and_contracts() -> None:
         {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
     )
     base = MarketDatasetBuilder(config()).build(source, instruments())
-    reordered = MarketDatasetBuilder(config()).build(source, tuple(reversed(instruments())))
+    reordered = MarketDatasetBuilder(config()).build(
+        source, tuple(reversed(instruments()))
+    )
     changed_norm = MarketDatasetBuilder(config(normalization_window=36)).build(
         source, instruments()
     )
@@ -156,7 +169,13 @@ def test_dataset_identity_binds_order_config_and_contracts() -> None:
         source, tuple(changed_contracts)
     )
 
-    assert len({base.dataset_id, reordered.dataset_id, changed_norm.dataset_id, changed_contract.dataset_id}) == 4
+    identities = {
+        base.dataset_id,
+        reordered.dataset_id,
+        changed_norm.dataset_id,
+        changed_contract.dataset_id,
+    }
+    assert len(identities) == 4
 
 
 def test_csv_source_builds_market_dataset(tmp_path: Path) -> None:
@@ -169,7 +188,10 @@ def test_csv_source_builds_market_dataset(tmp_path: Path) -> None:
                 f"{series.low[index]},{series.close[index]},{series.volume[index]},"
                 f"{series.funding_rate[index]},true"
             )
-        (tmp_path / f"{symbol}.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+        (tmp_path / f"{symbol}.csv").write_text(
+            "\n".join(rows) + "\n",
+            encoding="utf-8",
+        )
 
     dataset = MarketDatasetBuilder(config()).build(
         CsvMarketDataSource(tmp_path), instruments()

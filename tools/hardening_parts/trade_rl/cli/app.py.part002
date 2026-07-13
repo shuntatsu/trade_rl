@@ -1,0 +1,6 @@
+        args.policy_net_arch = [128, 128]
+    return int(handler(args, output))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

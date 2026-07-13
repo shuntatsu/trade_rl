@@ -35,6 +35,7 @@ def test_execution_and_mark_to_market_reconcile_cash_quantities_and_equity() -> 
 
     assert book.cash == pytest.approx(690.0)
     assert book.portfolio_value == pytest.approx(990.0)
+    assert book.max_drawdown == pytest.approx(0.01)
     assert book.fill_count == 2
     assert book.rebalance_events == 1
 

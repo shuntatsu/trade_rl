@@ -25,7 +25,7 @@ RL policyが変更できるのは次の2つだけです。
 
 - `TrendFamily`は価格履歴とUTC bar timestampだけに依存し、現在の口座weightやslice相対indexには依存しません。
 - environmentの1 actionは`decision_every`本分を1区間として進め、集約rewardを1つ返します。
-- 解決済み`decision_every`はすべてのResidual environmentへ明示的に渡し、run設定にも実効値を書き戻します。0や不正値はfail-closedで拒否します。
+- 要求値と実効`decision_every`を不変run設定へ別々に記録します。0や不正値はfail-closedで拒否します。
 - Hybrid bookとshadow bookは独立したportfolio stateを持ちますが、価格、funding、cost、HTF制約、post-processing、hard risk checkは同一です。
 - Rewardはhybrid区間log returnからshadow base-trend区間log returnを引いた値です。
 - Identity actionは、テスト済み数値誤差内でshadowのweight、cost、PnLと一致しなければなりません。
@@ -33,11 +33,11 @@ RL policyが変更できるのは次の2つだけです。
 - residual-alphaのdataset identityはmetadataだけでなく、順序付きschema、timestamp、学習特徴値、target生成に使う価格履歴をhash化します。
 - HTFはstateful post-processingより前にdesired proposalへ作用します。neutral signalが制約済みpositionを繰り返し半減させることはありません。
 - 完全oracleとnoisy oracleは診断専用で、必須release gateには入りません。
-- Sharpe／Sortinoの年率換算は固定1h値ではなく、稼働中post-processorのbase timeframe係数を使用します。
+- Sharpe／Sortinoの年率換算は固定1h値ではなく、実効base timeframe係数を使用します。
 
 ## Development matrix
 
-研究runnerは、最終test区間を見る前にdevelopment validation区間で構成を固定します。
+研究runnerは、最終test区間を見る前にconfiguration selection区間で構成を固定します。
 
 ```text
 A: pure base_trend_v2 identity policy
@@ -53,7 +53,7 @@ D: PPO trend mixing + PPO alpha budget
 - DはB／C／Dの適格条件を満たし、2倍costに耐え、通常costでBとCの両方を厳密に上回る場合だけ選択します。
 - それ以外は、trend mixingが適格ならB、適格でなければA（`baseline_only`）へfallbackします。
 
-固定済みの選択構成だけを最終test区間で1回評価し、cost 1x／2xを報告します。
+Checkpoint validationとconfiguration selectionは別の時系列区間です。固定済みの選択構成だけをouter OOSでcost 1x／2x評価します。
 
 ## Checkpoint selection
 
@@ -107,6 +107,8 @@ uv run python scripts/run_pipeline.py \
 
 従来のdirect-weight Walk-Forwardは、引き続き`walk_forward_cost1x.json`と`walk_forward_cost2x.json`を出力します。これらはResidualアーキテクチャの評価結果ではありません。
 
+実データの旧direct経路を3 folds × 3 seedsで再評価した結果、通常cost・2倍costの双方で平均returnとSharpeが負、9評価中5つが取引ゼロ、Deflated Sharpe確率も低水準でした。これは旧direct経路を棄却する証拠を強めますが、Residual経路の成績を示すものではありません。
+
 Residual専用のnested Walk-Forwardは明示的に実行します。
 
 ```bash
@@ -128,7 +130,9 @@ uv run python scripts/run_pipeline.py \
   --output output/realdata_residual_wf
 ```
 
-正規の結果ファイルは`residual_walk_forward.json`です。各outer foldの内部でtrain／validationを分離し、outer OOS結果を見る前にA／B／Dを選択します。その後、同じ選択済みpolicyをcost 1x／2xで評価します。Reportにはhybridとshadow双方の取引回数を記録するため、residual actionがゼロなのか、portfolio全体が取引ゼロなのかを区別できます。foldごとのartifactは`residual_wf/fold_<k>/`へ保存し、Registryには登録しません。
+各outer foldはpolicy train、checkpoint validation、configuration selection、outer OOSの4区間を持ち、purgeで分離します。成功reportを公開するには少なくとも2 foldの完了が必要です。選択済みの同一model digestを、再学習・再選択せずcost 1x／2xで評価します。
+
+Top-levelの`residual_walk_forward.json`は、run全体をatomic publicationした後にだけ置換します。`run_id`、不変の解決済み設定、fold診断、stitched OOSを記録します。再実行が失敗しても以前の成功reportを上書きせず、partial artifactは`failed/<run_id>/`へ隔離します。
 
 ## Artifact
 
@@ -137,15 +141,26 @@ uv run python scripts/run_pipeline.py \
 - `residual_alpha.json` — 凍結residual-alpha modelと内容に結び付いたdata identity
 - `B_trend_mix_model.zip`または`B_trend_mix_ensemble/`
 - alpha gate合格時の`D_combined_model.zip`または`D_combined_ensemble/`
-- `residual_train_report.json` — cost 1x／2xのA/B/C/D development結果、固定済み選択、最終relative評価、gate、診断
+- `residual_train_report.json` — cost 1x／2xのdevelopment結果、固定済み選択、最終relative評価、gate、診断
 - `residual_model_manifest.json` — dataset、学習、選択policy mode、選択済みalpha有効化状態のidentity
 
-Residual Walk-Forward runnerは次を出力します。
+Residual Walk-Forward runnerの出力:
 
-- `residual_walk_forward.json` — fold横断の構成選択、activity、return、cost、fallback、warning集計
-- `residual_wf/fold_<k>/residual_alpha.json` — fold内trainだけでfitした凍結alpha artifact
-- `residual_wf/fold_<k>/fold_report.json` — fold境界、development matrix、固定済み選択、cost 1x／2x OOS診断
-- 学習されたfold-local B／D model artifact
+```text
+<output>/
+  residual_walk_forward.json
+  residual_wf_runs/<run_id>/
+    residual_walk_forward.json
+    data_quality_report.json
+    residual_wf/fold_<k>/
+      residual_alpha.json
+      fold_report.json
+      B_trend_mix_model.zip | B_trend_mix_ensemble/
+      D_combined_model.zip | D_combined_ensemble/
+  failed/<run_id>/                 # 失敗したpartial runのみ
+```
+
+正規の全体成績は、時系列順で重複しないbase-bar hybrid／shadow returnを連結したstitched OOSです。Fold平均・中央値は補助統計です。生のreturn配列は内部集計にだけ使用し、公開fold reportへ重複保存しません。
 
 ## Serving schema
 

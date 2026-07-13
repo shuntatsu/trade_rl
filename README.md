@@ -29,13 +29,23 @@ uv sync --extra dev
 
 ```bash
 uv run trade-rl --version
-uv run trade-rl train config --timesteps 1024 --gamma 0.5 --seed 0 --seed 1
+uv run trade-rl train config \
+  --timesteps 102400 --decision-hours 4 --discount-half-life-hours 168 \
+  --n-steps 2048 --batch-size 64 --n-epochs 10 \
+  --learning-rate 0.0003 --device auto \
+  --seed 0 --seed 1 --seed 2
 uv run trade-rl walk-forward plan \
   --bars 220 --train-bars 80 --checkpoint-bars 10 \
   --selection-bars 10 --test-bars 20 --purge-bars 2 --max-folds 2
 ```
 
 The `data`, `signal`, `evaluate`, `registry`, and `serve` command groups expose the corresponding architectural boundaries. Additional application adapters should be added behind these boundaries rather than inside domain or evaluation code.
+
+## GPU utilization
+
+The maintained PPO uses a small MLP and currently trains through one environment. In this shape, environment stepping, NumPy accounting, and rollout collection can dominate wall-clock time, so low GPU utilization is expected and does not by itself indicate that training is broken.
+
+Use `--device cuda` to require CUDA or `--device auto` to let Stable-Baselines3 choose. The training artifact records the resolved device, requested timesteps, rollout-rounded actual timesteps, and the complete PPO configuration digest. Compare wall-clock samples per second and sealed OOS quality before increasing network width, batch size, or environment parallelism merely to make a GPU busier.
 
 ## Verification
 

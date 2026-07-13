@@ -1,0 +1,40 @@
+name: Reward v2 schema migration
+
+on:
+  push:
+    branches:
+      - agent/reward-design-v2
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/reward-design-v2
+          fetch-depth: 0
+
+      - name: Migrate schema fixtures and restore lockfile
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          old = "baseline_residual_observation_v2"
+          new = "baseline_residual_observation_v3"
+          for path in Path("tests").rglob("*.py"):
+              content = path.read_text(encoding="utf-8")
+              if old in content:
+                  path.write_text(content.replace(old, new), encoding="utf-8")
+          PY
+          git checkout 08c0f8415e177b28e725d81d3bb41c40c32a661a -- uv.lock
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tests uv.lock
+            git commit -m "test: migrate reward observation schema fixtures"
+            git push origin HEAD:agent/reward-design-v2
+          fi

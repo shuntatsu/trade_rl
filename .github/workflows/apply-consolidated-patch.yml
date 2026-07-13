@@ -39,7 +39,12 @@ jobs:
       - name: Format
         run: uv run ruff format --check --diff .
       - name: Mypy
-        run: uv run mypy trade_rl
+        run: uv run mypy --no-incremental trade_rl 2>&1 | tee mypy.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: consolidated-apply-mypy
+          path: mypy.txt
       - name: Import architecture
         run: uv run lint-imports
       - name: Dead-code report

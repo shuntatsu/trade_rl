@@ -65,18 +65,14 @@ class ReleaseManifest:
         """Build a release only when identities agree and mandatory gates pass."""
 
         if gate.failed_mandatory_checks:
-            failed = ", ".join(
-                check.name for check in gate.failed_mandatory_checks
-            )
+            failed = ", ".join(check.name for check in gate.failed_mandatory_checks)
             raise ValueError(f"mandatory gate checks failed: {failed}")
         if not gate.passed:
             raise ValueError("mandatory gate decision did not pass")
         if dataset.dataset_id != signal.dataset_id:
             raise ValueError("dataset identity mismatch between dataset and signal")
         if dataset.dataset_id != selection.dataset_id:
-            raise ValueError(
-                "dataset identity mismatch between dataset and selection"
-            )
+            raise ValueError("dataset identity mismatch between dataset and selection")
         if signal.digest != selection.signal_digest:
             raise ValueError("signal digest mismatch between signal and selection")
         return cls(

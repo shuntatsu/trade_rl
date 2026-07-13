@@ -84,7 +84,9 @@ def _rolling_zscore(
         if sample.size < min_periods:
             continue
         std = float(np.std(sample))
-        result[index] = 0.0 if std <= 1e-12 else (values[index] - float(np.mean(sample))) / std
+        result[index] = (
+            0.0 if std <= 1e-12 else (values[index] - float(np.mean(sample))) / std
+        )
         result_valid[index] = True
     return result, result_valid
 
@@ -162,10 +164,16 @@ def _feature_events(
             start = max(0, index - spec.lookback + 1)
             mask = (row_present & active)[start : index + 1]
             sample = volume[start : index + 1][mask]
-            if not row_present[index] or not active[index] or sample.size < spec.min_periods:
+            if (
+                not row_present[index]
+                or not active[index]
+                or sample.size < spec.min_periods
+            ):
                 continue
             std = float(np.std(sample))
-            values[index] = 0.0 if std <= 1e-12 else (volume[index] - float(np.mean(sample))) / std
+            values[index] = (
+                0.0 if std <= 1e-12 else (volume[index] - float(np.mean(sample))) / std
+            )
             valid[index] = True
     else:
         raise ValueError(f"unsupported feature kind: {spec.kind}")
@@ -185,8 +193,14 @@ def _regular_clock(
     *,
     step_ns: int,
 ) -> np.ndarray:
-    first = min(int(value.timestamps[0].astype("datetime64[ns]").astype(np.int64)) for value in series)
-    last = max(int(value.timestamps[-1].astype("datetime64[ns]").astype(np.int64)) for value in series)
+    first = min(
+        int(value.timestamps[0].astype("datetime64[ns]").astype(np.int64))
+        for value in series
+    )
+    last = max(
+        int(value.timestamps[-1].astype("datetime64[ns]").astype(np.int64))
+        for value in series
+    )
     if last <= first:
         raise ValueError("market source does not contain a usable time range")
     count, remainder = divmod(last - first, step_ns)
@@ -227,6 +241,7 @@ def _align_series(
     for field_name in ("open", "high", "low", "close", "volume", "funding_rate"):
         result[field_name][indices] = getattr(raw, field_name)
     result["tradable"][indices] = raw.tradable
+    assert raw.funding_available is not None
     result["funding_available"][indices] = raw.funding_available
     result["row_present"][indices] = True
 

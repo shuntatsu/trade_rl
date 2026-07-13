@@ -1,0 +1,29 @@
+name: Cleanup temporary environment-hardening refs
+
+on:
+  push:
+    branches: [verify/realistic-env-hardening]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Close temporary pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh api --method PATCH "repos/$GH_REPO/pulls/19" -f state=closed || true
+          gh api --method PATCH "repos/$GH_REPO/pulls/21" -f state=closed || true
+      - name: Delete temporary refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh api --method DELETE "repos/$GH_REPO/git/refs/heads/apply/realistic-env-hardening-final" || true
+          gh api --method DELETE "repos/$GH_REPO/git/refs/heads/fix/realistic-environment-hardening-final" || true
+          gh api --method DELETE "repos/$GH_REPO/git/refs/heads/verify/realistic-env-hardening" || true

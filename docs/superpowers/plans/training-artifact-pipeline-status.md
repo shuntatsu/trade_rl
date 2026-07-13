@@ -1,3 +1,3 @@
 # Training Artifact Pipeline Status
 
-Implementation is in functional verification. The artifact-producing commands are being integrated into the existing authoritative CLI entrypoint before the next complete test pass.
+Implementation is in full verification. The authoritative CLI now exposes real training and walk-forward execution; this update runs the complete architecture, training, serving, export, coverage, and CLI suite.

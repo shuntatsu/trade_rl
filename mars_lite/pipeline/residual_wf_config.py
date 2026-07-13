@@ -20,7 +20,9 @@ def _hash_array(digest: Any, value: object) -> None:
     digest.update(str(array.dtype).encode("utf-8"))
     digest.update(repr(tuple(array.shape)).encode("utf-8"))
     if array.dtype.hasobject:
-        digest.update("\x1f".join(str(item) for item in array.reshape(-1)).encode("utf-8"))
+        digest.update(
+            "\x1f".join(str(item) for item in array.reshape(-1)).encode("utf-8")
+        )
     else:
         digest.update(array.tobytes(order="C"))
 

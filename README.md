@@ -26,6 +26,16 @@ The maintained environment now provides:
 
 Environment identity includes dataset, calendar, action specification, alpha/factor artifacts, normalizer, episode curriculum, trend, reward, risk, execution and AUM. Serving bundle v3 binds the exact action size, action names, ActionSpec digest, observation schema and size, environment digest and normalizer digest. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
 
+The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3 and TQC ensemble bundles. It validates every declared member and averages deterministic actions only after all members pass shape, finite-value and bounds checks.
+
+## Training artifacts
+
+A market dataset artifact is a validated directory containing canonical `manifest.json` and deterministic `arrays.npz`. Training and walk-forward runs are staged, validated and then atomically published under `runs/<run-id>`; incomplete runs are isolated under `failed/<run-id>` and never replace `latest.json`.
+
+A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one `policy.zip` per seed, a `policy-loader.json`, optional verified ONNX/TorchScript actors and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format. ONNX is an optional required export when requested; TorchScript is best-effort and records an explicit unsupported reason when conversion is unsafe.
+
+Nested walk-forward execution fits normalization on each train range only, evaluates checkpoint and configuration-selection ranges without reading sealed test data, and evaluates each selected policy on the outer test range only after selection.
+
 ## Commands
 
 ```bash
@@ -40,6 +50,28 @@ uv run trade-rl environment config \
   --initial-state-mode cash --initial-state-mode stress
 ```
 
+Execute actual training and atomic artifact publication:
+
+```bash
+uv run trade-rl train run \
+  --config configs/train.json \
+  --dataset artifacts/datasets/btc-eth \
+  --output artifacts/research \
+  --run-id btc-eth-ppo-001
+```
+
+Execute real-data nested walk-forward research:
+
+```bash
+uv run trade-rl walk-forward run \
+  --config configs/walk-forward.json \
+  --dataset artifacts/datasets/btc-eth \
+  --output artifacts/research \
+  --run-id btc-eth-wf-001
+```
+
+Both execution commands print one machine-readable JSON result and retain `production_status: "NO-GO"` until a separate approved release exists.
+
 ## Verification
 
 ```bash
@@ -49,5 +81,7 @@ uv run mypy trade_rl
 uv run lint-imports
 uv run pytest --cov=trade_rl --cov-branch
 ```
+
+Install export verification dependencies with `uv sync --extra dev --extra export`.
 
 See [Architecture](docs/ARCHITECTURE.md) and [Research Status](docs/RESEARCH_STATUS.md).

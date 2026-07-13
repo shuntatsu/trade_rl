@@ -10,6 +10,8 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendTargets
 
+OBSERVATION_SCHEMA = "baseline_residual_observation_v2"
+
 
 @dataclass(frozen=True, slots=True)
 class ObservationLayout:
@@ -26,7 +28,7 @@ def observation_layout(dataset: MarketDataset) -> ObservationLayout:
     return ObservationLayout(
         n_symbols=dataset.n_symbols,
         per_symbol_width=dataset.n_features + 9,
-        global_width=len(dataset.global_feature_names) + 10,
+        global_width=len(dataset.global_feature_names) + 9,
     )
 
 
@@ -52,10 +54,12 @@ def build_observation(
     hybrid_risk_scale: float,
     shadow_risk_scale: float,
 ) -> np.ndarray:
-    """Build the explicit market, hybrid, shadow, and risk-state observation."""
+    """Build causal market, hybrid, shadow, and risk-state policy inputs."""
 
     if not 0 <= index < dataset.n_bars:
         raise ValueError("observation index is outside the dataset")
+    if end_index <= start_index:
+        raise ValueError("episode end_index must be greater than start_index")
     _validate_book(hybrid, dataset, field_name="hybrid")
     _validate_book(shadow, dataset, field_name="shadow")
     alpha_vector = np.asarray(alpha, dtype=np.float64).reshape(-1)
@@ -64,8 +68,6 @@ def build_observation(
         or not np.isfinite(alpha_vector).all()
     ):
         raise ValueError("alpha vector does not match dataset symbols")
-    if end_index <= start_index:
-        raise ValueError("episode end_index must be greater than start_index")
     for field_name, value in (
         ("hybrid_risk_scale", hybrid_risk_scale),
         ("shadow_risk_scale", shadow_risk_scale),
@@ -74,15 +76,14 @@ def build_observation(
             raise ValueError(f"{field_name} must be finite and within [0, 1]")
 
     availability_fraction = dataset.feature_available[index].mean(axis=1)
-    next_index = min(index + 1, dataset.n_bars - 1)
-    next_tradable = dataset.tradable[next_index].astype(np.float64, copy=False)
+    current_tradable = dataset.tradable[index].astype(np.float64, copy=False)
     hybrid_weights = hybrid.weights
     shadow_weights = shadow.weights
     per_symbol = np.column_stack(
         (
             dataset.features[index],
             availability_fraction,
-            next_tradable,
+            current_tradable,
             trends.fast,
             trends.base,
             trends.slow,
@@ -95,9 +96,6 @@ def build_observation(
 
     hybrid_value = hybrid.portfolio_value
     shadow_value = shadow.portfolio_value
-    hybrid_drawdown = _drawdown(hybrid)
-    shadow_drawdown = _drawdown(shadow)
-    progress = (index - start_index) / (end_index - start_index)
     global_values = np.concatenate(
         (
             dataset.global_features[index].astype(np.float64, copy=False),
@@ -105,14 +103,13 @@ def build_observation(
                 [
                     math_log_value(hybrid_value),
                     math_log_value(shadow_value),
-                    hybrid_drawdown,
-                    shadow_drawdown,
+                    _drawdown(hybrid),
+                    _drawdown(shadow),
                     math_log_value(hybrid_value / shadow_value),
                     float(np.abs(hybrid_weights).sum()),
                     float(np.abs(shadow_weights).sum()),
                     hybrid_risk_scale,
                     shadow_risk_scale,
-                    float(np.clip(progress, 0.0, 1.0)),
                 ],
                 dtype=np.float64,
             ),

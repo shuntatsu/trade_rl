@@ -49,11 +49,19 @@ The `data`, `signal`, `evaluate`, `registry`, and `serve` command groups expose 
 
 The repository still does not provide an exchange downloader or a project-specific real-data trainer/evaluator adapter. Those adapters must construct fold-local datasets and models without widening the declared ranges.
 
+## AUM and environment identity
+
+`ResidualMarketEnvConfig.initial_capital` has no silent default. Every training or evaluation adapter must provide the intended quote-currency AUM explicitly. This is required because participation limits, market impact, turnover costs, minimum-equity termination, and liquidation feasibility all change with portfolio size.
+
+The environment computes a content digest over the dataset identity, resolved episode and decision cadence, trend horizons, risk limits, execution-cost model, reward settings, action and observation schemas, alpha mode, and initial capital. Every policy ensemble records this environment digest and AUM, and ensemble construction rejects members trained with different environment identities or capital scales.
+
+A model trained with a one-dollar account is therefore not silently interchangeable with a model intended for a 100,000-dollar or 1,000,000-dollar account. Capacity should ultimately be reported across several predeclared AUM scenarios rather than inferred from a scale-free backtest.
+
 ## GPU utilization
 
 The maintained PPO uses a small MLP and currently trains through one environment. In this shape, environment stepping, NumPy accounting, and rollout collection can dominate wall-clock time, so low GPU utilization is expected and does not by itself indicate that training is broken.
 
-Use `--device cuda` to require CUDA or `--device auto` to let Stable-Baselines3 choose. The training artifact records the resolved device, requested timesteps, rollout-rounded actual timesteps, and the complete PPO configuration digest. Compare wall-clock samples per second and sealed OOS quality before increasing network width, batch size, or environment parallelism merely to make a GPU busier.
+Use `--device cuda` to require CUDA or `--device auto` to let Stable-Baselines3 choose. The training artifact records the resolved device, requested timesteps, rollout-rounded actual timesteps, complete PPO configuration digest, environment digest, and initial capital. Compare wall-clock samples per second and sealed OOS quality before increasing network width, batch size, or environment parallelism merely to make a GPU busier.
 
 ## Verification
 

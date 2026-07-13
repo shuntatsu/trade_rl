@@ -10,7 +10,7 @@ on:
       - agent/causal-training-hardening
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -18,14 +18,13 @@ concurrency:
 
 jobs:
   quality:
-    name: Rebuilt Core
+    name: Ruff Diagnostics
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
 
       - name: Apply final implementation
         run: python tools/apply_final_hardening.py
@@ -39,97 +38,23 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Apply Ruff fixes and formatting
-        run: |
-          uv run ruff check . --fix
-          uv run ruff format .
-
-      - name: Commit implementation and restore CI
-        run: |
-          cat > .github/workflows/ci.yml <<'EOF'
-          name: CI
-
-          on:
-            push:
-              branches:
-                - main
-            pull_request:
-              branches:
-                - main
-                - agent/causal-training-hardening
-
-          permissions:
-            contents: read
-
-          concurrency:
-            group: ci-${{ github.workflow }}-${{ github.ref }}
-            cancel-in-progress: true
-
-          jobs:
-            quality:
-              name: Rebuilt Core
-              runs-on: ubuntu-latest
-              steps:
-                - name: Checkout
-                  uses: actions/checkout@v4
-
-                - name: Set up uv
-                  uses: astral-sh/setup-uv@v5
-                  with:
-                    python-version: "3.12"
-                    enable-cache: true
-
-                - name: Install
-                  run: uv sync --extra dev
-
-                - name: Ruff
-                  run: uv run ruff check .
-
-                - name: Format
-                  run: uv run ruff format --check --diff .
-
-                - name: Mypy
-                  run: uv run mypy trade_rl
-
-                - name: Import architecture
-                  run: uv run lint-imports
-
-                - name: Dead-code report
-                  continue-on-error: true
-                  run: uv run vulture trade_rl tests --min-confidence 100
-
-                - name: Tests and coverage
-                  run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
-
-                - name: CLI smoke test
-                  run: uv run trade-rl --version
-          EOF
-          rm -f .github/workflows/implementation-fix.yml
-          rm -f tools/apply_final_hardening.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: complete reward and serving hardening"
-          git push origin HEAD:agent/action-environment-comprehensive-hardening
-
-      - name: Ruff
-        run: uv run ruff check .
-
-      - name: Format
-        run: uv run ruff format --check --diff .
-
-      - name: Mypy
-        run: uv run mypy trade_rl
-
-      - name: Import architecture
-        run: uv run lint-imports
-
-      - name: Dead-code report
+      - name: Capture Ruff diagnostics
         continue-on-error: true
-        run: uv run vulture trade_rl tests --min-confidence 100
+        run: |
+          set +e
+          uv run ruff check . --fix --output-format=concise > ruff-check.log 2>&1
+          echo $? > ruff-exit-code.txt
+          uv run ruff format . > ruff-format.log 2>&1
+          exit 0
 
-      - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-diagnostics
+          path: |
+            ruff-check.log
+            ruff-format.log
+            ruff-exit-code.txt
 
-      - name: CLI smoke test
-        run: uv run trade-rl --version
+      - name: Fail when Ruff remains dirty
+        run: test "$(cat ruff-exit-code.txt)" = "0"

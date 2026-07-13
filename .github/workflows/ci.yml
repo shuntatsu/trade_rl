@@ -50,8 +50,11 @@ jobs:
       - name: Format evaluation
         run: uv run ruff format --check --diff trade_rl/evaluation
 
-      - name: Format registry and risk
-        run: uv run ruff format --check --diff trade_rl/registry trade_rl/risk
+      - name: Format registry
+        run: uv run ruff format --check --diff trade_rl/registry
+
+      - name: Format risk
+        run: uv run ruff format --check --diff trade_rl/risk
 
       - name: Format RL
         run: uv run ruff format --check --diff trade_rl/rl

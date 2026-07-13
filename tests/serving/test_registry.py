@@ -31,7 +31,7 @@ def test_failed_activation_preserves_previous_active_bundle(tmp_path: Path) -> N
     first = registry.activate(valid)
     (invalid / "dataset.json").write_text('{"tampered":true}', encoding="utf-8")
 
-    with pytest.raises(ValueError, match="digest"):
+    with pytest.raises(ValueError, match="mismatch"):
         registry.activate(invalid)
 
     assert (

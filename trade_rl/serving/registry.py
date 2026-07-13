@@ -52,7 +52,9 @@ class ServingRegistry:
         if destination.exists():
             installed = load_serving_bundle(destination)
             if installed.manifest.bundle_digest != digest:
-                raise ValueError("installed bundle digest does not match directory identity")
+                raise ValueError(
+                    "installed bundle digest does not match directory identity"
+                )
         else:
             stage = self.staging_root / digest
             if stage.exists():

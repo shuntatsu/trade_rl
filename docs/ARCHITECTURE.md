@@ -60,9 +60,9 @@ There is no maintained direct-action mode.
 
 One policy action controls one complete decision interval. Market execution advances through every base bar in that interval, then emits one reward whose primary term is the hybrid book's net interval log growth after execution costs and funding. Base-bar returns remain available for annualized evaluation and are never silently mixed with decision-step returns.
 
-The reward model is pure and typed. A 30-day rolling baseline hinge penalizes only newly worsening underperformance beyond a 1.5% full-window tolerance. A staged drawdown function has a 5% free region and increasing slopes over the 5-10%, 10-15%, and 15-20% ranges; only increases in shaped severity are penalized. The policy observation exposes all rolling reward state, so the maintained MLP does not face hidden reward memory.
+The reward model is pure and typed. A 30-day rolling baseline hinge penalizes only newly worsening underperformance beyond a 1.5% full-window tolerance. A staged drawdown function has a 5% free region and increasing slopes over the 5-10%, 10-15%, and 15-20% ranges; only increases in shaped severity are penalized. The policy observation exposes rolling policy and baseline growth, their gap, the current shortfall, scaled tolerance, hinge level, and emergency state. The maintained MLP therefore receives the compact state that determines the next shaping increment.
 
-Random training-window endings remain time-limit truncations. Explicit sealed-evaluation liquidation and the 20% drawdown safety stop are true terminal transitions. Both use actual liquidation results and costs rather than fixed terminal rewards.
+Random training-window endings remain time-limit truncations. Explicit sealed-evaluation liquidation is a true terminal transition and closes both books so their end-of-window economics remain comparable. A 20% hybrid drawdown is also terminal, but it liquidates only the failed hybrid policy book; the independent shadow book is not charged for policy failure. Both paths use actual liquidation results and costs rather than fixed terminal rewards.
 
 ## Evaluation
 

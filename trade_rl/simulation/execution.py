@@ -13,16 +13,34 @@ from trade_rl.simulation.accounting import BookState
 _TOLERANCE = 1e-12
 
 
+def _validate_multiplier_range(
+    value: tuple[float, float],
+    *,
+    field_name: str,
+) -> None:
+    if len(value) != 2:
+        raise ValueError(f"{field_name} must contain lower and upper bounds")
+    lower, upper = value
+    if not math.isfinite(lower) or not math.isfinite(upper):
+        raise ValueError(f"{field_name} bounds must be finite")
+    if lower < 0.0 or upper < lower:
+        raise ValueError(f"{field_name} must satisfy 0 <= lower <= upper")
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionCostConfig:
     fee_rate: float = 0.0005
     spread_rate: float = 0.0002
     impact_rate: float = 0.0001
+    liquidation_fee_rate: float = 0.005
     multiplier: float = 1.0
     max_participation_rate: float = 0.05
     slippage_std: float = 0.0
     tail_slippage_probability: float = 0.0
     tail_slippage_multiplier: float = 5.0
+    fee_multiplier_range: tuple[float, float] = (1.0, 1.0)
+    spread_multiplier_range: tuple[float, float] = (1.0, 1.0)
+    impact_multiplier_range: tuple[float, float] = (1.0, 1.0)
     random_seed: int = 0
 
     def __post_init__(self) -> None:
@@ -30,6 +48,7 @@ class ExecutionCostConfig:
             ("fee_rate", self.fee_rate),
             ("spread_rate", self.spread_rate),
             ("impact_rate", self.impact_rate),
+            ("liquidation_fee_rate", self.liquidation_fee_rate),
             ("multiplier", self.multiplier),
             ("max_participation_rate", self.max_participation_rate),
             ("slippage_std", self.slippage_std),
@@ -38,15 +57,21 @@ class ExecutionCostConfig:
         ):
             if not math.isfinite(value):
                 raise ValueError(f"{field_name} must be finite")
-        if min(
-            self.fee_rate,
-            self.spread_rate,
-            self.impact_rate,
-            self.multiplier,
-            self.slippage_std,
-            self.tail_slippage_multiplier,
-        ) < 0.0:
+        if (
+            min(
+                self.fee_rate,
+                self.spread_rate,
+                self.impact_rate,
+                self.liquidation_fee_rate,
+                self.multiplier,
+                self.slippage_std,
+                self.tail_slippage_multiplier,
+            )
+            < 0.0
+        ):
             raise ValueError("execution rates and multipliers must be non-negative")
+        if self.liquidation_fee_rate >= 1.0:
+            raise ValueError("liquidation_fee_rate must be below one")
         if not 0.0 < self.max_participation_rate <= 1.0:
             raise ValueError("max_participation_rate must be within (0, 1]")
         if not 0.0 <= self.tail_slippage_probability <= 1.0:
@@ -55,6 +80,12 @@ class ExecutionCostConfig:
             raise ValueError("random_seed must be a non-negative integer")
         if self.random_seed < 0:
             raise ValueError("random_seed must be a non-negative integer")
+        for field_name, bounds in (
+            ("fee_multiplier_range", self.fee_multiplier_range),
+            ("spread_multiplier_range", self.spread_multiplier_range),
+            ("impact_multiplier_range", self.impact_multiplier_range),
+        ):
+            _validate_multiplier_range(bounds, field_name=field_name)
 
     @property
     def rate_per_turnover(self) -> float:
@@ -68,6 +99,7 @@ class ExecutionCostConfig:
             fee_rate=0.0,
             spread_rate=0.0,
             impact_rate=0.0,
+            liquidation_fee_rate=0.0,
             multiplier=1.0,
             max_participation_rate=1.0,
             slippage_std=0.0,
@@ -91,6 +123,8 @@ class ExecutionResult:
     unfilled_turnover: float
     fill_count: int
     rebalance_events: int
+    liquidation_count: int
+    bankrupt: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,12 +159,27 @@ class MarketExecutor:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
         self._rng = np.random.default_rng(self.cost.random_seed)
+        self._runtime_cost_multipliers = (1.0, 1.0, 1.0)
+        self.reset_random_state(self.cost.random_seed)
+
+    @property
+    def runtime_cost_multipliers(self) -> tuple[float, float, float]:
+        return self._runtime_cost_multipliers
 
     def reset_random_state(self, seed: int | None = None) -> None:
         resolved = self.cost.random_seed if seed is None else seed
         if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
             raise ValueError("seed must be a non-negative integer")
         self._rng = np.random.default_rng(resolved)
+        draws = [
+            float(self._rng.uniform(lower, upper)) if upper > lower else float(lower)
+            for lower, upper in (
+                self.cost.fee_multiplier_range,
+                self.cost.spread_multiplier_range,
+                self.cost.impact_multiplier_range,
+            )
+        ]
+        self._runtime_cost_multipliers = (draws[0], draws[1], draws[2])
 
     def _slippage_rates(self, size: int) -> np.ndarray:
         if self.cost.slippage_std == 0.0 or size == 0:
@@ -141,6 +190,48 @@ class MarketExecutor:
             rates[tails] *= self.cost.tail_slippage_multiplier
         return rates
 
+    def _round_and_filter_delta(
+        self,
+        *,
+        current: np.ndarray,
+        desired: np.ndarray,
+        raw_delta: np.ndarray,
+        prices: np.ndarray,
+    ) -> np.ndarray:
+        step = self.dataset.quantity_steps
+        rounded = raw_delta.copy()
+        positive_step = step > 0.0
+        rounded[positive_step] = (
+            np.trunc(rounded[positive_step] / step[positive_step]) * step[positive_step]
+        )
+        next_quantities = current + rounded
+        notional = np.abs(rounded * prices)
+        reducing = np.abs(next_quantities) < np.abs(current) - _TOLERANCE
+        below_minimum = (
+            notional + _TOLERANCE < self.dataset.minimum_notionals
+        ) & ~reducing
+        rounded[below_minimum] = 0.0
+        would_cross = np.sign(current) != np.sign(current + rounded)
+        overshoots_desired = np.abs(current + rounded) > np.abs(desired) + _TOLERANCE
+        rounded[would_cross & overshoots_desired] = -current[
+            would_cross & overshoots_desired
+        ]
+        return rounded
+
+    def _execution_rates(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        fee_multiplier, spread_multiplier, _ = self._runtime_cost_multipliers
+        fee = (
+            self.dataset.taker_fee_rate[index]
+            if self.dataset.taker_fee_rate is not None
+            else np.full(self.dataset.n_symbols, self.cost.fee_rate)
+        )
+        spread = (
+            self.dataset.spread_rate[index]
+            if self.dataset.spread_rate is not None
+            else np.full(self.dataset.n_symbols, self.cost.spread_rate)
+        )
+        return fee * fee_multiplier, spread * spread_multiplier
+
     def _fill_toward_quantities(
         self,
         book: BookState,
@@ -149,6 +240,7 @@ class MarketExecutor:
         prices: np.ndarray,
         volume: np.ndarray,
         tradable: np.ndarray,
+        market_index: int,
         turnover_denominator: float,
     ) -> _FillResult:
         price_vector = np.asarray(prices, dtype=np.float64).reshape(-1)
@@ -173,11 +265,18 @@ class MarketExecutor:
         market_notional = price_vector * volume_vector
         capacity = self.cost.max_participation_rate * market_notional
         capacity = np.where(trade_mask, capacity, 0.0)
-        filled_notional_vector = np.sign(requested_notional_vector) * np.minimum(
+        raw_filled_notional = np.sign(requested_notional_vector) * np.minimum(
             np.abs(requested_notional_vector),
             capacity,
         )
-        filled_delta = filled_notional_vector / price_vector
+        raw_filled_delta = raw_filled_notional / price_vector
+        filled_delta = self._round_and_filter_delta(
+            current=book.quantities,
+            desired=desired,
+            raw_delta=raw_filled_delta,
+            prices=price_vector,
+        )
+        filled_notional_vector = filled_delta * price_vector
         next_quantities = book.quantities + filled_delta
 
         positive_market = market_notional > 0.0
@@ -186,11 +285,11 @@ class MarketExecutor:
             np.abs(filled_notional_vector[positive_market])
             / market_notional[positive_market]
         )
-        impact = self.cost.impact_rate * np.sqrt(participation)
+        fee, spread = self._execution_rates(market_index)
+        _, _, impact_multiplier = self._runtime_cost_multipliers
+        impact = self.cost.impact_rate * impact_multiplier * np.sqrt(participation)
         slippage = self._slippage_rates(len(price_vector))
-        unit_cost = self.cost.multiplier * (
-            self.cost.fee_rate + self.cost.spread_rate + impact + slippage
-        )
+        unit_cost = self.cost.multiplier * (fee + spread + impact + slippage)
         cost_amount = float(np.sum(np.abs(filled_notional_vector) * unit_cost))
         if not math.isfinite(cost_amount) or cost_amount >= book.portfolio_value:
             raise ValueError("execution cost would exhaust the portfolio")
@@ -237,8 +336,14 @@ class MarketExecutor:
         total_funding = 0.0
         total_fills = 0
         total_events = 0
+        liquidation_count_before = result_book.liquidation_count
+        fill_count_before = result_book.fill_count
+        rebalance_events_before = result_book.rebalance_events
+        turnover_before = result_book.turnover_total
+        liquidation_turnover_total = 0.0
         gross_factor = 1.0
         desired_quantities: np.ndarray | None = None
+        bars_advanced = 0
 
         for offset in range(bars):
             close_index = start_index + offset
@@ -266,6 +371,7 @@ class MarketExecutor:
                 prices=self.dataset.open[next_index],
                 volume=self.dataset.volume[next_index],
                 tradable=self.dataset.tradable[next_index],
+                market_index=next_index,
                 turnover_denominator=decision_equity,
             )
             filled_notional_total += fill.filled_notional
@@ -274,11 +380,10 @@ class MarketExecutor:
             total_events += fill.rebalance_events
 
             intrabar_asset_returns = (
-                self.dataset.close[next_index] / self.dataset.open[next_index] - 1.0
+                self.dataset.mark_prices[next_index] / self.dataset.open[next_index]
+                - 1.0
             )
-            intrabar_return = float(
-                np.dot(result_book.weights, intrabar_asset_returns)
-            )
+            intrabar_return = float(np.dot(result_book.weights, intrabar_asset_returns))
             gross_factor *= (1.0 + gap_return) * (1.0 + intrabar_return)
 
             funding_return = -float(
@@ -286,22 +391,38 @@ class MarketExecutor:
             )
             funding_amount = result_book.portfolio_value * funding_return
             total_funding += funding_amount
-            result_book.mark_to_market(
-                mark_prices=self.dataset.close[next_index],
+            settlement = result_book.settle_bar(
+                mark_prices=self.dataset.mark_prices[next_index],
                 funding_amount=funding_amount,
                 period_start_value=period_start_value,
+                maintenance_margin_rates=self.dataset.maintenance_margin_rates,
+                liquidation_fee_rate=self.cost.liquidation_fee_rate,
             )
+            total_cost += settlement.liquidation_cost
+            liquidation_turnover_total += settlement.liquidation_turnover
+            bars_advanced += 1
+            if settlement.liquidated:
+                desired_quantities = np.zeros(
+                    self.dataset.n_symbols,
+                    dtype=np.float64,
+                )
 
         interval_net_return = result_book.portfolio_value / starting_value - 1.0
         if interval_net_return <= -1.0 or not math.isfinite(interval_net_return):
             raise ValueError("execution produced an invalid interval return")
-        requested_turnover = initial_requested_notional / decision_equity
-        filled_turnover = filled_notional_total / decision_equity
-        unfilled_turnover = max(0.0, requested_turnover - filled_turnover)
+        requested_turnover = (
+            initial_requested_notional / decision_equity + liquidation_turnover_total
+        )
+        filled_turnover = result_book.turnover_total - turnover_before
+        unfilled_turnover = max(
+            0.0,
+            initial_requested_notional / decision_equity
+            - filled_notional_total / decision_equity,
+        )
         return ExecutionResult(
             book=result_book,
-            next_index=start_index + bars,
-            bars_advanced=bars,
+            next_index=start_index + bars_advanced,
+            bars_advanced=bars_advanced,
             interval_gross_return=gross_factor - 1.0,
             interval_cost=total_cost,
             interval_funding=total_funding,
@@ -310,15 +431,17 @@ class MarketExecutor:
             requested_turnover=requested_turnover,
             filled_turnover=filled_turnover,
             unfilled_turnover=unfilled_turnover,
-            fill_count=total_fills,
-            rebalance_events=total_events,
+            fill_count=result_book.fill_count - fill_count_before,
+            rebalance_events=(result_book.rebalance_events - rebalance_events_before),
+            liquidation_count=result_book.liquidation_count - liquidation_count_before,
+            bankrupt=result_book.bankrupt,
         )
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
         if not 0 <= index < self.dataset.n_bars:
             raise ValueError("liquidation index is outside the dataset")
         result_book = book.clone()
-        result_book.revalue(self.dataset.close[index])
+        result_book.revalue(self.dataset.mark_prices[index])
         starting_value = result_book.portfolio_value
         desired_quantities = np.zeros(self.dataset.n_symbols, dtype=np.float64)
         fill = self._fill_toward_quantities(
@@ -327,6 +450,7 @@ class MarketExecutor:
             prices=self.dataset.close[index],
             volume=self.dataset.volume[index],
             tradable=self.dataset.tradable[index],
+            market_index=index,
             turnover_denominator=starting_value,
         )
         interval_net_return = result_book.portfolio_value / starting_value - 1.0
@@ -346,4 +470,6 @@ class MarketExecutor:
             unfilled_turnover=max(0.0, requested_turnover - filled_turnover),
             fill_count=fill.fill_count,
             rebalance_events=fill.rebalance_events,
+            liquidation_count=0,
+            bankrupt=result_book.bankrupt,
         )

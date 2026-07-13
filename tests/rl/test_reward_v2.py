@@ -2,59 +2,41 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.rl.rewards import relative_interval_reward
+from trade_rl.rl.rewards import RewardConfig, RewardTracker
 
 
-def test_relative_reward_preserves_excess_log_return_by_default() -> None:
-    reward = relative_interval_reward(
+def test_absolute_log_growth_is_primary_and_excess_is_secondary() -> None:
+    tracker = RewardTracker(RewardConfig(scale=100.0, absolute_growth_weight=1.0, excess_growth_weight=0.25))
+    reward = tracker.step(
         hybrid_log_return=0.02,
         shadow_log_return=0.01,
-        scale=100.0,
-        hybrid_terminated=False,
-        shadow_terminated=False,
-        hybrid_drawdown=0.04,
-        shadow_drawdown=0.03,
+        hybrid_drawdown=0.0,
+        shadow_drawdown=0.0,
     )
-
-    assert reward == pytest.approx(1.0)
-
-
-def test_hybrid_and_shadow_termination_are_not_treated_as_the_same_failure() -> None:
-    hybrid_failure = relative_interval_reward(
-        hybrid_log_return=-0.9,
-        shadow_log_return=-0.1,
-        scale=100.0,
-        hybrid_terminated=True,
-        shadow_terminated=False,
-        hybrid_drawdown=0.99,
-        shadow_drawdown=0.10,
-    )
-    shadow_failure = relative_interval_reward(
-        hybrid_log_return=-0.1,
-        shadow_log_return=-0.9,
-        scale=100.0,
-        hybrid_terminated=False,
-        shadow_terminated=True,
-        hybrid_drawdown=0.10,
-        shadow_drawdown=0.99,
-    )
-
-    assert hybrid_failure == pytest.approx(-100.0)
-    assert shadow_failure == pytest.approx(100.0)
+    assert reward.absolute_component == pytest.approx(0.02)
+    assert reward.excess_component == pytest.approx(0.0025)
 
 
-def test_downside_and_excess_drawdown_penalties_are_explicit() -> None:
-    reward = relative_interval_reward(
-        hybrid_log_return=-0.02,
-        shadow_log_return=-0.01,
-        scale=100.0,
-        hybrid_terminated=False,
-        shadow_terminated=False,
-        hybrid_drawdown=0.08,
-        shadow_drawdown=0.03,
-        downside_penalty=2.0,
-        excess_drawdown_penalty=3.0,
-    )
+def test_drawdown_penalizes_only_new_excess_beyond_dead_zone() -> None:
+    tracker = RewardTracker(RewardConfig(drawdown_dead_zone=0.01, incremental_drawdown_weight=1.0))
+    first = tracker.step(hybrid_log_return=0.0, shadow_log_return=0.0, hybrid_drawdown=0.05, shadow_drawdown=0.04)
+    second = tracker.step(hybrid_log_return=0.0, shadow_log_return=0.0, hybrid_drawdown=0.05, shadow_drawdown=0.04)
+    assert first.incremental_drawdown == pytest.approx(0.0)
+    assert second.incremental_drawdown == pytest.approx(0.0)
 
-    expected = 100.0 * ((-0.02 + 0.01) - 2.0 * 0.02 - 3.0 * 0.05)
-    assert reward == pytest.approx(expected)
+
+def test_rolling_baseline_hinge_uses_real_time_window() -> None:
+    tracker = RewardTracker(RewardConfig(baseline_window_hours=8.0, baseline_tolerance=0.001), decision_hours=4.0)
+    assert tracker.baseline_window_steps == 2
+    first = tracker.step(hybrid_log_return=0.0, shadow_log_return=0.0005, hybrid_drawdown=0.0, shadow_drawdown=0.0)
+    second = tracker.step(hybrid_log_return=0.0, shadow_log_return=0.002, hybrid_drawdown=0.0, shadow_drawdown=0.0)
+    assert first.baseline_penalty == 0.0
+    assert second.baseline_penalty > 0.0
+
+
+def test_terminal_penalty_is_continuous_not_fixed_jackpot() -> None:
+    tracker = RewardTracker(RewardConfig(scale=100.0))
+    mild = tracker.step(hybrid_log_return=-0.1, shadow_log_return=-0.1, hybrid_drawdown=0.2, shadow_drawdown=0.2, hybrid_equity_fraction=0.9, hybrid_terminated=True)
+    tracker.reset()
+    severe = tracker.step(hybrid_log_return=-0.1, shadow_log_return=-0.1, hybrid_drawdown=0.9, shadow_drawdown=0.2, hybrid_equity_fraction=0.1, hybrid_terminated=True)
+    assert severe.terminal_penalty > mild.terminal_penalty

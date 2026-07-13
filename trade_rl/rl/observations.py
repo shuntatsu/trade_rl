@@ -29,7 +29,7 @@ def observation_layout(dataset: MarketDataset) -> ObservationLayout:
     return ObservationLayout(
         n_symbols=dataset.n_symbols,
         per_symbol_width=dataset.n_features + 9,
-        global_width=len(dataset.global_feature_names) + 14,
+        global_width=len(dataset.global_feature_names) + 16,
     )
 
 
@@ -117,7 +117,9 @@ def build_observation(
                     shadow_risk_scale,
                     reward_context.rolling_hybrid_log_growth,
                     reward_context.rolling_shadow_log_growth,
+                    reward_context.rolling_growth_gap,
                     reward_context.baseline_shortfall,
+                    reward_context.baseline_tolerance,
                     reward_context.baseline_penalty,
                     float(emergency_deleverage),
                 ],

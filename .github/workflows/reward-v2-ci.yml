@@ -1,27 +1,21 @@
-name: Reward v2 CI
+name: Reward v2 diagnostics
 
 on:
-  push:
+  pull_request:
     branches:
       - agent/reward-design-v2
 
 permissions:
-  contents: write
-
-concurrency:
-  group: reward-v2-ci-${{ github.ref }}
-  cancel-in-progress: true
+  contents: read
+  pull-requests: write
 
 jobs:
-  quality:
-    name: Reward v2 verification
+  diagnostics:
+    name: Reward v2 diagnostics
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: agent/reward-design-v2
-          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -29,11 +23,8 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
-      - name: Restore authoritative lockfile
-        run: git checkout 08c0f8415e177b28e725d81d3bb41c40c32a661a -- uv.lock
-
       - name: Install
-        run: uv sync --extra dev --locked
+        run: uv sync --extra dev
 
       - name: Quality checks
         run: |
@@ -42,20 +33,22 @@ jobs:
           uv run mypy trade_rl
           uv run lint-imports
 
-      - name: Tests with diagnostics
+      - name: Tests and report
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set +e
-          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --tb=short > ci-reward-v2.log 2>&1
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --tb=short > ci-reward-v2.txt 2>&1
           status=$?
           set -e
-          cat ci-reward-v2.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add uv.lock
-          git add -f ci-reward-v2.log
-          if ! git diff --cached --quiet; then
-            git commit -m "ci: capture reward v2 verification output"
-            git push origin HEAD:agent/reward-design-v2
-          fi
+          tail -n 220 ci-reward-v2.txt > ci-reward-v2-tail.txt
+          {
+            echo '### Reward v2 verification'
+            echo
+            echo '```text'
+            cat ci-reward-v2-tail.txt
+            echo '```'
+          } > ci-reward-v2-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file ci-reward-v2-comment.md
           exit "$status"

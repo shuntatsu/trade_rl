@@ -146,7 +146,7 @@ def test_future_non_tradability_is_enforced_by_execution_not_pretrade_risk() -> 
         ),
         config=ResidualMarketEnvConfig(
             episode_bars=8,
-            decision_every=4,
+            decision_every=1,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )

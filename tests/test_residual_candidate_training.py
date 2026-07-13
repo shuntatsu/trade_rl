@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +24,14 @@ def _relative(excess: float) -> dict:
         "shadow": {"max_drawdown": 0.1},
         "paired": {"excess_log_return": excess},
     }
+
+
+def test_candidate_api_separates_checkpoint_and_configuration_validation() -> None:
+    parameters = inspect.signature(train_select_residual_candidates).parameters
+
+    assert "checkpoint_val_fs" in parameters
+    assert "selection_fs" in parameters
+    assert "val_fs" not in parameters
 
 
 def test_candidate_training_builds_abcd_and_resolves_selected_agent(

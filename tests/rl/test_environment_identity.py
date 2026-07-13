@@ -5,6 +5,7 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.rewards import AbsoluteGrowthRewardConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -39,7 +40,11 @@ def market() -> MarketDataset:
     )
 
 
-def environment(initial_capital: float) -> ResidualMarketEnv:
+def environment(
+    initial_capital: float,
+    *,
+    reward: AbsoluteGrowthRewardConfig | None = None,
+) -> ResidualMarketEnv:
     return ResidualMarketEnv(
         market(),
         trend_strategy=TrendStrategy(
@@ -49,6 +54,7 @@ def environment(initial_capital: float) -> ResidualMarketEnv:
             initial_capital=initial_capital,
             episode_bars=8,
             decision_every=2,
+            reward=reward or AbsoluteGrowthRewardConfig(),
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -66,3 +72,13 @@ def test_environment_identity_changes_with_aum() -> None:
     assert small.initial_capital == pytest.approx(100_000.0)
     assert large.initial_capital == pytest.approx(1_000_000.0)
     assert small.environment_digest != large.environment_digest
+
+
+def test_environment_identity_changes_with_reward_configuration() -> None:
+    default = environment(100_000.0)
+    stronger_drawdown = environment(
+        100_000.0,
+        reward=AbsoluteGrowthRewardConfig(drawdown_penalty_weight=0.10),
+    )
+
+    assert default.environment_digest != stronger_drawdown.environment_digest

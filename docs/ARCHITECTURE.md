@@ -56,19 +56,25 @@ The maintained action schema is `baseline_residual_v1`:
 
 There is no maintained direct-action mode.
 
-## Environment timing
+## Environment timing and reward
 
-One policy action controls one complete decision interval. Market execution advances through every base bar in that interval, then emits one reward based on the hybrid book's excess log return over an independent shadow baseline book. Base-bar returns remain available for annualized evaluation and are never silently mixed with decision-step returns.
+One policy action controls one complete decision interval. Market execution advances through every base bar in that interval, then emits one reward whose primary term is the hybrid book's net interval log growth after execution costs and funding. Base-bar returns remain available for annualized evaluation and are never silently mixed with decision-step returns.
+
+The reward model is pure and typed. A 30-day rolling baseline hinge penalizes only newly worsening underperformance beyond a 1.5% full-window tolerance. A staged drawdown function has a 5% free region and increasing slopes over the 5-10%, 10-15%, and 15-20% ranges; only increases in shaped severity are penalized. The policy observation exposes all rolling reward state, so the maintained MLP does not face hidden reward memory.
+
+Random training-window endings remain time-limit truncations. Explicit sealed-evaluation liquidation and the 20% drawdown safety stop are true terminal transitions. Both use actual liquidation results and costs rather than fixed terminal rewards.
 
 ## Evaluation
 
 All total-return, Sharpe, Sortino, drawdown, turnover, cost, funding and paired-excess calculations live in `trade_rl.evaluation`. Every return series declares its temporal identity and annualization factor.
 
-Walk-forward evaluation is split into pure fold construction, fold-local execution, sealed outer-OOS results and chronological stitching. Purge boundaries and non-overlapping outer test windows are explicit invariants.
+Walk-forward evaluation is split into pure fold construction, fold-local execution, sealed outer-OOS results and chronological stitching. Purge boundaries and non-overlapping outer test windows are explicit invariants. Absolute growth is the primary candidate objective, while paired baseline non-inferiority and risk quality remain mandatory selection evidence.
 
 ## Artifacts
 
 Dataset, signal, policy ensemble, evaluation, selection and release identities are separate immutable records. Artifacts use canonical JSON and SHA-256 content digests. Run publication is staged, validated, and atomically pointed to as latest. A failed run cannot overwrite the last successful run.
+
+The environment digest binds the complete reward configuration, resolved rolling windows, observation schema, and hard drawdown stop. Policies trained under different reward contracts are therefore not interchangeable.
 
 ## Serving
 

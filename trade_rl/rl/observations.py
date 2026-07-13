@@ -79,15 +79,19 @@ class ObservationBuilder:
             if not np.isfinite(scale) or not 0.0 <= scale <= 1.0:
                 raise ValueError(f"{field_name} must be finite and within [0, 1]")
 
+        feature_staleness = dataset.feature_staleness
+        symbol_active = dataset.symbol_active
+        assert feature_staleness is not None
+        assert symbol_active is not None
         hybrid_weights = value.hybrid.weights
         shadow_weights = value.shadow.weights
         per_symbol = np.column_stack(
             (
                 dataset.features[index],
                 dataset.feature_available[index].astype(np.float64, copy=False),
-                dataset.feature_staleness[index].astype(np.float64, copy=False),
+                feature_staleness[index].astype(np.float64, copy=False),
                 dataset.tradable[index].astype(np.float64, copy=False),
-                dataset.symbol_active[index].astype(np.float64, copy=False),
+                symbol_active[index].astype(np.float64, copy=False),
                 value.trends.fast,
                 value.trends.base,
                 value.trends.slow,
@@ -102,9 +106,7 @@ class ObservationBuilder:
         shadow_value = value.shadow.portfolio_value
         hybrid_drawdown = _drawdown(value.hybrid)
         shadow_drawdown = _drawdown(value.shadow)
-        progress = (index - value.start_index) / (
-            value.end_index - value.start_index
-        )
+        progress = (index - value.start_index) / (value.end_index - value.start_index)
         global_values = np.concatenate(
             (
                 dataset.global_features[index].astype(np.float64, copy=False),

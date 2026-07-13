@@ -22,7 +22,6 @@ from trade_rl.artifacts.store import ArtifactStore
 from trade_rl.data.artifacts import MarketDatasetView, load_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.datasets import DatasetManifest
-from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.risk.pretrade import PreTradeRisk
@@ -441,8 +440,8 @@ class MarketCandidateTrainer(CandidateTrainer):
         normalizer = self._normalizer(request, run)
         training_dataset = _training_view(self.dataset, request.train, run)
         trend = TrendStrategy(run.trend)
-        maximum_episode = training_dataset.n_bars - 1 - trend.minimum_history_for(
-            training_dataset
+        maximum_episode = (
+            training_dataset.n_bars - 1 - trend.minimum_history_for(training_dataset)
         )
         if maximum_episode <= 0:
             raise ValueError("fold training range is too short")

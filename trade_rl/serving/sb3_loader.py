@@ -26,8 +26,10 @@ def _safe_relative_path(value: object, *, field: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field} must be a string")
     path = PurePosixPath(value)
-    if path.is_absolute() or not path.parts or any(
-        part in {"", ".", ".."} for part in path.parts
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
     ):
         raise ValueError(f"{field} contains an unsafe member path")
     return path.as_posix()

@@ -129,9 +129,7 @@ class TrainingRunConfig:
                 reward_config=reward,
                 execution_cost=execution,
             ),
-            risk=PreTradeRiskConfig(
-                **_mapping(payload.get("risk"), field="risk")
-            ),
+            risk=PreTradeRiskConfig(**_mapping(payload.get("risk"), field="risk")),
             reward=reward,
             trend=TrendConfig(**_mapping(payload.get("trend"), field="trend")),
             action=ActionSpec(**_mapping(payload.get("action"), field="action")),
@@ -190,7 +188,9 @@ def _write_json(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
-def _dataset_manifest(dataset: MarketDataset, *, created_at: datetime) -> DatasetManifest:
+def _dataset_manifest(
+    dataset: MarketDataset, *, created_at: datetime
+) -> DatasetManifest:
     return DatasetManifest(
         dataset_id=dataset.dataset_id,
         symbols=dataset.symbols,

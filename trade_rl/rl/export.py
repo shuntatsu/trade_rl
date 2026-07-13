@@ -97,7 +97,12 @@ class ExportRecord:
         else:
             if any(
                 value is not None
-                for value in (self.path, self.digest, self.size_bytes, self.max_abs_error)
+                for value in (
+                    self.path,
+                    self.digest,
+                    self.size_bytes,
+                    self.max_abs_error,
+                )
             ):
                 raise ValueError("unsupported export cannot declare a file")
             if not self.reason:

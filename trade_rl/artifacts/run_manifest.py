@@ -140,7 +140,10 @@ class TrainingRunManifest:
             path = root / relative
             resolved_root = root.resolve()
             resolved_path = path.resolve()
-            if resolved_root != resolved_path and resolved_root not in resolved_path.parents:
+            if (
+                resolved_root != resolved_path
+                and resolved_root not in resolved_path.parents
+            ):
                 raise ValueError("run artifact path escapes its root")
             if not path.is_file():
                 raise FileNotFoundError(f"run artifact does not exist: {relative}")
@@ -254,7 +257,10 @@ def validate_training_run_directory(root: Path) -> TrainingRunManifest:
     for item in manifest.files:
         path = root / item.path
         resolved_path = path.resolve()
-        if resolved_root != resolved_path and resolved_root not in resolved_path.parents:
+        if (
+            resolved_root != resolved_path
+            and resolved_root not in resolved_path.parents
+        ):
             raise ValueError(f"run artifact path escapes root: {item.path}")
         if not path.is_file():
             raise ValueError(f"run artifact is missing: {item.path}")

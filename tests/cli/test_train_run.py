@@ -8,7 +8,9 @@ from trade_rl.cli import extended
 from trade_rl.workflows.training_run import TrainingRunResult
 
 
-def test_train_run_command_emits_published_run_json(monkeypatch, tmp_path: Path) -> None:
+def test_train_run_command_emits_published_run_json(
+    monkeypatch, tmp_path: Path
+) -> None:
     published = tmp_path / "runs" / "run-001"
 
     def fake_execute(**kwargs):

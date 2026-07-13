@@ -42,7 +42,10 @@ def test_training_run_manifest_round_trip_and_validation(tmp_path: Path) -> None
     validated = validate_training_run_directory(tmp_path)
 
     assert path == tmp_path / "run.json"
-    assert path.read_bytes() == write_training_run_manifest(tmp_path, manifest).read_bytes()
+    assert (
+        path.read_bytes()
+        == write_training_run_manifest(tmp_path, manifest).read_bytes()
+    )
     assert loaded == manifest
     assert validated == manifest
     assert tuple(item.path for item in manifest.files) == (

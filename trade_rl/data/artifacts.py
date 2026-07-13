@@ -166,7 +166,9 @@ def load_market_dataset_artifact(root: Path) -> MarketDataset:
             ):
                 raise ValueError(f"arrays.{name}.shape is invalid")
             expected_shape = tuple(expected_shape_raw)
-            expected_dtype = _string(metadata.get("dtype"), field=f"arrays.{name}.dtype")
+            expected_dtype = _string(
+                metadata.get("dtype"), field=f"arrays.{name}.dtype"
+            )
             if array.shape != expected_shape:
                 raise ValueError(f"dataset array shape mismatch: {name}")
             if array.dtype.str != expected_dtype:
@@ -180,7 +182,9 @@ def load_market_dataset_artifact(root: Path) -> MarketDataset:
     ):
         raise ValueError("dataset.nominal_bar_hours must be numeric or null")
     kwargs: dict[str, Any] = {
-        "dataset_id": _string(dataset_meta.get("dataset_id"), field="dataset.dataset_id"),
+        "dataset_id": _string(
+            dataset_meta.get("dataset_id"), field="dataset.dataset_id"
+        ),
         "symbols": _string_tuple(dataset_meta.get("symbols"), field="dataset.symbols"),
         "feature_names": _string_tuple(
             dataset_meta.get("feature_names"), field="dataset.feature_names"

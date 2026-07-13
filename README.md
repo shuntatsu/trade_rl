@@ -47,7 +47,7 @@ The `data`, `signal`, `evaluate`, `registry`, and `serve` command groups expose 
 
 `execute_walk_forward` runs all planned folds, validates dataset and fold identity, stitches selected and baseline OOS return series independently, computes both metric sets, and produces a content-addressed final evaluation digest. Gate decisions bind the evaluated dataset, selected policy identity when applicable, and final evaluation digest; release construction rejects mismatched identities.
 
-The repository still does not provide an exchange downloader or a project-specific real-data trainer/evaluator adapter. Those adapters must construct fold-local datasets and models without widening the declared ranges.
+The orchestration is concrete and tested, but the repository deliberately does not guess the project's storage format, preprocessing graph, checkpoint-selection policy, or data source. A real-data integration must provide adapters that fit preprocessing inside the train range, choose checkpoints only with checkpoint-validation data, and evaluate frozen candidates only on the requested selection or outer-test range.
 
 ## AUM and environment identity
 

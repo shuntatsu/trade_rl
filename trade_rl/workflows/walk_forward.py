@@ -171,9 +171,7 @@ def execute_walk_forward(
                     "fold_index": result.fold_index,
                     "selected_configuration": (result.selection.selected_configuration),
                     "selected_policy_digest": (result.selection.selected_policy_digest),
-                    "selection_evaluation_digest": (
-                        result.selection_evaluation_digest
-                    ),
+                    "selection_evaluation_digest": (result.selection_evaluation_digest),
                     "test_evaluation_digest": result.test_evaluation_digest,
                 }
                 for result in detailed_results

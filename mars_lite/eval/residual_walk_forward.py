@@ -197,9 +197,7 @@ def _return_metrics(
         raise ValueError("return series must be finite and greater than -1")
 
     std = float(values.std()) if values.size else 0.0
-    sharpe = (
-        float(values.mean() / std * np.sqrt(bars_per_year)) if std > 0.0 else 0.0
-    )
+    sharpe = float(values.mean() / std * np.sqrt(bars_per_year)) if std > 0.0 else 0.0
     downside = np.minimum(values, 0.0)
     downside_std = float(np.sqrt(np.mean(downside**2))) if values.size else 0.0
     sortino = (
@@ -207,9 +205,7 @@ def _return_metrics(
         if downside_std > 0.0
         else 0.0
     )
-    equity = np.concatenate(
-        [np.ones(1, dtype=np.float64), np.cumprod(1.0 + values)]
-    )
+    equity = np.concatenate([np.ones(1, dtype=np.float64), np.cumprod(1.0 + values)])
     peak = np.maximum.accumulate(equity)
     max_drawdown = float(np.max(1.0 - equity / peak)) if equity.size else 0.0
     return {

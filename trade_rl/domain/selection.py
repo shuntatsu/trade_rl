@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
     require_aware_datetime,
     require_non_empty,
@@ -58,3 +59,9 @@ class SelectionDecision:
                 self.selected_policy_digest,
                 field="selected_policy_digest",
             )
+
+    @property
+    def digest(self) -> str:
+        """Content identity for the complete immutable selection decision."""
+
+        return content_digest(asdict(self))

@@ -27,8 +27,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Apply verification fixes
-        run: python tools/apply_verification_fixes.py
+      - name: Apply final verification cleanup
+        run: python tools/apply_final_verification_cleanup.py
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -48,8 +48,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl tests
-          git commit -m "fix: resolve verification and coverage gaps"
+          git add tests
+          git commit -m "test: complete action environment verification coverage"
           git push origin HEAD:agent/action-environment-comprehensive-hardening
 
       - name: Run full verification and capture logs

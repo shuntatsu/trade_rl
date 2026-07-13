@@ -2,11 +2,11 @@
 
 ## Status
 
-`trade_rl` is a research-grade baseline-anchored residual reinforcement-learning core. It is not authorized for production trading. The software architecture and the empirical strategy result are evaluated separately; a clean architecture does not make a failed research gate pass.
+`trade_rl` is a research-grade baseline-anchored residual reinforcement-learning core. It is not authorized for production trading. Software correctness, market-model realism and empirical profitability are separate gates.
 
 ## Authoritative package
 
-Only `trade_rl` is maintained. The former `mars_lite`, direct-action PPO, legacy scripts, and legacy tests have been removed. Git history is the archive; there is no compatibility layer.
+Only `trade_rl` is maintained. The former `mars_lite`, direct-action PPO, legacy scripts and legacy tests remain deleted. Git history is the archive; no compatibility execution path was restored.
 
 ## Responsibility map
 
@@ -14,68 +14,94 @@ Only `trade_rl` is maintained. The former `mars_lite`, direct-action PPO, legacy
 trade_rl/
   domain/        immutable identities and state invariants
   artifacts/     canonical serialization, hashing, staging, publication
-  data/          validated in-memory market dataset contracts
+  data/          regular-time market and exchange contracts
   strategies/    deterministic baseline strategies
-  risk/          pure pre-trade portfolio constraints
-  simulation/    execution, costs, funding and accounting
-  evaluation/    metrics, paired comparisons, bootstrap, gates, folds
-  rl/            residual actions, observations, rewards, environment, training
+  risk/          operational guardrails and pre-trade constraints
+  simulation/    execution, margin, funding and accounting
+  evaluation/    metrics, comparisons, bootstrap, gates and folds
+  rl/            residual decisions, observations, rewards, environment, training
   workflows/     typed application orchestration
-  serving/       immutable bundles, registry activation and runtime snapshots
-  cli/           argument parsing and conversion to typed configuration
+  serving/       immutable bundles, registry activation and live decision adapter
+  cli/           argument parsing and typed configuration conversion
 ```
 
-The directory tree reflects real responsibilities. Empty placeholder packages are not added.
+Import Linter enforces the allowed dependency direction. `domain` remains standard-library only, serving does not import training, and training does not import serving.
 
-## Dependency direction
+## Market contract
 
-The permitted direction is:
+`MarketDataset` represents an exact regular grid of completed bars. Timestamps are bar-close times and must agree with `periods_per_year`. The contract contains:
+
+- open, high, low, close, mark and index prices;
+- volume and per-bar funding;
+- symbol tradability;
+- full feature-availability and feature-age arrays;
+- explicit warm-up completion and market-data age;
+- optional time-varying taker fee and spread arrays;
+- quantity steps, minimum notionals and maintenance-margin rates;
+- episode-start sampling weights.
+
+Missing information is never silently equivalent to a neutral feature value. Unavailable features are zeroed only after the availability and age channels have been retained in the observation.
+
+## Self-financing account
+
+`BookState` stores signed quantities, cash and mark prices. Portfolio value and weights are derived rather than assigned. Price movement therefore causes natural weight drift; no free target-weight maintenance occurs between decisions.
+
+Every fill reconciles quantity, cash, fees and turnover. Funding changes cash. Mark-to-market records one base-bar return. Fill count, rebalance-event count and liquidation count are distinct. A deterministic state digest supports verified account handoff between deployment segments.
+
+## Execution timing and exchange constraints
+
+A policy observes information through close `t`. Existing positions experience the gap to open `t+1`; orders first execute at that open. Filled quantities are held for the decision interval. Only unfilled residual quantity may continue filling on later bars.
+
+Execution supports:
+
+- volume-participation caps and partial fills;
+- taker fees and spread costs from either the dataset or a fallback configuration;
+- nonlinear participation impact;
+- seeded ordinary and tail slippage;
+- per-episode fee, spread and impact randomization;
+- quantity-step rounding and minimum-notional filtering;
+- non-tradable-symbol blocking;
+- funding at the explicit per-bar rate;
+- mark-price maintenance margin, forced liquidation and liquidation fees.
+
+The model is deliberately a taker-oriented low-frequency simulator. It does not pretend to reproduce maker queue position or a full limit-order book. Such a claim would require exchange-specific L2 event replay rather than fabricated precision.
+
+## Shared decision path
+
+`ResidualDecisionEngine` is the single proposal-to-target path for the environment and serving runtime. It performs:
+
+1. residual composition around the trend baseline;
+2. operational guardrails for stale data, unavailable features and daily loss;
+3. next-bar tradability masking;
+4. concentration, gross, turnover and drawdown constraints.
+
+Zero residual action remains exact baseline identity after the same guardrails and risk constraints are applied to both hybrid and shadow books.
+
+## Observation and reward
+
+Per-symbol observations contain masked features, full availability masks, feature age, next-bar tradability, fast/base/slow trend targets, alpha, both book weights and their difference. Global state contains both NAVs, drawdowns, gross exposures, relative NAV, market-data age, warm-up state, risk scales and episode progress.
+
+The default reward remains interval excess log return. Optional downside and excess-drawdown penalties are explicit. Hybrid and shadow liquidation are not treated as the same terminal event.
+
+## Physical-time configuration
+
+Trend horizons, episode duration and decision cadence can be configured in hours and are resolved through the dataset cadence. PPO discounting can be specified by a real-time half-life:
 
 ```text
-cli -> workflows -> serving / rl / evaluation / artifacts
-serving -> rl actions / artifacts / domain
-rl -> risk / simulation / strategies / data / evaluation / artifacts / domain
-simulation -> data
-strategies -> data
-evaluation -> domain
-artifacts -> domain
-domain -> Python standard library only
+gamma = exp(log(0.5) * decision_hours / discount_half_life_hours)
 ```
 
-`trade_rl.domain` does not import NumPy, Gymnasium, Stable-Baselines3, filesystem code, serving code, or CLI code. Training code does not import the serving runtime. Serving code does not import the training backend.
+This prevents a base-timeframe or decision-cadence change from silently changing the economic horizon.
 
-Import Linter enforces these boundaries in CI.
+## Walk-forward identity
 
-## Policy model
+Stitched OOS output has one of two explicit identities:
 
-The maintained action schema is `baseline_residual_v1`:
+- `independent_folds`: fold-local accounts may reset and gaps are recorded;
+- `continuous_account`: ranges must be contiguous and opening/closing state digests must form an unbroken chain.
 
-1. `trend_mix` interpolates from the base trend target toward the fast or slow target.
-2. `alpha_budget` controls a separately gated alpha vector.
-3. The zero vector is the exact baseline identity action.
-
-There is no maintained direct-action mode.
-
-## Environment timing
-
-One policy action controls one complete decision interval. Market execution advances through every base bar in that interval, then emits one reward based on the hybrid book's excess log return over an independent shadow baseline book. Base-bar returns remain available for annualized evaluation and are never silently mixed with decision-step returns.
-
-## Evaluation
-
-All total-return, Sharpe, Sortino, drawdown, turnover, cost, funding and paired-excess calculations live in `trade_rl.evaluation`. Every return series declares its temporal identity and annualization factor.
-
-Walk-forward evaluation is split into pure fold construction, fold-local execution, sealed outer-OOS results and chronological stitching. Purge boundaries and non-overlapping outer test windows are explicit invariants.
-
-## Artifacts
-
-Dataset, signal, policy ensemble, evaluation, selection and release identities are separate immutable records. Artifacts use canonical JSON and SHA-256 content digests. Run publication is staged, validated, and atomically pointed to as latest. A failed run cannot overwrite the last successful run.
-
-## Serving
-
-Serving bundles list every file with a size and SHA-256 digest. A registry validates a bundle before installing it and atomically changes the active pointer. The runtime fully validates and loads a replacement policy before swapping its in-memory snapshot; failed hot swaps preserve the previous snapshot.
-
-A baseline-only bundle explicitly has no policy digest. It is a research or safety fallback identity, not evidence of production eligibility.
+An independent research aggregate can therefore no longer be represented as a continuous live account curve.
 
 ## Quality gates
 
-CI runs Ruff, formatting checks, mypy, Import Linter, Vulture advisory reporting, unit and property-based tests, migration tests and branch coverage. The architecture contract also verifies that legacy execution trees and direct-action mode are absent.
+CI runs Ruff, formatting checks, mypy, Import Linter, Vulture advisory reporting, unit and property tests, migration tests and branch coverage. The architecture contract also verifies that legacy execution trees and direct-action mode remain absent.

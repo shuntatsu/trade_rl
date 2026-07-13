@@ -99,9 +99,12 @@ class PreTradeRisk:
             if self.config.max_turnover == 0.0:
                 weights = existing.copy()
             else:
-                weights = existing + (
-                    weights - existing
-                ) * self.config.max_turnover / constrained_turnover
+                weights = (
+                    existing
+                    + (weights - existing)
+                    * self.config.max_turnover
+                    / constrained_turnover
+                )
             reasons.append("max_turnover")
             constrained_turnover = float(np.abs(weights - existing).sum())
 

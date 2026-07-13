@@ -8,6 +8,7 @@ type = layers
 layers =
     trade_rl.cli
     trade_rl.workflows
+    trade_rl.integrations
     trade_rl.serving
     trade_rl.rl
     trade_rl.risk
@@ -36,6 +37,7 @@ forbidden_modules =
     trade_rl.risk
     trade_rl.rl
     trade_rl.serving
+    trade_rl.integrations
     trade_rl.workflows
     trade_rl.cli
 
@@ -47,4 +49,5 @@ source_modules =
 forbidden_modules =
     trade_rl.rl.training
     trade_rl.workflows
+    trade_rl.integrations
     stable_baselines3

@@ -27,6 +27,10 @@ dev = [
     "import-linter>=2.1",
     "vulture>=2.14",
 ]
+export = [
+    "onnx==1.16.2",
+    "onnxruntime==1.18.1",
+]
 
 [project.scripts]
 trade-rl = "trade_rl.cli.app:main"
@@ -61,7 +65,13 @@ show_error_codes = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["gymnasium.*", "stable_baselines3.*", "sb3_contrib.*"]
+module = [
+    "gymnasium.*",
+    "stable_baselines3.*",
+    "sb3_contrib.*",
+    "onnx.*",
+    "onnxruntime.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

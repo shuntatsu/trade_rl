@@ -81,9 +81,7 @@ def _walk_forward_plan(args: argparse.Namespace, stdout: TextIO) -> int:
             "folds": [
                 {
                     "checkpoint_validation": _range(fold.checkpoint_validation),
-                    "configuration_selection": _range(
-                        fold.configuration_selection
-                    ),
+                    "configuration_selection": _range(fold.configuration_selection),
                     "fold_index": fold.fold_index,
                     "test": _range(fold.test),
                     "train": _range(fold.train),

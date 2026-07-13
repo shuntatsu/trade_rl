@@ -66,6 +66,7 @@ def environment(*, decision_every: int = 4) -> ResidualMarketEnv:
             episode_bars=40,
             decision_every=decision_every,
             reward_scale=100.0,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -101,6 +102,7 @@ def test_identity_action_matches_shadow_with_seeded_random_slippage() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=16,
             decision_every=4,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig(
                 fee_rate=0.0,
                 spread_rate=0.0,
@@ -147,6 +149,7 @@ def test_future_non_tradability_is_enforced_by_execution_not_pretrade_risk() -> 
         config=ResidualMarketEnvConfig(
             episode_bars=8,
             decision_every=1,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -189,6 +192,7 @@ def test_time_limit_without_liquidation_is_truncated_only() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=4,
             decision_every=4,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -212,6 +216,7 @@ def test_explicit_liquidation_is_terminal_only_and_flat() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=4,
             decision_every=4,
+            initial_capital=1_000.0,
             liquidate_on_end=True,
             execution_cost=ExecutionCostConfig.zero(),
         ),
@@ -239,6 +244,7 @@ def test_explicit_liquidation_fails_closed_when_positions_remain() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=4,
             decision_every=4,
+            initial_capital=1_000.0,
             liquidate_on_end=True,
             execution_cost=ExecutionCostConfig.zero(),
         ),
@@ -258,6 +264,7 @@ def test_terminal_info_uses_base_bar_return_identity() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=8,
             decision_every=4,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )

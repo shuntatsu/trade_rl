@@ -325,7 +325,9 @@ def run_residual_fold(
         "_return_series_2x": series_2x,
     }
     public_report = {
-        key: value for key, value in report.items() if not key.startswith("_return_series_")
+        key: value
+        for key, value in report.items()
+        if not key.startswith("_return_series_")
     }
     save_residual_walk_forward_report(fold_output / "fold_report.json", public_report)
     return report

@@ -18,6 +18,9 @@ from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest, PolicyMember
 from trade_rl.rl.actions import ACTION_SCHEMA
 
+DEFAULT_RESIDUAL_GAMMA = 0.99
+MIN_RESIDUAL_GAMMA = 0.95
+
 
 class PolicyTrainingBackend(Protocol):
     """Backend boundary that writes exactly one policy checkpoint."""
@@ -35,14 +38,22 @@ class PolicyTrainingBackend(Protocol):
 @dataclass(frozen=True, slots=True)
 class ResidualTrainingConfig:
     timesteps: int
-    gamma: float
     seeds: tuple[int, ...]
+    gamma: float = DEFAULT_RESIDUAL_GAMMA
+    allow_low_gamma: bool = False
 
     def __post_init__(self) -> None:
         if self.timesteps <= 0:
             raise ValueError("timesteps must be positive")
         if not math.isfinite(self.gamma) or not 0.0 < self.gamma <= 1.0:
             raise ValueError("gamma must be within (0, 1]")
+        if not isinstance(self.allow_low_gamma, bool):
+            raise ValueError("allow_low_gamma must be a boolean")
+        if self.gamma < MIN_RESIDUAL_GAMMA and not self.allow_low_gamma:
+            raise ValueError(
+                f"residual gamma below {MIN_RESIDUAL_GAMMA} requires "
+                "allow_low_gamma=True for an explicit research ablation"
+            )
         if not self.seeds:
             raise ValueError("seeds must not be empty")
         if any(seed < 0 for seed in self.seeds):
@@ -109,6 +120,11 @@ def train_residual_ensemble(
             for member in members
         ),
         "schema_version": "policy_ensemble_v1",
+        "training": {
+            "allow_low_gamma": config.allow_low_gamma,
+            "gamma": config.gamma,
+            "timesteps": config.timesteps,
+        },
     }
     return PolicyEnsembleManifest(
         digest=content_digest(digest_payload),

@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: agent/reward-design-v2
+          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5

@@ -237,13 +237,18 @@ def _align_series(
         "tradable": np.zeros(n_bars, dtype=np.bool_),
         "funding_available": np.zeros(n_bars, dtype=np.bool_),
         "row_present": np.zeros(n_bars, dtype=np.bool_),
+        "information_available": np.zeros(n_bars, dtype=np.bool_),
+        "available_at": timestamps.copy(),
     }
     for field_name in ("open", "high", "low", "close", "volume", "funding_rate"):
         result[field_name][indices] = getattr(raw, field_name)
     result["tradable"][indices] = raw.tradable
     assert raw.funding_available is not None
+    assert raw.available_at is not None
     result["funding_available"][indices] = raw.funding_available
     result["row_present"][indices] = True
+    result["available_at"][indices] = raw.available_at
+    result["information_available"][indices] = raw.available_at <= raw.timestamps
 
     last_close = 1.0
     has_close = False
@@ -291,6 +296,8 @@ class MarketDatasetBuilder:
         row_present = np.zeros((n_bars, n_symbols), dtype=np.bool_)
         raw_tradable = np.zeros_like(row_present)
         funding_available = np.zeros_like(row_present)
+        information_available = np.zeros_like(row_present)
+        available_at = np.broadcast_to(timestamps[:, None], row_present.shape).copy()
         symbol_active = np.zeros_like(row_present)
 
         for symbol_index, (contract, raw) in enumerate(zip(instruments, raw_series)):
@@ -304,6 +311,10 @@ class MarketDatasetBuilder:
             row_present[:, symbol_index] = aligned["row_present"]
             raw_tradable[:, symbol_index] = aligned["tradable"]
             funding_available[:, symbol_index] = aligned["funding_available"]
+            information_available[:, symbol_index] = aligned[
+                "information_available"
+            ]
+            available_at[:, symbol_index] = aligned["available_at"]
 
             listed = _utc_datetime64(contract.listed_at)
             active = timestamps >= listed
@@ -311,6 +322,8 @@ class MarketDatasetBuilder:
                 active &= timestamps < _utc_datetime64(contract.delisted_at)
             symbol_active[:, symbol_index] = active
 
+        information_available &= symbol_active & row_present
+        causal_row_present = row_present & information_available
         tradable = symbol_active & row_present & raw_tradable
         features = np.zeros((n_bars, n_symbols, n_features), dtype=np.float64)
         feature_available = np.zeros_like(features, dtype=np.bool_)
@@ -323,7 +336,7 @@ class MarketDatasetBuilder:
                     volume=volume[:, symbol_index],
                     funding_rate=funding_rate[:, symbol_index],
                     funding_available=funding_available[:, symbol_index],
-                    row_present=row_present[:, symbol_index],
+                    row_present=causal_row_present[:, symbol_index],
                     active=symbol_active[:, symbol_index],
                 )
                 values, available, staleness = _carry_feature(
@@ -341,7 +354,10 @@ class MarketDatasetBuilder:
         one_bar_available = np.zeros((n_bars, n_symbols), dtype=np.bool_)
         for symbol_index in range(n_symbols):
             for index in range(1, n_bars):
-                mask = row_present[:, symbol_index] & symbol_active[:, symbol_index]
+                mask = (
+                    causal_row_present[:, symbol_index]
+                    & symbol_active[:, symbol_index]
+                )
                 if not _contiguous_window(mask, index - 1, index + 1):
                     continue
                 one_bar_returns[index, symbol_index] = math.log(
@@ -374,7 +390,7 @@ class MarketDatasetBuilder:
             ),
         )
         metadata = {
-            "schema": "market_dataset_identity_v3",
+            "schema": "market_dataset_identity_v4",
             "config": self.config.canonical_payload(),
             "feature_config_digest": feature_config_digest,
             "normalization_digest": normalization_digest,
@@ -389,6 +405,8 @@ class MarketDatasetBuilder:
             metadata,
             (
                 ("timestamps", timestamps),
+                ("available_at", available_at),
+                ("information_available", information_available),
                 ("features", features),
                 ("global_features", global_features),
                 ("open", open_price),
@@ -418,6 +436,8 @@ class MarketDatasetBuilder:
             funding_rate=funding_rate,
             tradable=tradable,
             symbol_active=symbol_active,
+            information_available=information_available,
+            available_at=available_at,
             feature_available=feature_available,
             feature_staleness=feature_staleness,
             feature_names=feature_names,

@@ -49,7 +49,10 @@ class InstrumentContract:
             require_aware_datetime(self.delisted_at, field="delisted_at")
             if self.delisted_at <= self.listed_at:
                 raise ValueError("delisted_at must be later than listed_at")
-        if not math.isfinite(self.contract_multiplier) or self.contract_multiplier <= 0.0:
+        if (
+            not math.isfinite(self.contract_multiplier)
+            or self.contract_multiplier <= 0.0
+        ):
             raise ValueError("contract_multiplier must be finite and positive")
 
     def canonical_payload(self) -> dict[str, object]:
@@ -92,7 +95,10 @@ class FeatureSpec:
             and self.min_periods > self.normalization_window
         ):
             raise ValueError("min_periods cannot exceed normalization_window")
-        if not math.isfinite(self.max_staleness_hours) or self.max_staleness_hours <= 0.0:
+        if (
+            not math.isfinite(self.max_staleness_hours)
+            or self.max_staleness_hours <= 0.0
+        ):
             raise ValueError("max_staleness_hours must be finite and positive")
 
     def canonical_payload(self) -> dict[str, object]:

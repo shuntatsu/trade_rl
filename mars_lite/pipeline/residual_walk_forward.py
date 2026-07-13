@@ -86,15 +86,15 @@ def _publish_authoritative_report(
         temporary.unlink(missing_ok=True)
 
 
-def _isolate_failed_run(staging: Path, output: Path, run_id: str) -> None:
-    if not staging.exists():
+def _isolate_failed_run(run_path: Path, output: Path, run_id: str) -> None:
+    if not run_path.exists():
         return
     failed_root = output / "failed"
     failed_root.mkdir(parents=True, exist_ok=True)
     failed_destination = failed_root / run_id
     if failed_destination.exists():
         shutil.rmtree(failed_destination)
-    os.replace(staging, failed_destination)
+    os.replace(run_path, failed_destination)
 
 
 def _diagnostic_baselines(
@@ -346,6 +346,7 @@ def run_residual_walk_forward(
     staging_root.mkdir(parents=True, exist_ok=True)
     staging = staging_root / run_id
     staging.mkdir(parents=False, exist_ok=False)
+    published_run: Path | None = None
 
     try:
         source_args = copy.copy(args)
@@ -444,8 +445,12 @@ def run_residual_walk_forward(
         if completed.exists():
             raise FileExistsError(f"completed run already exists: {completed}")
         os.replace(staging, completed)
+        published_run = completed
         _publish_authoritative_report(output, report, run_id=run_id)
         return report
     except Exception:
-        _isolate_failed_run(staging, output, run_id)
+        if published_run is not None:
+            _isolate_failed_run(published_run, output, run_id)
+        else:
+            _isolate_failed_run(staging, output, run_id)
         raise

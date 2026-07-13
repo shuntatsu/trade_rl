@@ -57,11 +57,44 @@ dataset = MarketDatasetBuilder(config).build(
 )
 ```
 
-CSVの必須列は`timestamp,open,high,low,close,volume`で、`funding_rate`と`tradable`は任意です。`volume`の意味は銘柄契約ごとにbase asset数量、quote notional、契約枚数のいずれかを明示し、契約枚数にはbase asset換算用のcontract multiplierを設定します。
+CSVの必須列は`timestamp,open,high,low,close,volume`で、`available_at`、`funding_rate`、`tradable`は任意です。`timestamp`は市場イベント時刻、`available_at`はその行を知り得た最初の時刻です。遅延到着した行を、同時刻に知っていた情報として過去の特徴量へ遡及注入しません。新しい因果的特徴量が利用可能になるまでは、直前の特徴量を鮮度低下付きで保持できます。
 
-`dataset_id`には、特徴量生成設定、正規化設定と生成結果、銘柄順、上場・廃止期間、volume単位、contract multiplier、全配列の内容を含めます。同じIDである限り学習入力が同一であり、どれか一つでも変わればIDも変わります。
+Trend、Alpha、pre-trade targetは同じpoint-in-time eligibility maskを使用します。要求されたlookback全体で、上場中・取引可能・情報利用可能である銘柄だけを対象にします。翌バー以降の取引可否はExecutorが実現状態として処理し、現在のtarget生成には使用しません。
 
-方策観測は時刻`t`までの情報だけで作られます。`tradable[t + 1]`は次バー執行の実績としてsimulation内部では使えますが、方策には渡されません。学習環境とServingは同じ`ObservationBuilder`を使用します。
+`volume`の意味は銘柄契約ごとにbase asset数量、quote notional、契約枚数のいずれかを明示し、契約枚数にはbase asset換算用のcontract multiplierを設定します。
+
+`dataset_id`には、特徴量生成設定、正規化設定と生成結果、銘柄順、上場・廃止期間、volume単位、contract multiplier、`available_at`を含む全配列の内容を含めます。同じIDである限り学習入力が同一であり、どれか一つでも変わればIDも変わります。
+
+## 決定論的Dataset artifact
+
+厳格なJSON設定から正式なCLI経路を実行できます。
+
+```json
+{
+  "source_root": "data/market",
+  "base_timeframe": "1h",
+  "features": [
+    {"name": "ret_1", "kind": "log_return", "lookback": 1}
+  ],
+  "instruments": [
+    {
+      "symbol": "BTCUSDT",
+      "listed_at": "2019-09-01T00:00:00Z",
+      "volume_unit": "quote_notional"
+    }
+  ]
+}
+```
+
+```bash
+uv run trade-rl data build --config market-build.json --output output/dataset
+```
+
+出力はcanonicalな`manifest.json`と決定論的な`arrays.npz`です。再読込時には両方のdigestを検証します。同一の設定とsource内容からは、同一のdataset IDとartifact digestを生成します。
+
+## ObservationとServingの整合性
+
+学習環境とServingは同じ`ObservationBuilder`を使用します。Serving bundleは`dataset_id`とaction schemaに加え、銘柄・特徴量・global featureの順序、正規化状態、vector長を含むobservation schema digestを保持します。入力dataset ID、observation schema、vector長のいずれかがactive bundleと一致しなければ、policyを呼び出す前にfail-closedで拒否します。
 
 ## セットアップ
 
@@ -73,6 +106,9 @@ uv sync --extra dev
 
 ```bash
 uv run trade-rl --version
+
+uv run trade-rl data build \
+  --config market-build.json --output output/dataset
 
 uv run trade-rl train config \
   --timesteps 1024 --gamma 0.5 --seed 0 --seed 1

@@ -35,8 +35,11 @@ jobs:
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Format
-        run: uv run ruff format --check --diff .
+      - name: Format package
+        run: uv run ruff format --check --diff trade_rl
+
+      - name: Format tests
+        run: uv run ruff format --check --diff tests
 
       - name: Mypy
         run: uv run mypy trade_rl

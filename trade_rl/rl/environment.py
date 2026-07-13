@@ -63,7 +63,8 @@ class ResidualMarketEnv(gym.Env):
         dataset: MarketDataset,
         *,
         trend_strategy: TrendStrategy | None = None,
-        alpha_provider: AlphaProvider | Callable[[MarketDataset, int], np.ndarray]
+        alpha_provider: AlphaProvider
+        | Callable[[MarketDataset, int], np.ndarray]
         | None = None,
         alpha_enabled: bool = False,
         composer: BaselineResidualComposer | None = None,
@@ -211,8 +212,7 @@ class ResidualMarketEnv(gym.Env):
         )
         truncated = self.current_index >= self.end_index
         excess_log_return = (
-            hybrid_execution.interval_log_return
-            - shadow_execution.interval_log_return
+            hybrid_execution.interval_log_return - shadow_execution.interval_log_return
         )
         reward = relative_interval_reward(
             hybrid_log_return=hybrid_execution.interval_log_return,

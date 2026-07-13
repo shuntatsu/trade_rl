@@ -59,6 +59,12 @@ class AbsoluteGrowthRewardConfig:
             raise ValueError(
                 "drawdown_slopes must contain three positive finite values"
             )
+        if not (
+            self.drawdown_slopes[0]
+            <= self.drawdown_slopes[1]
+            <= self.drawdown_slopes[2]
+        ):
+            raise ValueError("drawdown_slopes must be non-decreasing")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,12 +96,20 @@ class RewardContext:
             raise ValueError("history_bars must be non-negative")
         if not 0.0 <= self.hybrid_drawdown <= 1.0:
             raise ValueError("hybrid_drawdown must be within [0, 1]")
+        if self.baseline_shortfall < 0.0:
+            raise ValueError("baseline_shortfall must be non-negative")
         if self.baseline_tolerance < 0.0:
             raise ValueError("baseline_tolerance must be non-negative")
         if self.baseline_penalty < 0.0:
             raise ValueError("baseline_penalty must be non-negative")
         if self.drawdown_severity < 0.0:
             raise ValueError("drawdown_severity must be non-negative")
+
+    @property
+    def rolling_growth_gap(self) -> float:
+        """Policy rolling growth minus the independent shadow baseline."""
+
+        return self.rolling_hybrid_log_growth - self.rolling_shadow_log_growth
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +123,27 @@ class RewardBreakdown:
     drawdown_penalty_weighted: float
     total_raw: float
     total_scaled: float
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("growth_raw", self.growth_raw),
+            ("baseline_penalty_delta", self.baseline_penalty_delta),
+            ("baseline_penalty_weighted", self.baseline_penalty_weighted),
+            ("drawdown_penalty_delta", self.drawdown_penalty_delta),
+            ("drawdown_penalty_weighted", self.drawdown_penalty_weighted),
+            ("total_raw", self.total_raw),
+            ("total_scaled", self.total_scaled),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+        if self.baseline_penalty_delta < 0.0:
+            raise ValueError("baseline_penalty_delta must be non-negative")
+        if self.baseline_penalty_weighted < 0.0:
+            raise ValueError("baseline_penalty_weighted must be non-negative")
+        if self.drawdown_penalty_delta < 0.0:
+            raise ValueError("drawdown_penalty_delta must be non-negative")
+        if self.drawdown_penalty_weighted < 0.0:
+            raise ValueError("drawdown_penalty_weighted must be non-negative")
 
 
 def drawdown_severity(
@@ -172,13 +207,18 @@ def build_reward_context(
         raise ValueError(
             "minimum_history_bars must be a positive integer not exceeding window_bars"
         )
-    history_bars = min(len(hybrid_returns), len(shadow_returns), window_bars)
+    if len(hybrid_returns) != len(shadow_returns):
+        raise ValueError("hybrid and shadow return histories must have equal length")
+
+    history_bars = min(len(hybrid_returns), window_bars)
     hybrid_growth = _rolling_log_growth(hybrid_returns, history_bars)
     shadow_growth = _rolling_log_growth(shadow_returns, history_bars)
-    shortfall = shadow_growth - hybrid_growth
+    shortfall = max(0.0, shadow_growth - hybrid_growth)
     tolerance = config.baseline_tolerance * history_bars / window_bars
     penalty = (
-        max(0.0, shortfall - tolerance) if history_bars > minimum_history_bars else 0.0
+        max(0.0, shortfall - tolerance)
+        if history_bars >= minimum_history_bars
+        else 0.0
     )
     return RewardContext(
         rolling_hybrid_log_growth=hybrid_growth,

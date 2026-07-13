@@ -29,12 +29,12 @@ jobs:
       - name: Run ruff check
         run: |
           set -o pipefail
-          uv run ruff check trade_rl tests/domain tests/artifacts tests/evaluation 2>&1 | tee ruff-check.log
+          uv run ruff check trade_rl tests/domain tests/artifacts tests/evaluation tests/migration 2>&1 | tee ruff-check.log
 
       - name: Run ruff format
         run: |
           set -o pipefail
-          uv run ruff format --check --diff trade_rl tests/domain tests/artifacts tests/evaluation 2>&1 | tee ruff-format.log
+          uv run ruff format --check --diff trade_rl tests/domain tests/artifacts tests/evaluation tests/migration 2>&1 | tee ruff-format.log
 
       - name: Run mypy
         run: |
@@ -44,7 +44,7 @@ jobs:
       - name: Run rebuilt core contracts
         run: |
           set -o pipefail
-          uv run pytest -q tests/domain tests/artifacts tests/evaluation 2>&1 | tee core-contracts.log
+          uv run pytest -q tests/domain tests/artifacts tests/evaluation tests/migration 2>&1 | tee core-contracts.log
 
       - name: Run critical residual contracts
         run: |

@@ -1,0 +1,66 @@
+name: Pipeline CLI Integration
+
+on:
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/training-artifact-pipeline'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/training-artifact-pipeline
+      - name: Integrate artifact commands into authoritative CLI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/cli/app.py')
+          text = path.read_text()
+          old = '''def main(
+              argv: Sequence[str] | None = None,
+              *,
+              stdout: TextIO | None = None,
+          ) -> int:
+              output = stdout or sys.stdout
+              parser = build_parser()
+              args = parser.parse_args(list(argv) if argv is not None else None)
+          '''
+          new = '''def main(
+              argv: Sequence[str] | None = None,
+              *,
+              stdout: TextIO | None = None,
+              stderr: TextIO | None = None,
+          ) -> int:
+              arguments = list(sys.argv[1:] if argv is None else argv)
+              if arguments[:2] in (["train", "run"], ["walk-forward", "run"]):
+                  from trade_rl.cli.extended import main as artifact_main
+
+                  return artifact_main(arguments, stdout=stdout, stderr=stderr)
+              output = stdout or sys.stdout
+              parser = build_parser()
+              args = parser.parse_args(arguments)
+          '''
+          if old not in text:
+              raise SystemExit('authoritative CLI main pattern not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/pipeline-cli-integration.yml
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          uvx ruff check --fix trade_rl/cli/app.py trade_rl/cli/extended.py
+          uvx ruff format trade_rl/cli/app.py trade_rl/cli/extended.py
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: integrate artifact commands into authoritative CLI"
+          git push origin HEAD:agent/training-artifact-pipeline

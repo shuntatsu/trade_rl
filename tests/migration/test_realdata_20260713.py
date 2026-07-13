@@ -31,7 +31,9 @@ def test_realdata_run_is_baseline_analysis_not_a_selected_ppo() -> None:
     assert result.research_run_status is ResearchRunStatus.COMPLETED
     assert result.signal_status is SignalStatus.REJECTED
     assert result.policy_candidate_status is PolicyCandidateStatus.NOT_SELECTED
-    assert result.baseline_fallback_status is BaselineFallbackStatus.SELECTED_FOR_ANALYSIS
+    assert (
+        result.baseline_fallback_status is BaselineFallbackStatus.SELECTED_FOR_ANALYSIS
+    )
     assert result.release_status is ReleaseStatus.BLOCKED
     assert result.selected_configuration == "A"
     assert result.selected_policy_digest is None

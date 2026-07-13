@@ -43,7 +43,9 @@ def test_paired_comparison_keeps_arithmetic_and_log_excess_separate() -> None:
     )
     assert result.excess_log_return == pytest.approx(sum(log_differences))
     assert result.mean_period_excess == pytest.approx(fmean(log_differences))
-    assert result.mean_period_simple_excess == pytest.approx(fmean(simple_differences))
+    assert result.mean_period_simple_excess == pytest.approx(
+        fmean(simple_differences)
+    )
     assert 0.0 <= result.p_value <= 1.0
     assert result.block_size >= 1
 
@@ -63,8 +65,12 @@ def test_paired_bootstrap_uses_log_excess_when_large_returns_diverge() -> None:
         for left, right in zip(candidate.values, benchmark.values, strict=True)
     )
     assert result.mean_period_excess == pytest.approx(fmean(log_differences))
-    assert result.mean_period_simple_excess == pytest.approx(fmean(simple_differences))
-    assert result.mean_period_excess != pytest.approx(result.mean_period_simple_excess)
+    assert result.mean_period_simple_excess == pytest.approx(
+        fmean(simple_differences)
+    )
+    assert result.mean_period_excess != pytest.approx(
+        result.mean_period_simple_excess
+    )
 
 
 def test_identity_comparison_is_exact_and_non_significant() -> None:

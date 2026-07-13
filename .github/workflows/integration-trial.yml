@@ -16,7 +16,7 @@ jobs:
         with:
           ref: agent/action-environment-comprehensive-hardening
           fetch-depth: 0
-      - name: Merge branches with consolidated-core conflict policy
+      - name: Merge branches with data-preferred conflict policy
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
@@ -32,10 +32,10 @@ jobs:
           git merge --no-ff --no-commit origin/agent/causal-market-data-builder
           while IFS= read -r file; do
             [ -z "$file" ] && continue
-            git checkout --ours -- "$file"
+            git checkout --theirs -- "$file"
             git add "$file"
           done < <(git diff --name-only --diff-filter=U)
-          git commit -m "trial: merge data branch"
+          git commit -m "trial: merge data branch preferring data conflicts"
           rm -f uv.lock
           git status --short > merged-status.txt
       - uses: astral-sh/setup-uv@v5
@@ -61,7 +61,7 @@ jobs:
         run: uv run pytest -q > pytest.txt 2>&1
       - uses: actions/upload-artifact@v4
         with:
-          name: consolidated-integration-trial
+          name: consolidated-integration-trial-data-preferred
           path: |
             merged-status.txt
             install.txt

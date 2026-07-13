@@ -33,7 +33,20 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff
-        run: uv run ruff check .
+        id: ruff
+        continue-on-error: true
+        run: uv run ruff check . 2>&1 | tee ruff.log
+
+      - name: Upload Ruff diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-diagnostics
+          path: ruff.log
+
+      - name: Fail on Ruff errors
+        if: steps.ruff.outcome == 'failure'
+        run: exit 1
 
       - name: Format
         run: uv run ruff format --check --diff .

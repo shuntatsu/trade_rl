@@ -21,7 +21,7 @@ Key boundaries are now explicit:
 
 ## Causal market data
 
-The maintained data path builds `MarketDataset` directly from real per-symbol CSV bars. It preserves a regular union clock, point-in-time listing and delisting masks, bar-level tradability, per-feature availability and staleness, and explicit volume units. Feature configuration, ordered symbols, instrument contracts, normalization output and all resolved arrays are bound into `dataset_id`.
+The maintained data path builds `MarketDataset` directly from real per-symbol CSV bars. It preserves a regular union clock, point-in-time listing and delisting masks, execution-state tradability, information availability, per-feature availability and staleness, and explicit volume units. Feature configuration, ordered symbols, instrument contracts, normalization output and all resolved arrays are bound into `dataset_id`.
 
 ```python
 from datetime import datetime, timezone
@@ -54,9 +54,11 @@ dataset = MarketDatasetBuilder(config).build(
 )
 ```
 
-Each CSV uses `timestamp,open,high,low,close,volume` and may add `available_at`, `funding_rate`, and `tradable`. `timestamp` is the market event time; `available_at` is the earliest timestamp at which that row was knowable. A delayed row is never injected retroactively into a same-time feature. The prior causal feature may remain carried with increasing staleness until a new on-time feature is available.
+Each CSV uses `timestamp,open,high,low,close,volume` and may add `available_at`, `funding_rate`, and `tradable`. `timestamp` is the market event time; `available_at` is the earliest timestamp at which that row was knowable. A delayed row is retained as realized execution history but is never injected retroactively into a same-time feature or policy-visible market state. `MarketDataset.observable_tradable(t)` is therefore `tradable[t] & information_available[t]`, while the executor retains the unmasked realized `tradable` array.
 
 One point-in-time eligibility mask is shared by Trend, alpha, and pre-trade target construction. It requires the instrument to be active, tradable, and information-available throughout the requested trailing window. Future execution-state tradability remains the executor's responsibility and is not used to construct the current target.
+
+Alpha providers receive a copied, read-only `CausalMarketView` ending at the decision index. It contains causal features and masks but exposes no future rows or raw OHLC arrays. `MarketInputResolver` binds the Trend and Alpha configuration to a deterministic digest and is shared by training and Serving.
 
 ## Deterministic dataset artifacts
 
@@ -83,11 +85,13 @@ A strict JSON build request can drive the maintained CLI path:
 uv run trade-rl data build --config market-build.json --output output/dataset
 ```
 
-The output contains a canonical `manifest.json` and deterministic `arrays.npz`. Both are digest-verified when reloaded. Identical configuration and source bytes produce identical dataset and artifact identities.
+The output destination must not already exist. The complete `manifest.json` and deterministic `arrays.npz` are written and verified in a sibling staging directory, then published with one directory rename. An existing artifact is never overwritten. The manifest stores the canonical dataset identity payload, and loading independently recomputes `dataset_id` from that payload and the stored arrays instead of trusting the identifier string.
 
 ## Observation and Serving identity
 
-Training and Serving use the same `ObservationBuilder`. Serving bundles bind the ordered observation schema digest and exact vector size in addition to `dataset_id` and the action schema. Structured inference fails closed before policy execution when the dataset identity, observation schema, or vector size does not match the active bundle.
+Training and Serving use the same `ObservationBuilder` and `MarketInputResolver`. Serving recomputes Trend and Alpha rather than trusting caller-supplied values. Bundles bind `dataset_id`, the ordered observation schema digest, exact vector size, action schema, and market-input resolver digest.
+
+Structured inference fails closed before policy execution when any identity differs. Raw-vector inference also requires all three caller-supplied identities—dataset, observation schema, and market-input resolver—to match the active bundle; matching vector length alone is insufficient.
 
 ## Install
 

@@ -7,6 +7,7 @@ import pytest
 
 from tests.serving.helpers import INITIAL_CAPITAL, OBSERVATION_SIZE, create_bundle
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle
 from trade_rl.serving.runtime import LoadedPolicy, ServingRuntime
 
@@ -41,7 +42,7 @@ def test_baseline_bundle_serves_identity_action_without_policy_loader(
     action = runtime.predict(np.zeros(OBSERVATION_SIZE, dtype=np.float32))
 
     assert snapshot.policy_mode is PolicyMode.BASELINE_ONLY
-    assert snapshot.observation_schema == "baseline_residual_observation_v2"
+    assert snapshot.observation_schema == OBSERVATION_SCHEMA
     assert snapshot.observation_size == OBSERVATION_SIZE
     assert snapshot.environment_digest == "d" * 64
     assert snapshot.initial_capital == pytest.approx(INITIAL_CAPITAL)

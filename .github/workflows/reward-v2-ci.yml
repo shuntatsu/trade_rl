@@ -39,12 +39,12 @@ jobs:
         shell: bash
         run: |
           set +e
-          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --tb=short > ci-reward-v2.txt 2>&1
+          uv run pytest -q --tb=short --no-cov > ci-reward-v2.txt 2>&1
           status=$?
           set -e
-          tail -n 220 ci-reward-v2.txt > ci-reward-v2-tail.txt
+          tail -n 100 ci-reward-v2.txt > ci-reward-v2-tail.txt
           {
-            echo '### Reward v2 verification'
+            echo '### Reward v2 concise verification'
             echo
             echo '```text'
             cat ci-reward-v2-tail.txt

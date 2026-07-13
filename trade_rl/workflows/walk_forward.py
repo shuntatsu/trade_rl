@@ -169,12 +169,8 @@ def execute_walk_forward(
             "folds": tuple(
                 {
                     "fold_index": result.fold_index,
-                    "selected_configuration": (
-                        result.selection.selected_configuration
-                    ),
-                    "selected_policy_digest": (
-                        result.selection.selected_policy_digest
-                    ),
+                    "selected_configuration": (result.selection.selected_configuration),
+                    "selected_policy_digest": (result.selection.selected_policy_digest),
                     "selection_evaluation_digest": (
                         result.selection_evaluation_digest
                     ),

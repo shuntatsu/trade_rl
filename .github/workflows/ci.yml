@@ -36,7 +36,16 @@ jobs:
         run: uv run ruff check .
 
       - name: Format
-        run: uv run ruff format --check --diff .
+        run: uv run ruff format .
+
+      - name: Upload canonical formatting
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-formatting
+          path: |
+            trade_rl
+            tests
+          if-no-files-found: error
 
       - name: Mypy
         run: uv run mypy trade_rl

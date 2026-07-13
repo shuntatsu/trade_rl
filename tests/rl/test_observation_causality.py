@@ -5,14 +5,25 @@ from datetime import datetime, timezone
 import numpy as np
 
 from trade_rl.data.builder import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
+from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.rl.observations import ObservationBuilder, ObservationInput
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
-def raw_series(n_bars: int, *, next_tradable: bool = True, future_shift: float = 0.0) -> RawMarketSeries:
+def raw_series(
+    n_bars: int,
+    *,
+    next_tradable: bool = True,
+    future_shift: float = 0.0,
+) -> RawMarketSeries:
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
         n_bars
     ) * np.timedelta64(1, "h")
@@ -33,7 +44,11 @@ def raw_series(n_bars: int, *, next_tradable: bool = True, future_shift: float =
     )
 
 
-def dataset(*, next_tradable: bool = True, future_shift: float = 0.0):
+def dataset(
+    *,
+    next_tradable: bool = True,
+    future_shift: float = 0.0,
+) -> MarketDataset:
     config = MarketBuildConfig(
         base_timeframe="1h",
         features=(
@@ -47,9 +62,7 @@ def dataset(*, next_tradable: bool = True, future_shift: float = 0.0):
     )
     source = InMemoryMarketDataSource(
         {
-            "A": raw_series(
-                64, next_tradable=next_tradable, future_shift=future_shift
-            ),
+            "A": raw_series(64, next_tradable=next_tradable, future_shift=future_shift),
             "B": raw_series(
                 64, next_tradable=next_tradable, future_shift=-future_shift
             ),
@@ -66,7 +79,7 @@ def dataset(*, next_tradable: bool = True, future_shift: float = 0.0):
     return MarketDatasetBuilder(config).build(source, contracts)
 
 
-def observation(market) -> np.ndarray:
+def observation(market: MarketDataset) -> np.ndarray:
     index = 20
     trends = TrendStrategy(
         TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
@@ -111,8 +124,16 @@ def test_observation_contains_per_feature_masks_and_staleness() -> None:
         market.n_symbols, layout.per_symbol_width
     )
     n = market.n_features
+    feature_staleness = market.feature_staleness
+    symbol_active = market.symbol_active
+    assert feature_staleness is not None
+    assert symbol_active is not None
 
-    np.testing.assert_array_equal(per_symbol[:, n : 2 * n], market.feature_available[20])
-    np.testing.assert_allclose(per_symbol[:, 2 * n : 3 * n], market.feature_staleness[20])
+    np.testing.assert_array_equal(
+        per_symbol[:, n : 2 * n], market.feature_available[20]
+    )
+    np.testing.assert_allclose(
+        per_symbol[:, 2 * n : 3 * n], feature_staleness[20]
+    )
     np.testing.assert_array_equal(per_symbol[:, 3 * n], market.tradable[20])
-    np.testing.assert_array_equal(per_symbol[:, 3 * n + 1], market.symbol_active[20])
+    np.testing.assert_array_equal(per_symbol[:, 3 * n + 1], symbol_active[20])

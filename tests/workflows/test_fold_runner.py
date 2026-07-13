@@ -134,7 +134,9 @@ def test_fold_runner_scopes_training_selection_and_outer_test_ranges() -> None:
     assert result.baseline_oos.stop == fold().test.stop
 
 
-def test_fold_runner_falls_back_to_baseline_without_duplicate_outer_evaluation() -> None:
+def test_fold_runner_falls_back_to_baseline_without_duplicate_outer_evaluation() -> (
+    None
+):
     trainer = FakeTrainer()
     evaluator = FakeEvaluator(
         selection_scores={

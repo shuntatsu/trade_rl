@@ -10,7 +10,7 @@ from dataclasses import asdict
 from typing import TextIO
 
 from trade_rl import __version__
-from trade_rl.rl.training import ResidualTrainingConfig
+from trade_rl.rl.training import DEFAULT_RESIDUAL_GAMMA, ResidualTrainingConfig
 from trade_rl.workflows.walk_forward import WalkForwardWorkflowConfig
 
 
@@ -42,12 +42,14 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
         timesteps=args.timesteps,
         gamma=args.gamma,
         seeds=tuple(args.seed),
+        allow_low_gamma=args.allow_low_gamma,
     )
     _write_json(
         stdout,
         {
+            "allow_low_gamma": config.allow_low_gamma,
             "gamma": config.gamma,
-            "schema": "residual_training_config_v1",
+            "schema": "residual_training_config_v2",
             "seeds": list(config.seeds),
             "timesteps": config.timesteps,
         },
@@ -130,7 +132,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="validate and display a residual training configuration",
     )
     train_config.add_argument("--timesteps", type=int, required=True)
-    train_config.add_argument("--gamma", type=float, required=True)
+    train_config.add_argument(
+        "--gamma",
+        type=float,
+        default=DEFAULT_RESIDUAL_GAMMA,
+        help=(
+            "PPO discount factor (default: 0.99). Values below 0.95 require "
+            "--allow-low-gamma and are research-only ablations."
+        ),
+    )
+    train_config.add_argument(
+        "--allow-low-gamma",
+        action="store_true",
+        help="allow a residual gamma below 0.95 for an explicit research ablation",
+    )
     train_config.add_argument("--seed", type=int, action="append", required=True)
     train_config.set_defaults(handler=_train_config)
 

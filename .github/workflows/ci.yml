@@ -29,17 +29,22 @@ jobs:
       - name: Run ruff check
         run: |
           set -o pipefail
-          uv run ruff check trade_rl tests/domain tests/artifacts 2>&1 | tee ruff-check.log
+          uv run ruff check trade_rl tests/domain tests/artifacts tests/evaluation 2>&1 | tee ruff-check.log
 
       - name: Run ruff format
         run: |
           set -o pipefail
-          uv run ruff format --check --diff trade_rl tests/domain tests/artifacts 2>&1 | tee ruff-format.log
+          uv run ruff format --check --diff trade_rl tests/domain tests/artifacts tests/evaluation 2>&1 | tee ruff-format.log
 
       - name: Run mypy
         run: |
           set -o pipefail
           uv run mypy mars_lite 2>&1 | tee mypy.log
+
+      - name: Run rebuilt core contracts
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/domain tests/artifacts tests/evaluation 2>&1 | tee core-contracts.log
 
       - name: Run critical residual contracts
         run: |
@@ -82,6 +87,7 @@ jobs:
             ruff-check.log
             ruff-format.log
             mypy.log
+            core-contracts.log
             residual-contracts.log
             pytest.log
           if-no-files-found: ignore

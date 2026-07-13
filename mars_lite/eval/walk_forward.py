@@ -15,13 +15,15 @@ from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
+from mars_lite.eval.strategy_metrics import (
+    infer_bars_per_year,
+    reannualize_strategy_results,
+)
 from mars_lite.features.feature_pipeline import FeatureSet
 from mars_lite.learning.baselines import StrategyResult, run_all_baselines
 from mars_lite.trading.execution import FEE_KWARG_KEYS
-from mars_lite.trading.post_processor import BARS_PER_YEAR_1H
 from mars_lite.utils.metrics import deflated_sharpe_ratio
 
-# エージェント学習関数の型: (train_fs, seed) -> agent
 TrainFn = Callable[[FeatureSet, int], object]
 
 
@@ -44,21 +46,21 @@ class WalkForwardReport:
         """fold横断のエージェント成績分布とベースライン比較"""
         agent_sharpes, agent_returns = [], []
         base_sharpes: Dict[str, List[float]] = {}
-        for f in self.folds:
-            agent_sharpes += [a["sharpe"] for a in f.agent_by_seed]
-            agent_returns += [a["total_return"] for a in f.agent_by_seed]
-            for name, b in f.baselines.items():
-                base_sharpes.setdefault(name, []).append(b["sharpe"])
+        for fold in self.folds:
+            agent_sharpes += [item["sharpe"] for item in fold.agent_by_seed]
+            agent_returns += [item["total_return"] for item in fold.agent_by_seed]
+            for name, baseline in fold.baselines.items():
+                base_sharpes.setdefault(name, []).append(baseline["sharpe"])
 
-        def stats(xs):
-            if not xs:
+        def stats(values):
+            if not values:
                 return {}
-            xs = np.array(xs)
+            array = np.array(values)
             return {
-                "mean": float(xs.mean()),
-                "median": float(np.median(xs)),
-                "min": float(xs.min()),
-                "max": float(xs.max()),
+                "mean": float(array.mean()),
+                "median": float(np.median(array)),
+                "min": float(array.min()),
+                "max": float(array.max()),
             }
 
         return {
@@ -66,7 +68,7 @@ class WalkForwardReport:
             "agent_sharpe": stats(agent_sharpes),
             "agent_total_return": stats(agent_returns),
             "baseline_sharpe_mean": {
-                k: float(np.mean(v)) for k, v in base_sharpes.items()
+                key: float(np.mean(value)) for key, value in base_sharpes.items()
             },
         }
 
@@ -79,17 +81,17 @@ class WalkForwardReport:
             "deflated_sharpe": self.dsr,
             "folds": [
                 {
-                    "fold": f.fold,
-                    "train_bars": f.train_bars,
-                    "test_bars": f.test_bars,
-                    "agent_by_seed": f.agent_by_seed,
-                    "baselines": f.baselines,
+                    "fold": fold.fold,
+                    "train_bars": fold.train_bars,
+                    "test_bars": fold.test_bars,
+                    "agent_by_seed": fold.agent_by_seed,
+                    "baselines": fold.baselines,
                 }
-                for f in self.folds
+                for fold in self.folds
             ],
         }
-        with open(path, "w", encoding="utf-8") as fp:
-            json.dump(payload, fp, indent=2, ensure_ascii=False)
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, indent=2, ensure_ascii=False)
 
 
 def evaluate_agent_on_slice(
@@ -108,7 +110,6 @@ def evaluate_agent_on_slice(
     done = False
     equity = [env.portfolio_value]
     info: Dict = {}
-    # SeedEnsembleなら不一致度を毎ステップ後処理へ渡す（不確実時にグロス縮小）
     has_disagreement = hasattr(agent, "disagreement")
     while not done:
         action, _ = agent.predict(obs, deterministic=True)
@@ -126,7 +127,7 @@ def evaluate_agent_on_slice(
         "turnover_total": info.get("turnover_total", 0.0),
         "funding_pnl": info.get("funding_pnl", 0.0),
         "hold_pct": info.get("hold_pct", 0.0),
-        "equity_curve": [float(x) for x in equity],
+        "equity_curve": [float(value) for value in equity],
     }
 
 
@@ -142,12 +143,14 @@ def run_walk_forward(
     verbose: bool = True,
 ) -> WalkForwardReport:
     """
-    ウォークフォワード検証を実行
+    ウォークフォワード検証を実行。
 
     fold k は [0, split_k) で学習し、purge後の [split_k+purge, split_{k+1}) で評価。
     """
+    del train_ratio_per_fold
     seeds = seeds or [0, 1, 2]
     env_kwargs = env_kwargs or {}
+    bars_per_year = infer_bars_per_year(fs)
     report = WalkForwardReport(
         config={
             "n_folds": n_folds,
@@ -155,23 +158,18 @@ def run_walk_forward(
             "seeds": seeds,
             "cost_multiplier": cost_multiplier,
             "n_bars_total": fs.n_bars,
+            "bars_per_year": bars_per_year,
         }
     )
 
     edges = np.linspace(int(fs.n_bars * 0.4), fs.n_bars, n_folds + 1).astype(int)
-
-    # DSR用: foldごとに代表seed（中央値Sharpe）のリターン系列を1本だけ集める。
-    # foldは時間的に重ならないので、これらを連結すれば honest な1本のOOS
-    # 系列になる。同一foldの複数seedを全部連結するとサンプル数nが情報を
-    # 伴わずに水増しされ、DSRを実態より良く見せてしまうため避ける。
     fold_return_series: List[np.ndarray] = []
-    # 試行数補正には全 fold×seed のSharpeを使う（selection biasの母数）。
     trial_sharpes: List[float] = []
 
-    for k in range(n_folds):
-        train_end = edges[k]
+    for fold_number in range(n_folds):
+        train_end = edges[fold_number]
         test_start = train_end + purge_bars
-        test_end = edges[k + 1]
+        test_end = edges[fold_number + 1]
         if test_end - test_start < 50:
             continue
 
@@ -180,7 +178,8 @@ def run_walk_forward(
 
         if verbose:
             print(
-                f"[Fold {k}] train: {train_fs.n_bars} bars, test: {test_fs.n_bars} bars"
+                f"[Fold {fold_number}] train: {train_fs.n_bars} bars, "
+                f"test: {test_fs.n_bars} bars"
             )
 
         agent_results = []
@@ -188,39 +187,49 @@ def run_walk_forward(
         seed_sharpes: List[float] = []
         for seed in seeds:
             agent = train_fn(train_fs, seed)
-            res = evaluate_agent_on_slice(
-                agent, test_fs, cost_multiplier=cost_multiplier, **env_kwargs
+            result = evaluate_agent_on_slice(
+                agent,
+                test_fs,
+                cost_multiplier=cost_multiplier,
+                **env_kwargs,
             )
-            res["seed"] = seed
-            equity = np.asarray(res.pop("equity_curve", []), dtype=np.float64)
-            sharpe = float(res.get("sharpe", 0.0))
+            result["seed"] = seed
+            equity = np.asarray(result.pop("equity_curve", []), dtype=np.float64)
+            sharpe = float(result.get("sharpe", 0.0))
             if len(equity) > 2:
                 seed_returns.append(np.diff(np.log(np.clip(equity, 1e-9, None))))
                 seed_sharpes.append(sharpe)
             trial_sharpes.append(sharpe)
-            agent_results.append(res)
+            agent_results.append(result)
             if verbose:
                 print(
-                    f"  seed {seed}: ret={res['total_return']:+.4f} "
-                    f"sharpe={res['sharpe']:+.2f} trades={res['n_trades']}"
+                    f"  seed {seed}: ret={result['total_return']:+.4f} "
+                    f"sharpe={result['sharpe']:+.2f} trades={result['n_trades']}"
                 )
 
-        # このfoldの代表として中央値Sharpeのseedを1本選ぶ（楽観バイアス回避）。
         if seed_returns:
-            med_idx = int(np.argsort(seed_sharpes)[len(seed_sharpes) // 2])
-            fold_return_series.append(seed_returns[med_idx])
+            median_index = int(np.argsort(seed_sharpes)[len(seed_sharpes) // 2])
+            fold_return_series.append(seed_returns[median_index])
 
-        fee_kwargs = {k: env_kwargs[k] for k in FEE_KWARG_KEYS if k in env_kwargs}
+        fee_kwargs = {key: env_kwargs[key] for key in FEE_KWARG_KEYS if key in env_kwargs}
+        baseline_results = run_all_baselines(
+            fs,
+            cost_multiplier=cost_multiplier,
+            start_idx=test_start,
+            end_idx=test_end,
+            **fee_kwargs,
+        )
         baselines = {
-            name: r.to_dict()
-            for name, r in run_all_baselines(
-                test_fs, cost_multiplier=cost_multiplier, **fee_kwargs
+            name: result.to_dict()
+            for name, result in reannualize_strategy_results(
+                baseline_results,
+                bars_per_year=bars_per_year,
             ).items()
         }
 
         report.folds.append(
             FoldResult(
-                fold=k,
+                fold=fold_number,
                 train_bars=train_fs.n_bars,
                 test_bars=test_fs.n_bars,
                 agent_by_seed=agent_results,
@@ -229,12 +238,11 @@ def run_walk_forward(
         )
 
     if fold_return_series:
-        # 時間的に重ならないfoldの代表系列を連結 = 1本のhonestなOOS equity path。
         oos_returns = np.concatenate(fold_return_series)
         report.dsr = deflated_sharpe_ratio(
             oos_returns,
             trial_sharpes,
-            annualization_factor=BARS_PER_YEAR_1H,
+            annualization_factor=bars_per_year,
         )
 
     return report
@@ -252,20 +260,19 @@ def plot_comparison(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(11, 6))
     if "equity_curve" in agent_result:
         curve = np.array(agent_result["equity_curve"])
-        ax.plot(curve / curve[0], label="RL Agent", linewidth=2.2, color="#d62728")
-    for name, r in baseline_results.items():
-        ax.plot(r.equity_curve, label=name, alpha=0.75)
+        plt.plot(curve / curve[0], label="RL Agent", linewidth=2.2)
+    for name, result in baseline_results.items():
+        plt.plot(result.equity_curve, label=name, alpha=0.75)
 
-    ax.set_title(title)
-    ax.set_xlabel("Bars (1h)")
-    ax.set_ylabel("Equity (normalized)")
-    ax.legend()
-    ax.grid(alpha=0.3)
+    plt.title(title)
+    plt.xlabel("Bars")
+    plt.ylabel("Equity (normalized)")
+    plt.legend()
+    plt.grid(alpha=0.3)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=130)
-    plt.close(fig)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=130)
+    plt.close()

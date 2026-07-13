@@ -1,70 +1,54 @@
 # Causal Training Hardening Design
 
-## Status
-
-Approved for implementation from the 2026-07-13 mainline audit.
-
 ## Goal
 
-Remove training-only terminal information and non-causal execution inputs, then make PPO resource and rollout settings explicit and reproducible.
+Make the maintained residual-RL path causal, reproducible, AUM-aware, evaluation-isolated, and fail-closed from environment step through production serving activation.
 
-## Scope
+## Environment and execution
 
-1. Episode endings distinguish a genuine terminal liquidation from a time-limit truncation.
-2. Training defaults to time-limit continuation semantics: no forced liquidation reward and no episode-progress feature.
-3. Explicit liquidation remains available for sealed evaluation and is treated as a terminal transition, not a truncation eligible for value bootstrap.
-4. Policy observations expose current tradability only. Future `t+1` tradability remains part of transition dynamics and execution, but is not policy input or pre-trade target filtering.
-5. Next-open execution uses volume known at decision time (`volume[t]`) as the capacity proxy for fills at `open[t+1]`; it never uses the completed `t+1` bar volume to size an order at its open.
-6. Liquidation fails closed when capacity prevents a complete exit.
-7. PPO settings are explicit in `ResidualTrainingConfig`; requested and rollout-rounded timesteps are recorded.
-8. The Stable-Baselines3 backend accepts the full typed configuration, reports the resolved device and actual timesteps, and supports an explicit device selection.
-9. Policy ensemble identity includes the training configuration digest and observation schema.
+Training time limits are Gymnasium truncations and do not force liquidation. Stable-Baselines3 may therefore bootstrap the terminal observation. Explicit end-of-window liquidation is reserved for sealed evaluation, is terminal, and fails closed when liquidity leaves residual positions.
 
-## Non-goals
+Policy observations contain current feature availability and current tradability, never synthetic episode progress or next-bar tradability. A decision after close `t` executes at open `t+1`; capacity uses completed volume from bar `t`, while actual tradability at `t+1` remains transition dynamics.
 
-- Building the concrete real-data FoldRunner in this change.
-- Changing the two-dimensional residual action schema.
-- Increasing network size solely to make a GPU busy.
-- Claiming production readiness or strategy profitability.
+Initial capital is mandatory in quote-currency units. The environment digest includes dataset identity, resolved timing, trend configuration, risk limits, execution costs, reward settings, alpha mode, action and observation schemas, and AUM.
 
-## Environment semantics
+## Training
 
-`liquidate_on_end=False` is the training default. Reaching `end_index` returns `truncated=True`, keeps the final marked account state, and allows SB3 to bootstrap the terminal observation.
+One immutable PPO configuration contains learning rate, rollout length, batch size, epochs, gamma, GAE, clip range, advantage normalization, entropy/value coefficients, gradient norm, policy type, device, timesteps, and seeds.
 
-`liquidate_on_end=True` is an explicit sealed-evaluation mode. Reaching `end_index` liquidates both books, includes liquidation costs in the final reward and metrics, returns `terminated=True`, and returns `truncated=False`. Incomplete liquidation raises an error instead of silently resetting with residual positions.
+Policy artifacts distinguish requested from model-reported actual timesteps and store the resolved device. They also bind the training configuration digest, observation schema, environment digest, and AUM. Ensemble construction rejects inconsistent work, device, environment, or capital identities across seeds.
 
-Insolvency remains a true termination. If insolvency and the time limit occur on the same step, termination takes precedence.
+A small single-environment MLP can remain CPU/environment-bound. GPU utilization is diagnostic only; throughput, reproducibility, and sealed OOS performance are decision criteria.
 
-## Observation contract
+## Nested Walk-Forward
 
-The observation schema becomes `baseline_residual_observation_v2`.
+The concrete fold runner passes only train and checkpoint-validation ranges to candidate trainers. Frozen candidates and the identity baseline are compared on configuration-selection data. Only the selected candidate and baseline are evaluated on the sealed outer-test range, exactly once. When no candidate clears the predeclared uplift threshold, baseline fallback is explicit.
 
-Per-symbol inputs contain current feature availability, current tradability, trend targets, alpha, hybrid weights, shadow weights, and relative weights. Episode progress is removed because live continuous operation cannot reproduce a synthetic random episode boundary.
+Selected and baseline OOS returns are stitched independently. The final evaluation digest binds fold identities, selection evidence, policy identities, sealed-test evidence, and stitch mode.
 
-## Execution causality
+## Gates and releases
 
-At decision close `t`, an order may execute at `open[t+1]`. Capacity for that fill is estimated from `volume[t]`, which is known at the decision. Actual `tradable[t+1]` still determines whether the market accepts a fill. Partial fills may continue across the decision interval, using each just-completed bar's volume as the next-open capacity proxy.
+Gate decisions bind the evaluated dataset, selected policy identity when applicable, and final evaluation digest. Release manifests preserve both selection-evaluation and gate-evaluation identities and reject mismatched dataset, signal, or policy identities.
 
-## PPO and GPU policy
+## Serving
 
-A small MLP PPO with one environment is commonly environment/CPU-bound; low GPU utilization is not itself a defect. The code must make device choice observable and configurable, but must not silently enlarge the network or batch merely to increase GPU usage.
+Serving bundle schema v2 binds action schema, observation schema, observation size, environment digest, AUM, dataset, signal, selection, policy, release, and artifact files. Runtime activation validates schemas before policy loading, and inference validates observation width before prediction.
 
-The configuration records learning rate, rollout length, batch size, epochs, GAE lambda, clipping, entropy/value coefficients, gradient norm, advantage normalization, policy name, device, and seeds. `actual_timesteps` is the rollout-rounded count for the single-environment backend.
-
-GPU-oriented experiments may explicitly use `device="cuda"`, larger batches, a larger policy network through policy kwargs in a later change, and vectorized environments. Performance comparisons must include wall-clock throughput and evaluation quality, not utilization alone.
+Runtime and Registry require an approved release identity by default. Unreleased research bundles require the explicit `allow_unreleased=True` escape hatch.
 
 ## Testing
 
-Regression tests cover:
+Regression coverage includes:
 
-- time-limit ending without liquidation is truncated only;
-- explicit liquidation is terminal only and is fully flat;
-- incomplete liquidation fails closed;
-- observations contain current, not next, tradability and no progress field;
-- pre-trade risk does not inspect future tradability;
-- next-open capacity uses prior-bar volume;
-- PPO configuration validation and rollout-rounded timesteps;
-- backend forwards all explicit PPO settings and reports device/timestep metadata;
-- policy manifest digest changes when training configuration changes.
+- bootstrap-compatible training truncations;
+- terminal complete liquidation and fail-closed incomplete liquidation;
+- causal observations and next-open capacity;
+- explicit PPO settings, actual work, device, environment, and AUM identity;
+- real Stable-Baselines3 train/save/load/predict;
+- range-scoped nested Walk-Forward selection and sealed OOS execution;
+- Gate and Release identity mismatches;
+- serving observation-size/schema checks and release-gated activation.
 
-The full authoritative CI remains required before merge.
+## Remaining boundary
+
+A project-specific real-data loader, fold-local preprocessing adapter, PPO candidate trainer, checkpoint selector, and evaluator must still be connected to the typed workflow requests. No profitability or production-readiness claim follows from this hardening work alone.

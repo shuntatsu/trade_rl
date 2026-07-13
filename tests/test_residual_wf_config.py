@@ -5,7 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-def test_residual_walk_forward_config_is_immutable_and_records_effective_values() -> None:
+def test_residual_walk_forward_config_is_immutable_and_records_effective_values() -> (
+    None
+):
     module_path = Path("mars_lite/pipeline/residual_wf_config.py")
     assert module_path.is_file()
     module = importlib.import_module("mars_lite.pipeline.residual_wf_config")

@@ -18,6 +18,7 @@ class PairedComparison:
     excess_total_return: float
     excess_log_return: float
     mean_period_excess: float
+    mean_period_simple_excess: float
     p_value: float
     lower_ci: float
     upper_ci: float
@@ -40,10 +41,10 @@ def compare_paired_returns(
     n_bootstrap: int = 1_000,
     seed: int = 0,
 ) -> PairedComparison:
-    """Compare chronologically paired candidate and benchmark returns."""
+    """Compare chronologically paired returns using excess log growth for inference."""
 
     _validate_compatible(candidate, benchmark)
-    differences = tuple(
+    simple_differences = tuple(
         candidate_value - benchmark_value
         for candidate_value, benchmark_value in zip(
             candidate.values,
@@ -51,8 +52,16 @@ def compare_paired_returns(
             strict=True,
         )
     )
+    log_differences = tuple(
+        math.log1p(candidate_value) - math.log1p(benchmark_value)
+        for candidate_value, benchmark_value in zip(
+            candidate.values,
+            benchmark.values,
+            strict=True,
+        )
+    )
     bootstrap = moving_block_mean_test(
-        differences,
+        log_differences,
         n_bootstrap=n_bootstrap,
         seed=seed,
     )
@@ -63,7 +72,8 @@ def compare_paired_returns(
         excess_total_return=compound_return(candidate.values)
         - compound_return(benchmark.values),
         excess_log_return=candidate_log_return - benchmark_log_return,
-        mean_period_excess=fmean(differences),
+        mean_period_excess=fmean(log_differences),
+        mean_period_simple_excess=fmean(simple_differences),
         p_value=bootstrap.p_value,
         lower_ci=bootstrap.lower_ci,
         upper_ci=bootstrap.upper_ci,

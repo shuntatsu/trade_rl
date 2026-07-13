@@ -1,0 +1,54 @@
+name: Cleanup obsolete branches
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/cleanup-obsolete-branches.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Delete closed or merged PR branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          branches=(
+            "agent/paired-log-inference-v2"
+            "agent/paired-log-inference"
+            "agent/residual-reward-hardening-v2"
+            "agent/residual-reward-hardening"
+            "agent/reward-design-overhaul"
+            "refactor/residual-core-rebuild"
+            "feature/residual-walk-forward"
+            "feature/baseline-anchored-residual-rl"
+            "agent/local-validation-hardening"
+            "agent/production-architecture-hardening"
+            "docs/japanese-documentation"
+            "agent/fix-m7-production-blockers-clean"
+            "agent/fix-m7-production-blockers"
+            "claude/further-improvements-i660lc"
+            "claude/rl-architecture-redesign-a4tlvn"
+            "verify/realistic-env-hardening"
+            "apply/realistic-env-hardening-final"
+            "fix/realistic-environment-hardening-final"
+          )
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for branch in "${branches[@]}"; do
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+              echo "Deleting $branch"
+              git push origin --delete "$branch"
+            else
+              echo "Already absent: $branch"
+            fi
+          done

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
@@ -43,7 +44,7 @@ def create_bundle(
         root=root,
         dataset_id="a" * 64,
         action_schema="baseline_residual_v1",
-        observation_schema="baseline_residual_observation_v2",
+        observation_schema=OBSERVATION_SCHEMA,
         observation_size=observation_size,
         environment_digest="d" * 64,
         initial_capital=INITIAL_CAPITAL,

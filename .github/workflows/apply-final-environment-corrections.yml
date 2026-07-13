@@ -1,0 +1,96 @@
+name: Apply final environment corrections
+
+on:
+  push:
+    branches: [fix/realistic-environment-hardening-final]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/realistic-environment-hardening-final
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Apply corrections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          env_path = Path('trade_rl/rl/environment.py')
+          text = env_path.read_text(encoding='utf-8')
+          old = '''        self.hybrid = self._initial_book(start=start, option_value=initial_hybrid)
+          self.shadow = self._initial_book(
+              start=start,
+              option_value=(initial_shadow if initial_shadow is not None else initial_hybrid),
+          )
+          '''
+          new = '''        self.hybrid = self._initial_book(start=start, option_value=initial_hybrid)
+          self.shadow = (
+              self.hybrid.clone()
+              if initial_shadow is None
+              else self._initial_book(start=start, option_value=initial_shadow)
+          )
+          '''
+          if old not in text:
+              raise SystemExit('environment initial-book block not found')
+          env_path.write_text(text.replace(old, new), encoding='utf-8')
+
+          accounting_path = Path('tests/simulation/test_accounting_v2.py')
+          text = accounting_path.read_text(encoding='utf-8')
+          text = text.replace(
+              'weights=np.array([1.0]),\n        capital=100.0,\n        prices=np.array([100.0]),',
+              'weights=np.array([-1.0]),\n        capital=100.0,\n        prices=np.array([100.0]),',
+          )
+          text = text.replace(
+              'mark_prices=np.array([50.0]),',
+              'mark_prices=np.array([195.0]),',
+          )
+          text = text.replace(
+              'assert book.portfolio_value == pytest.approx(49.5)\n    assert book.total_cost == pytest.approx(0.5)',
+              'assert book.portfolio_value == pytest.approx(3.05)\n    assert book.total_cost == pytest.approx(1.95)',
+          )
+          accounting_path.write_text(text, encoding='utf-8')
+
+          exchange_path = Path('tests/simulation/test_exchange_constraints.py')
+          text = exchange_path.read_text(encoding='utf-8')
+          text = text.replace(
+              'close = np.array([[100.0], [100.0], [50.0], [50.0]])\n    open_price = np.array([[100.0], [100.0], [100.0], [50.0]])',
+              'close = np.array([[100.0], [100.0], [195.0], [195.0]])\n    open_price = np.array([[100.0], [100.0], [100.0], [195.0]])',
+          )
+          text = text.replace(
+              'np.array([1.0]),\n        start_index=0,\n        bars=2,',
+              'np.array([-1.0]),\n        start_index=0,\n        bars=2,',
+          )
+          text = text.replace(
+              'assert result.book.total_cost == pytest.approx(0.5)',
+              'assert result.book.total_cost == pytest.approx(1.95)',
+          )
+          exchange_path.write_text(text, encoding='utf-8')
+
+          Path('.github/workflows/apply-final-environment-corrections.yml').unlink()
+          PY
+      - run: uv sync --all-extras --dev
+      - run: uv run ruff format .
+      - run: uv run ruff check .
+      - run: uv run ruff format --check --diff .
+      - run: uv run mypy trade_rl
+      - run: uv run lint-imports
+      - run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+      - name: Commit verified correction
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: align liquidation tests and initial book identity"
+          git push origin HEAD:fix/realistic-environment-hardening-final

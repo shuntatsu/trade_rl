@@ -65,7 +65,7 @@ def reward_context() -> RewardContext:
     return RewardContext(
         rolling_hybrid_log_growth=0.03,
         rolling_shadow_log_growth=0.02,
-        baseline_shortfall=-0.01,
+        baseline_shortfall=0.0,
         baseline_tolerance=0.0075,
         baseline_penalty=0.0,
         hybrid_drawdown=0.04,
@@ -135,11 +135,13 @@ def test_observation_contains_current_masks_books_risk_and_reward_state() -> Non
     np.testing.assert_allclose(per_symbol[:, -1], hybrid.weights - shadow.weights)
 
     globals_ = result[-layout.global_width :]
-    assert globals_[-7] == pytest.approx(0.8)
-    assert globals_[-6] == pytest.approx(0.9)
-    assert globals_[-5] == pytest.approx(context.rolling_hybrid_log_growth)
-    assert globals_[-4] == pytest.approx(context.rolling_shadow_log_growth)
-    assert globals_[-3] == pytest.approx(context.baseline_shortfall)
+    assert globals_[-9] == pytest.approx(0.8)
+    assert globals_[-8] == pytest.approx(0.9)
+    assert globals_[-7] == pytest.approx(context.rolling_hybrid_log_growth)
+    assert globals_[-6] == pytest.approx(context.rolling_shadow_log_growth)
+    assert globals_[-5] == pytest.approx(context.rolling_growth_gap)
+    assert globals_[-4] == pytest.approx(context.baseline_shortfall)
+    assert globals_[-3] == pytest.approx(context.baseline_tolerance)
     assert globals_[-2] == pytest.approx(context.baseline_penalty)
     assert globals_[-1] == pytest.approx(1.0)
 

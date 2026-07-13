@@ -81,6 +81,7 @@ def _environment(market, *, alpha_provider=None, alpha_enabled: bool = False):
         config=ResidualMarketEnvConfig(
             episode_bars=12,
             decision_every=4,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )

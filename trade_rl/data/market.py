@@ -8,10 +8,17 @@ from enum import Enum
 
 import numpy as np
 
+from trade_rl.data.contracts import VolumeUnit
+from trade_rl.data.identity import (
+    canonical_identity_json,
+    compute_market_dataset_id,
+    parse_identity_json,
+)
 from trade_rl.domain.common import require_sha256, require_unique_non_empty
 
 _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000
+_ZERO_DIGEST = "0" * 64
 
 
 class MarketCalendarKind(str, Enum):
@@ -101,12 +108,26 @@ class MarketDataset:
     split_factor: np.ndarray | None = None
     delisting_recovery: np.ndarray | None = None
     cash_rate: np.ndarray | None = None
+    # Point-in-time dataset identity and volume semantics. ``symbol_active`` is
+    # the causal-data name for ``asset_active``; both are resolved to the same
+    # immutable mask.
+    symbol_active: np.ndarray | None = None
+    information_available: np.ndarray | None = None
+    available_at: np.ndarray | None = None
+    feature_staleness: np.ndarray | None = None
+    volume_units: tuple[VolumeUnit, ...] = ()
+    contract_multipliers: np.ndarray | None = None
+    feature_config_digest: str = _ZERO_DIGEST
+    normalization_digest: str = _ZERO_DIGEST
+    identity_payload_json: str | None = None
     _timestamp_ns: np.ndarray = field(init=False, repr=False)
     _bar_duration_ns: int | None = field(init=False, repr=False)
     _nominal_bar_hours: float = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
+        require_sha256(self.feature_config_digest, field="feature_config_digest")
+        require_sha256(self.normalization_digest, field="normalization_digest")
         symbols = require_unique_non_empty(self.symbols, field="symbols")
         feature_names = require_unique_non_empty(
             self.feature_names,
@@ -199,6 +220,21 @@ class MarketDataset:
             raise ValueError("tradable shape does not match bars and symbols")
         if feature_available.shape != features.shape:
             raise ValueError("feature_available shape does not match features")
+
+        event_times = np.broadcast_to(
+            timestamps.astype("datetime64[ns]")[:, None], price_shape
+        )
+        available_at = _readonly_array(
+            event_times if self.available_at is None else self.available_at,
+            dtype=np.dtype("datetime64[ns]"),
+        )
+        if available_at.shape != price_shape:
+            raise ValueError("available_at shape does not match bars and symbols")
+        available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+        if np.any(available_ns == np.iinfo(np.int64).min):
+            raise ValueError("available_at must not contain NaT")
+        if np.any(available_at < event_times):
+            raise ValueError("available_at cannot precede the event timestamp")
 
         for field_name, array in (
             ("features", features),
@@ -347,15 +383,37 @@ class MarketDataset:
             default=True,
             field_name="funding_due",
         )
+        if self.asset_active is not None and self.symbol_active is not None:
+            if not np.array_equal(self.asset_active, self.symbol_active):
+                raise ValueError("asset_active and symbol_active must match")
+        active_source = (
+            self.asset_active if self.asset_active is not None else self.symbol_active
+        )
         asset_active = _optional_array(
-            self.asset_active,
+            active_source,
             shape=price_shape,
             dtype=np.dtype(np.bool_),
             default=True,
             field_name="asset_active",
         )
+        information_available = _optional_array(
+            self.information_available,
+            shape=price_shape,
+            dtype=np.dtype(np.bool_),
+            default=False,
+            field_name="information_available",
+        )
+        if self.information_available is None:
+            information_available = _readonly_array(
+                asset_active & (available_at <= event_times),
+                dtype=np.dtype(np.bool_),
+            )
         if np.any(tradable & ~asset_active):
             raise ValueError("tradable symbols must be active")
+        if np.any(information_available & ~asset_active):
+            raise ValueError("information cannot be available for inactive symbols")
+        if np.any(information_available & (available_at > event_times)):
+            raise ValueError("delayed information cannot be marked available on time")
         buy_allowed = _optional_array(
             self.buy_allowed,
             shape=price_shape,
@@ -420,6 +478,44 @@ class MarketDataset:
             default=0.0,
             field_name="cash_rate",
         )
+        feature_staleness = _optional_array(
+            self.feature_staleness,
+            shape=features.shape,
+            dtype=np.dtype(np.float32),
+            default=0.0,
+            field_name="feature_staleness",
+        )
+        if self.feature_staleness is None:
+            feature_staleness = _readonly_array(
+                np.where(feature_available, 0.0, 1.0),
+                dtype=np.dtype(np.float32),
+            )
+        if (
+            not np.isfinite(feature_staleness).all()
+            or np.any(feature_staleness < 0.0)
+            or np.any(feature_staleness > 1.0)
+        ):
+            raise ValueError("feature_staleness must be finite and within [0, 1]")
+        if np.any((~feature_available) & (feature_staleness < 1.0)):
+            raise ValueError("unavailable features must have maximum staleness")
+        volume_units = (
+            tuple(VolumeUnit.BASE_ASSET for _ in symbols)
+            if not self.volume_units
+            else tuple(VolumeUnit(value) for value in self.volume_units)
+        )
+        if len(volume_units) != n_symbols:
+            raise ValueError("volume_units must match dataset symbols")
+        contract_multipliers = _optional_array(
+            self.contract_multipliers,
+            shape=(n_symbols,),
+            dtype=np.dtype(np.float64),
+            default=1.0,
+            field_name="contract_multipliers",
+        )
+        if not np.isfinite(contract_multipliers).all() or np.any(
+            contract_multipliers <= 0.0
+        ):
+            raise ValueError("contract_multipliers must be finite and positive")
         for field_name, array in (
             ("fee_rate", fee_rate),
             ("maker_fee_rate", maker_fee_rate),
@@ -453,6 +549,36 @@ class MarketDataset:
         if not np.isfinite(cash_rate).all():
             raise ValueError("cash_rate must be finite")
 
+        identity_payload_json = self.identity_payload_json
+        if identity_payload_json is not None:
+            payload = parse_identity_json(identity_payload_json)
+            canonical_payload_json = canonical_identity_json(payload)
+            resolved_id = compute_market_dataset_id(
+                payload,
+                {
+                    "timestamps": timestamps,
+                    "available_at": available_at,
+                    "information_available": information_available,
+                    "features": features,
+                    "global_features": global_features,
+                    "open": open_price,
+                    "high": high,
+                    "low": low,
+                    "close": close,
+                    "volume": volume,
+                    "funding_rate": funding,
+                    "tradable": tradable,
+                    "symbol_active": asset_active,
+                    "feature_available": feature_available,
+                    "feature_staleness": feature_staleness,
+                },
+            )
+            if resolved_id != self.dataset_id:
+                raise ValueError(
+                    "dataset_id does not match identity payload and arrays"
+                )
+            identity_payload_json = canonical_payload_json
+
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "feature_names", feature_names)
         object.__setattr__(self, "global_feature_names", global_names)
@@ -485,6 +611,13 @@ class MarketDataset:
         object.__setattr__(self, "borrow_rate", borrow_rate)
         object.__setattr__(self, "funding_due", funding_due)
         object.__setattr__(self, "asset_active", asset_active)
+        object.__setattr__(self, "symbol_active", asset_active)
+        object.__setattr__(self, "information_available", information_available)
+        object.__setattr__(self, "available_at", available_at)
+        object.__setattr__(self, "feature_staleness", feature_staleness)
+        object.__setattr__(self, "volume_units", volume_units)
+        object.__setattr__(self, "contract_multipliers", contract_multipliers)
+        object.__setattr__(self, "identity_payload_json", identity_payload_json)
         object.__setattr__(self, "buy_allowed", buy_allowed)
         object.__setattr__(self, "sell_allowed", sell_allowed)
         object.__setattr__(self, "mark_price", mark_price)
@@ -587,3 +720,82 @@ class MarketDataset:
             )
             - start_index
         )
+
+    def observable_tradable(self, index: int) -> np.ndarray:
+        """Return tradability visible at the decision timestamp."""
+
+        if not 0 <= index < self.n_bars:
+            raise IndexError("observable tradability index is outside the dataset")
+        information_available = self.information_available
+        assert information_available is not None
+        return (self.tradable[index] & information_available[index]).copy()
+
+    def eligibility_mask(
+        self,
+        index: int,
+        *,
+        lookback: int = 0,
+        require_features: bool = False,
+    ) -> np.ndarray:
+        """Return symbols causally eligible over a trailing closed interval."""
+
+        if not 0 <= index < self.n_bars:
+            raise IndexError("eligibility index is outside the dataset")
+        if isinstance(lookback, bool) or not isinstance(lookback, int) or lookback < 0:
+            raise ValueError("lookback must be a non-negative integer")
+        start = index - lookback
+        if start < 0:
+            raise ValueError("eligibility lookback exceeds available history")
+        active = self.asset_active
+        available_at = self.available_at
+        assert active is not None
+        assert available_at is not None
+        available_by_decision = (
+            available_at[start : index + 1] <= self.timestamps[index]
+        )
+        eligible = np.all(
+            active[start : index + 1]
+            & self.tradable[start : index + 1]
+            & available_by_decision,
+            axis=0,
+        )
+        if require_features:
+            eligible &= np.all(
+                self.feature_available[start : index + 1],
+                axis=(0, 2),
+            )
+        return eligible
+
+    def market_notional(
+        self,
+        index: int,
+        prices: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Return quote-notional liquidity under explicit volume-unit semantics."""
+
+        if not 0 <= index < self.n_bars:
+            raise IndexError("market notional index is outside the dataset")
+        price_vector = (
+            self.open[index] if prices is None else np.asarray(prices, dtype=np.float64)
+        )
+        price_vector = np.asarray(price_vector, dtype=np.float64).reshape(-1)
+        if (
+            price_vector.shape != (self.n_symbols,)
+            or not np.isfinite(price_vector).all()
+            or np.any(price_vector <= 0.0)
+        ):
+            raise ValueError("market notional prices must be finite and positive")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        result = np.empty(self.n_symbols, dtype=np.float64)
+        for symbol_index, unit in enumerate(self.volume_units):
+            raw = self.volume[index, symbol_index]
+            if unit is VolumeUnit.QUOTE_NOTIONAL:
+                result[symbol_index] = raw
+            elif unit is VolumeUnit.BASE_ASSET:
+                result[symbol_index] = raw * price_vector[symbol_index]
+            else:
+                result[symbol_index] = (
+                    raw * multipliers[symbol_index] * price_vector[symbol_index]
+                )
+        return result

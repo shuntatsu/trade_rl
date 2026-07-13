@@ -61,7 +61,7 @@ def _load_model(algorithm: str, checkpoint_path: Path) -> Any:
 
 
 class _DeterministicActor(nn.Module):
-    def __init__(self, policy: nn.Module) -> None:
+    def __init__(self, policy: Any) -> None:
         super().__init__()
         self.policy = policy
 
@@ -222,7 +222,7 @@ def _export_onnx(actor: nn.Module, path: Path, corpus: np.ndarray) -> np.ndarray
     example = torch.from_numpy(corpus[:1])
     torch.onnx.export(
         actor,
-        example,
+        (example,),
         str(path),
         input_names=["observation"],
         output_names=["action"],

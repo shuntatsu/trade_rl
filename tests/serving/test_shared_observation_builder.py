@@ -15,7 +15,6 @@ from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.observations import ObservationBuilder, ObservationInput
-from trade_rl.serving.runtime import ServingRuntime
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -54,9 +53,8 @@ def market_dataset():
     )
 
 
-def test_environment_and_serving_use_identical_observation_bytes() -> None:
+def test_environment_and_deployment_adapter_use_identical_observation_bytes() -> None:
     market = market_dataset()
-    observation_builder = ObservationBuilder()
     trend = TrendStrategy(
         TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
     )
@@ -67,29 +65,39 @@ def test_environment_and_serving_use_identical_observation_bytes() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=24,
             decision_every=4,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
     env_observation, _ = env.reset(options={"start_idx": 16})
-    trends, alpha = env._market_inputs()
-    structured = ObservationInput(
-        dataset=market,
-        index=env.current_index,
-        trends=trends,
-        alpha=alpha,
-        hybrid=env.hybrid,
-        shadow=env.shadow,
-        start_index=env.start_index,
-        end_index=env.end_index,
-        hybrid_risk_scale=env.pre_trade_risk.risk_scale(env._drawdown(env.hybrid)),
-        shadow_risk_scale=env.pre_trade_risk.risk_scale(env._drawdown(env.shadow)),
+    trends, alpha, factor_basis = env._market_inputs()
+    adapter_builder = ObservationBuilder(
+        action_size=env.action_spec.size,
+        n_factors=env.action_spec.n_factors,
+        finite_horizon=env.config.finite_horizon_observation,
     )
-    serving = ServingRuntime(
-        observation_builder=observation_builder,
-        market_input_resolver=resolver,
+    adapter_observation = adapter_builder.build(
+        ObservationInput(
+            dataset=market,
+            index=env.current_index,
+            trends=trends,
+            alpha=alpha,
+            factor_basis=factor_basis,
+            hybrid=env.hybrid,
+            shadow=env.shadow,
+            start_index=env.start_index,
+            end_index=env.end_index,
+            hybrid_risk_scale=env.pre_trade_risk.risk_scale(env._drawdown(env.hybrid)),
+            shadow_risk_scale=env.pre_trade_risk.risk_scale(env._drawdown(env.shadow)),
+            execution_state=env._execution_state,
+            previous_action=env._previous_action,
+            action_size=env.action_spec.size,
+            finite_horizon=env.config.finite_horizon_observation,
+        )
     )
-
-    serving_observation = serving.build_observation(structured)
 
     assert env_observation.dtype == np.float32
-    assert serving_observation.tobytes() == env_observation.tobytes()
+    assert adapter_builder.schema_digest(
+        market
+    ) == env.observation_builder.schema_digest(market)
+    assert adapter_observation.tobytes() == env_observation.tobytes()

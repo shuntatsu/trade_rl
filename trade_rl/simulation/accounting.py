@@ -18,6 +18,7 @@ class EconomicTerminationReason(str, Enum):
     EXECUTION_COST_EXHAUSTION = "execution_cost_exhaustion"
     MARGIN_CALL = "margin_call"
     LIQUIDATION = "liquidation"
+    DRAWDOWN_STOP = "drawdown_stop"
     INSOLVENCY = "insolvency"
 
 

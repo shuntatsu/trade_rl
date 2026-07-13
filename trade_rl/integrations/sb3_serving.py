@@ -78,7 +78,7 @@ class _SB3EnsemblePolicy:
         averaged = np.mean(np.stack(actions, axis=0), axis=0, dtype=np.float64)
         if not np.isfinite(averaged).all():
             raise ValueError("SB3 ensemble mean action must be finite")
-        return averaged.astype(np.float32)
+        return np.asarray(averaged, dtype=np.float32)
 
 
 class StableBaselines3PolicyLoader:

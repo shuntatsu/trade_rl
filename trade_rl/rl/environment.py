@@ -28,15 +28,21 @@ from trade_rl.rl.actions import (
     ResidualActionV2,
 )
 from trade_rl.rl.diagnostics import ActionDiagnosticsAccumulator
+from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
     OBSERVATION_SCHEMA,
+    ObservationBuilder,
     ObservationExecutionState,
-    build_observation,
-    observation_layout,
+    ObservationInput,
     observation_passthrough_indices,
 )
-from trade_rl.rl.rewards import REWARD_SCHEMA, RewardConfig, RewardTracker
+from trade_rl.rl.rewards import (
+    REWARD_SCHEMA,
+    AbsoluteGrowthRewardConfig,
+    RewardConfig,
+    RewardTracker,
+)
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
@@ -78,6 +84,7 @@ class ResidualMarketEnvConfig:
     downside_penalty: float = 0.0
     excess_drawdown_penalty: float = 0.0
     reward_config: RewardConfig | None = None
+    reward: AbsoluteGrowthRewardConfig | None = None
     liquidate_on_end: bool = False
     finite_horizon_observation: bool = False
     initial_state_modes: tuple[str, ...] = ("cash",)
@@ -188,6 +195,8 @@ class ResidualMarketEnvConfig:
         ):
             if not isinstance(value, bool):
                 raise ValueError(f"{field_name} must be a boolean")
+        if self.reward_config is not None and self.reward is not None:
+            raise ValueError("reward and reward_config cannot both be configured")
         try:
             mode = ActionValidationMode(self.action_validation_mode)
         except ValueError as error:
@@ -197,12 +206,19 @@ class ResidualMarketEnvConfig:
     def resolved_reward_config(self) -> RewardConfig:
         if self.reward_config is not None:
             return self.reward_config
-        # Legacy penalty fields are retained as additive migration knobs. New default
-        # behavior follows the recommended absolute-growth-first hierarchy.
+        if self.reward is not None:
+            return RewardConfig.from_absolute_growth(self.reward)
+        # Legacy fields remain migration knobs around the approved defaults.
+        defaults = RewardConfig(scale=self.reward_scale)
         return RewardConfig(
             scale=self.reward_scale,
-            incremental_drawdown_weight=(0.10 + 0.10 * self.excess_drawdown_penalty),
-            terminal_equity_weight=1.0 + self.downside_penalty,
+            incremental_drawdown_weight=(
+                defaults.incremental_drawdown_weight
+                + 0.10 * self.excess_drawdown_penalty
+            ),
+            terminal_equity_weight=(
+                defaults.terminal_equity_weight + self.downside_penalty
+            ),
         )
 
     def resolve_nominal_episode_bars(self, dataset: MarketDataset) -> int:
@@ -230,6 +246,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         dataset: MarketDataset,
         *,
         trend_strategy: TrendStrategy | None = None,
+        market_input_resolver: MarketInputResolver | None = None,
         alpha_provider: AlphaProvider
         | Callable[[MarketDataset, int], np.ndarray]
         | None = None,
@@ -250,10 +267,40 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
     ) -> None:
         super().__init__()
         self.dataset = dataset
-        self.trend_strategy = trend_strategy or TrendStrategy()
+        resolved_trend = trend_strategy or (
+            market_input_resolver.trend_strategy
+            if market_input_resolver is not None
+            else TrendStrategy()
+        )
+        if (
+            market_input_resolver is None
+            and alpha_provider is not None
+            and hasattr(alpha_provider, "predict")
+            and hasattr(alpha_provider, "identity_digest")
+        ):
+            market_input_resolver = MarketInputResolver(
+                trend_strategy=resolved_trend,
+                alpha_provider=alpha_provider,  # type: ignore[arg-type]
+                alpha_enabled=bool(alpha_enabled),
+            )
+        if market_input_resolver is not None and trend_strategy is not None:
+            if market_input_resolver.trend_strategy != trend_strategy:
+                raise ValueError(
+                    "market_input_resolver trend differs from trend_strategy"
+                )
+        self.market_input_resolver = market_input_resolver
+        self.trend_strategy = resolved_trend
         self.alpha_provider = alpha_provider
-        self.alpha_enabled = bool(alpha_enabled)
-        if self.alpha_enabled and self.alpha_provider is None:
+        self.alpha_enabled = (
+            market_input_resolver.alpha_enabled
+            if market_input_resolver is not None
+            else bool(alpha_enabled)
+        )
+        if (
+            self.alpha_enabled
+            and self.alpha_provider is None
+            and market_input_resolver is None
+        ):
             raise ValueError("alpha_enabled requires an alpha_provider")
         self.alpha_contract = alpha_contract or AlphaContract()
         self.alpha_artifact_digest = self._resolve_provider_digest(
@@ -336,12 +383,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self.shadow_executor = MarketExecutor(dataset, self.config.execution_cost)
         self.executor = self.hybrid_executor
 
-        layout = observation_layout(
-            dataset,
+        self.observation_builder = ObservationBuilder(
             action_size=self.action_spec.size,
             n_factors=self.action_spec.n_factors,
             finite_horizon=self.config.finite_horizon_observation,
         )
+        layout = self.observation_builder.layout(dataset)
         if normalizer is not None:
             if normalizer.size != layout.size:
                 raise ValueError("normalizer size does not match observation layout")
@@ -419,6 +466,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         resolved = explicit
         if resolved is None and provider is not None:
             candidate = getattr(provider, "artifact_digest", None)
+            if not isinstance(candidate, str):
+                candidate = getattr(provider, "identity_digest", None)
             if isinstance(candidate, str):
                 resolved = candidate
         if resolved is None and static_payload is not None:
@@ -495,6 +544,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 "partial_fill_fraction": self.config.partial_fill_fraction,
             },
             "factor_artifact_digest": self.factor_artifact_digest,
+            "market_input_resolver_digest": (
+                None
+                if self.market_input_resolver is None
+                else self.market_input_resolver.digest
+            ),
             "normalizer_digest": (
                 None if self.normalizer is None else self.normalizer.digest
             ),
@@ -551,6 +605,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         return min(1.0, max(0.0, 1.0 - value / max(book.peak_value, value, 1e-12)))
 
     def _alpha_at(self, index: int) -> np.ndarray:
+        if self.market_input_resolver is not None:
+            return self.market_input_resolver.resolve(self.dataset, index)[1]
         if not self.alpha_enabled or self.alpha_provider is None:
             return np.zeros(self.dataset.n_symbols, dtype=np.float64)
         provider = self.alpha_provider
@@ -583,34 +639,39 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         return basis
 
     def _market_inputs(self) -> tuple[TrendTargets, np.ndarray, np.ndarray]:
-        return (
-            self.trend_strategy.targets(self.dataset, self.current_index),
-            self._alpha_at(self.current_index),
-            self._factor_basis_at(self.current_index),
-        )
+        if self.market_input_resolver is None:
+            trends = self.trend_strategy.targets(self.dataset, self.current_index)
+            alpha = self._alpha_at(self.current_index)
+        else:
+            trends, alpha = self.market_input_resolver.resolve(
+                self.dataset, self.current_index
+            )
+        return trends, alpha, self._factor_basis_at(self.current_index)
 
     def _observation(self) -> np.ndarray:
         trends, alpha, factor_basis = self._market_inputs()
-        raw = build_observation(
-            dataset=self.dataset,
-            index=self.current_index,
-            trends=trends,
-            alpha=alpha,
-            factor_basis=factor_basis,
-            hybrid=self.hybrid,
-            shadow=self.shadow,
-            start_index=self.start_index,
-            end_index=self.end_index,
-            hybrid_risk_scale=self.pre_trade_risk.risk_scale(
-                self._drawdown(self.hybrid)
-            ),
-            shadow_risk_scale=self.pre_trade_risk.risk_scale(
-                self._drawdown(self.shadow)
-            ),
-            execution_state=self._execution_state,
-            previous_action=self._previous_action,
-            action_size=self.action_spec.size,
-            finite_horizon=self.config.finite_horizon_observation,
+        raw = self.observation_builder.build(
+            ObservationInput(
+                dataset=self.dataset,
+                index=self.current_index,
+                trends=trends,
+                alpha=alpha,
+                factor_basis=factor_basis,
+                hybrid=self.hybrid,
+                shadow=self.shadow,
+                start_index=self.start_index,
+                end_index=self.end_index,
+                hybrid_risk_scale=self.pre_trade_risk.risk_scale(
+                    self._drawdown(self.hybrid)
+                ),
+                shadow_risk_scale=self.pre_trade_risk.risk_scale(
+                    self._drawdown(self.shadow)
+                ),
+                execution_state=self._execution_state,
+                previous_action=self._previous_action,
+                action_size=self.action_spec.size,
+                finite_horizon=self.config.finite_horizon_observation,
+            )
         )
         return raw if self.normalizer is None else self.normalizer.transform(raw)
 
@@ -1101,7 +1162,33 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         shadow_log_return = shadow_execution.interval_log_return
         hybrid_liquidation: ExecutionResult | None = None
         shadow_liquidation: ExecutionResult | None = None
-        liquidation_terminal = time_limit_reached and self.config.liquidate_on_end
+        emergency_deleverage = False
+        drawdown_after_execution = self._drawdown(self.hybrid)
+        drawdown_stop = min(
+            self.reward_tracker.config.drawdown_stop,
+            self.pre_trade_risk.config.drawdown_stop,
+        )
+        if (
+            not self.hybrid.insolvent
+            and drawdown_after_execution + 1e-12 >= drawdown_stop
+        ):
+            emergency_deleverage = True
+            hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
+                self.hybrid,
+                index=self.current_index,
+            )
+            if not self._liquidation_complete(hybrid_liquidation):
+                raise RuntimeError(
+                    "hybrid liquidation could not fully exit at drawdown stop"
+                )
+            self.hybrid = self._merge_liquidation_return(hybrid_liquidation)
+            hybrid_log_return += hybrid_liquidation.interval_log_return
+            self.hybrid.terminate(EconomicTerminationReason.DRAWDOWN_STOP)
+        liquidation_terminal = (
+            time_limit_reached
+            and self.config.liquidate_on_end
+            and not emergency_deleverage
+        )
         liquidation_complete = True
         if liquidation_terminal:
             hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
@@ -1182,6 +1269,32 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "composition": composition,
             "decision_step_index": self._decision_step_index,
             "excess_log_return": hybrid_log_return - shadow_log_return,
+            "emergency_deleverage": emergency_deleverage,
+            "drawdown_after": self._drawdown(self.hybrid),
+            "portfolio_value_after": self.hybrid.portfolio_value,
+            "reward_growth_raw": reward_breakdown.absolute_log_growth,
+            "reward_baseline_penalty_delta": (
+                0.0
+                if self.reward_tracker.config.baseline_underperformance_weight == 0.0
+                else reward_breakdown.baseline_penalty
+                / self.reward_tracker.config.baseline_underperformance_weight
+            ),
+            "reward_baseline_penalty_weighted": reward_breakdown.baseline_penalty,
+            "reward_drawdown_penalty_delta": reward_breakdown.incremental_drawdown,
+            "reward_drawdown_penalty_weighted": reward_breakdown.drawdown_penalty,
+            "reward_total_raw": reward_breakdown.unscaled_total,
+            "reward_total_scaled": reward_breakdown.scaled_total,
+            "reward_context_before": self.reward_tracker.last_context_before,
+            "reward_context_after": self.reward_tracker.last_context_after,
+            "rolling_hybrid_log_growth": (
+                self.reward_tracker.last_context_after.rolling_hybrid_log_growth
+            ),
+            "rolling_baseline_log_growth": (
+                self.reward_tracker.last_context_after.rolling_shadow_log_growth
+            ),
+            "rolling_growth_gap": (
+                self.reward_tracker.last_context_after.rolling_growth_gap
+            ),
             "hybrid_execution": hybrid_execution,
             "hybrid_risk": hybrid_risk,
             "hybrid_terminated": hybrid_terminated,
@@ -1199,8 +1312,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "shadow_terminated": shadow_terminated,
             "termination_reason": termination_reason,
         }
-        if hybrid_liquidation is not None and shadow_liquidation is not None:
+        if hybrid_liquidation is not None:
             info["hybrid_liquidation"] = hybrid_liquidation
+        if shadow_liquidation is not None:
             info["shadow_liquidation"] = shadow_liquidation
         if terminated or truncated:
             info.update(self._terminal_info())

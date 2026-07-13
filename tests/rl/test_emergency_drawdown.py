@@ -75,7 +75,7 @@ def test_drawdown_stop_liquidates_only_policy_book_before_termination() -> None:
     assert "shadow_liquidation" not in info
     np.testing.assert_allclose(env.hybrid.quantities, np.zeros(2), atol=1e-12)
     assert np.any(np.abs(env.shadow.quantities) > 0.0)
-    assert info["drawdown_after"] >= env.config.reward.drawdown_stop
+    assert info["drawdown_after"] >= env.reward_tracker.config.drawdown_stop
     assert reward == info["reward_total_scaled"]
     assert info["reward_growth_raw"] < 0.0
 

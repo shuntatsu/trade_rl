@@ -8,6 +8,7 @@ from trade_rl.evaluation.walk_forward.folds import (
 from trade_rl.evaluation.walk_forward.stitching import (
     FoldOOSResult,
     StitchedOOS,
+    StitchMode,
     stitch_oos,
 )
 
@@ -15,6 +16,7 @@ __all__ = [
     "FoldOOSResult",
     "IndexRange",
     "StitchedOOS",
+    "StitchMode",
     "WalkForwardFold",
     "build_folds",
     "stitch_oos",

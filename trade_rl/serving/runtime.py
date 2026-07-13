@@ -12,6 +12,7 @@ import numpy as np
 
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
+from trade_rl.rl.observations import ObservationBuilder, ObservationInput
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
@@ -51,8 +52,13 @@ class RuntimeSnapshot:
 class ServingRuntime:
     """Validate and fully load a replacement before swapping live state."""
 
-    def __init__(self, policy_loader: PolicyLoader | None = None) -> None:
+    def __init__(
+        self,
+        policy_loader: PolicyLoader | None = None,
+        observation_builder: ObservationBuilder | None = None,
+    ) -> None:
         self.policy_loader = policy_loader
+        self.observation_builder = observation_builder or ObservationBuilder()
         self._lock = RLock()
         self._snapshot: RuntimeSnapshot | None = None
         self._policy: LoadedPolicy | None = None
@@ -101,6 +107,16 @@ class ServingRuntime:
         if snapshot is None:
             raise RuntimeError("serving runtime has no active snapshot")
         return snapshot
+
+    def build_observation(self, value: ObservationInput) -> np.ndarray:
+        """Build serving input through the same causal contract as training."""
+
+        return self.observation_builder.build(value)
+
+    def predict_state(self, value: ObservationInput) -> np.ndarray:
+        """Build and score one structured current-time market state."""
+
+        return self.predict(self.build_observation(value))
 
     def predict(self, observation: np.ndarray) -> np.ndarray:
         vector = np.asarray(observation, dtype=np.float32).reshape(-1)

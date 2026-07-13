@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from trade_rl.artifacts.store import ArtifactStore
 
 

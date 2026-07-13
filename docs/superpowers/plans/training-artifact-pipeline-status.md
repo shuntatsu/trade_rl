@@ -1,3 +1,3 @@
 # Training Artifact Pipeline Status
 
-Implementation is in verification. Ruff and formatting pass; this update commits the focused export type correction before the next full CI pass.
+Implementation is in verification. Ruff and formatting pass; export typing is corrected and this update triggers Mypy, architecture, full tests, export parity, and CLI verification.

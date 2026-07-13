@@ -35,8 +35,20 @@ jobs:
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Format foundations
-        run: uv run ruff format --check --diff trade_rl/artifacts trade_rl/cli trade_rl/config trade_rl/data trade_rl/domain
+      - name: Format artifacts
+        run: uv run ruff format --check --diff trade_rl/artifacts
+
+      - name: Format CLI
+        run: uv run ruff format --check --diff trade_rl/cli
+
+      - name: Format config
+        run: uv run ruff format --check --diff trade_rl/config
+
+      - name: Format data
+        run: uv run ruff format --check --diff trade_rl/data
+
+      - name: Format domain
+        run: uv run ruff format --check --diff trade_rl/domain
 
       - name: Format evaluation
         run: uv run ruff format --check --diff trade_rl/evaluation

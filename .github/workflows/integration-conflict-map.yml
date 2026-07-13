@@ -1,0 +1,64 @@
+name: Integration Conflict Map
+
+on:
+  push:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/action-environment-comprehensive-hardening
+          fetch-depth: 0
+      - name: Fetch integration branches
+        run: |
+          git fetch origin \
+            agent/reward-design-v2 \
+            agent/causal-market-data-builder
+      - name: Map reward conflicts
+        run: |
+          set +e
+          git merge --no-ff --no-commit origin/agent/reward-design-v2
+          status=$?
+          git diff --name-only --diff-filter=U | sort | tee reward-conflicts.txt
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+              git checkout --ours -- "$file"
+              git add "$file"
+            done < reward-conflicts.txt
+          fi
+          git commit -m "diagnostic merge reward branch" || true
+      - name: Map data conflicts
+        run: |
+          set +e
+          git merge --no-ff --no-commit origin/agent/causal-market-data-builder
+          status=$?
+          git diff --name-only --diff-filter=U | sort | tee data-conflicts.txt
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+              git checkout --ours -- "$file"
+              git add "$file"
+            done < data-conflicts.txt
+          fi
+          git commit -m "diagnostic merge data branch" || true
+      - name: Record resulting diff summary
+        run: |
+          git diff --stat origin/agent/action-environment-comprehensive-hardening...HEAD > integration-stat.txt
+          git log --oneline --decorate -8 > integration-log.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: integration-conflict-map
+          path: |
+            reward-conflicts.txt
+            data-conflicts.txt
+            integration-stat.txt
+            integration-log.txt

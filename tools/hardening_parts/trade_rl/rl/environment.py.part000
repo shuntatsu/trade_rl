@@ -1,0 +1,263 @@
+"""Gymnasium environment for baseline-anchored residual portfolio control."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from typing import Protocol
+
+import gymnasium as gym
+import numpy as np
+from gymnasium import spaces
+
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.market import MarketDataset
+from trade_rl.domain.common import require_sha256
+from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
+from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
+from trade_rl.rl.actions import (
+    ACTION_SCHEMA,
+    ActionSpec,
+    AlphaContract,
+    ActionValidationMode,
+    BaselineResidualComposer,
+    ResidualAction,
+    ResidualActionV2,
+    ResidualComposition,
+)
+from trade_rl.rl.diagnostics import ActionDiagnosticsAccumulator
+from trade_rl.rl.normalization import ObservationNormalizer
+from trade_rl.rl.observations import (
+    OBSERVATION_SCHEMA,
+    ObservationExecutionState,
+    build_observation,
+    observation_layout,
+    observation_passthrough_indices,
+)
+from trade_rl.rl.rewards import REWARD_SCHEMA, RewardConfig, RewardTracker
+from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
+from trade_rl.simulation.execution import (
+    ExecutionCostConfig,
+    ExecutionResult,
+    MarketExecutor,
+)
+from trade_rl.strategies.trend import TrendStrategy, TrendTargets
+
+_LIQUIDATION_TOLERANCE = 1e-12
+_RESET_STATE_MODES = frozenset(
+    {"cash", "baseline", "random", "stress", "partial_fill", "restore"}
+)
+_SAMPLED_INITIAL_STATE_MODES = _RESET_STATE_MODES - {"restore"}
+
+
+class AlphaProvider(Protocol):
+    artifact_digest: str
+
+    def predict_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
+
+
+class FactorBasisProvider(Protocol):
+    artifact_digest: str
+    n_factors: int
+
+    def basis_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ResidualMarketEnvConfig:
+    episode_hours: float = 720.0
+    decision_hours: float = 4.0
+    episode_hour_choices: tuple[float, ...] = ()
+    episode_bars: int | None = None
+    decision_every: int | None = None
+    reward_scale: float = 100.0
+    initial_capital: float = math.nan
+    minimum_equity_fraction: float = 1e-6
+    downside_penalty: float = 0.0
+    excess_drawdown_penalty: float = 0.0
+    reward_config: RewardConfig | None = None
+    liquidate_on_end: bool = False
+    finite_horizon_observation: bool = False
+    initial_state_modes: tuple[str, ...] = ("cash",)
+    random_initial_gross: float = 0.50
+    stress_drawdown_fraction: float = 0.15
+    partial_fill_fraction: float = 0.50
+    episode_sampling_mode: str = "uniform"
+    regime_feature_index: int = 0
+    regime_bins: int = 4
+    stress_quantile: float = 0.90
+    accept_legacy_actions: bool = True
+    action_validation_mode: ActionValidationMode | str = ActionValidationMode.CLIP
+    execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
+
+    def __post_init__(self) -> None:
+        if math.isnan(self.initial_capital):
+            raise ValueError(
+                "initial_capital must be explicitly configured in quote-currency units"
+            )
+        for positive_field_name, positive_value in (
+            ("episode_hours", self.episode_hours),
+            ("decision_hours", self.decision_hours),
+            ("reward_scale", self.reward_scale),
+            ("initial_capital", self.initial_capital),
+            ("minimum_equity_fraction", self.minimum_equity_fraction),
+        ):
+            if (
+                isinstance(positive_value, bool)
+                or not math.isfinite(positive_value)
+                or positive_value <= 0.0
+            ):
+                raise ValueError(f"{positive_field_name} must be finite and positive")
+        for optional_field_name, optional_value in (
+            ("episode_bars", self.episode_bars),
+            ("decision_every", self.decision_every),
+        ):
+            if optional_value is not None and (
+                isinstance(optional_value, bool)
+                or not isinstance(optional_value, int)
+                or optional_value <= 0
+            ):
+                raise ValueError(f"{optional_field_name} must be a positive integer")
+        if self.episode_bars is not None and self.episode_hour_choices:
+            raise ValueError(
+                "episode_bars cannot be combined with episode_hour_choices"
+            )
+        for field_name, value in (
+            ("downside_penalty", self.downside_penalty),
+            ("excess_drawdown_penalty", self.excess_drawdown_penalty),
+            ("random_initial_gross", self.random_initial_gross),
+            ("stress_drawdown_fraction", self.stress_drawdown_fraction),
+            ("partial_fill_fraction", self.partial_fill_fraction),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{field_name} must be finite and non-negative")
+        if self.random_initial_gross > 10.0:
+            raise ValueError("random_initial_gross must be within [0, 10]")
+        if not 0.0 <= self.stress_drawdown_fraction < 1.0:
+            raise ValueError("stress_drawdown_fraction must be within [0, 1)")
+        if not 0.0 <= self.partial_fill_fraction <= 1.0:
+            raise ValueError("partial_fill_fraction must be within [0, 1]")
+        if self.episode_sampling_mode not in {
+            "uniform",
+            "regime_balanced",
+            "stress_tail",
+        }:
+            raise ValueError("episode_sampling_mode is not supported")
+        if not math.isfinite(self.stress_quantile) or not 0.5 <= self.stress_quantile < 1.0:
+            raise ValueError("stress_quantile must be within [0.5, 1)")
+        if (
+            isinstance(self.regime_feature_index, bool)
+            or not isinstance(self.regime_feature_index, int)
+            or self.regime_feature_index < 0
+        ):
+            raise ValueError("regime_feature_index must be non-negative")
+        if (
+            isinstance(self.regime_bins, bool)
+            or not isinstance(self.regime_bins, int)
+            or self.regime_bins < 2
+        ):
+            raise ValueError("regime_bins must be at least two")
+        for value in self.episode_hour_choices:
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError("episode_hour_choices must be finite and positive")
+            if self.decision_every is None and value < self.decision_hours:
+                raise ValueError(
+                    "episode_hour_choices cannot be shorter than decision_hours"
+                )
+        if not self.initial_state_modes:
+            raise ValueError("initial_state_modes must not be empty")
+        if any(
+            mode not in _SAMPLED_INITIAL_STATE_MODES
+            for mode in self.initial_state_modes
+        ):
+            raise ValueError(
+                "initial_state_modes contains an unsupported sampled mode; "
+                "restore is available only through reset options"
+            )
+        if len(set(self.initial_state_modes)) != len(self.initial_state_modes):
+            raise ValueError("initial_state_modes must be unique")
+        for field_name, value in (
+            ("liquidate_on_end", self.liquidate_on_end),
+            ("finite_horizon_observation", self.finite_horizon_observation),
+            ("accept_legacy_actions", self.accept_legacy_actions),
+        ):
+            if not isinstance(value, bool):
+                raise ValueError(f"{field_name} must be a boolean")
+        try:
+            mode = ActionValidationMode(self.action_validation_mode)
+        except ValueError as error:
+            raise ValueError("action_validation_mode is not supported") from error
+        object.__setattr__(self, "action_validation_mode", mode)
+
+    def resolved_reward_config(self) -> RewardConfig:
+        if self.reward_config is not None:
+            return self.reward_config
+        # Legacy penalty fields are retained as additive migration knobs. New default
+        # behavior follows the recommended absolute-growth-first hierarchy.
+        return RewardConfig(
+            scale=self.reward_scale,
+            incremental_drawdown_weight=(
+                0.10 + 0.10 * self.excess_drawdown_penalty
+            ),
+            terminal_equity_weight=1.0 + self.downside_penalty,
+        )
+
+    def resolve_nominal_episode_bars(self, dataset: MarketDataset) -> int:
+        if self.episode_bars is not None:
+            return self.episode_bars
+        if dataset.regular_cadence:
+            return dataset.bars_for_hours(self.episode_hours)
+        return max(1, int(round(self.episode_hours / dataset.bar_hours)))
+
+    def resolve_nominal_decision_bars(self, dataset: MarketDataset) -> int:
+        if self.decision_every is not None:
+            return self.decision_every
+        if dataset.regular_cadence:
+            return dataset.bars_for_hours(self.decision_hours)
+        return max(1, int(round(self.decision_hours / dataset.bar_hours)))
+
+
+class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
+    """Dynamic residual-action environment with an independent shadow book."""
+
+    metadata = {"render_modes": []}
+
+    def __init__(
+        self,
+        dataset: MarketDataset,
+        *,
+        trend_strategy: TrendStrategy | None = None,
+        alpha_provider: AlphaProvider
+        | Callable[[MarketDataset, int], np.ndarray]
+        | None = None,
+        alpha_enabled: bool = False,
+        alpha_artifact_digest: str | None = None,
+        alpha_contract: AlphaContract | None = None,
+        factor_basis: np.ndarray | None = None,
+        factor_basis_provider: FactorBasisProvider
+        | Callable[[MarketDataset, int], np.ndarray]
+        | None = None,
+        factor_artifact_digest: str | None = None,
+        factor_count: int | None = None,
+        action_spec: ActionSpec | None = None,
+        composer: BaselineResidualComposer | None = None,
+        pre_trade_risk: PreTradeRisk | None = None,
+        normalizer: ObservationNormalizer | None = None,
+        config: ResidualMarketEnvConfig | None = None,
+    ) -> None:
+        super().__init__()
+        self.dataset = dataset
+        self.trend_strategy = trend_strategy or TrendStrategy()
+        self.alpha_provider = alpha_provider
+        self.alpha_enabled = bool(alpha_enabled)
+        if self.alpha_enabled and self.alpha_provider is None:
+            raise ValueError("alpha_enabled requires an alpha_provider")
+        self.alpha_contract = alpha_contract or AlphaContract()
+        self.alpha_artifact_digest = self._resolve_provider_digest(
+            enabled=self.alpha_enabled,
+            provider=alpha_provider,
+            explicit=alpha_artifact_digest,
+            field_name="alpha_artifact_digest",
+        )

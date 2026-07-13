@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from trade_rl.domain.common import require_aware_datetime, require_non_empty
+from trade_rl.domain.common import (
+    require_aware_datetime,
+    require_non_empty,
+    require_sha256,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,14 +29,24 @@ class GateCheck:
 
 @dataclass(frozen=True, slots=True)
 class GateDecision:
-    """Resolved gate decision with explicit mandatory-check semantics."""
+    """Gate result bound to the evaluated dataset and selected policy identity."""
 
+    dataset_id: str
+    selected_policy_digest: str | None
+    evaluation_digest: str
     passed: bool
     checks: tuple[GateCheck, ...]
     decided_at: datetime
-    schema_version: str = "gate_decision_v1"
+    schema_version: str = "gate_decision_v2"
 
     def __post_init__(self) -> None:
+        require_sha256(self.dataset_id, field="dataset_id")
+        if self.selected_policy_digest is not None:
+            require_sha256(
+                self.selected_policy_digest,
+                field="selected_policy_digest",
+            )
+        require_sha256(self.evaluation_digest, field="evaluation_digest")
         if not self.checks:
             raise ValueError("checks must not be empty")
         names = tuple(check.name for check in self.checks)

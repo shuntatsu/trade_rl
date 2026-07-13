@@ -19,6 +19,43 @@ Key boundaries are now explicit:
 - validated serving bundles, atomic registry activation and fail-closed hot swaps;
 - one `trade-rl` CLI and typed workflow boundaries.
 
+## Causal market data
+
+The maintained data path builds `MarketDataset` directly from real per-symbol CSV bars. It preserves a regular union clock, point-in-time listing and delisting masks, bar-level tradability, per-feature availability and staleness, and explicit volume units. Feature configuration, ordered symbols, instrument contracts, normalization output and all resolved arrays are bound into `dataset_id`.
+
+```python
+from datetime import datetime, timezone
+
+from trade_rl.data import (
+    CsvMarketDataSource,
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+    MarketDatasetBuilder,
+)
+
+config = MarketBuildConfig(
+    base_timeframe="1h",
+    features=(
+        FeatureSpec(name="ret_1", kind=FeatureKind.LOG_RETURN),
+        FeatureSpec(name="funding_bps", kind=FeatureKind.FUNDING_BPS),
+    ),
+)
+contracts = (
+    InstrumentContract(
+        symbol="BTCUSDT",
+        listed_at=datetime(2019, 9, 1, tzinfo=timezone.utc),
+    ),
+)
+dataset = MarketDatasetBuilder(config).build(
+    CsvMarketDataSource("data/market"),
+    contracts,
+)
+```
+
+Each CSV uses `timestamp,open,high,low,close,volume` and may add `funding_rate` and `tradable`. Policy observations use only row `t`; next-bar tradability remains execution truth and is never exposed to the policy.
+
 ## Install
 
 ```bash

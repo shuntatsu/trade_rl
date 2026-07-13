@@ -16,6 +16,8 @@ def test_baseline_bundle_validates_all_file_digests(tmp_path: Path) -> None:
     assert bundle.manifest.policy_mode is PolicyMode.BASELINE_ONLY
     assert bundle.manifest.policy_digest is None
     assert bundle.manifest.release_digest is None
+    assert bundle.manifest.observation_schema_digest == "d" * 64
+    assert bundle.manifest.observation_size == 5
     assert bundle.root == tmp_path / "bundle"
 
 
@@ -33,6 +35,8 @@ def test_baseline_bundle_rejects_policy_digest(tmp_path: Path) -> None:
             bundle_digest="d" * 64,
             dataset_id="a" * 64,
             action_schema="baseline_residual_v1",
+            observation_schema_digest="f" * 64,
+            observation_size=5,
             policy_mode=PolicyMode.BASELINE_ONLY,
             policy_digest="e" * 64,
             signal_digest="b" * 64,

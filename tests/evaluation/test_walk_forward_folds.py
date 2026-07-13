@@ -31,9 +31,7 @@ def test_build_folds_uses_purged_expanding_windows() -> None:
     )
     for fold in folds:
         assert fold.checkpoint_validation.start - fold.train.stop == 5
-        assert (
-            fold.configuration_selection.start - fold.checkpoint_validation.stop == 5
-        )
+        assert fold.configuration_selection.start - fold.checkpoint_validation.stop == 5
         assert fold.test.start - fold.configuration_selection.stop == 5
 
 

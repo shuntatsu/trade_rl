@@ -56,7 +56,7 @@ def test_walk_forward_plan_outputs_typed_fold_plan() -> None:
     assert payload["folds"][0]["test"] == [106, 126]
 
 
-def test_train_config_outputs_validated_residual_configuration() -> None:
+def test_train_config_outputs_explicit_ppo_configuration() -> None:
     stdout = StringIO()
 
     exit_code = main(
@@ -64,9 +64,17 @@ def test_train_config_outputs_validated_residual_configuration() -> None:
             "train",
             "config",
             "--timesteps",
-            "1024",
+            "1025",
             "--gamma",
             "0.5",
+            "--n-steps",
+            "512",
+            "--batch-size",
+            "64",
+            "--learning-rate",
+            "0.0001",
+            "--device",
+            "cuda",
             "--seed",
             "0",
             "--seed",
@@ -77,12 +85,16 @@ def test_train_config_outputs_validated_residual_configuration() -> None:
 
     payload = json.loads(stdout.getvalue())
     assert exit_code == 0
-    assert payload == {
-        "gamma": 0.5,
-        "schema": "residual_training_config_v1",
-        "seeds": [0, 1],
-        "timesteps": 1024,
-    }
+    assert payload["schema"] == "residual_training_config_v3"
+    assert payload["gamma"] == 0.5
+    assert payload["seeds"] == [0, 1]
+    assert payload["requested_timesteps"] == 1025
+    assert payload["actual_timesteps"] == 1536
+    assert payload["n_steps"] == 512
+    assert payload["batch_size"] == 64
+    assert payload["learning_rate"] == pytest.approx(0.0001)
+    assert payload["device"] == "cuda"
+    assert payload["observation_schema"] == "baseline_residual_observation_v2"
 
 
 def test_train_config_can_resolve_gamma_from_real_time_half_life() -> None:
@@ -106,7 +118,7 @@ def test_train_config_can_resolve_gamma_from_real_time_half_life() -> None:
 
     payload = json.loads(stdout.getvalue())
     assert exit_code == 0
-    assert payload["schema"] == "residual_training_config_v2"
+    assert payload["schema"] == "residual_training_config_v3"
     assert payload["decision_hours"] == pytest.approx(4.0)
     assert payload["discount_half_life_hours"] == pytest.approx(24.0)
     assert payload["gamma"] ** 6 == pytest.approx(0.5)

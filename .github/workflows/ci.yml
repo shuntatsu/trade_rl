@@ -33,82 +33,23 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff
-        id: ruff
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          uv run ruff check . 2>&1 | tee ruff.log
+        run: uv run ruff check .
 
       - name: Format
-        id: format
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          uv run ruff format --check --diff . 2>&1 | tee format.log
+        run: uv run ruff format --check --diff .
 
       - name: Mypy
-        id: mypy
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          uv run mypy trade_rl 2>&1 | tee mypy.log
+        run: uv run mypy trade_rl
 
       - name: Import architecture
-        id: imports
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          uv run lint-imports 2>&1 | tee import-linter.log
+        run: uv run lint-imports
 
       - name: Dead-code report
         continue-on-error: true
-        run: uv run vulture trade_rl tests --min-confidence 100 2>&1 | tee vulture.log
+        run: uv run vulture trade_rl tests --min-confidence 100
 
       - name: Tests and coverage
-        id: tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing 2>&1 | tee pytest.log
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
 
       - name: CLI smoke test
-        id: cli
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          uv run trade-rl --version 2>&1 | tee cli.log
-
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rebuilt-core-diagnostics-${{ github.run_id }}
-          path: |
-            ruff.log
-            format.log
-            mypy.log
-            import-linter.log
-            vulture.log
-            pytest.log
-            cli.log
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Enforce mandatory gates
-        if: always()
-        env:
-          RUFF: ${{ steps.ruff.outcome }}
-          FORMAT: ${{ steps.format.outcome }}
-          MYPY: ${{ steps.mypy.outcome }}
-          IMPORTS: ${{ steps.imports.outcome }}
-          TESTS: ${{ steps.tests.outcome }}
-          CLI: ${{ steps.cli.outcome }}
-        run: |
-          printf 'ruff=%s\nformat=%s\nmypy=%s\nimports=%s\ntests=%s\ncli=%s\n' \
-            "$RUFF" "$FORMAT" "$MYPY" "$IMPORTS" "$TESTS" "$CLI"
-          test "$RUFF" = success
-          test "$FORMAT" = success
-          test "$MYPY" = success
-          test "$IMPORTS" = success
-          test "$TESTS" = success
-          test "$CLI" = success
+        run: uv run trade-rl --version

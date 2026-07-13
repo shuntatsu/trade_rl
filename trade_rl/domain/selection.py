@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+import hashlib
+import json
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
     require_aware_datetime,
     require_non_empty,
@@ -64,4 +65,21 @@ class SelectionDecision:
     def digest(self) -> str:
         """Content identity for the complete immutable selection decision."""
 
-        return content_digest(asdict(self))
+        payload = {
+            "dataset_id": self.dataset_id,
+            "evaluation_digest": self.evaluation_digest,
+            "mode": self.mode.value,
+            "reasons": self.reasons,
+            "schema_version": self.schema_version,
+            "selected_at": self.selected_at.isoformat(),
+            "selected_configuration": self.selected_configuration,
+            "selected_policy_digest": self.selected_policy_digest,
+            "signal_digest": self.signal_digest,
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()

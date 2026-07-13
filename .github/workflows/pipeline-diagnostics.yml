@@ -1,0 +1,26 @@
+name: Pipeline Diagnostics
+
+on:
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Capture mypy
+        continue-on-error: true
+        run: uv run mypy trade_rl > mypy.txt 2>&1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-mypy
+          path: mypy.txt

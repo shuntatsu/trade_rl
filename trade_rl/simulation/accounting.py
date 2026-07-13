@@ -158,6 +158,12 @@ class BookState:
         if fill_count:
             self.rebalance_events += 1
         self._validate_equity()
+        value = self.portfolio_value
+        self.peak_value = max(self.peak_value, value)
+        self.max_drawdown = max(
+            self.max_drawdown,
+            1.0 - value / self.peak_value,
+        )
 
     def mark_to_market(
         self,

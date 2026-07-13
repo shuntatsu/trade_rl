@@ -9,7 +9,12 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
-def dataset(n_bars: int = 160) -> MarketDataset:
+def dataset(
+    n_bars: int = 160,
+    *,
+    volume: np.ndarray | None = None,
+    tradable: np.ndarray | None = None,
+) -> MarketDataset:
     timestamps = np.datetime64("2026-01-01T01:00:00", "ns") + np.arange(
         n_bars
     ) * np.timedelta64(1, "h")
@@ -29,9 +34,17 @@ def dataset(n_bars: int = 160) -> MarketDataset:
         high=high,
         low=low,
         close=close,
-        volume=np.full((n_bars, 2), 1_000_000.0, dtype=np.float64),
+        volume=(
+            np.asarray(volume, dtype=np.float64)
+            if volume is not None
+            else np.full((n_bars, 2), 1_000_000.0, dtype=np.float64)
+        ),
         funding_rate=np.zeros_like(close),
-        tradable=np.ones((n_bars, 2), dtype=np.bool_),
+        tradable=(
+            np.asarray(tradable, dtype=np.bool_)
+            if tradable is not None
+            else np.ones((n_bars, 2), dtype=np.bool_)
+        ),
         feature_available=np.ones((n_bars, 2, 2), dtype=np.bool_),
         feature_names=("ret", "rsi"),
         global_feature_names=("regime",),
@@ -123,6 +136,30 @@ def test_default_pretrade_risk_caps_each_symbol_before_execution() -> None:
     assert "max_abs_weight" in shadow_risk.reasons
 
 
+def test_future_non_tradability_is_enforced_by_execution_not_pretrade_risk() -> None:
+    tradable = np.ones((160, 2), dtype=np.bool_)
+    tradable[25, 0] = False
+    env = ResidualMarketEnv(
+        dataset(tradable=tradable),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=8,
+            decision_every=4,
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+    env.reset(options={"start_idx": 24})
+
+    _, _, _, _, info = env.step(np.zeros(2))
+
+    assert info["shadow_risk"].weights[0] != pytest.approx(0.0)
+    assert info["shadow_execution"].filled_turnover < info[
+        "shadow_execution"
+    ].requested_turnover
+
+
 def test_one_action_receives_one_interval_reward() -> None:
     env = environment(decision_every=8)
     env.reset(options={"start_idx": 24})
@@ -143,6 +180,75 @@ def test_observation_and_action_spaces_have_stable_shapes() -> None:
     assert observation.shape == env.observation_space.shape
     assert observation.dtype == np.float32
     assert np.isfinite(observation).all()
+
+
+def test_time_limit_without_liquidation_is_truncated_only() -> None:
+    env = ResidualMarketEnv(
+        dataset(),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=4,
+            decision_every=4,
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+    env.reset(options={"start_idx": 24})
+
+    _, _, terminated, truncated, info = env.step(np.zeros(2))
+
+    assert terminated is False
+    assert truncated is True
+    assert "hybrid_liquidation" not in info
+    assert "shadow_liquidation" not in info
+    assert np.any(np.abs(env.hybrid.quantities) > 0.0)
+
+
+def test_explicit_liquidation_is_terminal_only_and_flat() -> None:
+    env = ResidualMarketEnv(
+        dataset(),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=4,
+            decision_every=4,
+            liquidate_on_end=True,
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+    env.reset(options={"start_idx": 24})
+
+    _, _, terminated, truncated, info = env.step(np.zeros(2))
+
+    assert terminated is True
+    assert truncated is False
+    assert "hybrid_liquidation" in info
+    assert "shadow_liquidation" in info
+    np.testing.assert_allclose(env.hybrid.quantities, np.zeros(2))
+    np.testing.assert_allclose(env.shadow.quantities, np.zeros(2))
+
+
+def test_explicit_liquidation_fails_closed_when_positions_remain() -> None:
+    volume = np.full((160, 2), 1_000_000.0, dtype=np.float64)
+    volume[28] = 0.0
+    env = ResidualMarketEnv(
+        dataset(volume=volume),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=4,
+            decision_every=4,
+            liquidate_on_end=True,
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+    env.reset(options={"start_idx": 24})
+
+    with pytest.raises(RuntimeError, match="liquidation"):
+        env.step(np.zeros(2))
 
 
 def test_terminal_info_uses_base_bar_return_identity() -> None:

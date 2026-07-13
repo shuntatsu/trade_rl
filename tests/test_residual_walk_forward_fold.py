@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from mars_lite.eval import residual_walk_forward
-from mars_lite.eval.residual_walk_forward import ResidualFoldSpec, run_residual_fold
+from mars_lite.eval.residual_walk_forward import ResidualFoldSpec
+from mars_lite.pipeline import residual_walk_forward
+from mars_lite.pipeline.residual_walk_forward import run_residual_fold
 
 
 class _Slice:
@@ -72,7 +73,7 @@ def _relative(cost: float) -> dict[str, object]:
     }
 
 
-def test_fold_fits_alpha_on_inner_train_and_reuses_selected_agent(
+def test_fold_fits_alpha_on_policy_train_and_reuses_selected_agent(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -139,12 +140,12 @@ def test_fold_fits_alpha_on_inner_train_and_reuses_selected_agent(
 
     spec = ResidualFoldSpec(
         fold=1,
-        outer_train_start=0,
-        outer_train_end=800,
-        inner_train_start=0,
-        inner_train_end=640,
-        inner_validation_start=664,
-        inner_validation_end=800,
+        policy_train_start=0,
+        policy_train_end=640,
+        checkpoint_validation_start=664,
+        checkpoint_validation_end=700,
+        configuration_selection_start=724,
+        configuration_selection_end=800,
         outer_test_start=824,
         outer_test_end=1000,
         purge_bars=24,

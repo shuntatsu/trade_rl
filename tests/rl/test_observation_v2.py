@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import np
+import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset

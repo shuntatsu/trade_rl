@@ -35,6 +35,9 @@ dev = [
     "mypy>=1.0.0",
     "httpx>=0.24.0",
     "types-requests>=2.28.0",
+    "hypothesis>=6.100.0",
+    "import-linter>=2.0",
+    "vulture>=2.11",
 ]
 # 研究用の追加ライブラリ（予測器強化・リスクベース構築・レジーム検知）。
 # coreパイプラインはこれ無しでも動く（import は遅延＋ガードする）。

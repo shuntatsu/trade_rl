@@ -1,0 +1,82 @@
+s/rl/test_decision_eligibility.py
++++ b/tests/rl/test_decision_eligibility.py
+@@ -13,10 +13,23 @@ from trade_rl.data.contracts import (
+ )
+ from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+ from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
++from trade_rl.rl.market_inputs import CausalMarketView
+ from trade_rl.simulation.execution import ExecutionCostConfig
+ from trade_rl.strategies.trend import TrendConfig, TrendStrategy
+ 
+ 
++class RecordingAlphaProvider:
++    identity_digest = "1" * 64
++
++    def __init__(self) -> None:
++        self.seen_bars: list[int] = []
++
++    def predict(self, market: CausalMarketView) -> np.ndarray:
++        self.seen_bars.append(len(market.timestamps))
++        assert not hasattr(market, "close")
++        return np.array([0.2, 0.6, 0.2])
++
++
+ def _market(*, next_tradable: bool = True, suspended_symbol: int | None = None):
+     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+         40
+@@ -104,11 +117,13 @@ def test_alpha_is_zeroed_outside_current_eligible_universe() -> None:
+     tradable[16, 1] = False
+     object.__setattr__(market, "tradable", tradable)
+ 
++    provider = RecordingAlphaProvider()
+     env = _environment(
+         market,
+-        alpha_provider=lambda dataset, index: np.array([0.2, 0.6, 0.2]),
++        alpha_provider=provider,
+         alpha_enabled=True,
+     )
+     env.reset(options={"start_idx": 16})
+ 
+     np.testing.assert_allclose(env._alpha_at(16), np.array([0.2, 0.0, 0.2]))
++    assert provider.seen_bars == [17, 17]
+diff --git a/tests/rl/test_observation_causality.py b/tests/rl/test_observation_causality.py
+index 08c0c02..47dde83 100644
+--- a/tests/rl/test_observation_causality.py
++++ b/tests/rl/test_observation_causality.py
+@@ -23,6 +23,8 @@ def raw_series(
+     *,
+     next_tradable: bool = True,
+     future_shift: float = 0.0,
++    current_tradable: bool = True,
++    delay_current: bool = False,
+ ) -> RawMarketSeries:
+     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+         n_bars
+@@ -31,9 +33,14 @@ def raw_series(
+     close[21:] *= np.exp(future_shift)
+     open_price = np.concatenate([close[:1], close[:-1]])
+     tradable = np.ones(n_bars, dtype=np.bool_)
++    tradable[20] = current_tradable
+     tradable[21] = next_tradable
++    available_at = timestamps.copy()
++    if delay_current:
++        available_at[20] = timestamps[21]
+     return RawMarketSeries(
+         timestamps=timestamps,
++        available_at=available_at,
+         open=open_price,
+         high=np.maximum(open_price, close) * 1.001,
+         low=np.minimum(open_price, close) * 0.999,
+@@ -48,6 +55,8 @@ def dataset(
+     *,
+     next_tradable: bool = True,
+     future_shift: float = 0.0,
++    current_tradable: bool = True,
++    delay_current: bool = False,
+ ) -> MarketDataset:
+     config = MarketBuildConfig(
+         base_timeframe="1h",
+@@ -62,9 +71,19 @@ def dataset(
+     )
+     source = InMemoryMarketDataSource(
+     

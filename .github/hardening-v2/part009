@@ -1,0 +1,144 @@
+on.execution import (
+ from trade_rl.strategies.trend import TrendStrategy, TrendTargets
+ 
+ 
+-class AlphaProvider(Protocol):
+-    def predict_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
+-
+-
+ @dataclass(frozen=True, slots=True)
+ class ResidualMarketEnvConfig:
+     episode_hours: float = 200.0
+@@ -99,19 +93,29 @@ class ResidualMarketEnv(gym.Env):
+         dataset: MarketDataset,
+         *,
+         trend_strategy: TrendStrategy | None = None,
+-        alpha_provider: AlphaProvider
+-        | Callable[[MarketDataset, int], np.ndarray]
+-        | None = None,
++        alpha_provider: CausalAlphaProvider | None = None,
+         alpha_enabled: bool = False,
++        market_input_resolver: MarketInputResolver | None = None,
+         composer: BaselineResidualComposer | None = None,
+         pre_trade_risk: PreTradeRisk | None = None,
+         config: ResidualMarketEnvConfig | None = None,
+     ) -> None:
+         super().__init__()
+         self.dataset = dataset
+-        self.trend_strategy = trend_strategy or TrendStrategy()
+-        self.alpha_provider = alpha_provider
+-        self.alpha_enabled = bool(alpha_enabled)
++        if market_input_resolver is not None and (
++            trend_strategy is not None or alpha_provider is not None or alpha_enabled
++        ):
++            raise ValueError(
++                "market_input_resolver cannot be combined with individual market inputs"
++            )
++        self.market_input_resolver = market_input_resolver or MarketInputResolver(
++            trend_strategy=trend_strategy or TrendStrategy(),
++            alpha_provider=alpha_provider,
++            alpha_enabled=bool(alpha_enabled),
++        )
++        self.trend_strategy = self.market_input_resolver.trend_strategy
++        self.alpha_provider = self.market_input_resolver.alpha_provider
++        self.alpha_enabled = self.market_input_resolver.alpha_enabled
+         self.composer = composer or BaselineResidualComposer()
+         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
+         self.config = config or ResidualMarketEnvConfig()
+@@ -170,27 +174,10 @@ class ResidualMarketEnv(gym.Env):
+         return 1.0 - book.portfolio_value / max(book.peak_value, book.portfolio_value)
+ 
+     def _alpha_at(self, index: int) -> np.ndarray:
+-        if not self.alpha_enabled or self.alpha_provider is None:
+-            return np.zeros(self.dataset.n_symbols, dtype=np.float64)
+-        provider = self.alpha_provider
+-        if hasattr(provider, "predict_at"):
+-            value = provider.predict_at(self.dataset, index)
+-        else:
+-            value = provider(self.dataset, index)
+-        alpha = np.asarray(value, dtype=np.float64).reshape(-1)
+-        if alpha.shape != (self.dataset.n_symbols,) or not np.isfinite(alpha).all():
+-            raise ValueError("alpha provider returned an invalid vector")
+-        eligible = self.dataset.eligibility_mask(index, require_features=True)
+-        alpha = alpha.copy()
+-        alpha[~eligible] = 0.0
+-        gross = float(np.abs(alpha).sum())
+-        return alpha / gross if gross > 1.0 else alpha
++        return self.market_input_resolver.resolve(self.dataset, index)[1]
+ 
+     def _market_inputs(self) -> tuple[TrendTargets, np.ndarray]:
+-        return (
+-            self.trend_strategy.targets(self.dataset, self.current_index),
+-            self._alpha_at(self.current_index),
+-        )
++        return self.market_input_resolver.resolve(self.dataset, self.current_index)
+ 
+     def _observation(self) -> np.ndarray:
+         trends, alpha = self._market_inputs()
+diff --git a/trade_rl/rl/market_inputs.py b/trade_rl/rl/market_inputs.py
+new file mode 100644
+index 0000000..8f00dbb
+--- /dev/null
++++ b/trade_rl/rl/market_inputs.py
+@@ -0,0 +1,131 @@
++"""Shared causal Trend and Alpha input resolution for training and Serving."""
++
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from typing import Protocol
++
++import numpy as np
++
++from trade_rl.artifacts.hashing import content_digest
++from trade_rl.data.market import MarketDataset
++from trade_rl.domain.common import require_sha256
++from trade_rl.strategies.trend import TrendStrategy, TrendTargets
++
++
++def _readonly_copy(value: np.ndarray) -> np.ndarray:
++    array = np.asarray(value).copy(order="C")
++    array.setflags(write=False)
++    return array
++
++
++@dataclass(frozen=True, slots=True)
++class CausalMarketView:
++    """Copied policy-safe market prefix ending at one decision index."""
++
++    dataset_id: str
++    symbols: tuple[str, ...]
++    timestamps: np.ndarray
++    features: np.ndarray
++    global_features: np.ndarray
++    tradable: np.ndarray
++    symbol_active: np.ndarray
++    information_available: np.ndarray
++    feature_available: np.ndarray
++    feature_staleness: np.ndarray
++    feature_names: tuple[str, ...]
++    global_feature_names: tuple[str, ...]
++
++    @property
++    def current_index(self) -> int:
++        return int(self.timestamps.shape[0] - 1)
++
++    @classmethod
++    def from_dataset(cls, dataset: MarketDataset, index: int) -> CausalMarketView:
++        if not 0 <= index < dataset.n_bars:
++            raise IndexError("causal market view index is outside the dataset")
++        symbol_active = dataset.symbol_active
++        information_available = dataset.information_available
++        feature_staleness = dataset.feature_staleness
++        assert symbol_active is not None
++        assert information_available is not None
++        assert feature_staleness is not None
++        stop = index + 1
++        observable_tradable = dataset.tradable[:stop] & information_available[:stop]
++        return cls(
++            dataset_id=dataset.dataset_id,
++            symbols=dataset.symbols,
++            timestamps=_readonly_copy(dataset.timestamps[:stop]),
++            features=_readonly_copy(dataset.features[:stop]),
++            global_features=_readonly_copy(dataset.global_features[:stop]),
++            tradable=_readonly_copy(observable

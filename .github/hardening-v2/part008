@@ -1,0 +1,149 @@
+ missing fields: {missing}")
++    return content_and_arrays_digest(
++        payload,
++        ((name, arrays[name]) for name in DATASET_ID_ARRAY_FIELDS),
++    )
+diff --git a/trade_rl/data/market.py b/trade_rl/data/market.py
+index 5ead7b6..a861062 100644
+--- a/trade_rl/data/market.py
++++ b/trade_rl/data/market.py
+@@ -8,6 +8,11 @@ from dataclasses import dataclass, field
+ import numpy as np
+ 
+ from trade_rl.data.contracts import VolumeUnit
++from trade_rl.data.identity import (
++    canonical_identity_json,
++    compute_market_dataset_id,
++    parse_identity_json,
++)
+ from trade_rl.domain.common import require_sha256, require_unique_non_empty
+ 
+ _HOURS_PER_YEAR = 365.0 * 24.0
+@@ -58,6 +63,7 @@ class MarketDataset:
+     contract_multipliers: np.ndarray | None = None
+     feature_config_digest: str = _ZERO_DIGEST
+     normalization_digest: str = _ZERO_DIGEST
++    identity_payload_json: str | None = None
+     _bar_duration_ns: int = field(init=False, repr=False)
+ 
+     def __post_init__(self) -> None:
+@@ -152,7 +158,7 @@ class MarketDataset:
+             dtype=np.dtype(np.bool_),
+         )
+         information_available_value = (
+-            symbol_active & tradable & (available_at <= event_times)
++            symbol_active & (available_at <= event_times)
+             if self.information_available is None
+             else self.information_available
+         )
+@@ -249,6 +255,36 @@ class MarketDataset:
+         ):
+             raise ValueError("OHLC values violate bar price invariants")
+ 
++        identity_payload_json = self.identity_payload_json
++        if identity_payload_json is not None:
++            payload = parse_identity_json(identity_payload_json)
++            canonical_payload_json = canonical_identity_json(payload)
++            resolved_id = compute_market_dataset_id(
++                payload,
++                {
++                    "timestamps": timestamps,
++                    "available_at": available_at,
++                    "information_available": information_available,
++                    "features": features,
++                    "global_features": global_features,
++                    "open": open_price,
++                    "high": high,
++                    "low": low,
++                    "close": close,
++                    "volume": volume,
++                    "funding_rate": funding,
++                    "tradable": tradable,
++                    "symbol_active": symbol_active,
++                    "feature_available": feature_available,
++                    "feature_staleness": feature_staleness,
++                },
++            )
++            if resolved_id != self.dataset_id:
++                raise ValueError(
++                    "dataset_id does not match identity payload and arrays"
++                )
++            identity_payload_json = canonical_payload_json
++
+         object.__setattr__(self, "symbols", symbols)
+         object.__setattr__(self, "feature_names", feature_names)
+         object.__setattr__(self, "global_feature_names", global_names)
+@@ -269,6 +305,7 @@ class MarketDataset:
+         object.__setattr__(self, "feature_available", feature_available)
+         object.__setattr__(self, "feature_staleness", feature_staleness)
+         object.__setattr__(self, "contract_multipliers", contract_multipliers)
++        object.__setattr__(self, "identity_payload_json", identity_payload_json)
+         object.__setattr__(self, "_bar_duration_ns", bar_duration_ns)
+ 
+     @property
+@@ -296,6 +333,15 @@ class MarketDataset:
+             raise ValueError("hours must resolve to an integral number of bars")
+         return resolved
+ 
++    def observable_tradable(self, index: int) -> np.ndarray:
++        """Return only current tradability that was knowable at the event time."""
++
++        if not 0 <= index < self.n_bars:
++            raise IndexError("observable tradability index is outside the dataset")
++        information_available = self.information_available
++        assert information_available is not None
++        return (self.tradable[index] & information_available[index]).copy()
++
+     def eligibility_mask(
+         self,
+         index: int,
+diff --git a/trade_rl/rl/__init__.py b/trade_rl/rl/__init__.py
+index e34a5a8..6bd0d71 100644
+--- a/trade_rl/rl/__init__.py
++++ b/trade_rl/rl/__init__.py
+@@ -7,6 +7,11 @@ from trade_rl.rl.actions import (
+     ResidualComposition,
+ )
+ from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
++from trade_rl.rl.market_inputs import (
++    CausalAlphaProvider,
++    CausalMarketView,
++    MarketInputResolver,
++)
+ from trade_rl.rl.training import (
+     PolicyTrainingBackend,
+     ResidualTrainingConfig,
+@@ -17,6 +22,9 @@ from trade_rl.rl.training import (
+ __all__ = [
+     "ACTION_SCHEMA",
+     "BaselineResidualComposer",
++    "CausalAlphaProvider",
++    "CausalMarketView",
++    "MarketInputResolver",
+     "PolicyTrainingBackend",
+     "ResidualAction",
+     "ResidualComposition",
+diff --git a/trade_rl/rl/environment.py b/trade_rl/rl/environment.py
+index 16b4cab..09085f4 100644
+--- a/trade_rl/rl/environment.py
++++ b/trade_rl/rl/environment.py
+@@ -3,10 +3,7 @@
+ from __future__ import annotations
+ 
+ import math
+-from collections.abc import Callable
+ from dataclasses import dataclass, field
+-from typing import Protocol
+-
+ import gymnasium as gym
+ import numpy as np
+ from gymnasium import spaces
+@@ -16,6 +13,7 @@ from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
+ from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+ from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
+ from trade_rl.rl.actions import BaselineResidualComposer, ResidualAction
++from trade_rl.rl.market_inputs import CausalAlphaProvider, MarketInputResolver
+ from trade_rl.rl.observations import build_observation, observation_layout
+ from trade_rl.rl.rewards import relative_interval_reward
+ from trade_rl.simulation.accounting import BookState
+@@ -27,10 +25,6 @@ from trade_rl.simulati

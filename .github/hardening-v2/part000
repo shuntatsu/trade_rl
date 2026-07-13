@@ -1,0 +1,87 @@
+diff --git a/tests/data/test_information_availability.py b/tests/data/test_information_availability.py
+index 9f61b0b..dfc293b 100644
+--- a/tests/data/test_information_availability.py
++++ b/tests/data/test_information_availability.py
+@@ -26,7 +26,11 @@ def _timestamps(count: int = 24) -> np.ndarray:
+     ) * np.timedelta64(1, "h")
+ 
+ 
+-def _raw(*, delayed_index: int | None = None) -> RawMarketSeries:
++def _raw(
++    *,
++    delayed_index: int | None = None,
++    delayed_tradable: bool = True,
++) -> RawMarketSeries:
+     timestamps = _timestamps()
+     close = np.exp(np.arange(len(timestamps), dtype=np.float64) * 0.001)
+     open_price = np.concatenate([close[:1], close[:-1]])
+@@ -42,7 +46,11 @@ def _raw(*, delayed_index: int | None = None) -> RawMarketSeries:
+         close=close,
+         volume=np.full(len(timestamps), 1_000.0),
+         funding_rate=np.zeros(len(timestamps)),
+-        tradable=np.ones(len(timestamps), dtype=np.bool_),
++        tradable=np.where(
++            np.arange(len(timestamps)) == delayed_index,
++            delayed_tradable,
++            True,
++        ).astype(np.bool_),
+     )
+ 
+ 
+@@ -101,6 +109,20 @@ def test_delayed_market_row_is_not_visible_to_same_time_features() -> None:
+     assert market.feature_staleness[12, 0, 0] == 0.0
+ 
+ 
++def test_delayed_tradability_is_hidden_from_policy_and_global_fraction() -> None:
++    delayed_true = _build(_raw(delayed_index=10, delayed_tradable=True))
++    delayed_false = _build(_raw(delayed_index=10, delayed_tradable=False))
++
++    assert delayed_true.tradable[10, 0]
++    assert not delayed_false.tradable[10, 0]
++    np.testing.assert_array_equal(
++        delayed_true.observable_tradable(10),
++        delayed_false.observable_tradable(10),
++    )
++    assert delayed_true.global_features[10, 1] == 0.0
++    assert delayed_false.global_features[10, 1] == 0.0
++
++
+ def test_information_availability_changes_dataset_identity() -> None:
+     on_time = _build(_raw())
+     delayed = _build(_raw(delayed_index=10))
+diff --git a/tests/data/test_market_artifact.py b/tests/data/test_market_artifact.py
+new file mode 100644
+index 0000000..7d6dc7b
+--- /dev/null
++++ b/tests/data/test_market_artifact.py
+@@ -0,0 +1,114 @@
++from __future__ import annotations
++
++import json
++from dataclasses import replace
++from datetime import datetime, timezone
++from pathlib import Path
++
++import numpy as np
++import pytest
++
++from trade_rl.artifacts.codec import canonical_json_bytes
++from trade_rl.artifacts.hashing import content_digest
++from trade_rl.data.artifact import (
++    load_market_dataset_artifact,
++    write_market_dataset_artifact,
++)
++from trade_rl.data.builder import MarketDatasetBuilder
++from trade_rl.data.contracts import (
++    FeatureKind,
++    FeatureSpec,
++    InstrumentContract,
++    MarketBuildConfig,
++)
++from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
++
++
++def _dataset():
++    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
++        24
++    ) * np.

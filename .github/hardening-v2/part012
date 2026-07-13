@@ -1,0 +1,28 @@
+et_inputs_digest=self.market_input_resolver.digest,
++        )
+         vector = self._validated_vector(
+             self.build_observation(value),
+             expected_size=snapshot.observation_size,
+@@ -168,8 +200,21 @@ class ServingRuntime:
+                 raise RuntimeError("serving bundle changed during prediction")
+             return self._validated_action(policy, vector)
+ 
+-    def predict(self, observation: np.ndarray) -> np.ndarray:
++    def predict(
++        self,
++        observation: np.ndarray,
++        *,
++        dataset_id: str,
++        observation_schema_digest: str,
++        market_inputs_digest: str,
++    ) -> np.ndarray:
+         snapshot, policy = self._active()
++        self._validate_input_contract(
++            snapshot,
++            dataset_id=dataset_id,
++            observation_schema_digest=observation_schema_digest,
++            market_inputs_digest=market_inputs_digest,
++        )
+         vector = self._validated_vector(
+             observation,
+             expected_size=snapshot.observation_size,

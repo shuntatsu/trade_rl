@@ -104,6 +104,33 @@ def test_participation_cap_causes_partial_fill() -> None:
     assert result.book.weights[0] == pytest.approx(0.01)
 
 
+def test_next_open_capacity_uses_last_closed_bar_volume() -> None:
+    dataset = market(
+        open_price=np.full((4, 1), 100.0),
+        close=np.full((4, 1), 100.0),
+        volume=np.array([[1.0], [1_000.0], [1_000.0], [1_000.0]]),
+    )
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig(
+            fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=0.10,
+        ),
+    )
+
+    result = executor.execute_interval(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.filled_turnover == pytest.approx(0.01)
+    assert result.unfilled_turnover == pytest.approx(0.99)
+
+
 def test_non_tradable_next_bar_does_not_fill() -> None:
     tradable = np.ones((4, 1), dtype=np.bool_)
     tradable[1, 0] = False

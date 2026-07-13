@@ -11,7 +11,6 @@ from trade_rl.domain.releases import ReleaseManifest
 from trade_rl.domain.selection import PolicyMode, SelectionDecision
 from trade_rl.domain.signals import SignalArtifactManifest, SignalStatus
 
-
 DATASET_ID = "a" * 64
 SIGNAL_DIGEST = "b" * 64
 POLICY_DIGEST = "c" * 64

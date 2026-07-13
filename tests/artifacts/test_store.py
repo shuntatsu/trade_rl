@@ -20,8 +20,7 @@ def test_publish_run_moves_validated_stage_and_updates_latest(tmp_path: Path) ->
 
     published = store.publish_run(
         "run-001",
-        validate=lambda path: (path / "marker.txt").read_text(encoding="utf-8")
-        == "ok",
+        validate=lambda path: (path / "marker.txt").read_text(encoding="utf-8") == "ok",
     )
 
     assert published == tmp_path / "runs" / "run-001"

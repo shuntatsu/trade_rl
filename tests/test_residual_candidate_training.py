@@ -55,8 +55,12 @@ def test_candidate_training_builds_abcd_and_resolves_selected_agent(
     ):
         train_calls.append((label, alpha_enabled, checkpoint_val_fs))
         if label == "B_trend_mix":
-            return b_agent, [b_agent], output / "b.zip"
-        return d_agent, [d_agent], output / "d.zip"
+            path = output / "b.zip"
+            path.write_bytes(b"b-model")
+            return b_agent, [b_agent], path
+        path = output / "d.zip"
+        path.write_bytes(b"d-model")
+        return d_agent, [d_agent], path
 
     evaluations = iter(
         [
@@ -95,6 +99,7 @@ def test_candidate_training_builds_abcd_and_resolves_selected_agent(
     assert result.selected_alpha_enabled is False
     assert result.selected_agent is b_agent
     assert result.selected_policies == (b_agent,)
+    assert len(result.selected_model_digest) == 64
     assert train_calls == [
         ("B_trend_mix", False, checkpoint_fs),
         ("D_combined", True, checkpoint_fs),
@@ -111,7 +116,9 @@ def test_candidate_training_omits_cd_when_alpha_gate_fails(
     selection_fs = object()
 
     def fake_train(*, output: Path, **kwargs):
-        return b_agent, [b_agent], output / "b.zip"
+        path = output / "b.zip"
+        path.write_bytes(b"b-model")
+        return b_agent, [b_agent], path
 
     evaluations = iter(
         [
@@ -142,3 +149,4 @@ def test_candidate_training_omits_cd_when_alpha_gate_fails(
     assert set(result.development_results) == {"A", "B"}
     assert result.selected_configuration == "B"
     assert result.selected_alpha_enabled is False
+    assert len(result.selected_model_digest) == 64

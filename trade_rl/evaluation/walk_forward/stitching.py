@@ -39,7 +39,9 @@ def stitch_oos(results: tuple[FoldOOSResult, ...]) -> StitchedOOS:
 
     if not results:
         raise ValueError("at least one OOS fold result is required")
-    ordered = tuple(sorted(results, key=lambda result: (result.start, result.fold_index)))
+    ordered = tuple(
+        sorted(results, key=lambda result: (result.start, result.fold_index))
+    )
     fold_indices = tuple(result.fold_index for result in ordered)
     if len(set(fold_indices)) != len(fold_indices):
         raise ValueError("fold indices must be unique")

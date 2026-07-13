@@ -216,9 +216,7 @@ def build_reward_context(
     shortfall = max(0.0, shadow_growth - hybrid_growth)
     tolerance = config.baseline_tolerance * history_bars / window_bars
     penalty = (
-        max(0.0, shortfall - tolerance)
-        if history_bars >= minimum_history_bars
-        else 0.0
+        max(0.0, shortfall - tolerance) if history_bars >= minimum_history_bars else 0.0
     )
     return RewardContext(
         rolling_hybrid_log_growth=hybrid_growth,

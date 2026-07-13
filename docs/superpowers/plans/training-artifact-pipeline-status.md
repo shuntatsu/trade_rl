@@ -1,3 +1,3 @@
 # Training Artifact Pipeline Status
 
-Implementation is in verification. Ruff and formatting pass; this update triggers focused Mypy diagnostics and the next full CI pass.
+Implementation is in verification. Ruff and formatting pass; focused export type fixes are being applied before the next full CI pass.

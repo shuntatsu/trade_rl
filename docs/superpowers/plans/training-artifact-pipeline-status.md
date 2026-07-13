@@ -1,3 +1,3 @@
 # Training Artifact Pipeline Status
 
-Implementation is in verification. A focused Ruff diagnostic artifact is being captured before the next type and functional test pass.
+Implementation is in verification. The final focused Ruff correction is being committed before the complete type, architecture, training, walk-forward, export, and CLI test pass.

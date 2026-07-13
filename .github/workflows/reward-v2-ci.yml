@@ -28,8 +28,11 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
+      - name: Restore authoritative lockfile
+        run: git checkout 08c0f8415e177b28e725d81d3bb41c40c32a661a -- uv.lock
+
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync --extra dev --locked
 
       - name: Autoformat
         run: |
@@ -37,7 +40,7 @@ jobs:
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .
+            git add uv.lock trade_rl tests
             git commit -m "style: format reward v2 implementation"
             git push origin HEAD:agent/reward-design-v2
           fi

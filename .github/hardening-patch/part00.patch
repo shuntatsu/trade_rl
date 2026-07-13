@@ -1,0 +1,422 @@
+diff --git a/tests/data/test_information_availability.py b/tests/data/test_information_availability.py
+index 9f61b0b..dfc293b 100644
+--- a/tests/data/test_information_availability.py
++++ b/tests/data/test_information_availability.py
+@@ -26,7 +26,11 @@ def _timestamps(count: int = 24) -> np.ndarray:
+     ) * np.timedelta64(1, "h")
+ 
+ 
+-def _raw(*, delayed_index: int | None = None) -> RawMarketSeries:
++def _raw(
++    *,
++    delayed_index: int | None = None,
++    delayed_tradable: bool = True,
++) -> RawMarketSeries:
+     timestamps = _timestamps()
+     close = np.exp(np.arange(len(timestamps), dtype=np.float64) * 0.001)
+     open_price = np.concatenate([close[:1], close[:-1]])
+@@ -42,7 +46,11 @@ def _raw(*, delayed_index: int | None = None) -> RawMarketSeries:
+         close=close,
+         volume=np.full(len(timestamps), 1_000.0),
+         funding_rate=np.zeros(len(timestamps)),
+-        tradable=np.ones(len(timestamps), dtype=np.bool_),
++        tradable=np.where(
++            np.arange(len(timestamps)) == delayed_index,
++            delayed_tradable,
++            True,
++        ).astype(np.bool_),
+     )
+ 
+ 
+@@ -101,6 +109,20 @@ def test_delayed_market_row_is_not_visible_to_same_time_features() -> None:
+     assert market.feature_staleness[12, 0, 0] == 0.0
+ 
+ 
++def test_delayed_tradability_is_hidden_from_policy_and_global_fraction() -> None:
++    delayed_true = _build(_raw(delayed_index=10, delayed_tradable=True))
++    delayed_false = _build(_raw(delayed_index=10, delayed_tradable=False))
++
++    assert delayed_true.tradable[10, 0]
++    assert not delayed_false.tradable[10, 0]
++    np.testing.assert_array_equal(
++        delayed_true.observable_tradable(10),
++        delayed_false.observable_tradable(10),
++    )
++    assert delayed_true.global_features[10, 1] == 0.0
++    assert delayed_false.global_features[10, 1] == 0.0
++
++
+ def test_information_availability_changes_dataset_identity() -> None:
+     on_time = _build(_raw())
+     delayed = _build(_raw(delayed_index=10))
+diff --git a/tests/data/test_market_artifact.py b/tests/data/test_market_artifact.py
+new file mode 100644
+index 0000000..7d6dc7b
+--- /dev/null
++++ b/tests/data/test_market_artifact.py
+@@ -0,0 +1,114 @@
++from __future__ import annotations
++
++import json
++from dataclasses import replace
++from datetime import datetime, timezone
++from pathlib import Path
++
++import numpy as np
++import pytest
++
++from trade_rl.artifacts.codec import canonical_json_bytes
++from trade_rl.artifacts.hashing import content_digest
++from trade_rl.data.artifact import (
++    load_market_dataset_artifact,
++    write_market_dataset_artifact,
++)
++from trade_rl.data.builder import MarketDatasetBuilder
++from trade_rl.data.contracts import (
++    FeatureKind,
++    FeatureSpec,
++    InstrumentContract,
++    MarketBuildConfig,
++)
++from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
++
++
++def _dataset():
++    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
++        24
++    ) * np.timedelta64(1, "h")
++    close = 100.0 + np.arange(24, dtype=np.float64)
++    open_price = np.concatenate([close[:1], close[:-1]])
++    raw = RawMarketSeries(
++        timestamps=timestamps,
++        open=open_price,
++        high=np.maximum(open_price, close) + 1.0,
++        low=np.minimum(open_price, close) - 1.0,
++        close=close,
++        volume=np.full(24, 1_000.0),
++        funding_rate=np.zeros(24),
++        tradable=np.ones(24, dtype=np.bool_),
++    )
++    config = MarketBuildConfig(
++        base_timeframe="1h",
++        features=(FeatureSpec(name="ret", kind=FeatureKind.LOG_RETURN),),
++    )
++    contract = InstrumentContract(
++        symbol="BTCUSDT",
++        listed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
++    )
++    return MarketDatasetBuilder(config).build(
++        InMemoryMarketDataSource({"BTCUSDT": raw}),
++        (contract,),
++    )
++
++
++def test_market_dataset_recomputes_identity_payload() -> None:
++    dataset = _dataset()
++
++    with pytest.raises(ValueError, match="dataset_id"):
++        replace(dataset, dataset_id="f" * 64)
++
++
++def test_artifact_loader_rejects_tampered_dataset_id_with_valid_outer_digest(
++    tmp_path: Path,
++) -> None:
++    root = tmp_path / "artifact"
++    write_market_dataset_artifact(root, _dataset())
++    manifest_path = root / "manifest.json"
++    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
++    manifest["dataset_id"] = "f" * 64
++    digest_payload = dict(manifest)
++    digest_payload.pop("artifact_digest")
++    manifest["artifact_digest"] = content_digest(digest_payload)
++    manifest_path.write_bytes(canonical_json_bytes(manifest))
++
++    with pytest.raises(ValueError, match="dataset_id"):
++        load_market_dataset_artifact(root)
++
++
++def test_atomic_publish_rejects_existing_destination_without_changes(
++    tmp_path: Path,
++) -> None:
++    root = tmp_path / "artifact"
++    root.mkdir()
++    sentinel = root / "sentinel.txt"
++    sentinel.write_text("preserve", encoding="utf-8")
++
++    with pytest.raises(FileExistsError, match="already exists"):
++        write_market_dataset_artifact(root, _dataset())
++
++    assert sentinel.read_text(encoding="utf-8") == "preserve"
++    assert tuple(root.iterdir()) == (sentinel,)
++
++
++def test_failed_staging_is_removed_without_publishing(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    from trade_rl.data import artifact as artifact_module
++
++    root = tmp_path / "artifact"
++
++    def fail_write(path: Path, dataset) -> None:
++        del path, dataset
++        raise RuntimeError("write failed")
++
++    monkeypatch.setattr(artifact_module, "_write_arrays", fail_write)
++
++    with pytest.raises(RuntimeError, match="write failed"):
++        write_market_dataset_artifact(root, _dataset())
++
++    assert not root.exists()
++    assert not tuple(tmp_path.glob(".artifact.staging-*"))
+diff --git a/tests/rl/test_decision_eligibility.py b/tests/rl/test_decision_eligibility.py
+index 63e1e7c..6b97d3d 100644
+--- a/tests/rl/test_decision_eligibility.py
++++ b/tests/rl/test_decision_eligibility.py
+@@ -13,10 +13,23 @@ from trade_rl.data.contracts import (
+ )
+ from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+ from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
++from trade_rl.rl.market_inputs import CausalMarketView
+ from trade_rl.simulation.execution import ExecutionCostConfig
+ from trade_rl.strategies.trend import TrendConfig, TrendStrategy
+ 
+ 
++class RecordingAlphaProvider:
++    identity_digest = "1" * 64
++
++    def __init__(self) -> None:
++        self.seen_bars: list[int] = []
++
++    def predict(self, market: CausalMarketView) -> np.ndarray:
++        self.seen_bars.append(len(market.timestamps))
++        assert not hasattr(market, "close")
++        return np.array([0.2, 0.6, 0.2])
++
++
+ def _market(*, next_tradable: bool = True, suspended_symbol: int | None = None):
+     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+         40
+@@ -104,11 +117,13 @@ def test_alpha_is_zeroed_outside_current_eligible_universe() -> None:
+     tradable[16, 1] = False
+     object.__setattr__(market, "tradable", tradable)
+ 
++    provider = RecordingAlphaProvider()
+     env = _environment(
+         market,
+-        alpha_provider=lambda dataset, index: np.array([0.2, 0.6, 0.2]),
++        alpha_provider=provider,
+         alpha_enabled=True,
+     )
+     env.reset(options={"start_idx": 16})
+ 
+     np.testing.assert_allclose(env._alpha_at(16), np.array([0.2, 0.0, 0.2]))
++    assert provider.seen_bars == [17, 17]
+diff --git a/tests/rl/test_observation_causality.py b/tests/rl/test_observation_causality.py
+index 08c0c02..47dde83 100644
+--- a/tests/rl/test_observation_causality.py
++++ b/tests/rl/test_observation_causality.py
+@@ -23,6 +23,8 @@ def raw_series(
+     *,
+     next_tradable: bool = True,
+     future_shift: float = 0.0,
++    current_tradable: bool = True,
++    delay_current: bool = False,
+ ) -> RawMarketSeries:
+     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+         n_bars
+@@ -31,9 +33,14 @@ def raw_series(
+     close[21:] *= np.exp(future_shift)
+     open_price = np.concatenate([close[:1], close[:-1]])
+     tradable = np.ones(n_bars, dtype=np.bool_)
++    tradable[20] = current_tradable
+     tradable[21] = next_tradable
++    available_at = timestamps.copy()
++    if delay_current:
++        available_at[20] = timestamps[21]
+     return RawMarketSeries(
+         timestamps=timestamps,
++        available_at=available_at,
+         open=open_price,
+         high=np.maximum(open_price, close) * 1.001,
+         low=np.minimum(open_price, close) * 0.999,
+@@ -48,6 +55,8 @@ def dataset(
+     *,
+     next_tradable: bool = True,
+     future_shift: float = 0.0,
++    current_tradable: bool = True,
++    delay_current: bool = False,
+ ) -> MarketDataset:
+     config = MarketBuildConfig(
+         base_timeframe="1h",
+@@ -62,9 +71,19 @@ def dataset(
+     )
+     source = InMemoryMarketDataSource(
+         {
+-            "A": raw_series(64, next_tradable=next_tradable, future_shift=future_shift),
++            "A": raw_series(
++                64,
++                next_tradable=next_tradable,
++                future_shift=future_shift,
++                current_tradable=current_tradable,
++                delay_current=delay_current,
++            ),
+             "B": raw_series(
+-                64, next_tradable=next_tradable, future_shift=-future_shift
++                64,
++                next_tradable=next_tradable,
++                future_shift=-future_shift,
++                current_tradable=current_tradable,
++                delay_current=delay_current,
+             ),
+         }
+     )
+@@ -109,6 +128,13 @@ def test_next_bar_tradability_is_not_visible_at_decision_time() -> None:
+     )
+ 
+ 
++def test_delayed_current_tradability_is_not_visible_to_policy() -> None:
++    np.testing.assert_array_equal(
++        observation(dataset(current_tradable=True, delay_current=True)),
++        observation(dataset(current_tradable=False, delay_current=True)),
++    )
++
++
+ def test_future_market_mutation_does_not_change_current_observation() -> None:
+     np.testing.assert_array_equal(
+         observation(dataset(future_shift=0.0)),
+@@ -133,5 +159,5 @@ def test_observation_contains_per_feature_masks_and_staleness() -> None:
+         per_symbol[:, n : 2 * n], market.feature_available[20]
+     )
+     np.testing.assert_allclose(per_symbol[:, 2 * n : 3 * n], feature_staleness[20])
+-    np.testing.assert_array_equal(per_symbol[:, 3 * n], market.tradable[20])
++    np.testing.assert_array_equal(per_symbol[:, 3 * n], market.observable_tradable(20))
+     np.testing.assert_array_equal(per_symbol[:, 3 * n + 1], symbol_active[20])
+diff --git a/tests/serving/helpers.py b/tests/serving/helpers.py
+index b718ac4..2286f41 100644
+--- a/tests/serving/helpers.py
++++ b/tests/serving/helpers.py
+@@ -4,6 +4,7 @@ from datetime import UTC, datetime
+ from pathlib import Path
+ 
+ from trade_rl.domain.selection import PolicyMode
++from trade_rl.rl.market_inputs import MarketInputResolver
+ from trade_rl.serving.bundle import (
+     ServingBundleManifest,
+     write_serving_bundle_manifest,
+@@ -17,6 +18,7 @@ def create_bundle(
+     dataset_id: str = "a" * 64,
+     observation_schema_digest: str = "d" * 64,
+     observation_size: int = 5,
++    market_inputs_digest: str | None = None,
+ ) -> Path:
+     root.mkdir(parents=True)
+     artifact_paths = ["dataset.json", "signal.json", "selection.json"]
+@@ -39,6 +41,7 @@ def create_bundle(
+         action_schema="baseline_residual_v1",
+         observation_schema_digest=observation_schema_digest,
+         observation_size=observation_size,
++        market_inputs_digest=(market_inputs_digest or MarketInputResolver().digest),
+         policy_mode=policy_mode,
+         policy_digest=policy_digest,
+         signal_digest="b" * 64,
+diff --git a/tests/serving/test_bundle.py b/tests/serving/test_bundle.py
+index 76915d6..ce64024 100644
+--- a/tests/serving/test_bundle.py
++++ b/tests/serving/test_bundle.py
+@@ -7,6 +7,7 @@ import pytest
+ 
+ from tests.serving.helpers import create_bundle
+ from trade_rl.domain.selection import PolicyMode
++from trade_rl.rl.market_inputs import MarketInputResolver
+ from trade_rl.serving.bundle import ServingBundleManifest, load_serving_bundle
+ 
+ 
+@@ -18,6 +19,7 @@ def test_baseline_bundle_validates_all_file_digests(tmp_path: Path) -> None:
+     assert bundle.manifest.release_digest is None
+     assert bundle.manifest.observation_schema_digest == "d" * 64
+     assert bundle.manifest.observation_size == 5
++    assert bundle.manifest.market_inputs_digest == MarketInputResolver().digest
+     assert bundle.root == tmp_path / "bundle"
+ 
+ 
+@@ -37,6 +39,7 @@ def test_baseline_bundle_rejects_policy_digest(tmp_path: Path) -> None:
+             action_schema="baseline_residual_v1",
+             observation_schema_digest="f" * 64,
+             observation_size=5,
++            market_inputs_digest=MarketInputResolver().digest,
+             policy_mode=PolicyMode.BASELINE_ONLY,
+             policy_digest="e" * 64,
+             signal_digest="b" * 64,
+diff --git a/tests/serving/test_runtime.py b/tests/serving/test_runtime.py
+index 64006d8..e7c6f97 100644
+--- a/tests/serving/test_runtime.py
++++ b/tests/serving/test_runtime.py
+@@ -8,7 +8,7 @@ import pytest
+ from tests.serving.helpers import create_bundle
+ from trade_rl.domain.selection import PolicyMode
+ from trade_rl.serving.bundle import ServingBundle
+-from trade_rl.serving.runtime import LoadedPolicy, ServingRuntime
++from trade_rl.serving.runtime import LoadedPolicy, RuntimeSnapshot, ServingRuntime
+ 
+ 
+ class ConstantPolicy:
+@@ -20,6 +20,19 @@ class ConstantPolicy:
+         return self.value.copy()
+ 
+ 
++def _predict(
++    runtime: ServingRuntime,
++    snapshot: RuntimeSnapshot,
++    observation: np.ndarray,
++) -> np.ndarray:
++    return runtime.predict(
++        observation,
++        dataset_id=snapshot.dataset_id,
++        observation_schema_digest=snapshot.observation_schema_digest,
++        market_inputs_digest=snapshot.market_inputs_digest,
++    )
++
++
+ class FakeLoader:
+     def __init__(self, *, fail: bool = False) -> None:
+         self.fail = fail
+@@ -38,7 +51,7 @@ def test_baseline_bundle_serves_identity_action_without_policy_loader(
+     runtime = ServingRuntime()
+ 
+     snapshot = runtime.activate(create_bundle(tmp_path / "baseline"))
+-    action = runtime.predict(np.zeros(5, dtype=np.float32))
++    action = _predict(runtime, snapshot, np.zeros(5, dtype=np.float32))
+ 
+     assert snapshot.policy_mode is PolicyMode.BASELINE_ONLY
+     np.testing.assert_array_equal(action, np.zeros(2, dtype=np.float32))
+@@ -53,7 +66,7 @@ def test_residual_bundle_loads_policy_and_validates_action_schema(
+     snapshot = runtime.activate(
+         create_bundle(tmp_path / "residual", policy_mode=PolicyMode.RESIDUAL_POLICY)
+     )
+-    action = runtime.predict(np.zeros(5, dtype=np.float32))
++    action = _predict(runtime, snapshot, np.zeros(5, dtype=np.float32))
+ 
+     assert snapshot.policy_mode is PolicyMode.RESIDUAL_POLICY
+     assert len(loader.calls) == 1
+@@ -74,7 +87,7 @@ def test_failed_hot_swap_preserves_previous_snapshot(tmp_path: Path) -> None:
+ 
+     assert runtime.snapshot() == first
+     np.testing.assert_allclose(
+-        runtime.predict(np.zeros(5, dtype=np.float32)),
++        _predict(runtime, first, np.zeros(5, dtype=np.float32)),
+         np.array([0.25, -0.5], dtype=np.float32),
+     )
+ 
+@@ -86,9 +99,37 @@ def test_predict_rejects_non_finite_or_wrong_shaped_action(tmp_path: Path) -> No
+             return ConstantPolicy(np.array([np.nan], dtype=np.float32))
+ 
+     runtime = ServingRuntime(policy_loader=BadLoader())
+-    runtime.activate(
++    snapshot = runtime.activate(
+         create_bundle(tmp_path / "bad", policy_mode=PolicyMode.RESIDUAL_POLICY)
+     )
+ 
+     with pytest.raises(ValueError, match="action schema"):
+-        runtime.predict(np.zeros(5, dtype=np.float32))
++        _predict(runtime, snapshot

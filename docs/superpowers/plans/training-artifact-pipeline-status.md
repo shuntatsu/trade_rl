@@ -1,3 +1,3 @@
 # Training Artifact Pipeline Status
 
-Implementation is in verification. This file also provides the first push after the branch-scoped CI workflow was installed.
+Implementation is in verification. The one-shot formatter is installed and this push triggers it before the next full CI pass.

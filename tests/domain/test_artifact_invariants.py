@@ -17,6 +17,7 @@ POLICY_DIGEST = "c" * 64
 EVALUATION_DIGEST = "d" * 64
 TRAINING_CONFIG_DIGEST = "e" * 64
 GATE_EVALUATION_DIGEST = "f" * 64
+ENVIRONMENT_DIGEST = "1" * 64
 NOW = datetime(2026, 7, 13, tzinfo=UTC)
 
 
@@ -49,6 +50,7 @@ def policy_manifest(
     members: tuple[PolicyMember, ...],
     requested_timesteps: int = 1_024,
     actual_timesteps: int = 2_048,
+    initial_capital: float = 250_000.0,
 ) -> PolicyEnsembleManifest:
     return PolicyEnsembleManifest(
         digest=POLICY_DIGEST,
@@ -56,6 +58,8 @@ def policy_manifest(
         action_schema="baseline_residual_v1",
         observation_schema="baseline_residual_observation_v2",
         training_config_digest=TRAINING_CONFIG_DIGEST,
+        environment_digest=ENVIRONMENT_DIGEST,
+        initial_capital=initial_capital,
         requested_timesteps=requested_timesteps,
         actual_timesteps=actual_timesteps,
         resolved_device="cpu",
@@ -157,6 +161,17 @@ def test_policy_ensemble_rejects_actual_work_below_request() -> None:
             members=members,
             requested_timesteps=2_048,
             actual_timesteps=1_024,
+        )
+
+
+def test_policy_ensemble_rejects_non_positive_aum() -> None:
+    members = (PolicyMember(seed=0, checkpoint_digest="1" * 64),)
+
+    with pytest.raises(ValueError, match="initial_capital"):
+        policy_manifest(
+            expected_members=1,
+            members=members,
+            initial_capital=0.0,
         )
 
 

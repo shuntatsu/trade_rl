@@ -1,3 +1,3 @@
 # Consolidated Compatibility Verification
 
-Staged Mypy diagnostics are being captured for the compatibility patch.
+Cache-independent Mypy and the complete compatibility verification suite are running.

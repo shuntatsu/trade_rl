@@ -1,9 +1,6 @@
 name: Integration Conflict Map
 
 on:
-  push:
-    branches:
-      - agent/action-environment-comprehensive-hardening
   pull_request:
     branches:
       - agent/action-environment-comprehensive-hardening
@@ -19,12 +16,14 @@ jobs:
         with:
           ref: agent/action-environment-comprehensive-hardening
           fetch-depth: 0
-      - name: Fetch integration branches
+      - name: Configure Git and fetch integration branches
         run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git fetch origin \
             agent/reward-design-v2 \
             agent/causal-market-data-builder
-      - name: Map reward conflicts
+      - name: Map and locally conclude reward merge
         run: |
           set +e
           git merge --no-ff --no-commit origin/agent/reward-design-v2
@@ -37,8 +36,8 @@ jobs:
               git add "$file"
             done < reward-conflicts.txt
           fi
-          git commit -m "diagnostic merge reward branch" || true
-      - name: Map data conflicts
+          git commit -m "diagnostic merge reward branch"
+      - name: Map and locally conclude data merge
         run: |
           set +e
           git merge --no-ff --no-commit origin/agent/causal-market-data-builder
@@ -51,14 +50,14 @@ jobs:
               git add "$file"
             done < data-conflicts.txt
           fi
-          git commit -m "diagnostic merge data branch" || true
+          git commit -m "diagnostic merge data branch"
       - name: Record resulting diff summary
         run: |
           git diff --stat origin/agent/action-environment-comprehensive-hardening...HEAD > integration-stat.txt
-          git log --oneline --decorate -8 > integration-log.txt
+          git log --oneline --decorate -12 > integration-log.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: integration-conflict-map
+          name: integration-conflict-map-v2
           path: |
             reward-conflicts.txt
             data-conflicts.txt

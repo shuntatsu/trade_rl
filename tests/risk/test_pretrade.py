@@ -86,9 +86,7 @@ def test_drawdown_linearly_deleverages_between_thresholds() -> None:
 
 
 def test_drawdown_stop_forces_flat_target() -> None:
-    risk = PreTradeRisk(
-        PreTradeRiskConfig(drawdown_start=0.10, drawdown_stop=0.20)
-    )
+    risk = PreTradeRisk(PreTradeRiskConfig(drawdown_start=0.10, drawdown_stop=0.20))
 
     result = risk.constrain(
         np.array([0.5, -0.5]),

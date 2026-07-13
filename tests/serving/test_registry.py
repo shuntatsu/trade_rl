@@ -15,7 +15,9 @@ def test_registry_activates_validated_bundle_atomically(tmp_path: Path) -> None:
 
     active = registry.activate(source)
 
-    assert active.manifest.bundle_digest == registry.active_bundle().manifest.bundle_digest
+    assert (
+        active.manifest.bundle_digest == registry.active_bundle().manifest.bundle_digest
+    )
     pointer = json.loads(
         (tmp_path / "registry" / "active.json").read_text(encoding="utf-8")
     )
@@ -32,4 +34,6 @@ def test_failed_activation_preserves_previous_active_bundle(tmp_path: Path) -> N
     with pytest.raises(ValueError, match="digest"):
         registry.activate(invalid)
 
-    assert registry.active_bundle().manifest.bundle_digest == first.manifest.bundle_digest
+    assert (
+        registry.active_bundle().manifest.bundle_digest == first.manifest.bundle_digest
+    )

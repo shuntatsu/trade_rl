@@ -78,6 +78,49 @@ def test_identity_action_matches_shadow_book_exactly() -> None:
     assert env.hybrid.n_trades == env.shadow.n_trades
 
 
+def test_identity_action_matches_shadow_with_seeded_random_slippage() -> None:
+    market = dataset()
+    env = ResidualMarketEnv(
+        market,
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=16,
+            decision_every=4,
+            execution_cost=ExecutionCostConfig(
+                fee_rate=0.0,
+                spread_rate=0.0,
+                impact_rate=0.0,
+                max_participation_rate=1.0,
+                slippage_std=0.001,
+                random_seed=7,
+            ),
+        ),
+    )
+    env.reset(seed=17, options={"start_idx": 24})
+
+    for _ in range(4):
+        _, reward, terminated, truncated, _ = env.step(np.zeros(2))
+        assert reward == pytest.approx(0.0, abs=1e-12)
+        np.testing.assert_allclose(env.hybrid.quantities, env.shadow.quantities)
+        assert env.hybrid.portfolio_value == pytest.approx(env.shadow.portfolio_value)
+        if terminated or truncated:
+            break
+
+
+def test_default_pretrade_risk_caps_each_symbol_before_execution() -> None:
+    env = environment()
+    env.reset(options={"start_idx": 24})
+
+    _, _, _, _, info = env.step(np.zeros(2))
+
+    assert np.max(np.abs(env.hybrid.weights)) <= 0.40 + 1e-12
+    assert np.max(np.abs(env.shadow.weights)) <= 0.40 + 1e-12
+    assert "max_abs_weight" in info["hybrid_risk"].reasons
+    assert "max_abs_weight" in info["shadow_risk"].reasons
+
+
 def test_one_action_receives_one_interval_reward() -> None:
     env = environment(decision_every=8)
     env.reset(options={"start_idx": 24})

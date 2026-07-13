@@ -37,6 +37,8 @@ class _FrozenAlphaFactory:
 
 
 def _relative(cost: float) -> dict[str, object]:
+    hybrid_returns = [0.001, -0.0005]
+    shadow_returns = [0.0005, -0.00025]
     return {
         "hybrid": {
             "total_return": 0.02 - cost,
@@ -46,7 +48,7 @@ def _relative(cost: float) -> dict[str, object]:
             "total_cost": cost,
             "funding_pnl": 0.0,
             "n_trades": 2,
-            "n_base_bars": 100,
+            "n_base_bars": len(hybrid_returns),
         },
         "shadow": {
             "total_return": 0.01 - cost,
@@ -56,7 +58,7 @@ def _relative(cost: float) -> dict[str, object]:
             "total_cost": cost,
             "funding_pnl": 0.0,
             "n_trades": 2,
-            "n_base_bars": 100,
+            "n_base_bars": len(shadow_returns),
         },
         "paired": {
             "excess_total_return": 0.01,
@@ -70,6 +72,11 @@ def _relative(cost: float) -> dict[str, object]:
         "actions": {},
         "weight_stages": {},
         "execution": {},
+        "return_series": {
+            "kind": "base_bar",
+            "hybrid": hybrid_returns,
+            "shadow": shadow_returns,
+        },
     }
 
 
@@ -104,7 +111,11 @@ def test_fold_fits_alpha_on_policy_train_and_reuses_selected_agent(
         ),
     )
     monkeypatch.setattr(
-        residual_walk_forward, "build_post_processor", lambda *a, **k: object()
+        residual_walk_forward,
+        "build_post_processor",
+        lambda *a, **k: SimpleNamespace(
+            cfg=SimpleNamespace(bars_per_year=8_760)
+        ),
     )
     monkeypatch.setattr(
         residual_walk_forward,
@@ -127,11 +138,20 @@ def test_fold_fits_alpha_on_policy_train_and_reuses_selected_agent(
             selected_agent=selected_agent,
             selected_policies=(),
             selected_model_path=tmp_path / "b.zip",
+            selected_model_digest="a" * 64,
             selected_alpha_enabled=False,
         ),
     )
 
-    def fake_evaluate(agent, fs, *, env_kwargs, bootstrap_seed):
+    def fake_evaluate(
+        agent,
+        fs,
+        *,
+        env_kwargs,
+        bootstrap_seed,
+        include_return_series,
+    ):
+        assert include_return_series is True
         calls.append((agent, float(env_kwargs.get("cost_multiplier", 1.0))))
         return _relative(float(env_kwargs.get("cost_multiplier", 1.0)) * 0.001)
 
@@ -169,6 +189,11 @@ def test_fold_fits_alpha_on_policy_train_and_reuses_selected_agent(
     assert getattr(_FrozenAlphaFactory.fitted_on, "name") == "slice:0:640"
     assert calls == [(selected_agent, 1.0), (selected_agent, 2.0)]
     assert report["selected_configuration"] == "B"
+    assert report["selected_model_digest"] == "a" * 64
+    assert report["outer_oos"]["model_digest_1x"] == "a" * 64
+    assert report["outer_oos"]["model_digest_2x"] == "a" * 64
     assert report["outer_oos"]["same_selected_model_for_cost_scenarios"] is True
     assert report["split"]["outer_test_scored_bars"] == 176
+    assert "_return_series_1x" in report
+    assert "return_series" not in report["outer_oos"]["relative_1x"]
     assert (tmp_path / "residual_wf" / "fold_1" / "fold_report.json").is_file()

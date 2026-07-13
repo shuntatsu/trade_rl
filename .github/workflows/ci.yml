@@ -55,6 +55,8 @@ jobs:
             tests/test_relative_evaluation.py \
             tests/test_train_eval_serve_parity.py \
             tests/test_residual_candidate_training.py \
+            tests/test_residual_pipeline_shared_candidates.py \
+            tests/test_residual_wf_config.py \
             tests/test_residual_walk_forward.py \
             tests/test_residual_walk_forward_architecture.py \
             tests/test_residual_walk_forward_fold.py \

@@ -15,6 +15,7 @@ from trade_rl.serving.runtime import (
     RuntimeSnapshot,
     ServingRuntime,
 )
+from trade_rl.serving.sb3_loader import StableBaselines3PolicyLoader
 
 __all__ = [
     "BundleFile",
@@ -26,6 +27,7 @@ __all__ = [
     "ServingBundleManifest",
     "ServingRegistry",
     "ServingRuntime",
+    "StableBaselines3PolicyLoader",
     "load_serving_bundle",
     "write_serving_bundle_manifest",
 ]

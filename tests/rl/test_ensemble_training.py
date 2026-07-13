@@ -9,6 +9,7 @@ import pytest
 from gymnasium import spaces
 
 from trade_rl.domain.datasets import DatasetManifest
+from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.rl.training import (
     PolicyTrainingResult,
     ResidualTrainingConfig,
@@ -213,7 +214,7 @@ def test_train_residual_ensemble_creates_one_member_per_seed(tmp_path: Path) -> 
     assert len({member.checkpoint_digest for member in result.members}) == 3
     assert result.dataset_id == "a" * 64
     assert result.action_schema == "baseline_residual_v1"
-    assert result.observation_schema == "baseline_residual_observation_v2"
+    assert result.observation_schema == OBSERVATION_SCHEMA
     assert result.environment_digest == ENVIRONMENT_DIGEST
     assert result.initial_capital == pytest.approx(INITIAL_CAPITAL)
     assert result.requested_timesteps == 1_024

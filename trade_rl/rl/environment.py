@@ -33,8 +33,10 @@ class AlphaProvider(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ResidualMarketEnvConfig:
-    episode_bars: int = 200
-    decision_every: int = 4
+    episode_hours: float = 200.0
+    decision_hours: float = 4.0
+    episode_bars: int | None = None
+    decision_every: int | None = None
     reward_scale: float = 100.0
     initial_capital: float = 1.0
     minimum_equity_fraction: float = 1e-6
@@ -44,11 +46,9 @@ class ResidualMarketEnvConfig:
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
 
     def __post_init__(self) -> None:
-        if self.episode_bars <= 0:
-            raise ValueError("episode_bars must be positive")
-        if self.decision_every <= 0:
-            raise ValueError("decision_every must be positive")
         for field_name, value in (
+            ("episode_hours", self.episode_hours),
+            ("decision_hours", self.decision_hours),
             ("reward_scale", self.reward_scale),
             ("initial_capital", self.initial_capital),
             ("minimum_equity_fraction", self.minimum_equity_fraction),
@@ -56,11 +56,33 @@ class ResidualMarketEnvConfig:
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{field_name} must be finite and positive")
         for field_name, value in (
+            ("episode_bars", self.episode_bars),
+            ("decision_every", self.decision_every),
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            ):
+                raise ValueError(f"{field_name} must be a positive integer")
+        for field_name, value in (
             ("downside_penalty", self.downside_penalty),
             ("excess_drawdown_penalty", self.excess_drawdown_penalty),
         ):
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{field_name} must be finite and non-negative")
+
+    def resolve_episode_bars(self, dataset: MarketDataset) -> int:
+        return (
+            self.episode_bars
+            if self.episode_bars is not None
+            else dataset.bars_for_hours(self.episode_hours)
+        )
+
+    def resolve_decision_bars(self, dataset: MarketDataset) -> int:
+        return (
+            self.decision_every
+            if self.decision_every is not None
+            else dataset.bars_for_hours(self.decision_hours)
+        )
 
 
 class ResidualMarketEnv(gym.Env):
@@ -89,6 +111,10 @@ class ResidualMarketEnv(gym.Env):
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.config = config or ResidualMarketEnvConfig()
+        self._episode_bars = self.config.resolve_episode_bars(dataset)
+        self._decision_bars = self.config.resolve_decision_bars(dataset)
+        if self._decision_bars > self._episode_bars:
+            raise ValueError("decision interval cannot exceed episode duration")
         self.hybrid_executor = MarketExecutor(dataset, self.config.execution_cost)
         self.shadow_executor = MarketExecutor(dataset, self.config.execution_cost)
         self.executor = self.hybrid_executor
@@ -107,7 +133,7 @@ class ResidualMarketEnv(gym.Env):
             dtype=np.float32,
         )
 
-        self.start_index = self.trend_strategy.minimum_history
+        self.start_index = self.trend_strategy.minimum_history_for(dataset)
         self.end_index = self.start_index
         self.current_index = self.start_index
         initial_prices = dataset.close[self.start_index]
@@ -126,6 +152,14 @@ class ResidualMarketEnv(gym.Env):
     @property
     def dataset_id(self) -> str:
         return self.dataset.dataset_id
+
+    @property
+    def episode_bars(self) -> int:
+        return self._episode_bars
+
+    @property
+    def decision_bars(self) -> int:
+        return self._decision_bars
 
     @staticmethod
     def _drawdown(book: BookState) -> float:
@@ -178,8 +212,8 @@ class ResidualMarketEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, object]]:
         super().reset(seed=seed)
         resolved_options = options or {}
-        minimum_start = self.trend_strategy.minimum_history
-        maximum_start = self.dataset.n_bars - 1 - self.config.episode_bars
+        minimum_start = self.trend_strategy.minimum_history_for(self.dataset)
+        maximum_start = self.dataset.n_bars - 1 - self.episode_bars
         if maximum_start < minimum_start:
             raise ValueError("dataset is too short for the configured episode")
         if "start_idx" in resolved_options:
@@ -194,7 +228,7 @@ class ResidualMarketEnv(gym.Env):
 
         self.start_index = start
         self.current_index = start
-        self.end_index = start + self.config.episode_bars
+        self.end_index = start + self.episode_bars
         initial_prices = self.dataset.close[start]
         self.hybrid = BookState.zero(
             self.dataset.n_symbols,
@@ -231,12 +265,7 @@ class ResidualMarketEnv(gym.Env):
         )
 
     @staticmethod
-    def _combine_log_returns(primary: float, secondary: float) -> float:
-        return primary + secondary
-
-    @staticmethod
     def _merge_liquidation_return(
-        book: BookState,
         liquidation: ExecutionResult,
     ) -> BookState:
         result = liquidation.book
@@ -271,7 +300,7 @@ class ResidualMarketEnv(gym.Env):
         )
         hybrid_risk = self._constrain_target(composition.proposal, self.hybrid)
         shadow_risk = self._constrain_target(trends.base, self.shadow)
-        bars = min(self.config.decision_every, self.end_index - self.current_index)
+        bars = min(self.decision_bars, self.end_index - self.current_index)
         hybrid_execution = self.hybrid_executor.execute_interval(
             self.hybrid,
             hybrid_risk.weights,
@@ -305,22 +334,10 @@ class ResidualMarketEnv(gym.Env):
                 self.shadow,
                 index=self.current_index,
             )
-            self.hybrid = self._merge_liquidation_return(
-                self.hybrid,
-                hybrid_liquidation,
-            )
-            self.shadow = self._merge_liquidation_return(
-                self.shadow,
-                shadow_liquidation,
-            )
-            hybrid_log_return = self._combine_log_returns(
-                hybrid_log_return,
-                hybrid_liquidation.interval_log_return,
-            )
-            shadow_log_return = self._combine_log_returns(
-                shadow_log_return,
-                shadow_liquidation.interval_log_return,
-            )
+            self.hybrid = self._merge_liquidation_return(hybrid_liquidation)
+            self.shadow = self._merge_liquidation_return(shadow_liquidation)
+            hybrid_log_return += hybrid_liquidation.interval_log_return
+            shadow_log_return += shadow_liquidation.interval_log_return
 
         threshold = self.config.initial_capital * self.config.minimum_equity_fraction
         hybrid_terminated = self.hybrid.portfolio_value <= threshold

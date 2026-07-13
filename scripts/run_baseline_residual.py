@@ -5,9 +5,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from mars_lite.eval.residual_walk_forward import run_residual_walk_forward
 from mars_lite.pipeline.cli import build_parser
 from mars_lite.pipeline.residual_pipeline import run_baseline_residual
+from mars_lite.pipeline.residual_walk_forward import run_residual_walk_forward
 
 
 def main() -> int:

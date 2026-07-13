@@ -53,6 +53,7 @@ class MarketDataset:
     symbol_active: np.ndarray | None = None
     feature_staleness: np.ndarray | None = None
     information_available: np.ndarray | None = None
+    available_at: np.ndarray | None = None
     volume_units: tuple[VolumeUnit, ...] = ()
     contract_multipliers: np.ndarray | None = None
     feature_config_digest: str = _ZERO_DIGEST
@@ -118,10 +119,16 @@ class MarketDataset:
             raise ValueError("periods_per_year does not match timestamp cadence")
 
         price_shape = (n_bars, n_symbols)
+        event_times = np.broadcast_to(timestamps[:, None], price_shape)
         symbol_active_value = (
             np.ones(price_shape, dtype=np.bool_)
             if self.symbol_active is None
             else self.symbol_active
+        )
+        available_at_value = event_times if self.available_at is None else self.available_at
+        available_at = _readonly_array(
+            available_at_value,
+            dtype=np.dtype("datetime64[ns]"),
         )
         feature_staleness_value = (
             np.where(feature_available, 0.0, 1.0)
@@ -143,7 +150,7 @@ class MarketDataset:
             dtype=np.dtype(np.bool_),
         )
         information_available_value = (
-            symbol_active & tradable
+            symbol_active & tradable & (available_at <= event_times)
             if self.information_available is None
             else self.information_available
         )
@@ -183,6 +190,8 @@ class MarketDataset:
             raise ValueError(
                 "information_available shape does not match bars and symbols"
             )
+        if available_at.shape != price_shape:
+            raise ValueError("available_at shape does not match bars and symbols")
         if feature_available.shape != features.shape:
             raise ValueError("feature_available shape does not match features")
         if feature_staleness.shape != features.shape:
@@ -206,6 +215,11 @@ class MarketDataset:
         ):
             if not np.isfinite(array).all():
                 raise ValueError(f"{field_name} must contain only finite values")
+        available_ns = available_at.astype("datetime64[ns]").astype(np.int64)
+        if np.any(available_ns == np.iinfo(np.int64).min):
+            raise ValueError("available_at must not contain NaT")
+        if np.any(available_at < event_times):
+            raise ValueError("available_at cannot precede the event timestamp")
         if any(np.any(price <= 0.0) for price in (open_price, high, low, close)):
             raise ValueError("OHLC prices must be strictly positive")
         if np.any(volume < 0.0):
@@ -218,6 +232,8 @@ class MarketDataset:
             raise ValueError("tradable cannot be true for an inactive symbol")
         if np.any(information_available & ~symbol_active):
             raise ValueError("information cannot be available for an inactive symbol")
+        if np.any(information_available & (available_at > event_times)):
+            raise ValueError("delayed information cannot be marked available on time")
         if np.any(feature_available & ~symbol_active[:, :, None]):
             raise ValueError("features cannot be available for an inactive symbol")
         if np.any((~feature_available) & (feature_staleness < 1.0)):
@@ -247,6 +263,7 @@ class MarketDataset:
         object.__setattr__(self, "tradable", tradable)
         object.__setattr__(self, "symbol_active", symbol_active)
         object.__setattr__(self, "information_available", information_available)
+        object.__setattr__(self, "available_at", available_at)
         object.__setattr__(self, "feature_available", feature_available)
         object.__setattr__(self, "feature_staleness", feature_staleness)
         object.__setattr__(self, "contract_multipliers", contract_multipliers)
@@ -294,13 +311,14 @@ class MarketDataset:
         if start < 0:
             raise ValueError("eligibility lookback exceeds available history")
         symbol_active = self.symbol_active
-        information_available = self.information_available
+        available_at = self.available_at
         assert symbol_active is not None
-        assert information_available is not None
+        assert available_at is not None
+        available_by_decision = available_at[start : index + 1] <= self.timestamps[index]
         eligible = np.all(
             symbol_active[start : index + 1]
             & self.tradable[start : index + 1]
-            & information_available[start : index + 1],
+            & available_by_decision,
             axis=0,
         )
         if require_features:

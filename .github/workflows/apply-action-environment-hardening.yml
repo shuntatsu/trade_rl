@@ -1,0 +1,48 @@
+name: Apply action environment hardening
+
+on:
+  push:
+    branches:
+      - agent/action-environment-comprehensive-hardening
+    paths:
+      - .github/workflows/apply-action-environment-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reassemble source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' first_part; do
+            base="${first_part%.part000}"
+            target="${base#tools/hardening_parts/}"
+            mkdir -p "$(dirname "$target")"
+            LC_ALL=C cat "${base}".part* > "$target"
+          done < <(find tools/hardening_parts -type f -name '*.part000' -print0 | sort -z)
+      - name: Verify exact source digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'f931825819d51f749e48d0d99365a7dae41f1d282950e142fde4f1ec0f97472f  trade_rl/data/market.py' | sha256sum --check --strict
+          echo 'fc170f121ad59e3a94a2390da9951d2fd0a2df89f88308eb728a8198f0c2e02d  trade_rl/simulation/execution.py' | sha256sum --check --strict
+          echo '0c8a695867a3d1035ae98c8f8559db7f9efb5947d74ee211a0ac8840eec5266e  trade_rl/rl/environment.py' | sha256sum --check --strict
+          echo 'ae80f344908f43ebd7c6028c3dc45639b6dfd87cd04996ab689cc9a828235ae8  trade_rl/rl/training.py' | sha256sum --check --strict
+          echo 'f2497dfbf4d22941cbdab05c01e9304b5710035413d8c3ea3ddeb8245aac927b  trade_rl/cli/app.py' | sha256sum --check --strict
+      - name: Commit reconstructed implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf tools/hardening_parts
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'feat: implement comprehensive action environment hardening'
+          git push

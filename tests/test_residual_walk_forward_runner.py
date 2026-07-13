@@ -94,7 +94,9 @@ def test_runner_writes_only_authoritative_residual_report(
         payload = _fold_payload(spec.fold)
         destination = Path(output_dir) / "residual_wf" / f"fold_{spec.fold}"
         destination.mkdir(parents=True, exist_ok=True)
-        public = {key: value for key, value in payload.items() if not key.startswith("_")}
+        public = {
+            key: value for key, value in payload.items() if not key.startswith("_")
+        }
         (destination / "fold_report.json").write_text(
             json.dumps(public),
             encoding="utf-8",

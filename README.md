@@ -57,6 +57,14 @@ The environment computes a content digest over the dataset identity, resolved ep
 
 A model trained with a one-dollar account is therefore not silently interchangeable with a model intended for a 100,000-dollar or 1,000,000-dollar account. Capacity should ultimately be reported across several predeclared AUM scenarios rather than inferred from a scale-free backtest.
 
+## Serving identity and activation
+
+Serving bundle schema v2 carries the action schema, observation schema, expected flattened observation size, environment digest, and initial capital in addition to dataset, signal, selection, policy, release, and artifact-file identities. Every field participates in the bundle digest.
+
+`ServingRuntime` rejects a bundle whose action or observation schema does not match the maintained runtime and rejects inference vectors whose size does not match the active manifest. `ServingRegistry` and `ServingRuntime` require an approved release identity by default. Research-only activation of unreleased bundles is possible only through the explicit `allow_unreleased=True` escape hatch.
+
+This prevents a correctly shaped action model from being deployed with the wrong feature order, wrong observation width, wrong environment configuration, or wrong capital scale.
+
 ## GPU utilization
 
 The maintained PPO uses a small MLP and currently trains through one environment. In this shape, environment stepping, NumPy accounting, and rollout collection can dominate wall-clock time, so low GPU utilization is expected and does not by itself indicate that training is broken.

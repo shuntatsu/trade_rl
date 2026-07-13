@@ -1,3 +1,3 @@
-# Integration Conflict Map Trigger
+# Consolidated Integration Trial Trigger
 
-Second PR-only trigger for corrected sequential branch merge diagnostics.
+Temporary PR-only trigger for the full reward and data branch integration trial.

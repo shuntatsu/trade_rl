@@ -17,6 +17,9 @@ from trade_rl.rl.training import (
     train_residual_ensemble,
 )
 
+ENVIRONMENT_DIGEST = "e" * 64
+INITIAL_CAPITAL = 250_000.0
+
 
 class FakeBackend:
     def __init__(self) -> None:
@@ -36,11 +39,15 @@ class FakeBackend:
             checkpoint_path=output_path,
             actual_timesteps=config.rounded_timesteps,
             resolved_device="cpu",
+            environment_digest=ENVIRONMENT_DIGEST,
+            initial_capital=INITIAL_CAPITAL,
         )
 
 
 class TinyContinuousEnv(gym.Env):
     metadata = {"render_modes": []}
+    environment_digest = ENVIRONMENT_DIGEST
+    initial_capital = INITIAL_CAPITAL
 
     def __init__(self) -> None:
         super().__init__()
@@ -149,7 +156,7 @@ def test_training_config_rejects_incoherent_ppo_settings() -> None:
         )
 
 
-def test_sb3_backend_trains_saves_loads_and_reports_device(tmp_path: Path) -> None:
+def test_sb3_backend_trains_saves_loads_and_reports_identity(tmp_path: Path) -> None:
     from stable_baselines3 import PPO
 
     config = ResidualTrainingConfig(
@@ -173,6 +180,8 @@ def test_sb3_backend_trains_saves_loads_and_reports_device(tmp_path: Path) -> No
     assert output_path.is_file()
     assert result.actual_timesteps == 8
     assert result.resolved_device == "cpu"
+    assert result.environment_digest == ENVIRONMENT_DIGEST
+    assert result.initial_capital == pytest.approx(INITIAL_CAPITAL)
     restored = PPO.load(str(output_path))
     action, _ = restored.predict(np.zeros(2, dtype=np.float32), deterministic=True)
     assert np.asarray(action).shape == (1,)
@@ -205,6 +214,8 @@ def test_train_residual_ensemble_creates_one_member_per_seed(tmp_path: Path) -> 
     assert result.dataset_id == "a" * 64
     assert result.action_schema == "baseline_residual_v1"
     assert result.observation_schema == "baseline_residual_observation_v2"
+    assert result.environment_digest == ENVIRONMENT_DIGEST
+    assert result.initial_capital == pytest.approx(INITIAL_CAPITAL)
     assert result.requested_timesteps == 1_024
     assert result.actual_timesteps == 1_024
     assert result.resolved_device == "cpu"

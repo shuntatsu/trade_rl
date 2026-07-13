@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from mars_lite.eval import residual_walk_forward
-from mars_lite.eval.residual_walk_forward import run_residual_walk_forward
+from mars_lite.pipeline import residual_walk_forward
+from mars_lite.pipeline.residual_walk_forward import run_residual_walk_forward
 
 
 class _FeatureSet:

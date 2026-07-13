@@ -247,7 +247,7 @@ def _verified_record(
         path=relative_path,
         digest=_file_digest(path),
         size_bytes=path.stat().st_size,
-        max_abs_error=max_error,
+        max_abs_error=error,
     )
 
 

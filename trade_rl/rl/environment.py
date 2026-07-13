@@ -148,9 +148,7 @@ class ResidualMarketEnv(gym.Env):
                     "execution_cost": asdict(self.config.execution_cost),
                     "initial_capital": self.config.initial_capital,
                     "liquidate_on_end": self.config.liquidate_on_end,
-                    "minimum_equity_fraction": (
-                        self.config.minimum_equity_fraction
-                    ),
+                    "minimum_equity_fraction": (self.config.minimum_equity_fraction),
                     "reward_scale": self.config.reward_scale,
                 },
                 "episode_bars": self._episode_bars,

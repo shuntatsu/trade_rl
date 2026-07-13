@@ -28,8 +28,8 @@ dev = [
     "vulture>=2.14",
 ]
 export = [
-    "onnx>=1.16.0,<2.0.0",
-    "onnxruntime>=1.18.0,<2.0.0",
+    "onnx==1.16.2",
+    "onnxruntime==1.18.1",
 ]
 
 [project.scripts]

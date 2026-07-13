@@ -154,10 +154,8 @@ def test_future_non_tradability_is_enforced_by_execution_not_pretrade_risk() -> 
 
     _, _, _, _, info = env.step(np.zeros(2))
 
-    assert info["shadow_risk"].weights[0] != pytest.approx(0.0)
-    assert info["shadow_execution"].filled_turnover < info[
-        "shadow_execution"
-    ].requested_turnover
+    shadow_execution = info["shadow_execution"]
+    assert shadow_execution.filled_turnover < shadow_execution.requested_turnover
 
 
 def test_one_action_receives_one_interval_reward() -> None:

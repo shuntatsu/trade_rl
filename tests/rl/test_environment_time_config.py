@@ -49,6 +49,7 @@ def test_environment_resolves_episode_and_decision_hours_to_bars() -> None:
         config=ResidualMarketEnvConfig(
             episode_hours=32.0,
             decision_hours=8.0,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -70,6 +71,7 @@ def test_legacy_explicit_bar_config_overrides_hour_defaults() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=12,
             decision_every=3,
+            initial_capital=1_000.0,
             execution_cost=ExecutionCostConfig.zero(),
         ),
     )
@@ -88,6 +90,7 @@ def test_end_of_episode_liquidation_charges_cost_and_is_terminal() -> None:
         config=ResidualMarketEnvConfig(
             episode_bars=4,
             decision_every=4,
+            initial_capital=1_000.0,
             liquidate_on_end=True,
             execution_cost=ExecutionCostConfig(
                 fee_rate=0.001,

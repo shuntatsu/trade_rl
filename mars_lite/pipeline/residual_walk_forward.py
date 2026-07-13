@@ -7,7 +7,7 @@ import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -140,7 +140,7 @@ def _relative_fold_series(
     if not isinstance(hybrid, dict) or not isinstance(shadow, dict):
         raise TypeError("relative books must be mappings")
     return RelativeFoldSeries(
-        fold=int(fold["fold"]),
+        fold=cast(int, fold["fold"]),
         hybrid_returns=np.asarray(raw_series["hybrid"], dtype=np.float64),
         shadow_returns=np.asarray(raw_series["shadow"], dtype=np.float64),
         hybrid_trades=int(hybrid["n_trades"]),

@@ -90,10 +90,15 @@ def test_delayed_market_row_is_not_visible_to_same_time_features() -> None:
     market = _build(_raw(delayed_index=10))
 
     assert market.information_available is not None
+    assert market.available_at is not None
     assert not market.information_available[10, 0]
-    assert not market.feature_available[10, 0, 0]
-    assert not market.feature_available[11, 0, 0]
-    assert market.feature_available[12, 0, 0]
+    assert market.available_at[10, 0] == market.timestamps[11]
+    np.testing.assert_allclose(market.features[10, 0], market.features[9, 0])
+    np.testing.assert_allclose(market.features[11, 0], market.features[9, 0])
+    assert market.feature_staleness is not None
+    assert market.feature_staleness[10, 0, 0] > market.feature_staleness[9, 0, 0]
+    assert market.feature_staleness[11, 0, 0] > market.feature_staleness[10, 0, 0]
+    assert market.feature_staleness[12, 0, 0] == 0.0
 
 
 def test_information_availability_changes_dataset_identity() -> None:

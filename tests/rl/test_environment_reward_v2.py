@@ -87,10 +87,13 @@ def test_reward_info_exposes_complete_breakdown() -> None:
     assert info["rolling_baseline_log_growth"] == pytest.approx(
         info["reward_context_after"].rolling_shadow_log_growth
     )
+    assert info["rolling_growth_gap"] == pytest.approx(
+        info["reward_context_after"].rolling_growth_gap
+    )
     assert info["portfolio_value_after"] == pytest.approx(env.hybrid.portfolio_value)
 
 
-def test_drawdown_stop_liquidates_and_terminates_without_fixed_jackpot() -> None:
+def test_drawdown_stop_liquidates_policy_and_terminates_without_fixed_jackpot() -> None:
     env = environment()
     env.reset(options={"start_idx": 24})
     env.step(np.zeros(2))
@@ -103,8 +106,8 @@ def test_drawdown_stop_liquidates_and_terminates_without_fixed_jackpot() -> None
     assert info["termination_reason"] == "drawdown_stop"
     assert info["emergency_deleverage"] is True
     assert "hybrid_liquidation" in info
-    assert "shadow_liquidation" in info
+    assert "shadow_liquidation" not in info
     np.testing.assert_allclose(env.hybrid.quantities, np.zeros(2), atol=1e-12)
-    np.testing.assert_allclose(env.shadow.quantities, np.zeros(2), atol=1e-12)
+    assert np.any(np.abs(env.shadow.quantities) > 0.0)
     assert reward == pytest.approx(info["reward_total_scaled"])
     assert abs(reward) < env.config.reward.scale

@@ -9,15 +9,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from mars_lite.eval.context_window import with_history_context
 from mars_lite.eval.gate1_diagnostics import walk_forward_ic
 from mars_lite.eval.relative_evaluation import evaluate_relative_agent
 from mars_lite.eval.residual_walk_forward import (
+    RelativeFoldSeries,
     ResidualFoldSpec,
     build_residual_fold_specs,
     save_residual_walk_forward_report,
+    stitch_relative_fold_results,
     summarize_residual_folds,
 )
+from mars_lite.eval.strategy_metrics import reannualize_strategy_results
 from mars_lite.features.signal_check import run_leak_self_test
 from mars_lite.learning.baselines import run_all_baselines
 from mars_lite.pipeline.dataset_builder import build_feature_set
@@ -92,6 +97,61 @@ def _isolate_failed_run(staging: Path, output: Path, run_id: str) -> None:
     os.replace(staging, failed_destination)
 
 
+def _diagnostic_baselines(
+    *,
+    fs,
+    spec: ResidualFoldSpec,
+    env_kwargs: dict[str, Any],
+    bars_per_year: int,
+    cost_multiplier: float,
+    noisy_oracle_ic: float,
+) -> dict[str, dict[str, Any]]:
+    results = run_all_baselines(
+        fs,
+        noisy_oracle_ic=noisy_oracle_ic if noisy_oracle_ic > 0.0 else None,
+        cost_multiplier=cost_multiplier,
+        start_idx=spec.outer_test_start,
+        end_idx=spec.outer_test_end,
+        **_baseline_kwargs(env_kwargs),
+    )
+    annualized = reannualize_strategy_results(
+        results,
+        bars_per_year=bars_per_year,
+    )
+    return _slim_baselines(annualized)
+
+
+def _relative_fold_series(
+    fold: dict[str, object],
+    *,
+    cost_label: str,
+) -> RelativeFoldSeries:
+    raw_series = fold.pop(f"_return_series_{cost_label}")
+    if not isinstance(raw_series, dict):
+        raise TypeError("fold return series must be a mapping")
+    outer_oos = fold["outer_oos"]
+    if not isinstance(outer_oos, dict):
+        raise TypeError("outer_oos must be a mapping")
+    relative = outer_oos[f"relative_{cost_label}"]
+    if not isinstance(relative, dict):
+        raise TypeError("relative result must be a mapping")
+    hybrid = relative["hybrid"]
+    shadow = relative["shadow"]
+    if not isinstance(hybrid, dict) or not isinstance(shadow, dict):
+        raise TypeError("relative books must be mappings")
+    return RelativeFoldSeries(
+        fold=int(fold["fold"]),
+        hybrid_returns=np.asarray(raw_series["hybrid"], dtype=np.float64),
+        shadow_returns=np.asarray(raw_series["shadow"], dtype=np.float64),
+        hybrid_trades=int(hybrid["n_trades"]),
+        shadow_trades=int(shadow["n_trades"]),
+        hybrid_turnover=float(hybrid["turnover_total"]),
+        shadow_turnover=float(shadow["turnover_total"]),
+        hybrid_cost=float(hybrid["total_cost"]),
+        shadow_cost=float(shadow["total_cost"]),
+    )
+
+
 def run_residual_fold(
     *,
     fs,
@@ -159,6 +219,8 @@ def run_residual_fold(
 
     post_processor = build_post_processor(fold_args, horizon=args.horizon)
     env_kwargs = build_env_kwargs(fold_args, post_processor, horizon=args.horizon)
+    pp_config = getattr(post_processor, "cfg", None)
+    bars_per_year = int(getattr(pp_config, "bars_per_year", 8_760))
     candidates = train_select_residual_candidates(
         args=fold_args,
         train_fs=train_fs,
@@ -181,35 +243,41 @@ def run_residual_fold(
         test_fs,
         env_kwargs=selected_env_kwargs,
         bootstrap_seed=fold_args.seed,
+        include_return_series=True,
     )
     relative_2x = evaluate_relative_agent(
         candidates.selected_agent,
         test_fs,
         env_kwargs={**selected_env_kwargs, "cost_multiplier": 2.0},
         bootstrap_seed=fold_args.seed,
+        include_return_series=True,
     )
+    series_1x = relative_1x.pop("return_series")
+    series_2x = relative_2x.pop("return_series")
 
     noisy_oracle = float(getattr(args, "noisy_oracle_ic", 0.0))
-    baseline_kwargs = _baseline_kwargs(env_kwargs)
-    baselines_1x = _slim_baselines(
-        run_all_baselines(
-            test_fs,
-            noisy_oracle_ic=noisy_oracle if noisy_oracle > 0.0 else None,
-            cost_multiplier=1.0,
-            start_idx=test_window.start_idx,
-            **baseline_kwargs,
-        )
+    baselines_1x = _diagnostic_baselines(
+        fs=fs,
+        spec=spec,
+        env_kwargs=env_kwargs,
+        bars_per_year=bars_per_year,
+        cost_multiplier=1.0,
+        noisy_oracle_ic=noisy_oracle,
     )
-    baselines_2x = _slim_baselines(
-        run_all_baselines(
-            test_fs,
-            noisy_oracle_ic=noisy_oracle if noisy_oracle > 0.0 else None,
-            cost_multiplier=2.0,
-            start_idx=test_window.start_idx,
-            **baseline_kwargs,
-        )
+    baselines_2x = _diagnostic_baselines(
+        fs=fs,
+        spec=spec,
+        env_kwargs=env_kwargs,
+        bars_per_year=bars_per_year,
+        cost_multiplier=2.0,
+        noisy_oracle_ic=noisy_oracle,
     )
 
+    model_digest_1x = candidates.selected_model_digest
+    model_digest_2x = candidates.selected_model_digest
+    same_model = model_digest_1x == model_digest_2x
+    if not same_model:
+        raise RuntimeError("1x and 2x OOS evaluations reference different models")
     selected_model_identity = (
         str(candidates.selected_model_path.relative_to(output_root))
         if candidates.selected_model_path is not None
@@ -239,6 +307,7 @@ def run_residual_fold(
         "selected_configuration": candidates.selected_configuration,
         "selected_policy_mode": str(candidates.selection["policy_mode"]),
         "selected_model_identity": selected_model_identity,
+        "selected_model_digest": candidates.selected_model_digest,
         "alpha_enabled": candidates.selected_alpha_enabled,
         "selected_seed_fallbacks": [
             _is_fallback(policy) for policy in candidates.selected_policies
@@ -248,10 +317,17 @@ def run_residual_fold(
             "relative_2x": relative_2x,
             "baselines_1x": baselines_1x,
             "baselines_2x": baselines_2x,
-            "same_selected_model_for_cost_scenarios": True,
+            "model_digest_1x": model_digest_1x,
+            "model_digest_2x": model_digest_2x,
+            "same_selected_model_for_cost_scenarios": same_model,
         },
+        "_return_series_1x": series_1x,
+        "_return_series_2x": series_2x,
     }
-    save_residual_walk_forward_report(fold_output / "fold_report.json", report)
+    public_report = {
+        key: value for key, value in report.items() if not key.startswith("_return_series_")
+    }
+    save_residual_walk_forward_report(fold_output / "fold_report.json", public_report)
     return report
 
 
@@ -306,6 +382,17 @@ def run_residual_walk_forward(
                 "residual walk-forward requires at least two completed folds"
             )
 
+        stitched_1x = stitch_relative_fold_results(
+            [_relative_fold_series(fold, cost_label="1x") for fold in folds],
+            bars_per_year=config.bars_per_year,
+            bootstrap_seed=int(getattr(runtime_args, "seed", 0)),
+        )
+        stitched_2x = stitch_relative_fold_results(
+            [_relative_fold_series(fold, cost_label="2x") for fold in folds],
+            bars_per_year=config.bars_per_year,
+            bootstrap_seed=int(getattr(runtime_args, "seed", 0)),
+        )
+        stitched_oos = {"cost1x": stitched_1x, "cost2x": stitched_2x}
         report_config = {
             **config.to_dict(),
             "completed_folds": len(folds),
@@ -327,6 +414,7 @@ def run_residual_walk_forward(
                 folds,
                 requested_folds=config.requested_folds,
                 skipped_folds=skipped,
+                stitched_oos=stitched_oos,
             ),
             "folds": folds,
             "skipped_folds": skipped,
@@ -340,9 +428,13 @@ def run_residual_walk_forward(
             report,
         )
         for spec in specs:
-            expected = staging / "residual_wf" / f"fold_{spec.fold}" / "fold_report.json"
+            expected = (
+                staging / "residual_wf" / f"fold_{spec.fold}" / "fold_report.json"
+            )
             if not expected.is_file():
-                raise RuntimeError(f"missing fold report before publication: {expected}")
+                raise RuntimeError(
+                    f"missing fold report before publication: {expected}"
+                )
 
         completed_root = output / "residual_wf_runs"
         completed_root.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 import numpy as np
 
 from trade_rl.data.builder import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import ObservationBuilder, ObservationInput
@@ -57,7 +62,6 @@ def test_environment_and_serving_use_identical_observation_bytes() -> None:
     env = ResidualMarketEnv(
         market,
         trend_strategy=trend,
-        observation_builder=observation_builder,
         config=ResidualMarketEnvConfig(
             episode_bars=24,
             decision_every=4,

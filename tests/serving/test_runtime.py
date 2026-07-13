@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.serving.helpers import create_bundle
+from tests.serving.helpers import INITIAL_CAPITAL, OBSERVATION_SIZE, create_bundle
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.serving.bundle import ServingBundle
 from trade_rl.serving.runtime import LoadedPolicy, ServingRuntime
@@ -38,9 +38,13 @@ def test_baseline_bundle_serves_identity_action_without_policy_loader(
     runtime = ServingRuntime()
 
     snapshot = runtime.activate(create_bundle(tmp_path / "baseline"))
-    action = runtime.predict(np.zeros(5, dtype=np.float32))
+    action = runtime.predict(np.zeros(OBSERVATION_SIZE, dtype=np.float32))
 
     assert snapshot.policy_mode is PolicyMode.BASELINE_ONLY
+    assert snapshot.observation_schema == "baseline_residual_observation_v2"
+    assert snapshot.observation_size == OBSERVATION_SIZE
+    assert snapshot.environment_digest == "d" * 64
+    assert snapshot.initial_capital == pytest.approx(INITIAL_CAPITAL)
     np.testing.assert_array_equal(action, np.zeros(2, dtype=np.float32))
 
 
@@ -53,11 +57,38 @@ def test_residual_bundle_loads_policy_and_validates_action_schema(
     snapshot = runtime.activate(
         create_bundle(tmp_path / "residual", policy_mode=PolicyMode.RESIDUAL_POLICY)
     )
-    action = runtime.predict(np.zeros(5, dtype=np.float32))
+    action = runtime.predict(np.zeros(OBSERVATION_SIZE, dtype=np.float32))
 
     assert snapshot.policy_mode is PolicyMode.RESIDUAL_POLICY
     assert len(loader.calls) == 1
     np.testing.assert_allclose(action, np.array([0.25, -0.5], dtype=np.float32))
+
+
+def test_runtime_rejects_unreleased_bundle_by_default(tmp_path: Path) -> None:
+    runtime = ServingRuntime()
+
+    with pytest.raises(ValueError, match="release"):
+        runtime.activate(
+            create_bundle(tmp_path / "unreleased", release_digest=None)
+        )
+
+
+def test_research_runtime_can_explicitly_allow_unreleased_bundle(tmp_path: Path) -> None:
+    runtime = ServingRuntime(allow_unreleased=True)
+
+    snapshot = runtime.activate(
+        create_bundle(tmp_path / "unreleased", release_digest=None)
+    )
+
+    assert snapshot.release_digest is None
+
+
+def test_predict_rejects_observation_size_mismatch(tmp_path: Path) -> None:
+    runtime = ServingRuntime()
+    runtime.activate(create_bundle(tmp_path / "baseline"))
+
+    with pytest.raises(ValueError, match="observation schema"):
+        runtime.predict(np.zeros(OBSERVATION_SIZE + 1, dtype=np.float32))
 
 
 def test_failed_hot_swap_preserves_previous_snapshot(tmp_path: Path) -> None:
@@ -74,7 +105,7 @@ def test_failed_hot_swap_preserves_previous_snapshot(tmp_path: Path) -> None:
 
     assert runtime.snapshot() == first
     np.testing.assert_allclose(
-        runtime.predict(np.zeros(5, dtype=np.float32)),
+        runtime.predict(np.zeros(OBSERVATION_SIZE, dtype=np.float32)),
         np.array([0.25, -0.5], dtype=np.float32),
     )
 
@@ -91,4 +122,4 @@ def test_predict_rejects_non_finite_or_wrong_shaped_action(tmp_path: Path) -> No
     )
 
     with pytest.raises(ValueError, match="action schema"):
-        runtime.predict(np.zeros(5, dtype=np.float32))
+        runtime.predict(np.zeros(OBSERVATION_SIZE, dtype=np.float32))

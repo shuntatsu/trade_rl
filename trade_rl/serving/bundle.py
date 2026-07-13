@@ -59,6 +59,8 @@ class ServingBundleManifest:
     bundle_digest: str
     dataset_id: str
     action_schema: str
+    observation_schema_digest: str
+    observation_size: int
     policy_mode: PolicyMode
     policy_digest: str | None
     signal_digest: str
@@ -66,12 +68,18 @@ class ServingBundleManifest:
     release_digest: str | None
     files: tuple[BundleFile, ...]
     created_at: datetime
-    schema_version: str = "serving_bundle_v1"
+    schema_version: str = "serving_bundle_v2"
 
     def __post_init__(self) -> None:
         require_sha256(self.bundle_digest, field="bundle_digest")
         require_sha256(self.dataset_id, field="dataset_id")
         require_non_empty(self.action_schema, field="action_schema")
+        require_sha256(
+            self.observation_schema_digest,
+            field="observation_schema_digest",
+        )
+        if self.observation_size <= 0:
+            raise ValueError("observation_size must be positive")
         require_sha256(self.signal_digest, field="signal_digest")
         require_sha256(self.selection_digest, field="selection_digest")
         if self.policy_mode is PolicyMode.BASELINE_ONLY:
@@ -100,6 +108,8 @@ class ServingBundleManifest:
             "created_at": self.created_at,
             "dataset_id": self.dataset_id,
             "files": self.files,
+            "observation_schema_digest": self.observation_schema_digest,
+            "observation_size": self.observation_size,
             "policy_digest": self.policy_digest,
             "policy_mode": self.policy_mode,
             "release_digest": self.release_digest,
@@ -115,6 +125,8 @@ class ServingBundleManifest:
         root: Path,
         dataset_id: str,
         action_schema: str,
+        observation_schema_digest: str,
+        observation_size: int,
         policy_mode: PolicyMode,
         policy_digest: str | None,
         signal_digest: str,
@@ -142,10 +154,12 @@ class ServingBundleManifest:
             "created_at": created_at,
             "dataset_id": dataset_id,
             "files": ordered,
+            "observation_schema_digest": observation_schema_digest,
+            "observation_size": observation_size,
             "policy_digest": policy_digest,
             "policy_mode": policy_mode,
             "release_digest": release_digest,
-            "schema_version": "serving_bundle_v1",
+            "schema_version": "serving_bundle_v2",
             "selection_digest": selection_digest,
             "signal_digest": signal_digest,
         }
@@ -153,6 +167,8 @@ class ServingBundleManifest:
             bundle_digest=content_digest(payload),
             dataset_id=dataset_id,
             action_schema=action_schema,
+            observation_schema_digest=observation_schema_digest,
+            observation_size=observation_size,
             policy_mode=policy_mode,
             policy_digest=policy_digest,
             signal_digest=signal_digest,
@@ -228,6 +244,14 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         bundle_digest=_string(payload.get("bundle_digest"), field="bundle_digest"),
         dataset_id=_string(payload.get("dataset_id"), field="dataset_id"),
         action_schema=_string(payload.get("action_schema"), field="action_schema"),
+        observation_schema_digest=_string(
+            payload.get("observation_schema_digest"),
+            field="observation_schema_digest",
+        ),
+        observation_size=_integer(
+            payload.get("observation_size"),
+            field="observation_size",
+        ),
         policy_mode=PolicyMode(
             _string(payload.get("policy_mode"), field="policy_mode")
         ),

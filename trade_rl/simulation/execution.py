@@ -150,31 +150,32 @@ class MarketExecutor:
         desired_quantities: np.ndarray,
         *,
         prices: np.ndarray,
-        volume: np.ndarray,
+        market_notional: np.ndarray,
         tradable: np.ndarray,
         turnover_denominator: float,
     ) -> _FillResult:
         price_vector = np.asarray(prices, dtype=np.float64).reshape(-1)
-        volume_vector = np.asarray(volume, dtype=np.float64).reshape(-1)
+        market_notional_vector = np.asarray(
+            market_notional, dtype=np.float64
+        ).reshape(-1)
         trade_mask = np.asarray(tradable, dtype=np.bool_).reshape(-1)
         desired = np.asarray(desired_quantities, dtype=np.float64).reshape(-1)
         expected_shape = (self.dataset.n_symbols,)
         if any(
             vector.shape != expected_shape
-            for vector in (price_vector, volume_vector, trade_mask, desired)
+            for vector in (price_vector, market_notional_vector, trade_mask, desired)
         ):
             raise ValueError("execution market vectors do not match symbols")
         if not np.isfinite(desired).all():
             raise ValueError("desired quantities must be finite")
-        if np.any(price_vector <= 0.0) or np.any(volume_vector < 0.0):
-            raise ValueError("execution prices and volume are invalid")
+        if np.any(price_vector <= 0.0) or np.any(market_notional_vector < 0.0):
+            raise ValueError("execution prices and market notional are invalid")
         if not math.isfinite(turnover_denominator) or turnover_denominator <= 0.0:
             raise ValueError("turnover denominator must be finite and positive")
 
         requested_delta = desired - book.quantities
         requested_notional_vector = requested_delta * price_vector
-        market_notional = price_vector * volume_vector
-        capacity = self.cost.max_participation_rate * market_notional
+        capacity = self.cost.max_participation_rate * market_notional_vector
         capacity = np.where(trade_mask, capacity, 0.0)
         filled_notional_vector = np.sign(requested_notional_vector) * np.minimum(
             np.abs(requested_notional_vector),
@@ -183,11 +184,11 @@ class MarketExecutor:
         filled_delta = filled_notional_vector / price_vector
         next_quantities = book.quantities + filled_delta
 
-        positive_market = market_notional > 0.0
-        participation = np.zeros_like(market_notional)
+        positive_market = market_notional_vector > 0.0
+        participation = np.zeros_like(market_notional_vector)
         participation[positive_market] = (
             np.abs(filled_notional_vector[positive_market])
-            / market_notional[positive_market]
+            / market_notional_vector[positive_market]
         )
         impact = self.cost.impact_rate * np.sqrt(participation)
         slippage = self._slippage_rates(len(price_vector))
@@ -267,7 +268,9 @@ class MarketExecutor:
                 result_book,
                 desired_quantities,
                 prices=self.dataset.open[next_index],
-                volume=self.dataset.volume[next_index],
+                market_notional=self.dataset.market_notional(
+                    next_index, self.dataset.open[next_index]
+                ),
                 tradable=self.dataset.tradable[next_index],
                 turnover_denominator=decision_equity,
             )
@@ -326,7 +329,9 @@ class MarketExecutor:
             result_book,
             desired_quantities,
             prices=self.dataset.close[index],
-            volume=self.dataset.volume[index],
+            market_notional=self.dataset.market_notional(
+                index, self.dataset.close[index]
+            ),
             tradable=self.dataset.tradable[index],
             turnover_denominator=starting_value,
         )

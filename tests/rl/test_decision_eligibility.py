@@ -52,7 +52,9 @@ def _market(*, next_tradable: bool = True, suspended_symbol: int | None = None):
         )
         for symbol in symbols
     )
-    return MarketDatasetBuilder(config).build(InMemoryMarketDataSource(values), contracts)
+    return MarketDatasetBuilder(config).build(
+        InMemoryMarketDataSource(values), contracts
+    )
 
 
 def _environment(market, *, alpha_provider=None, alpha_enabled: bool = False):

@@ -40,10 +40,20 @@ def test_candidate_training_builds_abcd_and_resolves_selected_agent(
 ) -> None:
     b_agent = _Agent("B")
     d_agent = _Agent("D")
-    calls: list[tuple[str, bool]] = []
+    checkpoint_fs = object()
+    selection_fs = object()
+    train_calls: list[tuple[str, bool, object]] = []
+    evaluated_on: list[object] = []
 
-    def fake_train(*, label: str, alpha_enabled: bool, output: Path, **kwargs):
-        calls.append((label, alpha_enabled))
+    def fake_train(
+        *,
+        label: str,
+        alpha_enabled: bool,
+        checkpoint_val_fs: object,
+        output: Path,
+        **kwargs,
+    ):
+        train_calls.append((label, alpha_enabled, checkpoint_val_fs))
         if label == "B_trend_mix":
             return b_agent, [b_agent], output / "b.zip"
         return d_agent, [d_agent], output / "d.zip"
@@ -61,16 +71,18 @@ def test_candidate_training_builds_abcd_and_resolves_selected_agent(
         ]
     )
     monkeypatch.setattr(residual_candidates, "_train_residual_ensemble", fake_train)
-    monkeypatch.setattr(
-        residual_candidates,
-        "evaluate_relative_agent",
-        lambda *args, **kwargs: next(evaluations),
-    )
+
+    def fake_evaluate(agent, fs, **kwargs):
+        evaluated_on.append(fs)
+        return next(evaluations)
+
+    monkeypatch.setattr(residual_candidates, "evaluate_relative_agent", fake_evaluate)
 
     result = train_select_residual_candidates(
         args=SimpleNamespace(seed=7),
         train_fs=object(),
-        val_fs=object(),
+        checkpoint_val_fs=checkpoint_fs,
+        selection_fs=selection_fs,
         trend_family=object(),
         alpha=_Alpha(enabled=True),
         env_kwargs={},
@@ -83,7 +95,11 @@ def test_candidate_training_builds_abcd_and_resolves_selected_agent(
     assert result.selected_alpha_enabled is False
     assert result.selected_agent is b_agent
     assert result.selected_policies == (b_agent,)
-    assert calls == [("B_trend_mix", False), ("D_combined", True)]
+    assert train_calls == [
+        ("B_trend_mix", False, checkpoint_fs),
+        ("D_combined", True, checkpoint_fs),
+    ]
+    assert evaluated_on == [selection_fs] * 8
 
 
 def test_candidate_training_omits_cd_when_alpha_gate_fails(
@@ -91,6 +107,8 @@ def test_candidate_training_omits_cd_when_alpha_gate_fails(
     tmp_path: Path,
 ) -> None:
     b_agent = _Agent("B")
+    checkpoint_fs = object()
+    selection_fs = object()
 
     def fake_train(*, output: Path, **kwargs):
         return b_agent, [b_agent], output / "b.zip"
@@ -113,7 +131,8 @@ def test_candidate_training_omits_cd_when_alpha_gate_fails(
     result = train_select_residual_candidates(
         args=SimpleNamespace(seed=3),
         train_fs=object(),
-        val_fs=object(),
+        checkpoint_val_fs=checkpoint_fs,
+        selection_fs=selection_fs,
         trend_family=object(),
         alpha=_Alpha(enabled=False),
         env_kwargs={},

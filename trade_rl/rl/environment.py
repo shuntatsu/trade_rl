@@ -14,11 +14,7 @@ from gymnasium import spaces
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.rl.actions import (
-    BaselineResidualComposer,
-    ResidualAction,
-    ResidualComposition,
-)
+from trade_rl.rl.actions import BaselineResidualComposer, ResidualAction
 from trade_rl.rl.observations import build_observation, observation_layout
 from trade_rl.rl.rewards import relative_interval_reward
 from trade_rl.simulation.accounting import BookState

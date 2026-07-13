@@ -61,7 +61,9 @@ def test_constant_return_series_has_zero_ratio_metrics() -> None:
     "values",
     [(), (math.nan,), (math.inf,), (-1.0,)],
 )
-def test_return_series_rejects_invalid_financial_values(values: tuple[float, ...]) -> None:
+def test_return_series_rejects_invalid_financial_values(
+    values: tuple[float, ...],
+) -> None:
     with pytest.raises(ValueError):
         ReturnSeries(
             values=values,

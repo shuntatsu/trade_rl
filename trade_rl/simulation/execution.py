@@ -114,7 +114,9 @@ class MarketExecutor:
         funding_return_total = 0.0
         for offset in range(bars):
             index = start_index + offset
-            asset_returns = self.dataset.close[index + 1] / self.dataset.close[index] - 1.0
+            asset_returns = (
+                self.dataset.close[index + 1] / self.dataset.close[index] - 1.0
+            )
             weights = result_book.weights
             gross_return = float(np.dot(weights, asset_returns))
             funding_return = -float(np.dot(weights, self.dataset.funding_rate[index]))

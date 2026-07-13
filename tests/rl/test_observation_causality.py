@@ -132,8 +132,6 @@ def test_observation_contains_per_feature_masks_and_staleness() -> None:
     np.testing.assert_array_equal(
         per_symbol[:, n : 2 * n], market.feature_available[20]
     )
-    np.testing.assert_allclose(
-        per_symbol[:, 2 * n : 3 * n], feature_staleness[20]
-    )
+    np.testing.assert_allclose(per_symbol[:, 2 * n : 3 * n], feature_staleness[20])
     np.testing.assert_array_equal(per_symbol[:, 3 * n], market.tradable[20])
     np.testing.assert_array_equal(per_symbol[:, 3 * n + 1], symbol_active[20])

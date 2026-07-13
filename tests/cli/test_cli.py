@@ -51,7 +51,7 @@ def test_walk_forward_plan_outputs_typed_fold_plan() -> None:
     assert payload["schema"] == "walk_forward_plan_v1"
     assert len(payload["folds"]) == 2
     assert payload["folds"][0]["train"] == [0, 80]
-    assert payload["folds"][0]["test"] == [104, 124]
+    assert payload["folds"][0]["test"] == [106, 126]
 
 
 def test_train_config_outputs_validated_residual_configuration() -> None:

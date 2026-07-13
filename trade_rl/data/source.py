@@ -59,13 +59,9 @@ class RawMarketSeries:
             "low": _readonly(self.low, dtype=np.dtype(np.float64)),
             "close": _readonly(self.close, dtype=np.dtype(np.float64)),
             "volume": _readonly(self.volume, dtype=np.dtype(np.float64)),
-            "funding_rate": _readonly(
-                self.funding_rate, dtype=np.dtype(np.float64)
-            ),
+            "funding_rate": _readonly(self.funding_rate, dtype=np.dtype(np.float64)),
             "tradable": _readonly(self.tradable, dtype=np.dtype(np.bool_)),
-            "funding_available": _readonly(
-                funding_available, dtype=np.dtype(np.bool_)
-            ),
+            "funding_available": _readonly(funding_available, dtype=np.dtype(np.bool_)),
         }
         expected = timestamps.shape
         for field_name, array in arrays.items():
@@ -74,7 +70,9 @@ class RawMarketSeries:
         for field_name in ("open", "high", "low", "close", "volume", "funding_rate"):
             if not np.isfinite(arrays[field_name]).all():
                 raise ValueError(f"{field_name} must contain only finite values")
-        if any(np.any(arrays[name] <= 0.0) for name in ("open", "high", "low", "close")):
+        if any(
+            np.any(arrays[name] <= 0.0) for name in ("open", "high", "low", "close")
+        ):
             raise ValueError("OHLC prices must be strictly positive")
         if np.any(arrays["volume"] < 0.0):
             raise ValueError("volume must be non-negative")
@@ -124,7 +122,9 @@ def _parse_timestamp(value: str) -> np.datetime64:
         parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
         return np.datetime64(parsed, "ns")
     scale = 1_000.0 if abs(numeric) >= 1_000_000_000_000 else 1.0
-    parsed = datetime.fromtimestamp(numeric / scale, tz=timezone.utc).replace(tzinfo=None)
+    parsed = datetime.fromtimestamp(numeric / scale, tz=timezone.utc).replace(
+        tzinfo=None
+    )
     return np.datetime64(parsed, "ns")
 
 
@@ -178,10 +178,16 @@ class CsvMarketDataSource:
                     raw_funding = row.get("funding_rate")
                     has_funding = raw_funding is not None and bool(raw_funding.strip())
                     funding_available.append(has_funding)
-                    funding.append(float(raw_funding) if has_funding else 0.0)
+                    if has_funding:
+                        assert raw_funding is not None
+                        funding.append(float(raw_funding))
+                    else:
+                        funding.append(0.0)
                     tradable.append(_parse_bool(row.get("tradable"), default=True))
                 except (TypeError, ValueError) as exc:
-                    raise ValueError(f"invalid market CSV row {row_index}: {exc}") from exc
+                    raise ValueError(
+                        f"invalid market CSV row {row_index}: {exc}"
+                    ) from exc
 
         return RawMarketSeries(
             timestamps=np.asarray(timestamps, dtype="datetime64[ns]"),

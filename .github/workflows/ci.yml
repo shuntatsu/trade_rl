@@ -18,6 +18,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Inventory repository tree
+        run: |
+          echo "TREE_SHA=$(git rev-parse 'HEAD^{tree}')" | tee repository-inventory.log
+          git ls-files >> repository-inventory.log
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -29,12 +34,12 @@ jobs:
       - name: Run ruff check
         run: |
           set -o pipefail
-          uv run ruff check trade_rl tests/domain tests/artifacts tests/evaluation tests/migration tests/rl tests/workflows tests/cli tests/serving 2>&1 | tee ruff-check.log
+          uv run ruff check trade_rl tests/domain tests/artifacts tests/evaluation tests/migration tests/rl tests/workflows tests/cli tests/serving tests/risk 2>&1 | tee ruff-check.log
 
       - name: Run ruff format
         run: |
           set -o pipefail
-          uv run ruff format --check --diff trade_rl tests/domain tests/artifacts tests/evaluation tests/migration tests/rl tests/workflows tests/cli tests/serving 2>&1 | tee ruff-format.log
+          uv run ruff format --check --diff trade_rl tests/domain tests/artifacts tests/evaluation tests/migration tests/rl tests/workflows tests/cli tests/serving tests/risk 2>&1 | tee ruff-format.log
 
       - name: Run mypy
         run: |
@@ -44,7 +49,7 @@ jobs:
       - name: Run rebuilt core contracts
         run: |
           set -o pipefail
-          uv run pytest -q tests/domain tests/artifacts tests/evaluation tests/migration tests/rl tests/workflows tests/cli tests/serving 2>&1 | tee core-contracts.log
+          uv run pytest -q tests/domain tests/artifacts tests/evaluation tests/migration tests/rl tests/workflows tests/cli tests/serving tests/risk 2>&1 | tee core-contracts.log
 
       - name: Run critical residual contracts
         run: |
@@ -77,6 +82,15 @@ jobs:
         run: |
           set -o pipefail
           uv run pytest --cov=mars_lite --cov-fail-under=70 tests/ 2>&1 | tee pytest.log
+
+      - name: Upload repository inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository-inventory-${{ github.run_id }}
+          path: repository-inventory.log
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Upload CI diagnostics
         if: failure()

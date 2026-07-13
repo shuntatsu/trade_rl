@@ -10,7 +10,7 @@ on:
       - agent/causal-training-hardening
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -21,14 +21,8 @@ jobs:
     name: Rebuilt Core
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Apply final verification cleanup
-        run: python tools/apply_final_verification_cleanup.py
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -39,51 +33,24 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Apply Ruff fixes and formatting
-        run: |
-          uv run ruff check . --fix
-          uv run ruff format .
+      - name: Ruff
+        run: uv run ruff check .
 
-      - name: Commit source and test changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tests
-          git commit -m "test: complete action environment verification coverage"
-          git push origin HEAD:agent/action-environment-comprehensive-hardening
+      - name: Format
+        run: uv run ruff format --check --diff .
 
-      - name: Run full verification and capture logs
-        run: |
-          set +e
-          uv run ruff check trade_rl tests > verify-ruff.log 2>&1
-          echo $? > verify-ruff.code
-          uv run ruff format --check --diff trade_rl tests > verify-format.log 2>&1
-          echo $? > verify-format.code
-          uv run mypy trade_rl > verify-mypy.log 2>&1
-          echo $? > verify-mypy.code
-          uv run lint-imports > verify-imports.log 2>&1
-          echo $? > verify-imports.code
-          uv run vulture trade_rl tests --min-confidence 100 > verify-vulture.log 2>&1
-          echo $? > verify-vulture.code
-          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing > verify-pytest.log 2>&1
-          echo $? > verify-pytest.code
-          uv run trade-rl --version > verify-cli.log 2>&1
-          echo $? > verify-cli.code
-          exit 0
+      - name: Mypy
+        run: uv run mypy trade_rl
 
-      - name: Upload verification diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-verification
-          path: |
-            verify-*.log
-            verify-*.code
+      - name: Import architecture
+        run: uv run lint-imports
 
-      - name: Verification gate
-        run: |
-          test "$(cat verify-ruff.code)" = "0"
-          test "$(cat verify-format.code)" = "0"
-          test "$(cat verify-mypy.code)" = "0"
-          test "$(cat verify-imports.code)" = "0"
-          test "$(cat verify-pytest.code)" = "0"
-          test "$(cat verify-cli.code)" = "0"
+      - name: Dead-code report
+        continue-on-error: true
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Tests and coverage
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+
+      - name: CLI smoke test
+        run: uv run trade-rl --version

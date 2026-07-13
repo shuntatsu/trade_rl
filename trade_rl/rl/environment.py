@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Protocol
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
-from trade_rl.rl.actions import BaselineResidualComposer, ResidualAction
-from trade_rl.rl.observations import build_observation, observation_layout
+from trade_rl.rl.actions import ACTION_SCHEMA, BaselineResidualComposer, ResidualAction
+from trade_rl.rl.observations import (
+    OBSERVATION_SCHEMA,
+    build_observation,
+    observation_layout,
+)
 from trade_rl.rl.rewards import relative_interval_reward
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
@@ -40,7 +45,7 @@ class ResidualMarketEnvConfig:
     episode_bars: int | None = None
     decision_every: int | None = None
     reward_scale: float = 100.0
-    initial_capital: float = 1.0
+    initial_capital: float = math.nan
     minimum_equity_fraction: float = 1e-6
     downside_penalty: float = 0.0
     excess_drawdown_penalty: float = 0.0
@@ -48,6 +53,10 @@ class ResidualMarketEnvConfig:
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
 
     def __post_init__(self) -> None:
+        if math.isnan(self.initial_capital):
+            raise ValueError(
+                "initial_capital must be explicitly configured in quote-currency units"
+            )
         for positive_field_name, positive_value in (
             ("episode_hours", self.episode_hours),
             ("decision_hours", self.decision_hours),
@@ -55,7 +64,11 @@ class ResidualMarketEnvConfig:
             ("initial_capital", self.initial_capital),
             ("minimum_equity_fraction", self.minimum_equity_fraction),
         ):
-            if not math.isfinite(positive_value) or positive_value <= 0.0:
+            if (
+                isinstance(positive_value, bool)
+                or not math.isfinite(positive_value)
+                or positive_value <= 0.0
+            ):
                 raise ValueError(f"{positive_field_name} must be finite and positive")
         for optional_field_name, optional_value in (
             ("episode_bars", self.episode_bars),
@@ -121,6 +134,32 @@ class ResidualMarketEnv(gym.Env):
         self._decision_bars = self.config.resolve_decision_bars(dataset)
         if self._decision_bars > self._episode_bars:
             raise ValueError("decision interval cannot exceed episode duration")
+        self._environment_digest = content_digest(
+            {
+                "action_schema": ACTION_SCHEMA,
+                "alpha_enabled": self.alpha_enabled,
+                "dataset_id": dataset.dataset_id,
+                "decision_bars": self._decision_bars,
+                "environment_config": {
+                    "decision_hours": self.config.decision_hours,
+                    "downside_penalty": self.config.downside_penalty,
+                    "episode_hours": self.config.episode_hours,
+                    "excess_drawdown_penalty": self.config.excess_drawdown_penalty,
+                    "execution_cost": asdict(self.config.execution_cost),
+                    "initial_capital": self.config.initial_capital,
+                    "liquidate_on_end": self.config.liquidate_on_end,
+                    "minimum_equity_fraction": (
+                        self.config.minimum_equity_fraction
+                    ),
+                    "reward_scale": self.config.reward_scale,
+                },
+                "episode_bars": self._episode_bars,
+                "observation_schema": OBSERVATION_SCHEMA,
+                "pre_trade_risk": asdict(self.pre_trade_risk.config),
+                "schema_version": "residual_market_environment_v1",
+                "trend": asdict(self.trend_strategy.config),
+            }
+        )
         self.hybrid_executor = MarketExecutor(dataset, self.config.execution_cost)
         self.shadow_executor = MarketExecutor(dataset, self.config.execution_cost)
         self.executor = self.hybrid_executor
@@ -158,6 +197,14 @@ class ResidualMarketEnv(gym.Env):
     @property
     def dataset_id(self) -> str:
         return self.dataset.dataset_id
+
+    @property
+    def initial_capital(self) -> float:
+        return self.config.initial_capital
+
+    @property
+    def environment_digest(self) -> str:
+        return self._environment_digest
 
     @property
     def episode_bars(self) -> int:

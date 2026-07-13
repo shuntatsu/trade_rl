@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/training-artifact-pipeline
+  pull_request:
+    branches:
+      - agent/action-environment-comprehensive-hardening
   workflow_dispatch:
 
 permissions:

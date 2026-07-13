@@ -19,6 +19,19 @@ from trade_rl.domain.policies import PolicyEnsembleManifest, PolicyMember
 from trade_rl.rl.actions import ACTION_SCHEMA
 
 
+def gamma_from_half_life(*, decision_hours: float, half_life_hours: float) -> float:
+    """Convert a real-time discount half-life to a per-decision gamma."""
+
+    if not math.isfinite(decision_hours) or decision_hours <= 0.0:
+        raise ValueError("decision_hours must be finite and positive")
+    if not math.isfinite(half_life_hours) or half_life_hours <= 0.0:
+        raise ValueError("half_life_hours must be finite and positive")
+    gamma = math.exp(math.log(0.5) * decision_hours / half_life_hours)
+    if not 0.0 < gamma <= 1.0:
+        raise ValueError("resolved gamma must be within (0, 1]")
+    return gamma
+
+
 class PolicyTrainingBackend(Protocol):
     """Backend boundary that writes exactly one policy checkpoint."""
 

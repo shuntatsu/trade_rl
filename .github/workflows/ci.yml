@@ -69,7 +69,18 @@ jobs:
         run: uv run vulture trade_rl tests --min-confidence 100
 
       - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing \
+            2>&1 | tee pytest.log
+
+      - name: Upload Pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics
+          path: pytest.log
 
       - name: CLI smoke test
         run: uv run trade-rl --version

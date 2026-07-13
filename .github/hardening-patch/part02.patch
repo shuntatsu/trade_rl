@@ -1,0 +1,403 @@
+gest.hexdigest()
+-
+-
+ def _rolling_zscore(
+     values: np.ndarray,
+     valid: np.ndarray,
+@@ -366,16 +332,20 @@ class MarketDatasetBuilder:
+             (n_bars, len(self.config.global_feature_names)), dtype=np.float64
+         )
+         global_features[:, 0] = symbol_active.mean(axis=1)
+-        global_features[:, 1] = tradable.mean(axis=1)
++        observable_tradable = tradable & information_available
++        global_features[:, 1] = observable_tradable.mean(axis=1)
+         for index in range(n_bars):
+             sample = one_bar_returns[index, one_bar_available[index]]
+             if sample.size:
+                 global_features[index, 2] = float(np.mean(sample))
+                 global_features[index, 3] = float(np.std(sample))
+ 
++        features = features.astype(np.float32)
++        global_features = global_features.astype(np.float32)
++        feature_staleness = feature_staleness.astype(np.float32)
+         feature_names = tuple(spec.name for spec in self.config.features)
+         feature_config_digest = content_digest(self.config.canonical_payload())
+-        normalization_digest = _content_and_arrays_digest(
++        normalization_digest = content_and_arrays_digest(
+             {
+                 "schema": "normalization_state_v1",
+                 "feature_config_digest": feature_config_digest,
+@@ -387,7 +357,7 @@ class MarketDatasetBuilder:
+             ),
+         )
+         metadata = {
+-            "schema": "market_dataset_identity_v4",
++            "schema": MARKET_DATASET_IDENTITY_SCHEMA,
+             "config": self.config.canonical_payload(),
+             "feature_config_digest": feature_config_digest,
+             "normalization_digest": normalization_digest,
+@@ -398,25 +368,25 @@ class MarketDatasetBuilder:
+             "feature_names": feature_names,
+             "global_feature_names": self.config.global_feature_names,
+         }
+-        dataset_id = _content_and_arrays_digest(
++        dataset_id = compute_market_dataset_id(
+             metadata,
+-            (
+-                ("timestamps", timestamps),
+-                ("available_at", available_at),
+-                ("information_available", information_available),
+-                ("features", features),
+-                ("global_features", global_features),
+-                ("open", open_price),
+-                ("high", high),
+-                ("low", low),
+-                ("close", close),
+-                ("volume", volume),
+-                ("funding_rate", funding_rate),
+-                ("tradable", tradable),
+-                ("symbol_active", symbol_active),
+-                ("feature_available", feature_available),
+-                ("feature_staleness", feature_staleness),
+-            ),
++            {
++                "timestamps": timestamps,
++                "available_at": available_at,
++                "information_available": information_available,
++                "features": features,
++                "global_features": global_features,
++                "open": open_price,
++                "high": high,
++                "low": low,
++                "close": close,
++                "volume": volume,
++                "funding_rate": funding_rate,
++                "tradable": tradable,
++                "symbol_active": symbol_active,
++                "feature_available": feature_available,
++                "feature_staleness": feature_staleness,
++            },
+         )
+         periods_per_year = int(round(365.0 * 24.0 / self.config.bar_hours))
+         return MarketDataset(
+@@ -446,5 +416,6 @@ class MarketDatasetBuilder:
+             ),
+             feature_config_digest=feature_config_digest,
+             normalization_digest=normalization_digest,
++            identity_payload_json=canonical_identity_json(metadata),
+             periods_per_year=periods_per_year,
+         )
+diff --git a/trade_rl/data/identity.py b/trade_rl/data/identity.py
+new file mode 100644
+index 0000000..0030f1c
+--- /dev/null
++++ b/trade_rl/data/identity.py
+@@ -0,0 +1,101 @@
++"""Shared canonical identity computation for resolved market datasets."""
++
++from __future__ import annotations
++
++import hashlib
++import json
++from collections.abc import Iterable, Mapping
++
++import numpy as np
++
++from trade_rl.artifacts.codec import canonical_json_bytes
++
++MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v5"
++
++DATASET_ID_ARRAY_FIELDS = (
++    "timestamps",
++    "available_at",
++    "information_available",
++    "features",
++    "global_features",
++    "open",
++    "high",
++    "low",
++    "close",
++    "volume",
++    "funding_rate",
++    "tradable",
++    "symbol_active",
++    "feature_available",
++    "feature_staleness",
++)
++
++
++def _update_digest_array(
++    digest: "hashlib._Hash",
++    name: str,
++    value: np.ndarray,
++) -> None:
++    array = np.ascontiguousarray(value)
++    if np.issubdtype(array.dtype, np.datetime64):
++        array = array.astype("datetime64[ns]").astype("<i8")
++    elif array.dtype == np.dtype(np.bool_):
++        array = array.astype(np.uint8)
++    elif np.issubdtype(array.dtype, np.floating):
++        array = array.astype("<f8")
++    elif np.issubdtype(array.dtype, np.integer):
++        array = array.astype("<i8")
++    descriptor = json.dumps(
++        {"name": name, "dtype": array.dtype.str, "shape": list(array.shape)},
++        sort_keys=True,
++        separators=(",", ":"),
++    ).encode("utf-8")
++    digest.update(len(descriptor).to_bytes(8, "big"))
++    digest.update(descriptor)
++    payload = array.tobytes(order="C")
++    digest.update(len(payload).to_bytes(8, "big"))
++    digest.update(payload)
++
++
++def content_and_arrays_digest(
++    metadata: object,
++    arrays: Iterable[tuple[str, np.ndarray]],
++) -> str:
++    """Hash canonical metadata followed by named canonical array payloads."""
++
++    digest = hashlib.sha256(canonical_json_bytes(metadata))
++    for name, array in arrays:
++        _update_digest_array(digest, name, array)
++    return digest.hexdigest()
++
++
++def canonical_identity_json(payload: Mapping[str, object]) -> str:
++    """Return the canonical UTF-8 JSON representation stored with a dataset."""
++
++    return canonical_json_bytes(payload).decode("utf-8")
++
++
++def parse_identity_json(value: str) -> dict[str, object]:
++    """Parse and require an object-valued canonical identity payload."""
++
++    parsed = json.loads(value)
++    if not isinstance(parsed, dict):
++        raise ValueError("dataset identity payload must be a JSON object")
++    return parsed
++
++
++def compute_market_dataset_id(
++    payload: Mapping[str, object],
++    arrays: Mapping[str, np.ndarray],
++) -> str:
++    """Recompute one dataset ID from its persisted payload and stored arrays."""
++
++    if payload.get("schema") != MARKET_DATASET_IDENTITY_SCHEMA:
++        raise ValueError("unsupported market dataset identity schema")
++    missing = [name for name in DATASET_ID_ARRAY_FIELDS if name not in arrays]
++    if missing:
++        raise ValueError(f"dataset identity arrays are missing fields: {missing}")
++    return content_and_arrays_digest(
++        payload,
++        ((name, arrays[name]) for name in DATASET_ID_ARRAY_FIELDS),
++    )
+diff --git a/trade_rl/data/market.py b/trade_rl/data/market.py
+index 5ead7b6..a861062 100644
+--- a/trade_rl/data/market.py
++++ b/trade_rl/data/market.py
+@@ -8,6 +8,11 @@ from dataclasses import dataclass, field
+ import numpy as np
+ 
+ from trade_rl.data.contracts import VolumeUnit
++from trade_rl.data.identity import (
++    canonical_identity_json,
++    compute_market_dataset_id,
++    parse_identity_json,
++)
+ from trade_rl.domain.common import require_sha256, require_unique_non_empty
+ 
+ _HOURS_PER_YEAR = 365.0 * 24.0
+@@ -58,6 +63,7 @@ class MarketDataset:
+     contract_multipliers: np.ndarray | None = None
+     feature_config_digest: str = _ZERO_DIGEST
+     normalization_digest: str = _ZERO_DIGEST
++    identity_payload_json: str | None = None
+     _bar_duration_ns: int = field(init=False, repr=False)
+ 
+     def __post_init__(self) -> None:
+@@ -152,7 +158,7 @@ class MarketDataset:
+             dtype=np.dtype(np.bool_),
+         )
+         information_available_value = (
+-            symbol_active & tradable & (available_at <= event_times)
++            symbol_active & (available_at <= event_times)
+             if self.information_available is None
+             else self.information_available
+         )
+@@ -249,6 +255,36 @@ class MarketDataset:
+         ):
+             raise ValueError("OHLC values violate bar price invariants")
+ 
++        identity_payload_json = self.identity_payload_json
++        if identity_payload_json is not None:
++            payload = parse_identity_json(identity_payload_json)
++            canonical_payload_json = canonical_identity_json(payload)
++            resolved_id = compute_market_dataset_id(
++                payload,
++                {
++                    "timestamps": timestamps,
++                    "available_at": available_at,
++                    "information_available": information_available,
++                    "features": features,
++                    "global_features": global_features,
++                    "open": open_price,
++                    "high": high,
++                    "low": low,
++                    "close": close,
++                    "volume": volume,
++                    "funding_rate": funding,
++                    "tradable": tradable,
++                    "symbol_active": symbol_active,
++                    "feature_available": feature_available,
++                    "feature_staleness": feature_staleness,
++                },
++            )
++            if resolved_id != self.dataset_id:
++                raise ValueError(
++                    "dataset_id does not match identity payload and arrays"
++                )
++            identity_payload_json = canonical_payload_json
++
+         object.__setattr__(self, "symbols", symbols)
+         object.__setattr__(self, "feature_names", feature_names)
+         object.__setattr__(self, "global_feature_names", global_names)
+@@ -269,6 +305,7 @@ class MarketDataset:
+         object.__setattr__(self, "feature_available", feature_available)
+         object.__setattr__(self, "feature_staleness", feature_staleness)
+         object.__setattr__(self, "contract_multipliers", contract_multipliers)
++        object.__setattr__(self, "identity_payload_json", identity_payload_json)
+         object.__setattr__(self, "_bar_duration_ns", bar_duration_ns)
+ 
+     @property
+@@ -296,6 +333,15 @@ class MarketDataset:
+             raise ValueError("hours must resolve to an integral number of bars")
+         return resolved
+ 
++    def observable_tradable(self, index: int) -> np.ndarray:
++        """Return only current tradability that was knowable at the event time."""
++
++        if not 0 <= index < self.n_bars:
++            raise IndexError("observable tradability index is outside the dataset")
++        information_available = self.information_available
++        assert information_available is not None
++        return (self.tradable[index] & information_available[index]).copy()
++
+     def eligibility_mask(
+         self,
+         index: int,
+diff --git a/trade_rl/rl/__init__.py b/trade_rl/rl/__init__.py
+index e34a5a8..6bd0d71 100644
+--- a/trade_rl/rl/__init__.py
++++ b/trade_rl/rl/__init__.py
+@@ -7,6 +7,11 @@ from trade_rl.rl.actions import (
+     ResidualComposition,
+ )
+ from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
++from trade_rl.rl.market_inputs import (
++    CausalAlphaProvider,
++    CausalMarketView,
++    MarketInputResolver,
++)
+ from trade_rl.rl.training import (
+     PolicyTrainingBackend,
+     ResidualTrainingConfig,
+@@ -17,6 +22,9 @@ from trade_rl.rl.training import (
+ __all__ = [
+     "ACTION_SCHEMA",
+     "BaselineResidualComposer",
++    "CausalAlphaProvider",
++    "CausalMarketView",
++    "MarketInputResolver",
+     "PolicyTrainingBackend",
+     "ResidualAction",
+     "ResidualComposition",
+diff --git a/trade_rl/rl/environment.py b/trade_rl/rl/environment.py
+index 16b4cab..09085f4 100644
+--- a/trade_rl/rl/environment.py
++++ b/trade_rl/rl/environment.py
+@@ -3,10 +3,7 @@
+ from __future__ import annotations
+ 
+ import math
+-from collections.abc import Callable
+ from dataclasses import dataclass, field
+-from typing import Protocol
+-
+ import gymnasium as gym
+ import numpy as np
+ from gymnasium import spaces
+@@ -16,6 +13,7 @@ from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
+ from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+ from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
+ from trade_rl.rl.actions import BaselineResidualComposer, ResidualAction
++from trade_rl.rl.market_inputs import CausalAlphaProvider, MarketInputResolver
+ from trade_rl.rl.observations import build_observation, observation_layout
+ from trade_rl.rl.rewards import relative_interval_reward
+ from trade_rl.simulation.accounting import BookState
+@@ -27,10 +25,6 @@ from trade_rl.simulation.execution import (
+ from trade_rl.strategies.trend import TrendStrategy, TrendTargets
+ 
+ 
+-class AlphaProvider(Protocol):
+-    def predict_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
+-
+-
+ @dataclass(frozen=True, slots=True)
+ class ResidualMarketEnvConfig:
+     episode_hours: float = 200.0
+@@ -99,19 +93,29 @@ class ResidualMarketEnv(gym.Env):
+         dataset: MarketDataset,
+         *,
+         trend_strategy: TrendStrategy | None = None,
+-        alpha_provider: AlphaProvider
+-        | Callable[[MarketDataset, int], np.ndarray]
+-        | None = None,
++        alpha_provider: CausalAlphaProvider | None = None,
+         alpha_enabled: bool = False,
++        market_input_resolver: MarketInputResolver | None = None,
+         composer: BaselineResidualComposer | None = None,
+         pre_trade_risk: PreTradeRisk | None = None,
+         config: ResidualMarketEnvConfig | None = None,
+     ) -> None:
+         super().__init__()
+         self.dataset = dataset
+-        self.trend_strategy = trend_strategy or TrendStrategy()
+-        self.alpha_provider = alpha_provider
+-        self.alpha_enabled = bool(alpha_enabled)
++        if market_input_resolver is not None and (
++            trend_strategy is not None or alpha_provider is not None or alpha_enabled
++        ):
++            raise ValueError(
++                "market_input_resolver cannot be combined with individual market inputs"
++            )
++        self.market_input_resolver = market_input_resolver or MarketInputResolver(
++            trend_strategy=trend_strategy or TrendStrategy(),
++            alpha_provider=alpha_provider,
++            alpha_enabled=bool(alpha_enabled),
++        )
++        self.trend_strategy = self.market_input_resolver.trend_strategy
++        self.alpha_provider = self.market_input_resolver.alpha_provider
++        self.alpha_enabled = self.market_input_resolver.alpha_enabled
+         self.composer = composer or BaselineResidualComposer()
+         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
+         self.config = config or ResidualMarketEnvConfig()
+@@ -170,27 +174,10 @@ class ResidualMarketEnv(gym.Env):
+         return 1.0 - book.portfolio_value / max(book.peak_value, book.portfolio_value)
+ 
+     def _alpha_at(self, index: int) -> np.ndarray:
+-        if not self.alpha_enabled or self.alpha_provider is None:
+-            return np.zeros(self.dataset.n_symbols, dtype=np.float64)
+-        provider = self.alpha_provider
+-        if hasattr(provider, "predict_at"):
+-            value = provider.predict_at(self.dataset, index)
+-        else:
+-            value = provider(self.dataset, index)
+-        alpha = np.asarray(value, dtype=np.float64).reshape(-1)
+-        if alpha.shape != (self.dataset.n_symbols,) or not np.isfinite(alpha).all():
+-            raise ValueError("alpha provider returned an invalid vector")
+-        eligible = self.dataset.eligibility_mask(index, require_features=True)
+-        alpha = alpha.copy()
+-        alpha[~eligi

@@ -33,8 +33,7 @@ def _mapping_value(value: Mapping[object, object]) -> dict[str, JsonValue]:
 
 def _dataclass_value(value: object) -> dict[str, JsonValue]:
     return {
-        field.name: to_json_value(getattr(value, field.name))
-        for field in fields(value)
+        field.name: to_json_value(getattr(value, field.name)) for field in fields(value)
     }
 
 

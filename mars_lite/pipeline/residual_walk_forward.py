@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import copy
+import os
+import shutil
+import uuid
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +61,37 @@ def _runtime_args(args: object, config: ResidualWalkForwardConfig) -> object:
     return runtime
 
 
+def _new_run_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{timestamp}-{uuid.uuid4().hex[:12]}"
+
+
+def _publish_authoritative_report(
+    output: Path,
+    report: dict[str, object],
+    *,
+    run_id: str,
+) -> None:
+    temporary = output / f".residual_walk_forward.{run_id}.tmp"
+    destination = output / "residual_walk_forward.json"
+    try:
+        save_residual_walk_forward_report(temporary, report)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _isolate_failed_run(staging: Path, output: Path, run_id: str) -> None:
+    if not staging.exists():
+        return
+    failed_root = output / "failed"
+    failed_root.mkdir(parents=True, exist_ok=True)
+    failed_destination = failed_root / run_id
+    if failed_destination.exists():
+        shutil.rmtree(failed_destination)
+    os.replace(staging, failed_destination)
+
+
 def run_residual_fold(
     *,
     fs,
@@ -66,7 +101,8 @@ def run_residual_fold(
 ) -> dict[str, object]:
     """Train/select on development data and score one frozen outer OOS fold."""
 
-    fold_output = Path(output_dir) / "residual_wf" / f"fold_{spec.fold}"
+    output_root = Path(output_dir)
+    fold_output = output_root / "residual_wf" / f"fold_{spec.fold}"
     fold_output.mkdir(parents=True, exist_ok=True)
     fold_args = copy.copy(args)
     fold_args.seed = int(args.seed) + spec.fold * max(1, int(args.ensemble))
@@ -175,7 +211,7 @@ def run_residual_fold(
     )
 
     selected_model_identity = (
-        str(candidates.selected_model_path)
+        str(candidates.selected_model_path.relative_to(output_root))
         if candidates.selected_model_path is not None
         else "identity:base_trend_v2"
     )
@@ -195,7 +231,7 @@ def run_residual_fold(
         "leak_self_test": leak,
         "signal_gate": signal_gate,
         "alpha_dataset_identity": alpha.dataset_identity,
-        "alpha_artifact_path": str(alpha_path),
+        "alpha_artifact_path": str(alpha_path.relative_to(output_root)),
         "alpha_artifact_gate_passed": bool(alpha.enabled),
         "development_matrix": candidates.development_results,
         "development_matrix_cost2x": candidates.development_cost2x_results,
@@ -223,63 +259,99 @@ def run_residual_walk_forward(
     args,
     output_dir: str | Path,
 ) -> dict[str, object]:
-    """Run research-only nested expanding Walk-Forward for residual RL."""
+    """Run and atomically publish research-only residual Walk-Forward evidence."""
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    source_args = copy.copy(args)
-    source_args.action_mode = "baseline-residual"
-    source_args.min_trade_delta = 0.0
-    source_args.lambda_turnover = 0.0
-    fs = build_feature_set(source_args, output_dir=output)
-    config = ResidualWalkForwardConfig.from_args(
-        args,
-        dataset_identity=feature_set_identity(fs),
-    )
-    runtime_args = _runtime_args(args, config)
-    specs, skipped = build_residual_fold_specs(
-        n_bars=fs.n_bars,
-        n_folds=config.requested_folds,
-        purge_bars=config.effective_purge_bars,
-        horizon=config.horizon,
-    )
+    run_id = _new_run_id()
+    staging_root = output / ".staging"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    staging = staging_root / run_id
+    staging.mkdir(parents=False, exist_ok=False)
 
-    folds: list[dict[str, object]] = []
-    for spec in specs:
-        folds.append(
-            run_residual_fold(
-                fs=fs,
-                spec=spec,
-                args=runtime_args,
-                output_dir=output,
-            )
+    try:
+        source_args = copy.copy(args)
+        source_args.action_mode = "baseline-residual"
+        source_args.min_trade_delta = 0.0
+        source_args.lambda_turnover = 0.0
+        fs = build_feature_set(source_args, output_dir=staging)
+        config = ResidualWalkForwardConfig.from_args(
+            args,
+            dataset_identity=feature_set_identity(fs),
         )
+        runtime_args = _runtime_args(args, config)
+        specs, skipped = build_residual_fold_specs(
+            n_bars=fs.n_bars,
+            n_folds=config.requested_folds,
+            purge_bars=config.effective_purge_bars,
+            horizon=config.horizon,
+        )
+        if len(specs) < 2:
+            raise RuntimeError(
+                "residual walk-forward requires at least two completed folds"
+            )
 
-    report_config = {
-        **config.to_dict(),
-        "completed_folds": len(folds),
-        "member_seeds_per_fold": config.effective_ensemble_size,
-        "n_bars_total": int(fs.n_bars),
-        "outer_train_start_fraction": 0.4,
-        "policy_train_fraction": 0.70,
-        "checkpoint_validation_fraction": 0.15,
-        "configuration_selection_fraction": 0.15,
-    }
-    report: dict[str, object] = {
-        "mode": "baseline_residual_walk_forward_v1",
-        "action_schema": "baseline_residual_v1",
-        "config": report_config,
-        "summary": summarize_residual_folds(
-            folds,
-            requested_folds=config.requested_folds,
-            skipped_folds=skipped,
-        ),
-        "folds": folds,
-        "skipped_folds": skipped,
-        "release_eligible": False,
-        "release_blocker": (
-            "sealed residual release workflow remains incomplete; research output only"
-        ),
-    }
-    save_residual_walk_forward_report(output / "residual_walk_forward.json", report)
-    return report
+        folds: list[dict[str, object]] = []
+        for spec in specs:
+            folds.append(
+                run_residual_fold(
+                    fs=fs,
+                    spec=spec,
+                    args=runtime_args,
+                    output_dir=staging,
+                )
+            )
+        if len(folds) < 2:
+            raise RuntimeError(
+                "residual walk-forward requires at least two completed folds"
+            )
+
+        report_config = {
+            **config.to_dict(),
+            "completed_folds": len(folds),
+            "member_seeds_per_fold": config.effective_ensemble_size,
+            "n_bars_total": int(fs.n_bars),
+            "outer_train_start_fraction": 0.4,
+            "policy_train_fraction": 0.70,
+            "checkpoint_validation_fraction": 0.15,
+            "configuration_selection_fraction": 0.15,
+        }
+        report: dict[str, object] = {
+            "run_id": run_id,
+            "status": "completed",
+            "run_path": f"residual_wf_runs/{run_id}",
+            "mode": "baseline_residual_walk_forward_v1",
+            "action_schema": "baseline_residual_v1",
+            "config": report_config,
+            "summary": summarize_residual_folds(
+                folds,
+                requested_folds=config.requested_folds,
+                skipped_folds=skipped,
+            ),
+            "folds": folds,
+            "skipped_folds": skipped,
+            "release_eligible": False,
+            "release_blocker": (
+                "sealed residual release workflow remains incomplete; research output only"
+            ),
+        }
+        save_residual_walk_forward_report(
+            staging / "residual_walk_forward.json",
+            report,
+        )
+        for spec in specs:
+            expected = staging / "residual_wf" / f"fold_{spec.fold}" / "fold_report.json"
+            if not expected.is_file():
+                raise RuntimeError(f"missing fold report before publication: {expected}")
+
+        completed_root = output / "residual_wf_runs"
+        completed_root.mkdir(parents=True, exist_ok=True)
+        completed = completed_root / run_id
+        if completed.exists():
+            raise FileExistsError(f"completed run already exists: {completed}")
+        os.replace(staging, completed)
+        _publish_authoritative_report(output, report, run_id=run_id)
+        return report
+    except Exception:
+        _isolate_failed_run(staging, output, run_id)
+        raise

@@ -64,6 +64,7 @@ def test_fold_specs_skip_only_declared_minimum_size_failures() -> None:
     assert skipped
     assert {entry["reason"] for entry in skipped} <= {
         "inner_train_too_short",
+        "checkpoint_validation_too_short",
         "inner_validation_too_short",
         "outer_test_too_short",
     }

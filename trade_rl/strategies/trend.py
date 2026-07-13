@@ -174,7 +174,11 @@ class TrendStrategy:
             lookback=lookback,
         )
         momentum = np.log(dataset.close[index] / dataset.close[previous])
-        active = dataset.asset_active[index] & dataset.asset_active[previous]
+        active = dataset.eligibility_mask(
+            index,
+            lookback=index - previous,
+            require_features=False,
+        )
         mode = self._resolved_mode(dataset)
 
         if not np.any(active):

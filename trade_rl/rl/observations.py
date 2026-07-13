@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendTargets
@@ -91,6 +92,100 @@ class ObservationExecutionState:
         ):
             raise ValueError("execution diagnostics must be non-negative")
         return ObservationExecutionState(**arrays)
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationInput:
+    """Structured causal state consumed by the shared observation builder."""
+
+    dataset: MarketDataset
+    index: int
+    trends: TrendTargets
+    alpha: np.ndarray
+    hybrid: BookState
+    shadow: BookState
+    start_index: int
+    end_index: int
+    hybrid_risk_scale: float
+    shadow_risk_scale: float
+    factor_basis: np.ndarray | None = None
+    execution_state: ObservationExecutionState | None = None
+    previous_action: np.ndarray | None = None
+    action_size: int | None = None
+    finite_horizon: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationBuilder:
+    """Single causal observation implementation shared by training and adapters."""
+
+    action_size: int = 3
+    n_factors: int = 0
+    finite_horizon: bool = False
+
+    def layout(self, dataset: MarketDataset) -> ObservationLayout:
+        return observation_layout(
+            dataset,
+            action_size=self.action_size,
+            n_factors=self.n_factors,
+            finite_horizon=self.finite_horizon,
+        )
+
+    def schema_digest(self, dataset: MarketDataset) -> str:
+        layout = self.layout(dataset)
+        return content_digest(
+            {
+                "schema_version": OBSERVATION_SCHEMA,
+                "dataset_feature_names": dataset.feature_names,
+                "dataset_global_feature_names": dataset.global_feature_names,
+                "action_size": self.action_size,
+                "n_factors": self.n_factors,
+                "finite_horizon": self.finite_horizon,
+                "layout": {
+                    "n_symbols": layout.n_symbols,
+                    "n_features": layout.n_features,
+                    "per_symbol_width": layout.per_symbol_width,
+                    "global_width": layout.global_width,
+                    "size": layout.size,
+                    "dtype": "float32",
+                },
+            }
+        )
+
+    def build(self, value: ObservationInput) -> np.ndarray:
+        factor_basis = value.factor_basis
+        resolved_factors = (
+            self.n_factors
+            if factor_basis is None
+            else int(np.asarray(factor_basis).shape[0])
+        )
+        if resolved_factors != self.n_factors:
+            raise ValueError("observation factor basis does not match builder")
+        resolved_action_size = (
+            self.action_size if value.action_size is None else value.action_size
+        )
+        if resolved_action_size != self.action_size:
+            raise ValueError("observation action size does not match builder")
+        finite_horizon = value.finite_horizon or self.finite_horizon
+        if finite_horizon != self.finite_horizon:
+            raise ValueError("observation horizon mode does not match builder")
+        return build_observation(
+            dataset=value.dataset,
+            index=value.index,
+            trends=value.trends,
+            alpha=value.alpha,
+            factor_basis=factor_basis,
+            hybrid=value.hybrid,
+            shadow=value.shadow,
+            start_index=value.start_index,
+            end_index=value.end_index,
+            hybrid_risk_scale=value.hybrid_risk_scale,
+            shadow_risk_scale=value.shadow_risk_scale,
+            execution_state=value.execution_state,
+            previous_action=value.previous_action,
+            action_size=self.action_size,
+            finite_horizon=self.finite_horizon,
+        )
 
 
 def observation_layout(
@@ -262,7 +357,7 @@ def build_observation(
             _feature_staleness(dataset, index),
             dataset.feature_missing_reason[index].astype(np.float64, copy=False),
             dataset.asset_active[index].astype(np.float64, copy=False),
-            dataset.tradable[index].astype(np.float64, copy=False),
+            dataset.observable_tradable(index).astype(np.float64, copy=False),
             trends.fast,
             trends.base,
             trends.slow,

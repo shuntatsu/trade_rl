@@ -28,6 +28,14 @@ Policy observations do not include synthetic episode progress or next-bar tradab
 
 Every policy ensemble records the observation schema, complete PPO configuration digest, requested timesteps, observed actual timesteps, and resolved compute device. Low GPU utilization for the current small single-environment MLP is not treated as a quality failure; throughput and sealed OOS evidence remain the relevant criteria.
 
+## AUM and environment identity contract
+
+Initial capital is an explicit quote-currency research input rather than a scale-free default. The environment refuses construction when AUM is omitted. This prevents a one-dollar simulation from silently disabling participation, impact, and liquidation constraints that matter for the intended deployment capital.
+
+The environment identity hashes the dataset, resolved timing, trend configuration, risk limits, execution costs, reward configuration, alpha mode, action and observation schemas, and initial capital. Policy ensembles record the environment digest and AUM, and fail closed when seeds report inconsistent environment or capital identities.
+
+Capacity conclusions must therefore be evaluated at predeclared AUM scenarios. Performance at one capital scale does not establish performance at a larger scale.
+
 ## Nested walk-forward execution contract
 
 The maintained workflow now has a concrete adapter-driven fold runner. Candidate training receives only the fold train and checkpoint-validation ranges. Frozen candidates and the identity baseline are compared only on the configuration-selection range. The selected candidate and baseline are then evaluated on the sealed outer-test range exactly once; baseline fallback avoids a duplicate test evaluation.

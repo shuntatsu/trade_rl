@@ -28,9 +28,9 @@ Paired moving-block inference continues to use `log1p(candidate_return) - log1p(
 
 Random training episodes end as time-limit truncations without forced liquidation. Stable-Baselines3 may therefore bootstrap their terminal observations. Explicit end-of-window liquidation is reserved for sealed evaluation, is reported as a terminal transition, and fails closed if liquidity prevents a complete exit.
 
-Policy observations do not include synthetic episode progress or next-bar tradability. They do include current rolling hybrid and shadow growth, baseline shortfall, hinge level, and emergency-deleverage state because those values determine future reward and termination semantics. Next-open execution uses the last completed bar's volume as its capacity proxy, while actual next-bar tradability remains part of transition dynamics.
+Policy observations do not include synthetic episode progress or next-bar tradability. They do include rolling hybrid and shadow growth, their growth gap, baseline shortfall, scaled tolerance, hinge level, and emergency-deleverage state because those values determine future reward and termination semantics. Next-open execution uses the last completed bar's volume as its capacity proxy, while actual next-bar tradability remains part of transition dynamics.
 
-A 20% hybrid drawdown triggers paired current-close liquidation and a true `drawdown_stop` terminal transition. Actual liquidation costs are included in final wealth and reward; there is no fixed terminal jackpot or penalty.
+A 20% hybrid drawdown triggers current-close liquidation of the hybrid policy book and a true `drawdown_stop` terminal transition. The independent shadow book is preserved rather than charged for a policy failure. Actual hybrid liquidation costs are included in final wealth and reward; there is no fixed terminal jackpot or penalty. Explicit sealed end-of-window evaluation remains the separate mode that liquidates both books.
 
 Every policy ensemble records the observation schema, complete PPO configuration digest, requested timesteps, observed actual timesteps, and resolved compute device. Low GPU utilization for the current small single-environment MLP is not treated as a quality failure; throughput and sealed OOS evidence remain the relevant criteria.
 

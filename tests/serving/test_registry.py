@@ -9,7 +9,9 @@ from tests.serving.helpers import create_bundle
 from trade_rl.serving.registry import ServingRegistry
 
 
-def test_registry_activates_released_validated_bundle_atomically(tmp_path: Path) -> None:
+def test_registry_activates_released_validated_bundle_atomically(
+    tmp_path: Path,
+) -> None:
     source = create_bundle(tmp_path / "source")
     registry = ServingRegistry(tmp_path / "registry")
 

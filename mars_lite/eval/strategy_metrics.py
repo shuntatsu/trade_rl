@@ -31,9 +31,7 @@ def sharpe_from_equity(equity_curve: object, *, bars_per_year: int) -> float:
         return 0.0
     returns = np.diff(equity) / equity[:-1]
     std = float(returns.std())
-    return (
-        float(returns.mean() / std * np.sqrt(bars_per_year)) if std > 0.0 else 0.0
-    )
+    return float(returns.mean() / std * np.sqrt(bars_per_year)) if std > 0.0 else 0.0
 
 
 def reannualize_strategy_result(result: Any, *, bars_per_year: int) -> Any:

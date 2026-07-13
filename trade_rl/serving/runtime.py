@@ -124,7 +124,9 @@ class ServingRuntime:
     def _validated_vector(observation: np.ndarray, *, expected_size: int) -> np.ndarray:
         vector = np.asarray(observation, dtype=np.float32).reshape(-1)
         if vector.size != expected_size:
-            raise ValueError("observation size does not match the active serving bundle")
+            raise ValueError(
+                "observation size does not match the active serving bundle"
+            )
         if not np.isfinite(vector).all():
             raise ValueError("observation must contain only finite values")
         return vector
@@ -149,10 +151,14 @@ class ServingRuntime:
         snapshot, policy = self._active()
         dataset = value.dataset
         if dataset.dataset_id != snapshot.dataset_id:
-            raise ValueError("serving dataset identity does not match the active bundle")
+            raise ValueError(
+                "serving dataset identity does not match the active bundle"
+            )
         schema_digest = self.observation_builder.schema_digest(dataset)
         if schema_digest != snapshot.observation_schema_digest:
-            raise ValueError("serving observation schema does not match the active bundle")
+            raise ValueError(
+                "serving observation schema does not match the active bundle"
+            )
         vector = self._validated_vector(
             self.build_observation(value),
             expected_size=snapshot.observation_size,

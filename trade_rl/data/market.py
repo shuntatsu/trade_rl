@@ -125,7 +125,9 @@ class MarketDataset:
             if self.symbol_active is None
             else self.symbol_active
         )
-        available_at_value = event_times if self.available_at is None else self.available_at
+        available_at_value = (
+            event_times if self.available_at is None else self.available_at
+        )
         available_at = _readonly_array(
             available_at_value,
             dtype=np.dtype("datetime64[ns]"),
@@ -314,7 +316,9 @@ class MarketDataset:
         available_at = self.available_at
         assert symbol_active is not None
         assert available_at is not None
-        available_by_decision = available_at[start : index + 1] <= self.timestamps[index]
+        available_by_decision = (
+            available_at[start : index + 1] <= self.timestamps[index]
+        )
         eligible = np.all(
             symbol_active[start : index + 1]
             & self.tradable[start : index + 1]

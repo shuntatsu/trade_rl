@@ -81,7 +81,9 @@ def _write_arrays(path: Path, dataset: MarketDataset) -> None:
             )
 
 
-def _manifest_payload(dataset: MarketDataset, *, arrays_digest: str) -> dict[str, object]:
+def _manifest_payload(
+    dataset: MarketDataset, *, arrays_digest: str
+) -> dict[str, object]:
     return {
         "schema": MARKET_ARTIFACT_SCHEMA,
         "dataset_id": dataset.dataset_id,
@@ -176,7 +178,10 @@ def load_market_dataset_artifact(root: str | Path) -> MarketDataset:
         raise ValueError("market artifact manifest digest mismatch")
     if _string(manifest.get("schema"), field="schema") != MARKET_ARTIFACT_SCHEMA:
         raise ValueError("unsupported market artifact schema")
-    if _string(manifest.get("arrays_file"), field="arrays_file") != MARKET_ARTIFACT_ARRAYS:
+    if (
+        _string(manifest.get("arrays_file"), field="arrays_file")
+        != MARKET_ARTIFACT_ARRAYS
+    ):
         raise ValueError("market artifact arrays_file is unsupported")
     if _file_digest(arrays_path) != _string(
         manifest.get("arrays_digest"),

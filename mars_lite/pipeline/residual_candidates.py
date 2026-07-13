@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,24 @@ class FixedResidualAgent:
 class IdentityResidualAgent(FixedResidualAgent):
     def __init__(self):
         super().__init__((0.0, 0.0))
+
+
+def digest_model_artifact(path: Path) -> str:
+    """Return a canonical SHA-256 for a model file or ensemble directory."""
+
+    artifact = Path(path)
+    if artifact.is_file():
+        return hashlib.sha256(artifact.read_bytes()).hexdigest()
+    if not artifact.is_dir():
+        raise FileNotFoundError(f"model artifact does not exist: {artifact}")
+    files = sorted(child for child in artifact.rglob("*") if child.is_file())
+    if not files:
+        raise ValueError(f"model artifact directory is empty: {artifact}")
+    digest = hashlib.sha256()
+    for child in files:
+        digest.update(child.relative_to(artifact).as_posix().encode("utf-8"))
+        digest.update(hashlib.sha256(child.read_bytes()).digest())
+    return digest.hexdigest()
 
 
 def _slim_baselines(results: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -193,6 +212,7 @@ class ResidualCandidateSelection:
     selected_agent: object
     selected_policies: tuple[object, ...]
     selected_model_path: Path | None
+    selected_model_digest: str
     selected_alpha_enabled: bool
 
 
@@ -311,16 +331,19 @@ def train_select_residual_candidates(
         selected_agent = d_agent
         selected_policies = tuple(d_policies)
         selected_model_path = d_model_path
+        selected_model_digest = digest_model_artifact(d_model_path)
         selected_alpha_enabled = True
     elif selected == "B":
         selected_agent = b_agent
         selected_policies = tuple(b_policies)
         selected_model_path = b_model_path
+        selected_model_digest = digest_model_artifact(b_model_path)
         selected_alpha_enabled = False
     elif selected == "A":
         selected_agent = identity
         selected_policies = ()
         selected_model_path = None
+        selected_model_digest = "identity:base_trend_v2"
         selected_alpha_enabled = False
     else:
         raise RuntimeError(f"unsupported selected residual configuration: {selected}")
@@ -333,5 +356,6 @@ def train_select_residual_candidates(
         selected_agent=selected_agent,
         selected_policies=selected_policies,
         selected_model_path=selected_model_path,
+        selected_model_digest=selected_model_digest,
         selected_alpha_enabled=selected_alpha_enabled,
     )

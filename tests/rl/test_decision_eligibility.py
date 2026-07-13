@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 import numpy as np
 
 from trade_rl.data.builder import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -13,7 +18,9 @@ from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
 def _market(*, next_tradable: bool = True, suspended_symbol: int | None = None):
-    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(40) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        40
+    ) * np.timedelta64(1, "h")
     values: dict[str, RawMarketSeries] = {}
     symbols = ("UP", "MID", "DOWN")
     slopes = (0.003, 0.001, -0.002)

@@ -33,36 +33,59 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff
-        run: uv run ruff check .
+        id: ruff
+        continue-on-error: true
+        run: uv run ruff check . 2>&1 | tee ruff.log
 
       - name: Format
-        run: uv run ruff format --check --diff .
+        id: format
+        continue-on-error: true
+        run: uv run ruff format --check --diff . 2>&1 | tee format.log
 
       - name: Mypy
         id: mypy
         continue-on-error: true
         run: uv run mypy trade_rl 2>&1 | tee mypy.log
 
-      - name: Upload mypy diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mypy-diagnostics
-          path: mypy.log
-
-      - name: Fail on mypy errors
-        if: steps.mypy.outcome == 'failure'
-        run: exit 1
-
       - name: Import architecture
-        run: uv run lint-imports
+        id: imports
+        continue-on-error: true
+        run: uv run lint-imports 2>&1 | tee imports.log
 
       - name: Dead-code report
         continue-on-error: true
-        run: uv run vulture trade_rl tests --min-confidence 100
+        run: uv run vulture trade_rl tests --min-confidence 100 2>&1 | tee vulture.log
 
       - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+        id: tests
+        continue-on-error: true
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing 2>&1 | tee tests.log
 
       - name: CLI smoke test
-        run: uv run trade-rl --version
+        id: cli
+        continue-on-error: true
+        run: uv run trade-rl --version 2>&1 | tee cli.log
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: implementation-diagnostics
+          path: |
+            ruff.log
+            format.log
+            mypy.log
+            imports.log
+            vulture.log
+            tests.log
+            cli.log
+
+      - name: Fail on verification errors
+        if: >-
+          steps.ruff.outcome == 'failure' ||
+          steps.format.outcome == 'failure' ||
+          steps.mypy.outcome == 'failure' ||
+          steps.imports.outcome == 'failure' ||
+          steps.tests.outcome == 'failure' ||
+          steps.cli.outcome == 'failure'
+        run: exit 1

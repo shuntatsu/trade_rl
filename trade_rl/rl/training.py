@@ -127,16 +127,21 @@ class ResidualTrainingConfig:
 
 @dataclass(frozen=True, slots=True)
 class PolicyTrainingResult:
-    """One backend run with observed work and device identity."""
+    """One backend run with work, compute, environment, and AUM identity."""
 
     checkpoint_path: Path
     actual_timesteps: int
     resolved_device: str
+    environment_digest: str
+    initial_capital: float
 
     def __post_init__(self) -> None:
         if self.actual_timesteps <= 0:
             raise ValueError("actual_timesteps must be positive")
         require_non_empty(self.resolved_device, field="resolved_device")
+        require_sha256(self.environment_digest, field="environment_digest")
+        if not math.isfinite(self.initial_capital) or self.initial_capital <= 0.0:
+            raise ValueError("initial_capital must be finite and positive")
 
 
 class PolicyTrainingBackend(Protocol):
@@ -161,6 +166,23 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _environment_identity(environment: gym.Env) -> tuple[str, float]:
+    unwrapped = environment.unwrapped
+    environment_digest = getattr(unwrapped, "environment_digest", None)
+    initial_capital = getattr(unwrapped, "initial_capital", None)
+    if not isinstance(environment_digest, str):
+        raise ValueError("training environment must expose environment_digest")
+    require_sha256(environment_digest, field="environment_digest")
+    if (
+        isinstance(initial_capital, bool)
+        or not isinstance(initial_capital, int | float)
+        or not math.isfinite(float(initial_capital))
+        or float(initial_capital) <= 0.0
+    ):
+        raise ValueError("training environment must expose positive initial_capital")
+    return environment_digest, float(initial_capital)
+
+
 def train_residual_ensemble(
     *,
     dataset: DatasetManifest,
@@ -181,6 +203,8 @@ def train_residual_ensemble(
     members: list[PolicyMember] = []
     actual_timesteps: set[int] = set()
     resolved_devices: set[str] = set()
+    environment_digests: set[str] = set()
+    initial_capitals: set[float] = set()
     for member_index, seed in enumerate(config.seeds):
         checkpoint = output_dir / f"member-{member_index:03d}" / "policy.zip"
         result = backend.train(
@@ -193,6 +217,8 @@ def train_residual_ensemble(
             raise ValueError("training backend returned an unexpected checkpoint path")
         actual_timesteps.add(result.actual_timesteps)
         resolved_devices.add(result.resolved_device)
+        environment_digests.add(result.environment_digest)
+        initial_capitals.add(result.initial_capital)
         members.append(
             PolicyMember(
                 seed=seed,
@@ -204,14 +230,22 @@ def train_residual_ensemble(
         raise ValueError("ensemble members reported inconsistent actual_timesteps")
     if len(resolved_devices) != 1:
         raise ValueError("ensemble members reported inconsistent resolved devices")
+    if len(environment_digests) != 1:
+        raise ValueError("ensemble members reported inconsistent environment identity")
+    if len(initial_capitals) != 1:
+        raise ValueError("ensemble members reported inconsistent initial capital")
     observed_timesteps = actual_timesteps.pop()
     resolved_device = resolved_devices.pop()
+    environment_digest = environment_digests.pop()
+    initial_capital = initial_capitals.pop()
     training_config_digest = content_digest(config.digest_payload())
     digest_payload = {
         "action_schema": ACTION_SCHEMA,
         "actual_timesteps": observed_timesteps,
         "created_at": created_at,
         "dataset_id": dataset.dataset_id,
+        "environment_digest": environment_digest,
+        "initial_capital": initial_capital,
         "members": tuple(
             {
                 "checkpoint_digest": member.checkpoint_digest,
@@ -222,7 +256,7 @@ def train_residual_ensemble(
         "observation_schema": OBSERVATION_SCHEMA,
         "requested_timesteps": config.timesteps,
         "resolved_device": resolved_device,
-        "schema_version": "policy_ensemble_v2",
+        "schema_version": "policy_ensemble_v3",
         "training_config_digest": training_config_digest,
     }
     return PolicyEnsembleManifest(
@@ -231,6 +265,8 @@ def train_residual_ensemble(
         action_schema=ACTION_SCHEMA,
         observation_schema=OBSERVATION_SCHEMA,
         training_config_digest=training_config_digest,
+        environment_digest=environment_digest,
+        initial_capital=initial_capital,
         requested_timesteps=config.timesteps,
         actual_timesteps=observed_timesteps,
         resolved_device=resolved_device,
@@ -263,6 +299,7 @@ class StableBaselines3PPOBackend:
 
         environment = self.environment_factory()
         try:
+            environment_digest, initial_capital = _environment_identity(environment)
             model = PPO(
                 config.policy,
                 environment,
@@ -292,6 +329,8 @@ class StableBaselines3PPOBackend:
                 checkpoint_path=output_path,
                 actual_timesteps=int(model.num_timesteps),
                 resolved_device=str(model.device),
+                environment_digest=environment_digest,
+                initial_capital=initial_capital,
             )
         finally:
             environment.close()

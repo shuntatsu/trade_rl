@@ -104,3 +104,32 @@ def test_local_validation_contract_is_documented_in_both_languages() -> None:
     for phrase in required:
         assert phrase in english
         assert phrase in japanese
+
+
+def test_residual_walk_forward_architecture_is_normative() -> None:
+    english = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    japanese = (ROOT / "docs" / "ja" / "ARCHITECTURE.md").read_text(
+        encoding="utf-8"
+    )
+    english_required = (
+        "Residual Walk-Forward",
+        "Control Plane orchestration",
+        "pure evaluation primitives",
+        "atomic publication",
+        "at least two completed folds",
+        "stitched OOS",
+        "research-only",
+    )
+    japanese_required = (
+        "Residual Walk-Forward",
+        "Control Plane orchestration",
+        "pure evaluation primitives",
+        "atomic publication",
+        "at least two completed folds",
+        "stitched OOS",
+        "research-only",
+    )
+    for phrase in english_required:
+        assert phrase in english
+    for phrase in japanese_required:
+        assert phrase in japanese

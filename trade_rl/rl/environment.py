@@ -33,6 +33,7 @@ class ResidualMarketEnvConfig:
     reward_scale: float = 100.0
     initial_capital: float = 1.0
     minimum_equity_fraction: float = 1e-6
+    hybrid_insolvency_penalty: float = 1.0
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
 
     def __post_init__(self) -> None:
@@ -47,6 +48,13 @@ class ResidualMarketEnvConfig:
         ):
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{field_name} must be finite and positive")
+        if (
+            not math.isfinite(self.hybrid_insolvency_penalty)
+            or self.hybrid_insolvency_penalty < 0.0
+        ):
+            raise ValueError(
+                "hybrid_insolvency_penalty must be finite and non-negative"
+            )
 
 
 class ResidualMarketEnv(gym.Env):
@@ -127,7 +135,8 @@ class ResidualMarketEnv(gym.Env):
             index=self.current_index,
             trends=trends,
             alpha=alpha,
-            book=self.hybrid,
+            hybrid=self.hybrid,
+            shadow=self.shadow,
             start_index=self.start_index,
             end_index=self.end_index,
         )
@@ -202,10 +211,9 @@ class ResidualMarketEnv(gym.Env):
         self.current_index = hybrid_execution.next_index
         self._decision_step_index += 1
         threshold = self.config.initial_capital * self.config.minimum_equity_fraction
-        terminated = (
-            self.hybrid.portfolio_value <= threshold
-            or self.shadow.portfolio_value <= threshold
-        )
+        hybrid_insolvent = self.hybrid.portfolio_value <= threshold
+        shadow_insolvent = self.shadow.portfolio_value <= threshold
+        terminated = hybrid_insolvent or shadow_insolvent
         truncated = self.current_index >= self.end_index
         excess_log_return = (
             hybrid_execution.interval_log_return - shadow_execution.interval_log_return
@@ -214,7 +222,8 @@ class ResidualMarketEnv(gym.Env):
             hybrid_log_return=hybrid_execution.interval_log_return,
             shadow_log_return=shadow_execution.interval_log_return,
             scale=self.config.reward_scale,
-            terminated=terminated,
+            hybrid_insolvent=hybrid_insolvent,
+            hybrid_insolvency_penalty=self.config.hybrid_insolvency_penalty,
         )
         info: dict[str, object] = {
             "bars_advanced": hybrid_execution.bars_advanced,
@@ -225,6 +234,9 @@ class ResidualMarketEnv(gym.Env):
             "interval_net_return": hybrid_execution.interval_net_return,
             "shadow_interval_net_return": shadow_execution.interval_net_return,
             "excess_log_return": excess_log_return,
+            "hybrid_insolvent": hybrid_insolvent,
+            "shadow_insolvent": shadow_insolvent,
+            "rollout_valid": not shadow_insolvent,
             "composition": composition,
         }
         if terminated or truncated:

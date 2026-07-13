@@ -30,33 +30,7 @@ jobs:
       - name: Apply final implementation
         run: |
           python tools/apply_final_hardening.py
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("trade_rl/rl/actions.py")
-          text = path.read_text(encoding="utf-8")
-          old = '''        for field, value in (
-              ("trend_mix", self.trend_mix),
-              ("alpha_budget", self.alpha_budget),
-          ):
-              if not np.isfinite(value):
-                  raise ValueError(f"{field} must be finite")
-              if not -1.0 <= value <= 1.0:
-                  raise ValueError(f"{field} must be within [-1, 1]")
-          '''
-          new = '''        for field_name, value in (
-              ("trend_mix", self.trend_mix),
-              ("alpha_budget", self.alpha_budget),
-          ):
-              if not np.isfinite(value):
-                  raise ValueError(f"{field_name} must be finite")
-              if not -1.0 <= value <= 1.0:
-                  raise ValueError(f"{field_name} must be within [-1, 1]")
-          '''
-          if old not in text:
-              raise RuntimeError("ResidualAction field loop was not found")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
-          PY
+          python tools/fix_f402.py
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -74,66 +48,7 @@ jobs:
 
       - name: Commit implementation and restore CI
         run: |
-          cat > .github/workflows/ci.yml <<'EOF'
-          name: CI
-
-          on:
-            push:
-              branches:
-                - main
-            pull_request:
-              branches:
-                - main
-                - agent/causal-training-hardening
-
-          permissions:
-            contents: read
-
-          concurrency:
-            group: ci-${{ github.workflow }}-${{ github.ref }}
-            cancel-in-progress: true
-
-          jobs:
-            quality:
-              name: Rebuilt Core
-              runs-on: ubuntu-latest
-              steps:
-                - name: Checkout
-                  uses: actions/checkout@v4
-
-                - name: Set up uv
-                  uses: astral-sh/setup-uv@v5
-                  with:
-                    python-version: "3.12"
-                    enable-cache: true
-
-                - name: Install
-                  run: uv sync --extra dev
-
-                - name: Ruff
-                  run: uv run ruff check .
-
-                - name: Format
-                  run: uv run ruff format --check --diff .
-
-                - name: Mypy
-                  run: uv run mypy trade_rl
-
-                - name: Import architecture
-                  run: uv run lint-imports
-
-                - name: Dead-code report
-                  continue-on-error: true
-                  run: uv run vulture trade_rl tests --min-confidence 100
-
-                - name: Tests and coverage
-                  run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
-
-                - name: CLI smoke test
-                  run: uv run trade-rl --version
-          EOF
-          rm -f .github/workflows/implementation-fix.yml
-          rm -f tools/apply_final_hardening.py
+          python tools/restore_ci.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A

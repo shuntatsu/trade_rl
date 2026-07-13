@@ -9,7 +9,7 @@ from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TypeAlias
+from typing import Any, TypeAlias, cast
 
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -32,8 +32,10 @@ def _mapping_value(value: Mapping[object, object]) -> dict[str, JsonValue]:
 
 
 def _dataclass_value(value: object) -> dict[str, JsonValue]:
+    dataclass_value = cast(Any, value)
     return {
-        field.name: to_json_value(getattr(value, field.name)) for field in fields(value)
+        field.name: to_json_value(getattr(dataclass_value, field.name))
+        for field in fields(dataclass_value)
     }
 
 

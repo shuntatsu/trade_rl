@@ -10,7 +10,7 @@ from dataclasses import asdict
 from typing import TextIO
 
 from trade_rl import __version__
-from trade_rl.rl.training import ResidualTrainingConfig
+from trade_rl.rl.training import ResidualTrainingConfig, gamma_from_half_life
 from trade_rl.workflows.walk_forward import WalkForwardWorkflowConfig
 
 
@@ -38,18 +38,45 @@ def _status_handler(
 
 
 def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
+    if args.gamma is not None:
+        if args.decision_hours is not None or args.discount_half_life_hours is not None:
+            raise ValueError(
+                "explicit --gamma cannot be combined with discount half-life options"
+            )
+        gamma = float(args.gamma)
+        schema = "residual_training_config_v1"
+        timing: dict[str, float] = {}
+    else:
+        if args.decision_hours is None or args.discount_half_life_hours is None:
+            raise ValueError(
+                "provide --gamma or both --decision-hours and "
+                "--discount-half-life-hours"
+            )
+        decision_hours = float(args.decision_hours)
+        half_life_hours = float(args.discount_half_life_hours)
+        gamma = gamma_from_half_life(
+            decision_hours=decision_hours,
+            half_life_hours=half_life_hours,
+        )
+        schema = "residual_training_config_v2"
+        timing = {
+            "decision_hours": decision_hours,
+            "discount_half_life_hours": half_life_hours,
+        }
+
     config = ResidualTrainingConfig(
         timesteps=args.timesteps,
-        gamma=args.gamma,
+        gamma=gamma,
         seeds=tuple(args.seed),
     )
     _write_json(
         stdout,
         {
             "gamma": config.gamma,
-            "schema": "residual_training_config_v1",
+            "schema": schema,
             "seeds": list(config.seeds),
             "timesteps": config.timesteps,
+            **timing,
         },
     )
     return 0
@@ -130,7 +157,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="validate and display a residual training configuration",
     )
     train_config.add_argument("--timesteps", type=int, required=True)
-    train_config.add_argument("--gamma", type=float, required=True)
+    train_config.add_argument("--gamma", type=float)
+    train_config.add_argument("--decision-hours", type=float)
+    train_config.add_argument("--discount-half-life-hours", type=float)
     train_config.add_argument("--seed", type=int, action="append", required=True)
     train_config.set_defaults(handler=_train_config)
 

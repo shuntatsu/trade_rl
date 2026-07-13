@@ -89,3 +89,5 @@
 - [x] Document observable tradability, causal Alpha/Serving resolution, recomputable identity, and immutable artifact publication.
 - [ ] Run Ruff, format check, Mypy, Import Linter, Vulture advisory, full pytest with branch coverage, and CLI smoke.
 - [ ] Update PR #24 with final head and verification evidence.
+
+The normal fail-fast CI runs from the commit containing this note; its result is the completion gate for the final two items.

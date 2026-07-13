@@ -36,15 +36,15 @@ jobs:
         run: uv run ruff check .
 
       - name: Format
-        run: uv run ruff format .
+        run: |
+          uv run ruff format .
+          git diff --binary > canonical-formatting.patch
 
       - name: Upload canonical formatting
         uses: actions/upload-artifact@v4
         with:
-          name: canonical-formatting
-          path: |
-            trade_rl
-            tests
+          name: canonical-formatting-patch
+          path: canonical-formatting.patch
           if-no-files-found: error
 
       - name: Mypy

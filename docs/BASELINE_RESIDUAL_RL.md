@@ -25,7 +25,7 @@ The RL policy can only change two quantities:
 
 - `TrendFamily` depends on price history and UTC bar timestamps, not current account weights or slice-relative indices.
 - One environment action advances one complete `decision_every` interval and returns one aggregated reward.
-- The resolved `decision_every` value is passed explicitly to every residual environment and written back to the run configuration; invalid or zero values fail closed.
+- The requested and effective `decision_every` values are recorded separately in an immutable run configuration; invalid or zero values fail closed.
 - Hybrid and shadow books use independent portfolio state but identical prices, funding, costs, HTF constraints, post-processing, and hard risk checks.
 - Reward is the hybrid interval log return minus the shadow base-trend interval log return.
 - Identity action must match the shadow weights, cost, and PnL within the tested numerical tolerances.
@@ -33,11 +33,11 @@ The RL policy can only change two quantities:
 - The residual-alpha dataset identity hashes the ordered schema, timestamps, training feature values, and target price history, rather than metadata alone.
 - HTF operates on the desired proposal before stateful post-processing, so a neutral signal cannot repeatedly halve an already-constrained position.
 - Perfect and noisy oracles remain diagnostic and never participate in a mandatory release gate.
-- Sharpe and Sortino annualization use the active post-processor's base-timeframe factor rather than a fixed 1h constant.
+- Sharpe and Sortino annualization use the active base-timeframe factor rather than a fixed 1h constant.
 
 ## Development matrix
 
-The research runner freezes the configuration on the development validation interval before evaluating the final test interval.
+The research runner freezes the configuration on the development selection interval before evaluating the final test interval.
 
 ```text
 A: pure base_trend_v2 identity policy
@@ -53,7 +53,7 @@ Selection rules:
 - D is selected only when B/C/D eligibility conditions hold, D survives 2x development costs, and D strictly beats both B and C under normal development costs.
 - Otherwise the runner falls back to B when trend mixing is eligible, or A (`baseline_only`) when it is not.
 
-Only the frozen selected configuration is then evaluated once on the final test interval under 1x and 2x costs.
+Checkpoint validation and configuration selection use separate chronological windows. Only the frozen selected configuration is then evaluated on the outer OOS interval under 1x and 2x costs.
 
 ## Checkpoint selection
 
@@ -107,6 +107,8 @@ uv run python scripts/run_pipeline.py \
 
 The legacy direct-weight Walk-Forward continues to write `walk_forward_cost1x.json` and `walk_forward_cost2x.json`. Those files do not evaluate the residual architecture.
 
+A real-data legacy direct run using 3 folds × 3 seeds produced negative mean return and Sharpe under both normal and 2x costs, five zero-trade evaluations out of nine, and low Deflated Sharpe probabilities. That evidence strengthens the rejection of the legacy direct path; it is not evidence about residual performance.
+
 Run the nested residual Walk-Forward explicitly:
 
 ```bash
@@ -128,7 +130,9 @@ uv run python scripts/run_pipeline.py \
   --output output/realdata_residual_wf
 ```
 
-The authoritative result is `residual_walk_forward.json`. Every outer fold performs an inner train/validation split, selects A/B/D before reading the outer OOS result, and evaluates the same selected policy under 1x and 2x costs. The report records both hybrid and shadow trade counts, so zero residual action can be distinguished from a zero-trade portfolio. Per-fold artifacts are written below `residual_wf/fold_<k>/` and are never registered.
+Every outer fold has four non-overlapping sections: policy training, checkpoint validation, configuration selection, and outer OOS. A run needs at least two completed folds. The same selected model digest is evaluated under normal and 2x costs without retraining or reselection.
+
+The top-level `residual_walk_forward.json` is replaced only after a complete run has been published atomically. It includes the completed `run_id`, immutable resolved configuration, fold diagnostics, and stitched OOS metrics. A failed rerun does not overwrite a previous success; partial artifacts are isolated under `failed/<run_id>/`.
 
 ## Artifacts
 
@@ -137,15 +141,26 @@ The single-split research runner writes:
 - `residual_alpha.json` — frozen residual-alpha model and content-bound data identity;
 - `B_trend_mix_model.zip` or `B_trend_mix_ensemble/`;
 - `D_combined_model.zip` or `D_combined_ensemble/` when the alpha gate passes;
-- `residual_train_report.json` — A/B/C/D development results at 1x and 2x costs, frozen selection, final relative evaluation, gates, and diagnostics;
+- `residual_train_report.json` — development results at 1x and 2x costs, frozen selection, final relative evaluation, gates, and diagnostics;
 - `residual_model_manifest.json` — dataset, training, selected policy mode, and selected alpha-activation identity.
 
 The residual Walk-Forward runner writes:
 
-- `residual_walk_forward.json` — cross-fold selection, activity, return, cost, fallback, and warning summary;
-- `residual_wf/fold_<k>/residual_alpha.json` — fold-local frozen alpha artifact;
-- `residual_wf/fold_<k>/fold_report.json` — fold boundaries, development matrix, frozen selection, and 1x/2x OOS diagnostics;
-- fold-local B/D model artifacts when trained.
+```text
+<output>/
+  residual_walk_forward.json
+  residual_wf_runs/<run_id>/
+    residual_walk_forward.json
+    data_quality_report.json
+    residual_wf/fold_<k>/
+      residual_alpha.json
+      fold_report.json
+      B_trend_mix_model.zip | B_trend_mix_ensemble/
+      D_combined_model.zip | D_combined_ensemble/
+  failed/<run_id>/                 # only for failed partial runs
+```
+
+The authoritative aggregate is the chronological stitched OOS hybrid and shadow base-bar return path. Fold mean and median statistics are supplemental. Full raw return arrays are used internally for aggregation and are not duplicated in the public fold reports.
 
 ## Serving schema
 

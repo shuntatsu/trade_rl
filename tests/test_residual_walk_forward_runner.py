@@ -23,6 +23,23 @@ def _args() -> SimpleNamespace:
         min_trade_delta=0.04,
         lambda_turnover=0.04,
         seed=0,
+        base_timeframe="1h",
+        signal_model="gbm",
+        fee_profile="taker",
+        scan_horizons=False,
+    )
+
+
+def _stub_dataset(monkeypatch) -> None:
+    monkeypatch.setattr(
+        residual_walk_forward,
+        "build_feature_set",
+        lambda args, output_dir=None: _FeatureSet(),
+    )
+    monkeypatch.setattr(
+        residual_walk_forward,
+        "feature_set_identity",
+        lambda fs: "dataset-identity",
     )
 
 
@@ -30,11 +47,7 @@ def test_runner_writes_only_authoritative_residual_report(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        residual_walk_forward,
-        "build_feature_set",
-        lambda args, output_dir=None: _FeatureSet(),
-    )
+    _stub_dataset(monkeypatch)
     monkeypatch.setattr(
         residual_walk_forward,
         "run_residual_fold",
@@ -59,15 +72,17 @@ def test_runner_writes_only_authoritative_residual_report(
     )
 
     args = _args()
+    original = vars(args).copy()
     report = run_residual_walk_forward(args, tmp_path)
 
+    assert vars(args) == original
     assert report["mode"] == "baseline_residual_walk_forward_v1"
     assert report["action_schema"] == "baseline_residual_v1"
     assert report["release_eligible"] is False
     assert report["summary"]["completed_folds"] == 3
-    assert args.action_mode == "baseline-residual"
-    assert args.min_trade_delta == 0.0
-    assert args.lambda_turnover == 0.0
+    assert report["config"]["effective_decision_every"] == 4
+    assert report["config"]["effective_ensemble_size"] == 3
+    assert report["config"]["dataset_identity"] == "dataset-identity"
     assert (tmp_path / "residual_walk_forward.json").is_file()
     assert not (tmp_path / "walk_forward_cost1x.json").exists()
     assert not (tmp_path / "walk_forward_cost2x.json").exists()
@@ -77,11 +92,7 @@ def test_runner_does_not_write_success_report_when_fold_fails(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        residual_walk_forward,
-        "build_feature_set",
-        lambda args, output_dir=None: _FeatureSet(),
-    )
+    _stub_dataset(monkeypatch)
 
     def explode(**kwargs):
         raise RuntimeError("fold failed")

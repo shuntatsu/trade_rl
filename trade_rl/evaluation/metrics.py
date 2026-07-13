@@ -76,7 +76,9 @@ def evaluate_performance(
     variance = fmean((value - mean) ** 2 for value in values)
     standard_deviation = math.sqrt(variance)
     annualization = math.sqrt(returns.periods_per_year)
-    sharpe = mean / standard_deviation * annualization if standard_deviation > 0 else 0.0
+    sharpe = (
+        mean / standard_deviation * annualization if standard_deviation > 0 else 0.0
+    )
 
     downside_rms = math.sqrt(fmean(min(value, 0.0) ** 2 for value in values))
     sortino = mean / downside_rms * annualization if downside_rms > 0 else 0.0

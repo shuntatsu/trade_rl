@@ -45,7 +45,7 @@ research = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["mars_lite*"]
+include = ["mars_lite*", "trade_rl*"]
 
 [tool.ruff]
 line-length = 88
@@ -54,6 +54,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = ["E501", "E712", "F841", "E402", "E741", "E722", "F823", "F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mars_lite", "trade_rl"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -86,4 +89,3 @@ omit = [
     "mars_lite/learning/val_selection.py",
     "mars_lite/learning/curriculum_callback.py",
 ]
-

@@ -12,6 +12,7 @@ import numpy as np
 
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
+from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
@@ -40,6 +41,10 @@ class RuntimeSnapshot:
     bundle_digest: str
     dataset_id: str
     action_schema: str
+    observation_schema: str
+    observation_size: int
+    environment_digest: str
+    initial_capital: float
     policy_mode: PolicyMode
     policy_digest: str | None
     signal_digest: str
@@ -51,8 +56,14 @@ class RuntimeSnapshot:
 class ServingRuntime:
     """Validate and fully load a replacement before swapping live state."""
 
-    def __init__(self, policy_loader: PolicyLoader | None = None) -> None:
+    def __init__(
+        self,
+        policy_loader: PolicyLoader | None = None,
+        *,
+        allow_unreleased: bool = False,
+    ) -> None:
         self.policy_loader = policy_loader
+        self.allow_unreleased = allow_unreleased
         self._lock = RLock()
         self._snapshot: RuntimeSnapshot | None = None
         self._policy: LoadedPolicy | None = None
@@ -64,6 +75,10 @@ class ServingRuntime:
             bundle_digest=manifest.bundle_digest,
             dataset_id=manifest.dataset_id,
             action_schema=manifest.action_schema,
+            observation_schema=manifest.observation_schema,
+            observation_size=manifest.observation_size,
+            environment_digest=manifest.environment_digest,
+            initial_capital=manifest.initial_capital,
             policy_mode=manifest.policy_mode,
             policy_digest=manifest.policy_digest,
             signal_digest=manifest.signal_digest,
@@ -76,12 +91,19 @@ class ServingRuntime:
         """Activate only after bundle validation and policy loading both succeed."""
 
         bundle = load_serving_bundle(root)
-        if bundle.manifest.action_schema != ACTION_SCHEMA:
+        manifest = bundle.manifest
+        if manifest.release_digest is None and not self.allow_unreleased:
+            raise ValueError("serving bundle requires an approved release identity")
+        if manifest.action_schema != ACTION_SCHEMA:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"
             )
+        if manifest.observation_schema != OBSERVATION_SCHEMA:
+            raise ValueError(
+                "serving bundle observation schema does not match runtime schema"
+            )
 
-        if bundle.manifest.policy_mode is PolicyMode.BASELINE_ONLY:
+        if manifest.policy_mode is PolicyMode.BASELINE_ONLY:
             candidate_policy: LoadedPolicy = _BaselineIdentityPolicy()
         else:
             loader = self.policy_loader
@@ -108,8 +130,11 @@ class ServingRuntime:
             raise ValueError("observation must be a non-empty finite vector")
         with self._lock:
             policy = self._policy
-        if policy is None:
+            snapshot = self._snapshot
+        if policy is None or snapshot is None:
             raise RuntimeError("serving runtime has no active policy")
+        if vector.shape != (snapshot.observation_size,):
+            raise ValueError("observation violates the active observation schema")
         raw_action = np.asarray(policy.predict(vector), dtype=np.float32).reshape(-1)
         if raw_action.shape != (2,) or not np.isfinite(raw_action).all():
             raise ValueError("policy output violates the residual action schema")

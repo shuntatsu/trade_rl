@@ -26,6 +26,8 @@ from trade_rl.simulation.execution import (
 )
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
 
+_LIQUIDATION_TOLERANCE = 1e-12
+
 
 class AlphaProvider(Protocol):
     def predict_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
@@ -42,7 +44,7 @@ class ResidualMarketEnvConfig:
     minimum_equity_fraction: float = 1e-6
     downside_penalty: float = 0.0
     excess_drawdown_penalty: float = 0.0
-    liquidate_on_end: bool = True
+    liquidate_on_end: bool = False
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
 
     def __post_init__(self) -> None:
@@ -260,13 +262,9 @@ class ResidualMarketEnv(gym.Env):
         target = np.asarray(proposal, dtype=np.float64).reshape(-1).copy()
         if target.shape != (self.dataset.n_symbols,) or not np.isfinite(target).all():
             raise ValueError("proposal does not match dataset symbols")
-        next_index = min(self.current_index + 1, self.dataset.n_bars - 1)
-        tradable = self.dataset.tradable[next_index]
-        current = book.weights
-        target[~tradable] = current[~tradable]
         return self.pre_trade_risk.constrain(
             target,
-            current=current,
+            current=book.weights,
             drawdown=self._drawdown(book),
         )
 
@@ -290,6 +288,17 @@ class ResidualMarketEnv(gym.Env):
             1.0 - result.portfolio_value / result.peak_value,
         )
         return result
+
+    @staticmethod
+    def _require_complete_liquidation(
+        *,
+        name: str,
+        liquidation: ExecutionResult,
+    ) -> None:
+        if liquidation.unfilled_turnover > _LIQUIDATION_TOLERANCE or np.any(
+            np.abs(liquidation.book.quantities) > _LIQUIDATION_TOLERANCE
+        ):
+            raise RuntimeError(f"{name} liquidation left residual positions")
 
     def step(
         self,
@@ -326,12 +335,13 @@ class ResidualMarketEnv(gym.Env):
         self.shadow = shadow_execution.book
         self.current_index = hybrid_execution.next_index
         self._decision_step_index += 1
-        truncated = self.current_index >= self.end_index
+        time_limit_reached = self.current_index >= self.end_index
         hybrid_log_return = hybrid_execution.interval_log_return
         shadow_log_return = shadow_execution.interval_log_return
         hybrid_liquidation: ExecutionResult | None = None
         shadow_liquidation: ExecutionResult | None = None
-        if truncated and self.config.liquidate_on_end:
+        liquidation_terminal = time_limit_reached and self.config.liquidate_on_end
+        if liquidation_terminal:
             hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
                 self.hybrid,
                 index=self.current_index,
@@ -339,6 +349,14 @@ class ResidualMarketEnv(gym.Env):
             shadow_liquidation = self.shadow_executor.liquidate_at_close(
                 self.shadow,
                 index=self.current_index,
+            )
+            self._require_complete_liquidation(
+                name="hybrid",
+                liquidation=hybrid_liquidation,
+            )
+            self._require_complete_liquidation(
+                name="shadow",
+                liquidation=shadow_liquidation,
             )
             self.hybrid = self._merge_liquidation_return(hybrid_liquidation)
             self.shadow = self._merge_liquidation_return(shadow_liquidation)
@@ -348,7 +366,8 @@ class ResidualMarketEnv(gym.Env):
         threshold = self.config.initial_capital * self.config.minimum_equity_fraction
         hybrid_terminated = self.hybrid.portfolio_value <= threshold
         shadow_terminated = self.shadow.portfolio_value <= threshold
-        terminated = hybrid_terminated or shadow_terminated
+        terminated = hybrid_terminated or shadow_terminated or liquidation_terminal
+        truncated = time_limit_reached and not terminated
         excess_log_return = hybrid_log_return - shadow_log_return
         reward = relative_interval_reward(
             hybrid_log_return=hybrid_log_return,
@@ -377,6 +396,7 @@ class ResidualMarketEnv(gym.Env):
             "shadow_execution": shadow_execution,
             "hybrid_terminated": hybrid_terminated,
             "shadow_terminated": shadow_terminated,
+            "liquidation_terminal": liquidation_terminal,
         }
         if hybrid_liquidation is not None and shadow_liquidation is not None:
             info["hybrid_liquidation"] = hybrid_liquidation

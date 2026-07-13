@@ -116,6 +116,18 @@ build data
 
 A successful eligible training run registers a candidate but does not activate it. `--force`, `--skip-p0`, `--skip-wf`, or `--skip-gate` makes a run ineligible for candidate construction and registration. `--skip-pbt` is recorded but does not by itself disqualify a release because PBT is an optimization step rather than a safety gate.
 
+## Residual Walk-Forward research boundary
+
+Residual Walk-Forward is a research-only Control Plane orchestration path. `mars_lite.pipeline.residual_walk_forward` owns dataset construction, immutable configuration resolution, fold-local alpha fitting, A/B/C/D candidate training and selection, outer-OOS execution, artifact staging, and atomic publication. `mars_lite.eval.residual_walk_forward` contains only pure evaluation primitives for fold construction, stitched OOS statistics, and strict report shaping; it must not import the pipeline layer.
+
+Each executable fold separates policy training, checkpoint validation, configuration selection, and outer OOS with purge gaps. Checkpoint validation and configuration selection never overlap. A run must have at least two completed folds or fail closed without publishing a new success report.
+
+All artifacts are written below a run-specific staging directory. A successful run is moved atomically into `residual_wf_runs/<run_id>/`, and only then is `residual_walk_forward.json` atomically replaced. Failed partial runs are isolated below `failed/<run_id>/`; they never mix with a prior successful run.
+
+The authoritative aggregate is a stitched OOS path built from chronological, non-overlapping base-bar hybrid and shadow return series. Fold means and medians are supplemental, not total Walk-Forward performance. Model provenance is content-bound by SHA-256, and the 1x and 2x cost evaluations must reference the same selected model digest.
+
+Residual Walk-Forward output remains research-only. It is not sealed release evidence, cannot register a Registry version, and does not change Production from **NO-GO**.
+
 ## Deployment identity handshake
 
 For Canary and Production, the deployment workflow must:
@@ -181,7 +193,7 @@ Control and Serving processes use different credentials. Serving uses a bearer t
 
 - `mars_lite/data`, `mars_lite/features` — data and feature construction
 - `mars_lite/env`, `mars_lite/learning` — RL environment and training
-- `mars_lite/eval` — evaluation and replay simulation
+- `mars_lite/eval` — pure evaluation primitives and replay statistics
 - `mars_lite/pipeline` — offline orchestration and release eligibility/risk validation
 - `mars_lite/serving` — bundle, registry, contracts, runtime, audit, feature snapshots
 - `mars_lite/server` — read-only serving HTTP boundary and deployment gate
@@ -196,4 +208,3 @@ Passing CI proves that tested contracts hold; it does not prove profitability or
 The Control Plane's P0 gate preserves the candidate `horizon` and `decision_every`; `--p0-days` controls only synthetic runtime. The Serving Plane creates a content-addressed snapshot from the exact inference inputs after selecting the latest completed bar and computes staleness from bar close.
 
 `mars_lite.server.signal_server` remains authoritative. The legacy dashboard is gated by `TRADE_RL_ENABLE_LEGACY_METRICS_SERVER=1`. The filesystem Registry is deliberately single-node and is not a distributed coordination mechanism.
-

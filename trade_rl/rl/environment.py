@@ -240,7 +240,9 @@ class ResidualMarketEnv(gym.Env):
             self.config.initial_capital,
             initial_prices,
         )
-        execution_seed = self.config.execution_cost.random_seed if seed is None else seed
+        execution_seed = (
+            self.config.execution_cost.random_seed if seed is None else seed
+        )
         self.hybrid_executor.reset_random_state(execution_seed)
         self.shadow_executor.reset_random_state(execution_seed)
         self._decision_step_index = 0
@@ -273,9 +275,9 @@ class ResidualMarketEnv(gym.Env):
             return result
         if result.returns_history:
             previous = result.returns_history[-1]
-            result.returns_history[-1] = (
-                (1.0 + previous) * (1.0 + liquidation.interval_net_return) - 1.0
-            )
+            result.returns_history[-1] = (1.0 + previous) * (
+                1.0 + liquidation.interval_net_return
+            ) - 1.0
         else:
             result.returns_history.append(liquidation.interval_net_return)
         result.peak_value = max(result.peak_value, result.portfolio_value)

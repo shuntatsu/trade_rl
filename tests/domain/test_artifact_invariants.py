@@ -15,6 +15,7 @@ DATASET_ID = "a" * 64
 SIGNAL_DIGEST = "b" * 64
 POLICY_DIGEST = "c" * 64
 EVALUATION_DIGEST = "d" * 64
+TRAINING_CONFIG_DIGEST = "e" * 64
 NOW = datetime(2026, 7, 13, tzinfo=UTC)
 
 
@@ -37,6 +38,28 @@ def rejected_signal() -> SignalArtifactManifest:
         horizon=12,
         status=SignalStatus.REJECTED,
         alpha_enabled=False,
+        created_at=NOW,
+    )
+
+
+def policy_manifest(
+    *,
+    expected_members: int,
+    members: tuple[PolicyMember, ...],
+    requested_timesteps: int = 1_024,
+    actual_timesteps: int = 2_048,
+) -> PolicyEnsembleManifest:
+    return PolicyEnsembleManifest(
+        digest=POLICY_DIGEST,
+        dataset_id=DATASET_ID,
+        action_schema="baseline_residual_v1",
+        observation_schema="baseline_residual_observation_v2",
+        training_config_digest=TRAINING_CONFIG_DIGEST,
+        requested_timesteps=requested_timesteps,
+        actual_timesteps=actual_timesteps,
+        resolved_device="cpu",
+        expected_members=expected_members,
+        members=members,
         created_at=NOW,
     )
 
@@ -91,13 +114,18 @@ def test_policy_ensemble_requires_declared_members() -> None:
     )
 
     with pytest.raises(ValueError, match="member count"):
-        PolicyEnsembleManifest(
-            digest=POLICY_DIGEST,
-            dataset_id=DATASET_ID,
-            action_schema="baseline_residual_v1",
-            expected_members=3,
+        policy_manifest(expected_members=3, members=members)
+
+
+def test_policy_ensemble_rejects_actual_work_below_request() -> None:
+    members = (PolicyMember(seed=0, checkpoint_digest="1" * 64),)
+
+    with pytest.raises(ValueError, match="actual_timesteps"):
+        policy_manifest(
+            expected_members=1,
             members=members,
-            created_at=NOW,
+            requested_timesteps=2_048,
+            actual_timesteps=1_024,
         )
 
 

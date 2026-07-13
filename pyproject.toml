@@ -33,7 +33,7 @@ export = [
 ]
 
 [project.scripts]
-trade-rl = "trade_rl.cli.extended:main"
+trade-rl = "trade_rl.cli.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

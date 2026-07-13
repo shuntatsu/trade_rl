@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,8 +20,10 @@ jobs:
     name: Rebuilt Core
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout head branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -35,17 +37,19 @@ jobs:
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Format
-        run: |
-          uv run ruff format .
-          git diff --binary > canonical-formatting.patch
+      - name: Apply canonical formatting
+        run: uv run ruff format .
 
-      - name: Upload canonical formatting
-        uses: actions/upload-artifact@v4
-        with:
-          name: canonical-formatting-patch
-          path: canonical-formatting.patch
-          if-no-files-found: error
+      - name: Commit canonical formatting
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl tests
+          git commit -m "style: apply canonical formatting"
+          git push origin HEAD:${{ github.head_ref }}
 
       - name: Mypy
         run: uv run mypy trade_rl

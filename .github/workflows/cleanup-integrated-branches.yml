@@ -1,0 +1,51 @@
+name: Cleanup Integrated Branches
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.head_ref == 'ci/cleanup-integrated-branches'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ci/cleanup-integrated-branches
+          fetch-depth: 0
+      - name: Verify ancestry and delete branches
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          integrated=(
+            agent/training-artifact-pipeline
+            agent/reward-design-v2
+            agent/causal-market-data-builder
+            agent/consolidated-integration
+            agent/action-environment-comprehensive-hardening
+            agent/causal-training-hardening
+          )
+          temporary=(
+            agent/integration-conflict-map-trigger
+            agent/reward-design-v2-format-trigger
+            ci/reward-v2-concise
+            ci/reward-v2-diagnostics
+            ci/final-main-verification
+          )
+          for branch in "${integrated[@]}"; do
+            if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+              git merge-base --is-ancestor "origin/$branch" origin/main
+              git push origin --delete "$branch"
+            fi
+          done
+          for branch in "${temporary[@]}"; do
+            if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+              git push origin --delete "$branch"
+            fi
+          done
+      - name: Delete cleanup branch
+        run: git push origin --delete ci/cleanup-integrated-branches

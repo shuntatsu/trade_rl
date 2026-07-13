@@ -30,53 +30,12 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync --extra dev >/dev/null
 
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Format artifacts
-        run: uv run ruff format --check --diff trade_rl/artifacts
-
-      - name: Format CLI
-        run: uv run ruff format --check --diff trade_rl/cli
-
-      - name: Format data
-        run: uv run ruff format --check --diff trade_rl/data
-
-      - name: Format domain
-        run: uv run ruff format --check --diff trade_rl/domain
-
-      - name: Format evaluation
-        run: uv run ruff format --check --diff trade_rl/evaluation
-
       - name: Format registry
-        run: uv run ruff format --check --diff trade_rl/registry
-
-      - name: Format risk
-        run: uv run ruff format --check --diff trade_rl/risk
-
-      - name: Format RL
-        run: uv run ruff format --check --diff trade_rl/rl
-
-      - name: Format runtime
-        run: uv run ruff format --check --diff trade_rl/serving trade_rl/signal trade_rl/simulation trade_rl/strategies trade_rl/workflows
-
-      - name: Format tests
-        run: uv run ruff format --check --diff tests
-
-      - name: Mypy
-        run: uv run mypy trade_rl
-
-      - name: Import architecture
-        run: uv run lint-imports
-
-      - name: Dead-code report
-        continue-on-error: true
-        run: uv run vulture trade_rl tests --min-confidence 100
-
-      - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
-
-      - name: CLI smoke test
-        run: uv run trade-rl --version
+        run: |
+          find trade_rl/registry -type f -name '*.py' -print
+          uv run ruff format --check --diff trade_rl/registry

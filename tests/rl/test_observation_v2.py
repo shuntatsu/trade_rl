@@ -85,9 +85,23 @@ def test_observation_contains_masks_both_books_and_risk_state() -> None:
         dataset.n_symbols,
         layout.per_symbol_width,
     )
-    assert per_symbol[0, dataset.n_features] == pytest.approx(0.5)
-    assert per_symbol[0, dataset.n_features + 1] == pytest.approx(1.0)
-    assert per_symbol[1, dataset.n_features + 1] == pytest.approx(0.0)
+    n_features = dataset.n_features
+    np.testing.assert_array_equal(
+        per_symbol[:, n_features : 2 * n_features],
+        dataset.feature_available[1],
+    )
+    np.testing.assert_allclose(
+        per_symbol[:, 2 * n_features : 3 * n_features],
+        dataset.feature_staleness[1],
+    )
+    np.testing.assert_array_equal(
+        per_symbol[:, 3 * n_features],
+        dataset.tradable[1],
+    )
+    np.testing.assert_array_equal(
+        per_symbol[:, 3 * n_features + 1],
+        dataset.symbol_active[1],
+    )
     np.testing.assert_allclose(per_symbol[:, -3], hybrid.weights)
     np.testing.assert_allclose(per_symbol[:, -2], shadow.weights)
     np.testing.assert_allclose(per_symbol[:, -1], hybrid.weights - shadow.weights)

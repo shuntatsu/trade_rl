@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from io import StringIO
 
+import pytest
+
 from trade_rl.cli.app import build_parser, main
 
 
@@ -81,6 +83,33 @@ def test_train_config_outputs_validated_residual_configuration() -> None:
         "seeds": [0, 1],
         "timesteps": 1024,
     }
+
+
+def test_train_config_can_resolve_gamma_from_real_time_half_life() -> None:
+    stdout = StringIO()
+
+    exit_code = main(
+        [
+            "train",
+            "config",
+            "--timesteps",
+            "1024",
+            "--decision-hours",
+            "4",
+            "--discount-half-life-hours",
+            "24",
+            "--seed",
+            "0",
+        ],
+        stdout=stdout,
+    )
+
+    payload = json.loads(stdout.getvalue())
+    assert exit_code == 0
+    assert payload["schema"] == "residual_training_config_v2"
+    assert payload["decision_hours"] == pytest.approx(4.0)
+    assert payload["discount_half_life_hours"] == pytest.approx(24.0)
+    assert payload["gamma"] ** 6 == pytest.approx(0.5)
 
 
 def test_version_command_uses_trade_rl_package_name() -> None:

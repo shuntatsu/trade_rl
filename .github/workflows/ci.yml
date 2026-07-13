@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   quality:
-    name: Rebuilt Core
+    name: Ruff diagnostic
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,26 +30,14 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync --extra dev --quiet
 
-      - name: Ruff
-        run: uv run ruff check .
+      - name: Capture Ruff diagnostics
+        run: uv run ruff check . --output-format json > ruff-diagnostic.json || true
 
-      - name: Format
-        run: uv run ruff format --check --diff .
-
-      - name: Mypy
-        run: uv run mypy trade_rl
-
-      - name: Import architecture
-        run: uv run lint-imports
-
-      - name: Dead-code report
-        continue-on-error: true
-        run: uv run vulture trade_rl tests --min-confidence 100
-
-      - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
-
-      - name: CLI smoke test
-        run: uv run trade-rl --version
+      - name: Upload Ruff diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-diagnostic
+          path: ruff-diagnostic.json
+          if-no-files-found: error

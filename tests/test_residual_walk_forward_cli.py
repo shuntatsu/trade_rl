@@ -24,7 +24,7 @@ def test_run_pipeline_dispatches_residual_wf(monkeypatch, tmp_path: Path) -> Non
         ],
     )
     monkeypatch.setattr(
-        "mars_lite.eval.residual_walk_forward.run_residual_walk_forward",
+        "mars_lite.pipeline.residual_walk_forward.run_residual_walk_forward",
         lambda args, output: calls.append("wf"),
     )
     monkeypatch.setattr(
@@ -53,7 +53,7 @@ def test_dedicated_script_dispatches_residual_wf(monkeypatch, tmp_path: Path) ->
         ],
     )
     monkeypatch.setattr(
-        "mars_lite.eval.residual_walk_forward.run_residual_walk_forward",
+        "mars_lite.pipeline.residual_walk_forward.run_residual_walk_forward",
         lambda args, output: calls.append("wf"),
     )
     monkeypatch.setattr(

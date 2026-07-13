@@ -35,7 +35,27 @@ jobs:
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Format registry
+      - name: Capture registry format diagnostics
+        id: registry-format
+        shell: bash
         run: |
-          find trade_rl/registry -type f -name '*.py' -print
-          uv run ruff format --check --diff trade_rl/registry
+          set +e
+          find trade_rl/registry -type f -name '*.py' -print > registry-files.txt
+          uv run ruff format --check --diff trade_rl/registry > registry-format.diff 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload registry format diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-format-diagnostics
+          path: |
+            registry-files.txt
+            registry-format.diff
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Fail on registry format differences
+        if: steps.registry-format.outputs.status != '0'
+        run: exit 1

@@ -8,7 +8,7 @@ from enum import Enum
 import numpy as np
 
 _TOLERANCE = 1e-12
-_MIN_EQUITY = np.finfo(np.float64).tiny
+_MIN_EQUITY: float = float(np.finfo(np.float64).tiny)
 
 
 class EconomicTerminationReason(str, Enum):

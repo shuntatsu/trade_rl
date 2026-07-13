@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import gymnasium as gym
 
@@ -293,8 +293,8 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _environment_identity(environment: gym.Env) -> dict[str, object]:
-    unwrapped = environment.unwrapped
+def _environment_identity(environment: gym.Env) -> dict[str, Any]:
+    unwrapped: Any = getattr(environment, "unwrapped", environment)
     environment_digest = getattr(unwrapped, "environment_digest", None)
     initial_capital = getattr(unwrapped, "initial_capital", None)
     if not isinstance(environment_digest, str):
@@ -338,7 +338,7 @@ def _environment_identity(environment: gym.Env) -> dict[str, object]:
 
 
 def _validate_training_environment(
-    identity: dict[str, object],
+    identity: dict[str, Any],
     config: ResidualTrainingConfig,
 ) -> None:
     action_size = int(identity["action_size"])
@@ -403,7 +403,7 @@ def train_residual_ensemble(
         "factor_artifact_digest",
         "normalizer_digest",
     )
-    values: dict[str, object] = {}
+    values: dict[str, Any] = {}
     for field_name in consistency_fields:
         observed = {getattr(result, field_name) for result in results}
         if len(observed) != 1:
@@ -450,16 +450,16 @@ def train_residual_ensemble(
         members=tuple(members),
         created_at=created_at,
         action_size=int(values["action_size"]),
-        action_names=tuple(values["action_names"]),  # type: ignore[arg-type]
+        action_names=tuple(values["action_names"]),
         action_spec_digest=str(values["action_spec_digest"]),
         observation_size=(
             None
             if values["observation_size"] is None
             else int(values["observation_size"])
         ),
-        alpha_artifact_digest=values["alpha_artifact_digest"],  # type: ignore[arg-type]
-        factor_artifact_digest=values["factor_artifact_digest"],  # type: ignore[arg-type]
-        normalizer_digest=values["normalizer_digest"],  # type: ignore[arg-type]
+        alpha_artifact_digest=values["alpha_artifact_digest"],
+        factor_artifact_digest=values["factor_artifact_digest"],
+        normalizer_digest=values["normalizer_digest"],
     )
 
 
@@ -488,7 +488,7 @@ class StableBaselines3Backend:
         try:
             identity = _environment_identity(environment)
             _validate_training_environment(identity, config)
-            policy_kwargs: dict[str, object] = {
+            policy_kwargs: dict[str, Any] = {
                 "net_arch": list(config.policy_net_arch),
             }
             if config.algorithm == "ppo":
@@ -496,7 +496,7 @@ class StableBaselines3Backend:
             if config.asset_set_encoder:
                 from trade_rl.rl.policies import AssetSetFeatureExtractor
 
-                unwrapped = environment.unwrapped
+                unwrapped: Any = getattr(environment, "unwrapped", environment)
                 layout = getattr(unwrapped, "layout", None)
                 active_column = getattr(unwrapped, "asset_active_column", None)
                 if layout is None or not isinstance(active_column, int):
@@ -516,7 +516,7 @@ class StableBaselines3Backend:
                         },
                     }
                 )
-            common: dict[str, object] = {
+            common: dict[str, Any] = {
                 "learning_rate": config.learning_rate,
                 "gamma": config.gamma,
                 "policy_kwargs": policy_kwargs,
@@ -524,6 +524,7 @@ class StableBaselines3Backend:
                 "device": config.device,
                 "verbose": self.verbose,
             }
+            model: Any
             if config.algorithm == "ppo":
                 model = PPO(
                     config.policy,
@@ -543,7 +544,7 @@ class StableBaselines3Backend:
                     **common,
                 )
             else:
-                off_policy: dict[str, object] = {
+                off_policy: dict[str, Any] = {
                     "buffer_size": config.buffer_size,
                     "learning_starts": config.learning_starts,
                     "batch_size": config.batch_size,
@@ -589,12 +590,12 @@ class StableBaselines3Backend:
                 environment_digest=str(identity["environment_digest"]),
                 initial_capital=float(identity["initial_capital"]),
                 action_size=int(identity["action_size"]),
-                action_names=tuple(identity["action_names"]),  # type: ignore[arg-type]
+                action_names=tuple(identity["action_names"]),
                 action_spec_digest=str(identity["action_spec_digest"]),
                 observation_size=int(identity["observation_size"]),
-                alpha_artifact_digest=identity["alpha_artifact_digest"],  # type: ignore[arg-type]
-                factor_artifact_digest=identity["factor_artifact_digest"],  # type: ignore[arg-type]
-                normalizer_digest=identity["normalizer_digest"],  # type: ignore[arg-type]
+                alpha_artifact_digest=identity["alpha_artifact_digest"],
+                factor_artifact_digest=identity["factor_artifact_digest"],
+                normalizer_digest=identity["normalizer_digest"],
             )
         finally:
             environment.close()

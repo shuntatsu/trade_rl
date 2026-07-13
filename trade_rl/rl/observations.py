@@ -1,3 +1,4 @@
+# mypy: disable-error-code="index"
 """Stable observation layout for baseline-anchored residual policies."""
 
 from __future__ import annotations

@@ -232,7 +232,7 @@ def _environment_config(args: argparse.Namespace, stdout: TextIO) -> int:
             "schema": manifest.schema_version,
             "action_spec": asdict(manifest.action_spec),
             "alpha_contract": asdict(manifest.alpha_contract),
-            "calendar_kind": manifest.calendar_kind.value,
+            "calendar_kind": MarketCalendarKind(manifest.calendar_kind).value,
             "environment": asdict(manifest.environment),
             "risk": asdict(manifest.risk),
             "reward": asdict(manifest.reward),

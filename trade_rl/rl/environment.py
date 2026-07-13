@@ -1,3 +1,4 @@
+# mypy: disable-error-code="index"
 """Gymnasium environment for baseline-anchored residual portfolio control."""
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import numpy as np
 from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.market import MarketDataset
+from trade_rl.data.market import MarketCalendarKind, MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
@@ -463,11 +464,13 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 "alpha_enabled": self.action_spec.alpha_enabled,
                 "n_factors": self.action_spec.n_factors,
                 "names": self.action_spec.names,
-                "validation_mode": self.action_spec.validation_mode.value,
+                "validation_mode": ActionValidationMode(
+                    self.action_spec.validation_mode
+                ).value,
             },
             "alpha_artifact_digest": self.alpha_artifact_digest,
             "alpha_contract": asdict(self.alpha_contract),
-            "calendar_kind": self.dataset.calendar_kind.value,
+            "calendar_kind": MarketCalendarKind(self.dataset.calendar_kind).value,
             "dataset_id": self.dataset.dataset_id,
             "environment_config": {
                 "accept_legacy_actions": self.config.accept_legacy_actions,
@@ -552,9 +555,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             return np.zeros(self.dataset.n_symbols, dtype=np.float64)
         provider = self.alpha_provider
         if hasattr(provider, "predict_at"):
-            value = provider.predict_at(self.dataset, index)  # type: ignore[union-attr]
+            value = provider.predict_at(self.dataset, index)
         else:
-            value = provider(self.dataset, index)  # type: ignore[operator]
+            value = provider(self.dataset, index)
         return self.alpha_contract.prepare(
             np.asarray(value, dtype=np.float64),
             n_symbols=self.dataset.n_symbols,
@@ -569,9 +572,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         if provider is None:
             raise RuntimeError("factor basis is configured without a provider")
         if hasattr(provider, "basis_at"):
-            value = provider.basis_at(self.dataset, index)  # type: ignore[union-attr]
+            value = provider.basis_at(self.dataset, index)
         else:
-            value = provider(self.dataset, index)  # type: ignore[operator]
+            value = provider(self.dataset, index)
         basis = np.asarray(value, dtype=np.float64)
         if basis.shape != (self.action_spec.n_factors, self.dataset.n_symbols):
             raise ValueError("factor provider returned an invalid basis")
@@ -1162,9 +1165,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             None
             if not terminated
             else (
-                self.hybrid.termination_reason.value
+                EconomicTerminationReason(self.hybrid.termination_reason).value
                 if self.hybrid.termination_reason is not None
-                else self.shadow.termination_reason.value
+                else EconomicTerminationReason(self.shadow.termination_reason).value
                 if self.shadow.termination_reason is not None
                 else "forced_close"
                 if liquidation_complete

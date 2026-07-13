@@ -1,3 +1,4 @@
+# mypy: disable-error-code="index"
 """Next-open execution, liquidity costs, funding, borrow and margin accounting."""
 
 from __future__ import annotations
@@ -650,7 +651,7 @@ class MarketExecutor:
         reason = (
             None
             if result_book.termination_reason is None
-            else result_book.termination_reason.value
+            else EconomicTerminationReason(result_book.termination_reason).value
         )
         return ExecutionResult(
             book=result_book,
@@ -728,7 +729,7 @@ class MarketExecutor:
             termination_reason=(
                 None
                 if result_book.termination_reason is None
-                else result_book.termination_reason.value
+                else EconomicTerminationReason(result_book.termination_reason).value
             ),
             requested_notional_by_symbol=fill.requested_notional_by_symbol,
             filled_notional_by_symbol=fill.filled_notional_by_symbol,

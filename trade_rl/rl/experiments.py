@@ -43,7 +43,8 @@ class ActionExperimentSpec:
 
     @property
     def action_spec(self) -> ActionSpec:
-        alpha = self.ablation not in {
+        ablation = ActionAblation(self.ablation)
+        alpha = ablation not in {
             ActionAblation.BASELINE_ONLY,
             ActionAblation.TREND_LEGACY,
         }
@@ -51,7 +52,7 @@ class ActionExperimentSpec:
             ActionAblation.FACTORIZED_4: 4,
             ActionAblation.FACTORIZED_8: 8,
             ActionAblation.DIRECT_SYMBOL: self.n_symbols,
-        }.get(self.ablation, 0)
+        }.get(ablation, 0)
         return ActionSpec(alpha_enabled=alpha, n_factors=factors)
 
     def direct_symbol_basis(self) -> np.ndarray | None:

@@ -60,7 +60,7 @@ class EnvironmentExperimentManifest:
             "action_spec": asdict(self.action_spec),
             "alpha_artifact_digest": self.alpha_artifact_digest,
             "alpha_contract": asdict(self.alpha_contract),
-            "calendar_kind": self.calendar_kind.value,
+            "calendar_kind": MarketCalendarKind(self.calendar_kind).value,
             "environment": asdict(self.environment),
             "factor_artifact_digest": self.factor_artifact_digest,
             "normalizer_digest": self.normalizer_digest,

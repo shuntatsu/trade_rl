@@ -107,6 +107,7 @@ def test_economic_failure_returns_terminal_transition_not_exception() -> None:
         "execution_cost_exhaustion",
         "insolvency",
         "minimum_equity",
+        "margin_call",
     }
 
 

@@ -137,13 +137,18 @@ class ResidualTrainingConfig:
             raise ValueError("discount_half_life_hours must be finite and positive")
         if self.discount_half_life_hours is not None and self.decision_hours is None:
             raise ValueError("discount_half_life_hours requires decision_hours")
-        if self.decision_hours is not None and self.discount_half_life_hours is not None:
+        if (
+            self.decision_hours is not None
+            and self.discount_half_life_hours is not None
+        ):
             expected_gamma = gamma_from_half_life(
                 decision_hours=self.decision_hours,
                 half_life_hours=self.discount_half_life_hours,
             )
             if not math.isclose(self.gamma, expected_gamma, rel_tol=0.0, abs_tol=1e-12):
-                raise ValueError("gamma does not match the configured real-time half-life")
+                raise ValueError(
+                    "gamma does not match the configured real-time half-life"
+                )
         if not math.isfinite(self.log_std_init):
             raise ValueError("log_std_init must be finite")
         if self.target_kl is not None and (
@@ -308,7 +313,11 @@ def _environment_identity(environment: gym.Env) -> dict[str, object]:
     observation_shape = getattr(observation_space, "shape", None)
     if not action_shape or len(action_shape) != 1 or action_shape[0] <= 0:
         raise ValueError("training environment must expose a flat action space")
-    if not observation_shape or len(observation_shape) != 1 or observation_shape[0] <= 0:
+    if (
+        not observation_shape
+        or len(observation_shape) != 1
+        or observation_shape[0] <= 0
+    ):
         raise ValueError("training environment must expose a flat observation space")
     return {
         "environment_digest": environment_digest,

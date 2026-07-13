@@ -3,9 +3,9 @@
 from trade_rl.rl.actions import (
     ACTION_SCHEMA,
     ActionSpec,
+    ActionValidationMode,
     AlphaContract,
     AlphaSignalKind,
-    ActionValidationMode,
     BaselineResidualComposer,
     ResidualAction,
     ResidualActionV2,

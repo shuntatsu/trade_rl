@@ -25,6 +25,7 @@ class RewardConfig:
     baseline_progressive_power: float = 2.0
     projection_penalty_weight: float = 0.01
     terminal_equity_weight: float = 1.0
+    margin_deficit_weight: float = 1.0
     equity_floor_fraction: float = 1e-9
 
     def __post_init__(self) -> None:
@@ -43,6 +44,7 @@ class RewardConfig:
             ("baseline_progressive_power", self.baseline_progressive_power),
             ("projection_penalty_weight", self.projection_penalty_weight),
             ("terminal_equity_weight", self.terminal_equity_weight),
+            ("margin_deficit_weight", self.margin_deficit_weight),
             ("equity_floor_fraction", self.equity_floor_fraction),
         ):
             if not math.isfinite(value):
@@ -58,6 +60,7 @@ class RewardConfig:
             self.baseline_tolerance,
             self.projection_penalty_weight,
             self.terminal_equity_weight,
+            self.margin_deficit_weight,
         )
         if min(non_negative) < 0.0:
             raise ValueError("reward weights and tolerances must be non-negative")
@@ -85,17 +88,21 @@ class RewardBreakdown:
     rolling_baseline_underperformance: float
     projection_distance: float
     terminal_equity_shortfall: float
+    margin_deficit: float
     absolute_component: float
     excess_component: float
     drawdown_penalty: float
     baseline_penalty: float
     projection_penalty: float
     terminal_penalty: float
+    margin_penalty: float
     unscaled_total: float
     scaled_total: float
 
     def __post_init__(self) -> None:
-        if not all(math.isfinite(float(getattr(self, item.name))) for item in fields(self)):
+        if not all(
+            math.isfinite(float(getattr(self, item.name))) for item in fields(self)
+        ):
             raise ValueError("reward breakdown values must be finite")
 
 
@@ -151,6 +158,7 @@ class RewardTracker:
         hybrid_drawdown: float,
         shadow_drawdown: float,
         projection_distance: float = 0.0,
+        hybrid_margin_deficit_fraction: float = 0.0,
         hybrid_equity_fraction: float = 1.0,
         shadow_equity_fraction: float = 1.0,
         hybrid_terminated: bool = False,
@@ -160,6 +168,7 @@ class RewardTracker:
             ("hybrid_log_return", hybrid_log_return),
             ("shadow_log_return", shadow_log_return),
             ("projection_distance", projection_distance),
+            ("hybrid_margin_deficit_fraction", hybrid_margin_deficit_fraction),
             ("hybrid_equity_fraction", hybrid_equity_fraction),
             ("shadow_equity_fraction", shadow_equity_fraction),
         ):
@@ -169,6 +178,8 @@ class RewardTracker:
         _validate_drawdown(shadow_drawdown, field_name="shadow_drawdown")
         if projection_distance < 0.0:
             raise ValueError("projection_distance must be non-negative")
+        if hybrid_margin_deficit_fraction < 0.0:
+            raise ValueError("hybrid_margin_deficit_fraction must be non-negative")
         if hybrid_equity_fraction < 0.0 or shadow_equity_fraction < 0.0:
             raise ValueError("equity fractions must be non-negative")
 
@@ -223,9 +234,7 @@ class RewardTracker:
                 ),
             )
 
-        absolute_component = (
-            self.config.absolute_growth_weight * absolute_log_growth
-        )
+        absolute_component = self.config.absolute_growth_weight * absolute_log_growth
         excess_component = self.config.excess_growth_weight * excess_log_growth
         drawdown_penalty = (
             self.config.incremental_drawdown_weight * incremental_drawdown
@@ -233,10 +242,10 @@ class RewardTracker:
         baseline_penalty = (
             self.config.baseline_underperformance_weight * progressive_hinge
         )
-        projection_penalty = (
-            self.config.projection_penalty_weight * projection_distance
-        )
+        projection_penalty = self.config.projection_penalty_weight * projection_distance
         terminal_penalty = self.config.terminal_equity_weight * terminal_shortfall
+        margin_deficit = float(hybrid_margin_deficit_fraction)
+        margin_penalty = self.config.margin_deficit_weight * margin_deficit
         unscaled_total = (
             absolute_component
             + excess_component
@@ -244,6 +253,7 @@ class RewardTracker:
             - baseline_penalty
             - projection_penalty
             - terminal_penalty
+            - margin_penalty
         )
         scaled_total = self.config.scale * unscaled_total
         return RewardBreakdown(
@@ -253,12 +263,14 @@ class RewardTracker:
             rolling_baseline_underperformance=rolling_underperformance,
             projection_distance=projection_distance,
             terminal_equity_shortfall=terminal_shortfall,
+            margin_deficit=margin_deficit,
             absolute_component=absolute_component,
             excess_component=excess_component,
             drawdown_penalty=drawdown_penalty,
             baseline_penalty=baseline_penalty,
             projection_penalty=projection_penalty,
             terminal_penalty=terminal_penalty,
+            margin_penalty=margin_penalty,
             unscaled_total=unscaled_total,
             scaled_total=scaled_total,
         )

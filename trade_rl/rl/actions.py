@@ -35,7 +35,10 @@ class AlphaContract:
             kind = AlphaSignalKind(self.kind)
         except ValueError as error:
             raise ValueError("alpha signal kind is not supported") from error
-        if not np.isfinite(self.expected_return_scale) or self.expected_return_scale <= 0.0:
+        if (
+            not np.isfinite(self.expected_return_scale)
+            or self.expected_return_scale <= 0.0
+        ):
             raise ValueError("expected_return_scale must be finite and positive")
         if not np.isfinite(self.max_gross) or not 0.0 < self.max_gross <= 1.0:
             raise ValueError("alpha max_gross must be within (0, 1]")
@@ -99,14 +102,14 @@ class ResidualAction:
     alpha_budget: float
 
     def __post_init__(self) -> None:
-        for field, value in (
+        for field_name, value in (
             ("trend_mix", self.trend_mix),
             ("alpha_budget", self.alpha_budget),
         ):
             if not np.isfinite(value):
-                raise ValueError(f"{field} must be finite")
+                raise ValueError(f"{field_name} must be finite")
             if not -1.0 <= value <= 1.0:
-                raise ValueError(f"{field} must be within [-1, 1]")
+                raise ValueError(f"{field_name} must be within [-1, 1]")
 
     @classmethod
     def from_array(cls, value: np.ndarray) -> ResidualAction:
@@ -353,9 +356,7 @@ class BaselineResidualComposer:
             raise ValueError("alpha vector must be finite")
         alpha_vector = _normalize_gross(alpha_vector)
         basis = _normalize_basis(
-            np.empty((0, trends.base.size))
-            if factor_basis is None
-            else factor_basis,
+            np.empty((0, trends.base.size)) if factor_basis is None else factor_basis,
             n_symbols=trends.base.size,
         )
         if basis.shape[0] != action.factor_tilts.size:
@@ -368,10 +369,9 @@ class BaselineResidualComposer:
         coefficient_l1 = float(np.abs(trend_coefficients).sum())
         if coefficient_l1 > 1.0:
             trend_coefficients /= coefficient_l1
-        trend_residual = (
-            trend_coefficients[0] * (trends.fast - trends.base)
-            + trend_coefficients[1] * (trends.slow - trends.base)
-        )
+        trend_residual = trend_coefficients[0] * (
+            trends.fast - trends.base
+        ) + trend_coefficients[1] * (trends.slow - trends.base)
         trend = trends.base + trend_residual
         alpha_component = (
             action.alpha_scale * alpha_vector

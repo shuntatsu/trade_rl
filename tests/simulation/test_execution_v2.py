@@ -15,7 +15,8 @@ def market(**overrides: object) -> MarketDataset:
     values: dict[str, object] = {
         "dataset_id": "b" * 64,
         "symbols": ("BTC",),
-        "timestamps": np.datetime64("2026-01-01", "ns") + np.arange(n) * np.timedelta64(1, "h"),
+        "timestamps": np.datetime64("2026-01-01", "ns")
+        + np.arange(n) * np.timedelta64(1, "h"),
         "features": np.zeros((n, 1, 1), dtype=np.float32),
         "global_features": np.zeros((n, 1), dtype=np.float32),
         "open": open_price,
@@ -65,24 +66,57 @@ def test_minimum_notional_lot_tick_and_borrow_constraints_are_enforced() -> None
 
 def test_limit_order_fills_only_when_bar_touches_limit() -> None:
     dataset = market(low=np.full((5, 1), 99.9), high=np.full((5, 1), 100.1))
-    executor = MarketExecutor(dataset, ExecutionCostConfig.zero().__class__(
-        fee_rate=0.0, spread_rate=0.0, impact_rate=0.0, max_participation_rate=1.0,
-        order_type="limit", limit_offset_rate=0.01,
-    ))
-    result = executor.execute_interval(BookState.zero(1, 1_000.0, dataset.close[0]), np.array([1.0]), start_index=0, bars=1)
+    executor = MarketExecutor(
+        dataset,
+        ExecutionCostConfig.zero().__class__(
+            fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=1.0,
+            order_type="limit",
+            limit_offset_rate=0.01,
+        ),
+    )
+    result = executor.execute_interval(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
     assert result.filled_turnover == 0.0
 
 
 def test_episode_random_streams_can_be_paired_but_changed_between_episodes() -> None:
     dataset = market()
-    config = ExecutionCostConfig(fee_rate=0.0, spread_rate=0.0, impact_rate=0.0, max_participation_rate=1.0, slippage_std=0.01)
+    config = ExecutionCostConfig(
+        fee_rate=0.0,
+        spread_rate=0.0,
+        impact_rate=0.0,
+        max_participation_rate=1.0,
+        slippage_std=0.01,
+    )
     first = MarketExecutor(dataset, config)
     second = MarketExecutor(dataset, config)
     first.reset_random_state(7)
     second.reset_random_state(7)
-    a = first.execute_interval(BookState.zero(1, 1_000.0, dataset.close[0]), np.array([1.0]), start_index=0, bars=1)
-    b = second.execute_interval(BookState.zero(1, 1_000.0, dataset.close[0]), np.array([1.0]), start_index=0, bars=1)
+    a = first.execute_interval(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
+    b = second.execute_interval(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
     assert a.interval_cost == pytest.approx(b.interval_cost)
     first.reset_random_state(8)
-    c = first.execute_interval(BookState.zero(1, 1_000.0, dataset.close[0]), np.array([1.0]), start_index=0, bars=1)
+    c = first.execute_interval(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
     assert c.interval_cost != pytest.approx(a.interval_cost)

@@ -161,7 +161,10 @@ class PreTradeRisk:
         )
         turnover_overridden = False
         constrained_turnover = float(np.abs(weights - existing).sum())
-        if hard_changed and constrained_turnover > self.config.max_turnover + _TOLERANCE:
+        if (
+            hard_changed
+            and constrained_turnover > self.config.max_turnover + _TOLERANCE
+        ):
             if self.config.emergency_turnover_override:
                 turnover_overridden = True
                 reasons.append("hard_risk_turnover_override")

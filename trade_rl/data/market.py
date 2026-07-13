@@ -168,13 +168,9 @@ class MarketDataset:
                 round(expected_periods),
                 abs_tol=1e-9,
             ):
-                raise ValueError(
-                    "timestamp cadence does not resolve to annual periods"
-                )
+                raise ValueError("timestamp cadence does not resolve to annual periods")
             if self.periods_per_year != int(round(expected_periods)):
-                raise ValueError(
-                    "periods_per_year does not match timestamp cadence"
-                )
+                raise ValueError("periods_per_year does not match timestamp cadence")
         else:
             bar_duration_ns = None
             if self.nominal_bar_hours is None:
@@ -237,9 +233,7 @@ class MarketDataset:
             field_name="feature_staleness_hours",
         )
         if not np.isfinite(staleness).all() or np.any(staleness < 0.0):
-            raise ValueError(
-                "feature_staleness_hours must be finite and non-negative"
-            )
+            raise ValueError("feature_staleness_hours must be finite and non-negative")
         feature_missing_reason = _optional_array(
             self.feature_missing_reason,
             shape=features.shape,
@@ -376,20 +370,28 @@ class MarketDataset:
             default=True,
             field_name="sell_allowed",
         )
-        mark_price = _optional_array(
-            self.mark_price,
-            shape=price_shape,
-            dtype=np.dtype(np.float64),
-            default=1.0,
-            field_name="mark_price",
-        ) if self.mark_price is not None else close
-        index_price = _optional_array(
-            self.index_price,
-            shape=price_shape,
-            dtype=np.dtype(np.float64),
-            default=1.0,
-            field_name="index_price",
-        ) if self.index_price is not None else close
+        mark_price = (
+            _optional_array(
+                self.mark_price,
+                shape=price_shape,
+                dtype=np.dtype(np.float64),
+                default=1.0,
+                field_name="mark_price",
+            )
+            if self.mark_price is not None
+            else close
+        )
+        index_price = (
+            _optional_array(
+                self.index_price,
+                shape=price_shape,
+                dtype=np.dtype(np.float64),
+                default=1.0,
+                field_name="index_price",
+            )
+            if self.index_price is not None
+            else close
+        )
         dividend = _optional_array(
             self.dividend,
             shape=price_shape,
@@ -577,8 +579,11 @@ class MarketDataset:
         *,
         maximum_index: int | None = None,
     ) -> int:
-        return self.forward_index(
-            start_index,
-            hours,
-            maximum_index=maximum_index,
-        ) - start_index
+        return (
+            self.forward_index(
+                start_index,
+                hours,
+                maximum_index=maximum_index,
+            )
+            - start_index
+        )

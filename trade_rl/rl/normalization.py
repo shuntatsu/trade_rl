@@ -52,7 +52,9 @@ class ObservationNormalizer:
             or self.train_start < 0
             or self.train_end <= self.train_start
         ):
-            raise ValueError("normalizer training range must be a non-empty index range")
+            raise ValueError(
+                "normalizer training range must be a non-empty index range"
+            )
         if not math.isfinite(self.clip) or self.clip <= 0.0:
             raise ValueError("normalizer clip must be finite and positive")
         if not math.isfinite(self.epsilon) or self.epsilon <= 0.0:

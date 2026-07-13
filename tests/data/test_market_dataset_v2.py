@@ -7,7 +7,9 @@ from trade_rl.data.market import MarketCalendarKind, MarketDataset
 
 
 def kwargs(n_bars: int = 8, n_symbols: int = 2) -> dict[str, object]:
-    timestamps = np.datetime64("2026-01-01T01:00:00", "ns") + np.arange(n_bars) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2026-01-01T01:00:00", "ns") + np.arange(
+        n_bars
+    ) * np.timedelta64(1, "h")
     base = 100.0 + np.arange(n_bars, dtype=np.float64)
     close = np.column_stack([base + 10.0 * i for i in range(n_symbols)])
     open_price = np.vstack([close[0], close[:-1]])

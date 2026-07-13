@@ -30,7 +30,9 @@ class CapacityPoint:
         if self.initial_capital <= 0.0:
             raise ValueError("initial_capital must be positive")
         if self.total_cost_fraction < 0.0 or self.unfilled_turnover < 0.0:
-            raise ValueError("capacity costs and unfilled turnover must be non-negative")
+            raise ValueError(
+                "capacity costs and unfilled turnover must be non-negative"
+            )
         if not 0.0 <= self.fill_ratio <= 1.0:
             raise ValueError("fill_ratio must be within [0, 1]")
 
@@ -66,7 +68,9 @@ def evaluate_capacity_grid(
     evaluator: Callable[[float], CapacityPoint],
 ) -> CapacityCurve:
     resolved = tuple(sorted(float(value) for value in capitals))
-    if not resolved or any(not math.isfinite(value) or value <= 0.0 for value in resolved):
+    if not resolved or any(
+        not math.isfinite(value) or value <= 0.0 for value in resolved
+    ):
         raise ValueError("capitals must be finite and positive")
     if len(set(resolved)) != len(resolved):
         raise ValueError("capitals must be unique")

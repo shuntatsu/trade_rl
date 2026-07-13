@@ -143,7 +143,6 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
     return 0
 
 
-
 def _environment_config(args: argparse.Namespace, stdout: TextIO) -> int:
     reward = RewardConfig(
         scale=args.reward_scale,
@@ -324,11 +323,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     environment_config = environment_commands.add_parser("config")
     environment_config.add_argument("--initial-capital", type=float, required=True)
-    environment_config.add_argument("--calendar-kind", choices=tuple(item.value for item in MarketCalendarKind), default=MarketCalendarKind.CONTINUOUS.value)
+    environment_config.add_argument(
+        "--calendar-kind",
+        choices=tuple(item.value for item in MarketCalendarKind),
+        default=MarketCalendarKind.CONTINUOUS.value,
+    )
     environment_config.add_argument("--episode-hours", type=float, default=720.0)
     environment_config.add_argument("--decision-hours", type=float, default=4.0)
-    environment_config.add_argument("--episode-hour-choice", type=float, action="append")
-    environment_config.add_argument("--initial-state-mode", action="append", choices=("cash", "baseline", "random", "stress", "partial_fill"))
+    environment_config.add_argument(
+        "--episode-hour-choice", type=float, action="append"
+    )
+    environment_config.add_argument(
+        "--initial-state-mode",
+        action="append",
+        choices=("cash", "baseline", "random", "stress", "partial_fill"),
+    )
     environment_config.add_argument(
         "--episode-sampling-mode",
         choices=("uniform", "regime_balanced", "stress_tail"),
@@ -338,25 +347,37 @@ def build_parser() -> argparse.ArgumentParser:
     environment_config.add_argument("--regime-bins", type=int, default=4)
     environment_config.add_argument("--stress-quantile", type=float, default=0.9)
     environment_config.add_argument("--random-initial-gross", type=float, default=0.5)
-    environment_config.add_argument("--stress-drawdown-fraction", type=float, default=0.15)
+    environment_config.add_argument(
+        "--stress-drawdown-fraction", type=float, default=0.15
+    )
     environment_config.add_argument("--partial-fill-fraction", type=float, default=0.5)
-    environment_config.add_argument("--minimum-equity-fraction", type=float, default=1e-6)
+    environment_config.add_argument(
+        "--minimum-equity-fraction", type=float, default=1e-6
+    )
     environment_config.add_argument("--liquidate-on-end", action="store_true")
     environment_config.add_argument("--finite-horizon-observation", action="store_true")
     environment_config.add_argument("--fee-rate", type=float, default=0.0005)
     environment_config.add_argument("--spread-rate", type=float, default=0.0002)
     environment_config.add_argument("--impact-rate", type=float, default=0.0001)
-    environment_config.add_argument("--max-participation-rate", type=float, default=0.05)
+    environment_config.add_argument(
+        "--max-participation-rate", type=float, default=0.05
+    )
     environment_config.add_argument("--minimum-notional", type=float, default=0.0)
     environment_config.add_argument("--lot-size", type=float, default=0.0)
     environment_config.add_argument("--tick-size", type=float, default=0.0)
     environment_config.add_argument("--no-short", action="store_true")
     environment_config.add_argument("--max-leverage", type=float, default=1.0)
-    environment_config.add_argument("--maintenance-margin-rate", type=float, default=0.25)
+    environment_config.add_argument(
+        "--maintenance-margin-rate", type=float, default=0.25
+    )
     environment_config.add_argument("--collateral-haircut", type=float, default=1.0)
-    environment_config.add_argument("--margin-mode", choices=("cross", "isolated"), default="cross")
+    environment_config.add_argument(
+        "--margin-mode", choices=("cross", "isolated"), default="cross"
+    )
     environment_config.add_argument("--order-latency-bars", type=int, default=0)
-    environment_config.add_argument("--order-type", choices=("market", "limit"), default="market")
+    environment_config.add_argument(
+        "--order-type", choices=("market", "limit"), default="market"
+    )
     environment_config.add_argument("--limit-offset-rate", type=float, default=0.0005)
     environment_config.add_argument("--max-gross", type=float, default=1.0)
     environment_config.add_argument("--max-abs-weight", type=float, default=0.4)
@@ -366,20 +387,38 @@ def build_parser() -> argparse.ArgumentParser:
     environment_config.add_argument("--reward-scale", type=float, default=100.0)
     environment_config.add_argument("--absolute-growth-weight", type=float, default=1.0)
     environment_config.add_argument("--excess-growth-weight", type=float, default=0.25)
-    environment_config.add_argument("--incremental-drawdown-weight", type=float, default=0.1)
+    environment_config.add_argument(
+        "--incremental-drawdown-weight", type=float, default=0.1
+    )
     environment_config.add_argument("--drawdown-dead-zone", type=float, default=0.0025)
-    environment_config.add_argument("--baseline-underperformance-weight", type=float, default=0.15)
-    environment_config.add_argument("--baseline-window-hours", type=float, default=168.0)
+    environment_config.add_argument(
+        "--baseline-underperformance-weight", type=float, default=0.15
+    )
+    environment_config.add_argument(
+        "--baseline-window-hours", type=float, default=168.0
+    )
     environment_config.add_argument("--baseline-window-steps", type=int)
     environment_config.add_argument("--baseline-tolerance", type=float, default=0.005)
-    environment_config.add_argument("--baseline-progressive-power", type=float, default=2.0)
-    environment_config.add_argument("--projection-penalty-weight", type=float, default=0.01)
+    environment_config.add_argument(
+        "--baseline-progressive-power", type=float, default=2.0
+    )
+    environment_config.add_argument(
+        "--projection-penalty-weight", type=float, default=0.01
+    )
     environment_config.add_argument("--terminal-equity-weight", type=float, default=1.0)
     environment_config.add_argument("--fast-hours", type=float, default=24.0)
     environment_config.add_argument("--base-hours", type=float, default=48.0)
     environment_config.add_argument("--slow-hours", type=float, default=96.0)
-    environment_config.add_argument("--trend-mode", choices=tuple(item.value for item in TrendMode), default=TrendMode.AUTO.value)
-    environment_config.add_argument("--alpha-signal-kind", choices=tuple(item.value for item in AlphaSignalKind), default=AlphaSignalKind.TARGET_WEIGHT.value)
+    environment_config.add_argument(
+        "--trend-mode",
+        choices=tuple(item.value for item in TrendMode),
+        default=TrendMode.AUTO.value,
+    )
+    environment_config.add_argument(
+        "--alpha-signal-kind",
+        choices=tuple(item.value for item in AlphaSignalKind),
+        default=AlphaSignalKind.TARGET_WEIGHT.value,
+    )
     environment_config.add_argument("--alpha-artifact-digest")
     environment_config.add_argument("--factor-count", type=int, default=0)
     environment_config.add_argument("--factor-artifact-digest")

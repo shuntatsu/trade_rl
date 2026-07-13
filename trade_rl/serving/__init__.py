@@ -11,6 +11,7 @@ from trade_rl.serving.registry import ServingRegistry
 from trade_rl.serving.runtime import (
     LoadedPolicy,
     PolicyLoader,
+    RuntimeIdentityContract,
     RuntimeSnapshot,
     ServingRuntime,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "BundleFile",
     "LoadedPolicy",
     "PolicyLoader",
+    "RuntimeIdentityContract",
     "RuntimeSnapshot",
     "ServingBundle",
     "ServingBundleManifest",

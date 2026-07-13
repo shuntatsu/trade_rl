@@ -3,7 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from trade_rl.rl.actions import ActionSpec, ActionValidationMode, BaselineResidualComposer
+from trade_rl.rl.actions import (
+    ActionSpec,
+    ActionValidationMode,
+    BaselineResidualComposer,
+)
 from trade_rl.strategies.trend import TrendTargets
 
 
@@ -16,7 +20,11 @@ def trends() -> TrendTargets:
 
 
 def test_alpha_disabled_has_no_dead_action_dimension() -> None:
-    assert ActionSpec(alpha_enabled=False).names == ("fast_tilt", "slow_tilt", "risk_tilt")
+    assert ActionSpec(alpha_enabled=False).names == (
+        "fast_tilt",
+        "slow_tilt",
+        "risk_tilt",
+    )
     assert ActionSpec(alpha_enabled=True).size == 4
 
 

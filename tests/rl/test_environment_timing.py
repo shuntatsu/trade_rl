@@ -11,18 +11,24 @@ from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
 def dataset(n_bars: int = 180) -> MarketDataset:
-    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(n_bars) * np.timedelta64(1, "h")
-    close = np.column_stack([
-        100.0 * np.exp(np.arange(n_bars) * 0.002),
-        100.0 * np.exp(-np.arange(n_bars) * 0.001),
-    ])
+    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(n_bars) * np.timedelta64(
+        1, "h"
+    )
+    close = np.column_stack(
+        [
+            100.0 * np.exp(np.arange(n_bars) * 0.002),
+            100.0 * np.exp(-np.arange(n_bars) * 0.001),
+        ]
+    )
     open_price = np.vstack([close[0], close[:-1]])
     return MarketDataset(
         dataset_id="a" * 64,
         symbols=("UP", "DOWN"),
         timestamps=timestamps,
         features=np.zeros((n_bars, 2, 1), dtype=np.float32),
-        global_features=np.column_stack([np.sin(np.arange(n_bars) / 10.0)]).astype(np.float32),
+        global_features=np.column_stack([np.sin(np.arange(n_bars) / 10.0)]).astype(
+            np.float32
+        ),
         open=open_price,
         high=np.maximum(open_price, close) * 1.001,
         low=np.minimum(open_price, close) * 0.999,
@@ -47,7 +53,9 @@ def environment(**config_overrides: object) -> ResidualMarketEnv:
     config_values.update(config_overrides)
     return ResidualMarketEnv(
         dataset(),
-        trend_strategy=TrendStrategy(TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
         config=ResidualMarketEnvConfig(**config_values),
     )
 
@@ -67,7 +75,16 @@ def test_zero_action_preserves_exact_shadow_book_and_zero_excess() -> None:
 
 
 def test_episode_random_seed_changes_across_resets_but_is_reproducible() -> None:
-    env = environment(execution_cost=ExecutionCostConfig(fee_rate=0.0, spread_rate=0.0, impact_rate=0.0, max_participation_rate=1.0, slippage_std=0.001, random_seed=7))
+    env = environment(
+        execution_cost=ExecutionCostConfig(
+            fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            max_participation_rate=1.0,
+            slippage_std=0.001,
+            random_seed=7,
+        )
+    )
     _, first = env.reset(seed=11, options={"start_idx": 24})
     _, second = env.reset(options={"start_idx": 24})
     assert first["episode_seed"] != second["episode_seed"]
@@ -77,18 +94,28 @@ def test_episode_random_seed_changes_across_resets_but_is_reproducible() -> None
 
 
 def test_economic_failure_returns_terminal_transition_not_exception() -> None:
-    env = environment(execution_cost=ExecutionCostConfig(fee_rate=2.0, spread_rate=0.0, impact_rate=0.0, max_participation_rate=1.0))
+    env = environment(
+        execution_cost=ExecutionCostConfig(
+            fee_rate=2.0, spread_rate=0.0, impact_rate=0.0, max_participation_rate=1.0
+        )
+    )
     env.reset(options={"start_idx": 24})
     _, reward, terminated, _, info = env.step(np.zeros(env.action_spec.size))
     assert terminated is True
     assert np.isfinite(reward)
-    assert info["termination_reason"] in {"execution_cost_exhaustion", "insolvency", "minimum_equity"}
+    assert info["termination_reason"] in {
+        "execution_cost_exhaustion",
+        "insolvency",
+        "minimum_equity",
+    }
 
 
 def test_episode_curriculum_and_non_cash_initial_states_are_exposed() -> None:
     env = ResidualMarketEnv(
         dataset(),
-        trend_strategy=TrendStrategy(TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
         config=ResidualMarketEnvConfig(
             episode_hour_choices=(24.0, 48.0),
             decision_hours=4.0,
@@ -105,9 +132,20 @@ def test_episode_curriculum_and_non_cash_initial_states_are_exposed() -> None:
 def test_hard_drawdown_stop_overrides_turnover_inside_environment() -> None:
     env = ResidualMarketEnv(
         dataset(),
-        trend_strategy=TrendStrategy(TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)),
-        pre_trade_risk=PreTradeRisk(PreTradeRiskConfig(max_turnover=0.0, drawdown_start=0.1, drawdown_stop=0.2)),
-        config=ResidualMarketEnvConfig(episode_bars=8, decision_every=1, initial_capital=1_000.0, initial_state_modes=("stress",), stress_drawdown_fraction=0.25, execution_cost=ExecutionCostConfig.zero()),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        pre_trade_risk=PreTradeRisk(
+            PreTradeRiskConfig(max_turnover=0.0, drawdown_start=0.1, drawdown_stop=0.2)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=8,
+            decision_every=1,
+            initial_capital=1_000.0,
+            initial_state_modes=("stress",),
+            stress_drawdown_fraction=0.25,
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
     )
     env.reset(options={"start_idx": 24, "initial_state_mode": "stress"})
     _, _, _, _, info = env.step(np.zeros(env.action_spec.size))

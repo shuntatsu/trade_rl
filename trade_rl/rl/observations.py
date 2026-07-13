@@ -77,9 +77,7 @@ class ObservationExecutionState:
             if vector.shape != (n_symbols,) or not np.isfinite(vector).all():
                 raise ValueError(f"{field_name} do not match symbols")
             arrays[field_name] = vector
-        if np.any(arrays["fill_ratio"] < 0.0) or np.any(
-            arrays["fill_ratio"] > 1.0
-        ):
+        if np.any(arrays["fill_ratio"] < 0.0) or np.any(arrays["fill_ratio"] > 1.0):
             raise ValueError("fill_ratio must be within [0, 1]")
         if any(
             np.any(arrays[name] < 0.0)

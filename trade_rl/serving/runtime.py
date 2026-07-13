@@ -10,6 +10,7 @@ from typing import Protocol
 
 import numpy as np
 
+from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
@@ -31,6 +32,33 @@ class _BaselineIdentityPolicy:
     def predict(self, observation: np.ndarray) -> np.ndarray:
         del observation
         return np.zeros(self.action_size, dtype=np.float32)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeIdentityContract:
+    """Exact deployment identity required before a bundle can activate."""
+
+    environment_digest: str
+    action_names: tuple[str, ...]
+    action_spec_digest: str
+    normalizer_digest: str | None
+    alpha_artifact_digest: str | None = None
+    factor_artifact_digest: str | None = None
+
+    def __post_init__(self) -> None:
+        require_sha256(self.environment_digest, field="environment_digest")
+        require_sha256(self.action_spec_digest, field="action_spec_digest")
+        if not self.action_names or any(not name for name in self.action_names):
+            raise ValueError("action_names must be non-empty")
+        if len(set(self.action_names)) != len(self.action_names):
+            raise ValueError("action_names must be unique")
+        for field_name, value in (
+            ("normalizer_digest", self.normalizer_digest),
+            ("alpha_artifact_digest", self.alpha_artifact_digest),
+            ("factor_artifact_digest", self.factor_artifact_digest),
+        ):
+            if value is not None:
+                require_sha256(value, field=field_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,17 +92,57 @@ class ServingRuntime:
         policy_loader: PolicyLoader | None = None,
         *,
         allow_unreleased: bool = False,
+        identity_contract: RuntimeIdentityContract | None = None,
+        allow_unbound_identity: bool = False,
         expected_environment_digest: str | None = None,
         expected_action_names: tuple[str, ...] | None = None,
         expected_action_spec_digest: str | None = None,
         expected_normalizer_digest: str | None = None,
+        expected_alpha_artifact_digest: str | None = None,
+        expected_factor_artifact_digest: str | None = None,
     ) -> None:
+        legacy_values = (
+            expected_environment_digest,
+            expected_action_names,
+            expected_action_spec_digest,
+            expected_normalizer_digest,
+            expected_alpha_artifact_digest,
+            expected_factor_artifact_digest,
+        )
+        if identity_contract is not None and any(
+            value is not None for value in legacy_values
+        ):
+            raise ValueError(
+                "identity_contract cannot be combined with legacy expected fields"
+            )
+        if identity_contract is None and any(
+            value is not None for value in legacy_values
+        ):
+            if (
+                expected_environment_digest is None
+                or expected_action_names is None
+                or expected_action_spec_digest is None
+            ):
+                raise ValueError(
+                    "legacy serving identity requires environment, action names, "
+                    "and action spec"
+                )
+            identity_contract = RuntimeIdentityContract(
+                environment_digest=expected_environment_digest,
+                action_names=expected_action_names,
+                action_spec_digest=expected_action_spec_digest,
+                normalizer_digest=expected_normalizer_digest,
+                alpha_artifact_digest=expected_alpha_artifact_digest,
+                factor_artifact_digest=expected_factor_artifact_digest,
+            )
+        if not isinstance(allow_unbound_identity, bool):
+            raise ValueError("allow_unbound_identity must be a boolean")
+        if identity_contract is None and not allow_unbound_identity:
+            raise ValueError("serving runtime requires an explicit identity contract")
         self.policy_loader = policy_loader
         self.allow_unreleased = allow_unreleased
-        self.expected_environment_digest = expected_environment_digest
-        self.expected_action_names = expected_action_names
-        self.expected_action_spec_digest = expected_action_spec_digest
-        self.expected_normalizer_digest = expected_normalizer_digest
+        self.identity_contract = identity_contract
+        self.allow_unbound_identity = allow_unbound_identity
         self._lock = RLock()
         self._snapshot: RuntimeSnapshot | None = None
         self._policy: LoadedPolicy | None = None
@@ -104,6 +172,47 @@ class ServingRuntime:
             bundle_created_at=manifest.created_at,
         )
 
+    @staticmethod
+    def _validate_identity(
+        manifest: object,
+        contract: RuntimeIdentityContract,
+    ) -> None:
+        comparisons = (
+            (
+                getattr(manifest, "environment_digest"),
+                contract.environment_digest,
+                "environment identity",
+            ),
+            (
+                getattr(manifest, "action_names"),
+                contract.action_names,
+                "action names",
+            ),
+            (
+                getattr(manifest, "action_spec_digest"),
+                contract.action_spec_digest,
+                "action spec",
+            ),
+            (
+                getattr(manifest, "normalizer_digest"),
+                contract.normalizer_digest,
+                "normalizer",
+            ),
+            (
+                getattr(manifest, "alpha_artifact_digest"),
+                contract.alpha_artifact_digest,
+                "alpha artifact",
+            ),
+            (
+                getattr(manifest, "factor_artifact_digest"),
+                contract.factor_artifact_digest,
+                "factor artifact",
+            ),
+        )
+        for observed, expected, label in comparisons:
+            if observed != expected:
+                raise ValueError(f"serving bundle {label} does not match runtime")
+
     def activate(self, root: Path) -> RuntimeSnapshot:
         bundle = load_serving_bundle(root)
         manifest = bundle.manifest
@@ -117,26 +226,11 @@ class ServingRuntime:
             raise ValueError(
                 "serving bundle observation schema does not match runtime schema"
             )
-        if (
-            self.expected_environment_digest is not None
-            and manifest.environment_digest != self.expected_environment_digest
-        ):
-            raise ValueError("serving bundle environment identity does not match runtime")
-        if (
-            self.expected_action_names is not None
-            and manifest.action_names != self.expected_action_names
-        ):
-            raise ValueError("serving bundle action names do not match runtime")
-        if (
-            self.expected_action_spec_digest is not None
-            and manifest.action_spec_digest != self.expected_action_spec_digest
-        ):
-            raise ValueError("serving bundle action spec does not match runtime")
-        if (
-            self.expected_normalizer_digest is not None
-            and manifest.normalizer_digest != self.expected_normalizer_digest
-        ):
-            raise ValueError("serving bundle normalizer does not match runtime")
+        contract = self.identity_contract
+        if contract is not None:
+            self._validate_identity(manifest, contract)
+        elif not self.allow_unbound_identity:
+            raise RuntimeError("serving identity contract was not configured")
 
         if manifest.policy_mode is PolicyMode.BASELINE_ONLY:
             candidate_policy: LoadedPolicy = _BaselineIdentityPolicy(
@@ -172,10 +266,14 @@ class ServingRuntime:
             raise RuntimeError("serving runtime has no active policy")
         if vector.shape != (snapshot.observation_size,):
             raise ValueError("observation violates the active observation schema")
-        raw_action = np.asarray(policy.predict(vector), dtype=np.float32).reshape(-1)
-        if raw_action.shape != (snapshot.action_size,) or not np.isfinite(
-            raw_action
-        ).all():
+        raw_action = np.asarray(
+            policy.predict(vector),
+            dtype=np.float32,
+        ).reshape(-1)
+        if (
+            raw_action.shape != (snapshot.action_size,)
+            or not np.isfinite(raw_action).all()
+        ):
             raise ValueError("policy output violates the residual action schema")
         if np.any(raw_action < -1.0) or np.any(raw_action > 1.0):
             raise ValueError("policy output violates the residual action schema bounds")

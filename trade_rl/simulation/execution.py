@@ -65,21 +65,24 @@ class ExecutionCostConfig:
         ):
             if not math.isfinite(value):
                 raise ValueError(f"{field_name} must be finite")
-        if min(
-            self.fee_rate,
-            self.maker_fee_rate,
-            self.taker_fee_rate,
-            self.spread_rate,
-            self.impact_rate,
-            self.multiplier,
-            self.slippage_std,
-            self.tail_slippage_multiplier,
-            self.minimum_notional,
-            self.lot_size,
-            self.tick_size,
-            self.borrow_rate_multiplier,
-            self.limit_offset_rate,
-        ) < 0.0:
+        if (
+            min(
+                self.fee_rate,
+                self.maker_fee_rate,
+                self.taker_fee_rate,
+                self.spread_rate,
+                self.impact_rate,
+                self.multiplier,
+                self.slippage_std,
+                self.tail_slippage_multiplier,
+                self.minimum_notional,
+                self.lot_size,
+                self.tick_size,
+                self.borrow_rate_multiplier,
+                self.limit_offset_rate,
+            )
+            < 0.0
+        ):
             raise ValueError("execution rates and constraints must be non-negative")
         if not 0.0 < self.max_participation_rate <= 1.0:
             raise ValueError("max_participation_rate must be within (0, 1]")
@@ -290,13 +293,26 @@ class MarketExecutor:
             + self.cost.collateral_haircut * np.maximum(position_values, 0.0).sum()
         )
         maintenance_required = self.cost.maintenance_margin_rate * gross_notional
+        book.margin_deficit = max(
+            book.margin_deficit,
+            maintenance_required - collateral_equity,
+            0.0,
+        )
         if self.cost.margin_mode == "isolated" and gross_notional > 0.0:
             allocations = np.abs(position_values) / gross_notional
             isolated_equity = collateral_equity * allocations
-            isolated_required = (
-                self.cost.maintenance_margin_rate * np.abs(position_values)
+            isolated_required = self.cost.maintenance_margin_rate * np.abs(
+                position_values
             )
-            if np.any(isolated_equity + _TOLERANCE < isolated_required):
+            isolated_deficit = np.maximum(
+                isolated_required - isolated_equity,
+                0.0,
+            )
+            book.margin_deficit = max(
+                book.margin_deficit,
+                float(np.max(isolated_deficit, initial=0.0)),
+            )
+            if np.any(isolated_deficit > _TOLERANCE):
                 book.terminate(EconomicTerminationReason.MARGIN_CALL)
         elif collateral_equity + _TOLERANCE < maintenance_required:
             book.terminate(EconomicTerminationReason.MARGIN_CALL)
@@ -582,13 +598,10 @@ class MarketExecutor:
                 )
 
             intrabar_asset_returns = (
-                self.dataset.mark_price[next_index]
-                / self.dataset.open[next_index]
+                self.dataset.mark_price[next_index] / self.dataset.open[next_index]
                 - 1.0
             )
-            intrabar_return = float(
-                np.dot(result_book.weights, intrabar_asset_returns)
-            )
+            intrabar_return = float(np.dot(result_book.weights, intrabar_asset_returns))
             gross_factor *= max(
                 (1.0 + gap_return) * (1.0 + intrabar_return),
                 _TOLERANCE,

@@ -4,12 +4,20 @@ from pathlib import Path
 
 import pytest
 
-from tests.serving.helpers import ACTION_NAMES, ACTION_SPEC_DIGEST, INITIAL_CAPITAL, OBSERVATION_SIZE, create_bundle
+from tests.serving.helpers import (
+    ACTION_NAMES,
+    ACTION_SPEC_DIGEST,
+    INITIAL_CAPITAL,
+    OBSERVATION_SIZE,
+    create_bundle,
+)
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.serving.bundle import load_serving_bundle
 
 
-def test_v3_bundle_binds_exact_action_environment_and_normalizer_identity(tmp_path: Path) -> None:
+def test_v3_bundle_binds_exact_action_environment_and_normalizer_identity(
+    tmp_path: Path,
+) -> None:
     bundle = load_serving_bundle(create_bundle(tmp_path / "bundle"))
     manifest = bundle.manifest
     assert manifest.policy_mode is PolicyMode.BASELINE_ONLY

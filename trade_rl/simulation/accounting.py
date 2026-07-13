@@ -47,6 +47,7 @@ class BookState:
     margin_used: float = 0.0
     maintenance_margin: float = 0.0
     maintenance_requirement: float = 0.0
+    margin_deficit: float = 0.0
     insolvent: bool = False
     termination_reason: EconomicTerminationReason | str | None = None
 
@@ -68,6 +69,7 @@ class BookState:
             ("margin_used", self.margin_used),
             ("maintenance_margin", self.maintenance_margin),
             ("maintenance_requirement", self.maintenance_requirement),
+            ("margin_deficit", self.margin_deficit),
         ):
             if not np.isfinite(value):
                 raise ValueError(f"{field_name} must be finite")
@@ -79,6 +81,7 @@ class BookState:
             self.borrow_cost < 0.0
             or self.margin_used < 0.0
             or self.maintenance_requirement < 0.0
+            or self.margin_deficit < 0.0
         ):
             raise ValueError(
                 "borrow_cost, margin_used and maintenance_requirement must be non-negative"
@@ -218,6 +221,7 @@ class BookState:
             margin_used=self.margin_used,
             maintenance_margin=self.maintenance_margin,
             maintenance_requirement=self.maintenance_requirement,
+            margin_deficit=self.margin_deficit,
             insolvent=self.insolvent,
             termination_reason=self.termination_reason,
         )
@@ -239,7 +243,9 @@ class BookState:
         self._refresh_economic_state()
         return amount
 
-    def apply_cash_interest(self, annual_rate: float, *, periods_per_year: int) -> float:
+    def apply_cash_interest(
+        self, annual_rate: float, *, periods_per_year: int
+    ) -> float:
         if not np.isfinite(annual_rate):
             raise ValueError("annual_rate must be finite")
         if periods_per_year <= 0:
@@ -264,8 +270,10 @@ class BookState:
             for vector in (settle_mask, price_vector, recovery_vector)
         ):
             raise ValueError("settlement vectors must match the book")
-        if np.any(price_vector <= 0.0) or np.any(recovery_vector < 0.0) or np.any(
-            recovery_vector > 1.0
+        if (
+            np.any(price_vector <= 0.0)
+            or np.any(recovery_vector < 0.0)
+            or np.any(recovery_vector > 1.0)
         ):
             raise ValueError("settlement prices or recovery are invalid")
         proceeds = float(
@@ -303,6 +311,10 @@ class BookState:
         self.margin_used = float(margin_used)
         self.maintenance_margin = float(maintenance_margin)
         self.maintenance_requirement = requirement
+        self.margin_deficit = max(
+            0.0,
+            requirement - max(self.portfolio_value, 0.0),
+        )
         if (
             self.portfolio_value > 0.0
             and requirement > 0.0
@@ -332,7 +344,10 @@ class BookState:
     ) -> None:
         prices = _finite_vector(fill_prices, field_name="fill_prices")
         targets = _finite_vector(target_quantities, field_name="target_quantities")
-        if prices.shape != self.quantities.shape or targets.shape != self.quantities.shape:
+        if (
+            prices.shape != self.quantities.shape
+            or targets.shape != self.quantities.shape
+        ):
             raise ValueError("execution vectors must match the book")
         if np.any(prices <= 0.0):
             raise ValueError("fill_prices must be strictly positive")

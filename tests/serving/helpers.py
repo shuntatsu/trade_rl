@@ -8,6 +8,7 @@ from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundleManifest, write_serving_bundle_manifest
+from trade_rl.serving.runtime import RuntimeIdentityContract
 
 OBSERVATION_SIZE = 5
 ACTION_NAMES = ("fast_tilt", "slow_tilt", "risk_tilt")
@@ -30,7 +31,9 @@ def create_bundle(
     artifact_paths = ["dataset.json", "signal.json", "selection.json"]
     (root / "dataset.json").write_text('{"dataset":"a"}', encoding="utf-8")
     (root / "signal.json").write_text('{"signal":"rejected"}', encoding="utf-8")
-    (root / "selection.json").write_text(f'{{"selection":"{policy_mode.value}"}}', encoding="utf-8")
+    (root / "selection.json").write_text(
+        f'{{"selection":"{policy_mode.value}"}}', encoding="utf-8"
+    )
     if release_digest is not None:
         (root / "release.json").write_text('{"release":"approved"}', encoding="utf-8")
         artifact_paths.append("release.json")
@@ -61,3 +64,22 @@ def create_bundle(
     )
     write_serving_bundle_manifest(root, manifest)
     return root
+
+
+def runtime_identity_contract(
+    *,
+    environment_digest: str = "d" * 64,
+    action_names: tuple[str, ...] = ACTION_NAMES,
+    action_spec_digest: str = ACTION_SPEC_DIGEST,
+    normalizer_digest: str | None = "9" * 64,
+    alpha_artifact_digest: str | None = None,
+    factor_artifact_digest: str | None = None,
+) -> RuntimeIdentityContract:
+    return RuntimeIdentityContract(
+        environment_digest=environment_digest,
+        action_names=action_names,
+        action_spec_digest=action_spec_digest,
+        normalizer_digest=normalizer_digest,
+        alpha_artifact_digest=alpha_artifact_digest,
+        factor_artifact_digest=factor_artifact_digest,
+    )

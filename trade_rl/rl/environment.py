@@ -20,12 +20,11 @@ from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import (
     ACTION_SCHEMA,
     ActionSpec,
-    AlphaContract,
     ActionValidationMode,
+    AlphaContract,
     BaselineResidualComposer,
     ResidualAction,
     ResidualActionV2,
-    ResidualComposition,
 )
 from trade_rl.rl.diagnostics import ActionDiagnosticsAccumulator
 from trade_rl.rl.normalization import ObservationNormalizer
@@ -145,7 +144,10 @@ class ResidualMarketEnvConfig:
             "stress_tail",
         }:
             raise ValueError("episode_sampling_mode is not supported")
-        if not math.isfinite(self.stress_quantile) or not 0.5 <= self.stress_quantile < 1.0:
+        if (
+            not math.isfinite(self.stress_quantile)
+            or not 0.5 <= self.stress_quantile < 1.0
+        ):
             raise ValueError("stress_quantile must be within [0.5, 1)")
         if (
             isinstance(self.regime_feature_index, bool)
@@ -198,9 +200,7 @@ class ResidualMarketEnvConfig:
         # behavior follows the recommended absolute-growth-first hierarchy.
         return RewardConfig(
             scale=self.reward_scale,
-            incremental_drawdown_weight=(
-                0.10 + 0.10 * self.excess_drawdown_penalty
-            ),
+            incremental_drawdown_weight=(0.10 + 0.10 * self.excess_drawdown_penalty),
             terminal_equity_weight=1.0 + self.downside_penalty,
         )
 
@@ -289,10 +289,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.normalizer = normalizer
         self.config = config or ResidualMarketEnvConfig()
-        if self.pre_trade_risk.config.max_gross > self.config.execution_cost.max_leverage:
-            raise ValueError(
-                "pre-trade max_gross cannot exceed execution max_leverage"
-            )
+        if (
+            self.pre_trade_risk.config.max_gross
+            > self.config.execution_cost.max_leverage
+        ):
+            raise ValueError("pre-trade max_gross cannot exceed execution max_leverage")
         if self.config.random_initial_gross > self.pre_trade_risk.config.max_gross:
             raise ValueError("random_initial_gross cannot exceed pre-trade max_gross")
         if action_spec is None:
@@ -343,10 +344,17 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         if normalizer is not None:
             if normalizer.size != layout.size:
                 raise ValueError("normalizer size does not match observation layout")
-            if normalizer.dataset_id is not None and normalizer.dataset_id != dataset.dataset_id:
-                raise ValueError("normalizer dataset identity does not match environment")
+            if (
+                normalizer.dataset_id is not None
+                and normalizer.dataset_id != dataset.dataset_id
+            ):
+                raise ValueError(
+                    "normalizer dataset identity does not match environment"
+                )
             if normalizer.observation_schema != OBSERVATION_SCHEMA:
-                raise ValueError("normalizer observation schema does not match environment")
+                raise ValueError(
+                    "normalizer observation schema does not match environment"
+                )
             required_passthrough = set(
                 observation_passthrough_indices(
                     dataset,
@@ -668,7 +676,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         if raw_bars is None:
             bars = None
         else:
-            if isinstance(raw_bars, bool) or not isinstance(raw_bars, int) or raw_bars <= 0:
+            if (
+                isinstance(raw_bars, bool)
+                or not isinstance(raw_bars, int)
+                or raw_bars <= 0
+            ):
                 raise ValueError("episode_bars option must be a positive integer")
             bars = raw_bars
 
@@ -778,7 +790,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         return hard_constrained.weights, peak
 
-    def _make_initial_book(self, *, weights: np.ndarray, peak: float, start: int) -> BookState:
+    def _make_initial_book(
+        self, *, weights: np.ndarray, peak: float, start: int
+    ) -> BookState:
         book = BookState.from_weights(
             weights=weights,
             capital=self.config.initial_capital,
@@ -934,7 +948,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             if self.alpha_enabled:
                 migrated[3] = legacy.alpha_budget
             saturated = int(np.count_nonzero(np.abs(vector) > 1.0))
-            return legacy, migrated, saturated, float(np.max(np.abs(vector), initial=0.0))
+            return (
+                legacy,
+                migrated,
+                saturated,
+                float(np.max(np.abs(vector), initial=0.0)),
+            )
         parsed = self.action_spec.parse(value)
         return (
             parsed,
@@ -950,7 +969,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         if self.config.decision_every is not None:
             return min(self.config.decision_every, remaining)
         if self.dataset.regular_cadence:
-            return min(self.dataset.bars_for_hours(self.config.decision_hours), remaining)
+            return min(
+                self.dataset.bars_for_hours(self.config.decision_hours), remaining
+            )
         return self.dataset.bars_until(
             self.current_index,
             self.config.decision_hours,
@@ -1004,7 +1025,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             filled_notional[positive] / requested_notional[positive],
         )
         total_requested = max(float(requested_notional.sum()), 1e-12)
-        unfilled = np.maximum(requested_notional - filled_notional, 0.0) / total_requested
+        unfilled = (
+            np.maximum(requested_notional - filled_notional, 0.0) / total_requested
+        )
         participation = result.participation_by_symbol
         if participation.shape != (self.dataset.n_symbols,):
             participation = np.zeros(self.dataset.n_symbols, dtype=np.float64)
@@ -1111,6 +1134,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             hybrid_drawdown=self._drawdown(self.hybrid),
             shadow_drawdown=self._drawdown(self.shadow),
             projection_distance=projection_distance,
+            hybrid_margin_deficit_fraction=(
+                self.hybrid.margin_deficit / self.config.initial_capital
+            ),
             hybrid_equity_fraction=max(self.hybrid.portfolio_value, 0.0)
             / self.config.initial_capital,
             shadow_equity_fraction=max(self.shadow.portfolio_value, 0.0)

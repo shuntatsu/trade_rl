@@ -8,8 +8,12 @@ from trade_rl.strategies.trend import TrendConfig, TrendMode, TrendStrategy
 
 def market(n_symbols: int) -> MarketDataset:
     n = 40
-    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(n) * np.timedelta64(1, "h")
-    paths = [100.0 * np.exp(np.arange(n) * (0.002 - i * 0.001)) for i in range(n_symbols)]
+    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(n) * np.timedelta64(
+        1, "h"
+    )
+    paths = [
+        100.0 * np.exp(np.arange(n) * (0.002 - i * 0.001)) for i in range(n_symbols)
+    ]
     close = np.column_stack(paths)
     open_price = np.vstack([close[0], close[:-1]])
     return MarketDataset(
@@ -33,19 +37,27 @@ def market(n_symbols: int) -> MarketDataset:
 
 
 def test_auto_mode_is_nonzero_for_one_symbol() -> None:
-    strategy = TrendStrategy(TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16))
+    strategy = TrendStrategy(
+        TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+    )
     targets = strategy.targets(market(1), 24)
     assert targets.base[0] > 0.0
     assert np.abs(targets.base).sum() < 1.0
 
 
 def test_auto_mode_preserves_cross_sectional_behavior_for_multiple_symbols() -> None:
-    strategy = TrendStrategy(TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16))
+    strategy = TrendStrategy(
+        TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+    )
     targets = strategy.targets(market(2), 24)
     assert targets.base.sum() == 0.0
     assert np.abs(targets.base).sum() == 1.0
 
 
 def test_long_only_never_emits_short_weights() -> None:
-    strategy = TrendStrategy(TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16, mode=TrendMode.LONG_ONLY))
+    strategy = TrendStrategy(
+        TrendConfig(
+            fast_lookback=4, base_lookback=8, slow_lookback=16, mode=TrendMode.LONG_ONLY
+        )
+    )
     assert np.all(strategy.targets(market(2), 24).base >= 0.0)

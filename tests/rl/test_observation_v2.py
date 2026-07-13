@@ -4,7 +4,11 @@ import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.normalization import ObservationNormalizer
-from trade_rl.rl.observations import build_observation, observation_layout, observation_passthrough_indices
+from trade_rl.rl.observations import (
+    build_observation,
+    observation_layout,
+    observation_passthrough_indices,
+)
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendTargets
 
@@ -18,7 +22,8 @@ def market() -> MarketDataset:
     return MarketDataset(
         dataset_id="d" * 64,
         symbols=("A", "B"),
-        timestamps=np.datetime64("2026-01-01", "ns") + np.arange(n) * np.timedelta64(1, "h"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n) * np.timedelta64(1, "h"),
         features=np.arange(n * 4, dtype=np.float32).reshape(n, 2, 2),
         global_features=np.ones((n, 1), dtype=np.float32),
         open=open_price,
@@ -44,7 +49,11 @@ def observation() -> tuple[MarketDataset, np.ndarray]:
     result = build_observation(
         dataset=dataset,
         index=2,
-        trends=TrendTargets(fast=np.array([0.4, -0.4]), base=np.array([0.3, -0.3]), slow=np.array([0.2, -0.2])),
+        trends=TrendTargets(
+            fast=np.array([0.4, -0.4]),
+            base=np.array([0.3, -0.3]),
+            slow=np.array([0.2, -0.2]),
+        ),
         alpha=np.zeros(2),
         factor_basis=np.array([[0.5, -0.5]]),
         hybrid=book,
@@ -63,7 +72,9 @@ def test_observation_v3_contains_factor_and_execution_market_contracts() -> None
     dataset, result = observation()
     layout = observation_layout(dataset, action_size=4, n_factors=1)
     assert result.shape == (layout.size,)
-    rows = result[: dataset.n_symbols * layout.per_symbol_width].reshape(dataset.n_symbols, layout.per_symbol_width)
+    rows = result[: dataset.n_symbols * layout.per_symbol_width].reshape(
+        dataset.n_symbols, layout.per_symbol_width
+    )
     assert rows[0, -1] > 0.0  # mark/index premium
 
 
@@ -80,4 +91,6 @@ def test_normalizer_is_fitted_only_on_train_range_and_preserves_masks() -> None:
     )
     assert normalizer.mean[0] < 10.0
     transformed = normalizer.transform(one)
-    np.testing.assert_array_equal(transformed[list(passthrough)], one[list(passthrough)])
+    np.testing.assert_array_equal(
+        transformed[list(passthrough)], one[list(passthrough)]
+    )

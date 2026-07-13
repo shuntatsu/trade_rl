@@ -54,9 +54,7 @@ class ResidualMarketEnvConfig:
             ("minimum_equity_fraction", self.minimum_equity_fraction),
         ):
             if not math.isfinite(positive_value) or positive_value <= 0.0:
-                raise ValueError(
-                    f"{positive_field_name} must be finite and positive"
-                )
+                raise ValueError(f"{positive_field_name} must be finite and positive")
         for optional_field_name, optional_value in (
             ("episode_bars", self.episode_bars),
             ("decision_every", self.decision_every),
@@ -66,9 +64,7 @@ class ResidualMarketEnvConfig:
                 or not isinstance(optional_value, int)
                 or optional_value <= 0
             ):
-                raise ValueError(
-                    f"{optional_field_name} must be a positive integer"
-                )
+                raise ValueError(f"{optional_field_name} must be a positive integer")
         for penalty_field_name, penalty_value in (
             ("downside_penalty", self.downside_penalty),
             ("excess_drawdown_penalty", self.excess_drawdown_penalty),

@@ -52,6 +52,7 @@ class MarketDataset:
     periods_per_year: int
     symbol_active: np.ndarray | None = None
     feature_staleness: np.ndarray | None = None
+    information_available: np.ndarray | None = None
     volume_units: tuple[VolumeUnit, ...] = ()
     contract_multipliers: np.ndarray | None = None
     feature_config_digest: str = _ZERO_DIGEST
@@ -141,6 +142,15 @@ class MarketDataset:
             symbol_active_value,
             dtype=np.dtype(np.bool_),
         )
+        information_available_value = (
+            symbol_active & tradable
+            if self.information_available is None
+            else self.information_available
+        )
+        information_available = _readonly_array(
+            information_available_value,
+            dtype=np.dtype(np.bool_),
+        )
         feature_staleness = _readonly_array(
             feature_staleness_value,
             dtype=np.dtype(np.float32),
@@ -169,6 +179,10 @@ class MarketDataset:
             raise ValueError("tradable shape does not match bars and symbols")
         if symbol_active.shape != price_shape:
             raise ValueError("symbol_active shape does not match bars and symbols")
+        if information_available.shape != price_shape:
+            raise ValueError(
+                "information_available shape does not match bars and symbols"
+            )
         if feature_available.shape != features.shape:
             raise ValueError("feature_available shape does not match features")
         if feature_staleness.shape != features.shape:
@@ -202,6 +216,8 @@ class MarketDataset:
             raise ValueError("feature_staleness must be within [0, 1]")
         if np.any(tradable & ~symbol_active):
             raise ValueError("tradable cannot be true for an inactive symbol")
+        if np.any(information_available & ~symbol_active):
+            raise ValueError("information cannot be available for an inactive symbol")
         if np.any(feature_available & ~symbol_active[:, :, None]):
             raise ValueError("features cannot be available for an inactive symbol")
         if np.any((~feature_available) & (feature_staleness < 1.0)):
@@ -230,6 +246,7 @@ class MarketDataset:
         object.__setattr__(self, "funding_rate", funding)
         object.__setattr__(self, "tradable", tradable)
         object.__setattr__(self, "symbol_active", symbol_active)
+        object.__setattr__(self, "information_available", information_available)
         object.__setattr__(self, "feature_available", feature_available)
         object.__setattr__(self, "feature_staleness", feature_staleness)
         object.__setattr__(self, "contract_multipliers", contract_multipliers)
@@ -259,6 +276,39 @@ class MarketDataset:
         if resolved <= 0 or not math.isclose(raw, resolved, abs_tol=1e-9):
             raise ValueError("hours must resolve to an integral number of bars")
         return resolved
+
+    def eligibility_mask(
+        self,
+        index: int,
+        *,
+        lookback: int = 0,
+        require_features: bool = False,
+    ) -> np.ndarray:
+        """Return symbols causally eligible at ``index`` over a trailing window."""
+
+        if not 0 <= index < self.n_bars:
+            raise IndexError("eligibility index is outside the dataset")
+        if isinstance(lookback, bool) or not isinstance(lookback, int) or lookback < 0:
+            raise ValueError("lookback must be a non-negative integer")
+        start = index - lookback
+        if start < 0:
+            raise ValueError("eligibility lookback exceeds available history")
+        symbol_active = self.symbol_active
+        information_available = self.information_available
+        assert symbol_active is not None
+        assert information_available is not None
+        eligible = np.all(
+            symbol_active[start : index + 1]
+            & self.tradable[start : index + 1]
+            & information_available[start : index + 1],
+            axis=0,
+        )
+        if require_features:
+            eligible &= np.all(
+                self.feature_available[start : index + 1],
+                axis=(0, 2),
+            )
+        return eligible
 
     def market_notional(
         self,

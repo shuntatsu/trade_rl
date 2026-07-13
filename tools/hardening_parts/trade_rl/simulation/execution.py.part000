@@ -1,0 +1,288 @@
+"""Next-open execution, liquidity costs, funding, borrow and margin accounting."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from trade_rl.data.market import MarketDataset
+from trade_rl.simulation.accounting import (
+    BookState,
+    EconomicTerminationReason,
+)
+
+_TOLERANCE = 1e-12
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionCostConfig:
+    fee_rate: float = 0.0005
+    maker_fee_rate: float = 0.0
+    taker_fee_rate: float = 0.0
+    spread_rate: float = 0.0002
+    impact_rate: float = 0.0001
+    multiplier: float = 1.0
+    max_participation_rate: float = 0.05
+    slippage_std: float = 0.0
+    tail_slippage_probability: float = 0.0
+    tail_slippage_multiplier: float = 5.0
+    random_seed: int = 0
+    minimum_notional: float = 0.0
+    lot_size: float = 0.0
+    tick_size: float = 0.0
+    allow_short: bool = True
+    borrow_rate_multiplier: float = 1.0
+    max_leverage: float = 1.0
+    maintenance_margin_rate: float = 0.25
+    collateral_haircut: float = 1.0
+    margin_mode: str = "cross"
+    order_latency_bars: int = 0
+    order_type: str = "market"
+    limit_offset_rate: float = 0.0005
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("fee_rate", self.fee_rate),
+            ("maker_fee_rate", self.maker_fee_rate),
+            ("taker_fee_rate", self.taker_fee_rate),
+            ("spread_rate", self.spread_rate),
+            ("impact_rate", self.impact_rate),
+            ("multiplier", self.multiplier),
+            ("max_participation_rate", self.max_participation_rate),
+            ("slippage_std", self.slippage_std),
+            ("tail_slippage_probability", self.tail_slippage_probability),
+            ("tail_slippage_multiplier", self.tail_slippage_multiplier),
+            ("minimum_notional", self.minimum_notional),
+            ("lot_size", self.lot_size),
+            ("tick_size", self.tick_size),
+            ("borrow_rate_multiplier", self.borrow_rate_multiplier),
+            ("max_leverage", self.max_leverage),
+            ("maintenance_margin_rate", self.maintenance_margin_rate),
+            ("collateral_haircut", self.collateral_haircut),
+            ("limit_offset_rate", self.limit_offset_rate),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+        if min(
+            self.fee_rate,
+            self.maker_fee_rate,
+            self.taker_fee_rate,
+            self.spread_rate,
+            self.impact_rate,
+            self.multiplier,
+            self.slippage_std,
+            self.tail_slippage_multiplier,
+            self.minimum_notional,
+            self.lot_size,
+            self.tick_size,
+            self.borrow_rate_multiplier,
+            self.limit_offset_rate,
+        ) < 0.0:
+            raise ValueError("execution rates and constraints must be non-negative")
+        if not 0.0 < self.max_participation_rate <= 1.0:
+            raise ValueError("max_participation_rate must be within (0, 1]")
+        if not 0.0 <= self.tail_slippage_probability <= 1.0:
+            raise ValueError("tail_slippage_probability must be within [0, 1]")
+        if not 0.0 < self.max_leverage:
+            raise ValueError("max_leverage must be positive")
+        if not 0.0 <= self.maintenance_margin_rate <= 1.0:
+            raise ValueError("maintenance_margin_rate must be within [0, 1]")
+        if not 0.0 < self.collateral_haircut <= 1.0:
+            raise ValueError("collateral_haircut must be within (0, 1]")
+        if self.margin_mode not in {"cross", "isolated"}:
+            raise ValueError("margin_mode must be 'cross' or 'isolated'")
+        if isinstance(self.random_seed, bool) or not isinstance(self.random_seed, int):
+            raise ValueError("random_seed must be a non-negative integer")
+        if self.random_seed < 0:
+            raise ValueError("random_seed must be a non-negative integer")
+        if (
+            isinstance(self.order_latency_bars, bool)
+            or not isinstance(self.order_latency_bars, int)
+            or self.order_latency_bars < 0
+        ):
+            raise ValueError("order_latency_bars must be a non-negative integer")
+        if self.order_type not in {"market", "limit"}:
+            raise ValueError("order_type must be 'market' or 'limit'")
+        if self.limit_offset_rate >= 1.0:
+            raise ValueError("limit_offset_rate must be below one")
+        if not isinstance(self.allow_short, bool):
+            raise ValueError("allow_short must be a boolean")
+
+    @property
+    def rate_per_turnover(self) -> float:
+        return self.multiplier * (self.fee_rate + self.spread_rate)
+
+    @classmethod
+    def zero(cls) -> ExecutionCostConfig:
+        return cls(
+            fee_rate=0.0,
+            maker_fee_rate=0.0,
+            taker_fee_rate=0.0,
+            spread_rate=0.0,
+            impact_rate=0.0,
+            multiplier=1.0,
+            max_participation_rate=1.0,
+            slippage_std=0.0,
+            tail_slippage_probability=0.0,
+            tail_slippage_multiplier=0.0,
+            minimum_notional=0.0,
+            lot_size=0.0,
+            tick_size=0.0,
+            borrow_rate_multiplier=0.0,
+            max_leverage=1.0,
+            maintenance_margin_rate=0.0,
+            limit_offset_rate=0.0,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionResult:
+    book: BookState
+    next_index: int
+    bars_advanced: int
+    interval_gross_return: float
+    interval_cost: float
+    interval_funding: float
+    interval_net_return: float
+    interval_log_return: float
+    requested_turnover: float
+    filled_turnover: float
+    unfilled_turnover: float
+    fill_count: int
+    rebalance_events: int
+    fill_ratio: float = 1.0
+    max_participation: float = 0.0
+    interval_borrow_cost: float = 0.0
+    interval_dividend: float = 0.0
+    interval_cash_interest: float = 0.0
+    margin_utilization: float = 0.0
+    termination_reason: str | None = None
+    requested_notional_by_symbol: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    filled_notional_by_symbol: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    participation_by_symbol: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    cost_by_symbol: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _FillResult:
+    requested_notional: float
+    filled_notional: float
+    cost_amount: float
+    fill_count: int
+    rebalance_events: int
+    max_participation: float
+    requested_notional_by_symbol: np.ndarray
+    filled_notional_by_symbol: np.ndarray
+    participation_by_symbol: np.ndarray
+    cost_by_symbol: np.ndarray
+
+
+def _target_weights(
+    value: np.ndarray,
+    *,
+    n_symbols: int,
+    maximum_gross: float,
+) -> np.ndarray:
+    if not math.isfinite(maximum_gross) or maximum_gross <= 0.0:
+        raise ValueError("maximum_gross must be finite and positive")
+    target = np.asarray(value, dtype=np.float64).reshape(-1).copy()
+    if target.shape != (n_symbols,):
+        raise ValueError("target weights shape does not match market symbols")
+    if not np.isfinite(target).all():
+        raise ValueError("target weights must be finite")
+    gross = float(np.abs(target).sum())
+    if gross > maximum_gross + _TOLERANCE:
+        raise ValueError("target gross exposure exceeds configured leverage")
+    return target
+
+
+class MarketExecutor:
+    """Execute one decision target while holding filled quantities."""
+
+    def __init__(
+        self,
+        dataset: MarketDataset,
+        cost: ExecutionCostConfig | None = None,
+    ) -> None:
+        self.dataset = dataset
+        self.cost = cost or ExecutionCostConfig()
+        self._rng = np.random.default_rng(self.cost.random_seed)
+
+    def reset_random_state(self, seed: int | None = None) -> None:
+        resolved = self.cost.random_seed if seed is None else seed
+        if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
+            raise ValueError("seed must be a non-negative integer")
+        self._rng = np.random.default_rng(resolved)
+
+    def _slippage_rates(self, size: int) -> np.ndarray:
+        if self.cost.slippage_std == 0.0 or size == 0:
+            return np.zeros(size, dtype=np.float64)
+        rates = np.abs(self._rng.normal(0.0, self.cost.slippage_std, size=size))
+        if self.cost.tail_slippage_probability > 0.0:
+            tails = self._rng.random(size) < self.cost.tail_slippage_probability
+            rates[tails] *= self.cost.tail_slippage_multiplier
+        return rates
+
+    def _round_prices(self, prices: np.ndarray, *, index: int) -> np.ndarray:
+        tick = np.maximum(self.dataset.tick_size[index], self.cost.tick_size)
+        rounded = prices.copy()
+        mask = tick > 0.0
+        rounded[mask] = np.round(rounded[mask] / tick[mask]) * tick[mask]
+        rounded[mask] = np.maximum(rounded[mask], tick[mask])
+        if np.any(rounded <= 0.0) or not np.isfinite(rounded).all():
+            raise ValueError("rounded execution prices must remain finite and positive")
+        return rounded
+
+    def _round_quantities(self, quantities: np.ndarray, *, index: int) -> np.ndarray:
+        lot = np.maximum(self.dataset.lot_size[index], self.cost.lot_size)
+        rounded = quantities.copy()
+        mask = lot > 0.0
+        rounded[mask] = np.trunc(rounded[mask] / lot[mask]) * lot[mask]
+        return rounded
+
+    def _constrain_borrow(
+        self,
+        desired: np.ndarray,
+        *,
+        current: np.ndarray,
+        index: int,
+    ) -> np.ndarray:
+        result = desired.copy()
+        if not self.cost.allow_short:
+            return np.maximum(result, 0.0)
+        available = self.dataset.borrow_available[index]
+        lower_bound = np.minimum(current, 0.0)
+        result[~available] = np.maximum(result[~available], lower_bound[~available])
+        return result
+
+    def _flatten_after_termination(self, book: BookState, prices: np.ndarray) -> None:
+        value = max(book.portfolio_value, 0.0)
+        book.quantities = np.zeros_like(book.quantities)
+        book.mark_prices = prices.copy()
+        book.cash = value
+        book.margin_used = 0.0
+        book.maintenance_margin = 0.0
+        book.maintenance_requirement = 0.0
+
+    def _update_margin(self, book: BookState) -> None:
+        position_values = book.position_values
+        gross_notional = float(np.abs(position_values).sum())
+        margin_used = gross_notional / self.cost.max_leverage
+        maintenance_required = self.cost.maintenance_margin_rate * gross_notional
+        book.set_margin(
+            margin_used=margin_used,
+            maintenance_margin=self.cost.maintenance_margin_rate,
+            maintenance_requirement=maintenance_required,
+        )
+        collateral_equity = float(
+            book.cash

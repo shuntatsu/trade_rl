@@ -1,0 +1,390 @@
+ble] = 0.0
+-        gross = float(np.abs(alpha).sum())
+-        return alpha / gross if gross > 1.0 else alpha
++        return self.market_input_resolver.resolve(self.dataset, index)[1]
+ 
+     def _market_inputs(self) -> tuple[TrendTargets, np.ndarray]:
+-        return (
+-            self.trend_strategy.targets(self.dataset, self.current_index),
+-            self._alpha_at(self.current_index),
+-        )
++        return self.market_input_resolver.resolve(self.dataset, self.current_index)
+ 
+     def _observation(self) -> np.ndarray:
+         trends, alpha = self._market_inputs()
+diff --git a/trade_rl/rl/market_inputs.py b/trade_rl/rl/market_inputs.py
+new file mode 100644
+index 0000000..8f00dbb
+--- /dev/null
++++ b/trade_rl/rl/market_inputs.py
+@@ -0,0 +1,131 @@
++"""Shared causal Trend and Alpha input resolution for training and Serving."""
++
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from typing import Protocol
++
++import numpy as np
++
++from trade_rl.artifacts.hashing import content_digest
++from trade_rl.data.market import MarketDataset
++from trade_rl.domain.common import require_sha256
++from trade_rl.strategies.trend import TrendStrategy, TrendTargets
++
++
++def _readonly_copy(value: np.ndarray) -> np.ndarray:
++    array = np.asarray(value).copy(order="C")
++    array.setflags(write=False)
++    return array
++
++
++@dataclass(frozen=True, slots=True)
++class CausalMarketView:
++    """Copied policy-safe market prefix ending at one decision index."""
++
++    dataset_id: str
++    symbols: tuple[str, ...]
++    timestamps: np.ndarray
++    features: np.ndarray
++    global_features: np.ndarray
++    tradable: np.ndarray
++    symbol_active: np.ndarray
++    information_available: np.ndarray
++    feature_available: np.ndarray
++    feature_staleness: np.ndarray
++    feature_names: tuple[str, ...]
++    global_feature_names: tuple[str, ...]
++
++    @property
++    def current_index(self) -> int:
++        return int(self.timestamps.shape[0] - 1)
++
++    @classmethod
++    def from_dataset(cls, dataset: MarketDataset, index: int) -> CausalMarketView:
++        if not 0 <= index < dataset.n_bars:
++            raise IndexError("causal market view index is outside the dataset")
++        symbol_active = dataset.symbol_active
++        information_available = dataset.information_available
++        feature_staleness = dataset.feature_staleness
++        assert symbol_active is not None
++        assert information_available is not None
++        assert feature_staleness is not None
++        stop = index + 1
++        observable_tradable = dataset.tradable[:stop] & information_available[:stop]
++        return cls(
++            dataset_id=dataset.dataset_id,
++            symbols=dataset.symbols,
++            timestamps=_readonly_copy(dataset.timestamps[:stop]),
++            features=_readonly_copy(dataset.features[:stop]),
++            global_features=_readonly_copy(dataset.global_features[:stop]),
++            tradable=_readonly_copy(observable_tradable),
++            symbol_active=_readonly_copy(symbol_active[:stop]),
++            information_available=_readonly_copy(information_available[:stop]),
++            feature_available=_readonly_copy(dataset.feature_available[:stop]),
++            feature_staleness=_readonly_copy(feature_staleness[:stop]),
++            feature_names=dataset.feature_names,
++            global_feature_names=dataset.global_feature_names,
++        )
++
++
++class CausalAlphaProvider(Protocol):
++    """Alpha provider that receives no market rows after the decision index."""
++
++    @property
++    def identity_digest(self) -> str: ...
++
++    def predict(self, market: CausalMarketView) -> np.ndarray: ...
++
++
++@dataclass(frozen=True, slots=True)
++class MarketInputResolver:
++    """Resolve deterministic Trend and optional Alpha through one causal path."""
++
++    trend_strategy: TrendStrategy = field(default_factory=TrendStrategy)
++    alpha_provider: CausalAlphaProvider | None = None
++    alpha_enabled: bool = False
++
++    def __post_init__(self) -> None:
++        if self.alpha_enabled and self.alpha_provider is None:
++            raise ValueError("enabled alpha requires a causal alpha provider")
++        if self.alpha_provider is not None:
++            require_sha256(
++                self.alpha_provider.identity_digest,
++                field="alpha_provider.identity_digest",
++            )
++
++    @property
++    def digest(self) -> str:
++        return content_digest(
++            {
++                "schema": "market_input_resolver_v1",
++                "trend": asdict(self.trend_strategy.config),
++                "alpha_enabled": self.alpha_enabled,
++                "alpha_provider_digest": (
++                    self.alpha_provider.identity_digest
++                    if self.alpha_provider is not None
++                    else None
++                ),
++            }
++        )
++
++    def resolve(
++        self,
++        dataset: MarketDataset,
++        index: int,
++    ) -> tuple[TrendTargets, np.ndarray]:
++        trends = self.trend_strategy.targets(dataset, index)
++        if not self.alpha_enabled:
++            return trends, np.zeros(dataset.n_symbols, dtype=np.float64)
++
++        provider = self.alpha_provider
++        assert provider is not None
++        raw = provider.predict(CausalMarketView.from_dataset(dataset, index))
++        alpha = np.asarray(raw, dtype=np.float64).reshape(-1)
++        if alpha.shape != (dataset.n_symbols,) or not np.isfinite(alpha).all():
++            raise ValueError("causal alpha provider returned an invalid vector")
++        eligible = dataset.eligibility_mask(index, require_features=True)
++        alpha = alpha.copy()
++        alpha[~eligible] = 0.0
++        gross = float(np.abs(alpha).sum())
++        return trends, (alpha / gross if gross > 1.0 else alpha)
+diff --git a/trade_rl/rl/observations.py b/trade_rl/rl/observations.py
+index 24783fb..af2933e 100644
+--- a/trade_rl/rl/observations.py
++++ b/trade_rl/rl/observations.py
+@@ -76,7 +76,7 @@ class ObservationBuilder:
+                     "features",
+                     "feature_available",
+                     "feature_staleness",
+-                    "tradable",
++                    "observable_tradable",
+                     "symbol_active",
+                     "trend_fast",
+                     "trend_base",
+@@ -141,7 +141,7 @@ class ObservationBuilder:
+                 dataset.features[index],
+                 dataset.feature_available[index].astype(np.float64, copy=False),
+                 feature_staleness[index].astype(np.float64, copy=False),
+-                dataset.tradable[index].astype(np.float64, copy=False),
++                dataset.observable_tradable(index).astype(np.float64, copy=False),
+                 symbol_active[index].astype(np.float64, copy=False),
+                 value.trends.fast,
+                 value.trends.base,
+diff --git a/trade_rl/serving/bundle.py b/trade_rl/serving/bundle.py
+index d5ba255..b83440b 100644
+--- a/trade_rl/serving/bundle.py
++++ b/trade_rl/serving/bundle.py
+@@ -61,6 +61,7 @@ class ServingBundleManifest:
+     action_schema: str
+     observation_schema_digest: str
+     observation_size: int
++    market_inputs_digest: str
+     policy_mode: PolicyMode
+     policy_digest: str | None
+     signal_digest: str
+@@ -68,7 +69,7 @@ class ServingBundleManifest:
+     release_digest: str | None
+     files: tuple[BundleFile, ...]
+     created_at: datetime
+-    schema_version: str = "serving_bundle_v2"
++    schema_version: str = "serving_bundle_v3"
+ 
+     def __post_init__(self) -> None:
+         require_sha256(self.bundle_digest, field="bundle_digest")
+@@ -80,6 +81,7 @@ class ServingBundleManifest:
+         )
+         if self.observation_size <= 0:
+             raise ValueError("observation_size must be positive")
++        require_sha256(self.market_inputs_digest, field="market_inputs_digest")
+         require_sha256(self.signal_digest, field="signal_digest")
+         require_sha256(self.selection_digest, field="selection_digest")
+         if self.policy_mode is PolicyMode.BASELINE_ONLY:
+@@ -110,6 +112,7 @@ class ServingBundleManifest:
+             "files": self.files,
+             "observation_schema_digest": self.observation_schema_digest,
+             "observation_size": self.observation_size,
++            "market_inputs_digest": self.market_inputs_digest,
+             "policy_digest": self.policy_digest,
+             "policy_mode": self.policy_mode,
+             "release_digest": self.release_digest,
+@@ -127,6 +130,7 @@ class ServingBundleManifest:
+         action_schema: str,
+         observation_schema_digest: str,
+         observation_size: int,
++        market_inputs_digest: str,
+         policy_mode: PolicyMode,
+         policy_digest: str | None,
+         signal_digest: str,
+@@ -156,10 +160,11 @@ class ServingBundleManifest:
+             "files": ordered,
+             "observation_schema_digest": observation_schema_digest,
+             "observation_size": observation_size,
++            "market_inputs_digest": market_inputs_digest,
+             "policy_digest": policy_digest,
+             "policy_mode": policy_mode,
+             "release_digest": release_digest,
+-            "schema_version": "serving_bundle_v2",
++            "schema_version": "serving_bundle_v3",
+             "selection_digest": selection_digest,
+             "signal_digest": signal_digest,
+         }
+@@ -169,6 +174,7 @@ class ServingBundleManifest:
+             action_schema=action_schema,
+             observation_schema_digest=observation_schema_digest,
+             observation_size=observation_size,
++            market_inputs_digest=market_inputs_digest,
+             policy_mode=policy_mode,
+             policy_digest=policy_digest,
+             signal_digest=signal_digest,
+@@ -252,6 +258,10 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
+             payload.get("observation_size"),
+             field="observation_size",
+         ),
++        market_inputs_digest=_string(
++            payload.get("market_inputs_digest"),
++            field="market_inputs_digest",
++        ),
+         policy_mode=PolicyMode(
+             _string(payload.get("policy_mode"), field="policy_mode")
+         ),
+diff --git a/trade_rl/serving/runtime.py b/trade_rl/serving/runtime.py
+index b3a6537..0375980 100644
+--- a/trade_rl/serving/runtime.py
++++ b/trade_rl/serving/runtime.py
+@@ -2,7 +2,7 @@
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
++from dataclasses import dataclass, replace
+ from datetime import datetime
+ from pathlib import Path
+ from threading import RLock
+@@ -12,6 +12,7 @@ import numpy as np
+ 
+ from trade_rl.domain.selection import PolicyMode
+ from trade_rl.rl.actions import ACTION_SCHEMA
++from trade_rl.rl.market_inputs import MarketInputResolver
+ from trade_rl.rl.observations import ObservationBuilder, ObservationInput
+ from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
+ 
+@@ -43,6 +44,7 @@ class RuntimeSnapshot:
+     action_schema: str
+     observation_schema_digest: str
+     observation_size: int
++    market_inputs_digest: str
+     policy_mode: PolicyMode
+     policy_digest: str | None
+     signal_digest: str
+@@ -58,9 +60,11 @@ class ServingRuntime:
+         self,
+         policy_loader: PolicyLoader | None = None,
+         observation_builder: ObservationBuilder | None = None,
++        market_input_resolver: MarketInputResolver | None = None,
+     ) -> None:
+         self.policy_loader = policy_loader
+         self.observation_builder = observation_builder or ObservationBuilder()
++        self.market_input_resolver = market_input_resolver or MarketInputResolver()
+         self._lock = RLock()
+         self._snapshot: RuntimeSnapshot | None = None
+         self._policy: LoadedPolicy | None = None
+@@ -74,6 +78,7 @@ class ServingRuntime:
+             action_schema=manifest.action_schema,
+             observation_schema_digest=manifest.observation_schema_digest,
+             observation_size=manifest.observation_size,
++            market_inputs_digest=manifest.market_inputs_digest,
+             policy_mode=manifest.policy_mode,
+             policy_digest=manifest.policy_digest,
+             signal_digest=manifest.signal_digest,
+@@ -91,6 +96,11 @@ class ServingRuntime:
+                 "serving bundle action schema does not match runtime action schema"
+             )
+ 
++        if bundle.manifest.market_inputs_digest != self.market_input_resolver.digest:
++            raise ValueError(
++                "serving bundle market inputs do not match runtime market inputs"
++            )
++
+         if bundle.manifest.policy_mode is PolicyMode.BASELINE_ONLY:
+             candidate_policy: LoadedPolicy = _BaselineIdentityPolicy()
+         else:
+@@ -141,24 +151,46 @@ class ServingRuntime:
+         return raw_action.copy()
+ 
+     def build_observation(self, value: ObservationInput) -> np.ndarray:
+-        """Build serving input through the same causal contract as training."""
++        """Recompute untrusted Trend and Alpha through the causal runtime contract."""
+ 
+-        return self.observation_builder.build(value)
+-
+-    def predict_state(self, value: ObservationInput) -> np.ndarray:
+-        """Validate, build, and score one structured current-time market state."""
++        trends, alpha = self.market_input_resolver.resolve(
++            value.dataset,
++            value.index,
++        )
++        return self.observation_builder.build(
++            replace(value, trends=trends, alpha=alpha)
++        )
+ 
+-        snapshot, policy = self._active()
+-        dataset = value.dataset
+-        if dataset.dataset_id != snapshot.dataset_id:
++    @staticmethod
++    def _validate_input_contract(
++        snapshot: RuntimeSnapshot,
++        *,
++        dataset_id: str,
++        observation_schema_digest: str,
++        market_inputs_digest: str,
++    ) -> None:
++        if dataset_id != snapshot.dataset_id:
+             raise ValueError(
+                 "serving dataset identity does not match the active bundle"
+             )
+-        schema_digest = self.observation_builder.schema_digest(dataset)
+-        if schema_digest != snapshot.observation_schema_digest:
++        if observation_schema_digest != snapshot.observation_schema_digest:
+             raise ValueError(
+                 "serving observation schema does not match the active bundle"
+             )
++        if market_inputs_digest != snapshot.market_inputs_digest:
++            raise ValueError("serving market inputs do not match the active bundle")
++
++    def predict_state(self, value: ObservationInput) -> np.ndarray:
++        """Validate, build, and score one structured current-time market state."""
++
++        snapshot, policy = self._active()
++        dataset = value.dataset
++        self._validate_input_contract(
++            snapshot,
++            dataset_id=dataset.dataset_id,
++            observation_schema_digest=self.observation_builder.schema_digest(dataset),
++            market_inputs_digest=self.market_input_resolver.digest,
++        )
+         vector = self._validated_vector(
+             self.build_observation(value),
+             expected_size=snapshot.observation_size,
+@@ -168,8 +200,21 @@ class ServingRuntime:
+                 raise RuntimeError("serving bundle changed during prediction")
+             return self._validated_action(policy, vector)
+ 
+-    def predict(self, observation: np.ndarray) -> np.ndarray:
++    def predict(
++        self,
++        observation: np.ndarray,
++        *,
++        dataset_id: str,
++        observation_schema_digest: str,
++        market_inputs_digest: str,
++    ) -> np.ndarray:
+         snapshot, policy = self._active()
++        self._validate_input_contract(
++            snapshot,
++            dataset_id=dataset_id,
++            observation_schema_digest=observation_schema_digest,
++            market_inputs_digest=market_inputs_digest,
++        )
+         vector = self._validated_vector(
+             observation,

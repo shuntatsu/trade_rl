@@ -14,11 +14,16 @@ from gymnasium import spaces
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import BaselineResidualComposer, ResidualAction
 from trade_rl.rl.observations import build_observation, observation_layout
 from trade_rl.rl.rewards import relative_interval_reward
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.execution import (
+    ExecutionCostConfig,
+    ExecutionResult,
+    MarketExecutor,
+)
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
 
 
@@ -33,6 +38,9 @@ class ResidualMarketEnvConfig:
     reward_scale: float = 100.0
     initial_capital: float = 1.0
     minimum_equity_fraction: float = 1e-6
+    downside_penalty: float = 0.0
+    excess_drawdown_penalty: float = 0.0
+    liquidate_on_end: bool = True
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
 
     def __post_init__(self) -> None:
@@ -47,6 +55,12 @@ class ResidualMarketEnvConfig:
         ):
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{field_name} must be finite and positive")
+        for field_name, value in (
+            ("downside_penalty", self.downside_penalty),
+            ("excess_drawdown_penalty", self.excess_drawdown_penalty),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{field_name} must be finite and non-negative")
 
 
 class ResidualMarketEnv(gym.Env):
@@ -64,6 +78,7 @@ class ResidualMarketEnv(gym.Env):
         | None = None,
         alpha_enabled: bool = False,
         composer: BaselineResidualComposer | None = None,
+        pre_trade_risk: PreTradeRisk | None = None,
         config: ResidualMarketEnvConfig | None = None,
     ) -> None:
         super().__init__()
@@ -72,8 +87,11 @@ class ResidualMarketEnv(gym.Env):
         self.alpha_provider = alpha_provider
         self.alpha_enabled = bool(alpha_enabled)
         self.composer = composer or BaselineResidualComposer()
+        self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.config = config or ResidualMarketEnvConfig()
-        self.executor = MarketExecutor(dataset, self.config.execution_cost)
+        self.hybrid_executor = MarketExecutor(dataset, self.config.execution_cost)
+        self.shadow_executor = MarketExecutor(dataset, self.config.execution_cost)
+        self.executor = self.hybrid_executor
 
         layout = observation_layout(dataset)
         self.observation_space = spaces.Box(
@@ -92,13 +110,26 @@ class ResidualMarketEnv(gym.Env):
         self.start_index = self.trend_strategy.minimum_history
         self.end_index = self.start_index
         self.current_index = self.start_index
-        self.hybrid = BookState.zero(dataset.n_symbols, self.config.initial_capital)
-        self.shadow = BookState.zero(dataset.n_symbols, self.config.initial_capital)
+        initial_prices = dataset.close[self.start_index]
+        self.hybrid = BookState.zero(
+            dataset.n_symbols,
+            self.config.initial_capital,
+            initial_prices,
+        )
+        self.shadow = BookState.zero(
+            dataset.n_symbols,
+            self.config.initial_capital,
+            initial_prices,
+        )
         self._decision_step_index = 0
 
     @property
     def dataset_id(self) -> str:
         return self.dataset.dataset_id
+
+    @staticmethod
+    def _drawdown(book: BookState) -> float:
+        return 1.0 - book.portfolio_value / max(book.peak_value, book.portfolio_value)
 
     def _alpha_at(self, index: int) -> np.ndarray:
         if not self.alpha_enabled or self.alpha_provider is None:
@@ -127,9 +158,16 @@ class ResidualMarketEnv(gym.Env):
             index=self.current_index,
             trends=trends,
             alpha=alpha,
-            book=self.hybrid,
+            hybrid=self.hybrid,
+            shadow=self.shadow,
             start_index=self.start_index,
             end_index=self.end_index,
+            hybrid_risk_scale=self.pre_trade_risk.risk_scale(
+                self._drawdown(self.hybrid)
+            ),
+            shadow_risk_scale=self.pre_trade_risk.risk_scale(
+                self._drawdown(self.shadow)
+            ),
         )
 
     def reset(
@@ -157,16 +195,66 @@ class ResidualMarketEnv(gym.Env):
         self.start_index = start
         self.current_index = start
         self.end_index = start + self.config.episode_bars
+        initial_prices = self.dataset.close[start]
         self.hybrid = BookState.zero(
             self.dataset.n_symbols,
             self.config.initial_capital,
+            initial_prices,
         )
         self.shadow = BookState.zero(
             self.dataset.n_symbols,
             self.config.initial_capital,
+            initial_prices,
         )
+        execution_seed = self.config.execution_cost.random_seed if seed is None else seed
+        self.hybrid_executor.reset_random_state(execution_seed)
+        self.shadow_executor.reset_random_state(execution_seed)
         self._decision_step_index = 0
         return self._observation(), {}
+
+    def _constrain_target(
+        self,
+        proposal: np.ndarray,
+        book: BookState,
+    ) -> RiskConstrainedTarget:
+        target = np.asarray(proposal, dtype=np.float64).reshape(-1).copy()
+        if target.shape != (self.dataset.n_symbols,) or not np.isfinite(target).all():
+            raise ValueError("proposal does not match dataset symbols")
+        next_index = min(self.current_index + 1, self.dataset.n_bars - 1)
+        tradable = self.dataset.tradable[next_index]
+        current = book.weights
+        target[~tradable] = current[~tradable]
+        return self.pre_trade_risk.constrain(
+            target,
+            current=current,
+            drawdown=self._drawdown(book),
+        )
+
+    @staticmethod
+    def _combine_log_returns(primary: float, secondary: float) -> float:
+        return primary + secondary
+
+    @staticmethod
+    def _merge_liquidation_return(
+        book: BookState,
+        liquidation: ExecutionResult,
+    ) -> BookState:
+        result = liquidation.book
+        if abs(liquidation.interval_net_return) <= 1e-15:
+            return result
+        if result.returns_history:
+            previous = result.returns_history[-1]
+            result.returns_history[-1] = (
+                (1.0 + previous) * (1.0 + liquidation.interval_net_return) - 1.0
+            )
+        else:
+            result.returns_history.append(liquidation.interval_net_return)
+        result.peak_value = max(result.peak_value, result.portfolio_value)
+        result.max_drawdown = max(
+            result.max_drawdown,
+            1.0 - result.portfolio_value / result.peak_value,
+        )
+        return result
 
     def step(
         self,
@@ -181,16 +269,18 @@ class ResidualMarketEnv(gym.Env):
             alpha,
             alpha_enabled=self.alpha_enabled,
         )
+        hybrid_risk = self._constrain_target(composition.proposal, self.hybrid)
+        shadow_risk = self._constrain_target(trends.base, self.shadow)
         bars = min(self.config.decision_every, self.end_index - self.current_index)
-        hybrid_execution = self.executor.execute_interval(
+        hybrid_execution = self.hybrid_executor.execute_interval(
             self.hybrid,
-            composition.proposal,
+            hybrid_risk.weights,
             start_index=self.current_index,
             bars=bars,
         )
-        shadow_execution = self.executor.execute_interval(
+        shadow_execution = self.shadow_executor.execute_interval(
             self.shadow,
-            trends.base,
+            shadow_risk.weights,
             start_index=self.current_index,
             bars=bars,
         )
@@ -201,20 +291,52 @@ class ResidualMarketEnv(gym.Env):
         self.shadow = shadow_execution.book
         self.current_index = hybrid_execution.next_index
         self._decision_step_index += 1
-        threshold = self.config.initial_capital * self.config.minimum_equity_fraction
-        terminated = (
-            self.hybrid.portfolio_value <= threshold
-            or self.shadow.portfolio_value <= threshold
-        )
         truncated = self.current_index >= self.end_index
-        excess_log_return = (
-            hybrid_execution.interval_log_return - shadow_execution.interval_log_return
-        )
+        hybrid_log_return = hybrid_execution.interval_log_return
+        shadow_log_return = shadow_execution.interval_log_return
+        hybrid_liquidation: ExecutionResult | None = None
+        shadow_liquidation: ExecutionResult | None = None
+        if truncated and self.config.liquidate_on_end:
+            hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
+                self.hybrid,
+                index=self.current_index,
+            )
+            shadow_liquidation = self.shadow_executor.liquidate_at_close(
+                self.shadow,
+                index=self.current_index,
+            )
+            self.hybrid = self._merge_liquidation_return(
+                self.hybrid,
+                hybrid_liquidation,
+            )
+            self.shadow = self._merge_liquidation_return(
+                self.shadow,
+                shadow_liquidation,
+            )
+            hybrid_log_return = self._combine_log_returns(
+                hybrid_log_return,
+                hybrid_liquidation.interval_log_return,
+            )
+            shadow_log_return = self._combine_log_returns(
+                shadow_log_return,
+                shadow_liquidation.interval_log_return,
+            )
+
+        threshold = self.config.initial_capital * self.config.minimum_equity_fraction
+        hybrid_terminated = self.hybrid.portfolio_value <= threshold
+        shadow_terminated = self.shadow.portfolio_value <= threshold
+        terminated = hybrid_terminated or shadow_terminated
+        excess_log_return = hybrid_log_return - shadow_log_return
         reward = relative_interval_reward(
-            hybrid_log_return=hybrid_execution.interval_log_return,
-            shadow_log_return=shadow_execution.interval_log_return,
+            hybrid_log_return=hybrid_log_return,
+            shadow_log_return=shadow_log_return,
             scale=self.config.reward_scale,
-            terminated=terminated,
+            hybrid_terminated=hybrid_terminated,
+            shadow_terminated=shadow_terminated,
+            hybrid_drawdown=self._drawdown(self.hybrid),
+            shadow_drawdown=self._drawdown(self.shadow),
+            downside_penalty=self.config.downside_penalty,
+            excess_drawdown_penalty=self.config.excess_drawdown_penalty,
         )
         info: dict[str, object] = {
             "bars_advanced": hybrid_execution.bars_advanced,
@@ -226,7 +348,16 @@ class ResidualMarketEnv(gym.Env):
             "shadow_interval_net_return": shadow_execution.interval_net_return,
             "excess_log_return": excess_log_return,
             "composition": composition,
+            "hybrid_risk": hybrid_risk,
+            "shadow_risk": shadow_risk,
+            "hybrid_execution": hybrid_execution,
+            "shadow_execution": shadow_execution,
+            "hybrid_terminated": hybrid_terminated,
+            "shadow_terminated": shadow_terminated,
         }
+        if hybrid_liquidation is not None and shadow_liquidation is not None:
+            info["hybrid_liquidation"] = hybrid_liquidation
+            info["shadow_liquidation"] = shadow_liquidation
         if terminated or truncated:
             info.update(self._terminal_info())
         return self._observation(), reward, terminated, truncated, info
@@ -241,7 +372,7 @@ class ResidualMarketEnv(gym.Env):
             turnover_total=book.turnover_total,
             total_cost=book.total_cost,
             funding_pnl=book.funding_pnl,
-            n_trades=book.n_trades,
+            n_trades=book.fill_count,
         )
 
     def _terminal_info(self) -> dict[str, object]:
@@ -250,6 +381,8 @@ class ResidualMarketEnv(gym.Env):
         return {
             "hybrid_metrics": hybrid_metrics,
             "shadow_metrics": shadow_metrics,
+            "hybrid_rebalance_events": self.hybrid.rebalance_events,
+            "shadow_rebalance_events": self.shadow.rebalance_events,
             "excess_total_return": (
                 hybrid_metrics.total_return - shadow_metrics.total_return
             ),

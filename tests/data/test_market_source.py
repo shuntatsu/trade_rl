@@ -41,7 +41,9 @@ def test_raw_market_series_rejects_duplicates_and_is_read_only() -> None:
         )
 
 
-def test_csv_source_reads_optional_columns_and_unix_milliseconds(tmp_path: Path) -> None:
+def test_csv_source_reads_optional_columns_and_unix_milliseconds(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "BTCUSDT.csv").write_text(
         "timestamp,open,high,low,close,volume,funding_rate,tradable\n"
         "1767225600000,100,102,99,101,12,0.0001,true\n"

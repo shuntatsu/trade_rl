@@ -10,7 +10,9 @@ from trade_rl.domain.selection import PolicyMode
 from trade_rl.serving.bundle import ServingBundleManifest, load_serving_bundle
 
 
-def test_baseline_bundle_validates_complete_environment_identity(tmp_path: Path) -> None:
+def test_baseline_bundle_validates_complete_environment_identity(
+    tmp_path: Path,
+) -> None:
     bundle = load_serving_bundle(create_bundle(tmp_path / "bundle"))
 
     assert bundle.manifest.policy_mode is PolicyMode.BASELINE_ONLY

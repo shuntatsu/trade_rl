@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -17,14 +17,11 @@ concurrency:
 
 jobs:
   quality:
-    name: Apply Ruff fix
+    name: Rebuilt Core
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout head branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -33,15 +30,26 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --quiet
+        run: uv sync --extra dev
 
-      - name: Apply Ruff fix and restore normal CI
-        run: |
-          uv run ruff check . --fix
-          uv run ruff format .
-          git show 5f4dee28df003e6e132e91f1d2840315e606848a:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "style: apply final Ruff fixes"
-          git push origin HEAD:${{ github.head_ref }}
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check --diff .
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Dead-code report
+        continue-on-error: true
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Tests and coverage
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing
+
+      - name: CLI smoke test
+        run: uv run trade-rl --version

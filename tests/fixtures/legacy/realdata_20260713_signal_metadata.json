@@ -1,0 +1,50 @@
+{
+  "dataset_identity": "b4c41e64daa34b4d184bcc213e7034034d1dc888307a0add49d4c7d42f4ae98a",
+  "feature_names": [
+    "15m_ret_z1",
+    "15m_ret_z5",
+    "1h_ret_z1",
+    "4h_ret_z1",
+    "1d_ret_z1",
+    "funding_bps",
+    "oi_z",
+    "btc_rel_z",
+    "csz_ret1"
+  ],
+  "fit_cutoff_index": 6934,
+  "fit_cutoff_timestamp": "2025-12-06T21:00:00.000000",
+  "gate_result": {
+    "model": "gbm",
+    "horizon": 12,
+    "target": "cs_demean",
+    "mean_oos_ic": 0.017169972628289704,
+    "positive_fold_ratio": 0.8,
+    "t_stat": 1.6541410391288442,
+    "passed": false,
+    "threshold": 0.02
+  },
+  "gbm_model_string": null,
+  "horizon": 12,
+  "model": "gbm",
+  "prediction_mean": 0.0,
+  "prediction_std": 1.0,
+  "ridge_weights": null,
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "BNBUSDT",
+    "SUIUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+    "BCHUSDT",
+    "APTUSDT",
+    "ARBUSDT",
+    "OPUSDT"
+  ],
+  "target": "cs_demean"
+}

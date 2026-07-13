@@ -52,7 +52,8 @@ jobs:
           cat ci-reward-v2.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add uv.lock ci-reward-v2.log
+          git add uv.lock
+          git add -f ci-reward-v2.log
           if ! git diff --cached --quiet; then
             git commit -m "ci: capture reward v2 verification output"
             git push origin HEAD:agent/reward-design-v2

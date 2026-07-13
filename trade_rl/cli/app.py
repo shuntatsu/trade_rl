@@ -506,10 +506,16 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
 ) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:2] in (["train", "run"], ["walk-forward", "run"]):
+        from trade_rl.cli.extended import main as artifact_main
+
+        return artifact_main(arguments, stdout=stdout, stderr=stderr)
     output = stdout or sys.stdout
     parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    args = parser.parse_args(arguments)
     if args.version:
         output.write(f"trade-rl {__version__}\n")
         return 0

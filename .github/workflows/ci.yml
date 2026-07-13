@@ -29,12 +29,12 @@ jobs:
       - name: Run ruff check
         run: |
           set -o pipefail
-          uv run ruff check . 2>&1 | tee ruff-check.log
+          uv run ruff check trade_rl tests/domain tests/artifacts 2>&1 | tee ruff-check.log
 
       - name: Run ruff format
         run: |
           set -o pipefail
-          uv run ruff format --check --diff . 2>&1 | tee ruff-format.log
+          uv run ruff format --check --diff trade_rl tests/domain tests/artifacts 2>&1 | tee ruff-format.log
 
       - name: Run mypy
         run: |

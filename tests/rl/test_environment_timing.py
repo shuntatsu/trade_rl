@@ -6,6 +6,7 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import observation_layout
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -65,6 +66,18 @@ def environment(
     )
 
 
+def _set_weights(book: BookState, weights: np.ndarray) -> None:
+    equity = book.portfolio_value
+    resolved = np.asarray(weights, dtype=np.float64)
+    book.quantities = resolved * equity / book.mark_prices
+    book.cash = equity - float(np.dot(book.quantities, book.mark_prices))
+
+
+def _set_equity(book: BookState, value: float) -> None:
+    book.quantities = np.zeros_like(book.quantities)
+    book.cash = value
+
+
 def test_identity_action_matches_shadow_book_exactly() -> None:
     env = environment()
     env.reset(options={"start_idx": 24})
@@ -114,8 +127,8 @@ def test_observation_exposes_shadow_relative_state_with_stable_shape() -> None:
     assert np.isfinite(observation).all()
     np.testing.assert_allclose(observation[-4:], np.zeros(4), atol=1e-12)
 
-    env.hybrid.weights = np.array([0.4, -0.2])
-    env.shadow.weights = np.array([0.1, -0.1])
+    _set_weights(env.hybrid, np.array([0.4, -0.2]))
+    _set_weights(env.shadow, np.array([0.1, -0.1]))
     paired = env._observation()
     symbol_rows = paired[: market.n_symbols * layout.per_symbol_width].reshape(
         market.n_symbols,
@@ -124,11 +137,12 @@ def test_observation_exposes_shadow_relative_state_with_stable_shape() -> None:
     np.testing.assert_allclose(symbol_rows[:, -1], np.array([0.3, -0.1]))
 
 
-def test_hybrid_only_insolvency_preserves_excess_and_applies_hybrid_penalty() -> None:
+def test_hybrid_only_insolvency_preserves_excess_and_applies_hybrid_penalty(
+) -> None:
     env = environment(reward_scale=10.0, hybrid_insolvency_penalty=1.25)
     env.reset(options={"start_idx": 24})
     threshold = env.config.initial_capital * env.config.minimum_equity_fraction
-    env.hybrid.portfolio_value = threshold / 10.0
+    _set_equity(env.hybrid, threshold / 10.0)
 
     _, reward, terminated, _, info = env.step(np.zeros(2))
 
@@ -143,7 +157,7 @@ def test_shadow_only_insolvency_terminates_without_hybrid_penalty() -> None:
     env = environment(reward_scale=10.0, hybrid_insolvency_penalty=1.25)
     env.reset(options={"start_idx": 24})
     threshold = env.config.initial_capital * env.config.minimum_equity_fraction
-    env.shadow.portfolio_value = threshold / 10.0
+    _set_equity(env.shadow, threshold / 10.0)
 
     _, reward, terminated, _, info = env.step(np.zeros(2))
 

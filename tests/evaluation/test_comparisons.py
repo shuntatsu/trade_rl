@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from statistics import fmean
 
 import pytest
 
@@ -27,18 +28,43 @@ def test_paired_comparison_keeps_arithmetic_and_log_excess_separate() -> None:
 
     result = compare_paired_returns(candidate, benchmark, n_bootstrap=250, seed=17)
 
+    simple_differences = tuple(
+        left - right
+        for left, right in zip(candidate.values, benchmark.values, strict=True)
+    )
+    log_differences = tuple(
+        math.log1p(left) - math.log1p(right)
+        for left, right in zip(candidate.values, benchmark.values, strict=True)
+    )
     candidate_total = 1.02 * 0.99 * 1.03 - 1.0
     benchmark_total = 1.01 * 0.99 * 1.01 - 1.0
     assert result.excess_total_return == pytest.approx(
         candidate_total - benchmark_total
     )
-    assert result.excess_log_return == pytest.approx(
-        sum(math.log1p(value) for value in candidate.values)
-        - sum(math.log1p(value) for value in benchmark.values)
-    )
-    assert result.mean_period_excess == pytest.approx(0.0075)
+    assert result.excess_log_return == pytest.approx(sum(log_differences))
+    assert result.mean_period_excess == pytest.approx(fmean(log_differences))
+    assert result.mean_period_simple_excess == pytest.approx(fmean(simple_differences))
     assert 0.0 <= result.p_value <= 1.0
     assert result.block_size >= 1
+
+
+def test_paired_bootstrap_uses_log_excess_when_large_returns_diverge() -> None:
+    candidate = series((0.50, -0.20, 0.35, -0.10))
+    benchmark = series((0.40, -0.10, 0.15, -0.05))
+
+    result = compare_paired_returns(candidate, benchmark, n_bootstrap=400, seed=31)
+
+    log_differences = tuple(
+        math.log1p(left) - math.log1p(right)
+        for left, right in zip(candidate.values, benchmark.values, strict=True)
+    )
+    simple_differences = tuple(
+        left - right
+        for left, right in zip(candidate.values, benchmark.values, strict=True)
+    )
+    assert result.mean_period_excess == pytest.approx(fmean(log_differences))
+    assert result.mean_period_simple_excess == pytest.approx(fmean(simple_differences))
+    assert result.mean_period_excess != pytest.approx(result.mean_period_simple_excess)
 
 
 def test_identity_comparison_is_exact_and_non_significant() -> None:
@@ -49,6 +75,7 @@ def test_identity_comparison_is_exact_and_non_significant() -> None:
     assert result.excess_total_return == 0.0
     assert result.excess_log_return == 0.0
     assert result.mean_period_excess == 0.0
+    assert result.mean_period_simple_excess == 0.0
     assert result.p_value == 1.0
     assert result.lower_ci == 0.0
     assert result.upper_ci == 0.0

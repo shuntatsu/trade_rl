@@ -503,15 +503,11 @@ class ResidualMarketEnv(gym.Env):
             "reward_context_before": reward_context_before,
             "reward_context_after": reward_context_after,
             "reward_growth_raw": reward_breakdown.growth_raw,
-            "reward_baseline_penalty_delta": (
-                reward_breakdown.baseline_penalty_delta
-            ),
+            "reward_baseline_penalty_delta": (reward_breakdown.baseline_penalty_delta),
             "reward_baseline_penalty_weighted": (
                 reward_breakdown.baseline_penalty_weighted
             ),
-            "reward_drawdown_penalty_delta": (
-                reward_breakdown.drawdown_penalty_delta
-            ),
+            "reward_drawdown_penalty_delta": (reward_breakdown.drawdown_penalty_delta),
             "reward_drawdown_penalty_weighted": (
                 reward_breakdown.drawdown_penalty_weighted
             ),

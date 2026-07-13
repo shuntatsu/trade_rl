@@ -50,12 +50,15 @@ class AbsoluteGrowthRewardConfig:
             < self.drawdown_stop
             <= 1.0
         ):
-            raise ValueError("drawdown thresholds must be strictly increasing in [0, 1]")
+            raise ValueError(
+                "drawdown thresholds must be strictly increasing in [0, 1]"
+            )
         if len(self.drawdown_slopes) != 3 or any(
-            not math.isfinite(value) or value <= 0.0
-            for value in self.drawdown_slopes
+            not math.isfinite(value) or value <= 0.0 for value in self.drawdown_slopes
         ):
-            raise ValueError("drawdown_slopes must contain three positive finite values")
+            raise ValueError(
+                "drawdown_slopes must contain three positive finite values"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +157,11 @@ def build_reward_context(
 ) -> RewardContext:
     """Build rolling baseline and drawdown state from causal book histories."""
 
-    if isinstance(window_bars, bool) or not isinstance(window_bars, int) or window_bars <= 0:
+    if (
+        isinstance(window_bars, bool)
+        or not isinstance(window_bars, int)
+        or window_bars <= 0
+    ):
         raise ValueError("window_bars must be a positive integer")
     if (
         isinstance(minimum_history_bars, bool)
@@ -171,9 +178,7 @@ def build_reward_context(
     shortfall = shadow_growth - hybrid_growth
     tolerance = config.baseline_tolerance * history_bars / window_bars
     penalty = (
-        max(0.0, shortfall - tolerance)
-        if history_bars > minimum_history_bars
-        else 0.0
+        max(0.0, shortfall - tolerance) if history_bars > minimum_history_bars else 0.0
     )
     return RewardContext(
         rolling_hybrid_log_growth=hybrid_growth,

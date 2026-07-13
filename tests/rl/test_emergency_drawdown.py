@@ -95,8 +95,7 @@ def test_drawdown_stop_includes_realized_liquidation_cost_in_growth() -> None:
 
     liquidation = info["hybrid_liquidation"]
     expected_growth = (
-        info["hybrid_execution"].interval_log_return
-        + liquidation.interval_log_return
+        info["hybrid_execution"].interval_log_return + liquidation.interval_log_return
     )
     assert terminated is True
     assert liquidation.interval_cost > 0.0

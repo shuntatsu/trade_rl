@@ -56,14 +56,20 @@ class ResidualTrainingConfig:
     device: str = "auto"
 
     def __post_init__(self) -> None:
-        for field_name, value in (
+        for integer_field_name, integer_value in (
             ("timesteps", self.timesteps),
             ("n_steps", self.n_steps),
             ("batch_size", self.batch_size),
             ("n_epochs", self.n_epochs),
         ):
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise ValueError(f"{field_name} must be a positive integer")
+            if (
+                isinstance(integer_value, bool)
+                or not isinstance(integer_value, int)
+                or integer_value <= 0
+            ):
+                raise ValueError(
+                    f"{integer_field_name} must be a positive integer"
+                )
         if self.n_steps % self.batch_size != 0:
             raise ValueError("batch_size must divide n_steps for one environment")
         if not math.isfinite(self.gamma) or not 0.0 < self.gamma <= 1.0:
@@ -74,12 +80,14 @@ class ResidualTrainingConfig:
             raise ValueError("gae_lambda must be within (0, 1]")
         if not math.isfinite(self.clip_range) or self.clip_range <= 0.0:
             raise ValueError("clip_range must be finite and positive")
-        for field_name, value in (
+        for coefficient_field_name, coefficient_value in (
             ("ent_coef", self.ent_coef),
             ("vf_coef", self.vf_coef),
         ):
-            if not math.isfinite(value) or value < 0.0:
-                raise ValueError(f"{field_name} must be finite and non-negative")
+            if not math.isfinite(coefficient_value) or coefficient_value < 0.0:
+                raise ValueError(
+                    f"{coefficient_field_name} must be finite and non-negative"
+                )
         if not math.isfinite(self.max_grad_norm) or self.max_grad_norm <= 0.0:
             raise ValueError("max_grad_norm must be finite and positive")
         if not isinstance(self.normalize_advantage, bool):

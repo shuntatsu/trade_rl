@@ -24,6 +24,10 @@ from mars_lite.pipeline.residual_candidates import (
     _slim_baselines,
     train_select_residual_candidates,
 )
+from mars_lite.pipeline.residual_wf_config import (
+    ResidualWalkForwardConfig,
+    feature_set_identity,
+)
 from mars_lite.pipeline.training_engine import build_env_kwargs, build_post_processor
 from mars_lite.trading.execution import FEE_KWARG_KEYS
 from mars_lite.trading.residual_alpha import FrozenResidualAlpha
@@ -39,6 +43,18 @@ def _history_bars(config: TrendFamilyConfig) -> int:
 
 def _baseline_kwargs(env_kwargs: dict[str, Any]) -> dict[str, Any]:
     return {key: env_kwargs[key] for key in FEE_KWARG_KEYS if key in env_kwargs}
+
+
+def _runtime_args(args: object, config: ResidualWalkForwardConfig) -> object:
+    runtime = copy.copy(args)
+    runtime.action_mode = "baseline-residual"
+    runtime.min_trade_delta = 0.0
+    runtime.lambda_turnover = 0.0
+    runtime.decision_every = config.effective_decision_every
+    runtime.ensemble = config.effective_ensemble_size
+    runtime.n_seeds = config.requested_n_seeds
+    runtime.purge_bars = config.effective_purge_bars
+    return runtime
 
 
 def run_residual_fold(
@@ -211,21 +227,21 @@ def run_residual_walk_forward(
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    args.action_mode = "baseline-residual"
-    args.min_trade_delta = 0.0
-    args.lambda_turnover = 0.0
-    requested_seeds = max(1, int(getattr(args, "n_seeds", 1)))
-    requested_ensemble = max(1, int(getattr(args, "ensemble", 1)))
-    args.ensemble = max(requested_seeds, requested_ensemble)
-
-    fs = build_feature_set(args, output_dir=output)
-    requested_folds = int(getattr(args, "folds", 3))
-    purge_bars = int(getattr(args, "purge_bars", 24))
+    source_args = copy.copy(args)
+    source_args.action_mode = "baseline-residual"
+    source_args.min_trade_delta = 0.0
+    source_args.lambda_turnover = 0.0
+    fs = build_feature_set(source_args, output_dir=output)
+    config = ResidualWalkForwardConfig.from_args(
+        args,
+        dataset_identity=feature_set_identity(fs),
+    )
+    runtime_args = _runtime_args(args, config)
     specs, skipped = build_residual_fold_specs(
         n_bars=fs.n_bars,
-        n_folds=requested_folds,
-        purge_bars=purge_bars,
-        horizon=int(args.horizon),
+        n_folds=config.requested_folds,
+        purge_bars=config.effective_purge_bars,
+        horizon=config.horizon,
     )
 
     folds: list[dict[str, object]] = []
@@ -234,33 +250,28 @@ def run_residual_walk_forward(
             run_residual_fold(
                 fs=fs,
                 spec=spec,
-                args=args,
+                args=runtime_args,
                 output_dir=output,
             )
         )
 
+    report_config = {
+        **config.to_dict(),
+        "completed_folds": len(folds),
+        "member_seeds_per_fold": config.effective_ensemble_size,
+        "n_bars_total": int(fs.n_bars),
+        "outer_train_start_fraction": 0.4,
+        "policy_train_fraction": 0.70,
+        "checkpoint_validation_fraction": 0.15,
+        "configuration_selection_fraction": 0.15,
+    }
     report: dict[str, object] = {
         "mode": "baseline_residual_walk_forward_v1",
         "action_schema": "baseline_residual_v1",
-        "config": {
-            "requested_folds": requested_folds,
-            "completed_folds": len(folds),
-            "purge_bars": max(purge_bars, int(args.horizon), 24),
-            "horizon": int(args.horizon),
-            "decision_every": int(args.decision_every),
-            "ensemble_size": int(args.ensemble),
-            "requested_n_seeds": requested_seeds,
-            "member_seeds_per_fold": int(args.ensemble),
-            "run_tier": str(getattr(args, "run_tier", "research")),
-            "n_bars_total": int(fs.n_bars),
-            "outer_train_start_fraction": 0.4,
-            "policy_train_fraction": 0.70,
-            "checkpoint_validation_fraction": 0.15,
-            "configuration_selection_fraction": 0.15,
-        },
+        "config": report_config,
         "summary": summarize_residual_folds(
             folds,
-            requested_folds=requested_folds,
+            requested_folds=config.requested_folds,
             skipped_folds=skipped,
         ),
         "folds": folds,

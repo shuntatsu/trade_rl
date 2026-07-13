@@ -66,7 +66,7 @@ class _DeterministicActor(nn.Module):
         self.policy = policy
 
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
-        return self.policy._predict(observation, deterministic=True)  # type: ignore[attr-defined,no-any-return]
+        return self.policy._predict(observation, deterministic=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,7 +247,7 @@ def _verified_record(
         path=relative_path,
         digest=_file_digest(path),
         size_bytes=path.stat().st_size,
-        max_abs_error=error,
+        max_abs_error=max_error,
     )
 
 
@@ -294,20 +294,20 @@ def export_policy_actor(
         path = output_dir / "policy.torchscript.pt"
         try:
             actual = _export_torchscript(actor, path, corpus)
-            error = _parity_error(expected, actual, action_size=action_size)
-            if error > tolerance:
+            max_error = _parity_error(expected, actual, action_size=action_size)
+            if max_error > tolerance:
                 raise ValueError(
-                    f"TorchScript parity error {error} exceeds tolerance {tolerance}"
+                    f"TorchScript parity error {max_error} exceeds tolerance {tolerance}"
                 )
             records.append(
                 _verified_record(
                     format_name="torchscript",
                     path=path,
                     relative_path=path.name,
-                    error=error,
+                    error=max_error,
                 )
             )
-        except Exception as error:
+        except Exception as export_error:
             path.unlink(missing_ok=True)
             records.append(
                 ExportRecord(
@@ -317,7 +317,7 @@ def export_policy_actor(
                     digest=None,
                     size_bytes=None,
                     max_abs_error=None,
-                    reason=str(error),
+                    reason=str(export_error),
                 )
             )
 
@@ -325,10 +325,10 @@ def export_policy_actor(
         path = output_dir / "policy.onnx"
         try:
             actual = _export_onnx(actor, path, corpus)
-            error = _parity_error(expected, actual, action_size=action_size)
-            if error > tolerance:
+            max_error = _parity_error(expected, actual, action_size=action_size)
+            if max_error > tolerance:
                 raise ValueError(
-                    f"ONNX parity error {error} exceeds tolerance {tolerance}"
+                    f"ONNX parity error {max_error} exceeds tolerance {tolerance}"
                 )
         except Exception:
             path.unlink(missing_ok=True)
@@ -338,7 +338,7 @@ def export_policy_actor(
                 format_name="onnx",
                 path=path,
                 relative_path=path.name,
-                error=error,
+                error=max_error,
             )
         )
 

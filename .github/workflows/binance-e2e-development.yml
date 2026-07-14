@@ -8,13 +8,24 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   focused:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
+      - name: Apply existing-layer patches
+        run: uv run python .github/scripts/apply_binance_pipeline.py
+      - name: Format
+        run: uv run ruff format trade_rl tests scripts
       - name: Focused Binance tests
         run: |
           uv run pytest -q \
@@ -22,3 +33,14 @@ jobs:
             tests/integrations/test_binance.py \
             tests/cli/test_binance_data_command.py \
             tests/examples/test_binance_smoke_assets.py
+      - name: Lint
+        run: uv run ruff check trade_rl tests scripts
+      - name: Type check
+        run: uv run mypy trade_rl
+      - name: Commit green implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl tests scripts examples
+          git commit -m "feat: add Binance data-to-training pipeline"
+          git push origin HEAD:agent/binance-e2e-pipeline

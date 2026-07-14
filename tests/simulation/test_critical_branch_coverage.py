@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -59,7 +60,7 @@ def market(n_symbols: int = 1, **overrides: object) -> MarketDataset:
         {"allow_short": 1},
     ],
 )
-def test_execution_cost_config_rejects_every_invalid_contract(
+def test_execution_cost_config_rejects_invalid_contracts(
     override: dict[str, object],
 ) -> None:
     with pytest.raises(ValueError):
@@ -112,12 +113,10 @@ def test_target_weight_and_random_seed_validation() -> None:
 
 def test_execution_unit_rounding_capacity_and_borrow_branches() -> None:
     tick = np.full((5, 1), 0.5)
-    base = MarketExecutor(
-        market(tick_size=tick),
-        ExecutionCostConfig.zero(),
+    base = MarketExecutor(market(tick_size=tick), ExecutionCostConfig.zero())
+    assert base._round_prices(np.array([100.24]), index=1).tolist() == pytest.approx(
+        [100.0]
     )
-    rounded = base._round_prices(np.array([100.24]), index=1)
-    assert rounded.tolist() == pytest.approx([100.0])
     assert base._capacity_notional(np.array([100.0]), np.array([2.0])).tolist() == [
         200.0
     ]
@@ -224,21 +223,17 @@ def test_cross_and_isolated_margin_calls_flatten_positions() -> None:
 
 
 def test_borrow_carry_charges_only_short_positions() -> None:
-    shape = (5, 1)
-    dataset = market(borrow_rate=np.ones(shape))
-    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    dataset = market(borrow_rate=np.ones((5, 1)))
+    cost = replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0)
+    executor = MarketExecutor(dataset, cost)
     short = BookState.from_weights(
-        weights=np.array([-1.0]),
-        capital=1_000.0,
-        prices=np.array([100.0]),
+        weights=np.array([-1.0]), capital=1_000.0, prices=np.array([100.0])
     )
     _, charged = executor._charge_carry(short, index=1)
     assert charged > 0.0
 
     long = BookState.from_weights(
-        weights=np.array([1.0]),
-        capital=1_000.0,
-        prices=np.array([100.0]),
+        weights=np.array([1.0]), capital=1_000.0, prices=np.array([100.0])
     )
     _, uncharged = executor._charge_carry(long, index=1)
     assert uncharged == 0.0
@@ -292,15 +287,10 @@ def test_inactive_assets_settle_and_zero_target_has_identity_fill_ratio() -> Non
     dataset = market(asset_active=active)
     executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
     invested = BookState.from_weights(
-        weights=np.array([1.0]),
-        capital=1_000.0,
-        prices=dataset.close[0],
+        weights=np.array([1.0]), capital=1_000.0, prices=dataset.close[0]
     )
     settled = executor.execute_interval(
-        invested,
-        np.array([0.0]),
-        start_index=0,
-        bars=1,
+        invested, np.array([0.0]), start_index=0, bars=1
     )
     assert settled.book.quantities.tolist() == [0.0]
 

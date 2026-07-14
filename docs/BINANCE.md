@@ -54,7 +54,7 @@ The repository contains a fixed smoke runner that performs:
 3. one complete nested walk-forward fold and atomic evaluation publication.
 
 ```bash
-uv run python scripts/run_binance_e2e_smoke.py \
+uv run python examples/binance/run_e2e_smoke.py \
   --start-time 2026-06-01T00:00:00Z \
   --end-time 2026-06-29T00:00:00Z \
   --work-root var/binance-live-smoke

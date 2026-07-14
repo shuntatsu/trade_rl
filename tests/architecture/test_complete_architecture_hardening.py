@@ -127,9 +127,10 @@ def env(
 
 def test_action_spec_digest_binds_validation_mode() -> None:
     value = dataset()
-    assert env(value, mode=ActionValidationMode.CLIP).action_spec_digest != env(
-        value, mode=ActionValidationMode.STRICT
-    ).action_spec_digest
+    assert (
+        env(value, mode=ActionValidationMode.CLIP).action_spec_digest
+        != env(value, mode=ActionValidationMode.STRICT).action_spec_digest
+    )
 
 
 def test_normalizer_source_dataset_binding_accepts_fold_view_identity() -> None:

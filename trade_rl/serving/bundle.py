@@ -19,6 +19,10 @@ from trade_rl.domain.common import (
 )
 from trade_rl.domain.releases import ReleaseManifest
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.serving.normalizer import (
+    NORMALIZER_ARTIFACT_NAME,
+    load_observation_normalizer,
+)
 from trade_rl.serving.release import (
     RELEASE_ATTESTATION_NAME,
     load_release_attestation,
@@ -289,6 +293,7 @@ class ServingBundle:
     root: Path
     manifest: ServingBundleManifest
     release: ReleaseManifest | None = None
+    normalizer: object | None = None
 
 
 def write_serving_bundle_manifest(
@@ -431,6 +436,16 @@ def load_serving_bundle(root: Path) -> ServingBundle:
     root_resolved = root.resolve()
     declared = {BUNDLE_MANIFEST_NAME}
     release: ReleaseManifest | None = None
+    normalizer = None
+    declared_files = {item.path for item in manifest.files}
+    if manifest.normalizer_digest is not None:
+        if NORMALIZER_ARTIFACT_NAME not in declared_files:
+            raise ValueError("serving bundle does not declare its normalizer sidecar")
+        normalizer = load_observation_normalizer(root)
+        if normalizer.digest != manifest.normalizer_digest:
+            raise ValueError("serving bundle normalizer digest mismatch")
+    elif NORMALIZER_ARTIFACT_NAME in declared_files:
+        raise ValueError("serving bundle declares an unbound normalizer sidecar")
     if (
         manifest.schema_version == "serving_bundle_v4"
         and manifest.release_digest is not None
@@ -471,4 +486,9 @@ def load_serving_bundle(root: Path) -> ServingBundle:
         raise ValueError(f"serving bundle contains undeclared files: {undeclared}")
     if missing:
         raise ValueError(f"serving bundle is missing declared files: {missing}")
-    return ServingBundle(root=root, manifest=manifest, release=release)
+    return ServingBundle(
+        root=root,
+        manifest=manifest,
+        release=release,
+        normalizer=normalizer,
+    )

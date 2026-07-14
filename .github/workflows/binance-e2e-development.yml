@@ -31,13 +31,26 @@ jobs:
         run: |
           uv run ruff check --fix trade_rl tests scripts
           uv run ruff format trade_rl tests scripts
-      - name: Focused Binance tests
+      - name: Capture focused Binance tests
         run: |
+          set +e
           uv run pytest -q \
             tests/data/test_binance_contract_metadata.py \
             tests/integrations/test_binance.py \
             tests/cli/test_binance_data_command.py \
-            tests/examples/test_binance_smoke_assets.py
+            tests/examples/test_binance_smoke_assets.py \
+            > focused.log 2>&1
+          echo "$?" > focused.status
+          cat focused.log
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binance-repeatability-diagnostics
+          path: |
+            focused.log
+            focused.status
+      - name: Require focused Binance tests
+        run: exit "$(cat focused.status)"
       - name: Lint
         run: uv run ruff check trade_rl tests scripts
       - name: Type check

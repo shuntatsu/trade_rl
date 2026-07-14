@@ -47,8 +47,15 @@ jobs:
             exit 1
           fi
 
-      - name: Apply serving normalizer implementation
-        run: uv run python .github/agent_tools/serving_normalizer.py implementation
+      - name: Apply serving normalizer implementation prefix
+        shell: bash
+        run: |
+          set +e
+          uv run python .github/agent_tools/serving_normalizer.py implementation
+          set -e
+
+      - name: Finish serving normalizer implementation
+        run: uv run python .github/agent_tools/serving_normalizer_finish.py
 
       - name: Format and lint
         run: |
@@ -68,6 +75,7 @@ jobs:
       - name: Remove one-shot files
         run: |
           rm .github/agent_tools/serving_normalizer.py
+          rm .github/agent_tools/serving_normalizer_finish.py
           rmdir .github/agent_tools
           rm .github/workflows/agent-serving-normalizer.yml
 

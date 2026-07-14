@@ -8,5 +8,6 @@ This branch combines the two July 14 architecture-hardening lines into one integ
 - Walk-forward evaluation combines sealed-test access evidence, execution diagnostics, and independent-fold metric summaries.
 - Serving validates both legacy release manifests and adjacent non-circular release attestations against immutable bundle identity.
 - Temporary remediation payloads, patch helpers, and one-shot workflows are excluded from the final tree.
-- Dataset closure, timestamp feature age, recomputable identity, multiplier accounting, session carry, elapsed-time metrics, and serving tamper regressions pass.
+- Dataset closure, timestamp feature age, recomputable identity, multiplier accounting, session carry, elapsed-time metrics, and serving regressions pass.
+- Critical branch coverage is verified without lowering repository thresholds.
 - The standard Linux and Windows repository CI is the final merge gate.

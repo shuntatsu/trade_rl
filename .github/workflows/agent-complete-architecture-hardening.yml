@@ -90,6 +90,13 @@ jobs:
           set -o pipefail
           uv run pytest -q tests/architecture/test_complete_architecture_hardening.py 2>&1 | tee hardening-regression.txt
 
+      - name: Remove one-shot machinery before full verification
+        run: |
+          rm scripts/apply_complete_architecture_hardening.py
+          rm scripts/fix_complete_architecture_hardening_types.py
+          rm scripts/prepare_complete_architecture_hardening_tests.py
+          rm .github/workflows/agent-complete-architecture-hardening.yml
+
       - name: Run full test suite
         id: full_tests
         continue-on-error: true
@@ -116,13 +123,6 @@ jobs:
           steps.regression_tests.outcome != 'success' ||
           steps.full_tests.outcome != 'success'
         run: exit 1
-
-      - name: Remove one-shot machinery
-        run: |
-          rm scripts/apply_complete_architecture_hardening.py
-          rm scripts/fix_complete_architecture_hardening_types.py
-          rm scripts/prepare_complete_architecture_hardening_tests.py
-          rm .github/workflows/agent-complete-architecture-hardening.yml
 
       - name: Commit verified hardening
         shell: bash

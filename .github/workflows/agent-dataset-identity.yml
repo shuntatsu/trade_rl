@@ -1,0 +1,84 @@
+name: One-shot dataset identity hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  dataset:
+    if: >-
+      github.head_ref == 'agent/complete-architecture-hardening' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra export
+
+      - name: Add dataset identity regressions
+        run: uv run python .github/agent_tools/dataset_identity.py tests
+
+      - name: Verify dataset tests fail before implementation
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/data/test_dataset_content_identity.py
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Dataset identity tests unexpectedly passed before implementation"
+            exit 1
+          fi
+
+      - name: Apply dataset identity implementation
+        run: uv run python .github/agent_tools/dataset_identity.py implementation
+
+      - name: Format and lint
+        run: |
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy trade_rl
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Verify dataset identity regressions
+        run: uv run pytest -q tests/data/test_dataset_content_identity.py
+
+      - name: Remove one-shot files
+        run: |
+          rm .github/agent_tools/dataset_identity.py
+          rmdir .github/agent_tools
+          rm .github/workflows/agent-dataset-identity.yml
+
+      - name: Run full test suite
+        run: uv run pytest -q
+
+      - name: Commit verified dataset hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Make market dataset identity content complete"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

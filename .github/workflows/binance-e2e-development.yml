@@ -8,62 +8,26 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-
 jobs:
   focused:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.head_ref || github.ref_name }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
-      - name: Apply implementation patches
+      - name: Focused Binance tests
         run: |
-          uv run python .github/scripts/apply_binance_pipeline.py
-          uv run python .github/scripts/apply_binance_smoke_constants.py
-          uv run python .github/scripts/fix_binance_numeric_types.py
-      - name: Format and organize imports
-        run: |
-          uv run ruff check --fix trade_rl tests scripts
-          uv run ruff format trade_rl tests scripts
-      - name: Capture focused Binance tests
-        run: |
-          set +e
           uv run pytest -q \
             tests/data/test_binance_contract_metadata.py \
             tests/integrations/test_binance.py \
             tests/cli/test_binance_data_command.py \
-            tests/examples/test_binance_smoke_assets.py \
-            > focused.log 2>&1
-          echo "$?" > focused.status
-          cat focused.log
-          exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: binance-repeatability-diagnostics
-          path: |
-            focused.log
-            focused.status
-      - name: Require focused Binance tests
-        run: exit "$(cat focused.status)"
+            tests/examples/test_binance_smoke_assets.py
       - name: Lint
         run: uv run ruff check trade_rl tests scripts
+      - name: Format check
+        run: uv run ruff format --check trade_rl tests scripts
       - name: Type check
         run: uv run mypy trade_rl
-      - name: Commit generated changes when needed
-        run: |
-          git add trade_rl tests scripts examples
-          if ! git diff --cached --quiet; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git commit -m "feat: add Binance data-to-training pipeline"
-            git push origin HEAD:agent/binance-e2e-pipeline
-          fi
 
   live-binance-e2e:
     needs: focused
@@ -71,8 +35,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
       - name: Run fixed-range Binance Vision E2E

@@ -27,12 +27,26 @@ jobs:
       - name: Format
         run: uv run ruff format trade_rl tests scripts
       - name: Focused Binance tests
+        id: focused
         run: |
+          set +e
           uv run pytest -q \
             tests/data/test_binance_contract_metadata.py \
             tests/integrations/test_binance.py \
             tests/cli/test_binance_data_command.py \
-            tests/examples/test_binance_smoke_assets.py
+            tests/examples/test_binance_smoke_assets.py \
+            > focused.log 2>&1
+          status=$?
+          cat focused.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binance-focused-diagnostics
+          path: focused.log
+      - name: Require focused tests
+        if: steps.focused.outputs.status != '0'
+        run: exit 1
       - name: Lint
         run: uv run ruff check trade_rl tests scripts
       - name: Type check

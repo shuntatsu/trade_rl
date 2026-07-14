@@ -58,7 +58,7 @@ from trade_rl.workflows.walk_forward import (
 from trade_rl.workflows.walk_forward_evaluation import (
     bind_signal_providers_to_view,
     build_market_environment,
-    evaluate_range,
+    evaluate_range_evidence,
     minimum_environment_start,
     resolve_signal_digest,
 )
@@ -356,7 +356,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                 model = self.checkpoint_loader.load(
                     PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
                 )
-                returns = evaluate_range(
+                evidence = evaluate_range_evidence(
                     dataset=self.dataset,
                     evaluation_range=request.checkpoint_validation,
                     run=run,
@@ -364,7 +364,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                     model=model,
                     baseline=False,
                 )
-                score = sum(math.log1p(value) for value in returns.values)
+                score = sum(math.log1p(value) for value in evidence.returns.values)
                 scored.append((score, policy_digest))
         selected_digest = min(scored, key=lambda item: (-item[0], item[1]))[1]
         _write_json(
@@ -428,7 +428,7 @@ class MarketCandidateEvaluator:
                     PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
                 )
                 self._model_cache[request.policy_digest] = model
-        returns = evaluate_range(
+        evidence = evaluate_range_evidence(
             dataset=self.dataset,
             evaluation_range=request.evaluation_range,
             run=run,
@@ -440,7 +440,7 @@ class MarketCandidateEvaluator:
             self.outer_test_counts[request.fold_index] = (
                 self.outer_test_counts.get(request.fold_index, 0) + 1
             )
-        score = sum(math.log1p(value) for value in returns.values)
+        score = sum(math.log1p(value) for value in evidence.returns.values)
         digest = content_digest(
             {
                 "configuration": request.configuration,
@@ -452,15 +452,17 @@ class MarketCandidateEvaluator:
                     request.evaluation_range.start,
                     request.evaluation_range.stop,
                 ),
-                "returns": returns.values,
+                "diagnostics": evidence.diagnostics.digest_payload(),
+                "returns": evidence.returns.values,
                 "score": score,
-                "schema_version": "market_candidate_evaluation_v1",
+                "schema_version": "market_candidate_evaluation_v2",
             }
         )
         return CandidateEvaluation(
             score=score,
-            returns=returns,
+            returns=evidence.returns,
             evaluation_digest=digest,
+            diagnostics=evidence.diagnostics,
         )
 
 
@@ -471,6 +473,7 @@ def _fold_payload(
     sealed_test_evaluations: int,
 ) -> dict[str, object]:
     return {
+        "baseline_diagnostics": result.baseline_oos.diagnostics.digest_payload(),
         "baseline_returns": result.baseline_oos.returns.values,
         "checkpoint_range": [
             fold.checkpoint_validation.start,
@@ -481,6 +484,7 @@ def _fold_payload(
         "sealed_test_evaluations": sealed_test_evaluations,
         "selected_configuration": result.selection.selected_configuration,
         "selected_policy_digest": result.selection.selected_policy_digest,
+        "selected_diagnostics": result.selected_oos.diagnostics.digest_payload(),
         "selected_returns": result.selected_oos.returns.values,
         "selection_digest": result.selection.digest,
         "selection_range": [

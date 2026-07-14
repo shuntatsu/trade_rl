@@ -22,11 +22,6 @@ jobs:
           ref: agent/unified-pr40-pr41
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
-          enable-cache: true
-
       - name: Merge PR 41 branch into PR 40 branch
         shell: bash
         run: |
@@ -60,29 +55,9 @@ jobs:
           rm -f .github/workflows/diagnose-hardening.yml
           rm -f .github/workflows/agent-unify-pr40-pr41.yml
 
-      - name: Install dependencies
-        run: uv sync --extra dev --extra export --extra train-sb3
-
-      - name: Apply safe formatting fixes
-        shell: bash
-        run: |
-          uv run ruff format .
-          uv run ruff check --fix --unsafe-fixes . || true
-          uv run ruff format .
-
-      - name: Commit unified implementation
+      - name: Commit raw unified implementation
         shell: bash
         run: |
           git add -A
           git commit -m "Unify architecture hardening PRs 40 and 41"
           git push origin HEAD:agent/unified-pr40-pr41
-
-      - name: Diagnostic strict checks
-        continue-on-error: true
-        run: |
-          uv run ruff check .
-          uv run ruff format --check .
-          uv run mypy trade_rl
-          uv run lint-imports
-          uv run pytest -q
-          uv run trade-rl --version

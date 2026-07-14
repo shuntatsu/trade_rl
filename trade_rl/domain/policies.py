@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
     require_aware_datetime,
     require_non_empty,
@@ -21,9 +22,12 @@ class PolicyMember:
     checkpoint_digest: str
 
     def __post_init__(self) -> None:
-        if self.seed < 0:
+        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
             raise ValueError("seed must be non-negative")
         require_sha256(self.checkpoint_digest, field="checkpoint_digest")
+
+    def digest_payload(self) -> dict[str, object]:
+        return {"checkpoint_digest": self.checkpoint_digest, "seed": self.seed}
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,3 +115,28 @@ class PolicyEnsembleManifest:
         digests = tuple(member.checkpoint_digest for member in self.members)
         if len(set(digests)) != len(digests):
             raise ValueError("policy ensemble checkpoint digests must be unique")
+        if self.digest != content_digest(self.digest_payload()):
+            raise ValueError("policy ensemble digest does not match content")
+
+    def digest_payload(self) -> dict[str, object]:
+        return {
+            "action_names": self.action_names,
+            "action_schema": self.action_schema,
+            "action_size": self.action_size,
+            "action_spec_digest": self.action_spec_digest,
+            "actual_timesteps": self.actual_timesteps,
+            "alpha_artifact_digest": self.alpha_artifact_digest,
+            "created_at": self.created_at,
+            "dataset_id": self.dataset_id,
+            "environment_digest": self.environment_digest,
+            "factor_artifact_digest": self.factor_artifact_digest,
+            "initial_capital": self.initial_capital,
+            "members": tuple(member.digest_payload() for member in self.members),
+            "normalizer_digest": self.normalizer_digest,
+            "observation_schema": self.observation_schema,
+            "observation_size": self.observation_size,
+            "requested_timesteps": self.requested_timesteps,
+            "resolved_device": self.resolved_device,
+            "schema_version": self.schema_version,
+            "training_config_digest": self.training_config_digest,
+        }

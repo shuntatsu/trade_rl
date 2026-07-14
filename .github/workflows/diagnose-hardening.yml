@@ -35,8 +35,7 @@ jobs:
               raise SystemExit('embedded correction patch is missing')
           Path('/tmp/ci-fixes.patch').write_bytes(gzip.decompress(base64.b64decode(match.group(1))))
           PY
-          git apply --check /tmp/ci-fixes.patch
-          git apply /tmp/ci-fixes.patch
+          git apply --3way /tmp/ci-fixes.patch
       - name: Format and verify
         shell: bash
         run: |

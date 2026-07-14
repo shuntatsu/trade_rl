@@ -67,7 +67,9 @@ class CountingTransport:
         ]
         return rows, (f"fixture:{symbol}:{interval}",)
 
-    def load_funding_rates(self, **_: object) -> tuple[list[tuple[int, float]], tuple[str, ...]]:
+    def load_funding_rates(
+        self, **_: object
+    ) -> tuple[list[tuple[int, float]], tuple[str, ...]]:
         self.funding_calls += 1
         return [], ("fixture:funding",)
 

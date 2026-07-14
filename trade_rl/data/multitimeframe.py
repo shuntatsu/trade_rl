@@ -158,7 +158,10 @@ def align_native_feature(
     for base_index, timestamp_ns in enumerate(base_ns):
         while cursor < len(order) and availability_ns[order[cursor]] <= timestamp_ns:
             candidate = int(order[cursor])
-            if latest_index is None or event_time_ns[candidate] > event_time_ns[latest_index]:
+            if (
+                latest_index is None
+                or event_time_ns[candidate] > event_time_ns[latest_index]
+            ):
                 latest_index = candidate
             cursor += 1
         if latest_index is None or not base_active[base_index]:

@@ -1,0 +1,84 @@
+name: One-shot evaluation evidence hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  evidence:
+    if: >-
+      github.head_ref == 'agent/complete-architecture-hardening' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra export
+
+      - name: Add evidence regression tests
+        run: uv run python .github/agent_tools/evaluation_evidence.py tests
+
+      - name: Verify evidence tests fail before implementation
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/evaluation/test_execution_evidence.py
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Evidence tests unexpectedly passed before implementation"
+            exit 1
+          fi
+
+      - name: Apply evaluation evidence implementation
+        run: uv run python .github/agent_tools/evaluation_evidence.py implementation
+
+      - name: Format and lint
+        run: |
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy trade_rl
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Verify evidence regressions
+        run: uv run pytest -q tests/evaluation/test_execution_evidence.py
+
+      - name: Remove one-shot files
+        run: |
+          rm .github/agent_tools/evaluation_evidence.py
+          rmdir .github/agent_tools
+          rm .github/workflows/agent-evaluation-evidence.yml
+
+      - name: Run full test suite
+        run: uv run pytest -q
+
+      - name: Commit verified evidence hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Preserve evaluation execution evidence"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

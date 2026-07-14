@@ -13,6 +13,8 @@ from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
 def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)

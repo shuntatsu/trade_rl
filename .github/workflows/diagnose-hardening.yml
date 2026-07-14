@@ -1,0 +1,46 @@
+name: Diagnose Hardening
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Capture diagnostics
+        shell: bash
+        run: |
+          set +e
+          uv run ruff check . > ruff.txt 2>&1
+          echo "$?" > ruff.exit
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving > tests.txt 2>&1
+          echo "$?" > tests.exit
+          uv run mypy trade_rl > mypy.txt 2>&1
+          echo "$?" > mypy.exit
+          uv run ruff format --check --diff . > format.txt 2>&1
+          echo "$?" > format.exit
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hardening-diagnostics
+          path: |
+            ruff.txt
+            ruff.exit
+            tests.txt
+            tests.exit
+            mypy.txt
+            mypy.exit
+            format.txt
+            format.exit
+          if-no-files-found: error
+          retention-days: 1

@@ -20,9 +20,9 @@ jobs:
           fetch-depth: 1
       - name: Package source
         run: |
-          tar --exclude='.git' --exclude='var' -czf trade_rl-source.tar.gz .
+          tar --exclude='.git' --exclude='var' -czf /tmp/trade_rl-source.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
           name: trade-rl-local-source
-          path: trade_rl-source.tar.gz
+          path: /tmp/trade_rl-source.tar.gz
           retention-days: 1

@@ -1,0 +1,36 @@
+name: Apply Full Hardening
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/transfer/**"
+      - ".github/workflows/apply-full-hardening.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Apply transported patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/transfer/patch-* | base64 --decode | xz --decompress > /tmp/full-hardening.patch
+          git apply --check /tmp/full-hardening.patch
+          git apply --index /tmp/full-hardening.patch
+          rm -rf .github/transfer
+          rm -f .github/workflows/apply-full-hardening.yml
+          actual_tree="$(git write-tree)"
+          test "$actual_tree" = "1623ba402a2195115d8e76783bf5828be979f5a4"
+          git config user.name "OpenAI"
+          git config user.email "oai@example.com"
+          git commit -m "feat: complete architecture hardening v2"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"

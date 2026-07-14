@@ -20,6 +20,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
       - name: Apply transported patch
+        id: apply
         shell: bash
         run: |
           set -euo pipefail
@@ -30,8 +31,25 @@ jobs:
           rm -f .github/workflows/apply-full-hardening.yml
           git add -A
           actual_tree="$(git write-tree)"
-          test "$actual_tree" = "1623ba402a2195115d8e76783bf5828be979f5a4"
+          {
+            echo "expected_tree=1623ba402a2195115d8e76783bf5828be979f5a4"
+            echo "actual_tree=$actual_tree"
+            echo "status:"
+            git status --short
+            echo "staged_files:"
+            git diff --cached --name-status
+          } > /tmp/apply-diagnostic.txt
+          if [ "$actual_tree" != "1623ba402a2195115d8e76783bf5828be979f5a4" ]; then
+            exit 1
+          fi
           git config user.name "OpenAI"
           git config user.email "oai@example.com"
           git commit -m "feat: complete architecture hardening v2"
           git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apply-diagnostic
+          path: /tmp/apply-diagnostic.txt
+          if-no-files-found: error
+          retention-days: 1

@@ -402,17 +402,37 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
 
 
 def load_serving_bundle(root: Path) -> ServingBundle:
+    root = Path(root)
     manifest_path = root / BUNDLE_MANIFEST_NAME
     if not manifest_path.is_file():
         raise FileNotFoundError(f"serving bundle manifest is missing: {manifest_path}")
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest = _parse_manifest(_mapping(payload, field="bundle manifest"))
+    root_resolved = root.resolve()
+    declared = {BUNDLE_MANIFEST_NAME}
     for file in manifest.files:
         path = root / file.path
+        declared.add(file.path)
+        if path.is_symlink():
+            raise ValueError(f"bundle artifact cannot be a symlink: {file.path}")
+        resolved = path.resolve()
+        if not resolved.is_relative_to(root_resolved):
+            raise ValueError(f"bundle artifact escapes bundle root: {file.path}")
         if not path.is_file():
             raise ValueError(f"bundle artifact is missing: {file.path}")
         if path.stat().st_size != file.size_bytes:
             raise ValueError(f"bundle artifact size mismatch: {file.path}")
         if _file_digest(path) != file.digest:
             raise ValueError(f"bundle artifact digest mismatch: {file.path}")
+    actual = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() or path.is_symlink()
+    }
+    undeclared = sorted(actual - declared)
+    missing = sorted(declared - actual)
+    if undeclared:
+        raise ValueError(f"serving bundle contains undeclared files: {undeclared}")
+    if missing:
+        raise ValueError(f"serving bundle is missing declared files: {missing}")
     return ServingBundle(root=root, manifest=manifest)

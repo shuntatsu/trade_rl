@@ -331,6 +331,9 @@ class MarketDatasetBuilder:
         global_features = np.zeros(
             (n_bars, len(self.config.global_feature_names)), dtype=np.float64
         )
+        global_feature_available = np.ones_like(global_features, dtype=np.bool_)
+        global_feature_staleness = np.zeros_like(global_features, dtype=np.float32)
+        global_feature_missing_reason = np.zeros_like(global_features, dtype=np.int16)
         global_features[:, 0] = symbol_active.mean(axis=1)
         observable_tradable = tradable & information_available
         global_features[:, 1] = observable_tradable.mean(axis=1)
@@ -339,6 +342,10 @@ class MarketDatasetBuilder:
             if sample.size:
                 global_features[index, 2] = float(np.mean(sample))
                 global_features[index, 3] = float(np.std(sample))
+            else:
+                global_feature_available[index, 2:4] = False
+                global_feature_staleness[index, 2:4] = 1.0
+                global_feature_missing_reason[index, 2:4] = 1
 
         features = features.astype(np.float32)
         global_features = global_features.astype(np.float32)
@@ -376,6 +383,9 @@ class MarketDatasetBuilder:
                 "information_available": information_available,
                 "features": features,
                 "global_features": global_features,
+                "global_feature_available": global_feature_available,
+                "global_feature_staleness_hours": global_feature_staleness,
+                "global_feature_missing_reason": global_feature_missing_reason,
                 "open": open_price,
                 "high": high,
                 "low": low,
@@ -395,6 +405,9 @@ class MarketDatasetBuilder:
             timestamps=timestamps,
             features=features,
             global_features=global_features,
+            global_feature_available=global_feature_available,
+            global_feature_staleness_hours=global_feature_staleness,
+            global_feature_missing_reason=global_feature_missing_reason,
             open=open_price,
             high=high,
             low=low,

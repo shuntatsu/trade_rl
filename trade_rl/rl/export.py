@@ -142,7 +142,9 @@ class ExportManifest:
         if len({item.format for item in self.exports}) != len(self.exports):
             raise ValueError("export formats must be unique")
         if not any(item.status == "verified" for item in self.exports):
-            raise ValueError("export manifest must contain at least one verified export")
+            raise ValueError(
+                "export manifest must contain at least one verified export"
+            )
         if self.schema_version != EXPORT_SCHEMA:
             raise ValueError("unsupported export manifest schema")
         expected = content_digest(self.digest_payload())

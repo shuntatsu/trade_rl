@@ -102,16 +102,18 @@ class ObservationNormalizer:
             ("normalizer.candidate_config_digest", self.candidate_config_digest),
         ):
             _validate_digest(value, field=field_name)
-        if (self.absolute_train_start is None) != (self.absolute_train_end is None):
+        absolute_start = self.absolute_train_start
+        absolute_end = self.absolute_train_end
+        if (absolute_start is None) != (absolute_end is None):
             raise ValueError("absolute normalizer range must be specified as a pair")
-        if self.absolute_train_start is not None:
+        if absolute_start is not None and absolute_end is not None:
             if (
-                isinstance(self.absolute_train_start, bool)
-                or isinstance(self.absolute_train_end, bool)
-                or not isinstance(self.absolute_train_start, int)
-                or not isinstance(self.absolute_train_end, int)
-                or self.absolute_train_start < 0
-                or self.absolute_train_end <= self.absolute_train_start
+                isinstance(absolute_start, bool)
+                or isinstance(absolute_end, bool)
+                or not isinstance(absolute_start, int)
+                or not isinstance(absolute_end, int)
+                or absolute_start < 0
+                or absolute_end <= absolute_start
             ):
                 raise ValueError("absolute normalizer training range is invalid")
         if not self.observation_schema:

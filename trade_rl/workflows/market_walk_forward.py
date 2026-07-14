@@ -174,7 +174,21 @@ def _fit_normalizer(
         train_start=0,
         train_end=matrix.shape[0],
         passthrough_indices=passthrough,
-        dataset_id=None,
+        dataset_id=training_dataset.dataset_id,
+        source_dataset_id=dataset.dataset_id,
+        absolute_train_start=train_range.start,
+        absolute_train_end=train_range.stop,
+        observation_schema_digest=env.observation_builder.schema_digest(
+            training_dataset
+        ),
+        action_spec_digest=env.action_spec_digest,
+        alpha_artifact_digest=(
+            None if alpha_provider is None else alpha_provider.artifact_digest
+        ),
+        factor_artifact_digest=(
+            None if factor_provider is None else factor_provider.artifact_digest
+        ),
+        candidate_config_digest=content_digest(run.digest_payload()),
     )
 
 
@@ -217,18 +231,19 @@ class MarketCandidateTrainer(CandidateTrainer):
         self.created_at = created_at
         self.registry = registry
         self.checkpoint_loader = checkpoint_loader or StableBaselines3CheckpointLoader()
-        self._normalizers: dict[int, ObservationNormalizer] = {}
+        self._normalizers: dict[tuple[int, str], ObservationNormalizer] = {}
 
     def _normalizer(
         self,
         request: CandidateTrainingRequest,
         run: TrainingRunConfig,
     ) -> ObservationNormalizer:
-        existing = self._normalizers.get(request.fold_index)
+        key = (request.fold_index, request.configuration.name)
+        existing = self._normalizers.get(key)
         if existing is not None:
             return existing
         normalizer = _fit_normalizer(self.dataset, request.train, run)
-        self._normalizers[request.fold_index] = normalizer
+        self._normalizers[key] = normalizer
         _write_json(
             self.root / f"fold-{request.fold_index:03d}" / "normalizer.json",
             _normalizer_payload(
@@ -550,12 +565,18 @@ def execute_market_walk_forward(
             result.fold_results,
             strict=True,
         ):
+            sealed_count = evaluator.outer_test_counts.get(fold.fold_index, 0)
+            expected_count = (
+                1 if fold_result.selection.selected_policy_digest is None else 2
+            )
+            if sealed_count != expected_count:
+                raise RuntimeError(
+                    "sealed outer test evaluation count violates the fold contract"
+                )
             payload = _fold_payload(
                 fold,
                 fold_result,
-                sealed_test_evaluations=evaluator.outer_test_counts.get(
-                    fold.fold_index, 0
-                ),
+                sealed_test_evaluations=sealed_count,
             )
             folds_payload.append(payload)
             _write_json(
@@ -583,17 +604,36 @@ def execute_market_walk_forward(
         )
         policy_digest = content_digest(
             {
-                "policies": tuple(sorted(registry)),
-                "schema_version": "walk_forward_policy_set_v1",
+                "policies": tuple(
+                    {
+                        "algorithm": record.algorithm,
+                        "normalizer_digest": record.normalizer.digest,
+                        "policy_digest": digest,
+                        "run_config_digest": content_digest(
+                            record.run.digest_payload()
+                        ),
+                    }
+                    for digest, record in sorted(registry.items())
+                ),
+                "schema_version": "walk_forward_policy_set_v2",
             }
         )
         environment_digest = content_digest(
             {
-                "action": asdict(config.candidates[0].run.action),
-                "environment": asdict(config.candidates[0].run.environment),
-                "risk": asdict(config.candidates[0].run.risk),
-                "reward": asdict(config.candidates[0].run.reward),
-                "trend": asdict(config.candidates[0].run.trend),
+                "candidates": tuple(
+                    {
+                        "name": item.name,
+                        "run_environment": {
+                            "action": asdict(item.run.action),
+                            "environment": asdict(item.run.environment),
+                            "risk": asdict(item.run.risk),
+                            "reward": asdict(item.run.reward),
+                            "trend": asdict(item.run.trend),
+                        },
+                    }
+                    for item in config.candidates
+                ),
+                "schema_version": "walk_forward_environment_set_v1",
             }
         )
         config_digest = content_digest(config.digest_payload())

@@ -1,0 +1,75 @@
+name: Cleanup Merged Branches
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    if: github.head_ref == 'ci/cleanup-merged-branches-20260714'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ci/cleanup-merged-branches-20260714
+          fetch-depth: 0
+
+      - name: Delete fully integrated branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+          mapfile -t open_heads < <(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" \
+              --jq '.[].head.ref'
+          )
+
+          is_open_pr_head() {
+            local candidate="$1"
+            local head
+            for head in "${open_heads[@]}"; do
+              if [[ "$candidate" == "$head" ]]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          deleted=()
+          retained=()
+          while IFS= read -r remote_ref; do
+            branch="${remote_ref#origin/}"
+            case "$branch" in
+              HEAD|main|ci/cleanup-merged-branches-20260714)
+                continue
+                ;;
+            esac
+
+            if is_open_pr_head "$branch"; then
+              retained+=("$branch (open PR)")
+              continue
+            fi
+
+            if git merge-base --is-ancestor "origin/$branch" origin/main; then
+              git push origin --delete "$branch"
+              deleted+=("$branch")
+            else
+              retained+=("$branch (not fully integrated)")
+            fi
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
+
+          printf 'Deleted branches:\n'
+          printf '  %s\n' "${deleted[@]:-none}"
+          printf 'Retained branches:\n'
+          printf '  %s\n' "${retained[@]:-none}"
+
+      - name: Delete cleanup branch
+        run: git push origin --delete ci/cleanup-merged-branches-20260714

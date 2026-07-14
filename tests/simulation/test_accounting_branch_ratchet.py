@@ -6,7 +6,15 @@ import pytest
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 
 
-def test_book_rejects_unsupported_termination_reason() -> None:
+def test_book_rejects_invalid_state_contracts() -> None:
+    with pytest.raises(ValueError, match="insolvent"):
+        BookState(
+            quantities=np.array([0.0]),
+            cash=1.0,
+            mark_prices=np.array([100.0]),
+            peak_value=1.0,
+            insolvent=1,  # type: ignore[arg-type]
+        )
     with pytest.raises(ValueError, match="termination_reason"):
         BookState(
             quantities=np.array([0.0]),
@@ -15,6 +23,8 @@ def test_book_rejects_unsupported_termination_reason() -> None:
             peak_value=1.0,
             termination_reason="unsupported",
         )
+    with pytest.raises(ValueError, match="n_symbols"):
+        BookState.zero(0, 1_000.0)
 
 
 def test_nonpositive_equity_uses_fail_closed_weights_and_margin() -> None:

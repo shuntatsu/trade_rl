@@ -26,31 +26,19 @@ jobs:
         run: |
           uv run python .github/scripts/apply_binance_multitimeframe.py
           uv run python .github/scripts/repair_binance_cli.py
+          uv run python .github/scripts/fix_binance_multitimeframe_preset.py
       - name: Format and organize imports
         run: |
           uv run ruff check --fix trade_rl tests
           uv run ruff format trade_rl tests
-      - name: Capture multi-timeframe and Binance tests
+      - name: Multi-timeframe and Binance tests
         run: |
-          set +e
           uv run pytest -q \
             tests/data/test_multitimeframe_builder.py \
             tests/integrations/test_binance.py \
             tests/integrations/test_binance_multitimeframe.py \
             tests/cli/test_binance_data_command.py \
-            tests/cli/test_binance_multitimeframe_command.py \
-            > focused.log 2>&1
-          echo "$?" > focused.status
-          cat focused.log
-          exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: multitimeframe-focused-diagnostics
-          path: |
-            focused.log
-            focused.status
-      - name: Require focused tests
-        run: exit "$(cat focused.status)"
+            tests/cli/test_binance_multitimeframe_command.py
       - name: Lint
         run: uv run ruff check trade_rl tests
       - name: Type check

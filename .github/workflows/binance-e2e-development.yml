@@ -42,10 +42,34 @@ jobs:
         run: uv run ruff check trade_rl tests scripts
       - name: Type check
         run: uv run mypy trade_rl
-      - name: Commit green implementation
+      - name: Commit generated changes when needed
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add trade_rl tests scripts examples
-          git commit -m "feat: add Binance data-to-training pipeline"
-          git push origin HEAD:agent/binance-e2e-pipeline
+          if ! git diff --cached --quiet; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git commit -m "feat: add Binance data-to-training pipeline"
+            git push origin HEAD:agent/binance-e2e-pipeline
+          fi
+
+  live-binance-e2e:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Run fixed-range Binance Vision E2E
+        run: |
+          uv run python scripts/run_binance_e2e_smoke.py \
+            --start-time 2026-06-01T00:00:00Z \
+            --end-time 2026-06-29T00:00:00Z \
+            --work-root var/binance-live-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: binance-live-e2e
+          path: var/binance-live-smoke

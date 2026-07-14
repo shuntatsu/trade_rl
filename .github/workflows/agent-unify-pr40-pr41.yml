@@ -4,13 +4,23 @@ on:
   push:
     branches:
       - agent/unified-pr40-pr41
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
 
 permissions:
   contents: write
 
 jobs:
   unify:
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.event_name == 'push' || github.head_ref == 'agent/unified-pr40-pr41')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

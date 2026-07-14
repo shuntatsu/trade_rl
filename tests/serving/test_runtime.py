@@ -70,11 +70,10 @@ def test_runtime_rejects_wrong_shape_nonfinite_and_out_of_bounds_actions(
             policy_loader=Loader(value),
             identity_contract=runtime_identity_contract(),
         )
-        runtime.activate(
-            create_bundle(
-                tmp_path / name,
-                policy_mode=PolicyMode.RESIDUAL_POLICY,
+        with pytest.raises(ValueError, match="activation probe|action schema"):
+            runtime.activate(
+                create_bundle(
+                    tmp_path / name,
+                    policy_mode=PolicyMode.RESIDUAL_POLICY,
+                )
             )
-        )
-        with pytest.raises(ValueError, match="action schema"):
-            runtime.predict(np.zeros(OBSERVATION_SIZE, dtype=np.float32))

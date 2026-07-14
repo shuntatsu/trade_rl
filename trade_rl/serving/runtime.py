@@ -14,7 +14,13 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
+from trade_rl.release.attestation import (
+    ReleaseAttestation,
+    default_attestation_path,
+    load_release_attestation,
+)
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
+from trade_rl.serving.observations import ServingObservationPipeline
 
 
 class LoadedPolicy(Protocol):
@@ -146,9 +152,13 @@ class ServingRuntime:
         self._lock = RLock()
         self._snapshot: RuntimeSnapshot | None = None
         self._policy: LoadedPolicy | None = None
+        self._observation_pipeline: ServingObservationPipeline | None = None
 
     @staticmethod
-    def _snapshot_for(bundle: ServingBundle) -> RuntimeSnapshot:
+    def _snapshot_for(
+        bundle: ServingBundle,
+        attestation: ReleaseAttestation | None = None,
+    ) -> RuntimeSnapshot:
         manifest = bundle.manifest
         return RuntimeSnapshot(
             bundle_digest=manifest.bundle_digest,
@@ -165,7 +175,9 @@ class ServingRuntime:
             policy_digest=manifest.policy_digest,
             signal_digest=manifest.signal_digest,
             selection_digest=manifest.selection_digest,
-            release_digest=manifest.release_digest,
+            release_digest=(
+                None if attestation is None else attestation.attestation_digest
+            ),
             alpha_artifact_digest=manifest.alpha_artifact_digest,
             factor_artifact_digest=manifest.factor_artifact_digest,
             normalizer_digest=manifest.normalizer_digest,
@@ -213,11 +225,30 @@ class ServingRuntime:
             if observed != expected:
                 raise ValueError(f"serving bundle {label} does not match runtime")
 
-    def activate(self, root: Path) -> RuntimeSnapshot:
+    def activate(
+        self,
+        root: Path,
+        *,
+        attestation_path: Path | None = None,
+    ) -> RuntimeSnapshot:
         bundle = load_serving_bundle(root)
         manifest = bundle.manifest
-        if manifest.release_digest is None and not self.allow_unreleased:
-            raise ValueError("serving bundle requires an approved release identity")
+        attestation: ReleaseAttestation | None = None
+        resolved_attestation_path = (
+            default_attestation_path(root)
+            if attestation_path is None
+            else attestation_path
+        )
+        if resolved_attestation_path.is_file():
+            attestation = load_release_attestation(resolved_attestation_path)
+            if attestation.bundle_digest != manifest.bundle_digest:
+                raise ValueError("release attestation bundle identity mismatch")
+            if attestation.dataset_id != manifest.dataset_id:
+                raise ValueError("release attestation dataset identity mismatch")
+            if attestation.selected_policy_digest != manifest.policy_digest:
+                raise ValueError("release attestation policy identity mismatch")
+        elif not self.allow_unreleased:
+            raise ValueError("serving bundle requires an approved release attestation")
         if manifest.action_schema != ACTION_SCHEMA:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"
@@ -232,6 +263,7 @@ class ServingRuntime:
         elif not self.allow_unbound_identity:
             raise RuntimeError("serving identity contract was not configured")
 
+        candidate_pipeline = ServingObservationPipeline.load(bundle)
         if manifest.policy_mode is PolicyMode.BASELINE_ONLY:
             candidate_policy: LoadedPolicy = _BaselineIdentityPolicy(
                 manifest.action_size
@@ -242,10 +274,26 @@ class ServingRuntime:
                 raise RuntimeError("residual policy bundle requires a policy loader")
             candidate_policy = loader.load(bundle)
 
-        candidate_snapshot = self._snapshot_for(bundle)
+        for probe in (
+            np.zeros(manifest.observation_size, dtype=np.float32),
+            np.ones(manifest.observation_size, dtype=np.float32),
+            -np.ones(manifest.observation_size, dtype=np.float32),
+        ):
+            transformed_probe = candidate_pipeline.transform(probe)
+            output = np.asarray(
+                candidate_policy.predict(transformed_probe),
+                dtype=np.float32,
+            ).reshape(-1)
+            if output.shape != (manifest.action_size,) or not np.isfinite(output).all():
+                raise ValueError("policy activation probe violated the residual action schema")
+            if np.any(output < -1.0) or np.any(output > 1.0):
+                raise ValueError("policy activation probe violated action schema bounds")
+
+        candidate_snapshot = self._snapshot_for(bundle, attestation)
         with self._lock:
             self._policy = candidate_policy
             self._snapshot = candidate_snapshot
+            self._observation_pipeline = candidate_pipeline
         return candidate_snapshot
 
     def snapshot(self) -> RuntimeSnapshot:
@@ -256,16 +304,13 @@ class ServingRuntime:
         return snapshot
 
     def predict(self, observation: np.ndarray) -> np.ndarray:
-        vector = np.asarray(observation, dtype=np.float32).reshape(-1)
-        if vector.size == 0 or not np.isfinite(vector).all():
-            raise ValueError("observation must be a non-empty finite vector")
         with self._lock:
             policy = self._policy
             snapshot = self._snapshot
-        if policy is None or snapshot is None:
+            pipeline = self._observation_pipeline
+        if policy is None or snapshot is None or pipeline is None:
             raise RuntimeError("serving runtime has no active policy")
-        if vector.shape != (snapshot.observation_size,):
-            raise ValueError("observation violates the active observation schema")
+        vector = pipeline.transform(observation)
         raw_action = np.asarray(
             policy.predict(vector),
             dtype=np.float32,

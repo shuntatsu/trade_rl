@@ -181,3 +181,46 @@ class ObservationNormalizer:
             selected = np.asarray(self.passthrough_indices, dtype=np.int64)
             normalized[:, selected] = matrix[:, selected]
         return normalized.astype(np.float32)
+
+
+def normalizer_payload(value: ObservationNormalizer) -> dict[str, object]:
+    """Canonical JSON-safe normalizer representation."""
+
+    return {
+        "clip": value.clip,
+        "dataset_id": value.dataset_id,
+        "digest": value.digest,
+        "epsilon": value.epsilon,
+        "mean": tuple(float(item) for item in value.mean),
+        "observation_schema": value.observation_schema,
+        "passthrough_indices": value.passthrough_indices,
+        "scale": tuple(float(item) for item in value.scale),
+        "schema_version": value.schema_version,
+        "train_end": value.train_end,
+        "train_start": value.train_start,
+    }
+
+
+def normalizer_from_payload(payload: object) -> ObservationNormalizer:
+    """Load and fully revalidate a normalizer payload."""
+
+    if not isinstance(payload, dict):
+        raise ValueError("normalizer payload must be a mapping")
+    try:
+        return ObservationNormalizer(
+            mean=np.asarray(payload["mean"], dtype=np.float64),
+            scale=np.asarray(payload["scale"], dtype=np.float64),
+            train_start=int(payload["train_start"]),
+            train_end=int(payload["train_end"]),
+            clip=float(payload["clip"]),
+            epsilon=float(payload["epsilon"]),
+            passthrough_indices=tuple(int(item) for item in payload["passthrough_indices"]),
+            dataset_id=(
+                None if payload.get("dataset_id") is None else str(payload["dataset_id"])
+            ),
+            observation_schema=str(payload["observation_schema"]),
+            schema_version=str(payload["schema_version"]),
+            digest=str(payload["digest"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("normalizer payload is invalid") from error

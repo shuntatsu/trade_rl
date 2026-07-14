@@ -46,6 +46,8 @@ def publish_market_dataset_artifact(
 ) -> PublishedDatasetArtifact:
     """Atomically publish one immutable artifact into a new destination."""
 
+    if not dataset.identity_verified:
+        raise ValueError("market dataset publication requires a canonical identity")
     output = Path(root)
     if output.exists():
         raise FileExistsError(f"market artifact destination already exists: {output}")

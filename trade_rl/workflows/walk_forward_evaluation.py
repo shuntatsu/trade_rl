@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 import numpy as np
@@ -13,6 +13,7 @@ from trade_rl.artifacts.signals import load_signal_artifact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange
+from trade_rl.evaluation.walk_forward.stitching import ExecutionEvidence
 from trade_rl.integrations.signal_artifacts import (
     LoadedAlphaArtifact,
     LoadedFactorArtifact,
@@ -205,7 +206,13 @@ def build_market_environment(
     )
 
 
-def evaluate_range(
+@dataclass(frozen=True, slots=True)
+class RangeEvaluationResult:
+    returns: ReturnSeries
+    evidence: ExecutionEvidence
+
+
+def evaluate_range_evidence(
     *,
     dataset: MarketDataset,
     evaluation_range: IndexRange,
@@ -213,8 +220,8 @@ def evaluate_range(
     normalizer: ObservationNormalizer | None,
     model: Any | None,
     baseline: bool,
-) -> ReturnSeries:
-    """Evaluate exactly one half-open range without exposing sealed data early."""
+) -> RangeEvaluationResult:
+    """Evaluate one range and retain all execution diagnostics."""
 
     start_index = evaluation_range.start - 1
     minimum = TrendStrategy(run.trend).minimum_history_for(dataset)
@@ -232,6 +239,9 @@ def evaluate_range(
         alpha_provider=alpha_provider,
         factor_provider=factor_provider,
     )
+    total_dividend = 0.0
+    total_cash_interest = 0.0
+    max_participation = 0.0
     try:
         observation, _ = env.reset(
             seed=0,
@@ -251,12 +261,33 @@ def evaluate_range(
                     raise RuntimeError("residual evaluation requires a loaded model")
                 raw_action, _ = model.predict(observation, deterministic=True)
                 action = np.asarray(raw_action, dtype=np.float32).reshape(-1)
-            observation, _, terminated, truncated, _ = env.step(action)
-        values = tuple(
-            float(value)
-            for value in (
-                env.shadow.returns_history if baseline else env.hybrid.returns_history
+            observation, _, terminated, truncated, info = env.step(action)
+            execution = info[
+                "shadow_execution" if baseline else "hybrid_execution"
+            ]
+            total_dividend += float(execution.interval_dividend)
+            total_cash_interest += float(execution.interval_cash_interest)
+            max_participation = max(
+                max_participation, float(execution.max_participation)
             )
+        book = env.shadow if baseline else env.hybrid
+        values = tuple(float(value) for value in book.returns_history)
+        reason = (
+            None
+            if book.termination_reason is None
+            else str(getattr(book.termination_reason, "value", book.termination_reason))
+        )
+        evidence = ExecutionEvidence(
+            turnover_total=book.turnover_total,
+            total_cost=book.total_cost,
+            funding_pnl=book.funding_pnl,
+            borrow_cost=book.borrow_cost,
+            dividend_pnl=total_dividend,
+            cash_interest=total_cash_interest,
+            n_trades=book.n_trades,
+            rebalance_events=book.rebalance_events,
+            max_participation=max_participation,
+            termination_reason=reason,
         )
     finally:
         env.close()
@@ -264,17 +295,43 @@ def evaluate_range(
         raise ValueError(
             "range-restricted environment produced an unexpected return length"
         )
-    return ReturnSeries(
-        values=values,
-        kind=ReturnKind.BASE_BAR,
-        periods_per_year=dataset.periods_per_year,
+    return RangeEvaluationResult(
+        returns=ReturnSeries(
+            values=values,
+            kind=ReturnKind.BASE_BAR,
+            periods_per_year=dataset.periods_per_year,
+        ),
+        evidence=evidence,
     )
+
+
+def evaluate_range(
+    *,
+    dataset: MarketDataset,
+    evaluation_range: IndexRange,
+    run: TrainingRunConfig,
+    normalizer: ObservationNormalizer | None,
+    model: Any | None,
+    baseline: bool,
+) -> ReturnSeries:
+    """Compatibility wrapper returning only the range return series."""
+
+    return evaluate_range_evidence(
+        dataset=dataset,
+        evaluation_range=evaluation_range,
+        run=run,
+        normalizer=normalizer,
+        model=model,
+        baseline=baseline,
+    ).returns
 
 
 __all__ = [
     "bind_signal_providers_to_view",
     "build_market_environment",
+    "RangeEvaluationResult",
     "evaluate_range",
+    "evaluate_range_evidence",
     "factor_names",
     "load_signal_providers",
     "minimum_environment_start",

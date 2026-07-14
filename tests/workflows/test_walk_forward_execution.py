@@ -96,9 +96,14 @@ def test_execute_walk_forward_stitches_selected_and_baseline_evidence() -> None:
     assert result.dataset_id == DATASET_ID
     assert result.selected_stitched.fold_indices == (0, 1)
     assert result.baseline_stitched.fold_indices == (0, 1)
-    assert result.selected_metrics.n_periods == 40
-    assert result.baseline_metrics.n_periods == 40
-    assert result.selected_metrics.total_return > result.baseline_metrics.total_return
+    assert result.selected_metrics is None
+    assert result.baseline_metrics is None
+    assert result.selected_independent_summary.fold_count == 2
+    assert result.baseline_independent_summary.fold_count == 2
+    assert (
+        result.selected_independent_summary.mean_fold_return
+        > result.baseline_independent_summary.mean_fold_return
+    )
     assert len(result.evaluation_digest) == 64
 
 

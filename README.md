@@ -2,7 +2,7 @@
 
 Trade RL is a research-grade, baseline-anchored residual reinforcement-learning core for portfolio allocation. The maintained policy adjusts a deterministic causal baseline through a bounded, explicitly identified action specification while an independent shadow book supplies the comparison path.
 
-> Production status: **NO-GO**. The repository provides research, evaluation, artifact and serving contracts. It does not claim profitability or production authorization.
+> Capability status: **research-ready** and **attested paper-serving-ready**. Direct exchange order routing remains **NO-GO**. The repository does not claim profitability or authorize live capital deployment.
 
 ## Start here
 
@@ -28,9 +28,13 @@ The maintained environment now provides:
 
 ## Identity and serving
 
-Environment identity includes dataset, calendar, action specification, content-addressed alpha/factor artifacts, normalizer, episode curriculum, trend, reward, risk, execution and AUM. Signal filesystem paths are source references only and never change experiment identity. Serving bundle v3 binds the exact action size, action names, ActionSpec digest, observation schema and size, environment digest and normalizer digest. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
+Dataset identity v6 is recomputed from every observation, eligibility, execution and accounting field, including fees, spread, participation, quantity increments, borrow/funding schedules, mark/index prices, corporate actions, cash rates, volume-unit semantics, contract multipliers and feature availability/age. Published dataset artifacts reject arbitrary identities, symlinks, root escapes and undeclared files.
 
-The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3 and TQC ensemble bundles. It validates every declared member and averages deterministic actions only after all members pass shape, finite-value and bounds checks.
+Environment identity includes the verified dataset, calendar, action specification, content-addressed fold-local alpha/factor artifacts, semantic normalizer, episode curriculum, trend, reward, portfolio risk, execution and AUM. Signal filesystem paths are diagnostics only and never change experiment identity.
+
+Serving candidate bundle v4 contains no release identifier. A separate `ReleaseAttestation` binds the immutable bundle digest to dataset, selection, evaluation, gate evidence, selected policy, source commit, dependency provenance, approver and approval time. Registry and runtime activation verify this external attestation, load the shared observation/normalization pipeline and run deterministic probe observations through every ensemble member before live state is swapped. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
+
+The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3 and TQC ensemble bundles. Stable-Baselines3 and PyTorch are installed only with the `train-sb3` extra.
 
 ## Training artifacts
 
@@ -38,12 +42,12 @@ A market dataset artifact is a validated directory containing canonical `manifes
 
 A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one authoritative `policy.zip` per seed, content-addressed intermediate checkpoints selected only on checkpoint-validation data, a `policy-loader.json`, optional verified ONNX/TorchScript actors and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format. ONNX is an optional required export when requested; TorchScript is best-effort and records an explicit unsupported reason when conversion is unsafe.
 
-Nested walk-forward execution fits normalization on each train range only, evaluates checkpoint and configuration-selection ranges without reading sealed test data, and evaluates each selected policy on the outer test range only after selection.
+Nested walk-forward execution builds fold-local causal signals, fits only exogenous normalization statistics on each train capability, records one-shot sealed-test access, and evaluates each selected policy on the outer test range only after selection. Independent folds retain full execution evidence and are reported as a distribution; continuous return and drawdown are produced only with verified contiguous account-state handoff.
 
 ## Commands
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra train-sb3
 uv run trade-rl train config \
   --timesteps 102400 --decision-hours 4 --discount-half-life-hours 168 \
   --n-steps 2048 --batch-size 64 --log-std-init -0.5 --target-kl 0.02 \
@@ -74,7 +78,7 @@ uv run trade-rl walk-forward run \
   --run-id btc-eth-wf-001
 ```
 
-Both execution commands print one machine-readable JSON result and retain `production_status: "NO-GO"` until a separate approved release exists.
+Both execution commands print one machine-readable JSON result. Research runs remain non-production artifacts; a paper-serving activation additionally requires a verified external release attestation. Direct exchange connectivity is not implemented.
 
 ## Verification
 
@@ -86,6 +90,6 @@ uv run lint-imports
 uv run pytest --cov=trade_rl --cov-branch
 ```
 
-Install export verification dependencies with `uv sync --extra dev --extra export`.
+Install export verification dependencies with `uv sync --extra dev --extra train-sb3 --extra export`.
 
 See [Architecture](docs/ARCHITECTURE.md) and [Research Status](docs/RESEARCH_STATUS.md).

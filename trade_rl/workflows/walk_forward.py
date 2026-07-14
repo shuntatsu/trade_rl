@@ -7,6 +7,10 @@ from typing import Protocol
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.evaluation.fold_metrics import (
+    IndependentFoldSummary,
+    summarize_independent_folds,
+)
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.walk_forward.folds import WalkForwardFold, build_folds
 from trade_rl.evaluation.walk_forward.stitching import (
@@ -74,8 +78,10 @@ class WalkForwardExecutionResult:
     fold_results: tuple[FoldExecutionResult, ...]
     selected_stitched: StitchedOOS
     baseline_stitched: StitchedOOS
-    selected_metrics: PerformanceMetrics
-    baseline_metrics: PerformanceMetrics
+    selected_metrics: PerformanceMetrics | None
+    baseline_metrics: PerformanceMetrics | None
+    selected_independent_summary: IndependentFoldSummary | None
+    baseline_independent_summary: IndependentFoldSummary | None
     evaluation_digest: str
 
     def __post_init__(self) -> None:
@@ -180,13 +186,24 @@ def execute_walk_forward(
             "stitch_mode": config.stitch_mode.value,
         }
     )
+    independent = config.stitch_mode is StitchMode.INDEPENDENT_FOLDS
     return WalkForwardExecutionResult(
         dataset_id=dataset_id,
         folds=folds,
         fold_results=tuple(detailed_results),
         selected_stitched=selected_stitched,
         baseline_stitched=baseline_stitched,
-        selected_metrics=evaluate_performance(selected_stitched.returns),
-        baseline_metrics=evaluate_performance(baseline_stitched.returns),
+        selected_metrics=(
+            None if independent else evaluate_performance(selected_stitched.returns)
+        ),
+        baseline_metrics=(
+            None if independent else evaluate_performance(baseline_stitched.returns)
+        ),
+        selected_independent_summary=(
+            summarize_independent_folds(tuple(selected_results)) if independent else None
+        ),
+        baseline_independent_summary=(
+            summarize_independent_folds(tuple(baseline_results)) if independent else None
+        ),
         evaluation_digest=evaluation_digest,
     )

@@ -163,3 +163,33 @@ def test_fold_runner_falls_back_to_baseline_without_duplicate_outer_evaluation()
     assert result.selection.selected_configuration == "baseline"
     assert result.selection.selected_policy_digest is None
     assert result.selected_oos == result.baseline_oos
+
+
+def test_fold_runner_seals_outer_test_and_preserves_execution_evidence() -> None:
+    from trade_rl.evaluation.walk_forward.stitching import ExecutionEvidence
+
+    trainer = FakeTrainer()
+
+    @dataclass
+    class EvidenceEvaluator(FakeEvaluator):
+        def evaluate(self, request: CandidateEvaluationRequest) -> CandidateEvaluation:
+            result = super().evaluate(request)
+            return CandidateEvaluation(
+                score=result.score,
+                returns=result.returns,
+                evaluation_digest=result.evaluation_digest,
+                evidence=ExecutionEvidence(total_cost=4.0, turnover_total=0.5, n_trades=3),
+            )
+
+    evaluator = EvidenceEvaluator(
+        selection_scores={"baseline": 0.0, "candidate_a": 0.01, "candidate_b": 0.02}
+    )
+    runner = ConcreteFoldRunner(config=config(), trainer=trainer, evaluator=evaluator)
+    result = runner.run_fold(fold())
+
+    assert result.selected_oos.evidence.total_cost == 4.0
+    assert result.sealed_test_access.access_digest
+    import pytest
+
+    with pytest.raises(ValueError, match="already opened"):
+        runner.run_fold(fold())

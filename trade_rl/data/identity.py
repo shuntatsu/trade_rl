@@ -10,8 +10,10 @@ import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 
-MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v5"
+MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
 
+# Every resolved array that can change observations, eligibility, execution,
+# accounting, or evaluation belongs to the logical market-dataset identity.
 DATASET_ID_ARRAY_FIELDS = (
     "timestamps",
     "available_at",
@@ -27,7 +29,32 @@ DATASET_ID_ARRAY_FIELDS = (
     "tradable",
     "symbol_active",
     "feature_available",
+    "feature_staleness_hours",
     "feature_staleness",
+    "feature_missing_reason",
+    "global_feature_available",
+    "global_feature_staleness_hours",
+    "global_feature_missing_reason",
+    "fee_rate",
+    "maker_fee_rate",
+    "taker_fee_rate",
+    "spread_rate",
+    "max_participation_rate",
+    "minimum_notional",
+    "lot_size",
+    "tick_size",
+    "borrow_available",
+    "borrow_rate",
+    "funding_due",
+    "buy_allowed",
+    "sell_allowed",
+    "mark_price",
+    "index_price",
+    "dividend",
+    "split_factor",
+    "delisting_recovery",
+    "cash_rate",
+    "contract_multipliers",
 )
 
 

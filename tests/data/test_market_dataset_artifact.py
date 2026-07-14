@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,11 @@ import pytest
 
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
 from trade_rl.data.artifacts import MarketDatasetView
+from trade_rl.data.identity import (
+    MARKET_DATASET_IDENTITY_SCHEMA,
+    canonical_identity_json,
+    compute_market_dataset_id,
+)
 from trade_rl.data.market import MarketDataset
 
 
@@ -16,8 +22,8 @@ def _dataset() -> MarketDataset:
         n_bars
     ) * np.timedelta64(1, "h")
     close = np.linspace(100.0, 111.0, n_bars, dtype=np.float64)[:, None]
-    return MarketDataset(
-        dataset_id="a" * 64,
+    draft = MarketDataset(
+        dataset_id="0" * 64,
         symbols=("BTCUSDT",),
         timestamps=timestamps,
         features=np.linspace(0.0, 1.0, n_bars, dtype=np.float32)[:, None, None],
@@ -36,6 +42,23 @@ def _dataset() -> MarketDataset:
         fee_rate=np.full((n_bars, 1), 0.0005),
         borrow_available=np.ones((n_bars, 1), dtype=np.bool_),
         cash_rate=np.linspace(0.0, 0.001, n_bars),
+    )
+    metadata = {
+        "schema": MARKET_DATASET_IDENTITY_SCHEMA,
+        "source": "test_market_dataset_artifact",
+        "symbols": draft.symbols,
+        "feature_names": draft.feature_names,
+        "global_feature_names": draft.global_feature_names,
+        "periods_per_year": draft.periods_per_year,
+        "calendar_kind": draft.calendar_kind.value,
+        "nominal_bar_hours": draft.bar_hours,
+        "volume_units": tuple(unit.value for unit in draft.volume_units),
+    }
+    dataset_id = compute_market_dataset_id(metadata, draft.identity_arrays())
+    return replace(
+        draft,
+        dataset_id=dataset_id,
+        identity_payload_json=canonical_identity_json(metadata),
     )
 
 

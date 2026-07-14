@@ -86,3 +86,23 @@ def test_large_facades_delegate_configuration_to_focused_modules() -> None:
     assert Path("trade_rl/rl/environment_config.py").is_file()
     assert "class MarketWalkForwardConfig" not in walk_forward
     assert Path("trade_rl/workflows/market_walk_forward_config.py").is_file()
+
+
+def test_sb3_and_torch_are_optional_training_dependencies() -> None:
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    core = set(config["project"]["dependencies"])
+    training = set(config["project"]["optional-dependencies"]["train-sb3"])
+
+    assert not any(item.startswith("stable-baselines3") for item in core)
+    assert not any(item.startswith("sb3-contrib") for item in core)
+    assert not any(item.startswith("torch") for item in core)
+    assert any(item.startswith("stable-baselines3") for item in training)
+    assert any(item.startswith("torch") for item in training)
+
+
+def test_core_training_contract_does_not_import_gym_or_model_frameworks() -> None:
+    source = (ROOT / "trade_rl/rl/training.py").read_text(encoding="utf-8")
+    assert "import gymnasium" not in source
+    assert "stable_baselines3" not in source
+    assert "sb3_contrib" not in source
+    assert "import torch" not in source

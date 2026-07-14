@@ -3,10 +3,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
+
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
+from trade_rl.rl.normalization import ObservationNormalizer, normalizer_payload
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
+from trade_rl.release.attestation import (
+    ReleaseAttestation,
+    default_attestation_path,
+    write_release_attestation,
+)
 from trade_rl.serving.bundle import ServingBundleManifest, write_serving_bundle_manifest
 from trade_rl.serving.runtime import RuntimeIdentityContract
 
@@ -14,6 +23,15 @@ OBSERVATION_SIZE = 5
 ACTION_NAMES = ("fast_tilt", "slow_tilt", "risk_tilt")
 ACTION_SPEC_DIGEST = content_digest({"names": ACTION_NAMES})
 INITIAL_CAPITAL = 250_000.0
+DEFAULT_NORMALIZER = ObservationNormalizer(
+    mean=np.zeros(OBSERVATION_SIZE),
+    scale=np.ones(OBSERVATION_SIZE),
+    train_start=0,
+    train_end=1,
+    dataset_id="a" * 64,
+    observation_schema=OBSERVATION_SCHEMA,
+)
+DEFAULT_NORMALIZER_DIGEST = DEFAULT_NORMALIZER.digest
 
 
 def create_bundle(
@@ -25,7 +43,7 @@ def create_bundle(
     action_names: tuple[str, ...] = ACTION_NAMES,
     action_spec_digest: str = ACTION_SPEC_DIGEST,
     environment_digest: str = "d" * 64,
-    normalizer_digest: str | None = "9" * 64,
+    normalizer_digest: str | None = DEFAULT_NORMALIZER_DIGEST,
 ) -> Path:
     root.mkdir(parents=True)
     artifact_paths = ["dataset.json", "signal.json", "selection.json"]
@@ -34,9 +52,11 @@ def create_bundle(
     (root / "selection.json").write_text(
         f'{{"selection":"{policy_mode.value}"}}', encoding="utf-8"
     )
-    if release_digest is not None:
-        (root / "release.json").write_text('{"release":"approved"}', encoding="utf-8")
-        artifact_paths.append("release.json")
+    if normalizer_digest is not None:
+        (root / "normalizer.json").write_bytes(
+            canonical_json_bytes(normalizer_payload(DEFAULT_NORMALIZER))
+        )
+        artifact_paths.append("normalizer.json")
     policy_digest: str | None = None
     if policy_mode is PolicyMode.RESIDUAL_POLICY:
         (root / "policy.zip").write_bytes(b"residual-policy")
@@ -57,12 +77,26 @@ def create_bundle(
         policy_digest=policy_digest,
         signal_digest="b" * 64,
         selection_digest="c" * 64,
-        release_digest=release_digest,
+        release_digest=None,
         normalizer_digest=normalizer_digest,
         artifact_paths=tuple(artifact_paths),
         created_at=datetime(2026, 7, 13, tzinfo=UTC),
     )
     write_serving_bundle_manifest(root, manifest)
+    if release_digest is not None:
+        attestation = ReleaseAttestation.create(
+            bundle_digest=manifest.bundle_digest,
+            dataset_id=manifest.dataset_id,
+            selection_evaluation_digest=manifest.selection_digest,
+            gate_evaluation_digest="7" * 64,
+            gate_evidence_digest=release_digest,
+            selected_policy_digest=manifest.policy_digest,
+            git_commit="e" * 40,
+            dependency_digest="8" * 64,
+            approver="test-approver",
+            approved_at=datetime(2026, 7, 13, tzinfo=UTC),
+        )
+        write_release_attestation(default_attestation_path(root), attestation)
     return root
 
 
@@ -71,7 +105,7 @@ def runtime_identity_contract(
     environment_digest: str = "d" * 64,
     action_names: tuple[str, ...] = ACTION_NAMES,
     action_spec_digest: str = ACTION_SPEC_DIGEST,
-    normalizer_digest: str | None = "9" * 64,
+    normalizer_digest: str | None = DEFAULT_NORMALIZER_DIGEST,
     alpha_artifact_digest: str | None = None,
     factor_artifact_digest: str | None = None,
 ) -> RuntimeIdentityContract:

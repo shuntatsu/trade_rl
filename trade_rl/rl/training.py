@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-import gymnasium as gym
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
@@ -257,6 +255,8 @@ class PolicyTrainingResult:
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
+    replay_buffer_path: Path | None = None
+    replay_buffer_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.actual_timesteps <= 0:
@@ -293,6 +293,12 @@ class PolicyTrainingResult:
         ):
             if value is not None:
                 require_sha256(value, field=field_name)
+        if self.replay_buffer_path is not None and self.replay_buffer_path.suffix != ".pkl":
+            raise ValueError("replay_buffer_path must use a .pkl suffix")
+        if self.replay_buffer_digest is not None:
+            require_sha256(self.replay_buffer_digest, field="replay_buffer_digest")
+        if (self.replay_buffer_path is None) != (self.replay_buffer_digest is None):
+            raise ValueError("replay buffer path and digest must be provided together")
 
 
 class PolicyTrainingBackend(Protocol):
@@ -315,7 +321,7 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _environment_identity(environment: gym.Env) -> dict[str, Any]:
+def _environment_identity(environment: Any) -> dict[str, Any]:
     unwrapped: Any = getattr(environment, "unwrapped", environment)
     environment_digest = getattr(unwrapped, "environment_digest", None)
     initial_capital = getattr(unwrapped, "initial_capital", None)
@@ -485,165 +491,20 @@ def train_residual_ensemble(
     )
 
 
-class StableBaselines3Backend:
-    """Stable-Baselines3 adapter kept outside domain and workflow code."""
+def __getattr__(name: str) -> Any:
+    if name in {"StableBaselines3Backend", "StableBaselines3PPOBackend"}:
+        from trade_rl.integrations import sb3_training
 
-    def __init__(
-        self,
-        environment_factory: Callable[[], gym.Env],
-        *,
-        verbose: int = 0,
-    ) -> None:
-        self.environment_factory = environment_factory
-        self.verbose = verbose
-
-    def train(
-        self,
-        *,
-        seed: int,
-        config: ResidualTrainingConfig,
-        output_path: Path,
-    ) -> PolicyTrainingResult:
-        from stable_baselines3 import PPO, SAC, TD3
-
-        environment = self.environment_factory()
-        try:
-            identity = _environment_identity(environment)
-            _validate_training_environment(identity, config)
-            policy_kwargs: dict[str, Any] = {
-                "net_arch": list(config.policy_net_arch),
-            }
-            if config.algorithm == "ppo":
-                policy_kwargs["log_std_init"] = config.log_std_init
-            if config.asset_set_encoder:
-                from trade_rl.rl.policies import AssetSetFeatureExtractor
-
-                unwrapped: Any = getattr(environment, "unwrapped", environment)
-                layout = getattr(unwrapped, "layout", None)
-                active_column = getattr(unwrapped, "asset_active_column", None)
-                if layout is None or not isinstance(active_column, int):
-                    raise ValueError(
-                        "asset-set training requires environment layout metadata"
-                    )
-                policy_kwargs.update(
-                    {
-                        "features_extractor_class": AssetSetFeatureExtractor,
-                        "features_extractor_kwargs": {
-                            "n_symbols": layout.n_symbols,
-                            "per_symbol_width": layout.per_symbol_width,
-                            "global_width": layout.global_width,
-                            "active_column": active_column,
-                            "asset_embedding_dim": config.asset_embedding_dim,
-                            "global_embedding_dim": config.global_embedding_dim,
-                        },
-                    }
-                )
-            common: dict[str, Any] = {
-                "learning_rate": config.learning_rate,
-                "gamma": config.gamma,
-                "policy_kwargs": policy_kwargs,
-                "seed": seed,
-                "device": config.device,
-                "verbose": self.verbose,
-            }
-            model: Any
-            if config.algorithm == "ppo":
-                model = PPO(
-                    config.policy,
-                    environment,
-                    n_steps=config.n_steps,
-                    batch_size=config.batch_size,
-                    n_epochs=config.n_epochs,
-                    gae_lambda=config.gae_lambda,
-                    clip_range=config.clip_range,
-                    normalize_advantage=config.normalize_advantage,
-                    ent_coef=config.ent_coef,
-                    vf_coef=config.vf_coef,
-                    max_grad_norm=config.max_grad_norm,
-                    target_kl=config.target_kl,
-                    use_sde=config.use_sde,
-                    sde_sample_freq=config.sde_sample_freq,
-                    **common,
-                )
-            else:
-                off_policy: dict[str, Any] = {
-                    "buffer_size": config.buffer_size,
-                    "learning_starts": config.learning_starts,
-                    "batch_size": config.batch_size,
-                    "train_freq": config.train_freq,
-                    "gradient_steps": config.gradient_steps,
-                    **common,
-                }
-                if config.algorithm == "sac":
-                    model = SAC(
-                        config.policy,
-                        environment,
-                        use_sde=config.use_sde,
-                        sde_sample_freq=config.sde_sample_freq,
-                        **off_policy,
-                    )
-                elif config.algorithm == "td3":
-                    model = TD3(config.policy, environment, **off_policy)
-                else:
-                    try:
-                        from sb3_contrib import TQC
-                    except ImportError as error:
-                        raise RuntimeError(
-                            "TQC training requires the optional sb3-contrib package"
-                        ) from error
-                    model = TQC(
-                        config.policy,
-                        environment,
-                        use_sde=config.use_sde,
-                        sde_sample_freq=config.sde_sample_freq,
-                        **off_policy,
-                    )
-            from trade_rl.rl.checkpointing import build_checkpoint_callback
-
-            callback = build_checkpoint_callback(
-                checkpoint_root=output_path.parent / "checkpoints",
-                algorithm=config.algorithm,
-                seed=seed,
-                interval_steps=config.resolved_checkpoint_interval,
-                max_checkpoints=config.max_checkpoints,
-                environment_digest=str(identity["environment_digest"]),
-                training_config_digest=content_digest(config.digest_payload()),
-            )
-            model.learn(total_timesteps=config.timesteps, callback=callback)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            save_target = output_path.with_suffix("")
-            model.save(str(save_target))
-            created = save_target.with_suffix(".zip")
-            if created != output_path:
-                created.replace(output_path)
-            return PolicyTrainingResult(
-                checkpoint_path=output_path,
-                actual_timesteps=int(model.num_timesteps),
-                resolved_device=str(model.device),
-                environment_digest=str(identity["environment_digest"]),
-                initial_capital=float(identity["initial_capital"]),
-                action_size=int(identity["action_size"]),
-                action_names=tuple(identity["action_names"]),
-                action_spec_digest=str(identity["action_spec_digest"]),
-                observation_size=int(identity["observation_size"]),
-                alpha_artifact_digest=identity["alpha_artifact_digest"],
-                factor_artifact_digest=identity["factor_artifact_digest"],
-                normalizer_digest=identity["normalizer_digest"],
-            )
-        finally:
-            environment.close()
+        return getattr(sb3_training, name)
+    raise AttributeError(name)
 
 
-class StableBaselines3PPOBackend(StableBaselines3Backend):
-    """Compatibility backend that accepts only PPO configurations."""
-
-    def train(
-        self,
-        *,
-        seed: int,
-        config: ResidualTrainingConfig,
-        output_path: Path,
-    ) -> PolicyTrainingResult:
-        if config.algorithm != "ppo":
-            raise ValueError("StableBaselines3PPOBackend requires algorithm='ppo'")
-        return super().train(seed=seed, config=config, output_path=output_path)
+__all__ = [
+    "PolicyTrainingBackend",
+    "PolicyTrainingResult",
+    "ResidualTrainingConfig",
+    "StableBaselines3Backend",
+    "StableBaselines3PPOBackend",
+    "gamma_from_half_life",
+    "train_residual_ensemble",
+]

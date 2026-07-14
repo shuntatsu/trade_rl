@@ -186,7 +186,14 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
     root = _mapping(payload, field="market build config")
     _reject_unknown(
         root,
-        allowed={"source_root", "base_timeframe", "features", "instruments"},
+        allowed={
+            "source_root",
+            "base_timeframe",
+            "calendar_kind",
+            "session_periods_per_year",
+            "features",
+            "instruments",
+        },
         field="market build config",
     )
     features = tuple(
@@ -212,6 +219,19 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
                 field="base_timeframe",
             ),
             features=features,
+            calendar_kind=(
+                _optional_string(root.get("calendar_kind"), field="calendar_kind")
+                or "continuous_24_7"
+            ),
+            session_periods_per_year=(
+                None
+                if root.get("session_periods_per_year") is None
+                else _integer(
+                    root.get("session_periods_per_year"),
+                    field="session_periods_per_year",
+                    default=0,
+                )
+            ),
         ),
         instruments=instruments,
     )

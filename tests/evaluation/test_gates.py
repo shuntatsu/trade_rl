@@ -48,3 +48,31 @@ def test_mandatory_failure_blocks_gate() -> None:
         "significant",
     )
     assert result.selected_policy_digest == "c" * 64
+
+
+def test_release_eligible_gate_requires_metric_evidence() -> None:
+    import pytest
+
+    check = GateCheck(name="return_positive", passed=True)
+    with pytest.raises(ValueError, match="evidence"):
+        resolve_gate(
+            (check,),
+            dataset_id="a" * 64,
+            selected_policy_digest=None,
+            evaluation_digest="b" * 64,
+            decided_at=datetime(2026, 7, 13, tzinfo=UTC),
+            require_evidence=True,
+        )
+
+
+def test_metric_gate_derives_passed_from_comparator() -> None:
+    check = GateCheck.from_metric(
+        name="return_positive",
+        metric_name="total_return",
+        observed_value=0.1,
+        comparator=">",
+        threshold=0.0,
+        evidence_digest="c" * 64,
+        implementation_digest="d" * 64,
+    )
+    assert check.passed

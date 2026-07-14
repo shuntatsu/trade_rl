@@ -2,7 +2,7 @@
 
 ## Status
 
-`trade_rl` is a research-grade baseline-anchored residual-RL core. It is not authorized for production trading. Architecture quality and empirical profitability are separate gates.
+`trade_rl` is a research-grade baseline-anchored residual-RL core with attested local/paper-serving contracts. Direct exchange trading remains unavailable. Architecture quality, empirical profitability and operational authorization are separate gates.
 
 ## Responsibility map
 
@@ -15,14 +15,15 @@ trade_rl/
   risk/          pure hard/soft pre-trade constraints
   simulation/    execution, costs, carry, margin and accounting
   evaluation/    metrics, paired tests, folds, gates and AUM capacity
-  rl/            actions, observations, normalization, rewards, environment, policies, training, export
-  serving/       framework-independent bundles, registry and fail-closed runtime
-  integrations/  framework-specific adapters such as Stable-Baselines3 serving
+  rl/            actions, observations, normalization, rewards, environment and framework-neutral training protocols
+  serving/       framework-independent candidate bundles, registry and fail-closed runtime
+  integrations/  Stable-Baselines3 training/serving and other framework adapters
+  release/       external non-circular release attestations
   workflows/     typed training, walk-forward and publication orchestration
   cli/           single authoritative configuration and execution entry point
 ```
 
-The dependency direction remains `cli -> workflows -> integrations -> serving -> rl/evaluation/artifacts`, `integrations -> serving and external model frameworks`, `serving -> rl actions/artifacts/domain`, `rl -> risk/simulation/strategies/data/evaluation/artifacts/domain`, and `domain -> standard library`. The serving layer does not import Stable-Baselines3 directly.
+The dependency direction remains `cli -> workflows -> integrations`, `integrations -> framework-neutral rl/serving contracts and external model frameworks`, `serving -> rl actions/artifacts/domain/release`, `rl -> risk/simulation/strategies/data/evaluation/artifacts/domain`, and `domain -> standard library`. Core training and serving modules do not import Stable-Baselines3 or PyTorch.
 
 ## Action contract
 
@@ -52,7 +53,7 @@ Reward schema v4 prioritizes absolute log-wealth growth. Baseline-relative growt
 
 ## Dataset and run artifacts
 
-The maintained dataset artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. `write_market_dataset_files`, `publish_market_dataset_artifact`, and `load_market_dataset_artifact` are the authoritative staging, publication, and loading APIs. Loading verifies file digest, exact array allow-list, shape, dtype, ordering and `MarketDataset` invariants. `MarketDatasetView` carries an immutable half-open absolute range and rejects subviews outside its parent range.
+The maintained dataset identity is recomputed from every observation, execution and accounting scalar/array, including quantity semantics and corporate actions. The maintained dataset artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. `write_market_dataset_files`, `publish_market_dataset_artifact`, and `load_market_dataset_artifact` are the authoritative staging, publication, and loading APIs. Loading verifies exact file closure, rejects symlinks/root escapes, recomputes dataset identity, and checks array allow-list, shape, dtype, ordering and `MarketDataset` invariants. `MarketDatasetView` carries an immutable half-open absolute range and rejects subviews outside its parent range.
 
 Training outputs are first written to `ArtifactStore/.staging/<run-id>`. `run.json` binds every declared file by relative path, byte size and SHA-256 together with dataset, environment, training-config and ensemble identities. Only a fully validated run is atomically moved to `runs/<run-id>` and made current through `latest.json`; partial failures are moved to `failed/<run-id>`.
 
@@ -60,16 +61,18 @@ Training outputs are first written to `ArtifactStore/.staging/<run-id>`. `run.js
 
 `trade-rl train run` loads a validated dataset artifact, resolves content-addressed alpha/factor artifacts independently of filesystem location, requires a complete causal reward pre-roll, constructs the real residual market environment, trains one Stable-Baselines3 checkpoint per seed, writes canonical configuration and ensemble manifests, creates the serving loader declaration, optionally exports deterministic actors, validates the complete run and publishes atomically.
 
-`trade-rl walk-forward run` uses the existing nested fold contract with concrete market adapters. Each fold receives disjoint train, checkpoint-validation, configuration-selection and sealed-test ranges. Observation normalization is fit only from train observations and frozen thereafter. Candidate and seed selection can use checkpoint and selection ranges; sealed outer-test returns are computed only after selection and never flow back into training or selection.
+`trade-rl walk-forward run` uses the existing nested fold contract with concrete market adapters. Each fold receives disjoint train, checkpoint-validation, configuration-selection and sealed-test ranges. Observation normalization fits exogenous continuous coordinates directly from the train capability; masks, actions, portfolio/risk and bounded execution coordinates are pass-through or fixed-scaled. It is frozen and identity-bound to dataset, train range and layout thereafter. Candidate and seed selection can use checkpoint and selection ranges; sealed outer-test returns are computed only after selection and never flow back into training or selection.
 
-Final `policy.zip` files are authoritative model artifacts. Training emits bounded, atomic intermediate policy checkpoints during each SB3 learning call. The checkpoint selector compares intermediate and final member checkpoints only on the checkpoint-validation range and records the selected content digest before sealed outer-test evaluation.
+Fold results retain complete execution evidence. Independent folds expose fold-distribution summaries rather than synthetic continuous-account metrics; continuous results require verified state handoff. Final `policy.zip` files are authoritative model artifacts. Training emits bounded, atomic intermediate policy checkpoints during each SB3 learning call. The checkpoint selector compares intermediate and final member checkpoints only on the checkpoint-validation range and records the selected content digest before sealed outer-test evaluation.
 
 ## Export contract
 
 ONNX and TorchScript export a deterministic actor wrapper rather than the optimizer or replay state. Each export is compared with Stable-Baselines3 deterministic predictions on a fixed finite observation corpus. Shape, finite values and maximum absolute error must satisfy the configured tolerance. Requested ONNX failure rejects the run. TorchScript is best-effort and records an explicit `unsupported` result when conversion cannot be proven safe.
 
-## Serving
+## Serving and release
 
-Serving bundle v3 binds action size/names/spec digest, observation schema/size, environment, normalizer, alpha/factor artifacts and release identity. Runtime actions must be finite, correctly shaped and inside `[-1, 1]`; violations fail closed.
+Candidate bundle v4 binds action size/names/spec digest, observation schema/size, environment, normalizer and alpha/factor artifacts, but no release identity. The immutable candidate digest is approved by a separate `ReleaseAttestation` bound to dataset, evaluation, evidence-based gates, selected policy, source/dependency provenance, approver and time. Registry and runtime verify that attestation before production-mode activation.
 
-`StableBaselines3PolicyLoader` lives in the integration layer. It verifies the bundle-declared `policy-loader.json`, loads every declared PPO, SAC, TD3 or TQC member, requires every member to return a valid dynamic action vector, and averages actions only when the complete ensemble succeeds. The serving runtime remains model-framework independent and accepts the loader through its `PolicyLoader` interface.
+`StableBaselines3PolicyLoader` lives in the integration layer. It verifies the bundle-declared `policy-loader.json`, loads every declared PPO, SAC, TD3 or TQC member and runs deterministic probe observations before the runtime swaps active state. Every member must return a finite dynamic action vector inside `[-1, 1]`; the ensemble is averaged only when all members succeed. The runtime loads the same normalizer contract used in training.
+
+Direct exchange connectivity, order routing, broker reconciliation and operational secrets/alerting are deliberately outside this repository's current capability boundary.

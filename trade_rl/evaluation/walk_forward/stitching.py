@@ -2,11 +2,46 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
 from trade_rl.evaluation.series import ReturnSeries
 
+
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionEvidence:
+    """Fold-local execution totals retained with return evidence."""
+
+    turnover_total: float = 0.0
+    total_cost: float = 0.0
+    funding_pnl: float = 0.0
+    borrow_cost: float = 0.0
+    dividend_pnl: float = 0.0
+    cash_interest: float = 0.0
+    n_trades: int = 0
+    rebalance_events: int = 0
+    max_participation: float = 0.0
+    termination_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("turnover_total", self.turnover_total),
+            ("total_cost", self.total_cost),
+            ("funding_pnl", self.funding_pnl),
+            ("borrow_cost", self.borrow_cost),
+            ("dividend_pnl", self.dividend_pnl),
+            ("cash_interest", self.cash_interest),
+            ("max_participation", self.max_participation),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+        if self.turnover_total < 0.0 or self.total_cost < 0.0 or self.borrow_cost < 0.0:
+            raise ValueError("execution costs and turnover must be non-negative")
+        if self.n_trades < 0 or self.rebalance_events < 0:
+            raise ValueError("execution counters must be non-negative")
 
 class StitchMode(str, Enum):
     """Account-state identity represented by a stitched OOS series."""
@@ -25,6 +60,7 @@ class FoldOOSResult:
     returns: ReturnSeries
     opening_state_digest: str | None = None
     closing_state_digest: str | None = None
+    evidence: ExecutionEvidence = ExecutionEvidence()
 
     def __post_init__(self) -> None:
         if self.fold_index < 0:
@@ -86,6 +122,8 @@ def stitch_oos(
             raise ValueError("OOS return series kind mismatch")
         if current.returns.periods_per_year != first.returns.periods_per_year:
             raise ValueError("OOS return series annualization mismatch")
+        if (current.returns.elapsed_years is None) != (first.returns.elapsed_years is None):
+            raise ValueError("OOS elapsed-time metadata mismatch")
         if current.start > previous.stop:
             gaps.append((previous.stop, current.start))
         if mode is StitchMode.CONTINUOUS_ACCOUNT:
@@ -110,6 +148,11 @@ def stitch_oos(
             values=tuple(combined),
             kind=first.returns.kind,
             periods_per_year=first.returns.periods_per_year,
+            elapsed_years=(
+                None
+                if first.returns.elapsed_years is None
+                else sum(result.returns.elapsed_years or 0.0 for result in ordered)
+            ),
         ),
         fold_indices=fold_indices,
         boundaries=tuple(boundaries),

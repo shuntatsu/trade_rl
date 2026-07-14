@@ -17,7 +17,14 @@ from trade_rl.domain.common import (
 from trade_rl.domain.selection import PolicyMode, SelectionDecision
 from trade_rl.evaluation.series import ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
-from trade_rl.evaluation.walk_forward.stitching import FoldOOSResult
+from trade_rl.evaluation.walk_forward.sealed_test import (
+    SealedTestAccessRecord,
+    SealedTestLedger,
+)
+from trade_rl.evaluation.walk_forward.stitching import (
+    ExecutionEvidence,
+    FoldOOSResult,
+)
 
 BASELINE_CONFIGURATION = "baseline"
 
@@ -58,6 +65,18 @@ class FoldExecutionConfig:
         ):
             raise ValueError("minimum_selection_uplift must be finite and non-negative")
         require_aware_datetime(self.selected_at, field="selected_at")
+
+    @property
+    def experiment_plan_digest(self) -> str:
+        return content_digest(
+            {
+                "candidates": tuple(candidate.name for candidate in self.candidates),
+                "dataset_id": self.dataset_id,
+                "minimum_selection_uplift": self.minimum_selection_uplift,
+                "schema_version": "fold_execution_plan_v2",
+                "signal_digest": self.signal_digest,
+            }
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +146,7 @@ class CandidateEvaluation:
     score: float
     returns: ReturnSeries
     evaluation_digest: str
+    evidence: ExecutionEvidence = ExecutionEvidence()
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.score):
@@ -153,6 +173,7 @@ class FoldExecutionResult:
     test_evaluation_digest: str
     selected_oos: FoldOOSResult
     baseline_oos: FoldOOSResult
+    sealed_test_access: SealedTestAccessRecord | None = None
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
@@ -192,6 +213,7 @@ class ConcreteFoldRunner:
         self.config = config
         self.trainer = trainer
         self.evaluator = evaluator
+        self._sealed_test_ledger = SealedTestLedger()
 
     @staticmethod
     def _require_range_length(
@@ -233,6 +255,7 @@ class ConcreteFoldRunner:
             start=fold.test.start,
             stop=fold.test.stop,
             returns=evaluation.returns,
+            evidence=evaluation.evidence,
         )
 
     def run_fold(self, fold: WalkForwardFold) -> FoldExecutionResult:
@@ -330,6 +353,14 @@ class ConcreteFoldRunner:
             reasons=reasons,
         )
 
+        sealed_test_access = self._sealed_test_ledger.authorize_once(
+            experiment_plan_digest=self.config.experiment_plan_digest,
+            dataset_id=self.config.dataset_id,
+            fold_index=fold.fold_index,
+            test_range=fold.test,
+            selected_configuration=selected_configuration,
+            selected_policy_digest=selected_policy_digest,
+        )
         baseline_test = self._evaluate(
             fold=fold,
             phase=EvaluationPhase.OUTER_TEST,
@@ -373,4 +404,5 @@ class ConcreteFoldRunner:
             test_evaluation_digest=test_evaluation_digest,
             selected_oos=selected_oos,
             baseline_oos=baseline_oos,
+            sealed_test_access=sealed_test_access,
         )

@@ -44,21 +44,22 @@ Capacity conclusions must therefore be evaluated at predeclared AUM scenarios. P
 
 ## Nested walk-forward execution contract
 
-The maintained workflow now has a concrete adapter-driven fold runner. Candidate training receives only the fold train and checkpoint-validation ranges. Frozen candidates and the identity baseline are compared only on the configuration-selection range. The selected candidate and baseline are then evaluated on the sealed outer-test range exactly once; baseline fallback avoids a duplicate test evaluation.
+The maintained workflow uses fold-local signal lineage, stage-scoped dataset capabilities and a one-shot sealed-test access ledger. Alpha and factor artifacts identify fit and prediction ranges, generator configuration/code digests, validity masks and per-row availability times. Training predictions must be causal inside the train capability; checkpoint, selection and test predictions must be generated from the authorized train fit.
 
-All fold results bind dataset identity, selected configuration, policy digest when applicable, selection evidence, and sealed-test evidence. Selected and baseline OOS series are stitched separately and a final content digest identifies the complete walk-forward evaluation.
+Every fold preserves execution evidence including turnover, fees, funding, borrow, dividends, cash interest, fills, participation and economic termination. Independent folds are summarized as a distribution with median, weighted mean, win rate and worst fold. They are not mislabeled as one continuous portfolio return or drawdown. Continuous metrics require contiguous ranges and verified opening/closing state digests. Session-market annualization and carry use actual elapsed time.
 
-Gate decisions now preserve the evaluated dataset, selected policy identity when applicable, and final evaluation digest. Release construction fails closed when those identities do not match the selection and dataset artifacts.
+Training and walk-forward runs have separate manifest schemas, exact file closure and content-addressed provenance. Git commit, dirty state, lockfile digest, runtime/library versions, platform/hardware and deterministic seed configuration are captured automatically.
 
 ## Serving and activation contract
 
-Serving bundle schema v2 binds the action schema, observation schema, flattened observation size, environment digest, initial capital, dataset, signal, selection, policy, release, and every included file into one immutable digest.
+Serving candidate bundle schema v4 binds the exact runtime contract and declared files but deliberately contains no release digest. A separate external `ReleaseAttestation` binds the candidate bundle to verified dataset, selection/evaluation and evidence-bound gate digests, selected policy, source commit, dependency provenance, approver and approval time. This removes the former bundle/release circular hash.
 
-Runtime activation rejects action- or observation-schema mismatches before loading a replacement policy. Inference rejects vectors whose length differs from the active observation contract. Both runtime and registry require an approved release identity by default, while unreleased research bundles require the explicit `allow_unreleased=True` override.
+Registry and runtime activation require a verified attestation by default. Before swapping live state, the runtime verifies exact file closure, rejects symlinks, loads the shared observation normalizer and executes deterministic zero/positive/negative probe observations through every policy member. Shape, finite-value, bounds, action-name, observation-schema and normalizer mismatches fail before activation.
 
-This closes the previous gap where a bundle could contain a valid policy output shape but receive a different feature layout, observation width, environment configuration, or capital scale.
+## Capability boundary
 
-The remaining gap is application-specific adapter integration: a real-data loader, fold-local preprocessing, PPO trainer, and evaluator must be connected to these typed requests. The repository still makes no profitability or production-readiness claim.
+The repository is research-ready and supports attested local/paper serving. It still does not implement direct exchange websocket ingestion, order submit/cancel/replace, broker reconciliation, production secrets, venue kill switches or operational alerting. Those capabilities remain a separate live-trading integration phase and the project makes no profitability claim.
+
 ## Maintained reward identity
 
 The maintained reward contract is **Reward schema v4** with a complete 720-hour baseline window, fixed 1.5% tolerance, worsening-only staged drawdown shaping, and continuous economic terminal penalties.

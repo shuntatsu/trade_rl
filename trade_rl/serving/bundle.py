@@ -77,7 +77,7 @@ class ServingBundleManifest:
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
-    schema_version: str = "serving_bundle_v3"
+    schema_version: str = "serving_bundle_v4"
 
     def __post_init__(self) -> None:
         require_sha256(self.bundle_digest, field="bundle_digest")
@@ -96,7 +96,7 @@ class ServingBundleManifest:
             or self.action_size <= 0
         ):
             raise ValueError("action_size must be a positive integer")
-        if self.schema_version == "serving_bundle_v3":
+        if self.schema_version in {"serving_bundle_v3", "serving_bundle_v4"}:
             if len(self.action_names) != self.action_size:
                 raise ValueError("action_names must match action_size")
             if len(set(self.action_names)) != len(self.action_names) or any(
@@ -104,7 +104,7 @@ class ServingBundleManifest:
             ):
                 raise ValueError("action_names must be unique and non-empty")
             if self.action_spec_digest is None:
-                raise ValueError("serving bundle v3 requires action_spec_digest")
+                raise ValueError("serving bundle requires action_spec_digest")
         if self.action_spec_digest is not None:
             require_sha256(self.action_spec_digest, field="action_spec_digest")
         require_sha256(self.environment_digest, field="environment_digest")
@@ -119,6 +119,8 @@ class ServingBundleManifest:
             raise ValueError("residual policy bundle requires a policy digest")
         else:
             require_sha256(self.policy_digest, field="policy_digest")
+        if self.schema_version == "serving_bundle_v4" and self.release_digest is not None:
+            raise ValueError("serving bundle v4 uses an external release attestation")
         if self.release_digest is not None:
             require_sha256(self.release_digest, field="release_digest")
         for field_name, value in (
@@ -157,7 +159,7 @@ class ServingBundleManifest:
                 "selection_digest": self.selection_digest,
                 "signal_digest": self.signal_digest,
             }
-        return {
+        payload = {
             "action_names": self.action_names,
             "action_schema": self.action_schema,
             "action_size": self.action_size,
@@ -174,11 +176,13 @@ class ServingBundleManifest:
             "observation_size": self.observation_size,
             "policy_digest": self.policy_digest,
             "policy_mode": self.policy_mode,
-            "release_digest": self.release_digest,
             "schema_version": self.schema_version,
             "selection_digest": self.selection_digest,
             "signal_digest": self.signal_digest,
         }
+        if self.schema_version == "serving_bundle_v3":
+            payload["release_digest"] = self.release_digest
+        return payload
 
     @classmethod
     def build(
@@ -195,9 +199,9 @@ class ServingBundleManifest:
         policy_digest: str | None,
         signal_digest: str,
         selection_digest: str,
-        release_digest: str | None,
         artifact_paths: tuple[str, ...],
         created_at: datetime,
+        release_digest: str | None = None,
         action_size: int = 2,
         action_names: tuple[str, ...] = (),
         action_spec_digest: str | None = None,
@@ -205,6 +209,8 @@ class ServingBundleManifest:
         factor_artifact_digest: str | None = None,
         normalizer_digest: str | None = None,
     ) -> ServingBundleManifest:
+        if release_digest is not None:
+            raise ValueError("release approval must be stored in an external attestation")
         files: list[BundleFile] = []
         for raw_path in artifact_paths:
             relative = _relative_path(raw_path)
@@ -236,8 +242,7 @@ class ServingBundleManifest:
             "observation_size": observation_size,
             "policy_digest": policy_digest,
             "policy_mode": policy_mode,
-            "release_digest": release_digest,
-            "schema_version": "serving_bundle_v3",
+            "schema_version": "serving_bundle_v4",
             "selection_digest": selection_digest,
             "signal_digest": signal_digest,
         }
@@ -253,7 +258,7 @@ class ServingBundleManifest:
             policy_digest=policy_digest,
             signal_digest=signal_digest,
             selection_digest=selection_digest,
-            release_digest=release_digest,
+            release_digest=None,
             files=ordered,
             created_at=created_at,
             action_size=action_size,
@@ -403,14 +408,25 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
 
 def load_serving_bundle(root: Path) -> ServingBundle:
     manifest_path = root / BUNDLE_MANIFEST_NAME
-    if not manifest_path.is_file():
+    if not manifest_path.is_file() or manifest_path.is_symlink():
         raise FileNotFoundError(f"serving bundle manifest is missing: {manifest_path}")
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest = _parse_manifest(_mapping(payload, field="bundle manifest"))
+    allowed = {BUNDLE_MANIFEST_NAME, *(file.path for file in manifest.files)}
+    actual: set[str] = set()
+    for path in root.rglob("*"):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("serving bundle file closure contains an unsafe entry")
+        actual.add(relative)
+    if actual != allowed:
+        raise ValueError("serving bundle file closure mismatch")
+    resolved_root = root.resolve()
     for file in manifest.files:
         path = root / file.path
-        if not path.is_file():
-            raise ValueError(f"bundle artifact is missing: {file.path}")
+        resolved = path.resolve()
+        if resolved_root not in resolved.parents:
+            raise ValueError("bundle artifact path escapes the bundle root")
         if path.stat().st_size != file.size_bytes:
             raise ValueError(f"bundle artifact size mismatch: {file.path}")
         if _file_digest(path) != file.digest:

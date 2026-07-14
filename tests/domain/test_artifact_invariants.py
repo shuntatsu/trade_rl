@@ -105,7 +105,17 @@ def passing_gate(
         selected_policy_digest=selected_policy_digest,
         evaluation_digest=GATE_EVALUATION_DIGEST,
         passed=True,
-        checks=(GateCheck(name="positive_holdout_return", passed=True),),
+        checks=(
+            GateCheck.from_metric(
+                name="positive_holdout_return",
+                metric_name="holdout_return",
+                observed_value=0.01,
+                comparator=">",
+                threshold=0.0,
+                evidence_digest="2" * 64,
+                implementation_digest="3" * 64,
+            ),
+        ),
         decided_at=NOW,
     )
 
@@ -196,8 +206,24 @@ def test_failed_mandatory_gate_blocks_release() -> None:
         evaluation_digest=GATE_EVALUATION_DIGEST,
         passed=False,
         checks=(
-            GateCheck(name="positive_holdout_return", passed=True, mandatory=True),
-            GateCheck(name="positive_return_significant", passed=False, mandatory=True),
+            GateCheck.from_metric(
+                name="positive_holdout_return",
+                metric_name="holdout_return",
+                observed_value=0.01,
+                comparator=">",
+                threshold=0.0,
+                evidence_digest="2" * 64,
+                implementation_digest="3" * 64,
+            ),
+            GateCheck.from_metric(
+                name="positive_return_significant",
+                metric_name="p_value",
+                observed_value=0.10,
+                comparator="<",
+                threshold=0.05,
+                evidence_digest="4" * 64,
+                implementation_digest="5" * 64,
+            ),
         ),
         decided_at=NOW,
     )

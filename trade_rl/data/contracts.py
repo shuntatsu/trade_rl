@@ -132,10 +132,32 @@ class MarketBuildConfig:
 
     base_timeframe: str
     features: tuple[FeatureSpec, ...]
-    schema_version: str = "market_build_v1"
+    calendar_kind: str = "continuous_24_7"
+    session_periods_per_year: int | None = None
+    schema_version: str = "market_build_v2"
 
     def __post_init__(self) -> None:
         require_non_empty(self.base_timeframe, field="base_timeframe")
+        raw_calendar = getattr(self.calendar_kind, "value", self.calendar_kind)
+        if not isinstance(raw_calendar, str) or raw_calendar not in {
+            "continuous_24_7",
+            "session_calendar",
+        }:
+            raise ValueError("calendar_kind is not supported")
+        object.__setattr__(self, "calendar_kind", raw_calendar)
+        if raw_calendar == "session_calendar":
+            if (
+                isinstance(self.session_periods_per_year, bool)
+                or not isinstance(self.session_periods_per_year, int)
+                or self.session_periods_per_year <= 0
+            ):
+                raise ValueError(
+                    "session_periods_per_year must be a positive integer for session data"
+                )
+        elif self.session_periods_per_year is not None:
+            raise ValueError(
+                "session_periods_per_year is valid only for session calendar data"
+            )
         if self.base_timeframe not in _TIMEFRAME_HOURS:
             raise ValueError(f"unsupported base_timeframe: {self.base_timeframe}")
         if not self.features:
@@ -162,6 +184,8 @@ class MarketBuildConfig:
         return {
             "base_timeframe": self.base_timeframe,
             "bar_hours": self.bar_hours,
+            "calendar_kind": self.calendar_kind,
+            "session_periods_per_year": self.session_periods_per_year,
             "features": tuple(spec.canonical_payload() for spec in self.features),
             "global_feature_names": self.global_feature_names,
             "schema_version": self.schema_version,

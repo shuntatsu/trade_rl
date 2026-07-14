@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import numpy as np
@@ -61,13 +62,15 @@ def _carry_feature(
     event_values: np.ndarray,
     event_valid: np.ndarray,
     active: np.ndarray,
+    timestamps: np.ndarray,
     *,
-    bar_hours: float,
     max_staleness_hours: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     values = np.zeros_like(event_values, dtype=np.float64)
     available = np.zeros_like(event_valid, dtype=np.bool_)
+    age = np.full_like(event_values, max_staleness_hours, dtype=np.float64)
     staleness = np.ones_like(event_values, dtype=np.float64)
+    timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
     last_index: int | None = None
     last_value = 0.0
     for index in range(len(event_values)):
@@ -80,13 +83,14 @@ def _carry_feature(
             last_value = float(event_values[index])
         if last_index is None:
             continue
-        age_hours = (index - last_index) * bar_hours
+        age_hours = float(timestamp_ns[index] - timestamp_ns[last_index]) / _NS_PER_HOUR
         normalized = min(age_hours / max_staleness_hours, 1.0)
+        age[index] = age_hours
         staleness[index] = normalized
         if age_hours <= max_staleness_hours + 1e-12:
             values[index] = last_value
             available[index] = True
-    return values, available, staleness
+    return values, available, age, staleness
 
 
 def _contiguous_window(mask: np.ndarray, start: int, stop: int) -> bool:
@@ -177,21 +181,37 @@ def _regular_clock(
     )
 
 
+def _session_clock(series: tuple[RawMarketSeries, ...]) -> np.ndarray:
+    values = np.concatenate(
+        tuple(item.timestamps.astype("datetime64[ns]") for item in series)
+    )
+    timestamps = np.unique(values)
+    if timestamps.size < 3:
+        raise ValueError("market source does not contain a usable session range")
+    return timestamps
+
+
 def _align_series(
     raw: RawMarketSeries,
     timestamps: np.ndarray,
     *,
-    step_ns: int,
+    step_ns: int | None,
 ) -> dict[str, np.ndarray]:
     n_bars = len(timestamps)
-    first = int(timestamps[0].astype("datetime64[ns]").astype(np.int64))
     raw_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
-    offsets = raw_ns - first
-    if np.any(offsets < 0) or np.any(offsets % step_ns != 0):
-        raise ValueError("raw timestamps do not align to the configured base timeframe")
-    indices = offsets // step_ns
-    if np.any(indices >= n_bars):
-        raise ValueError("raw timestamps fall outside the resolved market clock")
+    clock_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
+    if step_ns is None:
+        indices = np.searchsorted(clock_ns, raw_ns)
+        if np.any(indices >= n_bars) or np.any(clock_ns[indices] != raw_ns):
+            raise ValueError("raw timestamps fall outside the resolved session clock")
+    else:
+        first = int(clock_ns[0])
+        offsets = raw_ns - first
+        if np.any(offsets < 0) or np.any(offsets % step_ns != 0):
+            raise ValueError("raw timestamps do not align to the configured base timeframe")
+        indices = offsets // step_ns
+        if np.any(indices >= n_bars):
+            raise ValueError("raw timestamps fall outside the resolved market clock")
 
     result = {
         "open": np.ones(n_bars, dtype=np.float64),
@@ -248,7 +268,12 @@ class MarketDatasetBuilder:
             raise ValueError("instrument symbols must be unique")
         raw_series = tuple(source.load(symbol) for symbol in symbols)
         step_ns = int(round(self.config.bar_hours * _NS_PER_HOUR))
-        timestamps = _regular_clock(raw_series, step_ns=step_ns)
+        if self.config.calendar_kind == "session_calendar":
+            timestamps = _session_clock(raw_series)
+            alignment_step: int | None = None
+        else:
+            timestamps = _regular_clock(raw_series, step_ns=step_ns)
+            alignment_step = step_ns
         n_bars = len(timestamps)
         n_symbols = len(symbols)
         n_features = len(self.config.features)
@@ -267,7 +292,7 @@ class MarketDatasetBuilder:
         symbol_active = np.zeros_like(row_present)
 
         for symbol_index, (contract, raw) in enumerate(zip(instruments, raw_series)):
-            aligned = _align_series(raw, timestamps, step_ns=step_ns)
+            aligned = _align_series(raw, timestamps, step_ns=alignment_step)
             open_price[:, symbol_index] = aligned["open"]
             high[:, symbol_index] = aligned["high"]
             low[:, symbol_index] = aligned["low"]
@@ -291,6 +316,7 @@ class MarketDatasetBuilder:
         tradable = symbol_active & row_present & raw_tradable
         features = np.zeros((n_bars, n_symbols, n_features), dtype=np.float64)
         feature_available = np.zeros_like(features, dtype=np.bool_)
+        feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
         for symbol_index in range(n_symbols):
             for feature_index, spec in enumerate(self.config.features):
@@ -303,15 +329,16 @@ class MarketDatasetBuilder:
                     row_present=causal_row_present[:, symbol_index],
                     active=symbol_active[:, symbol_index],
                 )
-                values, available, staleness = _carry_feature(
+                values, available, age_hours, staleness = _carry_feature(
                     event_values,
                     event_valid,
                     symbol_active[:, symbol_index],
-                    bar_hours=self.config.bar_hours,
+                    timestamps,
                     max_staleness_hours=spec.max_staleness_hours,
                 )
                 features[:, symbol_index, feature_index] = values
                 feature_available[:, symbol_index, feature_index] = available
+                feature_age_hours[:, symbol_index, feature_index] = age_hours
                 feature_staleness[:, symbol_index, feature_index] = staleness
 
         one_bar_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)
@@ -331,34 +358,52 @@ class MarketDatasetBuilder:
         global_features = np.zeros(
             (n_bars, len(self.config.global_feature_names)), dtype=np.float64
         )
+        global_available = np.zeros_like(global_features, dtype=np.bool_)
         global_features[:, 0] = symbol_active.mean(axis=1)
+        global_available[:, 0] = True
         observable_tradable = tradable & information_available
         global_features[:, 1] = observable_tradable.mean(axis=1)
+        global_available[:, 1] = True
         for index in range(n_bars):
             sample = one_bar_returns[index, one_bar_available[index]]
             if sample.size:
                 global_features[index, 2] = float(np.mean(sample))
                 global_features[index, 3] = float(np.std(sample))
+                global_available[index, 2:] = True
+        global_age_hours = np.where(global_available, 0.0, self.config.bar_hours)
+        global_missing_reason = np.where(global_available, 0, 1).astype(np.int16)
+        feature_missing_reason = np.where(feature_available, 0, 1).astype(np.int16)
 
         features = features.astype(np.float32)
         global_features = global_features.astype(np.float32)
+        feature_age_hours = feature_age_hours.astype(np.float32)
         feature_staleness = feature_staleness.astype(np.float32)
+        global_age_hours = global_age_hours.astype(np.float32)
         feature_names = tuple(spec.name for spec in self.config.features)
         feature_config_digest = content_digest(self.config.canonical_payload())
         normalization_digest = content_and_arrays_digest(
             {
-                "schema": "normalization_state_v1",
+                "schema": "normalization_state_v2",
                 "feature_config_digest": feature_config_digest,
             },
             (
                 ("features", features),
                 ("feature_available", feature_available),
+                ("feature_age_hours", feature_age_hours),
                 ("feature_staleness", feature_staleness),
             ),
+        )
+        periods_per_year = (
+            int(round(365.0 * 24.0 / self.config.bar_hours))
+            if self.config.calendar_kind == "continuous_24_7"
+            else int(self.config.session_periods_per_year or 0)
         )
         metadata = {
             "schema": MARKET_DATASET_IDENTITY_SCHEMA,
             "config": self.config.canonical_payload(),
+            "calendar_kind": self.config.calendar_kind,
+            "periods_per_year": periods_per_year,
+            "nominal_bar_hours": self.config.bar_hours,
             "feature_config_digest": feature_config_digest,
             "normalization_digest": normalization_digest,
             "symbols": symbols,
@@ -368,29 +413,8 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
-        dataset_id = compute_market_dataset_id(
-            metadata,
-            {
-                "timestamps": timestamps,
-                "available_at": available_at,
-                "information_available": information_available,
-                "features": features,
-                "global_features": global_features,
-                "open": open_price,
-                "high": high,
-                "low": low,
-                "close": close,
-                "volume": volume,
-                "funding_rate": funding_rate,
-                "tradable": tradable,
-                "symbol_active": symbol_active,
-                "feature_available": feature_available,
-                "feature_staleness": feature_staleness,
-            },
-        )
-        periods_per_year = int(round(365.0 * 24.0 / self.config.bar_hours))
-        return MarketDataset(
-            dataset_id=dataset_id,
+        draft = MarketDataset(
+            dataset_id="0" * 64,
             symbols=symbols,
             timestamps=timestamps,
             features=features,
@@ -406,7 +430,12 @@ class MarketDatasetBuilder:
             information_available=information_available,
             available_at=available_at,
             feature_available=feature_available,
+            feature_staleness_hours=feature_age_hours,
             feature_staleness=feature_staleness,
+            feature_missing_reason=feature_missing_reason,
+            global_feature_available=global_available,
+            global_feature_staleness_hours=global_age_hours,
+            global_feature_missing_reason=global_missing_reason,
             feature_names=feature_names,
             global_feature_names=self.config.global_feature_names,
             volume_units=tuple(contract.volume_unit for contract in instruments),
@@ -416,6 +445,13 @@ class MarketDatasetBuilder:
             ),
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
-            identity_payload_json=canonical_identity_json(metadata),
             periods_per_year=periods_per_year,
+            calendar_kind=self.config.calendar_kind,
+            nominal_bar_hours=self.config.bar_hours,
+        )
+        dataset_id = compute_market_dataset_id(metadata, draft.identity_arrays())
+        return replace(
+            draft,
+            dataset_id=dataset_id,
+            identity_payload_json=canonical_identity_json(metadata),
         )

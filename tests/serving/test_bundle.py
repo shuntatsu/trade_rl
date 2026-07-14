@@ -9,6 +9,7 @@ from tests.serving.helpers import (
     ACTION_SPEC_DIGEST,
     INITIAL_CAPITAL,
     OBSERVATION_SIZE,
+    DEFAULT_NORMALIZER_DIGEST,
     create_bundle,
 )
 from trade_rl.domain.selection import PolicyMode
@@ -25,7 +26,7 @@ def test_v3_bundle_binds_exact_action_environment_and_normalizer_identity(
     assert manifest.action_spec_digest == ACTION_SPEC_DIGEST
     assert manifest.observation_size == OBSERVATION_SIZE
     assert manifest.environment_digest == "d" * 64
-    assert manifest.normalizer_digest == "9" * 64
+    assert manifest.normalizer_digest == DEFAULT_NORMALIZER_DIGEST
     assert manifest.initial_capital == pytest.approx(INITIAL_CAPITAL)
 
 
@@ -41,3 +42,15 @@ def test_v3_bundle_rejects_missing_or_wrong_action_identity(tmp_path: Path) -> N
         create_bundle(tmp_path / "bad-names", action_names=("fast_tilt", "fast_tilt"))
     with pytest.raises(ValueError, match="sha256|digest"):
         create_bundle(tmp_path / "bad-digest", action_spec_digest="bad")
+
+
+def test_bundle_rejects_undeclared_files_and_symlinks(tmp_path: Path) -> None:
+    root = create_bundle(tmp_path / "extra")
+    (root / "unexpected.txt").write_text("bad", encoding="utf-8")
+    with pytest.raises(ValueError, match="file closure"):
+        load_serving_bundle(root)
+
+    root = create_bundle(tmp_path / "link")
+    (root / "unsafe-link").symlink_to(root / "dataset.json")
+    with pytest.raises(ValueError, match="file closure|unsafe"):
+        load_serving_bundle(root)

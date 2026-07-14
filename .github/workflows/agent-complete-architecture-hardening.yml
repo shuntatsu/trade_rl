@@ -69,24 +69,47 @@ jobs:
           set -o pipefail
           uv run mypy trade_rl 2>&1 | tee hardening-mypy.txt
 
-      - name: Upload type diagnostics
+      - name: Import architecture
+        id: import_architecture
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run lint-imports 2>&1 | tee hardening-imports.txt
+
+      - name: Verify regression tests
+        id: regression_tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/architecture/test_complete_architecture_hardening.py 2>&1 | tee hardening-regression.txt
+
+      - name: Run full test suite
+        id: full_tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q 2>&1 | tee hardening-full-tests.txt
+
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hardening-diagnostics
-          path: hardening-mypy.txt
+          path: |
+            hardening-mypy.txt
+            hardening-imports.txt
+            hardening-regression.txt
+            hardening-full-tests.txt
 
-      - name: Import architecture
-        run: uv run lint-imports
-
-      - name: Verify regression tests
-        run: uv run pytest -q tests/architecture/test_complete_architecture_hardening.py
-
-      - name: Run full test suite
-        run: uv run pytest -q
-
-      - name: Enforce type check
-        if: steps.type_check.outcome != 'success'
+      - name: Enforce verification gates
+        if: >-
+          steps.type_check.outcome != 'success' ||
+          steps.import_architecture.outcome != 'success' ||
+          steps.regression_tests.outcome != 'success' ||
+          steps.full_tests.outcome != 'success'
         run: exit 1
 
       - name: Remove one-shot machinery

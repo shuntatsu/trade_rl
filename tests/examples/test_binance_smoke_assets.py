@@ -35,7 +35,7 @@ def test_binance_walk_forward_smoke_constructs_one_complete_fold() -> None:
 
 
 def test_binance_smoke_runner_executes_all_authoritative_cli_stages() -> None:
-    content = (ROOT / "scripts" / "run_binance_e2e_smoke.py").read_text(
+    content = (ROOT / "examples" / "binance" / "run_e2e_smoke.py").read_text(
         encoding="utf-8"
     )
 

@@ -1,0 +1,27 @@
+name: Multi-Timeframe Development
+
+on:
+  push:
+    branches:
+      - agent/multitimeframe-three-asset-full-training
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Focused multi-timeframe tests
+        run: |
+          uv run pytest -q \
+            tests/data/test_multitimeframe_builder.py \
+            tests/integrations/test_binance_multitimeframe.py \
+            tests/cli/test_binance_multitimeframe_command.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py

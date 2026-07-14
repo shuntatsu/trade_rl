@@ -27,13 +27,18 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra export --extra train-sb3
-      - name: Correct multi-match patch guard
+      - name: Correct compatibility patch guards
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('.github/agent_tools/fix_unified_compat.py')
           text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '    if count != 1:\n        raise RuntimeError(f"expected one match in {path}, found {count}: {old[:120]!r}")\n',
+              '    if count < 1:\n        raise RuntimeError(f"expected a match in {path}: {old[:120]!r}")\n',
+              1,
+          )
           block = '''replace_once(
               "trade_rl/evaluation/fold_metrics.py",
               "result.evidence",

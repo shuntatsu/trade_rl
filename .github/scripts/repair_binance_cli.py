@@ -5,7 +5,7 @@ from pathlib import Path
 path = Path("trade_rl/cli/app.py")
 text = path.read_text(encoding="utf-8")
 start = text.index("def _data_build(")
-end = text.index("def _status_handler(", start)
+end = text.rindex("def _status_handler(")
 replacement = '''def _data_build(args: argparse.Namespace, stdout: TextIO) -> int:
     request = load_market_build_request(args.config)
     dataset = MarketDatasetBuilder(request.config).build(

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-import trade_rl.serving.bundle as bundle_module
 from tests.serving.helpers import create_bundle
+import trade_rl.serving.bundle as bundle_module
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.serving.bundle import BundleFile, ServingBundleManifest, load_serving_bundle
 

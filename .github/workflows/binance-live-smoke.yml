@@ -18,7 +18,7 @@ jobs:
       - run: uv sync --extra dev --extra train-sb3
       - name: Run fixed-range Binance Vision E2E
         run: |
-          uv run python scripts/run_binance_e2e_smoke.py \
+          uv run python examples/binance/run_e2e_smoke.py \
             --start-time 2026-06-01T00:00:00Z \
             --end-time 2026-06-29T00:00:00Z \
             --work-root var/binance-live-smoke

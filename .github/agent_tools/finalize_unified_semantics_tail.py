@@ -144,6 +144,23 @@ replace_once(
 ''',
 )
 
+# All supported release attestations expose a common digest property.
+replace_once(
+    "trade_rl/release/attestation.py",
+    '''    schema_version: str = RELEASE_ATTESTATION_SCHEMA
+
+    def __post_init__(self) -> None:
+''',
+    '''    schema_version: str = RELEASE_ATTESTATION_SCHEMA
+
+    @property
+    def digest(self) -> str:
+        return self.attestation_digest
+
+    def __post_init__(self) -> None:
+''',
+)
+
 # Serving accepts either the legacy in-bundle release pointer or the newer adjacent
 # non-circular release attestation, while validating bundle identity in both cases.
 replace_once(

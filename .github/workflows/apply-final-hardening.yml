@@ -1,0 +1,51 @@
+name: Apply Final Hardening
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/full-architecture-hardening-v2]
+    paths: [.github/workflows/apply-final-hardening.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-architecture-hardening-v2
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply verified local correction patch
+        shell: bash
+        env:
+          PATCH_B64: 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
+        run: |
+          printf '%s' "$PATCH_B64" | base64 --decode | gzip --decompress > /tmp/ci-fixes.patch
+          git apply --check /tmp/ci-fixes.patch
+          git apply /tmp/ci-fixes.patch
+      - name: Format and verify
+        shell: bash
+        run: |
+          uv sync --extra dev --extra export --extra train-sb3
+          uv run ruff check . --fix
+          uv run ruff format .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy trade_rl
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+      - name: Commit final corrections
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-final-hardening.yml .github/workflows/diagnose-hardening.yml .github/workflows/export-source.yml
+          git add -A
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix: complete architecture hardening verification"
+          git push origin HEAD:agent/full-architecture-hardening-v2

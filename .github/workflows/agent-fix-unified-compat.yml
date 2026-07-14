@@ -1,0 +1,57 @@
+name: Fix unified compatibility
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - edited
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      github.head_ref == 'agent/unified-pr40-pr41'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/unified-pr40-pr41
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Apply compatibility patch
+        run: uv run python .github/agent_tools/fix_unified_compat.py
+      - name: Format and lint-fix
+        shell: bash
+        run: |
+          uv run ruff format .
+          uv run ruff check --fix --unsafe-fixes . || true
+          uv run ruff format .
+      - name: Remove one-shot assets and commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/agent_tools/fix_unified_compat.py
+          rmdir .github/agent_tools 2>/dev/null || true
+          rm -f .github/workflows/agent-fix-unified-compat.yml
+          rm -f .github/workflows/agent-diagnose-unified.yml
+          git add -A
+          git commit -m "Align PR 40 additions with PR 41 contracts"
+          git push origin HEAD:agent/unified-pr40-pr41
+      - name: Diagnostic checks
+        continue-on-error: true
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run pytest -q

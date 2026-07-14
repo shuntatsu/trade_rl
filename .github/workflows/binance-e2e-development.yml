@@ -42,15 +42,24 @@ jobs:
           cat focused.log
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
+      - name: Lint
+        id: lint
+        run: |
+          set +e
+          uv run ruff check trade_rl tests scripts > lint.log 2>&1
+          status=$?
+          cat lint.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
       - uses: actions/upload-artifact@v4
         with:
-          name: binance-focused-diagnostics
-          path: focused.log
-      - name: Require focused tests
-        if: steps.focused.outputs.status != '0'
+          name: binance-development-diagnostics
+          path: |
+            focused.log
+            lint.log
+      - name: Require focused tests and lint
+        if: steps.focused.outputs.status != '0' || steps.lint.outputs.status != '0'
         run: exit 1
-      - name: Lint
-        run: uv run ruff check trade_rl tests scripts
       - name: Type check
         run: uv run mypy trade_rl
       - name: Commit green implementation

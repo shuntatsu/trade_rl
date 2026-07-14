@@ -284,7 +284,9 @@ def test_execute_interval_rejects_invalid_boundaries_and_book_identity() -> None
 def test_inactive_assets_settle_and_zero_target_has_identity_fill_ratio() -> None:
     active = np.ones((5, 1), dtype=np.bool_)
     active[1, 0] = False
-    dataset = market(asset_active=active)
+    tradable = np.ones((5, 1), dtype=np.bool_)
+    tradable[1, 0] = False
+    dataset = market(asset_active=active, tradable=tradable)
     executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
     invested = BookState.from_weights(
         weights=np.array([1.0]), capital=1_000.0, prices=dataset.close[0]

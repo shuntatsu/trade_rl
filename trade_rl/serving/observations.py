@@ -18,9 +18,14 @@ class ServingObservationPipeline:
     normalizer: ObservationNormalizer | None
 
     @classmethod
-    def load(cls, bundle: ServingBundle) -> "ServingObservationPipeline":
+    def load(cls, bundle: ServingBundle) -> ServingObservationPipeline:
         manifest = bundle.manifest
-        normalizer = bundle.normalizer
+        raw_normalizer = bundle.normalizer
+        if raw_normalizer is not None and not isinstance(
+            raw_normalizer, ObservationNormalizer
+        ):
+            raise ValueError("serving bundle normalizer type is invalid")
+        normalizer = raw_normalizer
         if manifest.normalizer_digest is None:
             if normalizer is not None:
                 raise ValueError("serving bundle contains an unbound normalizer")

@@ -57,7 +57,7 @@ The base OHLCV, funding, tradability, execution constraints, and accounting arra
 
 The dataset builder API accepts auxiliary feature timeframes. The CLI adds repeatable `--feature-timeframe` options while `--interval` remains the base timeframe.
 
-Official Binance Vision monthly kline archives are used for complete historical months, with daily archives used for partial months or bounded fallback. This keeps a multi-year, four-timeframe, three-symbol run practical while preserving deterministic source URLs and fixed-range filtering.
+Official Binance Vision monthly kline archives are used for complete historical months, with daily archives used only for partial months or bounded fallback. This keeps a multi-year, four-timeframe, three-symbol run practical while preserving deterministic source URLs and fixed-range filtering.
 
 Supported maintained research preset:
 
@@ -85,7 +85,7 @@ A fixed-range build is performed twice into independent directories. Dataset IDs
 The maintained full-run configuration uses:
 
 - BTCUSDT, ETHUSDT, BNBUSDT;
-- fixed closed range `2025-01-01T00:00:00Z` through `2026-06-29T00:00:00Z`;
+- fixed closed range `2024-12-01T00:00:00Z` through `2026-06-01T00:00:00Z`;
 - 1-hour decisions;
 - native 15-minute, 1-hour, 4-hour, and 1-day features;
 - PPO with three independent seeds `0`, `1`, and `2`;
@@ -94,6 +94,8 @@ The maintained full-run configuration uses:
 - shared per-asset encoder with 128x128 policy network;
 - realistic fees, spread, impact, participation, funding, and portfolio concentration limits;
 - checkpointing and atomic artifact publication.
+
+The range consists only of complete calendar months, allowing official monthly Binance Vision archives to be used throughout. It contains 13,104 hourly decisions. The kline build reads 216 deterministic monthly archives across three symbols, four native timeframes, and eighteen months; funding is loaded from its own monthly event archives.
 
 The nested walk-forward run uses two chronological folds with purge gaps. Candidate selection uses only checkpoint and selection ranges; outer test ranges remain sealed until selection. Fold-local candidate training uses 32,768 timesteps per seed so the evaluation is materially larger than smoke while remaining bounded on a standard CPU runner.
 

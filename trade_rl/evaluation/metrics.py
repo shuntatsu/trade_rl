@@ -87,7 +87,7 @@ def evaluate_performance(
     mean = fmean(values)
     variance = fmean((value - mean) ** 2 for value in values)
     standard_deviation = math.sqrt(variance)
-    annualization = math.sqrt(returns.periods_per_year)
+    annualization = math.sqrt(returns.annualization_periods_per_year)
     sharpe = (
         mean / standard_deviation * annualization if standard_deviation > 0 else 0.0
     )
@@ -109,5 +109,5 @@ def evaluate_performance(
         termination_count=termination_count,
         n_periods=len(values),
         return_kind=returns.kind,
-        periods_per_year=returns.periods_per_year,
+        periods_per_year=int(round(returns.annualization_periods_per_year)),
     )

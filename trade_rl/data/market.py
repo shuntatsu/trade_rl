@@ -612,9 +612,20 @@ class MarketDataset:
             identity_payload_json = canonical_payload_json
         object.__setattr__(self, "identity_payload_json", identity_payload_json)
 
+    def recomputed_dataset_id(self) -> str:
+        if self.identity_payload_json is None:
+            raise ValueError("dataset has no canonical identity payload")
+        return compute_market_dataset_id(
+            parse_identity_json(self.identity_payload_json),
+            self.identity_arrays(),
+        )
+
     @property
     def identity_verified(self) -> bool:
-        return self.identity_payload_json is not None
+        return (
+            self.identity_payload_json is not None
+            and self.recomputed_dataset_id() == self.dataset_id
+        )
 
     def identity_contract_payload(self) -> dict[str, object]:
         return {
@@ -835,10 +846,64 @@ class MarketDataset:
             )
         return eligible
 
+    def elapsed_year_fraction(self, start_index: int, end_index: int) -> float:
+        return self.elapsed_hours(start_index, end_index) / _HOURS_PER_YEAR
+
+    def quantity_notional(
+        self,
+        index: int,
+        quantities: np.ndarray,
+        prices: np.ndarray | None = None,
+    ) -> np.ndarray:
+        if not 0 <= index < self.n_bars:
+            raise IndexError("quantity-notional index is outside the dataset")
+        quantity_vector = np.asarray(quantities, dtype=np.float64).reshape(-1)
+        price_vector = (
+            self.resolved_array("mark_price")[index]
+            if prices is None
+            else np.asarray(prices, dtype=np.float64).reshape(-1)
+        )
+        if (
+            quantity_vector.shape != (self.n_symbols,)
+            or price_vector.shape != (self.n_symbols,)
+            or not np.isfinite(quantity_vector).all()
+            or not np.isfinite(price_vector).all()
+            or np.any(price_vector <= 0.0)
+        ):
+            raise ValueError("quantities and prices must match symbols and be finite")
+        multipliers = self.resolved_array("contract_multipliers")
+        return quantity_vector * price_vector * multipliers
+
+    def notional_to_quantity(
+        self,
+        index: int,
+        notionals: np.ndarray,
+        prices: np.ndarray | None = None,
+    ) -> np.ndarray:
+        notional_vector = np.asarray(notionals, dtype=np.float64).reshape(-1)
+        price_vector = (
+            self.open[index]
+            if prices is None
+            else np.asarray(prices, dtype=np.float64).reshape(-1)
+        )
+        if (
+            not 0 <= index < self.n_bars
+            or notional_vector.shape != (self.n_symbols,)
+            or price_vector.shape != (self.n_symbols,)
+            or not np.isfinite(notional_vector).all()
+            or not np.isfinite(price_vector).all()
+            or np.any(price_vector <= 0.0)
+        ):
+            raise ValueError("notionals and prices must match symbols and be finite")
+        multipliers = self.resolved_array("contract_multipliers")
+        return notional_vector / (price_vector * multipliers)
+
     def market_notional(
         self,
         index: int,
         prices: np.ndarray | None = None,
+        *,
+        volume: np.ndarray | None = None,
     ) -> np.ndarray:
         """Return quote-notional liquidity under explicit volume-unit semantics."""
 
@@ -856,9 +921,20 @@ class MarketDataset:
             raise ValueError("market notional prices must be finite and positive")
         multipliers = self.contract_multipliers
         assert multipliers is not None
+        raw_volume = (
+            self.volume[index]
+            if volume is None
+            else np.asarray(volume, dtype=np.float64).reshape(-1)
+        )
+        if (
+            raw_volume.shape != (self.n_symbols,)
+            or not np.isfinite(raw_volume).all()
+            or np.any(raw_volume < 0.0)
+        ):
+            raise ValueError("market volume must match symbols and be non-negative")
         result = np.empty(self.n_symbols, dtype=np.float64)
         for symbol_index, unit in enumerate(self.volume_units):
-            raw = self.volume[index, symbol_index]
+            raw = raw_volume[symbol_index]
             if unit is VolumeUnit.QUOTE_NOTIONAL:
                 result[symbol_index] = raw
             elif unit is VolumeUnit.BASE_ASSET:

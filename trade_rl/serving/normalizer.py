@@ -104,7 +104,10 @@ def load_observation_normalizer(root: Path) -> ObservationNormalizer:
             digest=str(raw["digest"]),
         )
     except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("serving normalizer sidecar is invalid") from error
+        detail = str(error)
+        if "digest" in detail:
+            raise ValueError(f"serving normalizer digest mismatch: {detail}") from error
+        raise ValueError(f"serving normalizer sidecar is invalid: {detail}") from error
     return normalizer
 
 

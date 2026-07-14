@@ -59,13 +59,15 @@ def _carry_feature(
     event_values: np.ndarray,
     event_valid: np.ndarray,
     active: np.ndarray,
+    timestamps: np.ndarray,
     *,
-    bar_hours: float,
     max_staleness_hours: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     values = np.zeros_like(event_values, dtype=np.float64)
     available = np.zeros_like(event_valid, dtype=np.bool_)
+    age = np.full_like(event_values, max_staleness_hours, dtype=np.float64)
     staleness = np.ones_like(event_values, dtype=np.float64)
+    timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
     last_index: int | None = None
     last_value = 0.0
     for index in range(len(event_values)):
@@ -78,13 +80,14 @@ def _carry_feature(
             last_value = float(event_values[index])
         if last_index is None:
             continue
-        age_hours = (index - last_index) * bar_hours
+        age_hours = float(timestamp_ns[index] - timestamp_ns[last_index]) / _NS_PER_HOUR
         normalized = min(age_hours / max_staleness_hours, 1.0)
+        age[index] = age_hours
         staleness[index] = normalized
         if age_hours <= max_staleness_hours + 1e-12:
             values[index] = last_value
             available[index] = True
-    return values, available, staleness
+    return values, available, age, staleness
 
 
 def _contiguous_window(mask: np.ndarray, start: int, stop: int) -> bool:
@@ -312,6 +315,7 @@ class MarketDatasetBuilder:
         tradable = symbol_active & row_present & raw_tradable
         features = np.zeros((n_bars, n_symbols, n_features), dtype=np.float64)
         feature_available = np.zeros_like(features, dtype=np.bool_)
+        feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
         for symbol_index in range(n_symbols):
             for feature_index, spec in enumerate(self.config.features):
@@ -324,15 +328,16 @@ class MarketDatasetBuilder:
                     row_present=causal_row_present[:, symbol_index],
                     active=symbol_active[:, symbol_index],
                 )
-                values, available, staleness = _carry_feature(
+                values, available, age_hours, staleness = _carry_feature(
                     event_values,
                     event_valid,
                     symbol_active[:, symbol_index],
-                    bar_hours=self.config.bar_hours,
+                    timestamps,
                     max_staleness_hours=spec.max_staleness_hours,
                 )
                 features[:, symbol_index, feature_index] = values
                 feature_available[:, symbol_index, feature_index] = available
+                feature_age_hours[:, symbol_index, feature_index] = age_hours
                 feature_staleness[:, symbol_index, feature_index] = staleness
 
         one_bar_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)
@@ -370,6 +375,7 @@ class MarketDatasetBuilder:
 
         features = features.astype(np.float32)
         global_features = global_features.astype(np.float32)
+        feature_age_hours = feature_age_hours.astype(np.float32)
         feature_staleness = feature_staleness.astype(np.float32)
         feature_names = tuple(spec.name for spec in self.config.features)
         feature_config_digest = content_digest(self.config.canonical_payload())
@@ -381,6 +387,7 @@ class MarketDatasetBuilder:
             (
                 ("features", features),
                 ("feature_available", feature_available),
+                ("feature_age_hours", feature_age_hours),
                 ("feature_staleness", feature_staleness),
             ),
         )
@@ -421,6 +428,7 @@ class MarketDatasetBuilder:
             information_available=information_available,
             available_at=available_at,
             feature_available=feature_available,
+            feature_staleness_hours=feature_age_hours,
             feature_staleness=feature_staleness,
             feature_names=feature_names,
             global_feature_names=self.config.global_feature_names,

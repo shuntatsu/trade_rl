@@ -178,9 +178,21 @@ def test_quote_notional_volume_is_not_multiplied_by_price_twice() -> None:
     assert result.unfilled_turnover == pytest.approx(0.99)
 
 
-def test_non_unit_contract_multiplier_fails_closed() -> None:
-    with pytest.raises(ValueError, match="contract multiplier"):
-        MarketExecutor(dataset(contract_multiplier=0.1), ExecutionCostConfig.zero())
+def test_non_unit_contract_multiplier_uses_quantity_semantics() -> None:
+    value = dataset(contract_multiplier=0.1)
+    book = BookState.zero(
+        1,
+        1_000.0,
+        value.close[0],
+        contract_multipliers=value.contract_multipliers,
+    )
+    result = MarketExecutor(value, ExecutionCostConfig.zero()).execute_interval(
+        book,
+        np.array([0.5]),
+        start_index=0,
+        bars=1,
+    )
+    assert result.book.weights[0] == pytest.approx(0.5)
 
 
 def test_bundle_rejects_undeclared_files(tmp_path: Path) -> None:

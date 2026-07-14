@@ -8,7 +8,7 @@ import json
 import os
 import zipfile
 from collections.abc import Mapping
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from enum import Enum
 from pathlib import Path
 from typing import Any, Final
@@ -110,6 +110,29 @@ def write_dataset_files(root: Path, dataset: MarketDataset) -> tuple[Path, str]:
     path = root / DATASET_MANIFEST_NAME
     _atomic_write(path, canonical_json_bytes(manifest))
     return path, artifact_digest
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetArtifactFiles:
+    """Canonical files written for one market-dataset artifact."""
+
+    manifest_path: Path
+    arrays_path: Path
+    artifact_digest: str
+
+
+def write_market_dataset_files(
+    root: str | Path, dataset: MarketDataset
+) -> DatasetArtifactFiles:
+    """Write deterministic dataset files and return their typed identities."""
+
+    destination = Path(root)
+    manifest_path, artifact_digest = write_dataset_files(destination, dataset)
+    return DatasetArtifactFiles(
+        manifest_path=manifest_path,
+        arrays_path=destination / DATASET_ARRAYS_NAME,
+        artifact_digest=artifact_digest,
+    )
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:

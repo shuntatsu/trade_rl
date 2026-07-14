@@ -1,4 +1,3 @@
-# mypy: disable-error-code="index"
 """Stable observation layout for baseline-anchored residual policies."""
 
 from __future__ import annotations
@@ -268,7 +267,7 @@ def _validate_book(book: BookState, dataset: MarketDataset, *, field_name: str) 
 
 
 def _feature_staleness(dataset: MarketDataset, index: int) -> np.ndarray:
-    staleness = dataset.feature_staleness_hours[index].astype(
+    staleness = dataset.resolved_array("feature_staleness_hours")[index].astype(
         np.float64,
         copy=False,
     )
@@ -355,8 +354,12 @@ def build_observation(
             dataset.features[index],
             dataset.feature_available[index].astype(np.float64, copy=False),
             _feature_staleness(dataset, index),
-            dataset.feature_missing_reason[index].astype(np.float64, copy=False),
-            dataset.asset_active[index].astype(np.float64, copy=False),
+            dataset.resolved_array("feature_missing_reason")[index].astype(
+                np.float64, copy=False
+            ),
+            dataset.resolved_array("asset_active")[index].astype(
+                np.float64, copy=False
+            ),
             dataset.observable_tradable(index).astype(np.float64, copy=False),
             trends.fast,
             trends.base,
@@ -372,9 +375,13 @@ def build_observation(
             state.participation,
             state.execution_cost,
             state.position_age,
-            dataset.borrow_available[index].astype(np.float64, copy=False),
-            dataset.borrow_rate[index],
-            dataset.mark_price[index] / dataset.index_price[index] - 1.0,
+            dataset.resolved_array("borrow_available")[index].astype(
+                np.float64, copy=False
+            ),
+            dataset.resolved_array("borrow_rate")[index],
+            dataset.resolved_array("mark_price")[index]
+            / dataset.resolved_array("index_price")[index]
+            - 1.0,
         )
     )
 
@@ -402,15 +409,21 @@ def build_observation(
         shadow.margin_utilization,
     ]
     global_staleness = np.where(
-        dataset.global_feature_available[index],
-        dataset.global_feature_staleness_hours[index],
-        np.maximum(dataset.global_feature_staleness_hours[index], 1.0),
+        dataset.resolved_array("global_feature_available")[index],
+        dataset.resolved_array("global_feature_staleness_hours")[index],
+        np.maximum(
+            dataset.resolved_array("global_feature_staleness_hours")[index], 1.0
+        ),
     )
     global_parts = [
         dataset.global_features[index].astype(np.float64, copy=False),
-        dataset.global_feature_available[index].astype(np.float64, copy=False),
+        dataset.resolved_array("global_feature_available")[index].astype(
+            np.float64, copy=False
+        ),
         global_staleness.astype(np.float64, copy=False),
-        dataset.global_feature_missing_reason[index].astype(np.float64, copy=False),
+        dataset.resolved_array("global_feature_missing_reason")[index].astype(
+            np.float64, copy=False
+        ),
         np.asarray(book_values, dtype=np.float64),
         previous,
     ]

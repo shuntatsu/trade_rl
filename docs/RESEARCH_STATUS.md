@@ -59,3 +59,6 @@ Runtime activation rejects action- or observation-schema mismatches before loadi
 This closes the previous gap where a bundle could contain a valid policy output shape but receive a different feature layout, observation width, environment configuration, or capital scale.
 
 The remaining gap is application-specific adapter integration: a real-data loader, fold-local preprocessing, PPO trainer, and evaluator must be connected to these typed requests. The repository still makes no profitability or production-readiness claim.
+## Maintained reward identity
+
+The maintained reward contract is **Reward schema v4** with a complete 720-hour baseline window, fixed 1.5% tolerance, worsening-only staged drawdown shaping, and continuous economic terminal penalties.

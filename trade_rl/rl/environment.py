@@ -1,11 +1,10 @@
-# mypy: disable-error-code="index"
 """Gymnasium environment for baseline-anchored residual portfolio control."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from typing import Protocol
 
 import gymnasium as gym
@@ -28,6 +27,16 @@ from trade_rl.rl.actions import (
     ResidualActionV2,
 )
 from trade_rl.rl.diagnostics import ActionDiagnosticsAccumulator
+from trade_rl.rl.environment_config import (
+    RESET_STATE_MODES as _RESET_STATE_MODES,
+)
+from trade_rl.rl.environment_config import (
+    ResidualMarketEnvConfig,
+)
+from trade_rl.rl.episode import (
+    complete_reward_history_steps,
+    minimum_reward_start_index,
+)
 from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
@@ -39,201 +48,34 @@ from trade_rl.rl.observations import (
 )
 from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
-    AbsoluteGrowthRewardConfig,
-    RewardConfig,
     RewardTracker,
 )
+from trade_rl.rl.transition import classify_economic_transition
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
-    ExecutionCostConfig,
     ExecutionResult,
     MarketExecutor,
 )
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
 
 _LIQUIDATION_TOLERANCE = 1e-12
-_RESET_STATE_MODES = frozenset(
-    {"cash", "baseline", "random", "stress", "partial_fill", "restore"}
-)
-_SAMPLED_INITIAL_STATE_MODES = _RESET_STATE_MODES - {"restore"}
 
 
 class AlphaProvider(Protocol):
-    artifact_digest: str
+    @property
+    def artifact_digest(self) -> str: ...
 
     def predict_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
 
 
 class FactorBasisProvider(Protocol):
-    artifact_digest: str
-    n_factors: int
+    @property
+    def artifact_digest(self) -> str: ...
+
+    @property
+    def n_factors(self) -> int: ...
 
     def basis_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ResidualMarketEnvConfig:
-    episode_hours: float = 720.0
-    decision_hours: float = 4.0
-    episode_hour_choices: tuple[float, ...] = ()
-    episode_bars: int | None = None
-    decision_every: int | None = None
-    reward_scale: float = 100.0
-    initial_capital: float = math.nan
-    minimum_equity_fraction: float = 1e-6
-    downside_penalty: float = 0.0
-    excess_drawdown_penalty: float = 0.0
-    reward_config: RewardConfig | None = None
-    reward: AbsoluteGrowthRewardConfig | None = None
-    liquidate_on_end: bool = False
-    finite_horizon_observation: bool = False
-    initial_state_modes: tuple[str, ...] = ("cash",)
-    random_initial_gross: float = 0.50
-    stress_drawdown_fraction: float = 0.15
-    partial_fill_fraction: float = 0.50
-    episode_sampling_mode: str = "uniform"
-    regime_feature_index: int = 0
-    regime_bins: int = 4
-    stress_quantile: float = 0.90
-    accept_legacy_actions: bool = True
-    action_validation_mode: ActionValidationMode | str = ActionValidationMode.CLIP
-    execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
-
-    def __post_init__(self) -> None:
-        if math.isnan(self.initial_capital):
-            raise ValueError(
-                "initial_capital must be explicitly configured in quote-currency units"
-            )
-        for positive_field_name, positive_value in (
-            ("episode_hours", self.episode_hours),
-            ("decision_hours", self.decision_hours),
-            ("reward_scale", self.reward_scale),
-            ("initial_capital", self.initial_capital),
-            ("minimum_equity_fraction", self.minimum_equity_fraction),
-        ):
-            if (
-                isinstance(positive_value, bool)
-                or not math.isfinite(positive_value)
-                or positive_value <= 0.0
-            ):
-                raise ValueError(f"{positive_field_name} must be finite and positive")
-        for optional_field_name, optional_value in (
-            ("episode_bars", self.episode_bars),
-            ("decision_every", self.decision_every),
-        ):
-            if optional_value is not None and (
-                isinstance(optional_value, bool)
-                or not isinstance(optional_value, int)
-                or optional_value <= 0
-            ):
-                raise ValueError(f"{optional_field_name} must be a positive integer")
-        if self.episode_bars is not None and self.episode_hour_choices:
-            raise ValueError(
-                "episode_bars cannot be combined with episode_hour_choices"
-            )
-        for field_name, value in (
-            ("downside_penalty", self.downside_penalty),
-            ("excess_drawdown_penalty", self.excess_drawdown_penalty),
-            ("random_initial_gross", self.random_initial_gross),
-            ("stress_drawdown_fraction", self.stress_drawdown_fraction),
-            ("partial_fill_fraction", self.partial_fill_fraction),
-        ):
-            if not math.isfinite(value) or value < 0.0:
-                raise ValueError(f"{field_name} must be finite and non-negative")
-        if self.random_initial_gross > 10.0:
-            raise ValueError("random_initial_gross must be within [0, 10]")
-        if not 0.0 <= self.stress_drawdown_fraction < 1.0:
-            raise ValueError("stress_drawdown_fraction must be within [0, 1)")
-        if not 0.0 <= self.partial_fill_fraction <= 1.0:
-            raise ValueError("partial_fill_fraction must be within [0, 1]")
-        if self.episode_sampling_mode not in {
-            "uniform",
-            "regime_balanced",
-            "stress_tail",
-        }:
-            raise ValueError("episode_sampling_mode is not supported")
-        if (
-            not math.isfinite(self.stress_quantile)
-            or not 0.5 <= self.stress_quantile < 1.0
-        ):
-            raise ValueError("stress_quantile must be within [0.5, 1)")
-        if (
-            isinstance(self.regime_feature_index, bool)
-            or not isinstance(self.regime_feature_index, int)
-            or self.regime_feature_index < 0
-        ):
-            raise ValueError("regime_feature_index must be non-negative")
-        if (
-            isinstance(self.regime_bins, bool)
-            or not isinstance(self.regime_bins, int)
-            or self.regime_bins < 2
-        ):
-            raise ValueError("regime_bins must be at least two")
-        for value in self.episode_hour_choices:
-            if not math.isfinite(value) or value <= 0.0:
-                raise ValueError("episode_hour_choices must be finite and positive")
-            if self.decision_every is None and value < self.decision_hours:
-                raise ValueError(
-                    "episode_hour_choices cannot be shorter than decision_hours"
-                )
-        if not self.initial_state_modes:
-            raise ValueError("initial_state_modes must not be empty")
-        if any(
-            mode not in _SAMPLED_INITIAL_STATE_MODES
-            for mode in self.initial_state_modes
-        ):
-            raise ValueError(
-                "initial_state_modes contains an unsupported sampled mode; "
-                "restore is available only through reset options"
-            )
-        if len(set(self.initial_state_modes)) != len(self.initial_state_modes):
-            raise ValueError("initial_state_modes must be unique")
-        for field_name, value in (
-            ("liquidate_on_end", self.liquidate_on_end),
-            ("finite_horizon_observation", self.finite_horizon_observation),
-            ("accept_legacy_actions", self.accept_legacy_actions),
-        ):
-            if not isinstance(value, bool):
-                raise ValueError(f"{field_name} must be a boolean")
-        if self.reward_config is not None and self.reward is not None:
-            raise ValueError("reward and reward_config cannot both be configured")
-        try:
-            mode = ActionValidationMode(self.action_validation_mode)
-        except ValueError as error:
-            raise ValueError("action_validation_mode is not supported") from error
-        object.__setattr__(self, "action_validation_mode", mode)
-
-    def resolved_reward_config(self) -> RewardConfig:
-        if self.reward_config is not None:
-            return self.reward_config
-        if self.reward is not None:
-            return RewardConfig.from_absolute_growth(self.reward)
-        # Legacy fields remain migration knobs around the approved defaults.
-        defaults = RewardConfig(scale=self.reward_scale)
-        return RewardConfig(
-            scale=self.reward_scale,
-            incremental_drawdown_weight=(
-                defaults.incremental_drawdown_weight
-                + 0.10 * self.excess_drawdown_penalty
-            ),
-            terminal_equity_weight=(
-                defaults.terminal_equity_weight + self.downside_penalty
-            ),
-        )
-
-    def resolve_nominal_episode_bars(self, dataset: MarketDataset) -> int:
-        if self.episode_bars is not None:
-            return self.episode_bars
-        if dataset.regular_cadence:
-            return dataset.bars_for_hours(self.episode_hours)
-        return max(1, int(round(self.episode_hours / dataset.bar_hours)))
-
-    def resolve_nominal_decision_bars(self, dataset: MarketDataset) -> int:
-        if self.decision_every is not None:
-            return self.decision_every
-        if dataset.regular_cadence:
-            return dataset.bars_for_hours(self.decision_hours)
-        return max(1, int(round(self.decision_hours / dataset.bar_hours)))
 
 
 class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
@@ -333,6 +175,23 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 )
             ),
         )
+        provider_minimums = [self.trend_strategy.minimum_history_for(dataset)]
+        for provider_name, provider in (
+            ("alpha_provider", alpha_provider),
+            ("factor_basis_provider", factor_basis_provider),
+        ):
+            if provider is None:
+                continue
+            minimum_index = getattr(provider, "minimum_index", 0)
+            if (
+                isinstance(minimum_index, bool)
+                or not isinstance(minimum_index, int)
+                or minimum_index < 0
+                or minimum_index >= dataset.n_bars
+            ):
+                raise ValueError(f"{provider_name} minimum_index is invalid")
+            provider_minimums.append(minimum_index)
+        self._minimum_start_index = max(provider_minimums)
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.normalizer = normalizer
@@ -379,9 +238,19 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             reward_config,
             decision_hours=resolved_decision_hours,
         )
+        if (
+            self.config.require_full_reward_preroll
+            and reward_config.baseline_underperformance_weight > 0.0
+        ):
+            self._minimum_start_index = minimum_reward_start_index(
+                dataset,
+                signal_minimum=self._minimum_start_index,
+                window_hours=reward_config.baseline_window_hours,
+            )
         self.hybrid_executor = MarketExecutor(dataset, self.config.execution_cost)
         self.shadow_executor = MarketExecutor(dataset, self.config.execution_cost)
         self.executor = self.hybrid_executor
+        self._reward_history_cache: dict[int, tuple[float, ...]] = {}
 
         self.observation_builder = ObservationBuilder(
             action_size=self.action_spec.size,
@@ -431,7 +300,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         self._environment_digest = content_digest(self._digest_payload())
 
-        self.start_index = self.trend_strategy.minimum_history_for(dataset)
+        self.start_index = self._minimum_start_index
         self.end_index = self.start_index + 1
         self.current_index = self.start_index
         initial_prices = dataset.close[self.start_index]
@@ -531,6 +400,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 "episode_hours": self.config.episode_hours,
                 "execution_cost": asdict(self.config.execution_cost),
                 "finite_horizon_observation": self.config.finite_horizon_observation,
+                "require_full_reward_preroll": self.config.require_full_reward_preroll,
                 "initial_capital": self.config.initial_capital,
                 "initial_state_modes": self.config.initial_state_modes,
                 "episode_sampling_mode": self.config.episode_sampling_mode,
@@ -691,7 +561,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         cached = self._valid_start_cache.get(key)
         if cached is not None:
             return cached.copy()
-        minimum = self.trend_strategy.minimum_history_for(self.dataset)
+        minimum = self._minimum_start_index
         valid: list[int] = []
         for start in range(minimum, self.dataset.n_bars - 1):
             try:
@@ -753,9 +623,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             if isinstance(raw_start, bool) or not isinstance(raw_start, int):
                 raise ValueError("start_idx must be an integer")
             start = raw_start
-            minimum = self.trend_strategy.minimum_history_for(self.dataset)
+            minimum = self._minimum_start_index
             if start < minimum:
-                raise ValueError("start_idx does not have sufficient causal history")
+                raise ValueError(
+                    "start_idx does not have sufficient causal or signal history"
+                )
             end = self._episode_end(start, hours=hours, bars=bars)
         else:
             valid_starts = self._valid_starts(hours=hours, bars=bars)
@@ -766,7 +638,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 feature_index = self.config.regime_feature_index
                 if feature_index >= len(self.dataset.global_feature_names):
                     raise ValueError("regime_feature_index is outside global features")
-                available = self.dataset.global_feature_available[
+                available = self.dataset.resolved_array("global_feature_available")[
                     valid_starts,
                     feature_index,
                 ]
@@ -875,6 +747,68 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         )
         return book
 
+    def _bars_between(self, start: int, stop: int) -> int:
+        remaining = stop - start
+        if remaining <= 0:
+            raise ValueError("reward pre-roll interval must be non-empty")
+        if self.config.decision_every is not None:
+            return min(self.config.decision_every, remaining)
+        if self.dataset.regular_cadence:
+            return min(
+                self.dataset.bars_for_hours(self.config.decision_hours), remaining
+            )
+        return self.dataset.bars_until(
+            start,
+            self.config.decision_hours,
+            maximum_index=stop,
+        )
+
+    def _baseline_reward_history(
+        self, *, reward_start: int, history_steps: int
+    ) -> tuple[float, ...]:
+        if history_steps == 0:
+            return ()
+        cached = self._reward_history_cache.get(reward_start)
+        if cached is not None:
+            return cached
+        history_start = self.dataset.lookback_index(
+            reward_start, self.reward_tracker.config.baseline_window_hours
+        )
+        if history_start < self.trend_strategy.minimum_history_for(self.dataset):
+            return ()
+        book = self._make_initial_book(
+            weights=np.zeros(self.dataset.n_symbols, dtype=np.float64),
+            peak=self.config.initial_capital,
+            start=history_start,
+        )
+        executor = MarketExecutor(self.dataset, self.config.execution_cost)
+        executor.reset_random_state(reward_start)
+        cursor = history_start
+        returns: list[float] = []
+        while cursor < reward_start:
+            target = self.trend_strategy.targets(self.dataset, cursor).base
+            constrained = self.pre_trade_risk.constrain(
+                target,
+                current=book.weights,
+                drawdown=self._drawdown(book),
+            )
+            result = executor.execute_interval(
+                book,
+                constrained.weights,
+                start_index=cursor,
+                bars=self._bars_between(cursor, reward_start),
+            )
+            book = result.book
+            cursor = result.next_index
+            returns.append(float(result.interval_log_return))
+            if book.insolvent:
+                raise RuntimeError("baseline reward pre-roll terminated economically")
+        if len(returns) < history_steps:
+            return ()
+        history = tuple(returns[-history_steps:])
+        self._reward_history_cache[reward_start] = history
+        return history
+
     def reset(
         self,
         *,
@@ -971,9 +905,27 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 requested_weights=weights,
             )
         self._action_diagnostics.reset()
+        reward_history_steps = complete_reward_history_steps(
+            self.dataset,
+            reward_start=start,
+            window_hours=self.reward_tracker.config.baseline_window_hours,
+            window_steps=self.reward_tracker.baseline_window_steps,
+        )
+        baseline_history = self._baseline_reward_history(
+            reward_start=start, history_steps=reward_history_steps
+        )
+        reward_history_steps = len(baseline_history)
+        if (
+            self.config.require_full_reward_preroll
+            and self.reward_tracker.config.baseline_underperformance_weight > 0.0
+            and reward_history_steps != self.reward_tracker.baseline_window_steps
+        ):
+            raise ValueError("episode start lacks the complete reward pre-roll window")
         self.reward_tracker.reset(
             hybrid_drawdown=self._drawdown(self.hybrid),
             shadow_drawdown=self._drawdown(self.shadow),
+            hybrid_history=baseline_history,
+            shadow_history=baseline_history,
         )
         return self._observation(), {
             "episode_seed": self._episode_seed,
@@ -981,6 +933,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "initial_state_mode": mode,
             "start_index": start,
             "end_index": end,
+            "reward_history_steps": reward_history_steps,
         }
 
     def _constrain_target(
@@ -1214,8 +1167,15 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             self.shadow.terminate(EconomicTerminationReason.MINIMUM_EQUITY)
         hybrid_terminated = self.hybrid.insolvent
         shadow_terminated = self.shadow.insolvent
-        terminated = hybrid_terminated or shadow_terminated or liquidation_terminal
-        truncated = time_limit_reached and not terminated
+        economic_transition = classify_economic_transition(
+            hybrid=self.hybrid,
+            shadow=self.shadow,
+            time_limit_reached=time_limit_reached,
+            liquidation_terminal=liquidation_terminal,
+            liquidation_complete=liquidation_complete,
+        )
+        terminated = economic_transition.terminated
+        truncated = economic_transition.truncated
         action_delta_l1 = float(np.abs(maintained_action - self._previous_action).sum())
         projection_distance = hybrid_risk.projection_l1
         reward_breakdown = self.reward_tracker.step(
@@ -1248,19 +1208,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             constrained=hybrid_risk.was_constrained,
             turnover_overridden=hybrid_risk.turnover_overridden,
         )
-        termination_reason = (
-            None
-            if not terminated
-            else (
-                EconomicTerminationReason(self.hybrid.termination_reason).value
-                if self.hybrid.termination_reason is not None
-                else EconomicTerminationReason(self.shadow.termination_reason).value
-                if self.shadow.termination_reason is not None
-                else "forced_close"
-                if liquidation_complete
-                else "liquidation_incomplete"
-            )
-        )
+        termination_reason = economic_transition.reason
         info: dict[str, object] = {
             "action_delta_l1": action_delta_l1,
             "action_raw_max_abs": raw_max_abs,

@@ -22,7 +22,7 @@ def test_default_reward_configuration_matches_approved_design() -> None:
 
     assert reward.scale == pytest.approx(100.0)
     assert reward.baseline_window_hours == pytest.approx(720.0)
-    assert reward.baseline_minimum_history_hours == pytest.approx(168.0)
+    assert reward.baseline_minimum_history_hours == pytest.approx(720.0)
     assert reward.baseline_tolerance == pytest.approx(0.015)
     assert reward.baseline_penalty_weight == pytest.approx(0.10)
     assert reward.drawdown_penalty_weight == pytest.approx(0.05)
@@ -58,7 +58,7 @@ def test_reward_configuration_rejects_invalid_values(kwargs: dict[str, object]) 
 
 def test_baseline_hinge_is_disabled_before_minimum_history() -> None:
     reward = config()
-    hybrid = [0.0] * 40 + [-0.01]
+    hybrid = [0.0] * 40 + [-0.02]
     shadow = [0.0] * 41
 
     context = build_reward_context(
@@ -71,7 +71,7 @@ def test_baseline_hinge_is_disabled_before_minimum_history() -> None:
     )
 
     assert context.history_bars == 41
-    assert context.baseline_tolerance == pytest.approx(0.015 * 41 / 180)
+    assert context.baseline_tolerance == pytest.approx(0.015)
     assert context.baseline_shortfall > context.baseline_tolerance
     assert context.baseline_penalty == pytest.approx(0.0)
 
@@ -95,9 +95,9 @@ def test_baseline_hinge_activates_at_exact_minimum_history() -> None:
     assert context.baseline_penalty == pytest.approx(context.baseline_shortfall)
 
 
-def test_baseline_hinge_uses_scaled_tolerance_after_minimum_history() -> None:
+def test_baseline_hinge_uses_fixed_tolerance_after_minimum_history() -> None:
     reward = config()
-    hybrid = [0.0] * 89 + [-0.01]
+    hybrid = [0.0] * 89 + [-0.02]
     shadow = [0.0] * 90
 
     context = build_reward_context(
@@ -109,8 +109,8 @@ def test_baseline_hinge_uses_scaled_tolerance_after_minimum_history() -> None:
         config=reward,
     )
 
-    expected_tolerance = 0.015 * 90 / 180
-    expected_shortfall = -math.log1p(-0.01)
+    expected_tolerance = 0.015
+    expected_shortfall = -math.log1p(-0.02)
     assert context.baseline_tolerance == pytest.approx(expected_tolerance)
     assert context.baseline_shortfall == pytest.approx(expected_shortfall)
     assert context.baseline_penalty == pytest.approx(

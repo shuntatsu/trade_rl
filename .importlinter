@@ -51,3 +51,14 @@ forbidden_modules =
     trade_rl.workflows
     trade_rl.integrations
     stable_baselines3
+
+[importlinter:contract:workflow-frameworks]
+name = Workflows cannot directly import model frameworks
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    trade_rl.workflows
+forbidden_modules =
+    stable_baselines3
+    sb3_contrib
+    torch

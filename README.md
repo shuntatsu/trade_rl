@@ -18,21 +18,21 @@ The maintained environment now provides:
 - cash, baseline, random, stressed, partial-fill and restored causal reset states, duration curricula and regime/stress episode sampling;
 - observation schema v3 with per-feature masks and staleness, factor loadings, requested and realized execution state, cash/net/gross/margin state, previous action and optional finite-horizon time;
 - fold-fitted, frozen, content-addressed observation normalization that preserves categorical masks exactly;
-- reward schema v3 prioritizing absolute log-wealth growth, then excess growth, with incremental drawdown and rolling baseline-underperformance progressive hinges;
+- reward schema v4 prioritizing absolute log-wealth growth, then excess growth, with incremental drawdown and rolling baseline-underperformance progressive hinges;
 - PPO exploration/network controls plus sealed-comparison support for SAC, TD3 and TQC;
 - AUM capacity curves, action saturation/projection diagnostics and permutation-aware shared per-asset encoding.
 
 ## Identity and serving
 
-Environment identity includes dataset, calendar, action specification, alpha/factor artifacts, normalizer, episode curriculum, trend, reward, risk, execution and AUM. Serving bundle v3 binds the exact action size, action names, ActionSpec digest, observation schema and size, environment digest and normalizer digest. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
+Environment identity includes dataset, calendar, action specification, content-addressed alpha/factor artifacts, normalizer, episode curriculum, trend, reward, risk, execution and AUM. Signal filesystem paths are source references only and never change experiment identity. Serving bundle v3 binds the exact action size, action names, ActionSpec digest, observation schema and size, environment digest and normalizer digest. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
 
 The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3 and TQC ensemble bundles. It validates every declared member and averages deterministic actions only after all members pass shape, finite-value and bounds checks.
 
 ## Training artifacts
 
-A market dataset artifact is a validated directory containing canonical `manifest.json` and deterministic `arrays.npz`. Training and walk-forward runs are staged, validated and then atomically published under `runs/<run-id>`; incomplete runs are isolated under `failed/<run-id>` and never replace `latest.json`.
+A market dataset artifact is a validated directory containing canonical `manifest.json` and deterministic `arrays.npz`. The maintained API is `write_market_dataset_files` for deterministic staging files, `publish_market_dataset_artifact` for exclusive atomic publication, and `load_market_dataset_artifact` for verified loading; older same-named writers remain warning-only compatibility wrappers for one release. Training and walk-forward runs are staged, validated and then atomically published under `runs/<run-id>`; incomplete runs are isolated under `failed/<run-id>` and never replace `latest.json`.
 
-A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one `policy.zip` per seed, a `policy-loader.json`, optional verified ONNX/TorchScript actors and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format. ONNX is an optional required export when requested; TorchScript is best-effort and records an explicit unsupported reason when conversion is unsafe.
+A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one authoritative `policy.zip` per seed, content-addressed intermediate checkpoints selected only on checkpoint-validation data, a `policy-loader.json`, optional verified ONNX/TorchScript actors and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format. ONNX is an optional required export when requested; TorchScript is best-effort and records an explicit unsupported reason when conversion is unsafe.
 
 Nested walk-forward execution fits normalization on each train range only, evaluates checkpoint and configuration-selection ranges without reading sealed test data, and evaluates each selected policy on the outer test range only after selection.
 

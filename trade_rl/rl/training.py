@@ -69,6 +69,8 @@ class ResidualTrainingConfig:
     learning_starts: int = 10_000
     train_freq: int = 1
     gradient_steps: int = 1
+    checkpoint_interval_steps: int | None = None
+    max_checkpoints: int = 5
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (
@@ -86,6 +88,18 @@ class ResidualTrainingConfig:
                 or integer_value <= 0
             ):
                 raise ValueError(f"{integer_field_name} must be a positive integer")
+        if self.checkpoint_interval_steps is not None and (
+            isinstance(self.checkpoint_interval_steps, bool)
+            or not isinstance(self.checkpoint_interval_steps, int)
+            or self.checkpoint_interval_steps < 0
+        ):
+            raise ValueError("checkpoint_interval_steps must be non-negative")
+        if (
+            isinstance(self.max_checkpoints, bool)
+            or not isinstance(self.max_checkpoints, int)
+            or self.max_checkpoints <= 0
+        ):
+            raise ValueError("max_checkpoints must be a positive integer")
         if self.algorithm.lower() == "ppo" and self.n_steps % self.batch_size != 0:
             raise ValueError("batch_size must divide n_steps for one PPO environment")
         algorithm = self.algorithm.lower()
@@ -184,6 +198,12 @@ class ResidualTrainingConfig:
             return math.ceil(self.timesteps / self.n_steps) * self.n_steps
         return self.timesteps
 
+    @property
+    def resolved_checkpoint_interval(self) -> int:
+        if self.checkpoint_interval_steps is not None:
+            return self.checkpoint_interval_steps
+        return max(1, math.ceil(self.timesteps / self.max_checkpoints))
+
     def digest_payload(self) -> dict[str, object]:
         return {
             "algorithm": self.algorithm,
@@ -192,6 +212,7 @@ class ResidualTrainingConfig:
             "batch_size": self.batch_size,
             "buffer_size": self.buffer_size,
             "global_embedding_dim": self.global_embedding_dim,
+            "checkpoint_interval_steps": self.checkpoint_interval_steps,
             "clip_range": self.clip_range,
             "decision_hours": self.decision_hours,
             "device": self.device,
@@ -203,6 +224,7 @@ class ResidualTrainingConfig:
             "learning_rate": self.learning_rate,
             "learning_starts": self.learning_starts,
             "log_std_init": self.log_std_init,
+            "max_checkpoints": self.max_checkpoints,
             "max_grad_norm": self.max_grad_norm,
             "n_epochs": self.n_epochs,
             "n_steps": self.n_steps,
@@ -576,7 +598,18 @@ class StableBaselines3Backend:
                         sde_sample_freq=config.sde_sample_freq,
                         **off_policy,
                     )
-            model.learn(total_timesteps=config.timesteps)
+            from trade_rl.rl.checkpointing import build_checkpoint_callback
+
+            callback = build_checkpoint_callback(
+                checkpoint_root=output_path.parent / "checkpoints",
+                algorithm=config.algorithm,
+                seed=seed,
+                interval_steps=config.resolved_checkpoint_interval,
+                max_checkpoints=config.max_checkpoints,
+                environment_digest=str(identity["environment_digest"]),
+                training_config_digest=content_digest(config.digest_payload()),
+            )
+            model.learn(total_timesteps=config.timesteps, callback=callback)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             save_target = output_path.with_suffix("")
             model.save(str(save_target))

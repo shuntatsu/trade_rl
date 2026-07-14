@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -19,12 +18,15 @@ from trade_rl.artifacts.run_manifest import (
     write_training_run_manifest,
 )
 from trade_rl.artifacts.store import ArtifactStore
-from trade_rl.data.artifacts import MarketDatasetView, load_market_dataset_artifact
+from trade_rl.data import load_market_dataset_artifact
+from trade_rl.data.artifacts import MarketDatasetView
 from trade_rl.data.market import MarketDataset
+from trade_rl.domain.checkpoints import PolicyCheckpoint, PolicyCheckpointLoader
 from trade_rl.domain.datasets import DatasetManifest
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
+from trade_rl.integrations.checkpoints import StableBaselines3CheckpointLoader
 from trade_rl.risk.pretrade import PreTradeRisk
+from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import observation_passthrough_indices
@@ -42,11 +44,23 @@ from trade_rl.workflows.fold_runner import (
     FoldExecutionConfig,
     PolicyTrainingArtifact,
 )
+from trade_rl.workflows.market_walk_forward_config import (
+    MarketWalkForwardConfig as MarketWalkForwardConfig,
+)
+from trade_rl.workflows.market_walk_forward_config import (
+    NamedCandidateRun as NamedCandidateRun,
+)
 from trade_rl.workflows.training_run import TrainingRunConfig
 from trade_rl.workflows.walk_forward import (
     WalkForwardExecutionResult,
-    WalkForwardWorkflowConfig,
     execute_walk_forward,
+)
+from trade_rl.workflows.walk_forward_evaluation import (
+    bind_signal_providers_to_view,
+    build_market_environment,
+    evaluate_range,
+    minimum_environment_start,
+    resolve_signal_digest,
 )
 
 
@@ -55,134 +69,6 @@ def _write_json(path: Path, payload: object) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_bytes(canonical_json_bytes(payload))
     temporary.replace(path)
-
-
-def _mapping(value: object, *, field: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field} must be a JSON object")
-    return dict(value)
-
-
-@dataclass(frozen=True, slots=True)
-class NamedCandidateRun:
-    name: str
-    run: TrainingRunConfig
-
-    def __post_init__(self) -> None:
-        if not self.name or self.name == BASELINE_CONFIGURATION:
-            raise ValueError("candidate name is empty or reserved")
-
-
-@dataclass(frozen=True, slots=True)
-class MarketWalkForwardConfig:
-    workflow: WalkForwardWorkflowConfig
-    candidates: tuple[NamedCandidateRun, ...]
-    minimum_selection_uplift: float = 0.0
-    signal_digest: str = ""
-    schema_version: str = "market_walk_forward_config_v1"
-
-    def __post_init__(self) -> None:
-        if not self.candidates:
-            raise ValueError("walk-forward requires at least one candidate")
-        names = tuple(item.name for item in self.candidates)
-        if len(set(names)) != len(names):
-            raise ValueError("walk-forward candidate names must be unique")
-        if (
-            not math.isfinite(self.minimum_selection_uplift)
-            or self.minimum_selection_uplift < 0.0
-        ):
-            raise ValueError("minimum_selection_uplift must be non-negative")
-        if not self.signal_digest:
-            object.__setattr__(
-                self,
-                "signal_digest",
-                content_digest(
-                    {
-                        "schema_version": "trend_baseline_signal_v1",
-                        "trend": asdict(self.candidates[0].run.trend),
-                    }
-                ),
-            )
-        if len(self.signal_digest) != 64:
-            raise ValueError("signal_digest must be a SHA-256 digest")
-        common = {
-            content_digest(
-                {
-                    "action": asdict(item.run.action),
-                    "alpha_contract": asdict(item.run.alpha_contract),
-                    "environment": asdict(item.run.environment),
-                    "risk": asdict(item.run.risk),
-                    "reward": asdict(item.run.reward),
-                    "trend": asdict(item.run.trend),
-                }
-            )
-            for item in self.candidates
-        }
-        if len(common) != 1:
-            raise ValueError(
-                "walk-forward candidates must share environment, action, risk, reward, "
-                "and trend contracts"
-            )
-        if self.schema_version != "market_walk_forward_config_v1":
-            raise ValueError("unsupported market walk-forward configuration schema")
-
-    @classmethod
-    def from_json(
-        cls,
-        path: Path,
-        *,
-        n_bars: int,
-    ) -> MarketWalkForwardConfig:
-        payload = _mapping(
-            json.loads(path.read_text(encoding="utf-8")),
-            field="walk-forward config",
-        )
-        workflow_payload = _mapping(payload.get("workflow"), field="workflow")
-        workflow_payload.pop("n_bars", None)
-        raw_candidates = payload.get("candidates")
-        if not isinstance(raw_candidates, list) or not raw_candidates:
-            raise ValueError("candidates must be a non-empty list")
-        candidates: list[NamedCandidateRun] = []
-        for index, raw_candidate in enumerate(raw_candidates):
-            candidate = _mapping(raw_candidate, field=f"candidates[{index}]")
-            name = candidate.get("name")
-            if not isinstance(name, str):
-                raise ValueError(f"candidates[{index}].name must be a string")
-            candidates.append(
-                NamedCandidateRun(
-                    name=name,
-                    run=TrainingRunConfig.from_mapping(candidate.get("run")),
-                )
-            )
-        signal = payload.get("signal_digest", "")
-        if not isinstance(signal, str):
-            raise ValueError("signal_digest must be a string")
-        return cls(
-            workflow=WalkForwardWorkflowConfig(
-                n_bars=n_bars,
-                **workflow_payload,
-            ),
-            candidates=tuple(candidates),
-            minimum_selection_uplift=float(
-                payload.get("minimum_selection_uplift", 0.0)
-            ),
-            signal_digest=signal,
-            schema_version=str(
-                payload.get("schema_version", "market_walk_forward_config_v1")
-            ),
-        )
-
-    def digest_payload(self) -> dict[str, object]:
-        return {
-            "candidates": tuple(
-                {"name": item.name, "run": item.run.digest_payload()}
-                for item in self.candidates
-            ),
-            "minimum_selection_uplift": self.minimum_selection_uplift,
-            "schema_version": self.schema_version,
-            "signal_digest": self.signal_digest,
-            "workflow": asdict(self.workflow),
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,51 +90,15 @@ class _PolicyRecord:
     run: TrainingRunConfig
 
 
-def _load_model(algorithm: str, path: Path) -> Any:
-    if algorithm == "ppo":
-        from stable_baselines3 import PPO
-
-        return PPO.load(str(path), device="cpu")
-    if algorithm == "sac":
-        from stable_baselines3 import SAC
-
-        return SAC.load(str(path), device="cpu")
-    if algorithm == "td3":
-        from stable_baselines3 import TD3
-
-        return TD3.load(str(path), device="cpu")
-    if algorithm == "tqc":
-        from sb3_contrib import TQC
-
-        return TQC.load(str(path), device="cpu")
-    raise ValueError("unsupported walk-forward policy algorithm")
-
-
-def _environment(
+def _training_view_bounds(
     dataset: MarketDataset,
+    train_range: IndexRange,
     run: TrainingRunConfig,
-    *,
-    normalizer: ObservationNormalizer | None,
-    episode_bars: int,
-    liquidate_on_end: bool,
-) -> ResidualMarketEnv:
-    environment_config = replace(
-        run.environment,
-        episode_bars=episode_bars,
-        episode_hour_choices=(),
-        initial_state_modes=("cash",),
-        liquidate_on_end=liquidate_on_end,
-    )
-    return ResidualMarketEnv(
-        dataset,
-        trend_strategy=TrendStrategy(run.trend),
-        alpha_enabled=False,
-        alpha_contract=run.alpha_contract,
-        action_spec=run.action,
-        pre_trade_risk=PreTradeRisk(run.risk),
-        normalizer=normalizer,
-        config=environment_config,
-    )
+) -> tuple[int, int]:
+    trend = TrendStrategy(run.trend)
+    history = trend.minimum_history_for(dataset)
+    history_start = max(0, train_range.start - history)
+    return history_start, train_range.stop
 
 
 def _training_view(
@@ -256,10 +106,8 @@ def _training_view(
     train_range: IndexRange,
     run: TrainingRunConfig,
 ) -> MarketDataset:
-    trend = TrendStrategy(run.trend)
-    history = trend.minimum_history_for(dataset)
-    history_start = max(0, train_range.start - history)
-    return MarketDatasetView(dataset, history_start, train_range.stop).materialize()
+    start, stop = _training_view_bounds(dataset, train_range, run)
+    return MarketDatasetView(dataset, start, stop).materialize()
 
 
 def _fit_normalizer(
@@ -268,17 +116,32 @@ def _fit_normalizer(
     run: TrainingRunConfig,
 ) -> ObservationNormalizer:
     training_dataset = _training_view(dataset, train_range, run)
-    trend = TrendStrategy(run.trend)
-    start = trend.minimum_history_for(training_dataset)
+    view_start, view_stop = _training_view_bounds(dataset, train_range, run)
+    alpha_provider, factor_provider = bind_signal_providers_to_view(
+        dataset,
+        training_dataset,
+        run,
+        start=view_start,
+        stop=view_stop,
+        evaluation_start=train_range.start,
+    )
+    start = minimum_environment_start(
+        training_dataset,
+        run,
+        alpha_provider=alpha_provider,
+        factor_provider=factor_provider,
+    )
     episode_bars = training_dataset.n_bars - 1 - start
     if episode_bars <= 0:
         raise ValueError("training range is too short to fit an observation normalizer")
-    env = _environment(
+    env = build_market_environment(
         training_dataset,
         run,
         normalizer=None,
         episode_bars=episode_bars,
         liquidate_on_end=False,
+        alpha_provider=alpha_provider,
+        factor_provider=factor_provider,
     )
     observations: list[np.ndarray] = []
     try:
@@ -335,65 +198,6 @@ def _normalizer_payload(
     }
 
 
-def _evaluate_range(
-    *,
-    dataset: MarketDataset,
-    evaluation_range: IndexRange,
-    run: TrainingRunConfig,
-    normalizer: ObservationNormalizer | None,
-    model: Any | None,
-    baseline: bool,
-) -> ReturnSeries:
-    start_index = evaluation_range.start - 1
-    minimum = TrendStrategy(run.trend).minimum_history_for(dataset)
-    if start_index < minimum:
-        raise ValueError("evaluation range lacks causal trend history")
-    env = _environment(
-        dataset,
-        run,
-        normalizer=normalizer,
-        episode_bars=evaluation_range.size,
-        liquidate_on_end=True,
-    )
-    try:
-        observation, _ = env.reset(
-            seed=0,
-            options={
-                "episode_bars": evaluation_range.size,
-                "initial_state_mode": "cash",
-                "start_idx": start_index,
-            },
-        )
-        terminated = False
-        truncated = False
-        while not terminated and not truncated:
-            if baseline:
-                action = np.zeros(run.action.size, dtype=np.float32)
-            else:
-                if model is None:
-                    raise RuntimeError("residual evaluation requires a loaded model")
-                raw_action, _ = model.predict(observation, deterministic=True)
-                action = np.asarray(raw_action, dtype=np.float32).reshape(-1)
-            observation, _, terminated, truncated, _ = env.step(action)
-        values = tuple(
-            float(value)
-            for value in (
-                env.shadow.returns_history if baseline else env.hybrid.returns_history
-            )
-        )
-    finally:
-        env.close()
-    if len(values) != evaluation_range.size:
-        raise ValueError(
-            "range-restricted environment produced an unexpected return length"
-        )
-    return ReturnSeries(
-        values=values,
-        kind=ReturnKind.BASE_BAR,
-        periods_per_year=dataset.periods_per_year,
-    )
-
-
 class MarketCandidateTrainer(CandidateTrainer):
     """Train only on one fold's train view and select a seed on checkpoint data."""
 
@@ -405,12 +209,14 @@ class MarketCandidateTrainer(CandidateTrainer):
         root: Path,
         created_at: datetime,
         registry: dict[str, _PolicyRecord],
+        checkpoint_loader: PolicyCheckpointLoader | None = None,
     ) -> None:
         self.dataset = dataset
         self.candidates = candidates
         self.root = root
         self.created_at = created_at
         self.registry = registry
+        self.checkpoint_loader = checkpoint_loader or StableBaselines3CheckpointLoader()
         self._normalizers: dict[int, ObservationNormalizer] = {}
 
     def _normalizer(
@@ -439,10 +245,22 @@ class MarketCandidateTrainer(CandidateTrainer):
         run = self.candidates[request.configuration.name]
         normalizer = self._normalizer(request, run)
         training_dataset = _training_view(self.dataset, request.train, run)
-        trend = TrendStrategy(run.trend)
-        maximum_episode = (
-            training_dataset.n_bars - 1 - trend.minimum_history_for(training_dataset)
+        view_start, view_stop = _training_view_bounds(self.dataset, request.train, run)
+        alpha_provider, factor_provider = bind_signal_providers_to_view(
+            self.dataset,
+            training_dataset,
+            run,
+            start=view_start,
+            stop=view_stop,
+            evaluation_start=request.train.start,
         )
+        minimum_start = minimum_environment_start(
+            training_dataset,
+            run,
+            alpha_provider=alpha_provider,
+            factor_provider=factor_provider,
+        )
+        maximum_episode = training_dataset.n_bars - 1 - minimum_start
         if maximum_episode <= 0:
             raise ValueError("fold training range is too short")
         configured_episode = run.environment.resolve_nominal_episode_bars(
@@ -454,14 +272,24 @@ class MarketCandidateTrainer(CandidateTrainer):
             episode_bars=episode_bars,
             episode_hour_choices=(),
             liquidate_on_end=False,
+            require_full_reward_preroll=True,
         )
 
         def factory() -> ResidualMarketEnv:
             return ResidualMarketEnv(
                 training_dataset,
                 trend_strategy=TrendStrategy(run.trend),
-                alpha_enabled=False,
+                alpha_provider=alpha_provider,
+                alpha_enabled=run.action.alpha_enabled,
+                alpha_artifact_digest=(
+                    None if alpha_provider is None else alpha_provider.artifact_digest
+                ),
                 alpha_contract=run.alpha_contract,
+                factor_basis_provider=factor_provider,
+                factor_artifact_digest=(
+                    None if factor_provider is None else factor_provider.artifact_digest
+                ),
+                factor_count=run.action.n_factors,
                 action_spec=run.action,
                 pre_trade_risk=PreTradeRisk(run.risk),
                 normalizer=normalizer,
@@ -494,25 +322,35 @@ class MarketCandidateTrainer(CandidateTrainer):
 
         scored: list[tuple[float, str]] = []
         for index, member in enumerate(ensemble.members):
-            path = candidate_root / "members" / f"member-{index:03d}" / "policy.zip"
-            record = _PolicyRecord(
-                path=path,
-                algorithm=run.training.algorithm,
-                normalizer=normalizer,
-                run=run,
-            )
-            self.registry[member.checkpoint_digest] = record
-            model = _load_model(record.algorithm, record.path)
-            returns = _evaluate_range(
-                dataset=self.dataset,
-                evaluation_range=request.checkpoint_validation,
-                run=run,
-                normalizer=normalizer,
-                model=model,
-                baseline=False,
-            )
-            score = sum(math.log1p(value) for value in returns.values)
-            scored.append((score, member.checkpoint_digest))
+            member_root = candidate_root / "members" / f"member-{index:03d}"
+            candidates = [
+                (member.checkpoint_digest, member_root / "policy.zip"),
+                *(
+                    (checkpoint.policy_digest, checkpoint.policy_path)
+                    for checkpoint in checkpoint_manifests(member_root / "checkpoints")
+                ),
+            ]
+            for policy_digest, path in candidates:
+                record = _PolicyRecord(
+                    path=path,
+                    algorithm=run.training.algorithm,
+                    normalizer=normalizer,
+                    run=run,
+                )
+                self.registry[policy_digest] = record
+                model = self.checkpoint_loader.load(
+                    PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
+                )
+                returns = evaluate_range(
+                    dataset=self.dataset,
+                    evaluation_range=request.checkpoint_validation,
+                    run=run,
+                    normalizer=normalizer,
+                    model=model,
+                    baseline=False,
+                )
+                score = sum(math.log1p(value) for value in returns.values)
+                scored.append((score, policy_digest))
         selected_digest = min(scored, key=lambda item: (-item[0], item[1]))[1]
         _write_json(
             candidate_root / "checkpoint-selection.json",
@@ -544,10 +382,12 @@ class MarketCandidateEvaluator:
         dataset: MarketDataset,
         baseline_run: TrainingRunConfig,
         registry: dict[str, _PolicyRecord],
+        checkpoint_loader: PolicyCheckpointLoader | None = None,
     ) -> None:
         self.dataset = dataset
         self.baseline_run = baseline_run
         self.registry = registry
+        self.checkpoint_loader = checkpoint_loader or StableBaselines3CheckpointLoader()
         self._model_cache: dict[str, Any] = {}
         self.outer_test_counts: dict[int, int] = {}
 
@@ -569,9 +409,11 @@ class MarketCandidateEvaluator:
             normalizer = record.normalizer
             model = self._model_cache.get(request.policy_digest)
             if model is None:
-                model = _load_model(record.algorithm, record.path)
+                model = self.checkpoint_loader.load(
+                    PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
+                )
                 self._model_cache[request.policy_digest] = model
-        returns = _evaluate_range(
+        returns = evaluate_range(
             dataset=self.dataset,
             evaluation_range=request.evaluation_range,
             run=run,
@@ -665,6 +507,8 @@ def execute_market_walk_forward(
     resolved_run_id = run_id or resolved_created_at.strftime("wf-%Y%m%dT%H%M%SZ")
     dataset = load_market_dataset_artifact(dataset_path)
     config = MarketWalkForwardConfig.from_json(config_path, n_bars=dataset.n_bars)
+    resolved_signal = resolve_signal_digest(config, dataset_id=dataset.dataset_id)
+    config = replace(config, signal_digest=resolved_signal)
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
     registry: dict[str, _PolicyRecord] = {}

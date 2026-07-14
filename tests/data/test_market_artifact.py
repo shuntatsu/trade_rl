@@ -10,10 +10,7 @@ import pytest
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.artifact import (
-    load_market_dataset_artifact,
-    write_market_dataset_artifact,
-)
+from trade_rl.data import load_market_dataset_artifact, publish_market_dataset_artifact
 from trade_rl.data.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -65,7 +62,7 @@ def test_artifact_loader_rejects_tampered_dataset_id_with_valid_outer_digest(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "artifact"
-    write_market_dataset_artifact(root, _dataset())
+    publish_market_dataset_artifact(root, _dataset())
     manifest_path = root / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["dataset_id"] = "f" * 64
@@ -87,7 +84,7 @@ def test_atomic_publish_rejects_existing_destination_without_changes(
     sentinel.write_text("preserve", encoding="utf-8")
 
     with pytest.raises(FileExistsError, match="already exists"):
-        write_market_dataset_artifact(root, _dataset())
+        publish_market_dataset_artifact(root, _dataset())
 
     assert sentinel.read_text(encoding="utf-8") == "preserve"
     assert tuple(root.iterdir()) == (sentinel,)
@@ -108,7 +105,31 @@ def test_failed_staging_is_removed_without_publishing(
     monkeypatch.setattr(artifact_module, "_write_arrays", fail_write)
 
     with pytest.raises(RuntimeError, match="write failed"):
-        write_market_dataset_artifact(root, _dataset())
+        publish_market_dataset_artifact(root, _dataset())
 
     assert not root.exists()
     assert not tuple(tmp_path.glob(".artifact.staging-*"))
+
+
+def test_publish_market_dataset_artifact_returns_typed_result(tmp_path: Path) -> None:
+    from trade_rl.data import publish_market_dataset_artifact
+
+    root = tmp_path / "artifact"
+    result = publish_market_dataset_artifact(root, _dataset())
+
+    assert result.root == root
+    assert result.manifest_path == root / "manifest.json"
+    assert result.arrays_path == root / "arrays.npz"
+    assert len(result.artifact_digest) == 64
+
+
+def test_legacy_atomic_writer_warns_and_preserves_digest_return(tmp_path: Path) -> None:
+    from trade_rl.data import artifact as artifact_module
+
+    with pytest.warns(DeprecationWarning, match="publish_market_dataset_artifact"):
+        result = artifact_module.write_market_dataset_artifact(
+            tmp_path / "artifact", _dataset()
+        )
+
+    assert isinstance(result, str)
+    assert len(result) == 64

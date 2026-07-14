@@ -1,4 +1,3 @@
-# mypy: disable-error-code="index"
 """Next-open execution, liquidity costs, funding, borrow and margin accounting."""
 
 from __future__ import annotations
@@ -238,7 +237,9 @@ class MarketExecutor:
         return rates
 
     def _round_prices(self, prices: np.ndarray, *, index: int) -> np.ndarray:
-        tick = np.maximum(self.dataset.tick_size[index], self.cost.tick_size)
+        tick = np.maximum(
+            self.dataset.resolved_array("tick_size")[index], self.cost.tick_size
+        )
         rounded = prices.copy()
         mask = tick > 0.0
         rounded[mask] = np.round(rounded[mask] / tick[mask]) * tick[mask]
@@ -248,7 +249,9 @@ class MarketExecutor:
         return rounded
 
     def _round_quantities(self, quantities: np.ndarray, *, index: int) -> np.ndarray:
-        lot = np.maximum(self.dataset.lot_size[index], self.cost.lot_size)
+        lot = np.maximum(
+            self.dataset.resolved_array("lot_size")[index], self.cost.lot_size
+        )
         rounded = quantities.copy()
         mask = lot > 0.0
         rounded[mask] = np.trunc(rounded[mask] / lot[mask]) * lot[mask]
@@ -264,7 +267,7 @@ class MarketExecutor:
         result = desired.copy()
         if not self.cost.allow_short:
             return np.maximum(result, 0.0)
-        available = self.dataset.borrow_available[index]
+        available = self.dataset.resolved_array("borrow_available")[index]
         lower_bound = np.minimum(current, 0.0)
         result[~available] = np.maximum(result[~available], lower_bound[~available])
         return result
@@ -339,7 +342,9 @@ class MarketExecutor:
             dtype=np.float64,
         ).reshape(-1)
         trade_mask = np.asarray(tradable, dtype=np.bool_).reshape(-1)
-        trade_mask = trade_mask & self.dataset.asset_active[market_index]
+        trade_mask = (
+            trade_mask & self.dataset.resolved_array("asset_active")[market_index]
+        )
         desired = np.asarray(desired_quantities, dtype=np.float64).reshape(-1)
         expected_shape = (self.dataset.n_symbols,)
         if any(
@@ -399,12 +404,12 @@ class MarketExecutor:
         requested_notional_vector = requested_delta * price_vector
         direction_allowed = np.where(
             requested_notional_vector > 0.0,
-            self.dataset.buy_allowed[market_index],
-            self.dataset.sell_allowed[market_index],
+            self.dataset.resolved_array("buy_allowed")[market_index],
+            self.dataset.resolved_array("sell_allowed")[market_index],
         )
         trade_mask = trade_mask & direction_allowed
         minimum_notional = np.maximum(
-            self.dataset.minimum_notional[market_index],
+            self.dataset.resolved_array("minimum_notional")[market_index],
             self.cost.minimum_notional,
         )
         requested_notional_vector = np.where(
@@ -414,7 +419,7 @@ class MarketExecutor:
         )
         capacity_notional = price_vector * capacity_volume_vector
         participation_limit = np.minimum(
-            self.dataset.max_participation_rate[market_index],
+            self.dataset.resolved_array("max_participation_rate")[market_index],
             self.cost.max_participation_rate,
         )
         capacity = participation_limit * capacity_notional
@@ -440,16 +445,21 @@ class MarketExecutor:
         slippage = self._slippage_rates(len(price_vector))
         spread_multiplier = 0.5 if self.cost.order_type == "limit" else 1.0
         venue_fee = (
-            self.cost.maker_fee_rate + self.dataset.maker_fee_rate[market_index]
+            self.cost.maker_fee_rate
+            + self.dataset.resolved_array("maker_fee_rate")[market_index]
             if self.cost.order_type == "limit"
-            else self.cost.taker_fee_rate + self.dataset.taker_fee_rate[market_index]
+            else self.cost.taker_fee_rate
+            + self.dataset.resolved_array("taker_fee_rate")[market_index]
         )
         unit_cost = self.cost.multiplier * (
             self.cost.fee_rate
-            + self.dataset.fee_rate[market_index]
+            + self.dataset.resolved_array("fee_rate")[market_index]
             + venue_fee
             + spread_multiplier
-            * (self.cost.spread_rate + self.dataset.spread_rate[market_index])
+            * (
+                self.cost.spread_rate
+                + self.dataset.resolved_array("spread_rate")[market_index]
+            )
             + impact
             + slippage
         )
@@ -486,13 +496,13 @@ class MarketExecutor:
             np.dot(
                 book.weights,
                 self.dataset.funding_rate[index]
-                * self.dataset.funding_due[index].astype(np.float64),
+                * self.dataset.resolved_array("funding_due")[index].astype(np.float64),
             )
         )
         funding_amount = book.portfolio_value * funding_return
         short_values = np.maximum(-book.position_values, 0.0)
         borrow_amount = float(
-            np.sum(short_values * self.dataset.borrow_rate[index])
+            np.sum(short_values * self.dataset.resolved_array("borrow_rate")[index])
             / self.dataset.periods_per_year
             * self.cost.borrow_rate_multiplier
         )
@@ -546,13 +556,17 @@ class MarketExecutor:
             close_index = start_index + offset
             next_index = close_index + 1
             period_start_value = max(result_book.portfolio_value, _TOLERANCE)
-            result_book.apply_split(self.dataset.split_factor[next_index])
-            inactive = ~self.dataset.asset_active[next_index]
+            result_book.apply_split(
+                self.dataset.resolved_array("split_factor")[next_index]
+            )
+            inactive = ~self.dataset.resolved_array("asset_active")[next_index]
             if np.any(inactive & (np.abs(result_book.quantities) > _TOLERANCE)):
                 result_book.settle_positions(
                     mask=inactive,
                     prices=self.dataset.open[next_index],
-                    recovery=self.dataset.delisting_recovery[next_index],
+                    recovery=self.dataset.resolved_array("delisting_recovery")[
+                        next_index
+                    ],
                 )
             result_book.revalue(self.dataset.open[next_index])
             value_at_open = max(result_book.portfolio_value, 0.0)
@@ -599,7 +613,8 @@ class MarketExecutor:
                 )
 
             intrabar_asset_returns = (
-                self.dataset.mark_price[next_index] / self.dataset.open[next_index]
+                self.dataset.resolved_array("mark_price")[next_index]
+                / self.dataset.open[next_index]
                 - 1.0
             )
             intrabar_return = float(np.dot(result_book.weights, intrabar_asset_returns))
@@ -608,10 +623,10 @@ class MarketExecutor:
                 _TOLERANCE,
             )
             dividend_amount = result_book.apply_dividend(
-                self.dataset.dividend[next_index]
+                self.dataset.resolved_array("dividend")[next_index]
             )
             cash_interest = result_book.apply_cash_interest(
-                float(self.dataset.cash_rate[next_index]),
+                float(self.dataset.resolved_array("cash_rate")[next_index]),
                 periods_per_year=self.dataset.periods_per_year,
             )
             total_dividend += dividend_amount
@@ -623,7 +638,7 @@ class MarketExecutor:
             total_funding += funding_amount
             total_borrow += borrow_amount
             result_book.mark_to_market(
-                mark_prices=self.dataset.mark_price[next_index],
+                mark_prices=self.dataset.resolved_array("mark_price")[next_index],
                 funding_amount=funding_amount,
                 period_start_value=period_start_value,
             )
@@ -631,7 +646,7 @@ class MarketExecutor:
             if result_book.insolvent:
                 self._flatten_after_termination(
                     result_book,
-                    self.dataset.mark_price[next_index],
+                    self.dataset.resolved_array("mark_price")[next_index],
                 )
 
         ending_value = max(result_book.portfolio_value, 0.0)
@@ -684,13 +699,13 @@ class MarketExecutor:
         if not 0 <= index < self.dataset.n_bars:
             raise ValueError("liquidation index is outside the dataset")
         result_book = book.clone()
-        result_book.revalue(self.dataset.mark_price[index])
+        result_book.revalue(self.dataset.resolved_array("mark_price")[index])
         starting_value = max(result_book.portfolio_value, _TOLERANCE)
         desired_quantities = np.zeros(self.dataset.n_symbols, dtype=np.float64)
         fill = self._fill_toward_quantities(
             result_book,
             desired_quantities,
-            prices=self.dataset.mark_price[index],
+            prices=self.dataset.resolved_array("mark_price")[index],
             capacity_volume=self.dataset.volume[index],
             tradable=self.dataset.tradable[index],
             turnover_denominator=starting_value,

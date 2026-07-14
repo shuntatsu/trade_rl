@@ -10,7 +10,7 @@ from dataclasses import asdict
 from typing import TextIO
 
 from trade_rl import __version__
-from trade_rl.data.artifact import write_market_dataset_artifact
+from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.data.builder import MarketDatasetBuilder
 from trade_rl.data.config import load_market_build_request
 from trade_rl.data.market import MarketCalendarKind
@@ -38,7 +38,9 @@ def _data_build(args: argparse.Namespace, stdout: TextIO) -> int:
         CsvMarketDataSource(request.source_root),
         request.instruments,
     )
-    artifact_digest = write_market_dataset_artifact(args.output, dataset)
+    artifact_digest = publish_market_dataset_artifact(
+        args.output, dataset
+    ).artifact_digest
     _write_json(
         stdout,
         {
@@ -126,6 +128,8 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
         learning_starts=args.learning_starts,
         train_freq=args.train_freq,
         gradient_steps=args.gradient_steps,
+        checkpoint_interval_steps=args.checkpoint_interval_steps,
+        max_checkpoints=args.max_checkpoints,
     )
     _write_json(
         stdout,
@@ -136,6 +140,7 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
             "asset_set_encoder": config.asset_set_encoder,
             "batch_size": config.batch_size,
             "buffer_size": config.buffer_size,
+            "checkpoint_interval_steps": config.checkpoint_interval_steps,
             "clip_range": config.clip_range,
             "decision_hours": config.decision_hours,
             "device": config.device,
@@ -148,6 +153,7 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
             "learning_rate": config.learning_rate,
             "learning_starts": config.learning_starts,
             "log_std_init": config.log_std_init,
+            "max_checkpoints": config.max_checkpoints,
             "max_grad_norm": config.max_grad_norm,
             "n_epochs": config.n_epochs,
             "n_steps": config.n_steps,
@@ -156,6 +162,7 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
             "policy": config.policy,
             "policy_net_arch": list(config.policy_net_arch),
             "requested_timesteps": config.timesteps,
+            "resolved_checkpoint_interval": config.resolved_checkpoint_interval,
             "schema": "residual_training_config_v4",
             "sde_sample_freq": config.sde_sample_freq,
             "seeds": list(config.seeds),
@@ -424,21 +431,21 @@ def build_parser() -> argparse.ArgumentParser:
     environment_config.add_argument("--drawdown-stop", type=float, default=0.2)
     environment_config.add_argument("--reward-scale", type=float, default=100.0)
     environment_config.add_argument("--absolute-growth-weight", type=float, default=1.0)
-    environment_config.add_argument("--excess-growth-weight", type=float, default=0.25)
+    environment_config.add_argument("--excess-growth-weight", type=float, default=0.0)
     environment_config.add_argument(
-        "--incremental-drawdown-weight", type=float, default=0.1
+        "--incremental-drawdown-weight", type=float, default=0.05
     )
-    environment_config.add_argument("--drawdown-dead-zone", type=float, default=0.0025)
+    environment_config.add_argument("--drawdown-dead-zone", type=float, default=0.0)
     environment_config.add_argument(
-        "--baseline-underperformance-weight", type=float, default=0.15
+        "--baseline-underperformance-weight", type=float, default=0.10
     )
     environment_config.add_argument(
-        "--baseline-window-hours", type=float, default=168.0
+        "--baseline-window-hours", type=float, default=720.0
     )
     environment_config.add_argument("--baseline-window-steps", type=int)
-    environment_config.add_argument("--baseline-tolerance", type=float, default=0.005)
+    environment_config.add_argument("--baseline-tolerance", type=float, default=0.015)
     environment_config.add_argument(
-        "--baseline-progressive-power", type=float, default=2.0
+        "--baseline-progressive-power", type=float, default=1.0
     )
     environment_config.add_argument(
         "--projection-penalty-weight", type=float, default=0.01
@@ -485,6 +492,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_config.add_argument("--learning-starts", type=int, default=10_000)
     train_config.add_argument("--train-freq", type=int, default=1)
     train_config.add_argument("--gradient-steps", type=int, default=1)
+    train_config.add_argument("--checkpoint-interval-steps", type=int)
+    train_config.add_argument("--max-checkpoints", type=int, default=5)
     train_config.add_argument("--n-epochs", type=int, default=10)
     train_config.add_argument("--gae-lambda", type=float, default=0.95)
     train_config.add_argument("--clip-range", type=float, default=0.2)

@@ -5,11 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from trade_rl.data.artifacts import (
-    MarketDatasetView,
-    load_market_dataset_artifact,
-    write_market_dataset_artifact,
-)
+from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
+from trade_rl.data.artifacts import MarketDatasetView
 from trade_rl.data.market import MarketDataset
 
 
@@ -47,7 +44,7 @@ def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(
 ) -> None:
     original = _dataset()
 
-    manifest_path = write_market_dataset_artifact(tmp_path, original)
+    manifest_path = write_market_dataset_files(tmp_path, original).manifest_path
     restored = load_market_dataset_artifact(tmp_path)
 
     assert manifest_path == tmp_path / "manifest.json"
@@ -78,7 +75,7 @@ def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(
 
 
 def test_market_dataset_artifact_rejects_tampered_npz(tmp_path: Path) -> None:
-    write_market_dataset_artifact(tmp_path, _dataset())
+    write_market_dataset_files(tmp_path, _dataset())
     arrays_path = tmp_path / "arrays.npz"
     arrays_path.write_bytes(arrays_path.read_bytes() + b"tampered")
 
@@ -103,3 +100,22 @@ def test_market_dataset_view_rejects_escape_and_materializes_range() -> None:
         view.subview(1, 8)
     with pytest.raises(ValueError, match="outside"):
         view.subview(3, 11)
+
+
+def test_write_market_dataset_files_returns_typed_result(tmp_path: Path) -> None:
+    from trade_rl.data import write_market_dataset_files
+
+    result = write_market_dataset_files(tmp_path, _dataset())
+
+    assert result.manifest_path == tmp_path / "manifest.json"
+    assert result.arrays_path == tmp_path / "arrays.npz"
+    assert len(result.artifact_digest) == 64
+
+
+def test_legacy_direct_writer_warns_and_preserves_path_return(tmp_path: Path) -> None:
+    from trade_rl.data import artifacts as artifacts_module
+
+    with pytest.warns(DeprecationWarning, match="write_market_dataset_files"):
+        result = artifacts_module.write_market_dataset_artifact(tmp_path, _dataset())
+
+    assert result == tmp_path / "manifest.json"

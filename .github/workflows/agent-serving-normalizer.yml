@@ -1,0 +1,84 @@
+name: One-shot serving normalizer hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  serving:
+    if: >-
+      github.head_ref == 'agent/complete-architecture-hardening' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra export
+
+      - name: Add serving normalizer regressions
+        run: uv run python .github/agent_tools/serving_normalizer.py tests
+
+      - name: Verify serving tests fail before implementation
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/serving/test_runtime_normalizer.py
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Serving normalizer tests unexpectedly passed before implementation"
+            exit 1
+          fi
+
+      - name: Apply serving normalizer implementation
+        run: uv run python .github/agent_tools/serving_normalizer.py implementation
+
+      - name: Format and lint
+        run: |
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff check .
+
+      - name: Type check
+        run: uv run mypy trade_rl
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Verify serving regressions
+        run: uv run pytest -q tests/serving/test_runtime_normalizer.py
+
+      - name: Remove one-shot files
+        run: |
+          rm .github/agent_tools/serving_normalizer.py
+          rmdir .github/agent_tools
+          rm .github/workflows/agent-serving-normalizer.yml
+
+      - name: Run full test suite
+        run: uv run pytest -q
+
+      - name: Commit verified serving hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply serving normalizers before policy inference"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

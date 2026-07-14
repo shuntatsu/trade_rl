@@ -7,6 +7,7 @@ import json
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
+from datetime import UTC, datetime
 from typing import TextIO
 
 from trade_rl import __version__
@@ -15,6 +16,11 @@ from trade_rl.data.builder import MarketDatasetBuilder
 from trade_rl.data.config import load_market_build_request
 from trade_rl.data.market import MarketCalendarKind
 from trade_rl.data.source import CsvMarketDataSource
+from trade_rl.integrations.binance import (
+    BinanceMarket,
+    BinanceTransportMode,
+    build_binance_market_dataset,
+)
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract, AlphaSignalKind
 from trade_rl.rl.configuration import EnvironmentExperimentManifest
@@ -50,6 +56,90 @@ def _data_build(args: argparse.Namespace, stdout: TextIO) -> int:
             "n_features": dataset.n_features,
             "n_symbols": dataset.n_symbols,
             "schema": "market_dataset_build_result_v1",
+        },
+    )
+    return 0
+
+
+def _parse_aware_datetime(value: str, *, field: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{field} must be an ISO-8601 datetime") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field} must include a timezone")
+    return parsed.astimezone(UTC)
+
+
+def _repeated_float_values(
+    values: list[float] | None,
+    *,
+    symbols: tuple[str, ...],
+    field: str,
+) -> tuple[float, ...] | None:
+    if not values:
+        return None
+    if len(values) != len(symbols):
+        raise ValueError(f"{field} must be supplied once per symbol")
+    return tuple(values)
+
+
+def _repeated_datetime_values(
+    values: list[str] | None,
+    *,
+    symbols: tuple[str, ...],
+) -> tuple[datetime, ...] | None:
+    if not values:
+        return None
+    if len(values) != len(symbols):
+        raise ValueError("listed-at must be supplied once per symbol")
+    return tuple(_parse_aware_datetime(value, field="listed-at") for value in values)
+
+
+def _data_binance(args: argparse.Namespace, stdout: TextIO) -> int:
+    symbols = tuple(args.symbol)
+    start_time = _parse_aware_datetime(args.start_time, field="start-time")
+    end_time = _parse_aware_datetime(args.end_time, field="end-time")
+    result = build_binance_market_dataset(
+        market=args.market,
+        symbols=symbols,
+        interval=args.interval,
+        start_time=start_time,
+        end_time=end_time,
+        transport_mode=args.transport,
+        tick_sizes=_repeated_float_values(
+            args.tick_size, symbols=symbols, field="tick-size"
+        ),
+        lot_sizes=_repeated_float_values(
+            args.lot_size, symbols=symbols, field="lot-size"
+        ),
+        minimum_notionals=_repeated_float_values(
+            args.minimum_notional,
+            symbols=symbols,
+            field="minimum-notional",
+        ),
+        listed_ats=_repeated_datetime_values(args.listed_at, symbols=symbols),
+    )
+    artifact_digest = publish_market_dataset_artifact(
+        args.output, result.dataset
+    ).artifact_digest
+    _write_json(
+        stdout,
+        {
+            "artifact_digest": artifact_digest,
+            "dataset_id": result.dataset.dataset_id,
+            "end_time": end_time.isoformat(),
+            "interval": args.interval,
+            "market": args.market,
+            "n_bars": result.dataset.n_bars,
+            "n_features": result.dataset.n_features,
+            "n_symbols": result.dataset.n_symbols,
+            "production_status": "NO-GO",
+            "schema": "binance_dataset_build_result_v1",
+            "sources_used": list(result.sources_used),
+            "start_time": start_time.isoformat(),
+            "symbols": list(result.dataset.symbols),
+            "transport": args.transport,
         },
     )
     return 0
@@ -355,6 +445,35 @@ def build_parser() -> argparse.ArgumentParser:
     data_build.add_argument("--config", required=True)
     data_build.add_argument("--output", required=True)
     data_build.set_defaults(handler=_data_build)
+
+    data_binance = data_commands.add_parser(
+        "binance",
+        help="build a deterministic dataset from public Binance data",
+    )
+    data_binance.add_argument(
+        "--market",
+        choices=tuple(item.value for item in BinanceMarket),
+        required=True,
+    )
+    data_binance.add_argument("--symbol", action="append", required=True)
+    data_binance.add_argument(
+        "--interval",
+        choices=("15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d"),
+        required=True,
+    )
+    data_binance.add_argument("--start-time", required=True)
+    data_binance.add_argument("--end-time", required=True)
+    data_binance.add_argument(
+        "--transport",
+        choices=tuple(item.value for item in BinanceTransportMode),
+        default=BinanceTransportMode.AUTO.value,
+    )
+    data_binance.add_argument("--tick-size", type=float, action="append")
+    data_binance.add_argument("--lot-size", type=float, action="append")
+    data_binance.add_argument("--minimum-notional", type=float, action="append")
+    data_binance.add_argument("--listed-at", action="append")
+    data_binance.add_argument("--output", required=True)
+    data_binance.set_defaults(handler=_data_binance)
 
     _add_status_group(subparsers, name="signal", help_text="signal artifacts and gates")
 

@@ -11,6 +11,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+_DATA_BINANCE_COMMAND = ("data", "binance")
+_TRAIN_RUN_COMMAND = ("train", "run")
+_WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
+
 
 def _run_cli(arguments: list[str], *, root: Path) -> dict[str, Any]:
     command = [sys.executable, "-m", "trade_rl.cli.app", *arguments]
@@ -62,18 +66,29 @@ def _data_arguments(
     output: Path,
 ) -> list[str]:
     return [
-        "data", "binance",
-        "--market", "usds-m",
-        "--symbol", "BTCUSDT",
-        "--interval", "1h",
-        "--start-time", start_time,
-        "--end-time", end_time,
-        "--transport", "vision",
-        "--tick-size", "0.1",
-        "--lot-size", "0.001",
-        "--minimum-notional", "5",
-        "--listed-at", "2019-09-08T00:00:00Z",
-        "--output", str(output),
+        *_DATA_BINANCE_COMMAND,
+        "--market",
+        "usds-m",
+        "--symbol",
+        "BTCUSDT",
+        "--interval",
+        "1h",
+        "--start-time",
+        start_time,
+        "--end-time",
+        end_time,
+        "--transport",
+        "vision",
+        "--tick-size",
+        "0.1",
+        "--lot-size",
+        "0.001",
+        "--minimum-notional",
+        "5",
+        "--listed-at",
+        "2019-09-08T00:00:00Z",
+        "--output",
+        str(output),
     ]
 
 
@@ -136,11 +151,15 @@ def main() -> int:
     artifact_root = work_root / "artifacts"
     training = _run_cli(
         [
-            "train", "run",
-            "--config", str(repository_root / "examples/binance/training-smoke.json"),
-            "--dataset", str(dataset_a),
-            "--output", str(artifact_root),
-            "--run-id", "binance-training-smoke",
+            *_TRAIN_RUN_COMMAND,
+            "--config",
+            str(repository_root / "examples/binance/training-smoke.json"),
+            "--dataset",
+            str(dataset_a),
+            "--output",
+            str(artifact_root),
+            "--run-id",
+            "binance-training-smoke",
         ],
         root=repository_root,
     )
@@ -153,13 +172,15 @@ def main() -> int:
 
     walk_forward = _run_cli(
         [
-            "walk-forward", "run",
-            "--config", str(
-                repository_root / "examples/binance/walk-forward-smoke.json"
-            ),
-            "--dataset", str(dataset_a),
-            "--output", str(artifact_root),
-            "--run-id", "binance-walk-forward-smoke",
+            *_WALK_FORWARD_RUN_COMMAND,
+            "--config",
+            str(repository_root / "examples/binance/walk-forward-smoke.json"),
+            "--dataset",
+            str(dataset_a),
+            "--output",
+            str(artifact_root),
+            "--run-id",
+            "binance-walk-forward-smoke",
         ],
         root=repository_root,
     )

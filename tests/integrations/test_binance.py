@@ -72,9 +72,7 @@ class FakeTransport:
             (_ms(self.start + timedelta(hours=3)), -0.0002),
         ], "fixture:funding"
 
-    def load_exchange_information(
-        self, **_: object
-    ) -> tuple[dict[str, object], str]:
+    def load_exchange_information(self, **_: object) -> tuple[dict[str, object], str]:
         return {
             "symbols": [
                 {
@@ -201,7 +199,9 @@ def test_vision_urls_are_official_and_market_specific() -> None:
     )
 
 
-def test_auto_transport_falls_back_from_rest_to_vision(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auto_transport_falls_back_from_rest_to_vision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
     rows = [[1, "1", "1", "1", "1", "1", 2, "1", 1, "1", "1", "0"]]
 

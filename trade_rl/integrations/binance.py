@@ -107,7 +107,10 @@ class BinanceInstrumentMetadata:
         ):
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{field_name} must be finite and non-negative")
-        if not math.isfinite(self.contract_multiplier) or self.contract_multiplier <= 0.0:
+        if (
+            not math.isfinite(self.contract_multiplier)
+            or self.contract_multiplier <= 0.0
+        ):
             raise ValueError("contract_multiplier must be finite and positive")
 
     def to_contract(self) -> InstrumentContract:
@@ -213,10 +216,7 @@ def vision_kline_url(
         prefix = "futures/um/daily/klines"
     else:
         prefix = "futures/cm/daily/klines"
-    return (
-        f"{_VISION_ROOT}/{prefix}/{symbol}/{interval}/"
-        f"{symbol}-{interval}-{date}.zip"
-    )
+    return f"{_VISION_ROOT}/{prefix}/{symbol}/{interval}/{symbol}-{interval}-{date}.zip"
 
 
 def vision_funding_url(
@@ -238,14 +238,18 @@ def vision_funding_url(
 def _csv_rows_from_zip(payload: bytes, *, source: str) -> list[list[str]]:
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            members = tuple(name for name in archive.namelist() if not name.endswith("/"))
+            members = tuple(
+                name for name in archive.namelist() if not name.endswith("/")
+            )
             if len(members) != 1:
                 raise BinanceTransportError(
                     f"{source} archive must contain exactly one file, found {members}"
                 )
             raw = archive.read(members[0]).decode("utf-8-sig")
     except (UnicodeDecodeError, zipfile.BadZipFile, KeyError) as error:
-        raise BinanceTransportError(f"invalid Binance Vision archive: {source}") from error
+        raise BinanceTransportError(
+            f"invalid Binance Vision archive: {source}"
+        ) from error
     return [row for row in csv.reader(io.StringIO(raw)) if row]
 
 
@@ -254,9 +258,11 @@ def _looks_like_header(row: Sequence[str]) -> bool:
 
 
 def _finite_float(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise ValueError(f"invalid {field}: {value!r}")
     try:
         result = float(value)
-    except (TypeError, ValueError) as error:
+    except ValueError as error:
         raise ValueError(f"invalid {field}: {value!r}") from error
     if not math.isfinite(result):
         raise ValueError(f"{field} must be finite")
@@ -313,7 +319,9 @@ class BinancePublicTransport:
         try:
             return json.loads(payload)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise BinanceTransportError(f"Binance returned invalid JSON for {url}") from error
+            raise BinanceTransportError(
+                f"Binance returned invalid JSON for {url}"
+            ) from error
 
     @staticmethod
     def _query_url(base: str, path: str, values: Mapping[str, object]) -> str:
@@ -357,7 +365,9 @@ class BinancePublicTransport:
             last_open = _normalize_epoch_ms(chunk[-1][0])
             next_cursor = last_open + step
             if next_cursor <= cursor:
-                raise BinanceTransportError("Binance REST kline pagination did not advance")
+                raise BinanceTransportError(
+                    "Binance REST kline pagination did not advance"
+                )
             cursor = next_cursor
             if len(chunk) < 1_000:
                 break
@@ -380,7 +390,9 @@ class BinancePublicTransport:
                 rows = rows[1:]
             for row in rows:
                 if len(row) < 8:
-                    raise BinanceTransportError(f"Binance Vision kline row is short: {url}")
+                    raise BinanceTransportError(
+                        f"Binance Vision kline row is short: {url}"
+                    )
                 open_ms = _normalize_epoch_ms(row[0])
                 if start_ms <= open_ms < end_ms:
                     result.append(list(row))
@@ -482,7 +494,9 @@ class BinancePublicTransport:
                 break
             next_cursor = chunk[-1][0] + 1
             if next_cursor <= cursor:
-                raise BinanceTransportError("Binance funding pagination did not advance")
+                raise BinanceTransportError(
+                    "Binance funding pagination did not advance"
+                )
             cursor = next_cursor
         return result
 
@@ -601,7 +615,9 @@ class BinancePublicTransport:
         )
         payload = self._request_json(url)
         if not isinstance(payload, dict):
-            raise BinanceTransportError("Binance exchange information must be an object")
+            raise BinanceTransportError(
+                "Binance exchange information must be an object"
+            )
         return dict(payload), "rest"
 
 

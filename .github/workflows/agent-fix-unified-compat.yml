@@ -46,7 +46,21 @@ jobs:
           path.write_text(text.replace(block, '# Replace all execution evidence references.\n', 1), encoding='utf-8')
           PY
       - name: Apply compatibility patch
-        run: uv run python .github/agent_tools/fix_unified_compat.py
+        id: apply
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python .github/agent_tools/fix_unified_compat.py > "$RUNNER_TEMP/compat-patch.txt" 2>&1
+      - name: Upload patch traceback
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-compat-patch-traceback
+          path: ${{ runner.temp }}/compat-patch.txt
+      - name: Enforce patch application
+        if: steps.apply.outcome != 'success'
+        run: exit 1
       - name: Format and lint-fix
         shell: bash
         run: |

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 import numpy as np
 
-from trade_rl.rl.normalization import ObservationNormalizer, normalizer_from_payload
+from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.serving.bundle import ServingBundle
 
 NORMALIZER_FILE = "normalizer.json"
@@ -19,17 +18,14 @@ class ServingObservationPipeline:
     normalizer: ObservationNormalizer | None
 
     @classmethod
-    def load(cls, bundle: ServingBundle) -> ServingObservationPipeline:
+    def load(cls, bundle: ServingBundle) -> "ServingObservationPipeline":
         manifest = bundle.manifest
+        normalizer = bundle.normalizer
         if manifest.normalizer_digest is None:
+            if normalizer is not None:
+                raise ValueError("serving bundle contains an unbound normalizer")
             return cls(observation_size=manifest.observation_size, normalizer=None)
-        path = bundle.root / NORMALIZER_FILE
-        if not path.is_file() or path.is_symlink():
-            raise ValueError("serving bundle normalizer artifact is missing")
-        normalizer = normalizer_from_payload(
-            json.loads(path.read_text(encoding="utf-8"))
-        )
-        if normalizer.digest != manifest.normalizer_digest:
+        if normalizer is None or normalizer.digest != manifest.normalizer_digest:
             raise ValueError("serving normalizer digest mismatch")
         if normalizer.size != manifest.observation_size:
             raise ValueError("serving normalizer observation size mismatch")

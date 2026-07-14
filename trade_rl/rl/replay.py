@@ -91,8 +91,8 @@ def write_replay_buffer_artifact(
     }
     manifest = ReplayBufferManifest(
         artifact_digest=content_digest(payload),
-        replay_digest=payload["replay_digest"],
-        size_bytes=payload["size_bytes"],
+        replay_digest=str(payload["replay_digest"]),
+        size_bytes=int(payload["size_bytes"]),
         algorithm=algorithm,
         environment_digest=environment_digest,
         training_config_digest=training_config_digest,

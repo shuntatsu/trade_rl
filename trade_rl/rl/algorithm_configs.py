@@ -70,18 +70,15 @@ def build_algorithm_config(
     algorithm: str | None = None,
 ) -> AlgorithmConfig:
     resolved = source.algorithm if algorithm is None else algorithm.lower()
-    common = dict(
-        timesteps=source.timesteps,
-        gamma=source.gamma,
-        learning_rate=source.learning_rate,
-        batch_size=source.batch_size,
-        policy=source.policy,
-        device=source.device,
-        policy_net_arch=source.policy_net_arch,
-    )
     if resolved == "ppo":
         return PPOConfig(
-            **common,
+            timesteps=source.timesteps,
+            gamma=source.gamma,
+            learning_rate=source.learning_rate,
+            batch_size=source.batch_size,
+            policy=source.policy,
+            device=source.device,
+            policy_net_arch=source.policy_net_arch,
             n_steps=source.n_steps,
             n_epochs=source.n_epochs,
             gae_lambda=source.gae_lambda,
@@ -95,8 +92,14 @@ def build_algorithm_config(
             use_sde=source.use_sde,
             sde_sample_freq=source.sde_sample_freq,
         )
-    off_policy = dict(
-        **common,
+    common = dict(
+        timesteps=source.timesteps,
+        gamma=source.gamma,
+        learning_rate=source.learning_rate,
+        batch_size=source.batch_size,
+        policy=source.policy,
+        device=source.device,
+        policy_net_arch=source.policy_net_arch,
         buffer_size=source.buffer_size,
         learning_starts=source.learning_starts,
         train_freq=source.train_freq,
@@ -104,15 +107,35 @@ def build_algorithm_config(
     )
     if resolved == "sac":
         return SACConfig(
-            **off_policy,
+            timesteps=source.timesteps,
+            gamma=source.gamma,
+            learning_rate=source.learning_rate,
+            batch_size=source.batch_size,
+            policy=source.policy,
+            device=source.device,
+            policy_net_arch=source.policy_net_arch,
+            buffer_size=source.buffer_size,
+            learning_starts=source.learning_starts,
+            train_freq=source.train_freq,
+            gradient_steps=source.gradient_steps,
             use_sde=source.use_sde,
             sde_sample_freq=source.sde_sample_freq,
         )
     if resolved == "td3":
-        return TD3Config(**off_policy)
+        return TD3Config(**common)  # type: ignore[arg-type]
     if resolved == "tqc":
         return TQCConfig(
-            **off_policy,
+            timesteps=source.timesteps,
+            gamma=source.gamma,
+            learning_rate=source.learning_rate,
+            batch_size=source.batch_size,
+            policy=source.policy,
+            device=source.device,
+            policy_net_arch=source.policy_net_arch,
+            buffer_size=source.buffer_size,
+            learning_starts=source.learning_starts,
+            train_freq=source.train_freq,
+            gradient_steps=source.gradient_steps,
             use_sde=source.use_sde,
             sde_sample_freq=source.sde_sample_freq,
         )

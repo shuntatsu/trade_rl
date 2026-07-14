@@ -98,7 +98,19 @@ class ReleaseAttestation:
             "selected_policy_digest": selected_policy_digest,
             "selection_evaluation_digest": selection_evaluation_digest,
         }
-        return cls(attestation_digest=content_digest(payload), **payload)
+        return cls(
+            attestation_digest=content_digest(payload),
+            bundle_digest=bundle_digest,
+            dataset_id=dataset_id,
+            selection_evaluation_digest=selection_evaluation_digest,
+            gate_evaluation_digest=gate_evaluation_digest,
+            gate_evidence_digest=gate_evidence_digest,
+            selected_policy_digest=selected_policy_digest,
+            git_commit=git_commit,
+            dependency_digest=dependency_digest,
+            approver=approver,
+            approved_at=approved_at,
+        )
 
 
 def default_attestation_path(bundle_root: str | Path) -> Path:

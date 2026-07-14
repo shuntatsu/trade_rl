@@ -243,7 +243,7 @@ class BookState:
             cash=self.cash,
             mark_prices=self.mark_prices.copy(),
             peak_value=self.peak_value,
-            contract_multipliers=self.contract_multipliers.copy(),
+            contract_multipliers=np.asarray(self.contract_multipliers).copy(),
             max_drawdown=self.max_drawdown,
             turnover_total=self.turnover_total,
             total_cost=self.total_cost,

@@ -493,20 +493,10 @@ def train_residual_ensemble(
     )
 
 
-def __getattr__(name: str) -> Any:
-    if name in {"StableBaselines3Backend", "StableBaselines3PPOBackend"}:
-        from trade_rl.integrations import sb3_training
-
-        return getattr(sb3_training, name)
-    raise AttributeError(name)
-
-
 __all__ = [
     "PolicyTrainingBackend",
     "PolicyTrainingResult",
     "ResidualTrainingConfig",
-    "StableBaselines3Backend",
-    "StableBaselines3PPOBackend",
     "gamma_from_half_life",
     "train_residual_ensemble",
 ]

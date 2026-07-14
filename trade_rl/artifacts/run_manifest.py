@@ -195,7 +195,17 @@ class TrainingRunManifest:
             "schema_version": TRAINING_RUN_MANIFEST_SCHEMA,
             "training_config_digest": training_config_digest,
         }
-        return cls(digest=content_digest(payload), **payload)
+        return cls(
+            digest=content_digest(payload),
+            run_id=run_id,
+            dataset_id=dataset_id,
+            environment_digest=environment_digest,
+            ensemble_digest=ensemble_digest,
+            training_config_digest=training_config_digest,
+            provenance_digest=provenance_digest,
+            files=files,
+            created_at=created_at,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,7 +299,19 @@ class WalkForwardRunManifest:
             "schema_version": WALK_FORWARD_RUN_MANIFEST_SCHEMA,
             "workflow_config_digest": workflow_config_digest,
         }
-        return cls(digest=content_digest(payload), **payload)
+        return cls(
+            digest=content_digest(payload),
+            run_id=run_id,
+            dataset_id=dataset_id,
+            environment_digest=environment_digest,
+            evaluation_digest=evaluation_digest,
+            workflow_config_digest=workflow_config_digest,
+            policy_set_digest=policy_set_digest,
+            provenance_digest=provenance_digest,
+            fold_count=fold_count,
+            files=files,
+            created_at=created_at,
+        )
 
 
 def write_training_run_manifest(root: Path, manifest: TrainingRunManifest) -> Path:

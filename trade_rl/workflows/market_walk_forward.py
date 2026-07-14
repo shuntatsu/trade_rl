@@ -25,12 +25,13 @@ from trade_rl.domain.checkpoints import PolicyCheckpoint, PolicyCheckpointLoader
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.integrations.checkpoints import StableBaselines3CheckpointLoader
+from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import observation_passthrough_indices
-from trade_rl.rl.training import StableBaselines3Backend, train_residual_ensemble
+from trade_rl.rl.training import train_residual_ensemble
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.fold_runner import (
     BASELINE_CONFIGURATION,
@@ -648,6 +649,7 @@ def execute_market_walk_forward(
             environment_digest=environment_digest,
             ensemble_digest=policy_digest,
             training_config_digest=config_digest,
+            provenance_digest=config_digest,
             artifact_paths=_artifact_paths(stage),
             created_at=resolved_created_at,
         )

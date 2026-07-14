@@ -612,6 +612,10 @@ class MarketDataset:
             identity_payload_json = canonical_payload_json
         object.__setattr__(self, "identity_payload_json", identity_payload_json)
 
+    @property
+    def identity_verified(self) -> bool:
+        return self.identity_payload_json is not None
+
     def identity_contract_payload(self) -> dict[str, object]:
         return {
             "calendar_kind": MarketCalendarKind(self.calendar_kind).value,

@@ -49,12 +49,12 @@ def summarize_independent_folds(
         best_fold_return=max(fold_returns),
         positive_fold_rate=sum(value > 0.0 for value in fold_returns)
         / len(fold_returns),
-        turnover_total=sum(result.evidence.turnover_total for result in results),
-        total_cost=sum(result.evidence.total_cost for result in results),
-        funding_pnl=sum(result.evidence.funding_pnl for result in results),
-        borrow_cost=sum(result.evidence.borrow_cost for result in results),
-        n_trades=sum(result.evidence.n_trades for result in results),
-        rebalance_events=sum(result.evidence.rebalance_events for result in results),
+        turnover_total=sum(result.diagnostics.turnover_total for result in results),
+        total_cost=sum(result.diagnostics.total_cost for result in results),
+        funding_pnl=sum(result.diagnostics.funding_pnl for result in results),
+        borrow_cost=sum(result.diagnostics.borrow_cost for result in results),
+        n_trades=sum(result.diagnostics.n_trades for result in results),
+        rebalance_events=sum(result.diagnostics.rebalance_events for result in results),
     )
 
 

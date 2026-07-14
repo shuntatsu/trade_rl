@@ -175,21 +175,39 @@ def _regular_clock(
     )
 
 
+def _session_clock(series: tuple[RawMarketSeries, ...]) -> np.ndarray:
+    values = np.concatenate(
+        tuple(item.timestamps.astype("datetime64[ns]") for item in series)
+    )
+    timestamps = np.unique(values)
+    if timestamps.size < 3:
+        raise ValueError("market source does not contain a usable session range")
+    return timestamps
+
+
 def _align_series(
     raw: RawMarketSeries,
     timestamps: np.ndarray,
     *,
-    step_ns: int,
+    step_ns: int | None,
 ) -> dict[str, np.ndarray]:
     n_bars = len(timestamps)
-    first = int(timestamps[0].astype("datetime64[ns]").astype(np.int64))
     raw_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
-    offsets = raw_ns - first
-    if np.any(offsets < 0) or np.any(offsets % step_ns != 0):
-        raise ValueError("raw timestamps do not align to the configured base timeframe")
-    indices = offsets // step_ns
-    if np.any(indices >= n_bars):
-        raise ValueError("raw timestamps fall outside the resolved market clock")
+    clock_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
+    if step_ns is None:
+        indices = np.searchsorted(clock_ns, raw_ns)
+        if np.any(indices >= n_bars) or np.any(clock_ns[indices] != raw_ns):
+            raise ValueError("raw timestamps fall outside the resolved session clock")
+    else:
+        first = int(clock_ns[0])
+        offsets = raw_ns - first
+        if np.any(offsets < 0) or np.any(offsets % step_ns != 0):
+            raise ValueError(
+                "raw timestamps do not align to the configured base timeframe"
+            )
+        indices = offsets // step_ns
+        if np.any(indices >= n_bars):
+            raise ValueError("raw timestamps fall outside the resolved market clock")
 
     result = {
         "open": np.ones(n_bars, dtype=np.float64),
@@ -246,7 +264,12 @@ class MarketDatasetBuilder:
             raise ValueError("instrument symbols must be unique")
         raw_series = tuple(source.load(symbol) for symbol in symbols)
         step_ns = int(round(self.config.bar_hours * _NS_PER_HOUR))
-        timestamps = _regular_clock(raw_series, step_ns=step_ns)
+        if self.config.calendar_kind == "session_calendar":
+            timestamps = _session_clock(raw_series)
+            alignment_step: int | None = None
+        else:
+            timestamps = _regular_clock(raw_series, step_ns=step_ns)
+            alignment_step = step_ns
         n_bars = len(timestamps)
         n_symbols = len(symbols)
         n_features = len(self.config.features)
@@ -265,7 +288,7 @@ class MarketDatasetBuilder:
         symbol_active = np.zeros_like(row_present)
 
         for symbol_index, (contract, raw) in enumerate(zip(instruments, raw_series)):
-            aligned = _align_series(raw, timestamps, step_ns=step_ns)
+            aligned = _align_series(raw, timestamps, step_ns=alignment_step)
             open_price[:, symbol_index] = aligned["open"]
             high[:, symbol_index] = aligned["high"]
             low[:, symbol_index] = aligned["low"]
@@ -373,7 +396,11 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
-        periods_per_year = int(round(365.0 * 24.0 / self.config.bar_hours))
+        periods_per_year = (
+            int(round(365.0 * 24.0 / self.config.bar_hours))
+            if self.config.calendar_kind == "continuous_24_7"
+            else int(self.config.session_periods_per_year or 0)
+        )
         return MarketDataset(
             dataset_id="0" * 64,
             symbols=symbols,
@@ -405,4 +432,6 @@ class MarketDatasetBuilder:
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
             periods_per_year=periods_per_year,
+            calendar_kind=self.config.calendar_kind,
+            nominal_bar_hours=self.config.bar_hours,
         ).with_content_identity(metadata)

@@ -143,7 +143,20 @@ def capture_runtime_provenance(
         "python_version": python_version or sys.version.split()[0],
         "schema_version": "runtime_provenance_v1",
     }
-    return RuntimeProvenance(digest=content_digest(payload), **payload)
+    return RuntimeProvenance(
+        digest=content_digest(payload),
+        git_commit=resolved_commit,
+        git_dirty=resolved_dirty,
+        lockfile_digest=lock_digest,
+        python_version=python_version or sys.version.split()[0],
+        platform_name=platform_name or platform.platform(),
+        hardware_name=hardware_name
+        or platform.processor()
+        or platform.machine()
+        or "unknown",
+        package_versions=tuple(sorted(versions.items())),
+        deterministic_seed_config_digest=content_digest(deterministic_seed_config),
+    )
 
 
 __all__ = ["RuntimeProvenance", "capture_runtime_provenance"]

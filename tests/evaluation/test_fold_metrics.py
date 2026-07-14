@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.fold_metrics import summarize_independent_folds
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.evaluation.walk_forward.stitching import ExecutionEvidence, FoldOOSResult
+from trade_rl.evaluation.walk_forward.stitching import FoldOOSResult
 
 
 def _fold(
@@ -17,7 +18,7 @@ def _fold(
         returns=ReturnSeries(
             values=values, kind=ReturnKind.BASE_BAR, periods_per_year=365
         ),
-        evidence=ExecutionEvidence(
+        diagnostics=ExecutionDiagnostics(
             total_cost=cost, turnover_total=2 * cost, n_trades=index + 1
         ),
     )

@@ -52,9 +52,9 @@ def build_demo_dataset(n_bars: int = 1_024) -> MarketDataset:
     volatility_24h = _rolling_std(observed_returns, 24)
     market_trend_24h = _rolling_mean(observed_returns, 24)
 
-    features = np.stack((observed_returns, volatility_24h), axis=-1).astype(
-        np.float32
-    )[:, None, :]
+    features = np.stack((observed_returns, volatility_24h), axis=-1).astype(np.float32)[
+        :, None, :
+    ]
     global_features = market_trend_24h.astype(np.float32)[:, None]
     prices = {
         "open": open_price[:, None],

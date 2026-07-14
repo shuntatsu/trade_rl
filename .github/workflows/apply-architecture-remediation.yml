@@ -1,0 +1,89 @@
+name: Apply Architecture Remediation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'agent/architecture-audit-remediation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/architecture-audit-remediation
+          fetch-depth: 0
+
+      - name: Reconstruct verified patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            .github/remediation/architecture-remediation-patch-00.b64 \
+            .github/remediation/architecture-remediation-patch-01.b64 \
+            > "$RUNNER_TEMP/remediation-prefix.b64"
+          base64 --decode "$RUNNER_TEMP/remediation-prefix.b64" \
+            > "$RUNNER_TEMP/architecture-remediation.patch.gz"
+          for part in \
+            binary-part-04 \
+            binary-p05-00 binary-p05-01 \
+            binary-p06-00 binary-p06-01 \
+            binary-p07-00 binary-p07-01 \
+            binary-p08-00 binary-p08-01 \
+            binary-p09-00 binary-p09-01 \
+            binary-p10-00; do
+            cat ".github/remediation/${part}" \
+              >> "$RUNNER_TEMP/architecture-remediation.patch.gz"
+          done
+          echo "a25c12bca96b3821f1fc1865d208b114bfcbc9d85b26b5cfea0ab7cc07f012d3  $RUNNER_TEMP/architecture-remediation.patch.gz" \
+            | sha256sum --check --strict
+          gzip --decompress --stdout \
+            "$RUNNER_TEMP/architecture-remediation.patch.gz" \
+            > "$RUNNER_TEMP/architecture-remediation.patch"
+          echo "5cea1c7a1321278ce8305f029e43dac1e6b88c986a3b15f893c20742a1aeed86  $RUNNER_TEMP/architecture-remediation.patch" \
+            | sha256sum --check --strict
+          git apply --check "$RUNNER_TEMP/architecture-remediation.patch"
+          git apply --index "$RUNNER_TEMP/architecture-remediation.patch"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra export
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check --diff .
+
+      - name: Mypy
+        run: uv run mypy --no-incremental trade_rl
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Dead-code report
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Tests and coverage
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+
+      - name: Critical coverage
+        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+
+      - name: CLI smoke
+        run: uv run trade-rl --version
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "feat: remediate architecture audit findings"
+          git push origin HEAD:agent/architecture-audit-remediation

@@ -95,6 +95,7 @@ jobs:
           rm scripts/apply_complete_architecture_hardening.py
           rm scripts/fix_complete_architecture_hardening_types.py
           rm scripts/prepare_complete_architecture_hardening_tests.py
+          rmdir scripts
           rm .github/workflows/agent-complete-architecture-hardening.yml
 
       - name: Run full test suite

@@ -1,0 +1,53 @@
+name: Diagnose unified architecture hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - edited
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'agent/unified-pr40-pr41'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/unified-pr40-pr41
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Capture Ruff diagnostics
+        shell: bash
+        run: |
+          set +e
+          uv run ruff check . > "$RUNNER_TEMP/ruff.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/ruff-status.txt"
+          uv run ruff format --check . > "$RUNNER_TEMP/format.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/format-status.txt"
+          exit 0
+      - name: Capture compatibility tests
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving > "$RUNNER_TEMP/pytest.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/pytest-status.txt"
+          exit 0
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-diagnostics
+          path: |
+            ${{ runner.temp }}/ruff.txt
+            ${{ runner.temp }}/ruff-status.txt
+            ${{ runner.temp }}/format.txt
+            ${{ runner.temp }}/format-status.txt
+            ${{ runner.temp }}/pytest.txt
+            ${{ runner.temp }}/pytest-status.txt

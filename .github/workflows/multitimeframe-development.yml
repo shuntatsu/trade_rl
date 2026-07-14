@@ -23,7 +23,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
       - name: Apply Binance multi-timeframe patch
-        run: uv run python .github/scripts/apply_binance_multitimeframe.py
+        run: |
+          uv run python .github/scripts/apply_binance_multitimeframe.py
+          uv run python .github/scripts/repair_binance_cli.py
       - name: Format and organize imports
         run: |
           uv run ruff check --fix trade_rl tests

@@ -10,10 +10,10 @@ from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.datasets import DatasetManifest
+from trade_rl.integrations.sb3_training import StableBaselines3PPOBackend
 from trade_rl.rl.training import (
     PolicyTrainingResult,
     ResidualTrainingConfig,
-    StableBaselines3PPOBackend,
     gamma_from_half_life,
     train_residual_ensemble,
 )

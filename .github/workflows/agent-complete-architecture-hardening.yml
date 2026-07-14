@@ -37,6 +37,9 @@ jobs:
       - name: Add regression tests
         run: uv run python scripts/apply_complete_architecture_hardening.py tests
 
+      - name: Prepare self-contained regression fixtures
+        run: uv run python scripts/prepare_complete_architecture_hardening_tests.py
+
       - name: Verify regression tests fail before implementation
         shell: bash
         run: |
@@ -116,6 +119,7 @@ jobs:
         run: |
           rm scripts/apply_complete_architecture_hardening.py
           rm scripts/fix_complete_architecture_hardening_types.py
+          rm scripts/prepare_complete_architecture_hardening_tests.py
           rm .github/workflows/agent-complete-architecture-hardening.yml
 
       - name: Commit verified hardening

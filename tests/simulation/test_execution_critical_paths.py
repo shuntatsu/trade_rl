@@ -25,9 +25,9 @@ def test_slippage_lot_rounding_and_unavailable_borrow_paths() -> None:
     )
     assert executor._slippage_rates(0).size == 0
     assert np.all(executor._slippage_rates(3) > 0.0)
-    assert executor._round_quantities(np.array([1.13]), index=1).tolist() == pytest.approx(
-        [1.0]
-    )
+    assert executor._round_quantities(
+        np.array([1.13]), index=1
+    ).tolist() == pytest.approx([1.0])
     constrained = executor._constrain_borrow(
         np.array([-2.0]), current=np.array([-1.0]), index=1
     )

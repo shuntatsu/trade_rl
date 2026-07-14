@@ -27,6 +27,24 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Correct multi-match patch guard
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/agent_tools/fix_unified_compat.py')
+          text = path.read_text(encoding='utf-8')
+          block = '''replace_once(
+              "trade_rl/evaluation/fold_metrics.py",
+              "result.evidence",
+              "result.diagnostics",
+          )
+          # The replacement occurs six times; handle the remaining occurrences.
+          '''
+          if block not in text:
+              raise SystemExit('multi-match guard block not found')
+          path.write_text(text.replace(block, '# Replace all execution evidence references.\n', 1), encoding='utf-8')
+          PY
       - name: Apply compatibility patch
         run: uv run python .github/agent_tools/fix_unified_compat.py
       - name: Format and lint-fix

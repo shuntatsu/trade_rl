@@ -22,46 +22,32 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
-      - name: Apply Binance multi-timeframe patch
-        run: |
-          uv run python .github/scripts/apply_binance_multitimeframe.py
-          uv run python .github/scripts/repair_binance_cli.py
-          uv run python .github/scripts/fix_binance_multitimeframe_preset.py
+      - name: Apply immutable Vision cache
+        run: uv run python .github/scripts/add_binance_vision_cache.py
       - name: Format and organize imports
         run: |
-          uv run ruff check --fix trade_rl tests
-          uv run ruff format trade_rl tests
-      - name: Multi-timeframe and Binance tests
+          uv run ruff check --fix trade_rl tests examples
+          uv run ruff format trade_rl tests examples
+      - name: Full asset and cache tests
         run: |
           uv run pytest -q \
+            tests/integrations/test_binance_vision_cache.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py \
             tests/data/test_multitimeframe_builder.py \
-            tests/integrations/test_binance.py \
             tests/integrations/test_binance_multitimeframe.py \
-            tests/cli/test_binance_data_command.py \
             tests/cli/test_binance_multitimeframe_command.py
       - name: Lint
-        run: uv run ruff check trade_rl tests
-      - name: Capture type check
+        run: uv run ruff check trade_rl tests examples
+      - name: Format check
+        run: uv run ruff format --check trade_rl tests examples
+      - name: Type check
+        run: uv run mypy trade_rl
+      - name: Commit full research assets
         run: |
-          set +e
-          uv run mypy trade_rl > mypy.log 2>&1
-          echo "$?" > mypy.status
-          cat mypy.log
-          exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: multitimeframe-mypy-diagnostics
-          path: |
-            mypy.log
-            mypy.status
-      - name: Require type check
-        run: exit "$(cat mypy.status)"
-      - name: Commit Binance multi-timeframe implementation
-        run: |
-          git add trade_rl tests
+          git add trade_rl tests examples
           if ! git diff --cached --quiet; then
             git config user.name github-actions[bot]
             git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git commit -m "feat: add Binance native timeframe ingestion"
+            git commit -m "feat: add full three-asset multi-timeframe research run"
             git push origin HEAD:agent/multitimeframe-three-asset-full-training
           fi

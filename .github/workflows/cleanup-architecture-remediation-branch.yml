@@ -1,0 +1,27 @@
+name: Cleanup Architecture Remediation Branch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.head_ref == 'ci/cleanup-architecture-remediation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ci/cleanup-architecture-remediation
+          fetch-depth: 0
+      - name: Verify merge ancestry and delete branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main agent/architecture-audit-remediation
+          git merge-base --is-ancestor origin/agent/architecture-audit-remediation origin/main
+          git push origin --delete agent/architecture-audit-remediation
+          git push origin --delete ci/cleanup-architecture-remediation

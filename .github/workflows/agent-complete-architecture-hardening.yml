@@ -62,7 +62,19 @@ jobs:
         run: uv run ruff check .
 
       - name: Type check
-        run: uv run mypy trade_rl
+        id: type_check
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy trade_rl 2>&1 | tee hardening-mypy.txt
+
+      - name: Upload type diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardening-diagnostics
+          path: hardening-mypy.txt
 
       - name: Import architecture
         run: uv run lint-imports
@@ -72,6 +84,10 @@ jobs:
 
       - name: Run full test suite
         run: uv run pytest -q
+
+      - name: Enforce type check
+        if: steps.type_check.outcome != 'success'
+        run: exit 1
 
       - name: Remove one-shot machinery
         run: |

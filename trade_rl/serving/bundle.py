@@ -113,7 +113,7 @@ class ServingBundleManifest:
             ):
                 raise ValueError("action_names must be unique and non-empty")
             if self.action_spec_digest is None:
-                raise ValueError("serving bundle requires action_spec_digest")
+                raise ValueError("serving bundle v3 requires action_spec_digest")
         if self.action_spec_digest is not None:
             require_sha256(self.action_spec_digest, field="action_spec_digest")
         require_sha256(self.environment_digest, field="environment_digest")
@@ -128,8 +128,6 @@ class ServingBundleManifest:
             raise ValueError("residual policy bundle requires a policy digest")
         else:
             require_sha256(self.policy_digest, field="policy_digest")
-        if self.schema_version == "serving_bundle_v4" and self.release_digest is not None:
-            raise ValueError("serving bundle v4 uses an external release attestation")
         if self.release_digest is not None:
             require_sha256(self.release_digest, field="release_digest")
         for field_name, value in (
@@ -208,9 +206,9 @@ class ServingBundleManifest:
         policy_digest: str | None,
         signal_digest: str,
         selection_digest: str,
+        release_digest: str | None,
         artifact_paths: tuple[str, ...],
         created_at: datetime,
-        release_digest: str | None = None,
         action_size: int = 2,
         action_names: tuple[str, ...] = (),
         action_spec_digest: str | None = None,
@@ -218,8 +216,6 @@ class ServingBundleManifest:
         factor_artifact_digest: str | None = None,
         normalizer_digest: str | None = None,
     ) -> ServingBundleManifest:
-        if release_digest is not None:
-            raise ValueError("release approval must be stored in an external attestation")
         files: list[BundleFile] = []
         for raw_path in artifact_paths:
             relative = _relative_path(raw_path)
@@ -267,7 +263,7 @@ class ServingBundleManifest:
             policy_digest=policy_digest,
             signal_digest=signal_digest,
             selection_digest=selection_digest,
-            release_digest=None,
+            release_digest=release_digest,
             files=ordered,
             created_at=created_at,
             action_size=action_size,
@@ -433,7 +429,7 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
 def load_serving_bundle(root: Path) -> ServingBundle:
     root = Path(root)
     manifest_path = root / BUNDLE_MANIFEST_NAME
-    if not manifest_path.is_file() or manifest_path.is_symlink():
+    if not manifest_path.is_file():
         raise FileNotFoundError(f"serving bundle manifest is missing: {manifest_path}")
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest = _parse_manifest(_mapping(payload, field="bundle manifest"))

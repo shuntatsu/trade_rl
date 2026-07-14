@@ -12,11 +12,10 @@ import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.provenance import capture_runtime_provenance
 from trade_rl.artifacts.run_manifest import (
-    WalkForwardRunManifest,
-    validate_walk_forward_run_directory,
-    write_walk_forward_run_manifest,
+    TrainingRunManifest,
+    validate_training_run_directory,
+    write_training_run_manifest,
 )
 from trade_rl.artifacts.store import ArtifactStore
 from trade_rl.data import load_market_dataset_artifact
@@ -31,8 +30,7 @@ from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import observation_passthrough_indices
-from trade_rl.integrations.sb3_training import StableBaselines3Backend
-from trade_rl.rl.training import train_residual_ensemble
+from trade_rl.rl.training import StableBaselines3Backend, train_residual_ensemble
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.fold_runner import (
     BASELINE_CONFIGURATION,
@@ -117,26 +115,64 @@ def _fit_normalizer(
     train_range: IndexRange,
     run: TrainingRunConfig,
 ) -> ObservationNormalizer:
-    """Fit only exogenous market coordinates without a policy rollout."""
-
-    matrix = observation_market_matrix(
+    training_dataset = _training_view(dataset, train_range, run)
+    view_start, view_stop = _training_view_bounds(dataset, train_range, run)
+    alpha_provider, factor_provider = bind_signal_providers_to_view(
         dataset,
-        start=0,
-        stop=dataset.n_bars,
-        action_size=run.action.size,
-        n_factors=run.action.n_factors,
-        finite_horizon=run.environment.finite_horizon_observation,
+        training_dataset,
+        run,
+        start=view_start,
+        stop=view_stop,
+        evaluation_start=train_range.start,
     )
+    start = minimum_environment_start(
+        training_dataset,
+        run,
+        alpha_provider=alpha_provider,
+        factor_provider=factor_provider,
+    )
+    episode_bars = training_dataset.n_bars - 1 - start
+    if episode_bars <= 0:
+        raise ValueError("training range is too short to fit an observation normalizer")
+    env = build_market_environment(
+        training_dataset,
+        run,
+        normalizer=None,
+        episode_bars=episode_bars,
+        liquidate_on_end=False,
+        alpha_provider=alpha_provider,
+        factor_provider=factor_provider,
+    )
+    observations: list[np.ndarray] = []
+    try:
+        observation, _ = env.reset(
+            seed=0,
+            options={
+                "episode_bars": episode_bars,
+                "initial_state_mode": "cash",
+                "start_idx": start,
+            },
+        )
+        terminated = False
+        truncated = False
+        while not terminated and not truncated:
+            observations.append(np.asarray(observation, dtype=np.float32).copy())
+            observation, _, terminated, truncated, _ = env.step(
+                np.zeros(run.action.size, dtype=np.float32)
+            )
+    finally:
+        env.close()
+    matrix = np.stack(observations, axis=0)
     passthrough = observation_passthrough_indices(
-        dataset,
+        training_dataset,
         action_size=run.action.size,
         n_factors=run.action.n_factors,
         finite_horizon=run.environment.finite_horizon_observation,
     )
     return ObservationNormalizer.fit(
         matrix,
-        train_start=train_range.start,
-        train_end=train_range.stop,
+        train_start=0,
+        train_end=matrix.shape[0],
         passthrough_indices=passthrough,
         dataset_id=training_dataset.dataset_id,
         source_dataset_id=dataset.dataset_id,
@@ -231,7 +267,7 @@ class MarketCandidateTrainer(CandidateTrainer):
             run,
             start=view_start,
             stop=view_stop,
-            evaluation_start=None,
+            evaluation_start=request.train.start,
         )
         minimum_start = minimum_environment_start(
             training_dataset,
@@ -400,7 +436,6 @@ class MarketCandidateEvaluator:
             model=model,
             baseline=baseline,
         )
-        returns = evaluation.returns
         if request.phase is EvaluationPhase.OUTER_TEST:
             self.outer_test_counts[request.fold_index] = (
                 self.outer_test_counts.get(request.fold_index, 0) + 1
@@ -473,18 +508,8 @@ def _artifact_paths(root: Path) -> tuple[str, ...]:
 
 
 def _validate_for_store(path: Path) -> bool:
-    validate_walk_forward_run_directory(path)
+    validate_training_run_directory(path)
     return True
-
-
-def _dataset_artifact_digest(root: Path) -> str:
-    import json
-
-    payload = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    digest = payload.get("artifact_digest")
-    if not isinstance(digest, str) or len(digest) != 64:
-        raise ValueError("dataset artifact digest is missing or invalid")
-    return digest
 
 
 def execute_market_walk_forward(
@@ -563,37 +588,22 @@ def execute_market_walk_forward(
                 payload,
             )
         walk_forward_payload = {
-            "baseline_metrics": (
-                None if result.baseline_metrics is None else asdict(result.baseline_metrics)
-            ),
-            "baseline_independent_summary": (
-                None
-                if result.baseline_independent_summary is None
-                else asdict(result.baseline_independent_summary)
-            ),
+            "baseline_metrics": asdict(result.baseline_metrics),
             "dataset_id": dataset.dataset_id,
             "evaluation_digest": result.evaluation_digest,
             "folds": tuple(folds_payload),
             "production_status": "NO-GO",
             "schema_version": "market_walk_forward_run_v1",
-            "selected_metrics": (
-                None if result.selected_metrics is None else asdict(result.selected_metrics)
-            ),
-            "selected_independent_summary": (
-                None
-                if result.selected_independent_summary is None
-                else asdict(result.selected_independent_summary)
-            ),
-            "stitch_mode": config.workflow.stitch_mode.value,
+            "selected_metrics": asdict(result.selected_metrics),
         }
         _write_json(stage / "walk-forward.json", walk_forward_payload)
         _write_json(stage / "walk-forward-config.json", config.digest_payload())
         _write_json(
             stage / "dataset-reference.json",
             {
-                "artifact_digest": dataset_artifact_digest,
+                "artifact_path": str(dataset_path),
                 "dataset_id": dataset.dataset_id,
-                "schema_version": "dataset_reference_v2",
+                "schema_version": "dataset_reference_v1",
             },
         )
         policy_digest = content_digest(
@@ -630,21 +640,19 @@ def execute_market_walk_forward(
                 "schema_version": "walk_forward_environment_set_v1",
             }
         )
-        run_manifest = WalkForwardRunManifest.build(
+        config_digest = content_digest(config.digest_payload())
+        run_manifest = TrainingRunManifest.build(
             root=stage,
             run_id=resolved_run_id,
             dataset_id=dataset.dataset_id,
             environment_digest=environment_digest,
-            evaluation_digest=result.evaluation_digest,
-            workflow_config_digest=config_digest,
-            policy_set_digest=policy_digest,
-            provenance_digest=provenance.digest,
-            fold_count=len(result.folds),
+            ensemble_digest=policy_digest,
+            training_config_digest=config_digest,
             artifact_paths=_artifact_paths(stage),
             created_at=resolved_created_at,
         )
-        write_walk_forward_run_manifest(stage, run_manifest)
-        validate_walk_forward_run_directory(stage)
+        write_training_run_manifest(stage, run_manifest)
+        validate_training_run_directory(stage)
         published = store.publish_run(resolved_run_id, validate=_validate_for_store)
         return WalkForwardRunResult(
             run_id=resolved_run_id,

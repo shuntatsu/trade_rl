@@ -16,7 +16,6 @@ from trade_rl.data.market import MarketCalendarKind, MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import (
     ACTION_SCHEMA,
@@ -105,7 +104,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         action_spec: ActionSpec | None = None,
         composer: BaselineResidualComposer | None = None,
         pre_trade_risk: PreTradeRisk | None = None,
-        portfolio_risk: PortfolioRiskModel | None = None,
         normalizer: ObservationNormalizer | None = None,
         config: ResidualMarketEnvConfig | None = None,
     ) -> None:
@@ -196,7 +194,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self._minimum_start_index = max(provider_minimums)
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
-        self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
         self.normalizer = normalizer
         self.config = config or ResidualMarketEnvConfig()
         if (
@@ -344,7 +341,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             dataset.n_symbols,
             self.config.initial_capital,
             initial_prices,
-            contract_multipliers=dataset.contract_multipliers,
         )
         self.shadow = self.hybrid.clone()
         self._decision_step_index = 0
@@ -460,10 +456,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 None if self.normalizer is None else self.normalizer.digest
             ),
             "observation_schema": OBSERVATION_SCHEMA,
-            "portfolio_risk": {
-                "config": asdict(self.portfolio_risk.config),
-                "implementation_digest": self.portfolio_risk.implementation_digest,
-            },
             "pre_trade_risk": asdict(self.pre_trade_risk.config),
             "reward": asdict(self.reward_tracker.config),
             "reward_schema": REWARD_SCHEMA,
@@ -779,7 +771,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             prices=self.dataset.close[start],
             peak_value=peak,
             max_gross=self.pre_trade_risk.config.max_gross,
-            contract_multipliers=self.dataset.contract_multipliers,
         )
         book.max_drawdown = self._drawdown(book)
         gross_notional = float(np.abs(book.position_values).sum())
@@ -885,12 +876,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 raise ValueError("restore mode requires a BookState initial_book")
             if supplied.quantities.shape != (self.dataset.n_symbols,):
                 raise ValueError("initial_book does not match dataset symbols")
-            supplied_multipliers = supplied.contract_multipliers
-            dataset_multipliers = self.dataset.contract_multipliers
-            assert supplied_multipliers is not None
-            assert dataset_multipliers is not None
-            if not np.array_equal(supplied_multipliers, dataset_multipliers):
-                raise ValueError("initial_book contract multipliers do not match dataset")
             if not math.isclose(
                 supplied.portfolio_value,
                 self.config.initial_capital,
@@ -995,28 +980,10 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         target = np.asarray(proposal, dtype=np.float64).reshape(-1).copy()
         if target.shape != (self.dataset.n_symbols,) or not np.isfinite(target).all():
             raise ValueError("proposal does not match dataset symbols")
-        pretrade = self.pre_trade_risk.constrain(
+        return self.pre_trade_risk.constrain(
             target,
             current=book.weights,
             drawdown=self._drawdown(book),
-        )
-        portfolio = self.portfolio_risk.constrain(
-            pretrade.weights,
-            portfolio_value=max(book.portfolio_value, 1e-12),
-            market_notional=self.dataset.market_notional(self.current_index),
-        )
-        if not portfolio.was_constrained:
-            return pretrade
-        weights = portfolio.weights.copy()
-        return RiskConstrainedTarget(
-            weights=weights,
-            requested_turnover=pretrade.requested_turnover,
-            constrained_turnover=float(np.abs(weights - book.weights).sum()),
-            was_constrained=True,
-            reasons=tuple(dict.fromkeys((*pretrade.reasons, *portfolio.reasons))),
-            risk_scale=pretrade.risk_scale,
-            projection_l1=float(np.abs(target - weights).sum()),
-            turnover_overridden=pretrade.turnover_overridden,
         )
 
     def _parse_action(

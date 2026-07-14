@@ -14,7 +14,6 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange
-from trade_rl.evaluation.walk_forward.stitching import ExecutionEvidence
 from trade_rl.integrations.signal_artifacts import (
     LoadedAlphaArtifact,
     LoadedFactorArtifact,
@@ -240,9 +239,6 @@ def evaluate_range_evidence(
         alpha_provider=alpha_provider,
         factor_provider=factor_provider,
     )
-    total_dividend = 0.0
-    total_cash_interest = 0.0
-    max_participation = 0.0
     try:
         observation, _ = env.reset(
             seed=0,
@@ -271,24 +267,6 @@ def evaluate_range_evidence(
             else (
                 str(getattr(book.termination_reason, "value", book.termination_reason)),
             )
-        book = env.shadow if baseline else env.hybrid
-        values = tuple(float(value) for value in book.returns_history)
-        reason = (
-            None
-            if book.termination_reason is None
-            else str(getattr(book.termination_reason, "value", book.termination_reason))
-        )
-        evidence = ExecutionEvidence(
-            turnover_total=book.turnover_total,
-            total_cost=book.total_cost,
-            funding_pnl=book.funding_pnl,
-            borrow_cost=book.borrow_cost,
-            dividend_pnl=total_dividend,
-            cash_interest=total_cash_interest,
-            n_trades=book.n_trades,
-            rebalance_events=book.rebalance_events,
-            max_participation=max_participation,
-            termination_reason=reason,
         )
         diagnostics = ExecutionDiagnostics(
             turnover_total=book.turnover_total,
@@ -339,7 +317,6 @@ def evaluate_range(
 __all__ = [
     "bind_signal_providers_to_view",
     "build_market_environment",
-    "RangeEvaluationResult",
     "evaluate_range",
     "evaluate_range_evidence",
     "RangeEvaluation",

@@ -10,10 +10,8 @@ import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 
-MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
+MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v5"
 
-# Every resolved array that can change observations, eligibility, execution,
-# accounting, or evaluation belongs to the logical market-dataset identity.
 DATASET_ID_ARRAY_FIELDS = (
     "timestamps",
     "available_at",

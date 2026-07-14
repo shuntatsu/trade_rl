@@ -220,14 +220,19 @@ def observation_layout(
     )
 
 
-def observation_trainable_indices(
+def observation_passthrough_indices(
     dataset: MarketDataset,
     *,
     action_size: int = 2,
     n_factors: int = 0,
     finite_horizon: bool = False,
 ) -> tuple[int, ...]:
-    """Continuous exogenous fields whose statistics may be fitted on train data."""
+    """Indices that must remain exact under normalization.
+
+    Availability, categorical missing-reason, activity, tradability and borrow
+    masks are contracts rather than continuous measurements. Normalizing them
+    would destroy the active-asset mask used by the set encoder.
+    """
 
     layout = observation_layout(
         dataset,
@@ -239,85 +244,16 @@ def observation_trainable_indices(
     indices: list[int] = []
     for symbol_index in range(dataset.n_symbols):
         base = symbol_index * layout.per_symbol_width
-        indices.extend(range(base, base + n_features))
-        indices.extend(range(base + 2 * n_features, base + 3 * n_features))
+        indices.extend(range(base + n_features, base + 2 * n_features))
+        indices.extend(range(base + 3 * n_features, base + 4 * n_features))
+        indices.append(base + 4 * n_features)  # asset_active
+        indices.append(base + 4 * n_features + 1)  # tradable
+        indices.append(base + 4 * n_features + n_factors + 15)  # borrow available
     global_base = dataset.n_symbols * layout.per_symbol_width
     n_global = len(dataset.global_feature_names)
-    indices.extend(range(global_base, global_base + n_global))
-    indices.extend(range(global_base + 2 * n_global, global_base + 3 * n_global))
-    return tuple(indices)
-
-
-def observation_passthrough_indices(
-    dataset: MarketDataset,
-    *,
-    action_size: int = 2,
-    n_factors: int = 0,
-    finite_horizon: bool = False,
-) -> tuple[int, ...]:
-    """Fields excluded from statistical fitting.
-
-    Masks, categorical values, signals, portfolio state, actions and execution
-    state retain their native semantics.  Only raw market features and feature
-    age fields are train-fitted.
-    """
-
-    layout = observation_layout(
-        dataset,
-        action_size=action_size,
-        n_factors=n_factors,
-        finite_horizon=finite_horizon,
-    )
-    trainable = set(
-        observation_trainable_indices(
-            dataset,
-            action_size=action_size,
-            n_factors=n_factors,
-            finite_horizon=finite_horizon,
-        )
-    )
-    return tuple(index for index in range(layout.size) if index not in trainable)
-
-
-def observation_market_matrix(
-    dataset: MarketDataset,
-    *,
-    start: int,
-    stop: int,
-    action_size: int = 2,
-    n_factors: int = 0,
-    finite_horizon: bool = False,
-) -> np.ndarray:
-    """Construct a policy-independent matrix for exogenous normalization."""
-
-    if not 0 <= start < stop <= dataset.n_bars:
-        raise ValueError("normalization range is outside the dataset")
-    layout = observation_layout(
-        dataset,
-        action_size=action_size,
-        n_factors=n_factors,
-        finite_horizon=finite_horizon,
-    )
-    matrix = np.zeros((stop - start, layout.size), dtype=np.float64)
-    n_features = dataset.n_features
-    feature_age = dataset.resolved_array("feature_staleness_hours")[start:stop]
-    for symbol_index in range(dataset.n_symbols):
-        base = symbol_index * layout.per_symbol_width
-        matrix[:, base : base + n_features] = dataset.features[
-            start:stop, symbol_index
-        ]
-        matrix[:, base + 2 * n_features : base + 3 * n_features] = feature_age[
-            :, symbol_index
-        ]
-    global_base = dataset.n_symbols * layout.per_symbol_width
-    n_global = len(dataset.global_feature_names)
-    matrix[:, global_base : global_base + n_global] = dataset.global_features[
-        start:stop
-    ]
-    matrix[
-        :, global_base + 2 * n_global : global_base + 3 * n_global
-    ] = dataset.resolved_array("global_feature_staleness_hours")[start:stop]
-    return matrix
+    indices.extend(range(global_base + n_global, global_base + 2 * n_global))
+    indices.extend(range(global_base + 3 * n_global, global_base + 4 * n_global))
+    return tuple(sorted(set(indices)))
 
 
 def _drawdown(book: BookState) -> float:

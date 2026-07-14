@@ -25,10 +25,6 @@ class LoadedAlphaArtifact:
     bound_bars: int | None = None
 
     @property
-    def values(self) -> np.ndarray:
-        return self.arrays.values
-
-    @property
     def artifact_digest(self) -> str:
         return self.manifest.artifact_digest
 
@@ -44,8 +40,10 @@ class LoadedAlphaArtifact:
     def dataset_id(self) -> str:
         return self.bound_dataset_id or self.manifest.dataset_id
 
-    def for_view(self, *, start: int, stop: int, dataset_id: str) -> LoadedAlphaArtifact:
-        _validate_view(self.arrays, start=start, stop=stop)
+    def for_view(
+        self, *, start: int, stop: int, dataset_id: str
+    ) -> LoadedAlphaArtifact:
+        _validate_view(self.values, start=start, stop=stop)
         return LoadedAlphaArtifact(
             manifest=self.manifest,
             values=self.values,
@@ -68,9 +66,7 @@ class LoadedAlphaArtifact:
             offset=self.offset,
             bound_bars=self.bound_bars,
         )
-        if not np.all(self.arrays.valid[source_index]):
-            raise ValueError("signal prediction is invalid at the requested index")
-        return np.asarray(self.arrays.values[source_index], dtype=np.float64).copy()
+        return np.asarray(self.values[source_index], dtype=np.float64).copy()
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,10 +78,6 @@ class LoadedFactorArtifact:
     bound_dataset_id: str | None = None
     offset: int = 0
     bound_bars: int | None = None
-
-    @property
-    def values(self) -> np.ndarray:
-        return self.arrays.values
 
     @property
     def artifact_digest(self) -> str:
@@ -107,8 +99,10 @@ class LoadedFactorArtifact:
     def n_factors(self) -> int:
         return len(self.manifest.names)
 
-    def for_view(self, *, start: int, stop: int, dataset_id: str) -> LoadedFactorArtifact:
-        _validate_view(self.arrays, start=start, stop=stop)
+    def for_view(
+        self, *, start: int, stop: int, dataset_id: str
+    ) -> LoadedFactorArtifact:
+        _validate_view(self.values, start=start, stop=stop)
         return LoadedFactorArtifact(
             manifest=self.manifest,
             values=self.values,
@@ -131,18 +125,16 @@ class LoadedFactorArtifact:
             offset=self.offset,
             bound_bars=self.bound_bars,
         )
-        if not np.all(self.arrays.valid[source_index]):
-            raise ValueError("signal prediction is invalid at the requested index")
-        return np.asarray(self.arrays.values[source_index], dtype=np.float64).copy()
+        return np.asarray(self.values[source_index], dtype=np.float64).copy()
 
 
-def _validate_view(arrays: SignalArrays, *, start: int, stop: int) -> None:
+def _validate_view(values: np.ndarray, *, start: int, stop: int) -> None:
     if (
         isinstance(start, bool)
         or isinstance(stop, bool)
         or not isinstance(start, int)
         or not isinstance(stop, int)
-        or not 0 <= start < stop <= arrays.shape[0]
+        or not 0 <= start < stop <= values.shape[0]
     ):
         raise ValueError("signal artifact view is outside the source values")
 
@@ -174,7 +166,7 @@ def _validate_dataset_and_index(
 ) -> int:
     if dataset.dataset_id != dataset_id:
         raise ValueError("signal artifact dataset identity mismatch")
-    expected_bars = arrays.shape[0] if bound_bars is None else bound_bars
+    expected_bars = values.shape[0] if bound_bars is None else bound_bars
     if dataset.n_bars != expected_bars:
         raise ValueError("signal artifact bar count does not match dataset")
     source_index = index + offset

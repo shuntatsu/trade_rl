@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -8,11 +7,6 @@ import pytest
 
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
 from trade_rl.data.artifacts import MarketDatasetView
-from trade_rl.data.identity import (
-    MARKET_DATASET_IDENTITY_SCHEMA,
-    canonical_identity_json,
-    compute_market_dataset_id,
-)
 from trade_rl.data.market import MarketDataset
 
 
@@ -22,8 +16,8 @@ def _dataset() -> MarketDataset:
         n_bars
     ) * np.timedelta64(1, "h")
     close = np.linspace(100.0, 111.0, n_bars, dtype=np.float64)[:, None]
-    draft = MarketDataset(
-        dataset_id="0" * 64,
+    return MarketDataset(
+        dataset_id="a" * 64,
         symbols=("BTCUSDT",),
         timestamps=timestamps,
         features=np.linspace(0.0, 1.0, n_bars, dtype=np.float32)[:, None, None],

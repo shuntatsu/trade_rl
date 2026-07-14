@@ -10,7 +10,6 @@ from tests.serving.helpers import (
     INITIAL_CAPITAL,
     NORMALIZER_DIGEST,
     OBSERVATION_SIZE,
-    DEFAULT_NORMALIZER_DIGEST,
     create_bundle,
 )
 from trade_rl.domain.selection import PolicyMode
@@ -43,15 +42,3 @@ def test_v3_bundle_rejects_missing_or_wrong_action_identity(tmp_path: Path) -> N
         create_bundle(tmp_path / "bad-names", action_names=("fast_tilt", "fast_tilt"))
     with pytest.raises(ValueError, match="sha256|digest"):
         create_bundle(tmp_path / "bad-digest", action_spec_digest="bad")
-
-
-def test_bundle_rejects_undeclared_files_and_symlinks(tmp_path: Path) -> None:
-    root = create_bundle(tmp_path / "extra")
-    (root / "unexpected.txt").write_text("bad", encoding="utf-8")
-    with pytest.raises(ValueError, match="file closure"):
-        load_serving_bundle(root)
-
-    root = create_bundle(tmp_path / "link")
-    (root / "unsafe-link").symlink_to(root / "dataset.json")
-    with pytest.raises(ValueError, match="file closure|unsafe"):
-        load_serving_bundle(root)

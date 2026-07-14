@@ -9,12 +9,6 @@ from pathlib import Path
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
-from trade_rl.release.attestation import (
-    ReleaseAttestation,
-    default_attestation_path,
-    load_release_attestation,
-    write_release_attestation,
-)
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
@@ -52,28 +46,18 @@ class ServingRegistry:
         if bundle.release is None and not self.allow_unreleased:
             raise ValueError("serving bundle requires a verified release attestation")
 
-    def activate(
-        self,
-        source: Path,
-        *,
-        attestation_path: Path | None = None,
-    ) -> ServingBundle:
+    def activate(self, source: Path) -> ServingBundle:
         """Validate a source bundle before copying and replacing active identity."""
 
         source_bundle = load_serving_bundle(source)
-        attestation = self._load_attestation(source_bundle, attestation_path)
+        self._require_activatable(source_bundle)
         digest = source_bundle.manifest.bundle_digest
         require_sha256(digest, field="bundle_digest")
         destination = self.versions_root / digest
 
         if destination.exists():
             installed = load_serving_bundle(destination)
-            installed_attestation_path = self.versions_root / f"{digest}.release.json"
-            installed_attestation = self._load_attestation(
-                installed, installed_attestation_path
-            )
-            if (attestation is None) != (installed_attestation is None):
-                raise ValueError("installed release attestation state mismatch")
+            self._require_activatable(installed)
             if installed.manifest.bundle_digest != digest:
                 raise ValueError(
                     "installed bundle digest does not match directory identity"
@@ -84,29 +68,18 @@ class ServingRegistry:
                 shutil.rmtree(stage)
             shutil.copytree(source, stage)
             staged = load_serving_bundle(stage)
+            self._require_activatable(staged)
             if staged.manifest.bundle_digest != digest:
                 shutil.rmtree(stage, ignore_errors=True)
                 raise ValueError("staged bundle digest changed during registry copy")
             os.replace(stage, destination)
-            if attestation is not None:
-                write_release_attestation(
-                    self.versions_root / f"{digest}.release.json",
-                    attestation,
-                )
             _fsync_directory(self.versions_root)
             installed = load_serving_bundle(destination)
 
         pointer = {
             "bundle_digest": digest,
             "path": destination.relative_to(self.root).as_posix(),
-            "release_attestation": (
-                None
-                if attestation is None
-                else (self.versions_root / f"{digest}.release.json")
-                .relative_to(self.root)
-                .as_posix()
-            ),
-            "schema": "serving_registry_pointer_v2",
+            "schema": "serving_registry_pointer_v1",
         }
         _atomic_write(self.active_pointer, canonical_json_bytes(pointer))
         return ServingBundle(root=destination, manifest=installed.manifest)
@@ -127,7 +100,7 @@ class ServingRegistry:
         require_sha256(digest, field="bundle_digest")
         if not isinstance(relative_path, str):
             raise ValueError("active registry path must be a string")
-        if schema != "serving_registry_pointer_v2":
+        if schema != "serving_registry_pointer_v1":
             raise ValueError("active registry pointer schema is unsupported")
         path = self.root / relative_path
         resolved_root = self.root.resolve()
@@ -135,13 +108,7 @@ class ServingRegistry:
         if resolved_root not in resolved_path.parents:
             raise ValueError("active registry pointer escapes the registry root")
         bundle = load_serving_bundle(path)
-        raw_attestation_path = payload.get("release_attestation")
-        attestation_path = (
-            None
-            if raw_attestation_path is None
-            else self.root / str(raw_attestation_path)
-        )
-        self._load_attestation(bundle, attestation_path)
+        self._require_activatable(bundle)
         if bundle.manifest.bundle_digest != digest:
             raise ValueError("active registry pointer digest mismatch")
         return bundle

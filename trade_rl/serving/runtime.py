@@ -15,13 +15,7 @@ from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
-from trade_rl.release.attestation import (
-    ReleaseAttestation,
-    default_attestation_path,
-    load_release_attestation,
-)
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
-from trade_rl.serving.observations import ServingObservationPipeline
 
 
 class LoadedPolicy(Protocol):
@@ -156,10 +150,7 @@ class ServingRuntime:
         self._normalizer: ObservationNormalizer | None = None
 
     @staticmethod
-    def _snapshot_for(
-        bundle: ServingBundle,
-        attestation: ReleaseAttestation | None = None,
-    ) -> RuntimeSnapshot:
+    def _snapshot_for(bundle: ServingBundle) -> RuntimeSnapshot:
         manifest = bundle.manifest
         return RuntimeSnapshot(
             bundle_digest=manifest.bundle_digest,
@@ -270,7 +261,6 @@ class ServingRuntime:
         elif not self.allow_unbound_identity:
             raise RuntimeError("serving identity contract was not configured")
 
-        candidate_pipeline = ServingObservationPipeline.load(bundle)
         if manifest.policy_mode is PolicyMode.BASELINE_ONLY:
             candidate_policy: LoadedPolicy = _BaselineIdentityPolicy(
                 manifest.action_size
@@ -307,6 +297,9 @@ class ServingRuntime:
         return snapshot
 
     def predict(self, observation: np.ndarray) -> np.ndarray:
+        vector = np.asarray(observation, dtype=np.float32).reshape(-1)
+        if vector.size == 0 or not np.isfinite(vector).all():
+            raise ValueError("observation must be a non-empty finite vector")
         with self._lock:
             policy = self._policy
             snapshot = self._snapshot

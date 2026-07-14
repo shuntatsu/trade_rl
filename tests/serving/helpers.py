@@ -11,11 +11,6 @@ from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
-from trade_rl.release.attestation import (
-    ReleaseAttestation,
-    default_attestation_path,
-    write_release_attestation,
-)
 from trade_rl.serving.bundle import ServingBundleManifest, write_serving_bundle_manifest
 from trade_rl.serving.normalizer import write_observation_normalizer
 from trade_rl.serving.release import write_release_attestation
@@ -122,20 +117,6 @@ def create_bundle(
         manifest = candidate.with_release(release)
         write_release_attestation(root, release)
     write_serving_bundle_manifest(root, manifest)
-    if release_digest is not None:
-        attestation = ReleaseAttestation.create(
-            bundle_digest=manifest.bundle_digest,
-            dataset_id=manifest.dataset_id,
-            selection_evaluation_digest=manifest.selection_digest,
-            gate_evaluation_digest="7" * 64,
-            gate_evidence_digest=release_digest,
-            selected_policy_digest=manifest.policy_digest,
-            git_commit="e" * 40,
-            dependency_digest="8" * 64,
-            approver="test-approver",
-            approved_at=datetime(2026, 7, 13, tzinfo=UTC),
-        )
-        write_release_attestation(default_attestation_path(root), attestation)
     return root
 
 

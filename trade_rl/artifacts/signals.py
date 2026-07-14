@@ -22,9 +22,6 @@ SIGNAL_ARRAYS_NAME: Final = "arrays.npz"
 SIGNAL_ARTIFACT_SCHEMA: Final = "causal_signal_array_artifact_v2"
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
 SignalKind = Literal["alpha", "factor"]
-_ALLOWED_FILES = frozenset({SIGNAL_MANIFEST_NAME, SIGNAL_ARRAYS_NAME})
-_LEGACY_GENERATOR_CONFIG = content_digest({"schema": "legacy_signal_generator_config_v1"})
-_LEGACY_GENERATOR_CODE = content_digest({"schema": "legacy_signal_generator_code_v1"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +31,6 @@ class SignalArrayManifest:
     dataset_id: str
     fit_start: int
     fit_stop: int
-    prediction_start: int
-    prediction_stop: int
-    generator_config_digest: str
-    generator_code_digest: str
     kind: SignalKind
     names: tuple[str, ...]
     shape: tuple[int, ...]
@@ -54,18 +47,12 @@ class SignalArrayManifest:
             raise ValueError("signal artifact kind is unsupported")
         if self.fit_start < 0 or self.fit_stop <= self.fit_start:
             raise ValueError("signal fit range must be non-empty and half-open")
-        if self.prediction_start < self.fit_stop:
-            raise ValueError("prediction range must start at or after fit_stop")
-        if self.prediction_stop <= self.prediction_start:
-            raise ValueError("signal prediction range must be non-empty and half-open")
         if not self.names or any(not name for name in self.names):
             raise ValueError("signal names must be non-empty")
         if len(set(self.names)) != len(self.names):
             raise ValueError("signal names must be unique")
         if not self.shape or any(size <= 0 for size in self.shape):
             raise ValueError("signal shape must be positive")
-        if self.prediction_stop > self.shape[0]:
-            raise ValueError("signal prediction range exceeds values")
         if self.schema_version != SIGNAL_ARTIFACT_SCHEMA:
             raise ValueError("unsupported signal artifact schema")
 
@@ -73,7 +60,6 @@ class SignalArrayManifest:
         return {
             "arrays_digest": self.arrays_digest,
             "arrays_file": SIGNAL_ARRAYS_NAME,
-            "available_at_dtype": self.available_at_dtype,
             "dataset_id": self.dataset_id,
             "dtype": self.dtype,
             "fit_start": self.fit_start,
@@ -81,8 +67,6 @@ class SignalArrayManifest:
             "generator_digest": self.generator_digest,
             "kind": self.kind,
             "names": self.names,
-            "prediction_start": self.prediction_start,
-            "prediction_stop": self.prediction_stop,
             "schema_version": self.schema_version,
             "shape": self.shape,
         }
@@ -191,8 +175,6 @@ def write_signal_artifact(
     )
     require_sha256(resolved_generator, field="generator_digest")
     output = Path(root)
-    if output.exists() and any(output.iterdir()):
-        raise FileExistsError(f"signal artifact destination is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
     payload = _deterministic_npz(
         {
@@ -205,18 +187,15 @@ def write_signal_artifact(
     base = {
         "arrays_digest": arrays_digest,
         "arrays_file": SIGNAL_ARRAYS_NAME,
-        "available_at_dtype": arrays.available_at.dtype.str,
         "dataset_id": dataset_id,
-        "dtype": arrays.values.dtype.str,
+        "dtype": array.dtype.str,
         "fit_start": fit_start,
         "fit_stop": fit_stop,
         "generator_digest": resolved_generator,
         "kind": kind,
         "names": names,
-        "prediction_start": resolved_prediction_start,
-        "prediction_stop": resolved_prediction_stop,
         "schema_version": SIGNAL_ARTIFACT_SCHEMA,
-        "shape": tuple(int(size) for size in arrays.shape),
+        "shape": tuple(int(size) for size in array.shape),
     }
     manifest = SignalArrayManifest(
         artifact_digest=content_digest(base),
@@ -224,10 +203,6 @@ def write_signal_artifact(
         dataset_id=dataset_id,
         fit_start=fit_start,
         fit_stop=fit_stop,
-        prediction_start=resolved_prediction_start,
-        prediction_stop=resolved_prediction_stop,
-        generator_config_digest=generator_config_digest,
-        generator_code_digest=generator_code_digest,
         kind=kind,
         names=names,
         shape=tuple(int(size) for size in array.shape),
@@ -245,8 +220,13 @@ def _load_signal_payload(
     expected_kind: SignalKind | None = None,
 ) -> tuple[SignalArrayManifest, SignalArrayPayload]:
     path = Path(root)
-    _verify_file_closure(path)
-    raw = json.loads((path / SIGNAL_MANIFEST_NAME).read_text(encoding="utf-8"))
+    manifest_path = path / SIGNAL_MANIFEST_NAME
+    arrays_path = path / SIGNAL_ARRAYS_NAME
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"signal manifest is missing: {manifest_path}")
+    if not arrays_path.is_file():
+        raise FileNotFoundError(f"signal arrays are missing: {arrays_path}")
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("signal manifest must be a mapping")
     try:
@@ -256,10 +236,6 @@ def _load_signal_payload(
             dataset_id=str(raw["dataset_id"]),
             fit_start=int(raw["fit_start"]),
             fit_stop=int(raw["fit_stop"]),
-            prediction_start=int(raw["prediction_start"]),
-            prediction_stop=int(raw["prediction_stop"]),
-            generator_config_digest=str(raw["generator_config_digest"]),
-            generator_code_digest=str(raw["generator_code_digest"]),
             kind=str(raw["kind"]),  # type: ignore[arg-type]
             names=tuple(str(value) for value in raw["names"]),
             shape=tuple(int(value) for value in raw["shape"]),
@@ -273,7 +249,7 @@ def _load_signal_payload(
         raise ValueError("signal manifest digest mismatch")
     if expected_kind is not None and manifest.kind != expected_kind:
         raise ValueError("signal artifact kind mismatch")
-    payload = (path / SIGNAL_ARRAYS_NAME).read_bytes()
+    payload = arrays_path.read_bytes()
     if _sha256(payload) != manifest.arrays_digest:
         raise ValueError("signal arrays digest mismatch")
     try:
@@ -285,15 +261,9 @@ def _load_signal_payload(
             cutoff = np.asarray(archive["knowledge_cutoff"], dtype=np.int64)
     except (OSError, ValueError, zipfile.BadZipFile) as error:
         raise ValueError("signal arrays are invalid") from error
-    if arrays.shape != manifest.shape or arrays.dtype.str != manifest.dtype:
+    if values.shape != manifest.shape or values.dtype.str != manifest.dtype:
         raise ValueError("signal array shape or dtype mismatch")
-    if arrays.valid.shape != arrays.shape:
-        raise ValueError("signal validity shape mismatch")
-    if arrays.available_at.shape != (arrays.shape[0],):
-        raise ValueError("signal availability shape mismatch")
-    if arrays.available_at.dtype.str != manifest.available_at_dtype:
-        raise ValueError("signal availability dtype mismatch")
-    if not np.isfinite(arrays.values).all():
+    if not np.isfinite(values).all():
         raise ValueError("signal values must be finite")
     valid, cutoff = _availability(
         values.shape[0],

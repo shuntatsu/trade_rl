@@ -21,29 +21,8 @@ from trade_rl.data.market import MarketDataset
 
 DATASET_MANIFEST_NAME: Final = "manifest.json"
 DATASET_ARRAYS_NAME: Final = "arrays.npz"
-DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v4"
+DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v3"
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
-
-
-def verify_exact_artifact_files(root: Path) -> None:
-    """Reject undeclared entries, symlinks, and non-regular artifact files."""
-
-    expected = {DATASET_MANIFEST_NAME, DATASET_ARRAYS_NAME}
-    if not root.is_dir():
-        raise FileNotFoundError(f"dataset artifact directory is missing: {root}")
-    actual: set[str] = set()
-    for entry in root.iterdir():
-        if entry.is_symlink():
-            raise ValueError(f"dataset artifact contains symlink: {entry.name}")
-        if not entry.is_file():
-            raise ValueError(f"dataset artifact contains non-file entry: {entry.name}")
-        actual.add(entry.name)
-    undeclared = sorted(actual - expected)
-    missing = sorted(expected - actual)
-    if undeclared:
-        raise ValueError(f"dataset artifact contains undeclared files: {undeclared}")
-    if missing:
-        raise FileNotFoundError(f"dataset artifact is missing files: {missing}")
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -173,7 +152,6 @@ def _string(value: object, *, field: str) -> str:
 def load_dataset_files(root: Path) -> MarketDataset:
     """Load and verify one canonical market-dataset artifact directory."""
 
-    verify_exact_artifact_files(root)
     manifest_path = root / DATASET_MANIFEST_NAME
     arrays_path = root / DATASET_ARRAYS_NAME
     if not manifest_path.is_file():
@@ -234,9 +212,4 @@ def load_dataset_files(root: Path) -> MarketDataset:
         raise ValueError(
             f"dataset artifact field contract mismatch: missing={missing}, extra={extra}"
         )
-    dataset = MarketDataset(**kwargs)
-    if not dataset.identity_verified:
-        raise ValueError("dataset artifact lacks a verified canonical identity")
-    if dataset.recomputed_dataset_id() != top_level_dataset_id:
-        raise ValueError("dataset_id does not match canonical artifact contents")
-    return dataset
+    return MarketDataset(**kwargs)

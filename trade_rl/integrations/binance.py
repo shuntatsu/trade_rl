@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import math
@@ -15,6 +16,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -330,6 +332,7 @@ class BinancePublicTransport:
         timeout_seconds: float = 30.0,
         max_attempts: int = 3,
         retry_backoff_seconds: float = 0.25,
+        cache_root: str | Path | None = None,
     ) -> None:
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0.0:
             raise ValueError("timeout_seconds must be finite and positive")
@@ -342,8 +345,23 @@ class BinancePublicTransport:
         self.timeout_seconds = timeout_seconds
         self.max_attempts = max_attempts
         self.retry_backoff_seconds = retry_backoff_seconds
+        self.cache_root = None if cache_root is None else Path(cache_root)
+
+    def _vision_cache_path(self, url: str) -> Path | None:
+        if self.cache_root is None or not url.startswith(f"{_VISION_ROOT}/"):
+            return None
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+        return self.cache_root / digest[:2] / f"{digest}.bin"
 
     def _request_bytes(self, url: str) -> bytes:
+        cache_path = self._vision_cache_path(url)
+        if cache_path is not None and cache_path.is_file():
+            payload = cache_path.read_bytes()
+            if not payload:
+                raise BinanceTransportError(
+                    f"cached Binance Vision archive is empty: {cache_path}"
+                )
+            return payload
         request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
         last_error: BaseException | None = None
         for attempt in range(self.max_attempts):
@@ -352,7 +370,17 @@ class BinancePublicTransport:
                     request,
                     timeout=self.timeout_seconds,
                 ) as response:
-                    return response.read()
+                    payload = response.read()
+                if not payload:
+                    raise BinanceTransportError(
+                        f"Binance returned an empty response for {url}"
+                    )
+                if cache_path is not None:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = cache_path.with_suffix(".tmp")
+                    temporary.write_bytes(payload)
+                    temporary.replace(cache_path)
+                return payload
             except urllib.error.HTTPError as error:
                 last_error = error
                 if error.code == 404:

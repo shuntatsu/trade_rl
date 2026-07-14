@@ -5,7 +5,9 @@ from pathlib import Path
 from trade_rl.integrations.binance import BinancePublicTransport
 
 
-def test_vision_archive_disk_cache_avoids_second_download(monkeypatch, tmp_path: Path) -> None:
+def test_vision_archive_disk_cache_avoids_second_download(
+    monkeypatch, tmp_path: Path
+) -> None:
     payload = b"immutable-vision-archive"
     calls: list[str] = []
 
@@ -41,7 +43,9 @@ def test_vision_archive_disk_cache_avoids_second_download(monkeypatch, tmp_path:
     assert cache_files[0].read_bytes() == payload
 
 
-def test_rest_requests_are_not_loaded_from_vision_cache(monkeypatch, tmp_path: Path) -> None:
+def test_rest_requests_are_not_loaded_from_vision_cache(
+    monkeypatch, tmp_path: Path
+) -> None:
     responses = iter((b'{"version": 1}', b'{"version": 2}'))
     calls = 0
 

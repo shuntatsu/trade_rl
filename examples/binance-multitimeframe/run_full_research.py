@@ -76,8 +76,12 @@ def _run_cli(arguments: list[str], *, root: Path, log_path: Path) -> dict[str, A
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(
-        "command: " + repr(command) + "\n\nstdout:\n" + completed.stdout
-        + "\n\nstderr:\n" + completed.stderr,
+        "command: "
+        + repr(command)
+        + "\n\nstdout:\n"
+        + completed.stdout
+        + "\n\nstderr:\n"
+        + completed.stderr,
         encoding="utf-8",
     )
     if completed.returncode != 0:
@@ -120,7 +124,9 @@ def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, object]
         if not isinstance(onboard, (int, float)) or isinstance(onboard, bool):
             raise ValueError(f"exchangeInfo has no onboardDate for {symbol}")
         result[symbol] = {
-            "listed_at": datetime.fromtimestamp(float(onboard) / 1000.0, tz=UTC).isoformat(),
+            "listed_at": datetime.fromtimestamp(
+                float(onboard) / 1000.0, tz=UTC
+            ).isoformat(),
             "tick_size": _filter_number(filters, "PRICE_FILTER", "tickSize"),
             "lot_size": _filter_number(filters, "LOT_SIZE", "stepSize"),
             "minimum_notional": _filter_number(
@@ -204,7 +210,9 @@ def _build_dataset(
         "1d__log_return_7bar",
     )
     if result.dataset.feature_names != expected_features:
-        raise RuntimeError(f"unexpected feature contract: {result.dataset.feature_names}")
+        raise RuntimeError(
+            f"unexpected feature contract: {result.dataset.feature_names}"
+        )
     return {
         "artifact_digest": published.artifact_digest,
         "dataset_id": result.dataset.dataset_id,
@@ -236,11 +244,15 @@ def _verify_training(path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--work-root", type=Path, default=Path("var/binance-multitimeframe-full"))
+    parser.add_argument(
+        "--work-root", type=Path, default=Path("var/binance-multitimeframe-full")
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
-    work_root = args.work_root if args.work_root.is_absolute() else root / args.work_root
+    work_root = (
+        args.work_root if args.work_root.is_absolute() else root / args.work_root
+    )
     if work_root.exists():
         shutil.rmtree(work_root)
     work_root.mkdir(parents=True)
@@ -270,9 +282,13 @@ def main() -> int:
         metadata=metadata,
     )
     if dataset_a["dataset_id"] != dataset_b["dataset_id"]:
-        raise RuntimeError("repeated multi-timeframe builds produced different dataset IDs")
+        raise RuntimeError(
+            "repeated multi-timeframe builds produced different dataset IDs"
+        )
     if dataset_a["artifact_digest"] != dataset_b["artifact_digest"]:
-        raise RuntimeError("repeated multi-timeframe builds produced different artifact digests")
+        raise RuntimeError(
+            "repeated multi-timeframe builds produced different artifact digests"
+        )
 
     artifact_root = work_root / "artifacts"
     training = _run_cli(

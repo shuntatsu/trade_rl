@@ -26,8 +26,10 @@ jobs:
         run: |
           uv run python .github/scripts/apply_binance_pipeline.py
           uv run python .github/scripts/apply_binance_smoke_constants.py
-      - name: Format
-        run: uv run ruff format trade_rl tests scripts
+      - name: Format and organize imports
+        run: |
+          uv run ruff check --fix trade_rl tests scripts
+          uv run ruff format trade_rl tests scripts
       - name: Focused Binance tests
         id: focused
         run: |

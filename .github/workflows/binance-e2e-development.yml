@@ -23,7 +23,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
       - name: Apply existing-layer patches
-        run: uv run python .github/scripts/apply_binance_pipeline.py
+        run: |
+          uv run python .github/scripts/apply_binance_pipeline.py
+          uv run python .github/scripts/apply_binance_smoke_constants.py
       - name: Format
         run: uv run ruff format trade_rl tests scripts
       - name: Focused Binance tests

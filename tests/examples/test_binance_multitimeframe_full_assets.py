@@ -33,7 +33,7 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
 def test_full_walk_forward_config_has_two_material_folds() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / "walk-forward-full.json",
-        n_bars=13_104,
+        n_bars=13_128,
     )
 
     folds = config.workflow.build_folds()
@@ -54,6 +54,7 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
         assert timeframe in content
     assert "2024-12-01T00:00:00Z" in content
     assert "2026-06-01T00:00:00Z" in content
+    assert "13_128" in content
     assert "dataset_id" in content
     assert "artifact_digest" in content
     assert '"train", "run"' in content

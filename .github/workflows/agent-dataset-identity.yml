@@ -50,6 +50,20 @@ jobs:
       - name: Apply dataset identity implementation
         run: uv run python .github/agent_tools/dataset_identity.py implementation
 
+      - name: Narrow calendar identity type
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/data/market.py")
+          text = path.read_text(encoding="utf-8")
+          old = '"calendar_kind": self.calendar_kind.value,'
+          new = '"calendar_kind": MarketCalendarKind(self.calendar_kind).value,'
+          if text.count(old) != 1:
+              raise RuntimeError("calendar identity field changed")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Format and lint
         run: |
           uv run ruff format .
@@ -57,23 +71,7 @@ jobs:
           uv run ruff check .
 
       - name: Type check
-        id: type_check
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          uv run mypy trade_rl 2>&1 | tee "$RUNNER_TEMP/dataset-mypy.txt"
-
-      - name: Upload type diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dataset-identity-diagnostics
-          path: ${{ runner.temp }}/dataset-mypy.txt
-
-      - name: Enforce type check
-        if: steps.type_check.outcome != 'success'
-        run: exit 1
+        run: uv run mypy trade_rl
 
       - name: Import architecture
         run: uv run lint-imports

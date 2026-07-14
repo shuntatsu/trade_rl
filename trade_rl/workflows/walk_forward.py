@@ -133,7 +133,16 @@ def run_walk_forward(
         folds=folds,
         fold_results=tuple(results),
         stitched=stitched,
-        metrics=evaluate_performance(stitched.returns),
+        metrics=evaluate_performance(
+            stitched.returns,
+            turnover_total=stitched.diagnostics.turnover_total,
+            total_cost=stitched.diagnostics.total_cost,
+            funding_pnl=stitched.diagnostics.funding_pnl,
+            borrow_cost=stitched.diagnostics.borrow_cost,
+            n_trades=stitched.diagnostics.n_trades,
+            rebalance_events=stitched.diagnostics.rebalance_events,
+            termination_count=stitched.diagnostics.termination_count,
+        ),
     )
 
 
@@ -182,7 +191,9 @@ def execute_walk_forward(
                 }
                 for result in detailed_results
             ),
-            "schema_version": "walk_forward_execution_v1",
+            "baseline_diagnostics": baseline_stitched.diagnostics.digest_payload(),
+            "schema_version": "walk_forward_execution_v2",
+            "selected_diagnostics": selected_stitched.diagnostics.digest_payload(),
             "stitch_mode": config.stitch_mode.value,
         }
     )
@@ -193,17 +204,25 @@ def execute_walk_forward(
         fold_results=tuple(detailed_results),
         selected_stitched=selected_stitched,
         baseline_stitched=baseline_stitched,
-        selected_metrics=(
-            None if independent else evaluate_performance(selected_stitched.returns)
+        selected_metrics=evaluate_performance(
+            selected_stitched.returns,
+            turnover_total=selected_stitched.diagnostics.turnover_total,
+            total_cost=selected_stitched.diagnostics.total_cost,
+            funding_pnl=selected_stitched.diagnostics.funding_pnl,
+            borrow_cost=selected_stitched.diagnostics.borrow_cost,
+            n_trades=selected_stitched.diagnostics.n_trades,
+            rebalance_events=selected_stitched.diagnostics.rebalance_events,
+            termination_count=selected_stitched.diagnostics.termination_count,
         ),
-        baseline_metrics=(
-            None if independent else evaluate_performance(baseline_stitched.returns)
-        ),
-        selected_independent_summary=(
-            summarize_independent_folds(tuple(selected_results)) if independent else None
-        ),
-        baseline_independent_summary=(
-            summarize_independent_folds(tuple(baseline_results)) if independent else None
+        baseline_metrics=evaluate_performance(
+            baseline_stitched.returns,
+            turnover_total=baseline_stitched.diagnostics.turnover_total,
+            total_cost=baseline_stitched.diagnostics.total_cost,
+            funding_pnl=baseline_stitched.diagnostics.funding_pnl,
+            borrow_cost=baseline_stitched.diagnostics.borrow_cost,
+            n_trades=baseline_stitched.diagnostics.n_trades,
+            rebalance_events=baseline_stitched.diagnostics.rebalance_events,
+            termination_count=baseline_stitched.diagnostics.termination_count,
         ),
         evaluation_digest=evaluation_digest,
     )

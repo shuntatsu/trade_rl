@@ -48,24 +48,9 @@ class ServingRegistry:
         for path in (self.root, self.staging_root, self.versions_root):
             path.mkdir(parents=True, exist_ok=True)
 
-    def _load_attestation(
-        self,
-        bundle: ServingBundle,
-        path: Path | None,
-    ) -> ReleaseAttestation | None:
-        resolved = default_attestation_path(bundle.root) if path is None else path
-        if not resolved.is_file():
-            if self.allow_unreleased:
-                return None
-            raise ValueError("serving bundle requires an approved release attestation")
-        attestation = load_release_attestation(resolved)
-        if attestation.bundle_digest != bundle.manifest.bundle_digest:
-            raise ValueError("release attestation bundle identity mismatch")
-        if attestation.dataset_id != bundle.manifest.dataset_id:
-            raise ValueError("release attestation dataset identity mismatch")
-        if attestation.selected_policy_digest != bundle.manifest.policy_digest:
-            raise ValueError("release attestation policy identity mismatch")
-        return attestation
+    def _require_activatable(self, bundle: ServingBundle) -> None:
+        if bundle.release is None and not self.allow_unreleased:
+            raise ValueError("serving bundle requires a verified release attestation")
 
     def activate(
         self,
@@ -109,7 +94,7 @@ class ServingRegistry:
                     attestation,
                 )
             _fsync_directory(self.versions_root)
-            installed = staged
+            installed = load_serving_bundle(destination)
 
         pointer = {
             "bundle_digest": digest,

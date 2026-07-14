@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
@@ -15,6 +15,7 @@ from trade_rl.domain.common import (
     require_sha256,
 )
 from trade_rl.domain.selection import PolicyMode, SelectionDecision
+from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.evaluation.walk_forward.sealed_test import (
@@ -146,7 +147,7 @@ class CandidateEvaluation:
     score: float
     returns: ReturnSeries
     evaluation_digest: str
-    evidence: ExecutionEvidence = ExecutionEvidence()
+    diagnostics: ExecutionDiagnostics = field(default_factory=ExecutionDiagnostics)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.score):
@@ -255,7 +256,7 @@ class ConcreteFoldRunner:
             start=fold.test.start,
             stop=fold.test.stop,
             returns=evaluation.returns,
-            evidence=evaluation.evidence,
+            diagnostics=evaluation.diagnostics,
         )
 
     def run_fold(self, fold: WalkForwardFold) -> FoldExecutionResult:

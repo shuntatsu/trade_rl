@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
@@ -67,18 +66,8 @@ def build_demo_dataset(n_bars: int = 1_024) -> MarketDataset:
     tradable = np.ones((n_bars, 1), dtype=np.bool_)
     funding_rate = np.zeros((n_bars, 1), dtype=np.float64)
 
-    identity = hashlib.sha256()
-    identity.update(b"trade-rl-quickstart-dataset-v1")
-    for array in (
-        timestamps.astype("datetime64[ns]").astype(np.int64),
-        features,
-        global_features,
-        *prices.values(),
-    ):
-        identity.update(np.ascontiguousarray(array).tobytes(order="C"))
-
     return MarketDataset(
-        dataset_id=identity.hexdigest(),
+        dataset_id="0" * 64,
         symbols=("BTCUSDT",),
         timestamps=timestamps,
         features=features,
@@ -98,7 +87,7 @@ def build_demo_dataset(n_bars: int = 1_024) -> MarketDataset:
         spread_rate=np.full((n_bars, 1), 0.0002, dtype=np.float64),
         max_participation_rate=np.full((n_bars, 1), 0.05, dtype=np.float64),
         borrow_available=np.ones((n_bars, 1), dtype=np.bool_),
-    )
+    ).with_content_identity({"source": "quickstart-demo-v2"})
 
 
 def build_parser() -> argparse.ArgumentParser:

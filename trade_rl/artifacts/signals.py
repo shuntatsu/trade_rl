@@ -1,4 +1,4 @@
-"""Canonical content-addressed point-in-time alpha and factor artifacts."""
+"""Canonical point-in-time alpha and factor array artifacts."""
 
 from __future__ import annotations
 
@@ -42,18 +42,14 @@ class SignalArrayManifest:
     names: tuple[str, ...]
     shape: tuple[int, ...]
     dtype: str
-    available_at_dtype: str
+    generator_digest: str
     schema_version: str = SIGNAL_ARTIFACT_SCHEMA
 
     def __post_init__(self) -> None:
-        for field_name, value in (
-            ("artifact_digest", self.artifact_digest),
-            ("arrays_digest", self.arrays_digest),
-            ("dataset_id", self.dataset_id),
-            ("generator_config_digest", self.generator_config_digest),
-            ("generator_code_digest", self.generator_code_digest),
-        ):
-            require_sha256(value, field=field_name)
+        require_sha256(self.artifact_digest, field="artifact_digest")
+        require_sha256(self.arrays_digest, field="arrays_digest")
+        require_sha256(self.dataset_id, field="dataset_id")
+        require_sha256(self.generator_digest, field="generator_digest")
         if self.kind not in {"alpha", "factor"}:
             raise ValueError("signal artifact kind is unsupported")
         if self.fit_start < 0 or self.fit_stop <= self.fit_start:
@@ -82,8 +78,7 @@ class SignalArrayManifest:
             "dtype": self.dtype,
             "fit_start": self.fit_start,
             "fit_stop": self.fit_stop,
-            "generator_code_digest": self.generator_code_digest,
-            "generator_config_digest": self.generator_config_digest,
+            "generator_digest": self.generator_digest,
             "kind": self.kind,
             "names": self.names,
             "prediction_start": self.prediction_start,
@@ -94,24 +89,10 @@ class SignalArrayManifest:
 
 
 @dataclass(frozen=True, slots=True)
-class SignalArrays:
+class SignalArrayPayload:
     values: np.ndarray
-    valid: np.ndarray
-    available_at: np.ndarray
-
-    @property
-    def shape(self) -> tuple[int, ...]:
-        return self.values.shape
-
-    @property
-    def dtype(self) -> np.dtype[np.generic]:
-        return self.values.dtype
-
-    def __getitem__(self, item: object) -> np.ndarray:
-        return self.values[item]
-
-    def __array__(self, dtype: np.dtype[np.generic] | None = None) -> np.ndarray:
-        return np.asarray(self.values, dtype=dtype)
+    valid_mask: np.ndarray
+    knowledge_cutoff: np.ndarray
 
 
 def _sha256(payload: bytes) -> str:
@@ -128,74 +109,48 @@ def _atomic_write(path: Path, payload: bytes) -> None:
     os.replace(temporary, path)
 
 
-def _npy_bytes(array: np.ndarray) -> bytes:
-    output = io.BytesIO()
-    np.lib.format.write_array(output, np.asarray(array), allow_pickle=False)
-    return output.getvalue()
-
-
 def _deterministic_npz(arrays: dict[str, np.ndarray]) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_STORED) as archive:
         for name in sorted(arrays):
+            npy = io.BytesIO()
+            np.lib.format.write_array(npy, arrays[name], allow_pickle=False)
             info = zipfile.ZipInfo(f"{name}.npy", date_time=_FIXED_ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_STORED
             info.create_system = 3
             info.external_attr = 0o100644 << 16
-            archive.writestr(info, _npy_bytes(arrays[name]))
+            archive.writestr(info, npy.getvalue())
     return output.getvalue()
 
 
-def _verify_file_closure(root: Path) -> None:
-    if not root.is_dir():
-        raise FileNotFoundError(f"signal artifact directory is missing: {root}")
-    entries = tuple(root.iterdir())
-    names = {entry.name for entry in entries}
-    if names != _ALLOWED_FILES or any(entry.is_symlink() or not entry.is_file() for entry in entries):
-        raise ValueError("signal artifact file closure mismatch")
-
-
-def _validate_arrays(
+def _availability(
+    n_bars: int,
     *,
-    kind: SignalKind,
-    names: tuple[str, ...],
-    values: np.ndarray,
-    valid: np.ndarray | None,
-    available_at: np.ndarray | None,
-) -> SignalArrays:
-    array = np.asarray(values)
-    if array.ndim not in {2, 3} or not np.issubdtype(array.dtype, np.number):
-        raise ValueError("signal values must be a numeric rank-2 or rank-3 array")
-    if not np.isfinite(array).all():
-        raise ValueError("signal values must be finite")
-    if kind == "alpha" and (array.ndim != 2 or array.shape[1] != len(names)):
-        raise ValueError("alpha values must have shape (bars, symbols)")
-    if kind == "factor" and (array.ndim != 3 or array.shape[1] != len(names)):
-        raise ValueError("factor values must have shape (bars, factors, symbols)")
-    validity = np.ones(array.shape, dtype=np.bool_) if valid is None else np.asarray(valid, dtype=np.bool_)
-    if validity.shape != array.shape:
-        raise ValueError("signal validity shape must match values")
-    availability = (
-        np.arange(array.shape[0], dtype=np.int64)
-        if available_at is None
-        else np.asarray(available_at)
-    )
-    if availability.shape != (array.shape[0],):
-        raise ValueError("signal available_at must have one value per bar")
-    if not (
-        np.issubdtype(availability.dtype, np.datetime64)
-        or np.issubdtype(availability.dtype, np.integer)
-    ):
-        raise ValueError("signal available_at must use datetime64 or integer indices")
-    if np.issubdtype(availability.dtype, np.datetime64):
-        availability = availability.astype("datetime64[ns]")
-        if np.any(availability.astype(np.int64) == np.iinfo(np.int64).min):
-            raise ValueError("signal available_at must not contain NaT")
+    fit_stop: int,
+    valid_mask: np.ndarray | None,
+    knowledge_cutoff: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    if valid_mask is None:
+        valid = np.arange(n_bars, dtype=np.int64) >= fit_stop
     else:
-        availability = availability.astype(np.int64)
-        if np.any(availability < 0):
-            raise ValueError("signal available_at indices must be non-negative")
-    return SignalArrays(array.copy(), validity.copy(), availability.copy())
+        valid = np.asarray(valid_mask, dtype=np.bool_).reshape(-1)
+    if valid.shape != (n_bars,):
+        raise ValueError("signal valid_mask must match the bar count")
+    if knowledge_cutoff is None:
+        cutoff = np.full(n_bars, -1, dtype=np.int64)
+        cutoff[valid] = fit_stop - 1
+    else:
+        cutoff = np.asarray(knowledge_cutoff, dtype=np.int64).reshape(-1)
+    if cutoff.shape != (n_bars,):
+        raise ValueError("signal knowledge_cutoff must match the bar count")
+    indices = np.arange(n_bars, dtype=np.int64)
+    if np.any(cutoff[~valid] != -1):
+        raise ValueError("invalid signal rows must use knowledge cutoff -1")
+    if np.any(cutoff[valid] < 0) or np.any(cutoff[valid] >= indices[valid]):
+        raise ValueError(
+            "signal knowledge cutoff must strictly precede each prediction"
+        )
+    return valid, cutoff
 
 
 def write_signal_artifact(
@@ -207,31 +162,43 @@ def write_signal_artifact(
     fit_stop: int,
     names: tuple[str, ...],
     values: np.ndarray,
-    prediction_start: int | None = None,
-    prediction_stop: int | None = None,
-    generator_config_digest: str = _LEGACY_GENERATOR_CONFIG,
-    generator_code_digest: str = _LEGACY_GENERATOR_CODE,
-    valid: np.ndarray | None = None,
-    available_at: np.ndarray | None = None,
+    valid_mask: np.ndarray | None = None,
+    knowledge_cutoff: np.ndarray | None = None,
+    generator_digest: str | None = None,
 ) -> str:
-    arrays = _validate_arrays(
-        kind=kind,
-        names=names,
-        values=values,
-        valid=valid,
-        available_at=available_at,
+    array = np.asarray(values)
+    if array.ndim not in {2, 3} or not np.issubdtype(array.dtype, np.number):
+        raise ValueError("signal values must be a numeric rank-2 or rank-3 array")
+    if not np.isfinite(array).all():
+        raise ValueError("signal values must be finite")
+    if kind == "alpha" and (array.ndim != 2 or array.shape[1] != len(names)):
+        raise ValueError("alpha values must have shape (bars, symbols)")
+    if kind == "factor" and (array.ndim != 3 or array.shape[1] != len(names)):
+        raise ValueError("factor values must have shape (bars, factors, symbols)")
+    if fit_start < 0 or fit_stop <= fit_start or fit_stop > array.shape[0]:
+        raise ValueError("signal fit range is invalid")
+    valid, cutoff = _availability(
+        array.shape[0],
+        fit_stop=fit_stop,
+        valid_mask=valid_mask,
+        knowledge_cutoff=knowledge_cutoff,
     )
-    resolved_prediction_start = fit_stop if prediction_start is None else prediction_start
-    resolved_prediction_stop = arrays.shape[0] if prediction_stop is None else prediction_stop
+    resolved_generator = generator_digest or content_digest(
+        {
+            "kind": kind,
+            "schema_version": "default_signal_generator_contract_v1",
+        }
+    )
+    require_sha256(resolved_generator, field="generator_digest")
     output = Path(root)
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"signal artifact destination is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
     payload = _deterministic_npz(
         {
-            "available_at": arrays.available_at,
-            "valid": arrays.valid,
-            "values": arrays.values,
+            "knowledge_cutoff": cutoff.astype(np.int64),
+            "valid_mask": valid.astype(np.bool_),
+            "values": array,
         }
     )
     arrays_digest = _sha256(payload)
@@ -243,8 +210,7 @@ def write_signal_artifact(
         "dtype": arrays.values.dtype.str,
         "fit_start": fit_start,
         "fit_stop": fit_stop,
-        "generator_code_digest": generator_code_digest,
-        "generator_config_digest": generator_config_digest,
+        "generator_digest": resolved_generator,
         "kind": kind,
         "names": names,
         "prediction_start": resolved_prediction_start,
@@ -264,20 +230,20 @@ def write_signal_artifact(
         generator_code_digest=generator_code_digest,
         kind=kind,
         names=names,
-        shape=tuple(int(size) for size in arrays.shape),
-        dtype=arrays.values.dtype.str,
-        available_at_dtype=arrays.available_at.dtype.str,
+        shape=tuple(int(size) for size in array.shape),
+        dtype=array.dtype.str,
+        generator_digest=resolved_generator,
     )
     _atomic_write(output / SIGNAL_ARRAYS_NAME, payload)
     _atomic_write(output / SIGNAL_MANIFEST_NAME, canonical_json_bytes(manifest))
     return manifest.artifact_digest
 
 
-def load_signal_artifact(
+def _load_signal_payload(
     root: str | Path,
     *,
     expected_kind: SignalKind | None = None,
-) -> tuple[SignalArrayManifest, SignalArrays]:
+) -> tuple[SignalArrayManifest, SignalArrayPayload]:
     path = Path(root)
     _verify_file_closure(path)
     raw = json.loads((path / SIGNAL_MANIFEST_NAME).read_text(encoding="utf-8"))
@@ -298,7 +264,7 @@ def load_signal_artifact(
             names=tuple(str(value) for value in raw["names"]),
             shape=tuple(int(value) for value in raw["shape"]),
             dtype=str(raw["dtype"]),
-            available_at_dtype=str(raw["available_at_dtype"]),
+            generator_digest=str(raw["generator_digest"]),
             schema_version=str(raw["schema_version"]),
         )
     except (KeyError, TypeError, ValueError) as error:
@@ -312,13 +278,11 @@ def load_signal_artifact(
         raise ValueError("signal arrays digest mismatch")
     try:
         with np.load(io.BytesIO(payload), allow_pickle=False) as archive:
-            if set(archive.files) != {"available_at", "valid", "values"}:
+            if set(archive.files) != {"values", "valid_mask", "knowledge_cutoff"}:
                 raise ValueError("signal array allow-list mismatch")
-            arrays = SignalArrays(
-                values=np.asarray(archive["values"]),
-                valid=np.asarray(archive["valid"], dtype=np.bool_),
-                available_at=np.asarray(archive["available_at"]),
-            )
+            values = np.asarray(archive["values"])
+            valid = np.asarray(archive["valid_mask"], dtype=np.bool_)
+            cutoff = np.asarray(archive["knowledge_cutoff"], dtype=np.int64)
     except (OSError, ValueError, zipfile.BadZipFile) as error:
         raise ValueError("signal arrays are invalid") from error
     if arrays.shape != manifest.shape or arrays.dtype.str != manifest.dtype:
@@ -331,7 +295,30 @@ def load_signal_artifact(
         raise ValueError("signal availability dtype mismatch")
     if not np.isfinite(arrays.values).all():
         raise ValueError("signal values must be finite")
-    return manifest, arrays
+    valid, cutoff = _availability(
+        values.shape[0],
+        fit_stop=manifest.fit_stop,
+        valid_mask=valid,
+        knowledge_cutoff=cutoff,
+    )
+    return manifest, SignalArrayPayload(values, valid, cutoff)
+
+
+def load_signal_artifact(
+    root: str | Path,
+    *,
+    expected_kind: SignalKind | None = None,
+) -> tuple[SignalArrayManifest, np.ndarray]:
+    manifest, payload = _load_signal_payload(root, expected_kind=expected_kind)
+    return manifest, payload.values
+
+
+def load_signal_artifact_payload(
+    root: str | Path,
+    *,
+    expected_kind: SignalKind | None = None,
+) -> tuple[SignalArrayManifest, SignalArrayPayload]:
+    return _load_signal_payload(root, expected_kind=expected_kind)
 
 
 __all__ = [
@@ -339,7 +326,8 @@ __all__ = [
     "SIGNAL_ARTIFACT_SCHEMA",
     "SIGNAL_MANIFEST_NAME",
     "SignalArrayManifest",
-    "SignalArrays",
+    "SignalArrayPayload",
     "load_signal_artifact",
+    "load_signal_artifact_payload",
     "write_signal_artifact",
 ]

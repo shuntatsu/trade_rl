@@ -11,6 +11,7 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.signals import load_signal_artifact
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange
 from trade_rl.evaluation.walk_forward.stitching import ExecutionEvidence
@@ -207,9 +208,9 @@ def build_market_environment(
 
 
 @dataclass(frozen=True, slots=True)
-class RangeEvaluationResult:
+class RangeEvaluation:
     returns: ReturnSeries
-    evidence: ExecutionEvidence
+    diagnostics: ExecutionDiagnostics
 
 
 def evaluate_range_evidence(
@@ -220,8 +221,8 @@ def evaluate_range_evidence(
     normalizer: ObservationNormalizer | None,
     model: Any | None,
     baseline: bool,
-) -> RangeEvaluationResult:
-    """Evaluate one range and retain all execution diagnostics."""
+) -> RangeEvaluation:
+    """Evaluate one range and retain execution and economic evidence."""
 
     start_index = evaluation_range.start - 1
     minimum = TrendStrategy(run.trend).minimum_history_for(dataset)
@@ -261,14 +262,14 @@ def evaluate_range_evidence(
                     raise RuntimeError("residual evaluation requires a loaded model")
                 raw_action, _ = model.predict(observation, deterministic=True)
                 action = np.asarray(raw_action, dtype=np.float32).reshape(-1)
-            observation, _, terminated, truncated, info = env.step(action)
-            execution = info[
-                "shadow_execution" if baseline else "hybrid_execution"
-            ]
-            total_dividend += float(execution.interval_dividend)
-            total_cash_interest += float(execution.interval_cash_interest)
-            max_participation = max(
-                max_participation, float(execution.max_participation)
+            observation, _, terminated, truncated, _ = env.step(action)
+        book = env.shadow if baseline else env.hybrid
+        values = tuple(float(value) for value in book.returns_history)
+        termination_reasons = (
+            ()
+            if book.termination_reason is None
+            else (
+                str(getattr(book.termination_reason, "value", book.termination_reason)),
             )
         book = env.shadow if baseline else env.hybrid
         values = tuple(float(value) for value in book.returns_history)
@@ -289,19 +290,28 @@ def evaluate_range_evidence(
             max_participation=max_participation,
             termination_reason=reason,
         )
+        diagnostics = ExecutionDiagnostics(
+            turnover_total=book.turnover_total,
+            total_cost=book.total_cost,
+            funding_pnl=book.funding_pnl,
+            borrow_cost=book.borrow_cost,
+            n_trades=book.n_trades,
+            rebalance_events=book.rebalance_events,
+            termination_reasons=termination_reasons,
+        )
     finally:
         env.close()
     if len(values) != evaluation_range.size:
         raise ValueError(
             "range-restricted environment produced an unexpected return length"
         )
-    return RangeEvaluationResult(
+    return RangeEvaluation(
         returns=ReturnSeries(
             values=values,
             kind=ReturnKind.BASE_BAR,
             periods_per_year=dataset.periods_per_year,
         ),
-        evidence=evidence,
+        diagnostics=diagnostics,
     )
 
 
@@ -314,7 +324,7 @@ def evaluate_range(
     model: Any | None,
     baseline: bool,
 ) -> ReturnSeries:
-    """Compatibility wrapper returning only the range return series."""
+    """Compatibility wrapper returning only the evaluated return series."""
 
     return evaluate_range_evidence(
         dataset=dataset,
@@ -332,6 +342,7 @@ __all__ = [
     "RangeEvaluationResult",
     "evaluate_range",
     "evaluate_range_evidence",
+    "RangeEvaluation",
     "factor_names",
     "load_signal_providers",
     "minimum_environment_start",

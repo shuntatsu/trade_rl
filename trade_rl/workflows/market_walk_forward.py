@@ -60,7 +60,6 @@ from trade_rl.workflows.walk_forward import (
 from trade_rl.workflows.walk_forward_evaluation import (
     bind_signal_providers_to_view,
     build_market_environment,
-    evaluate_range,
     evaluate_range_evidence,
     minimum_environment_start,
     resolve_signal_digest,
@@ -139,7 +138,21 @@ def _fit_normalizer(
         train_start=train_range.start,
         train_end=train_range.stop,
         passthrough_indices=passthrough,
-        dataset_id=dataset.dataset_id,
+        dataset_id=training_dataset.dataset_id,
+        source_dataset_id=dataset.dataset_id,
+        absolute_train_start=train_range.start,
+        absolute_train_end=train_range.stop,
+        observation_schema_digest=env.observation_builder.schema_digest(
+            training_dataset
+        ),
+        action_spec_digest=env.action_spec_digest,
+        alpha_artifact_digest=(
+            None if alpha_provider is None else alpha_provider.artifact_digest
+        ),
+        factor_artifact_digest=(
+            None if factor_provider is None else factor_provider.artifact_digest
+        ),
+        candidate_config_digest=content_digest(run.digest_payload()),
     )
 
 
@@ -182,18 +195,19 @@ class MarketCandidateTrainer(CandidateTrainer):
         self.created_at = created_at
         self.registry = registry
         self.checkpoint_loader = checkpoint_loader or StableBaselines3CheckpointLoader()
-        self._normalizers: dict[int, ObservationNormalizer] = {}
+        self._normalizers: dict[tuple[int, str], ObservationNormalizer] = {}
 
     def _normalizer(
         self,
         request: CandidateTrainingRequest,
         run: TrainingRunConfig,
     ) -> ObservationNormalizer:
-        existing = self._normalizers.get(request.fold_index)
+        key = (request.fold_index, request.configuration.name)
+        existing = self._normalizers.get(key)
         if existing is not None:
             return existing
         normalizer = _fit_normalizer(self.dataset, request.train, run)
-        self._normalizers[request.fold_index] = normalizer
+        self._normalizers[key] = normalizer
         _write_json(
             self.root / f"fold-{request.fold_index:03d}" / "normalizer.json",
             _normalizer_payload(
@@ -306,7 +320,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                 model = self.checkpoint_loader.load(
                     PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
                 )
-                returns = evaluate_range(
+                evidence = evaluate_range_evidence(
                     dataset=self.dataset,
                     evaluation_range=request.checkpoint_validation,
                     run=run,
@@ -314,7 +328,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                     model=model,
                     baseline=False,
                 )
-                score = sum(math.log1p(value) for value in returns.values)
+                score = sum(math.log1p(value) for value in evidence.returns.values)
                 scored.append((score, policy_digest))
         selected_digest = min(scored, key=lambda item: (-item[0], item[1]))[1]
         _write_json(
@@ -378,7 +392,7 @@ class MarketCandidateEvaluator:
                     PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
                 )
                 self._model_cache[request.policy_digest] = model
-        evaluation = evaluate_range_evidence(
+        evidence = evaluate_range_evidence(
             dataset=self.dataset,
             evaluation_range=request.evaluation_range,
             run=run,
@@ -391,7 +405,7 @@ class MarketCandidateEvaluator:
             self.outer_test_counts[request.fold_index] = (
                 self.outer_test_counts.get(request.fold_index, 0) + 1
             )
-        score = sum(math.log1p(value) for value in returns.values)
+        score = sum(math.log1p(value) for value in evidence.returns.values)
         digest = content_digest(
             {
                 "configuration": request.configuration,
@@ -403,16 +417,17 @@ class MarketCandidateEvaluator:
                     request.evaluation_range.start,
                     request.evaluation_range.stop,
                 ),
-                "returns": returns.values,
+                "diagnostics": evidence.diagnostics.digest_payload(),
+                "returns": evidence.returns.values,
                 "score": score,
-                "schema_version": "market_candidate_evaluation_v1",
+                "schema_version": "market_candidate_evaluation_v2",
             }
         )
         return CandidateEvaluation(
             score=score,
-            returns=returns,
+            returns=evidence.returns,
             evaluation_digest=digest,
-            evidence=evaluation.evidence,
+            diagnostics=evidence.diagnostics,
         )
 
 
@@ -423,6 +438,7 @@ def _fold_payload(
     sealed_test_evaluations: int,
 ) -> dict[str, object]:
     return {
+        "baseline_diagnostics": result.baseline_oos.diagnostics.digest_payload(),
         "baseline_returns": result.baseline_oos.returns.values,
         "checkpoint_range": [
             fold.checkpoint_validation.start,
@@ -433,6 +449,7 @@ def _fold_payload(
         "sealed_test_evaluations": sealed_test_evaluations,
         "selected_configuration": result.selection.selected_configuration,
         "selected_policy_digest": result.selection.selected_policy_digest,
+        "selected_diagnostics": result.selected_oos.diagnostics.digest_payload(),
         "selected_returns": result.selected_oos.returns.values,
         "selection_digest": result.selection.digest,
         "selection_range": [
@@ -527,12 +544,18 @@ def execute_market_walk_forward(
             result.fold_results,
             strict=True,
         ):
+            sealed_count = evaluator.outer_test_counts.get(fold.fold_index, 0)
+            expected_count = (
+                1 if fold_result.selection.selected_policy_digest is None else 2
+            )
+            if sealed_count != expected_count:
+                raise RuntimeError(
+                    "sealed outer test evaluation count violates the fold contract"
+                )
             payload = _fold_payload(
                 fold,
                 fold_result,
-                sealed_test_evaluations=evaluator.outer_test_counts.get(
-                    fold.fold_index, 0
-                ),
+                sealed_test_evaluations=sealed_count,
             )
             folds_payload.append(payload)
             _write_json(
@@ -575,17 +598,36 @@ def execute_market_walk_forward(
         )
         policy_digest = content_digest(
             {
-                "policies": tuple(sorted(registry)),
-                "schema_version": "walk_forward_policy_set_v1",
+                "policies": tuple(
+                    {
+                        "algorithm": record.algorithm,
+                        "normalizer_digest": record.normalizer.digest,
+                        "policy_digest": digest,
+                        "run_config_digest": content_digest(
+                            record.run.digest_payload()
+                        ),
+                    }
+                    for digest, record in sorted(registry.items())
+                ),
+                "schema_version": "walk_forward_policy_set_v2",
             }
         )
         environment_digest = content_digest(
             {
-                "action": asdict(config.candidates[0].run.action),
-                "environment": asdict(config.candidates[0].run.environment),
-                "risk": asdict(config.candidates[0].run.risk),
-                "reward": asdict(config.candidates[0].run.reward),
-                "trend": asdict(config.candidates[0].run.trend),
+                "candidates": tuple(
+                    {
+                        "name": item.name,
+                        "run_environment": {
+                            "action": asdict(item.run.action),
+                            "environment": asdict(item.run.environment),
+                            "risk": asdict(item.run.risk),
+                            "reward": asdict(item.run.reward),
+                            "trend": asdict(item.run.trend),
+                        },
+                    }
+                    for item in config.candidates
+                ),
+                "schema_version": "walk_forward_environment_set_v1",
             }
         )
         run_manifest = WalkForwardRunManifest.build(

@@ -81,14 +81,23 @@ class FeatureSpec:
 
     def __post_init__(self) -> None:
         require_non_empty(self.name, field="feature name")
-        if isinstance(self.lookback, bool) or self.lookback <= 0:
+        if (
+            isinstance(self.lookback, bool)
+            or not isinstance(self.lookback, int)
+            or self.lookback <= 0
+        ):
             raise ValueError("lookback must be a positive integer")
         if (
             isinstance(self.normalization_window, bool)
+            or not isinstance(self.normalization_window, int)
             or self.normalization_window <= 0
         ):
             raise ValueError("normalization_window must be a positive integer")
-        if isinstance(self.min_periods, bool) or self.min_periods <= 0:
+        if (
+            isinstance(self.min_periods, bool)
+            or not isinstance(self.min_periods, int)
+            or self.min_periods <= 0
+        ):
             raise ValueError("min_periods must be a positive integer")
         if (
             self.normalization is NormalizationMode.ROLLING_ZSCORE

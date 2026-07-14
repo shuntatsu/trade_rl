@@ -8,6 +8,7 @@ from tests.serving.helpers import (
     ACTION_NAMES,
     ACTION_SPEC_DIGEST,
     INITIAL_CAPITAL,
+    NORMALIZER_DIGEST,
     OBSERVATION_SIZE,
     DEFAULT_NORMALIZER_DIGEST,
     create_bundle,
@@ -26,7 +27,7 @@ def test_v3_bundle_binds_exact_action_environment_and_normalizer_identity(
     assert manifest.action_spec_digest == ACTION_SPEC_DIGEST
     assert manifest.observation_size == OBSERVATION_SIZE
     assert manifest.environment_digest == "d" * 64
-    assert manifest.normalizer_digest == DEFAULT_NORMALIZER_DIGEST
+    assert manifest.normalizer_digest == NORMALIZER_DIGEST
     assert manifest.initial_capital == pytest.approx(INITIAL_CAPITAL)
 
 

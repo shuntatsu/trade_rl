@@ -20,7 +20,10 @@ class PerformanceMetrics:
     turnover_total: float
     total_cost: float
     funding_pnl: float
+    borrow_cost: float
     n_trades: int
+    rebalance_events: int
+    termination_count: int
     n_periods: int
     return_kind: ReturnKind
     periods_per_year: int
@@ -60,16 +63,25 @@ def evaluate_performance(
     turnover_total: float = 0.0,
     total_cost: float = 0.0,
     funding_pnl: float = 0.0,
+    borrow_cost: float = 0.0,
     n_trades: int = 0,
+    rebalance_events: int = 0,
+    termination_count: int = 0,
 ) -> PerformanceMetrics:
     """Compute all standard portfolio metrics from one return-series contract."""
 
     turnover = _require_non_negative(turnover_total, field="turnover_total")
     cost = _require_non_negative(total_cost, field="total_cost")
+    borrow = _require_non_negative(borrow_cost, field="borrow_cost")
     if not math.isfinite(funding_pnl):
         raise ValueError("funding_pnl must be finite")
-    if n_trades < 0:
-        raise ValueError("n_trades must be non-negative")
+    for field_name, value in (
+        ("n_trades", n_trades),
+        ("rebalance_events", rebalance_events),
+        ("termination_count", termination_count),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{field_name} must be a non-negative integer")
 
     values = returns.values
     mean = fmean(values)
@@ -92,7 +104,10 @@ def evaluate_performance(
         turnover_total=turnover,
         total_cost=cost,
         funding_pnl=funding_pnl,
+        borrow_cost=borrow,
         n_trades=n_trades,
+        rebalance_events=rebalance_events,
+        termination_count=termination_count,
         n_periods=len(values),
         return_kind=returns.kind,
         periods_per_year=int(round(resolved_periods_per_year)),

@@ -331,7 +331,7 @@ def _validate_book(book: BookState, dataset: MarketDataset, *, field_name: str) 
 
 
 def _feature_staleness(dataset: MarketDataset, index: int) -> np.ndarray:
-    staleness = dataset.resolved_array("feature_staleness_hours")[index].astype(
+    staleness = dataset.resolved_array("feature_staleness")[index].astype(
         np.float64,
         copy=False,
     )

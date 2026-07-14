@@ -18,8 +18,6 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
-    canonical_identity_json,
-    compute_market_dataset_id,
     content_and_arrays_digest,
 )
 from trade_rl.data.market import MarketDataset
@@ -358,7 +356,9 @@ class MarketDatasetBuilder:
         global_features = np.zeros(
             (n_bars, len(self.config.global_feature_names)), dtype=np.float64
         )
-        global_available = np.zeros_like(global_features, dtype=np.bool_)
+        global_feature_available = np.ones_like(global_features, dtype=np.bool_)
+        global_feature_staleness = np.zeros_like(global_features, dtype=np.float32)
+        global_feature_missing_reason = np.zeros_like(global_features, dtype=np.int16)
         global_features[:, 0] = symbol_active.mean(axis=1)
         global_available[:, 0] = True
         observable_tradable = tradable & information_available
@@ -369,10 +369,10 @@ class MarketDatasetBuilder:
             if sample.size:
                 global_features[index, 2] = float(np.mean(sample))
                 global_features[index, 3] = float(np.std(sample))
-                global_available[index, 2:] = True
-        global_age_hours = np.where(global_available, 0.0, self.config.bar_hours)
-        global_missing_reason = np.where(global_available, 0, 1).astype(np.int16)
-        feature_missing_reason = np.where(feature_available, 0, 1).astype(np.int16)
+            else:
+                global_feature_available[index, 2:4] = False
+                global_feature_staleness[index, 2:4] = 1.0
+                global_feature_missing_reason[index, 2:4] = 1
 
         features = features.astype(np.float32)
         global_features = global_features.astype(np.float32)
@@ -413,12 +413,16 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
-        draft = MarketDataset(
+        periods_per_year = int(round(365.0 * 24.0 / self.config.bar_hours))
+        return MarketDataset(
             dataset_id="0" * 64,
             symbols=symbols,
             timestamps=timestamps,
             features=features,
             global_features=global_features,
+            global_feature_available=global_feature_available,
+            global_feature_staleness_hours=global_feature_staleness,
+            global_feature_missing_reason=global_feature_missing_reason,
             open=open_price,
             high=high,
             low=low,
@@ -446,12 +450,4 @@ class MarketDatasetBuilder:
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
             periods_per_year=periods_per_year,
-            calendar_kind=self.config.calendar_kind,
-            nominal_bar_hours=self.config.bar_hours,
-        )
-        dataset_id = compute_market_dataset_id(metadata, draft.identity_arrays())
-        return replace(
-            draft,
-            dataset_id=dataset_id,
-            identity_payload_json=canonical_identity_json(metadata),
-        )
+        ).with_content_identity(metadata)

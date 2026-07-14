@@ -264,10 +264,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         if normalizer is not None:
             if normalizer.size != layout.size:
                 raise ValueError("normalizer size does not match observation layout")
-            if (
-                normalizer.dataset_id is not None
-                and normalizer.dataset_id != dataset.dataset_id
-            ):
+            bound_dataset_ids = {
+                identity
+                for identity in (normalizer.dataset_id, normalizer.source_dataset_id)
+                if identity is not None
+            }
+            if bound_dataset_ids and dataset.dataset_id not in bound_dataset_ids:
                 raise ValueError(
                     "normalizer dataset identity does not match environment"
                 )
@@ -275,6 +277,37 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 raise ValueError(
                     "normalizer observation schema does not match environment"
                 )
+            observation_schema_digest = self.observation_builder.schema_digest(dataset)
+            if (
+                normalizer.observation_schema_digest is not None
+                and normalizer.observation_schema_digest != observation_schema_digest
+            ):
+                raise ValueError(
+                    "normalizer observation schema digest does not match environment"
+                )
+            if (
+                normalizer.action_spec_digest is not None
+                and normalizer.action_spec_digest != self.action_spec_digest
+            ):
+                raise ValueError(
+                    "normalizer action identity does not match environment"
+                )
+            for field_name, expected, observed in (
+                (
+                    "alpha artifact",
+                    self.alpha_artifact_digest,
+                    normalizer.alpha_artifact_digest,
+                ),
+                (
+                    "factor artifact",
+                    self.factor_artifact_digest,
+                    normalizer.factor_artifact_digest,
+                ),
+            ):
+                if observed is not None and observed != expected:
+                    raise ValueError(
+                        f"normalizer {field_name} identity does not match environment"
+                    )
             required_passthrough = set(
                 observation_passthrough_indices(
                     dataset,
@@ -474,6 +507,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 "alpha_enabled": self.action_spec.alpha_enabled,
                 "n_factors": self.action_spec.n_factors,
                 "names": self.action_spec.names,
+                "validation_mode": ActionValidationMode(
+                    self.action_spec.validation_mode
+                ).value,
             }
         )
 

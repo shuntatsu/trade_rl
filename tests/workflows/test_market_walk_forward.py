@@ -33,7 +33,7 @@ def _dataset() -> MarketDataset:
         feature_names=("feature",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
-    )
+    ).with_content_identity()
 
 
 def _candidate_run() -> dict[str, object]:
@@ -114,7 +114,7 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     assert result.status == "published"
     published = tmp_path / "artifacts" / "runs" / "wf-001"
     payload = json.loads((published / "walk-forward.json").read_text(encoding="utf-8"))
-    assert payload["dataset_id"] == "a" * 64
+    assert payload["dataset_id"] == _dataset().dataset_id
     assert len(payload["folds"]) == 1
     assert payload["folds"][0]["test_range"] == [45, 51]
     assert payload["folds"][0]["sealed_test_evaluations"] in (1, 2)
@@ -122,5 +122,5 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
         (published / "fold-000" / "normalizer.json").read_text(encoding="utf-8")
     )
     assert normalizer["absolute_train_range"] == [0, 30]
-    assert normalizer["dataset_id"] == "a" * 64
+    assert normalizer["dataset_id"] == _dataset().dataset_id
     assert (published / "run.json").is_file()

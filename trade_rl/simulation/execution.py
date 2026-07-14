@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import (
     BookState,
@@ -219,6 +220,16 @@ class MarketExecutor:
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        if not np.allclose(
+            dataset.resolved_array("contract_multipliers"),
+            1.0,
+            rtol=0.0,
+            atol=1e-12,
+        ):
+            raise ValueError(
+                "non-unit contract multiplier accounting is not supported; "
+                "execution fails closed"
+            )
         self._rng = np.random.default_rng(self.cost.random_seed)
 
     def reset_random_state(self, seed: int | None = None) -> None:
@@ -256,6 +267,20 @@ class MarketExecutor:
         mask = lot > 0.0
         rounded[mask] = np.trunc(rounded[mask] / lot[mask]) * lot[mask]
         return rounded
+
+    def _capacity_notional(
+        self,
+        prices: np.ndarray,
+        capacity_volume: np.ndarray,
+    ) -> np.ndarray:
+        result = np.empty_like(prices, dtype=np.float64)
+        for index, unit in enumerate(self.dataset.volume_units):
+            resolved = VolumeUnit(unit)
+            if resolved is VolumeUnit.QUOTE_NOTIONAL:
+                result[index] = capacity_volume[index]
+            else:
+                result[index] = prices[index] * capacity_volume[index]
+        return result
 
     def _constrain_borrow(
         self,
@@ -421,10 +446,9 @@ class MarketExecutor:
             requested_notional_vector,
             0.0,
         )
-        capacity_notional = self.dataset.market_notional(
-            market_index,
+        capacity_notional = self._capacity_notional(
             price_vector,
-            volume=capacity_volume_vector,
+            capacity_volume_vector,
         )
         participation_limit = np.minimum(
             self.dataset.resolved_array("max_participation_rate")[market_index],

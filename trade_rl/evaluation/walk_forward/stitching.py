@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
+from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnSeries
 
 
@@ -58,6 +58,7 @@ class FoldOOSResult:
     start: int
     stop: int
     returns: ReturnSeries
+    diagnostics: ExecutionDiagnostics = field(default_factory=ExecutionDiagnostics)
     opening_state_digest: str | None = None
     closing_state_digest: str | None = None
     evidence: ExecutionEvidence = ExecutionEvidence()
@@ -86,6 +87,7 @@ class StitchedOOS:
     boundaries: tuple[tuple[int, int], ...]
     mode: StitchMode
     gaps: tuple[tuple[int, int], ...]
+    diagnostics: ExecutionDiagnostics = field(default_factory=ExecutionDiagnostics)
 
 
 def stitch_oos(
@@ -158,4 +160,7 @@ def stitch_oos(
         boundaries=tuple(boundaries),
         mode=mode,
         gaps=tuple(gaps),
+        diagnostics=ExecutionDiagnostics.combine(
+            result.diagnostics for result in ordered
+        ),
     )

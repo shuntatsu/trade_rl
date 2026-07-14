@@ -42,24 +42,7 @@ def _dataset() -> MarketDataset:
         fee_rate=np.full((n_bars, 1), 0.0005),
         borrow_available=np.ones((n_bars, 1), dtype=np.bool_),
         cash_rate=np.linspace(0.0, 0.001, n_bars),
-    )
-    metadata = {
-        "schema": MARKET_DATASET_IDENTITY_SCHEMA,
-        "source": "test_market_dataset_artifact",
-        "symbols": draft.symbols,
-        "feature_names": draft.feature_names,
-        "global_feature_names": draft.global_feature_names,
-        "periods_per_year": draft.periods_per_year,
-        "calendar_kind": draft.calendar_kind.value,
-        "nominal_bar_hours": draft.bar_hours,
-        "volume_units": tuple(unit.value for unit in draft.volume_units),
-    }
-    dataset_id = compute_market_dataset_id(metadata, draft.identity_arrays())
-    return replace(
-        draft,
-        dataset_id=dataset_id,
-        identity_payload_json=canonical_identity_json(metadata),
-    )
+    ).with_content_identity()
 
 
 def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(

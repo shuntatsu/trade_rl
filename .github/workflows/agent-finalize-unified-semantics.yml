@@ -34,7 +34,21 @@ jobs:
             trade_rl/integrations/signal_artifacts.py \
             trade_rl/workflows/walk_forward.py
       - name: Apply unified semantics
-        run: uv run python .github/agent_tools/finalize_unified_semantics.py
+        id: apply
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python .github/agent_tools/finalize_unified_semantics.py > "$RUNNER_TEMP/semantics-patch.txt" 2>&1
+      - name: Upload patch traceback
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-semantics-patch-traceback
+          path: ${{ runner.temp }}/semantics-patch.txt
+      - name: Enforce patch application
+        if: steps.apply.outcome != 'success'
+        run: exit 1
       - name: Install
         run: uv sync --extra dev --extra export --extra train-sb3
       - name: Format and lint-fix

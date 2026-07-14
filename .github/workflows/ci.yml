@@ -140,8 +140,17 @@ jobs:
           set -o pipefail
           uv run trade-rl --version 2>&1 | tee -a /tmp/architecture-followup.log
 
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-followup-failure
+          path: /tmp/architecture-followup.log
+          if-no-files-found: error
+
       - name: Commit failure diagnostics
         if: failure()
+        continue-on-error: true
         shell: bash
         run: |
           cp /tmp/architecture-followup.log /tmp/architecture-followup-failure.log
@@ -159,6 +168,7 @@ jobs:
         run: |
           git checkout origin/main -- .github/workflows/ci.yml
           rm -f architecture-followup-failure.log scripts/apply_architecture_followup_bootstrap.py
+          rm -rf scripts/architecture_followup_payload
 
       - name: Commit verified product changes
         if: success()

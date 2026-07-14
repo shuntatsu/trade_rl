@@ -1,0 +1,42 @@
+name: Multi-Timeframe Full Research
+
+on:
+  push:
+    branches:
+      - agent/multitimeframe-three-asset-full-training
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Run BTC ETH BNB native multi-timeframe research
+        run: |
+          uv run python examples/binance-multitimeframe/run_full_research.py \
+            --work-root var/binance-multitimeframe-full
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: binance-multitimeframe-full-evidence
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            var/binance-multitimeframe-full/summary.json
+            var/binance-multitimeframe-full/exchange-info.json
+            var/binance-multitimeframe-full/training.log
+            var/binance-multitimeframe-full/walk-forward.log
+            var/binance-multitimeframe-full/dataset-a/manifest.json
+            var/binance-multitimeframe-full/dataset-b/manifest.json
+            var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-training/run.json
+            var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-training/ensemble.json
+            var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-walk-forward/run.json

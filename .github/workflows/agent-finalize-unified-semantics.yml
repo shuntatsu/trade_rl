@@ -60,14 +60,28 @@ jobs:
           uv run ruff check --fix --unsafe-fixes . || true
           uv run ruff format .
       - name: Verify affected tests
+        id: affected
+        continue-on-error: true
+        shell: bash
         run: |
+          set -o pipefail
           uv run pytest -q \
             tests/artifacts/test_signal_artifacts.py \
             tests/artifacts/test_signal_point_in_time.py \
             tests/artifacts/test_signal_artifact_v2.py \
             tests/e2e/test_research_to_serving_v2.py \
             tests/workflows/test_fold_runner.py \
-            tests/workflows/test_walk_forward_execution.py
+            tests/workflows/test_walk_forward_execution.py \
+            > "$RUNNER_TEMP/affected-tests.txt" 2>&1
+      - name: Upload affected output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-final-affected-tests
+          path: ${{ runner.temp }}/affected-tests.txt
+      - name: Enforce affected tests
+        if: steps.affected.outcome != 'success'
+        run: exit 1
       - name: Remove one-shot assets and commit
         shell: bash
         run: |

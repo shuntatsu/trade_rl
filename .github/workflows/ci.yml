@@ -51,58 +51,11 @@ jobs:
       - name: Tests and coverage
         run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
 
-      - name: Upload coverage values
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: critical-coverage-json
-          path: coverage.json
-
       - name: Critical branch coverage
         run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
 
       - name: CLI smoke test
         run: uv run trade-rl --version
-
-  critical-values:
-    name: Critical values
-    needs: quality
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: critical-coverage-json
-      - name: Print values
-        shell: python
-        run: |
-          import json
-          data = json.load(open("coverage.json", encoding="utf-8"))
-          files = data["files"]
-          targets = (
-              "trade_rl/simulation/accounting.py",
-              "trade_rl/simulation/execution.py",
-          )
-          groups = {
-              "artifacts": (
-                  "trade_rl/artifacts/codec.py",
-                  "trade_rl/artifacts/run_manifest.py",
-                  "trade_rl/artifacts/signals.py",
-                  "trade_rl/artifacts/store.py",
-              ),
-              "serving": (
-                  "trade_rl/serving/bundle.py",
-                  "trade_rl/serving/registry.py",
-                  "trade_rl/serving/runtime.py",
-              ),
-          }
-          for path in targets:
-              summary = files[path]["summary"]
-              print(path, summary["covered_branches"], summary["num_branches"], summary["percent_branches_covered"])
-          for name, paths in groups.items():
-              covered = sum(files[path]["summary"]["covered_branches"] for path in paths)
-              total = sum(files[path]["summary"]["num_branches"] for path in paths)
-              print(name, covered, total, 100.0 * covered / total)
 
   compatibility:
     name: Compatibility (${{ matrix.os }})

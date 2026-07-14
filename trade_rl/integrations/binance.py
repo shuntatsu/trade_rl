@@ -130,6 +130,7 @@ class BinanceDatasetBuildResult:
     dataset: MarketDataset
     metadata: tuple[BinanceInstrumentMetadata, ...]
     sources_used: tuple[str, ...]
+    feature_timeframes: tuple[str, ...] = ()
 
 
 def _market(value: BinanceMarket | str) -> BinanceMarket:
@@ -217,6 +218,57 @@ def vision_kline_url(
     else:
         prefix = "futures/cm/daily/klines"
     return f"{_VISION_ROOT}/{prefix}/{symbol}/{interval}/{symbol}-{interval}-{date}.zip"
+
+
+def vision_monthly_kline_url(
+    market: BinanceMarket | str,
+    symbol: str,
+    interval: str,
+    month: datetime,
+) -> str:
+    resolved = _market(market)
+    _interval_ms(interval)
+    period = _aware_utc(month, field="month").strftime("%Y-%m")
+    if resolved is BinanceMarket.SPOT:
+        prefix = "spot/monthly/klines"
+    elif resolved is BinanceMarket.USDS_M:
+        prefix = "futures/um/monthly/klines"
+    else:
+        prefix = "futures/cm/monthly/klines"
+    return (
+        f"{_VISION_ROOT}/{prefix}/{symbol}/{interval}/{symbol}-{interval}-{period}.zip"
+    )
+
+
+def _next_month(value: datetime) -> datetime:
+    if value.month == 12:
+        return value.replace(year=value.year + 1, month=1, day=1)
+    return value.replace(month=value.month + 1, day=1)
+
+
+def plan_vision_kline_urls(
+    market: BinanceMarket | str,
+    symbol: str,
+    interval: str,
+    start_time: datetime,
+    end_time: datetime,
+) -> tuple[str, ...]:
+    start = _aware_utc(start_time, field="start_time")
+    end = _aware_utc(end_time, field="end_time")
+    if end <= start:
+        raise ValueError("end_time must be later than start_time")
+    cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    urls: list[str] = []
+    while cursor < end:
+        month_start = cursor.replace(day=1)
+        next_month = _next_month(month_start)
+        if cursor == month_start and start <= cursor and next_month <= end:
+            urls.append(vision_monthly_kline_url(market, symbol, interval, month_start))
+            cursor = next_month
+        else:
+            urls.append(vision_kline_url(market, symbol, interval, cursor))
+            cursor += timedelta(days=1)
+    return tuple(urls)
 
 
 def vision_funding_url(
@@ -383,8 +435,11 @@ class BinancePublicTransport:
         end_ms: int,
     ) -> list[list[object]]:
         result: list[list[object]] = []
-        for day in _iter_days(start_ms, end_ms):
-            url = vision_kline_url(market, symbol, interval, day)
+        start_time = datetime.fromtimestamp(start_ms / 1_000, tz=UTC)
+        end_time = datetime.fromtimestamp(end_ms / 1_000, tz=UTC)
+        for url in plan_vision_kline_urls(
+            market, symbol, interval, start_time, end_time
+        ):
             rows = _csv_rows_from_zip(self._request_bytes(url), source=url)
             if rows and _looks_like_header(rows[0]):
                 rows = rows[1:]
@@ -644,8 +699,8 @@ def _parse_kline_rows(
         close = _finite_float(row[4], field="close")
         quote_volume = _finite_float(row[7], field="quote volume")
         parsed.append((close_ms, open_price, high, low, close, quote_volume))
-    if len(parsed) < 3:
-        raise ValueError("Binance range must contain at least three closed bars")
+    if len(parsed) < 2:
+        raise ValueError("Binance range must contain at least two closed bars")
     timestamps = np.asarray([item[0] for item in parsed], dtype=np.int64)
     if np.any(np.diff(timestamps) <= 0):
         raise ValueError("Binance kline timestamps must be strictly increasing")
@@ -684,7 +739,7 @@ def _align_funding(
 
 
 class BinanceMarketDataSource(MarketDataSource):
-    """Load one fixed Binance range as a causal raw series."""
+    """Load one fixed Binance range on one or more causal native clocks."""
 
     def __init__(
         self,
@@ -710,40 +765,78 @@ class BinanceMarketDataSource(MarketDataSource):
         self.transport_mode = _mode(transport_mode)
         self.transport = transport or BinancePublicTransport()
         self._sources_used: set[str] = set()
+        self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}
 
     @property
     def sources_used(self) -> tuple[str, ...]:
         return tuple(sorted(self._sources_used))
 
+    def _record_source(self, source: object) -> None:
+        if isinstance(source, str):
+            self._sources_used.add(source)
+            return
+        if isinstance(source, Sequence):
+            self._sources_used.update(str(item) for item in source)
+            return
+        self._sources_used.add(str(source))
+
+    def _funding_events(self, symbol: str) -> list[tuple[int, float]]:
+        cached = self._funding_cache.get(symbol)
+        if cached is None:
+            events, funding_source = self.transport.load_funding_rates(
+                market=self.market,
+                symbol=symbol,
+                start_ms=_epoch_ms(self.start_time),
+                end_ms=_epoch_ms(self.end_time),
+                mode=self.transport_mode,
+            )
+            cached = (list(events), funding_source)
+            self._funding_cache[symbol] = cached
+            self._record_source(funding_source)
+        return cached[0]
+
     def load(self, symbol: str) -> RawMarketSeries:
+        return self.load_timeframe(symbol, self.interval)
+
+    def load_timeframe(self, symbol: str, timeframe: str) -> RawMarketSeries:
         if not symbol:
             raise ValueError("Binance symbol must not be empty")
+        interval_ms = _interval_ms(timeframe)
         start_ms = _epoch_ms(self.start_time)
         end_ms = _epoch_ms(self.end_time)
+        if start_ms % interval_ms != 0 or end_ms % interval_ms != 0:
+            raise ValueError(
+                f"Binance range boundaries must align to native timeframe {timeframe}"
+            )
+        key = (symbol, timeframe)
+        cached = self._series_cache.get(key)
+        if cached is not None:
+            return cached
         rows, kline_source = self.transport.load_klines(
             market=self.market,
             symbol=symbol,
-            interval=self.interval,
+            interval=timeframe,
             start_ms=start_ms,
             end_ms=end_ms,
             mode=self.transport_mode,
         )
-        events, funding_source = self.transport.load_funding_rates(
-            market=self.market,
-            symbol=symbol,
-            start_ms=start_ms,
-            end_ms=end_ms,
-            mode=self.transport_mode,
-        )
-        self._sources_used.update((str(kline_source), str(funding_source)))
+        self._record_source(kline_source)
         timestamps, open_price, high, low, close, volume = _parse_kline_rows(
             rows,
-            interval_ms=self.interval_ms,
+            interval_ms=interval_ms,
             start_ms=start_ms,
             end_ms=end_ms,
         )
-        funding, funding_available = _align_funding(timestamps, events)
-        return RawMarketSeries(
+        if timeframe == self.interval:
+            funding, funding_available = _align_funding(
+                timestamps,
+                self._funding_events(symbol),
+            )
+        else:
+            funding = np.zeros(len(timestamps), dtype=np.float64)
+            funding_available = np.zeros(len(timestamps), dtype=np.bool_)
+        series = RawMarketSeries(
             timestamps=timestamps,
             available_at=timestamps,
             open=open_price,
@@ -755,6 +848,8 @@ class BinanceMarketDataSource(MarketDataSource):
             funding_available=funding_available,
             tradable=np.ones(len(timestamps), dtype=np.bool_),
         )
+        self._series_cache[key] = series
+        return series
 
 
 def _filter_value(
@@ -861,6 +956,86 @@ def _optional_datetimes(
     return result
 
 
+def binance_multitimeframe_feature_specs(
+    *,
+    base_timeframe: str,
+    feature_timeframes: Sequence[str],
+) -> tuple[FeatureSpec, ...]:
+    _interval_ms(base_timeframe)
+    resolved = tuple(feature_timeframes)
+    if len(set(resolved)) != len(resolved):
+        raise ValueError("duplicate Binance feature timeframes are not allowed")
+    if base_timeframe in resolved:
+        raise ValueError("base timeframe must not be repeated as a feature timeframe")
+    for timeframe in resolved:
+        _interval_ms(timeframe)
+    ordered = tuple(sorted((*resolved, base_timeframe), key=_interval_ms))
+    features: list[FeatureSpec] = []
+    for timeframe in ordered:
+        native = None if timeframe == base_timeframe else timeframe
+        native_hours = _interval_ms(timeframe) / 3_600_000.0
+        staleness = max(
+            native_hours * 2.0, base_timeframe == timeframe and 1.0 or native_hours
+        )
+        features.append(
+            FeatureSpec(
+                name=f"{timeframe}__log_return_1bar",
+                kind=FeatureKind.LOG_RETURN,
+                timeframe=native,
+                lookback=1,
+                max_staleness_hours=staleness,
+            )
+        )
+        if timeframe == base_timeframe:
+            one_day = max(1, int(round(24.0 / native_hours)))
+            features.extend(
+                (
+                    FeatureSpec(
+                        name=f"{timeframe}__log_return_1d",
+                        kind=FeatureKind.LOG_RETURN,
+                        lookback=one_day,
+                        max_staleness_hours=staleness,
+                    ),
+                    FeatureSpec(
+                        name=f"{timeframe}__volume_zscore_1d",
+                        kind=FeatureKind.VOLUME_ZSCORE,
+                        lookback=one_day,
+                        min_periods=min(one_day, 2),
+                        max_staleness_hours=staleness,
+                    ),
+                    FeatureSpec(
+                        name=f"{timeframe}__funding_bps",
+                        kind=FeatureKind.FUNDING_BPS,
+                        max_staleness_hours=8.0,
+                    ),
+                )
+            )
+        elif timeframe == "1d":
+            features.append(
+                FeatureSpec(
+                    name="1d__log_return_7bar",
+                    kind=FeatureKind.LOG_RETURN,
+                    timeframe="1d",
+                    lookback=7,
+                    max_staleness_hours=48.0,
+                )
+            )
+        else:
+            volatility_lookback = (
+                4 if timeframe == "15m" else max(2, int(round(24.0 / native_hours)))
+            )
+            features.append(
+                FeatureSpec(
+                    name=(f"{timeframe}__realized_volatility_{volatility_lookback}bar"),
+                    kind=FeatureKind.REALIZED_VOLATILITY,
+                    timeframe=timeframe,
+                    lookback=volatility_lookback,
+                    max_staleness_hours=staleness,
+                )
+            )
+    return tuple(features)
+
+
 def _default_features(interval: str) -> tuple[FeatureSpec, ...]:
     bar_hours = _interval_ms(interval) / 3_600_000.0
     one_day = max(1, int(round(24.0 / bar_hours)))
@@ -912,6 +1087,7 @@ def build_binance_market_dataset(
     lot_sizes: Sequence[float] | None = None,
     minimum_notionals: Sequence[float] | None = None,
     listed_ats: Sequence[datetime] | None = None,
+    feature_timeframes: Sequence[str] | None = None,
 ) -> BinanceDatasetBuildResult:
     """Build one deterministic linear-product dataset from public Binance data."""
 
@@ -927,6 +1103,15 @@ def build_binance_market_dataset(
     if len(set(resolved_symbols)) != len(resolved_symbols):
         raise ValueError("Binance symbols must be unique")
     resolved_mode = _mode(transport_mode)
+    requested_feature_timeframes = tuple(feature_timeframes or ())
+    resolved_features = (
+        _default_features(interval)
+        if not requested_feature_timeframes
+        else binance_multitimeframe_feature_specs(
+            base_timeframe=interval,
+            feature_timeframes=requested_feature_timeframes,
+        )
+    )
     resolved_tick = _optional_values(
         tick_sizes,
         symbols=resolved_symbols,
@@ -1014,7 +1199,7 @@ def build_binance_market_dataset(
     dataset = MarketDatasetBuilder(
         MarketBuildConfig(
             base_timeframe=interval,
-            features=_default_features(interval),
+            features=resolved_features,
         )
     ).build(source, tuple(item.to_contract() for item in metadata))
     sources = set(source.sources_used)
@@ -1024,6 +1209,12 @@ def build_binance_market_dataset(
         dataset=dataset,
         metadata=metadata,
         sources_used=tuple(sorted(sources)),
+        feature_timeframes=tuple(
+            sorted(
+                {spec.resolved_timeframe(interval) for spec in resolved_features},
+                key=_interval_ms,
+            )
+        ),
     )
 
 
@@ -1036,7 +1227,10 @@ __all__ = [
     "BinanceTransportError",
     "BinanceTransportMode",
     "BinanceUnsupportedContractError",
+    "binance_multitimeframe_feature_specs",
     "build_binance_market_dataset",
+    "plan_vision_kline_urls",
     "vision_funding_url",
     "vision_kline_url",
+    "vision_monthly_kline_url",
 ]

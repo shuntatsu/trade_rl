@@ -107,6 +107,7 @@ def _data_binance(args: argparse.Namespace, stdout: TextIO) -> int:
         start_time=start_time,
         end_time=end_time,
         transport_mode=args.transport,
+        feature_timeframes=tuple(args.feature_timeframe or ()),
         tick_sizes=_repeated_float_values(
             args.tick_size, symbols=symbols, field="tick-size"
         ),
@@ -123,25 +124,25 @@ def _data_binance(args: argparse.Namespace, stdout: TextIO) -> int:
     artifact_digest = publish_market_dataset_artifact(
         args.output, result.dataset
     ).artifact_digest
-    _write_json(
-        stdout,
-        {
-            "artifact_digest": artifact_digest,
-            "dataset_id": result.dataset.dataset_id,
-            "end_time": end_time.isoformat(),
-            "interval": args.interval,
-            "market": args.market,
-            "n_bars": result.dataset.n_bars,
-            "n_features": result.dataset.n_features,
-            "n_symbols": result.dataset.n_symbols,
-            "production_status": "NO-GO",
-            "schema": "binance_dataset_build_result_v1",
-            "sources_used": list(result.sources_used),
-            "start_time": start_time.isoformat(),
-            "symbols": list(result.dataset.symbols),
-            "transport": args.transport,
-        },
-    )
+    payload: dict[str, object] = {
+        "artifact_digest": artifact_digest,
+        "dataset_id": result.dataset.dataset_id,
+        "end_time": end_time.isoformat(),
+        "interval": args.interval,
+        "market": args.market,
+        "n_bars": result.dataset.n_bars,
+        "n_features": result.dataset.n_features,
+        "n_symbols": result.dataset.n_symbols,
+        "production_status": "NO-GO",
+        "schema": "binance_dataset_build_result_v1",
+        "sources_used": list(result.sources_used),
+        "start_time": start_time.isoformat(),
+        "symbols": list(result.dataset.symbols),
+        "transport": args.transport,
+    }
+    if args.feature_timeframe:
+        payload["feature_timeframes"] = list(result.feature_timeframes)
+    _write_json(stdout, payload)
     return 0
 
 
@@ -460,6 +461,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--interval",
         choices=("15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d"),
         required=True,
+    )
+    data_binance.add_argument(
+        "--feature-timeframe",
+        choices=("15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d"),
+        action="append",
     )
     data_binance.add_argument("--start-time", required=True)
     data_binance.add_argument("--end-time", required=True)

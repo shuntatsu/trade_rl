@@ -41,8 +41,21 @@ jobs:
             tests/cli/test_binance_multitimeframe_command.py
       - name: Lint
         run: uv run ruff check trade_rl tests
-      - name: Type check
-        run: uv run mypy trade_rl
+      - name: Capture type check
+        run: |
+          set +e
+          uv run mypy trade_rl > mypy.log 2>&1
+          echo "$?" > mypy.status
+          cat mypy.log
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multitimeframe-mypy-diagnostics
+          path: |
+            mypy.log
+            mypy.status
+      - name: Require type check
+        run: exit "$(cat mypy.status)"
       - name: Commit Binance multi-timeframe implementation
         run: |
           git add trade_rl tests

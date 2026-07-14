@@ -1,0 +1,29 @@
+name: Binance Live Path Verification
+
+on:
+  push:
+    branches:
+      - agent/binance-e2e-pipeline
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Run final fixed-range Binance Vision E2E
+        run: |
+          uv run python examples/binance/run_e2e_smoke.py \
+            --start-time 2026-06-01T00:00:00Z \
+            --end-time 2026-06-29T00:00:00Z \
+            --work-root var/binance-live-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: binance-final-live-e2e
+          path: var/binance-live-smoke

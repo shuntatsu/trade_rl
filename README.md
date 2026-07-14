@@ -4,6 +4,10 @@ Trade RL is a research-grade, baseline-anchored residual reinforcement-learning 
 
 > Production status: **NO-GO**. The repository provides research, evaluation, artifact and serving contracts. It does not claim profitability or production authorization.
 
+## Start here
+
+For a copy-paste first training run, including deterministic demo-data generation, a maintained PPO configuration, artifact inspection, real-data replacement, GPU settings and troubleshooting, read [START.md](START.md).
+
 ## Action and environment v3
 
 The maintained environment now provides:

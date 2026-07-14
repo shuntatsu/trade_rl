@@ -50,6 +50,20 @@ jobs:
       - name: Apply evaluation evidence implementation
         run: uv run python .github/agent_tools/evaluation_evidence.py implementation
 
+      - name: Normalize termination reason identity
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/walk_forward_evaluation.py")
+          text = path.read_text(encoding="utf-8")
+          old = 'else (str(book.termination_reason.value),)'
+          new = 'else (str(getattr(book.termination_reason, "value", book.termination_reason)),)'
+          if text.count(old) != 1:
+              raise RuntimeError("termination reason block changed")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Format and lint
         run: |
           uv run ruff format .

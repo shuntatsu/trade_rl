@@ -1,0 +1,56 @@
+name: Diagnose unified architecture hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - edited
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'agent/unified-pr40-pr41'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/unified-pr40-pr41
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Capture diagnostics
+        shell: bash
+        run: |
+          set +e
+          uv run ruff check . > "$RUNNER_TEMP/ruff.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/ruff-status.txt"
+          uv run ruff format --check . > "$RUNNER_TEMP/format.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/format-status.txt"
+          uv run mypy trade_rl > "$RUNNER_TEMP/mypy.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/mypy-status.txt"
+          uv run lint-imports > "$RUNNER_TEMP/imports.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/imports-status.txt"
+          uv run pytest -q > "$RUNNER_TEMP/pytest.txt" 2>&1
+          echo $? > "$RUNNER_TEMP/pytest-status.txt"
+          exit 0
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-final-diagnostics
+          path: |
+            ${{ runner.temp }}/ruff.txt
+            ${{ runner.temp }}/ruff-status.txt
+            ${{ runner.temp }}/format.txt
+            ${{ runner.temp }}/format-status.txt
+            ${{ runner.temp }}/mypy.txt
+            ${{ runner.temp }}/mypy-status.txt
+            ${{ runner.temp }}/imports.txt
+            ${{ runner.temp }}/imports-status.txt
+            ${{ runner.temp }}/pytest.txt
+            ${{ runner.temp }}/pytest-status.txt

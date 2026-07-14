@@ -30,74 +30,130 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
+      - name: Initialize diagnostics
+        run: rm -f architecture-followup-failure.log /tmp/architecture-followup.log
+
       - name: Install
-        run: uv sync --extra dev --extra export --extra train-sb3
+        shell: bash
+        run: |
+          set -o pipefail
+          uv sync --extra dev --extra export --extra train-sb3 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Add regression tests
-        run: uv run python scripts/apply_architecture_followup_bootstrap.py tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python scripts/apply_architecture_followup_bootstrap.py tests 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Verify regressions fail before implementation
         shell: bash
         run: |
           set +e
+          set -o pipefail
           uv run pytest -q \
             tests/architecture/test_architecture_followup.py \
             tests/serving/test_registry_external_attestation.py \
             tests/workflows/test_training_run_config_strict.py \
             tests/artifacts/test_store_portability.py \
-            tests/risk/test_portfolio_risk.py
-          rc=$?
+            tests/risk/test_portfolio_risk.py 2>&1 | tee -a /tmp/architecture-followup.log
+          rc=${PIPESTATUS[0]}
           set -e
           if [ "$rc" -eq 0 ]; then
-            echo "Expected regression tests to fail before implementation"
+            echo "Expected regression tests to fail before implementation" | tee -a /tmp/architecture-followup.log
             exit 1
           fi
 
       - name: Apply implementation
-        run: uv run python scripts/apply_architecture_followup_bootstrap.py implementation
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python scripts/apply_architecture_followup_bootstrap.py implementation 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Normalize generated code
+        shell: bash
         run: |
-          uv run ruff check --fix .
-          uv run ruff format .
+          set -o pipefail
+          uv run ruff check --fix . 2>&1 | tee -a /tmp/architecture-followup.log
+          uv run ruff format . 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Targeted tests
+        shell: bash
         run: |
+          set -o pipefail
           uv run pytest -q \
             tests/architecture/test_architecture_followup.py \
             tests/serving/test_registry_external_attestation.py \
             tests/workflows/test_training_run_config_strict.py \
             tests/artifacts/test_store_portability.py \
-            tests/risk/test_portfolio_risk.py
+            tests/risk/test_portfolio_risk.py 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Ruff
-        run: uv run ruff check .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check . 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Format check
-        run: uv run ruff format --check --diff .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff format --check --diff . 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Mypy
-        run: uv run mypy trade_rl
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy trade_rl 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Import architecture
-        run: uv run lint-imports
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run lint-imports 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Dead-code report
-        run: uv run vulture trade_rl tests --min-confidence 100
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run vulture trade_rl tests --min-confidence 100 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: Critical branch coverage
-        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml 2>&1 | tee -a /tmp/architecture-followup.log
 
       - name: CLI smoke test
-        run: uv run trade-rl --version
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run trade-rl --version 2>&1 | tee -a /tmp/architecture-followup.log
+
+      - name: Commit failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          cp /tmp/architecture-followup.log /tmp/architecture-followup-failure.log
+          git reset --hard HEAD
+          cp /tmp/architecture-followup-failure.log architecture-followup-failure.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add architecture-followup-failure.log
+          git commit -m "diagnostic: capture architecture workflow failure"
+          git push origin HEAD:agent/architecture-hardening-followup
 
       - name: Remove temporary bootstrap and workflow
-        run: rm scripts/apply_architecture_followup_bootstrap.py .github/workflows/apply-architecture-followup.yml
+        if: success()
+        run: rm -f architecture-followup-failure.log scripts/apply_architecture_followup_bootstrap.py .github/workflows/apply-architecture-followup.yml
 
       - name: Commit verified product changes
+        if: success()
         shell: bash
         run: |
           git config user.name "github-actions[bot]"

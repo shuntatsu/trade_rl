@@ -78,22 +78,38 @@ jobs:
           set -o pipefail
           uv run mypy trade_rl 2>&1 | tee "$RUNNER_TEMP/evidence-mypy.txt"
 
-      - name: Upload type diagnostics
+      - name: Import architecture
+        id: import_architecture
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run lint-imports 2>&1 | tee "$RUNNER_TEMP/evidence-imports.txt"
+
+      - name: Verify evidence regressions
+        id: regression_tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/evaluation/test_execution_evidence.py 2>&1 | tee "$RUNNER_TEMP/evidence-tests.txt"
+
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: evaluation-evidence-diagnostics
-          path: ${{ runner.temp }}/evidence-mypy.txt
+          path: |
+            ${{ runner.temp }}/evidence-mypy.txt
+            ${{ runner.temp }}/evidence-imports.txt
+            ${{ runner.temp }}/evidence-tests.txt
 
-      - name: Enforce type check
-        if: steps.type_check.outcome != 'success'
+      - name: Enforce pre-full verification
+        if: >-
+          steps.type_check.outcome != 'success' ||
+          steps.import_architecture.outcome != 'success' ||
+          steps.regression_tests.outcome != 'success'
         run: exit 1
-
-      - name: Import architecture
-        run: uv run lint-imports
-
-      - name: Verify evidence regressions
-        run: uv run pytest -q tests/evaluation/test_execution_evidence.py
 
       - name: Remove one-shot files
         run: |

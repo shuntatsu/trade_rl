@@ -28,7 +28,9 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra export --extra train-sb3
       - name: Apply economics fixes
-        run: uv run python .github/agent_tools/fix_unified_economics.py
+        run: |
+          uv run python .github/agent_tools/fix_unified_economics.py
+          uv run python .github/agent_tools/fix_unified_economics_tail.py
       - name: Format and lint-fix
         shell: bash
         run: |
@@ -36,11 +38,7 @@ jobs:
           uv run ruff check --fix --unsafe-fixes . || true
           uv run ruff format .
       - name: Verify focused regressions
-        id: focused
-        continue-on-error: true
-        shell: bash
         run: |
-          set -o pipefail
           uv run pytest -q \
             tests/data/test_artifact_closure_v2.py \
             tests/data/test_feature_availability_v2.py \
@@ -49,23 +47,14 @@ jobs:
             tests/simulation/test_session_carry.py \
             tests/evaluation/test_elapsed_time_metrics.py \
             tests/serving/test_observation_pipeline.py \
-            tests/architecture/test_complete_architecture_hardening.py \
-            > "$RUNNER_TEMP/focused.txt" 2>&1
-      - name: Upload focused output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unified-focused-regressions
-          path: ${{ runner.temp }}/focused.txt
-      - name: Enforce focused regressions
-        if: steps.focused.outcome != 'success'
-        run: exit 1
+            tests/architecture/test_complete_architecture_hardening.py
       - name: Remove one-shot assets and commit
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm -f .github/agent_tools/fix_unified_economics.py
+          rm -f .github/agent_tools/fix_unified_economics_tail.py
           rmdir .github/agent_tools 2>/dev/null || true
           rm -f .github/workflows/agent-fix-unified-economics.yml
           rm -f .github/workflows/agent-compat-diagnostics.yml

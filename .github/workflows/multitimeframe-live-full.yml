@@ -1,12 +1,6 @@
 name: Multi-Timeframe Full Research
 
 on:
-  push:
-    branches:
-      - agent/multitimeframe-three-asset-full-training
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:

@@ -26,6 +26,7 @@ _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
 _FEATURE_TIMEFRAMES = ("15m", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
 _END = "2026-06-01T00:00:00Z"
+_EXPECTED_HOURLY_BARS = 13_128
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
 _FALLBACK_METADATA: dict[str, dict[str, object]] = {
@@ -191,9 +192,10 @@ def _build_dataset(
         ),
     )
     published = publish_market_dataset_artifact(output, result.dataset)
-    if result.dataset.n_bars != 13_104:
+    if result.dataset.n_bars != _EXPECTED_HOURLY_BARS:
         raise RuntimeError(
-            f"expected 13,104 hourly bars, observed {result.dataset.n_bars}"
+            "expected "
+            f"{_EXPECTED_HOURLY_BARS:,} hourly bars, observed {result.dataset.n_bars}"
         )
     if result.dataset.symbols != _SYMBOLS:
         raise RuntimeError(f"unexpected symbol order: {result.dataset.symbols}")

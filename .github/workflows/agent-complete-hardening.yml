@@ -1,0 +1,252 @@
+name: Agent complete architecture hardening
+
+on:
+  push:
+    branches:
+      - agent/complete-architecture-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/complete-architecture-hardening
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply architecture hardening patches
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import re
+          from pathlib import Path
+
+          ROOT = Path.cwd()
+
+          def read(path: str) -> str:
+              return (ROOT / path).read_text(encoding="utf-8")
+
+          def write(path: str, text: str) -> None:
+              (ROOT / path).write_text(text, encoding="utf-8")
+
+          def replace(path: str, old: str, new: str, *, count: int = 1) -> None:
+              text = read(path)
+              seen = text.count(old)
+              if seen < count:
+                  raise RuntimeError(f"{path}: expected at least {count} occurrences of {old[:80]!r}, found {seen}")
+              write(path, text.replace(old, new, count))
+
+          def regex(path: str, pattern: str, repl: str, *, count: int = 1, flags: int = 0) -> None:
+              text = read(path)
+              new, seen = re.subn(pattern, repl, text, count=count, flags=flags)
+              if seen != count:
+                  raise RuntimeError(f"{path}: expected {count} regex replacements for {pattern!r}, found {seen}")
+              write(path, new)
+
+          # 1. Configuration should fail early on non-integer feature windows.
+          replace(
+              "trade_rl/data/contracts.py",
+              "        if isinstance(self.lookback, bool) or self.lookback <= 0:\n            raise ValueError(\"lookback must be a positive integer\")\n",
+              "        if (\n            isinstance(self.lookback, bool)\n            or not isinstance(self.lookback, int)\n            or self.lookback <= 0\n        ):\n            raise ValueError(\"lookback must be a positive integer\")\n",
+          )
+          replace(
+              "trade_rl/data/contracts.py",
+              "        if (\n            isinstance(self.normalization_window, bool)\n            or self.normalization_window <= 0\n        ):\n            raise ValueError(\"normalization_window must be a positive integer\")\n",
+              "        if (\n            isinstance(self.normalization_window, bool)\n            or not isinstance(self.normalization_window, int)\n            or self.normalization_window <= 0\n        ):\n            raise ValueError(\"normalization_window must be a positive integer\")\n",
+          )
+          replace(
+              "trade_rl/data/contracts.py",
+              "        if isinstance(self.min_periods, bool) or self.min_periods <= 0:\n            raise ValueError(\"min_periods must be a positive integer\")\n",
+              "        if (\n            isinstance(self.min_periods, bool)\n            or not isinstance(self.min_periods, int)\n            or self.min_periods <= 0\n        ):\n            raise ValueError(\"min_periods must be a positive integer\")\n",
+          )
+
+          # 2. Policy ensemble manifests must be self-verifying content identities.
+          replace(
+              "trade_rl/domain/policies.py",
+              "from trade_rl.domain.common import (\n",
+              "from trade_rl.artifacts.hashing import content_digest\nfrom trade_rl.domain.common import (\n",
+          )
+          replace(
+              "trade_rl/domain/policies.py",
+              "        digests = tuple(member.checkpoint_digest for member in self.members)\n        if len(set(digests)) != len(digests):\n            raise ValueError(\"policy ensemble checkpoint digests must be unique\")\n",
+              "        digests = tuple(member.checkpoint_digest for member in self.members)\n        if len(set(digests)) != len(digests):\n            raise ValueError(\"policy ensemble checkpoint digests must be unique\")\n        if self.digest != content_digest(self.digest_payload()):\n            raise ValueError(\"policy ensemble digest does not match content\")\n\n    def digest_payload(self) -> dict[str, object]:\n        return {\n            \"action_names\": self.action_names,\n            \"action_schema\": self.action_schema,\n            \"action_size\": self.action_size,\n            \"action_spec_digest\": self.action_spec_digest,\n            \"actual_timesteps\": self.actual_timesteps,\n            \"alpha_artifact_digest\": self.alpha_artifact_digest,\n            \"created_at\": self.created_at,\n            \"dataset_id\": self.dataset_id,\n            \"environment_digest\": self.environment_digest,\n            \"factor_artifact_digest\": self.factor_artifact_digest,\n            \"initial_capital\": self.initial_capital,\n            \"members\": tuple(\n                {\"checkpoint_digest\": member.checkpoint_digest, \"seed\": member.seed}\n                for member in self.members\n            ),\n            \"normalizer_digest\": self.normalizer_digest,\n            \"observation_schema\": self.observation_schema,\n            \"observation_size\": self.observation_size,\n            \"requested_timesteps\": self.requested_timesteps,\n            \"resolved_device\": self.resolved_device,\n            \"schema_version\": self.schema_version,\n            \"training_config_digest\": self.training_config_digest,\n        }\n",
+          )
+          replace(
+              "trade_rl/rl/training.py",
+              "    digest_payload = {\n        \"action_schema\": ACTION_SCHEMA,",
+              "    digest_payload = {\n        \"action_schema\": ACTION_SCHEMA,",
+          )
+          replace(
+              "trade_rl/rl/training.py",
+              "    return PolicyEnsembleManifest(\n        digest=content_digest(digest_payload),",
+              "    return PolicyEnsembleManifest(\n        digest=content_digest(digest_payload),",
+          )
+
+          # 3. Serving action-spec identity must include validation behavior.
+          replace(
+              "trade_rl/rl/environment.py",
+              "                \"names\": self.action_spec.names,\n            }\n        )\n",
+              "                \"names\": self.action_spec.names,\n                \"validation_mode\": ActionValidationMode(\n                    self.action_spec.validation_mode\n                ).value,\n            }\n        )\n",
+          )
+
+          # 4. Normalizers must carry source/view/range/schema/candidate identity.
+          replace(
+              "trade_rl/rl/normalization.py",
+              "    passthrough_indices: tuple[int, ...] = ()\n    dataset_id: str | None = None\n    observation_schema: str = \"baseline_residual_observation_v3\"\n",
+              "    passthrough_indices: tuple[int, ...] = ()\n    dataset_id: str | None = None\n    source_dataset_id: str | None = None\n    source_dataset_artifact_digest: str | None = None\n    absolute_train_start: int | None = None\n    absolute_train_end: int | None = None\n    observation_schema: str = \"baseline_residual_observation_v3\"\n    observation_schema_digest: str | None = None\n    action_spec_digest: str | None = None\n    alpha_artifact_digest: str | None = None\n    factor_artifact_digest: str | None = None\n    candidate_config_digest: str | None = None\n",
+          )
+          replace(
+              "trade_rl/rl/normalization.py",
+              "        if self.dataset_id is not None:\n            require_sha256(self.dataset_id, field=\"normalizer.dataset_id\")\n        if not self.observation_schema:\n",
+              "        for field_name, value in (\n            (\"normalizer.dataset_id\", self.dataset_id),\n            (\"normalizer.source_dataset_id\", self.source_dataset_id),\n            (\n                \"normalizer.source_dataset_artifact_digest\",\n                self.source_dataset_artifact_digest,\n            ),\n            (\"normalizer.observation_schema_digest\", self.observation_schema_digest),\n            (\"normalizer.action_spec_digest\", self.action_spec_digest),\n            (\"normalizer.alpha_artifact_digest\", self.alpha_artifact_digest),\n            (\"normalizer.factor_artifact_digest\", self.factor_artifact_digest),\n            (\"normalizer.candidate_config_digest\", self.candidate_config_digest),\n        ):\n            if value is not None:\n                require_sha256(value, field=field_name)\n        if (self.absolute_train_start is None) != (self.absolute_train_end is None):\n            raise ValueError(\"absolute normalizer range must be specified as a pair\")\n        if self.absolute_train_start is not None:\n            if (\n                isinstance(self.absolute_train_start, bool)\n                or isinstance(self.absolute_train_end, bool)\n                or not isinstance(self.absolute_train_start, int)\n                or not isinstance(self.absolute_train_end, int)\n                or self.absolute_train_start < 0\n                or self.absolute_train_end <= self.absolute_train_start\n            ):\n                raise ValueError(\"absolute normalizer training range is invalid\")\n        if not self.observation_schema:\n",
+          )
+          replace(
+              "trade_rl/rl/normalization.py",
+              "            \"dataset_id\": self.dataset_id,\n            \"mean\": tuple(float(value) for value in self.mean),\n",
+              "            \"absolute_train_end\": self.absolute_train_end,\n            \"absolute_train_start\": self.absolute_train_start,\n            \"action_spec_digest\": self.action_spec_digest,\n            \"alpha_artifact_digest\": self.alpha_artifact_digest,\n            \"candidate_config_digest\": self.candidate_config_digest,\n            \"dataset_id\": self.dataset_id,\n            \"factor_artifact_digest\": self.factor_artifact_digest,\n            \"mean\": tuple(float(value) for value in self.mean),\n",
+          )
+          replace(
+              "trade_rl/rl/normalization.py",
+              "            \"observation_schema\": self.observation_schema,\n            \"passthrough_indices\": self.passthrough_indices,\n",
+              "            \"observation_schema\": self.observation_schema,\n            \"observation_schema_digest\": self.observation_schema_digest,\n            \"passthrough_indices\": self.passthrough_indices,\n",
+          )
+          replace(
+              "trade_rl/rl/normalization.py",
+              "            \"schema_version\": self.schema_version,\n            \"train_end\": self.train_end,\n",
+              "            \"schema_version\": self.schema_version,\n            \"source_dataset_artifact_digest\": self.source_dataset_artifact_digest,\n            \"source_dataset_id\": self.source_dataset_id,\n            \"train_end\": self.train_end,\n",
+          )
+          replace(
+              "trade_rl/rl/normalization.py",
+              "        dataset_id: str | None = None,\n        observation_schema: str = \"baseline_residual_observation_v3\",\n    ) -> ObservationNormalizer:\n",
+              "        dataset_id: str | None = None,\n        source_dataset_id: str | None = None,\n        source_dataset_artifact_digest: str | None = None,\n        absolute_train_start: int | None = None,\n        absolute_train_end: int | None = None,\n        observation_schema: str = \"baseline_residual_observation_v3\",\n        observation_schema_digest: str | None = None,\n        action_spec_digest: str | None = None,\n        alpha_artifact_digest: str | None = None,\n        factor_artifact_digest: str | None = None,\n        candidate_config_digest: str | None = None,\n    ) -> ObservationNormalizer:\n",
+          )
+          replace(
+              "trade_rl/rl/normalization.py",
+              "            passthrough_indices=passthrough,\n            dataset_id=dataset_id,\n            observation_schema=observation_schema,\n        )\n",
+              "            passthrough_indices=passthrough,\n            dataset_id=dataset_id,\n            source_dataset_id=source_dataset_id,\n            source_dataset_artifact_digest=source_dataset_artifact_digest,\n            absolute_train_start=absolute_train_start,\n            absolute_train_end=absolute_train_end,\n            observation_schema=observation_schema,\n            observation_schema_digest=observation_schema_digest,\n            action_spec_digest=action_spec_digest,\n            alpha_artifact_digest=alpha_artifact_digest,\n            factor_artifact_digest=factor_artifact_digest,\n            candidate_config_digest=candidate_config_digest,\n        )\n",
+          )
+          replace(
+              "trade_rl/rl/environment.py",
+              "            if (\n                normalizer.dataset_id is not None\n                and normalizer.dataset_id != dataset.dataset_id\n            ):\n                raise ValueError(\n                    \"normalizer dataset identity does not match environment\"\n                )\n",
+              "            accepted_normalizer_datasets = {\n                value\n                for value in (\n                    normalizer.dataset_id,\n                    getattr(normalizer, \"source_dataset_id\", None),\n                )\n                if value is not None\n            }\n            if (\n                accepted_normalizer_datasets\n                and dataset.dataset_id not in accepted_normalizer_datasets\n            ):\n                raise ValueError(\n                    \"normalizer dataset identity does not match environment\"\n                )\n",
+          )
+
+          # 5. Policy export must verify at least one requested artifact and use a broader deterministic corpus.
+          replace(
+              "trade_rl/rl/export.py",
+              "        if len({item.format for item in self.exports}) != len(self.exports):\n            raise ValueError(\"export formats must be unique\")\n",
+              "        if len({item.format for item in self.exports}) != len(self.exports):\n            raise ValueError(\"export formats must be unique\")\n        if not any(item.status == \"verified\" for item in self.exports):\n            raise ValueError(\"export manifest must contain at least one verified export\")\n",
+          )
+          regex(
+              "trade_rl/rl/export.py",
+              r"def _corpus\(observation_size: int\) -> np\.ndarray:\n    linear = np\.linspace\(-0\.5, 0\.5, observation_size, dtype=np\.float32\)\n    return np\.stack\(\n        \(\n            np\.zeros\(observation_size, dtype=np\.float32\),\n            np\.full\(observation_size, 0\.25, dtype=np\.float32\),\n            linear,\n            -linear,\n        \),\n        axis=0,\n    \)\n",
+              "def _corpus(observation_size: int) -> np.ndarray:\n    linear = np.linspace(-0.5, 0.5, observation_size, dtype=np.float32)\n    rng = np.random.default_rng(0)\n    stochastic = rng.normal(0.0, 0.75, size=(8, observation_size)).astype(np.float32)\n    stochastic = np.clip(stochastic, -3.0, 3.0)\n    alternating = np.where(\n        np.arange(observation_size) % 2 == 0,\n        1.0,\n        -1.0,\n    ).astype(np.float32)\n    sparse = np.zeros(observation_size, dtype=np.float32)\n    sparse[:: max(1, observation_size // 16)] = 1.0\n    return np.concatenate(\n        (\n            np.stack(\n                (\n                    np.zeros(observation_size, dtype=np.float32),\n                    np.full(observation_size, 0.25, dtype=np.float32),\n                    linear,\n                    -linear,\n                    alternating,\n                    sparse,\n                ),\n                axis=0,\n            ),\n            stochastic,\n        ),\n        axis=0,\n    )\n",
+          )
+
+          # 6. Serving bundle loading must reject undeclared files and symlink escapes.
+          replace(
+              "trade_rl/serving/bundle.py",
+              "def _file_digest(path: Path) -> str:\n    digest = hashlib.sha256()\n    with path.open(\"rb\") as handle:\n        for chunk in iter(lambda: handle.read(1024 * 1024), b\"\"):\n            digest.update(chunk)\n    return digest.hexdigest()\n\n\n@dataclass",
+              "def _file_digest(path: Path) -> str:\n    digest = hashlib.sha256()\n    with path.open(\"rb\") as handle:\n        for chunk in iter(lambda: handle.read(1024 * 1024), b\"\"):\n            digest.update(chunk)\n    return digest.hexdigest()\n\n\ndef _resolve_inside(root: Path, path: Path) -> Path:\n    resolved_root = root.resolve()\n    resolved_path = path.resolve()\n    if resolved_path != resolved_root and resolved_root not in resolved_path.parents:\n        raise ValueError(\"bundle artifact escapes the bundle root\")\n    return resolved_path\n\n\n@dataclass",
+          )
+          replace(
+              "trade_rl/serving/bundle.py",
+              "    payload = json.loads(manifest_path.read_text(encoding=\"utf-8\"))\n    manifest = _parse_manifest(_mapping(payload, field=\"bundle manifest\"))\n    for file in manifest.files:\n        path = root / file.path\n        if not path.is_file():\n            raise ValueError(f\"bundle artifact is missing: {file.path}\")\n        if path.stat().st_size != file.size_bytes:\n            raise ValueError(f\"bundle artifact size mismatch: {file.path}\")\n        if _file_digest(path) != file.digest:\n            raise ValueError(f\"bundle artifact digest mismatch: {file.path}\")\n    return ServingBundle(root=root, manifest=manifest)\n",
+              "    payload = json.loads(manifest_path.read_text(encoding=\"utf-8\"))\n    manifest = _parse_manifest(_mapping(payload, field=\"bundle manifest\"))\n    declared = {file.path for file in manifest.files}\n    observed = {\n        path.relative_to(root).as_posix()\n        for path in root.rglob(\"*\")\n        if path.is_file() and path.name != BUNDLE_MANIFEST_NAME\n    }\n    extra = sorted(observed - declared)\n    if extra:\n        raise ValueError(f\"bundle contains undeclared artifact files: {extra}\")\n    for file in manifest.files:\n        path = root / file.path\n        resolved_path = _resolve_inside(root, path)\n        if not resolved_path.is_file():\n            raise ValueError(f\"bundle artifact is missing: {file.path}\")\n        if resolved_path.stat().st_size != file.size_bytes:\n            raise ValueError(f\"bundle artifact size mismatch: {file.path}\")\n        if _file_digest(resolved_path) != file.digest:\n            raise ValueError(f\"bundle artifact digest mismatch: {file.path}\")\n    return ServingBundle(root=root, manifest=manifest)\n",
+          )
+
+          # 7. Executor must use volume-unit-aware notional and fail closed for unsupported multipliers.
+          replace(
+              "trade_rl/simulation/execution.py",
+              "        self.dataset = dataset\n        self.cost = cost or ExecutionCostConfig()\n        self._rng = np.random.default_rng(self.cost.random_seed)\n",
+              "        self.dataset = dataset\n        self.cost = cost or ExecutionCostConfig()\n        multipliers = dataset.resolved_array(\"contract_multipliers\")\n        if np.any(np.abs(multipliers - 1.0) > _TOLERANCE):\n            raise ValueError(\n                \"non-unit contract multipliers require multiplier-aware BookState \"\n                \"accounting and are not silently supported\"\n            )\n        self._rng = np.random.default_rng(self.cost.random_seed)\n",
+          )
+          replace(
+              "trade_rl/simulation/execution.py",
+              "        capacity_notional = price_vector * capacity_volume_vector\n",
+              "        capacity_notional = self.dataset.market_notional(\n            market_index,\n            prices=price_vector,\n        )\n",
+          )
+
+          # 8. Walk-forward artifacts must bind normalizers and top-level identities to candidates.
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "class _PolicyRecord:\n    path: Path\n    algorithm: str\n    normalizer: ObservationNormalizer\n    run: TrainingRunConfig\n",
+              "class _PolicyRecord:\n    path: Path\n    algorithm: str\n    normalizer: ObservationNormalizer\n    run: TrainingRunConfig\n    candidate_name: str\n    configuration_digest: str\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "def _fit_normalizer(\n    dataset: MarketDataset,\n    train_range: IndexRange,\n    run: TrainingRunConfig,\n) -> ObservationNormalizer:\n",
+              "def _fit_normalizer(\n    dataset: MarketDataset,\n    train_range: IndexRange,\n    run: TrainingRunConfig,\n    *,\n    candidate_name: str,\n    candidate_config_digest: str,\n) -> ObservationNormalizer:\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "    try:\n        observation, _ = env.reset(\n",
+              "    observation_schema_digest = env.observation_builder.schema_digest(\n        training_dataset\n    )\n    try:\n        observation, _ = env.reset(\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "        passthrough_indices=passthrough,\n        dataset_id=None,\n    )\n",
+              "        passthrough_indices=passthrough,\n        dataset_id=training_dataset.dataset_id,\n        source_dataset_id=dataset.dataset_id,\n        absolute_train_start=train_range.start,\n        absolute_train_end=train_range.stop,\n        observation_schema_digest=observation_schema_digest,\n        action_spec_digest=env.action_spec_digest,\n        alpha_artifact_digest=(\n            None if alpha_provider is None else alpha_provider.artifact_digest\n        ),\n        factor_artifact_digest=(\n            None if factor_provider is None else factor_provider.artifact_digest\n        ),\n        candidate_config_digest=candidate_config_digest,\n    )\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "        self._normalizers: dict[int, ObservationNormalizer] = {}\n",
+              "        self._normalizers: dict[tuple[int, str, str], ObservationNormalizer] = {}\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "        existing = self._normalizers.get(request.fold_index)\n        if existing is not None:\n            return existing\n        normalizer = _fit_normalizer(self.dataset, request.train, run)\n        self._normalizers[request.fold_index] = normalizer\n",
+              "        config_digest = content_digest(run.digest_payload())\n        key = (request.fold_index, request.configuration.name, config_digest)\n        existing = self._normalizers.get(key)\n        if existing is not None:\n            return existing\n        normalizer = _fit_normalizer(\n            self.dataset,\n            request.train,\n            run,\n            candidate_name=request.configuration.name,\n            candidate_config_digest=config_digest,\n        )\n        self._normalizers[key] = normalizer\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "        return {\n        \"absolute_train_range\": [train_range.start, train_range.stop],\n        \"clip\": normalizer.clip,\n        \"dataset_id\": dataset_id,\n        \"digest\": normalizer.digest,\n",
+              "        return {\n        \"absolute_train_range\": [train_range.start, train_range.stop],\n        \"action_spec_digest\": normalizer.action_spec_digest,\n        \"alpha_artifact_digest\": normalizer.alpha_artifact_digest,\n        \"candidate_config_digest\": normalizer.candidate_config_digest,\n        \"clip\": normalizer.clip,\n        \"dataset_id\": dataset_id,\n        \"digest\": normalizer.digest,\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "        \"epsilon\": normalizer.epsilon,\n        \"mean\": tuple(float(value) for value in normalizer.mean),\n        \"observation_schema\": normalizer.observation_schema,\n",
+              "        \"epsilon\": normalizer.epsilon,\n        \"factor_artifact_digest\": normalizer.factor_artifact_digest,\n        \"mean\": tuple(float(value) for value in normalizer.mean),\n        \"observation_schema\": normalizer.observation_schema,\n        \"observation_schema_digest\": normalizer.observation_schema_digest,\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "        \"scale\": tuple(float(value) for value in normalizer.scale),\n        \"schema_version\": normalizer.schema_version,\n    }\n",
+              "        \"scale\": tuple(float(value) for value in normalizer.scale),\n        \"schema_version\": normalizer.schema_version,\n        \"source_dataset_id\": normalizer.source_dataset_id,\n        \"view_dataset_id\": normalizer.dataset_id,\n    }\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "                record = _PolicyRecord(\n                    path=path,\n                    algorithm=run.training.algorithm,\n                    normalizer=normalizer,\n                    run=run,\n                )\n",
+              "                record = _PolicyRecord(\n                    path=path,\n                    algorithm=run.training.algorithm,\n                    normalizer=normalizer,\n                    run=run,\n                    candidate_name=request.configuration.name,\n                    configuration_digest=content_digest(run.digest_payload()),\n                )\n",
+          )
+          replace(
+              "trade_rl/workflows/market_walk_forward.py",
+              "        policy_digest = content_digest(\n            {\n                \"policies\": tuple(sorted(registry)),\n                \"schema_version\": \"walk_forward_policy_set_v1\",\n            }\n        )\n        environment_digest = content_digest(\n            {\n                \"action\": asdict(config.candidates[0].run.action),\n                \"environment\": asdict(config.candidates[0].run.environment),\n                \"risk\": asdict(config.candidates[0].run.risk),\n                \"reward\": asdict(config.candidates[0].run.reward),\n                \"trend\": asdict(config.candidates[0].run.trend),\n            }\n        )\n",
+              "        for fold in result.folds:\n            opened = evaluator.outer_test_counts.get(fold.fold_index, 0)\n            if opened > 2:\n                raise ValueError(\"sealed outer test was evaluated too many times\")\n        policy_digest = content_digest(\n            {\n                \"policies\": tuple(\n                    {\n                        \"algorithm\": record.algorithm,\n                        \"candidate_name\": record.candidate_name,\n                        \"configuration_digest\": record.configuration_digest,\n                        \"policy_digest\": digest,\n                    }\n                    for digest, record in sorted(registry.items())\n                ),\n                \"schema_version\": \"walk_forward_policy_set_v2\",\n            }\n        )\n        environment_digest = content_digest(\n            {\n                \"candidates\": tuple(\n                    {\"name\": item.name, \"run\": item.run.digest_payload()}\n                    for item in config.candidates\n                ),\n                \"schema_version\": \"market_walk_forward_environment_set_v1\",\n            }\n        )\n",
+          )
+
+          # 9. Prevent repeated self-application.
+          workflow = ROOT / ".github/workflows/agent-complete-hardening.yml"
+          if workflow.exists():
+              workflow.unlink()
+          PY
+      - name: Compile patched sources
+        run: python -m compileall trade_rl tests
+      - name: Commit patch
+        run: |
+          git config user.name "agent-hardening-bot"
+          git config user.email "agent-hardening-bot@users.noreply.github.com"
+          git status --short
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "Harden architecture identity and evaluation artifacts"
+            git push origin HEAD:agent/complete-architecture-hardening
+          else
+            echo "No changes to commit"
+          fi

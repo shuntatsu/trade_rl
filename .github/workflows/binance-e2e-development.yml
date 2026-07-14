@@ -22,56 +22,26 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
-      - name: Apply existing-layer patches
+      - name: Apply implementation patches
         run: |
           uv run python .github/scripts/apply_binance_pipeline.py
           uv run python .github/scripts/apply_binance_smoke_constants.py
+          uv run python .github/scripts/fix_binance_numeric_types.py
       - name: Format and organize imports
         run: |
           uv run ruff check --fix trade_rl tests scripts
           uv run ruff format trade_rl tests scripts
       - name: Focused Binance tests
-        id: focused
         run: |
-          set +e
           uv run pytest -q \
             tests/data/test_binance_contract_metadata.py \
             tests/integrations/test_binance.py \
             tests/cli/test_binance_data_command.py \
-            tests/examples/test_binance_smoke_assets.py \
-            > focused.log 2>&1
-          status=$?
-          cat focused.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+            tests/examples/test_binance_smoke_assets.py
       - name: Lint
-        id: lint
-        run: |
-          set +e
-          uv run ruff check trade_rl tests scripts > lint.log 2>&1
-          status=$?
-          cat lint.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+        run: uv run ruff check trade_rl tests scripts
       - name: Type check
-        id: mypy
-        run: |
-          set +e
-          uv run mypy trade_rl > mypy.log 2>&1
-          status=$?
-          cat mypy.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-      - uses: actions/upload-artifact@v4
-        with:
-          name: binance-development-diagnostics
-          path: |
-            focused.log
-            lint.log
-            mypy.log
-      - name: Require focused verification
-        if: steps.focused.outputs.status != '0' || steps.lint.outputs.status != '0' || steps.mypy.outputs.status != '0'
-        run: exit 1
+        run: uv run mypy trade_rl
       - name: Commit green implementation
         run: |
           git config user.name github-actions[bot]

@@ -1,0 +1,30 @@
+name: Binance Live Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  fixed-range-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Run fixed-range Binance Vision E2E
+        run: |
+          uv run python examples/binance/run_e2e_smoke.py \
+            --start-time 2026-06-01T00:00:00Z \
+            --end-time 2026-06-29T00:00:00Z \
+            --work-root var/binance-live-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: binance-live-e2e
+          path: var/binance-live-smoke
+          retention-days: 30

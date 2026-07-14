@@ -6,7 +6,7 @@ Trade RL is a research-grade, baseline-anchored residual reinforcement-learning 
 
 ## Start here
 
-For a copy-paste first training run, including deterministic demo-data generation, a maintained PPO configuration, artifact inspection, real-data replacement, GPU settings and troubleshooting, read [START.md](START.md).
+For a copy-paste first training run, including deterministic demo-data generation, a maintained PPO configuration, artifact inspection, real-data replacement, GPU settings and troubleshooting, read [START.md](START.md). For the maintained public Binance ingestion and live-smoke path, read [Binance Public Data Workflow](docs/BINANCE.md).
 
 ## Action and environment v3
 
@@ -28,7 +28,7 @@ The maintained environment now provides:
 
 ## Identity and serving
 
-Dataset identity v6 is recomputed from every observation, eligibility, execution and accounting field, including fees, spread, participation, quantity increments, borrow/funding schedules, mark/index prices, corporate actions, cash rates, volume-unit semantics, contract multipliers and feature availability/age. Published dataset artifacts reject arbitrary identities, symlinks, root escapes and undeclared files.
+Dataset identity v5 is recomputed from every observation, eligibility, execution and accounting field, including fees, spread, participation, quantity increments, borrow/funding schedules, mark/index prices, corporate actions, cash rates, volume-unit semantics, contract multipliers and feature availability/age. Published dataset artifacts reject arbitrary identities, symlinks, root escapes and undeclared files.
 
 Environment identity includes the verified dataset, calendar, action specification, content-addressed fold-local alpha/factor artifacts, semantic normalizer, episode curriculum, trend, reward, portfolio risk, execution and AUM. Signal filesystem paths are diagnostics only and never change experiment identity.
 
@@ -78,6 +78,21 @@ uv run trade-rl walk-forward run \
   --run-id btc-eth-wf-001
 ```
 
+Build a deterministic public Binance USDⓈ-M dataset:
+
+```bash
+uv run trade-rl data binance \
+  --market usds-m --symbol BTCUSDT --interval 1h \
+  --start-time 2026-06-01T00:00:00Z \
+  --end-time 2026-06-29T00:00:00Z \
+  --transport vision \
+  --tick-size 0.1 --lot-size 0.001 --minimum-notional 5 \
+  --listed-at 2019-09-08T00:00:00Z \
+  --output artifacts/datasets/binance-btcusdt
+```
+
+Spot and USDⓈ-M are supported linear products. COIN-M inverse futures fail closed because the current accounting model is linear and must not publish misleading inverse-contract PnL. See [docs/BINANCE.md](docs/BINANCE.md) for the fixed-range end-to-end smoke.
+
 Both execution commands print one machine-readable JSON result. Research runs remain non-production artifacts; a paper-serving activation additionally requires a verified external release attestation. Direct exchange connectivity is not implemented.
 
 ## Verification
@@ -92,4 +107,4 @@ uv run pytest --cov=trade_rl --cov-branch
 
 Install export verification dependencies with `uv sync --extra dev --extra train-sb3 --extra export`.
 
-See [Architecture](docs/ARCHITECTURE.md) and [Research Status](docs/RESEARCH_STATUS.md).
+See [Architecture](docs/ARCHITECTURE.md), [Research Status](docs/RESEARCH_STATUS.md), and [Binance Public Data Workflow](docs/BINANCE.md).

@@ -41,6 +41,9 @@ class InstrumentContract:
     delisted_at: datetime | None = None
     volume_unit: VolumeUnit = VolumeUnit.BASE_ASSET
     contract_multiplier: float = 1.0
+    tick_size: float = 0.0
+    lot_size: float = 0.0
+    minimum_notional: float = 0.0
 
     def __post_init__(self) -> None:
         require_non_empty(self.symbol, field="symbol")
@@ -54,6 +57,13 @@ class InstrumentContract:
             or self.contract_multiplier <= 0.0
         ):
             raise ValueError("contract_multiplier must be finite and positive")
+        for field_name, value in (
+            ("tick_size", self.tick_size),
+            ("lot_size", self.lot_size),
+            ("minimum_notional", self.minimum_notional),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{field_name} must be finite and non-negative")
 
     def canonical_payload(self) -> dict[str, object]:
         return {
@@ -64,6 +74,9 @@ class InstrumentContract:
             ),
             "volume_unit": self.volume_unit.value,
             "contract_multiplier": self.contract_multiplier,
+            "tick_size": self.tick_size,
+            "lot_size": self.lot_size,
+            "minimum_notional": self.minimum_notional,
         }
 
 

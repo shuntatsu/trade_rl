@@ -437,6 +437,27 @@ class MarketDatasetBuilder:
                 [contract.contract_multiplier for contract in instruments],
                 dtype=np.float64,
             ),
+            tick_size=np.broadcast_to(
+                np.asarray(
+                    [contract.tick_size for contract in instruments],
+                    dtype=np.float64,
+                )[None, :],
+                (n_bars, n_symbols),
+            ).copy(),
+            lot_size=np.broadcast_to(
+                np.asarray(
+                    [contract.lot_size for contract in instruments],
+                    dtype=np.float64,
+                )[None, :],
+                (n_bars, n_symbols),
+            ).copy(),
+            minimum_notional=np.broadcast_to(
+                np.asarray(
+                    [contract.minimum_notional for contract in instruments],
+                    dtype=np.float64,
+                )[None, :],
+                (n_bars, n_symbols),
+            ).copy(),
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
             periods_per_year=periods_per_year,

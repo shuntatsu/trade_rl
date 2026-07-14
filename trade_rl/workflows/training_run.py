@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,11 +17,16 @@ from trade_rl.artifacts.run_manifest import (
     validate_training_run_directory,
     write_training_run_manifest,
 )
+from trade_rl.artifacts.signals import SignalKind, load_signal_artifact
 from trade_rl.artifacts.store import ArtifactStore
-from trade_rl.data.artifacts import load_market_dataset_artifact
+from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest
+from trade_rl.integrations.signal_artifacts import (
+    load_alpha_artifact,
+    load_factor_artifact,
+)
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
@@ -59,6 +64,13 @@ def _boolean(value: object, *, field: str, default: bool) -> bool:
     return value
 
 
+def _signal_artifact_digest(path: Path | None, *, kind: SignalKind) -> str | None:
+    if path is None:
+        return None
+    manifest, _ = load_signal_artifact(path, expected_kind=kind)
+    return manifest.artifact_digest
+
+
 @dataclass(frozen=True, slots=True)
 class TrainingRunConfig:
     training: ResidualTrainingConfig
@@ -68,6 +80,8 @@ class TrainingRunConfig:
     trend: TrendConfig
     action: ActionSpec
     alpha_contract: AlphaContract
+    alpha_artifact: Path | None = None
+    factor_artifact: Path | None = None
     export_onnx: bool = False
     export_torchscript: bool = False
     export_tolerance: float = 1e-5
@@ -75,16 +89,18 @@ class TrainingRunConfig:
     schema_version: str = "training_run_config_v1"
 
     def __post_init__(self) -> None:
+        if not self.environment.require_full_reward_preroll:
+            object.__setattr__(
+                self,
+                "environment",
+                replace(self.environment, require_full_reward_preroll=True),
+            )
         if self.environment.resolved_reward_config() != self.reward:
             raise ValueError("environment reward configuration differs from run reward")
-        if self.action.alpha_enabled:
-            raise ValueError(
-                "CLI training with alpha actions requires an alpha artifact adapter"
-            )
-        if self.action.n_factors:
-            raise ValueError(
-                "CLI training with factor actions requires a factor artifact adapter"
-            )
+        if self.action.alpha_enabled != (self.alpha_artifact is not None):
+            raise ValueError("alpha action requires exactly one alpha artifact")
+        if (self.action.n_factors > 0) != (self.factor_artifact is not None):
+            raise ValueError("factor actions require exactly one factor artifact")
         if not isinstance(self.export_onnx, bool) or not isinstance(
             self.export_torchscript, bool
         ):
@@ -122,6 +138,12 @@ class TrainingRunConfig:
         schema_version = payload.get("schema_version", "training_run_config_v1")
         if not isinstance(schema_version, str):
             raise ValueError("schema_version must be a string")
+        raw_alpha_artifact = payload.get("alpha_artifact")
+        raw_factor_artifact = payload.get("factor_artifact")
+        if raw_alpha_artifact is not None and not isinstance(raw_alpha_artifact, str):
+            raise ValueError("alpha_artifact must be a path string or null")
+        if raw_factor_artifact is not None and not isinstance(raw_factor_artifact, str):
+            raise ValueError("factor_artifact must be a path string or null")
         return cls(
             training=ResidualTrainingConfig(**training_data),
             environment=ResidualMarketEnvConfig(
@@ -136,6 +158,12 @@ class TrainingRunConfig:
             alpha_contract=AlphaContract(
                 **_mapping(payload.get("alpha_contract"), field="alpha_contract")
             ),
+            alpha_artifact=(
+                None if raw_alpha_artifact is None else Path(raw_alpha_artifact)
+            ),
+            factor_artifact=(
+                None if raw_factor_artifact is None else Path(raw_factor_artifact)
+            ),
             export_onnx=_boolean(
                 exports.get("onnx"), field="exports.onnx", default=False
             ),
@@ -149,15 +177,36 @@ class TrainingRunConfig:
             schema_version=schema_version,
         )
 
+    def resolve_artifact_paths(self, base: Path) -> TrainingRunConfig:
+        """Resolve relative signal artifacts against the owning config directory."""
+
+        def resolved(value: Path | None) -> Path | None:
+            if value is None or value.is_absolute():
+                return value
+            return base / value
+
+        return replace(
+            self,
+            alpha_artifact=resolved(self.alpha_artifact),
+            factor_artifact=resolved(self.factor_artifact),
+        )
+
     @classmethod
     def from_json(cls, path: Path) -> TrainingRunConfig:
-        return cls.from_mapping(json.loads(path.read_text(encoding="utf-8")))
+        config = cls.from_mapping(json.loads(path.read_text(encoding="utf-8")))
+        return config.resolve_artifact_paths(path.parent)
 
     def digest_payload(self) -> dict[str, object]:
         return {
             "action": asdict(self.action),
             "alpha_contract": asdict(self.alpha_contract),
+            "alpha_artifact_digest": _signal_artifact_digest(
+                self.alpha_artifact, kind="alpha"
+            ),
             "environment": asdict(self.environment),
+            "factor_artifact_digest": _signal_artifact_digest(
+                self.factor_artifact, kind="factor"
+            ),
             "export_onnx": self.export_onnx,
             "export_tolerance": self.export_tolerance,
             "export_torchscript": self.export_torchscript,
@@ -205,12 +254,43 @@ def _environment_factory(
     dataset: MarketDataset,
     config: TrainingRunConfig,
 ) -> Callable[[], ResidualMarketEnv]:
+    alpha_provider = (
+        None
+        if config.alpha_artifact is None
+        else load_alpha_artifact(
+            config.alpha_artifact,
+            dataset_id=dataset.dataset_id,
+            expected_symbols=dataset.symbols,
+        )
+    )
+    factor_provider = (
+        None
+        if config.factor_artifact is None
+        else load_factor_artifact(
+            config.factor_artifact,
+            dataset_id=dataset.dataset_id,
+            expected_names=tuple(
+                f"factor_{index}" for index in range(config.action.n_factors)
+            ),
+            expected_symbols=dataset.n_symbols,
+        )
+    )
+
     def create() -> ResidualMarketEnv:
         return ResidualMarketEnv(
             dataset,
             trend_strategy=TrendStrategy(config.trend),
-            alpha_enabled=False,
+            alpha_provider=alpha_provider,
+            alpha_enabled=config.action.alpha_enabled,
+            alpha_artifact_digest=(
+                None if alpha_provider is None else alpha_provider.artifact_digest
+            ),
             alpha_contract=config.alpha_contract,
+            factor_basis_provider=factor_provider,
+            factor_artifact_digest=(
+                None if factor_provider is None else factor_provider.artifact_digest
+            ),
+            factor_count=config.action.n_factors,
             action_spec=config.action,
             pre_trade_risk=PreTradeRisk(config.risk),
             config=config.environment,
@@ -289,7 +369,17 @@ def execute_training_run(
             {
                 "action": asdict(config.action),
                 "alpha_contract": asdict(config.alpha_contract),
+                "alpha_artifact": (
+                    None
+                    if config.alpha_artifact is None
+                    else str(config.alpha_artifact)
+                ),
                 "environment": asdict(config.environment),
+                "factor_artifact": (
+                    None
+                    if config.factor_artifact is None
+                    else str(config.factor_artifact)
+                ),
                 "risk": asdict(config.risk),
                 "reward": asdict(config.reward),
                 "schema_version": "training_environment_v1",

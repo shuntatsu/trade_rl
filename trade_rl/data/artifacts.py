@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Final
@@ -14,7 +15,7 @@ from trade_rl.data.artifact_codec import (
     DATASET_ARTIFACT_SCHEMA,
     DATASET_MANIFEST_NAME,
     load_dataset_files,
-    write_dataset_files,
+    write_market_dataset_files,
 )
 from trade_rl.data.market import MarketDataset
 
@@ -22,9 +23,14 @@ DATASET_VIEW_SCHEMA: Final = "market_dataset_view_v1"
 
 
 def write_market_dataset_artifact(root: Path, dataset: MarketDataset) -> Path:
-    """Write the canonical deterministic artifact into ``root``."""
+    """Deprecated compatibility wrapper returning the manifest path."""
 
-    return write_dataset_files(Path(root), dataset)[0]
+    warnings.warn(
+        "write_market_dataset_artifact is deprecated; use write_market_dataset_files",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return write_market_dataset_files(Path(root), dataset).manifest_path
 
 
 def load_market_dataset_artifact(root: Path) -> MarketDataset:

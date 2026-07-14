@@ -630,6 +630,14 @@ class MarketDataset:
         object.__setattr__(self, "_bar_duration_ns", bar_duration_ns)
         object.__setattr__(self, "_nominal_bar_hours", nominal_bar_hours)
 
+    def resolved_array(self, field_name: str) -> np.ndarray:
+        """Return an optional input array after post-init normalization."""
+
+        value = getattr(self, field_name, None)
+        if not isinstance(value, np.ndarray):
+            raise RuntimeError(f"dataset array was not resolved: {field_name}")
+        return value
+
     @property
     def n_bars(self) -> int:
         return int(self.timestamps.shape[0])

@@ -48,21 +48,21 @@ Observation schema v3 carries feature values, feature-level availability/stalene
 
 ## Reward contract
 
-Reward schema v3 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on new excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
+Reward schema v4 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on new excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
 
 ## Dataset and run artifacts
 
-The maintained dataset artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. Loading verifies file digest, exact array allow-list, shape, dtype, ordering and `MarketDataset` invariants. `MarketDatasetView` carries an immutable half-open absolute range and rejects subviews outside its parent range.
+The maintained dataset artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. `write_market_dataset_files`, `publish_market_dataset_artifact`, and `load_market_dataset_artifact` are the authoritative staging, publication, and loading APIs. Loading verifies file digest, exact array allow-list, shape, dtype, ordering and `MarketDataset` invariants. `MarketDatasetView` carries an immutable half-open absolute range and rejects subviews outside its parent range.
 
 Training outputs are first written to `ArtifactStore/.staging/<run-id>`. `run.json` binds every declared file by relative path, byte size and SHA-256 together with dataset, environment, training-config and ensemble identities. Only a fully validated run is atomically moved to `runs/<run-id>` and made current through `latest.json`; partial failures are moved to `failed/<run-id>`.
 
 ## Training and nested walk-forward
 
-`trade-rl train run` loads a validated dataset artifact, constructs the real residual market environment, trains one Stable-Baselines3 checkpoint per seed, writes canonical configuration and ensemble manifests, creates the serving loader declaration, optionally exports deterministic actors, validates the complete run and publishes atomically.
+`trade-rl train run` loads a validated dataset artifact, resolves content-addressed alpha/factor artifacts independently of filesystem location, requires a complete causal reward pre-roll, constructs the real residual market environment, trains one Stable-Baselines3 checkpoint per seed, writes canonical configuration and ensemble manifests, creates the serving loader declaration, optionally exports deterministic actors, validates the complete run and publishes atomically.
 
 `trade-rl walk-forward run` uses the existing nested fold contract with concrete market adapters. Each fold receives disjoint train, checkpoint-validation, configuration-selection and sealed-test ranges. Observation normalization is fit only from train observations and frozen thereafter. Candidate and seed selection can use checkpoint and selection ranges; sealed outer-test returns are computed only after selection and never flow back into training or selection.
 
-Final `policy.zip` files are authoritative model artifacts. The current concrete checkpoint selector compares final seed/member checkpoints on the checkpoint-validation range; it does not yet emit intermediate optimizer-state checkpoints during one SB3 learning call.
+Final `policy.zip` files are authoritative model artifacts. Training emits bounded, atomic intermediate policy checkpoints during each SB3 learning call. The checkpoint selector compares intermediate and final member checkpoints only on the checkpoint-validation range and records the selected content digest before sealed outer-test evaluation.
 
 ## Export contract
 

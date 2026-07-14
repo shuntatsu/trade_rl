@@ -16,7 +16,7 @@ class AbsoluteGrowthRewardConfig:
 
     scale: float = 100.0
     baseline_window_hours: float = 720.0
-    baseline_minimum_history_hours: float = 168.0
+    baseline_minimum_history_hours: float = 720.0
     baseline_tolerance: float = 0.015
     baseline_penalty_weight: float = 0.10
     drawdown_penalty_weight: float = 0.05
@@ -95,7 +95,7 @@ class RewardConfig:
     drawdown_dead_zone: float = 0.0
     baseline_underperformance_weight: float = 0.10
     baseline_window_hours: float = 720.0
-    baseline_minimum_history_hours: float = 168.0
+    baseline_minimum_history_hours: float = 720.0
     baseline_window_steps: int | None = None
     baseline_minimum_history_steps: int | None = None
     baseline_tolerance: float = 0.015
@@ -130,9 +130,7 @@ class RewardConfig:
         return AbsoluteGrowthRewardConfig(
             scale=self.scale,
             baseline_window_hours=self.baseline_window_hours,
-            baseline_minimum_history_hours=min(
-                self.baseline_minimum_history_hours, self.baseline_window_hours
-            ),
+            baseline_minimum_history_hours=self.baseline_minimum_history_hours,
             baseline_tolerance=self.baseline_tolerance,
             baseline_penalty_weight=self.baseline_underperformance_weight,
             drawdown_penalty_weight=self.incremental_drawdown_weight,
@@ -189,6 +187,8 @@ class RewardConfig:
             raise ValueError("baseline_window_hours must be positive")
         if self.baseline_minimum_history_hours <= 0.0:
             raise ValueError("baseline_minimum_history_hours must be positive")
+        if self.baseline_minimum_history_hours > self.baseline_window_hours:
+            raise ValueError("baseline minimum history cannot exceed the window")
         for field_name, steps_value in (
             ("baseline_window_steps", self.baseline_window_steps),
             ("baseline_minimum_history_steps", self.baseline_minimum_history_steps),
@@ -321,7 +321,7 @@ def build_reward_context(
     hybrid_growth = _log_growth(hybrid_window)
     shadow_growth = _log_growth(shadow_window)
     shortfall = max(0.0, shadow_growth - hybrid_growth)
-    effective_tolerance = config.baseline_tolerance * min(1.0, history / window_bars)
+    effective_tolerance = config.baseline_tolerance
     penalty = (
         max(0.0, shortfall - effective_tolerance)
         if history >= minimum_history_bars
@@ -420,9 +420,7 @@ class RewardTracker:
         hybrid_growth = sum(self._hybrid_returns)
         shadow_growth = sum(self._shadow_returns)
         shortfall = max(0.0, shadow_growth - hybrid_growth)
-        tolerance = self.config.baseline_tolerance * min(
-            1.0, history / self.baseline_window_steps
-        )
+        tolerance = self.config.baseline_tolerance
         penalty = 0.0
         if history >= self.baseline_minimum_history_steps:
             penalty = _progressive_hinge(
@@ -446,15 +444,27 @@ class RewardTracker:
         *,
         hybrid_drawdown: float = 0.0,
         shadow_drawdown: float = 0.0,
+        hybrid_history: Sequence[float] = (),
+        shadow_history: Sequence[float] = (),
     ) -> None:
         _validate_drawdown(hybrid_drawdown, field_name="hybrid_drawdown")
         _validate_drawdown(shadow_drawdown, field_name="shadow_drawdown")
+        if len(hybrid_history) != len(shadow_history):
+            raise ValueError("hybrid and shadow histories must have equal length")
+        for field_name, values in (
+            ("hybrid_history", hybrid_history),
+            ("shadow_history", shadow_history),
+        ):
+            if any(not math.isfinite(value) for value in values):
+                raise ValueError(f"{field_name} must contain finite log returns")
         self.previous_hybrid_drawdown = hybrid_drawdown
         self.previous_shadow_drawdown = shadow_drawdown
-        self.previous_baseline_hinge = 0.0
         self._hybrid_returns.clear()
         self._shadow_returns.clear()
+        self._hybrid_returns.extend(float(value) for value in hybrid_history)
+        self._shadow_returns.extend(float(value) for value in shadow_history)
         context = self._current_context(hybrid_drawdown)
+        self.previous_baseline_hinge = context.baseline_penalty
         self.last_context_before = context
         self.last_context_after = context
 
@@ -514,9 +524,7 @@ class RewardTracker:
             0.0,
             sum(self._shadow_returns) - sum(self._hybrid_returns),
         )
-        effective_tolerance = self.config.baseline_tolerance * min(
-            1.0, history / self.baseline_window_steps
-        )
+        effective_tolerance = self.config.baseline_tolerance
         current_hinge = 0.0
         if history >= self.baseline_minimum_history_steps:
             linear_hinge = max(0.0, underperformance - effective_tolerance)

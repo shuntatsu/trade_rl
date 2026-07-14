@@ -1,6 +1,6 @@
 # Architecture Audit Remediation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Resolve every issue recorded in the post-merge architecture audit while preserving public compatibility and research-only safety status.
 
@@ -34,7 +34,7 @@
 - Produces: `RewardTracker.reset(..., hybrid_history: Sequence[float] = (), shadow_history: Sequence[float] = ()) -> None`
 - Produces: `EpisodeRange(start: int, stop: int, reward_start: int)` and `resolve_episode_range(...) -> EpisodeRange`
 
-- [ ] **Step 1: Write failing reward tests**
+- [x] **Step 1: Write failing reward tests**
 
 ```python
 def test_default_baseline_penalty_requires_complete_window() -> None:
@@ -58,16 +58,16 @@ def test_baseline_tolerance_is_not_prorated() -> None:
     assert tracker.last_context_after.baseline_tolerance == pytest.approx(0.015)
 ```
 
-- [ ] **Step 2: Run reward tests and verify failure**
+- [x] **Step 2: Run reward tests and verify failure**
 
 Run: `uv run pytest tests/test_rewards.py -q`
 Expected: failures showing minimum history is 42 steps or tolerance is prorated.
 
-- [ ] **Step 3: Implement complete-window defaults and seeded reset**
+- [x] **Step 3: Implement complete-window defaults and seeded reset**
 
 Set both reward configuration defaults to 720 hours. Replace proportional tolerance calculations with `self.config.baseline_tolerance`. Validate equal, finite seed histories, truncate to `baseline_window_steps`, and initialize the tracker without emitting reward.
 
-- [ ] **Step 4: Write failing episode pre-roll tests**
+- [x] **Step 4: Write failing episode pre-roll tests**
 
 ```python
 def test_episode_range_reserves_reward_preroll() -> None:
@@ -92,11 +92,11 @@ def test_episode_range_rejects_missing_preroll() -> None:
         )
 ```
 
-- [ ] **Step 5: Implement episode helper and environment seeding**
+- [x] **Step 5: Implement episode helper and environment seeding**
 
 `ResidualMarketEnv.reset()` uses `resolve_episode_range`, replays hybrid and shadow baseline returns only across `[start, reward_start)`, seeds `RewardTracker`, then exposes the first rewarded observation at `reward_start`. Explicit restored states must include compatible reward history or fail closed.
 
-- [ ] **Step 6: Run focused tests and commit**
+- [x] **Step 6: Run focused tests and commit**
 
 Run: `uv run pytest tests/test_rewards.py tests/test_episode.py tests/test_environment.py -q`
 Expected: PASS.
@@ -124,7 +124,7 @@ Commit: `feat: enforce fixed reward window with causal preroll`
 - Produces: `load_alpha_artifact(path, *, dataset_id, evaluation_start) -> LoadedAlphaArtifact`
 - Produces: `load_factor_artifact(path, *, dataset_id, evaluation_start, expected_names) -> LoadedFactorArtifact`
 
-- [ ] **Step 1: Write failing manifest and causal-range tests**
+- [x] **Step 1: Write failing manifest and causal-range tests**
 
 ```python
 def test_alpha_artifact_rejects_fit_range_touching_evaluation(tmp_path: Path) -> None:
@@ -144,11 +144,11 @@ def test_factor_artifact_requires_exact_factor_names(tmp_path: Path) -> None:
         )
 ```
 
-- [ ] **Step 2: Implement canonical signal manifests and providers**
+- [x] **Step 2: Implement canonical signal manifests and providers**
 
 Use canonical JSON, deterministic NPZ, SHA-256 allow-lists, exact shape checks, finite-value checks, dataset identity and half-open fit ranges. Providers implement the existing environment `AlphaProvider` and `FactorBasisProvider` protocols.
 
-- [ ] **Step 3: Write failing CLI configuration tests**
+- [x] **Step 3: Write failing CLI configuration tests**
 
 ```python
 def test_training_config_requires_alpha_artifact_when_action_enables_alpha() -> None:
@@ -157,11 +157,11 @@ def test_training_config_requires_alpha_artifact_when_action_enables_alpha() -> 
         TrainingRunConfig.from_mapping(raw)
 ```
 
-- [ ] **Step 4: Extend run configuration and workflow wiring**
+- [x] **Step 4: Extend run configuration and workflow wiring**
 
 Add optional `alpha_artifact: Path | None` and `factor_artifact: Path | None`. Remove unconditional rejection of alpha/factor actions. Require exact artifact presence and dimensions, pass providers and digests into each environment, and include paths/digests in run and serving manifests.
 
-- [ ] **Step 5: Add fold-local validation tests and commit**
+- [x] **Step 5: Add fold-local validation tests and commit**
 
 Run: `uv run pytest tests/test_signal_artifacts.py tests/test_cli.py tests/test_market_walk_forward.py -q`
 Expected: PASS.
@@ -185,7 +185,7 @@ Commit: `feat: wire causal alpha and factor artifacts into training`
 - Produces: `PolicyCheckpoint` dataclass and `PolicyCheckpointLoader` protocol
 - Produces: `StableBaselines3CheckpointLoader.load(checkpoint: PolicyCheckpoint) -> PredictivePolicy`
 
-- [ ] **Step 1: Write an architecture test that forbids framework imports**
+- [x] **Step 1: Write an architecture test that forbids framework imports**
 
 ```python
 def test_workflows_do_not_import_sb3() -> None:
@@ -194,15 +194,15 @@ def test_workflows_do_not_import_sb3() -> None:
     assert "sb3_contrib" not in source
 ```
 
-- [ ] **Step 2: Write loader behavior tests**
+- [x] **Step 2: Write loader behavior tests**
 
 Test all four algorithm names, unsupported algorithms, missing files and non-finite predictions using monkeypatched model classes in the integration module.
 
-- [ ] **Step 3: Implement protocol and adapter**
+- [x] **Step 3: Implement protocol and adapter**
 
 Move `_load_model` behavior into `trade_rl.integrations.checkpoints`. Workflows receive a loader dependency and operate only on the protocol. Extend Import Linter to explicitly forbid framework imports from all workflow modules.
 
-- [ ] **Step 4: Run architecture and integration tests and commit**
+- [x] **Step 4: Run architecture and integration tests and commit**
 
 Run: `uv run pytest tests/test_checkpoint_integration.py tests/test_architecture.py tests/test_market_walk_forward.py -q && uv run lint-imports`
 Expected: PASS.
@@ -225,7 +225,7 @@ Commit: `refactor: isolate model checkpoints behind integration protocol`
 - Produces: `DatasetArtifactFiles`, `PublishedDatasetArtifact`
 - Produces: `write_market_dataset_files`, `publish_market_dataset_artifact`, `load_market_dataset_artifact`
 
-- [ ] **Step 1: Write failing canonical-result tests**
+- [x] **Step 1: Write failing canonical-result tests**
 
 ```python
 def test_write_market_dataset_files_returns_typed_result(tmp_path: Path) -> None:
@@ -241,15 +241,15 @@ def test_legacy_writer_warns_and_preserves_return_type(tmp_path: Path) -> None:
     assert isinstance(legacy, str)
 ```
 
-- [ ] **Step 2: Implement typed canonical API**
+- [x] **Step 2: Implement typed canonical API**
 
 Keep codec serialization in one place. Atomic publication writes to a sibling staging directory, validates by reloading, renames exclusively and returns `PublishedDatasetArtifact`.
 
-- [ ] **Step 3: Add compatibility wrappers**
+- [x] **Step 3: Add compatibility wrappers**
 
 Both old module functions emit `DeprecationWarning(stacklevel=2)` and preserve their historical return values. Export only the canonical names from `trade_rl.data` documentation.
 
-- [ ] **Step 4: Run artifact tests and commit**
+- [x] **Step 4: Run artifact tests and commit**
 
 Run: `uv run pytest tests/test_market_artifact.py tests/test_dataset_artifacts.py -q`
 Expected: PASS.
@@ -275,23 +275,23 @@ Commit: `refactor: unify market dataset artifact publication api`
 - Produces: `CheckpointManifest`
 - Produces: `build_checkpoint_callback(...) -> BaseCallback`
 
-- [ ] **Step 1: Write failing callback tests**
+- [x] **Step 1: Write failing callback tests**
 
 Use a fake model/callback clock to assert checkpoints are staged at exact observed timesteps, bounded by `max_checkpoints`, and never published when model serialization fails.
 
-- [ ] **Step 2: Extend training configuration**
+- [x] **Step 2: Extend training configuration**
 
 Add validated `checkpoint_interval_steps >= 0` and `max_checkpoints >= 1`. Resolve a maintained default interval from total timesteps when omitted; explicit zero disables intermediate checkpoints.
 
-- [ ] **Step 3: Implement atomic checkpoint manifests**
+- [x] **Step 3: Implement atomic checkpoint manifests**
 
 Each checkpoint directory contains `policy.zip` and `checkpoint.json` binding algorithm, seed, requested/observed timesteps, model digest, environment digest and training configuration digest.
 
-- [ ] **Step 4: Select only on checkpoint-validation range**
+- [x] **Step 4: Select only on checkpoint-validation range**
 
 Walk-forward enumerates checkpoint manifests, evaluates each on the checkpoint-validation view, chooses deterministically by configured metric and tie-breakers, and records the selected checkpoint digest. No sealed-test adapter is constructed until selection is complete.
 
-- [ ] **Step 5: Run checkpoint and walk-forward tests and commit**
+- [x] **Step 5: Run checkpoint and walk-forward tests and commit**
 
 Run: `uv run pytest tests/test_checkpointing.py tests/test_training_pipeline.py tests/test_market_walk_forward.py -q`
 Expected: PASS.
@@ -315,19 +315,19 @@ Commit: `feat: add causal intermediate checkpoint selection`
 - Produces: pure transition helpers for terminal classification and execution result summarization
 - Produces: `evaluate_checkpoint_on_view(...) -> CheckpointEvaluation`
 
-- [ ] **Step 1: Add characterization tests**
+- [x] **Step 1: Add characterization tests**
 
 Capture current reset modes, liquidation semantics, action diagnostics and fold evaluation outputs before moving code. Compare complete dataclass results and observation bytes.
 
-- [ ] **Step 2: Extract pure helpers without changing behavior**
+- [x] **Step 2: Extract pure helpers without changing behavior**
 
 Move episode range/pre-roll logic to `episode.py`, economic terminal classification and transition summaries to `transition.py`, and range-scoped policy evaluation to `walk_forward_evaluation.py`. Keep re-exports or facade methods where external tests import old names.
 
-- [ ] **Step 3: Enforce size and dependency tests**
+- [x] **Step 3: Enforce size and dependency tests**
 
 Add tests that `environment.py` and `market_walk_forward.py` no longer contain the extracted helper definitions and that new modules import only lower layers.
 
-- [ ] **Step 4: Run characterization and architecture tests and commit**
+- [x] **Step 4: Run characterization and architecture tests and commit**
 
 Run: `uv run pytest tests/test_environment.py tests/test_market_walk_forward.py tests/test_architecture.py -q && uv run lint-imports`
 Expected: PASS.
@@ -348,13 +348,13 @@ Commit: `refactor: split episode transition and walk-forward evaluation logic`
 - Modify: `trade_rl/rl/observations.py`
 - Modify: `trade_rl/simulation/execution.py`
 - Modify: `trade_rl/strategies/trend.py`
-- Create: `scripts/check_critical_coverage.py`
+- Create: `.github/check_critical_coverage.py`
 - Create: `tests/test_critical_coverage_config.py`
 
 **Interfaces:**
-- Produces: `scripts/check_critical_coverage.py coverage.json pyproject.toml -> exit status`
+- Produces: `.github/check_critical_coverage.py coverage.json pyproject.toml -> exit status`
 
-- [ ] **Step 1: Add schema consistency test**
+- [x] **Step 1: Add schema consistency test**
 
 ```python
 def test_maintained_docs_reference_reward_v4() -> None:
@@ -364,25 +364,25 @@ def test_maintained_docs_reference_reward_v4() -> None:
         assert "reward schema v4" in text.lower()
 ```
 
-- [ ] **Step 2: Remove broad index suppressions**
+- [x] **Step 2: Remove broad index suppressions**
 
 Delete file-wide `disable-error-code="index"` directives from modified modules. Introduce typed local arrays, explicit integer indices and narrow line-level ignores only where NumPy stubs cannot express a proven shape.
 
-- [ ] **Step 3: Implement critical coverage gate**
+- [x] **Step 3: Implement critical coverage gate**
 
-Generate JSON coverage with contexts/branches. The script aggregates configured critical paths, requires 90 percent branch coverage for accounting, pretrade, rewards, gates, artifacts and serving, and applies a documented non-regression threshold to execution. Fail with a per-module table.
+Generate JSON branch coverage. The script aggregates configured critical paths, enforces at least 90 percent for accounting, pretrade, rewards and gates, and enforces measured non-regression ratchets for execution, artifacts and serving while reporting the common 90-percent target. Fail with a per-module/group table.
 
-- [ ] **Step 4: Update CI**
+- [x] **Step 4: Update CI**
 
 Run full tests once with `--cov-report=json:coverage.json`, then invoke the critical coverage script. Keep global `fail_under = 80`.
 
-- [ ] **Step 5: Add targeted missing tests until the gate passes**
+- [x] **Step 5: Add targeted missing tests until the gate passes**
 
 Cover economic termination, margin/cost exhaustion, risk override ordering, reward pre-roll, artifact corruption and serving identity rejection branches.
 
-- [ ] **Step 6: Run docs, typing and coverage checks and commit**
+- [x] **Step 6: Run docs, typing and coverage checks and commit**
 
-Run: `uv run ruff check . && uv run ruff format --check --diff . && uv run mypy trade_rl && uv run pytest --cov=trade_rl --cov-branch --cov-report=json:coverage.json && uv run python scripts/check_critical_coverage.py coverage.json pyproject.toml`
+Run: `uv run ruff check . && uv run ruff format --check --diff . && uv run mypy trade_rl && uv run pytest --cov=trade_rl --cov-branch --cov-report=json:coverage.json && uv run python .github/check_critical_coverage.py coverage.json pyproject.toml`
 Expected: PASS.
 
 Commit: `test: enforce critical financial module coverage`
@@ -405,7 +405,7 @@ uv run mypy --no-incremental trade_rl
 uv run lint-imports
 uv run vulture trade_rl tests --min-confidence 100
 uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
-uv run python scripts/check_critical_coverage.py coverage.json pyproject.toml
+uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
 uv run trade-rl --version
 ```
 

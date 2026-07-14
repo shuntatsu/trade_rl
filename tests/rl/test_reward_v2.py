@@ -41,7 +41,11 @@ def test_drawdown_penalizes_only_new_excess_beyond_dead_zone() -> None:
 
 def test_rolling_baseline_hinge_uses_real_time_window() -> None:
     tracker = RewardTracker(
-        RewardConfig(baseline_window_hours=8.0, baseline_tolerance=0.001),
+        RewardConfig(
+            baseline_window_hours=8.0,
+            baseline_minimum_history_hours=8.0,
+            baseline_tolerance=0.001,
+        ),
         decision_hours=4.0,
     )
     assert tracker.baseline_window_steps == 2
@@ -102,3 +106,34 @@ def test_margin_deficit_penalty_is_continuous() -> None:
     assert mild.margin_penalty == pytest.approx(0.02)
     assert severe.margin_penalty == pytest.approx(0.20)
     assert severe.scaled_total < mild.scaled_total
+
+
+def test_default_baseline_penalty_requires_complete_window() -> None:
+    tracker = RewardTracker(RewardConfig(), decision_hours=4.0)
+    assert tracker.baseline_window_steps == 180
+    assert tracker.baseline_minimum_history_steps == 180
+    for _ in range(179):
+        reward = tracker.step(
+            hybrid_log_return=-0.01,
+            shadow_log_return=0.0,
+            hybrid_drawdown=0.0,
+            shadow_drawdown=0.0,
+        )
+        assert reward.baseline_penalty == pytest.approx(0.0)
+
+
+def test_seeded_reward_history_uses_fixed_unscaled_tolerance() -> None:
+    tracker = RewardTracker(RewardConfig(), decision_hours=4.0)
+    tracker.reset(
+        hybrid_history=(-0.001,) * 90,
+        shadow_history=(0.0,) * 90,
+    )
+    assert tracker.last_context_after.history_bars == 90
+    assert tracker.last_context_after.baseline_tolerance == pytest.approx(0.015)
+    assert tracker.last_context_after.baseline_penalty == pytest.approx(0.0)
+
+
+def test_reward_history_seed_rejects_mismatched_lengths() -> None:
+    tracker = RewardTracker(RewardConfig(), decision_hours=4.0)
+    with pytest.raises(ValueError, match="equal length"):
+        tracker.reset(hybrid_history=(0.0,), shadow_history=())

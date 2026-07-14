@@ -31,6 +31,10 @@ def test_train_config_exposes_exploration_network_and_algorithm_contract() -> No
                 "256",
                 "--policy-net-arch",
                 "128",
+                "--checkpoint-interval-steps",
+                "100",
+                "--max-checkpoints",
+                "3",
                 "--seed",
                 "0",
             ],
@@ -43,6 +47,9 @@ def test_train_config_exposes_exploration_network_and_algorithm_contract() -> No
     assert payload["actual_timesteps"] == 1536
     assert payload["log_std_init"] == pytest.approx(-1.0)
     assert payload["policy_net_arch"] == [256, 128]
+    assert payload["checkpoint_interval_steps"] == 100
+    assert payload["resolved_checkpoint_interval"] == 100
+    assert payload["max_checkpoints"] == 3
 
 
 def test_environment_manifest_covers_action_reward_execution_and_identity() -> None:
@@ -79,3 +86,6 @@ def test_environment_manifest_covers_action_reward_execution_and_identity() -> N
     assert len(payload["digest"]) == 64
     assert payload["action_spec"]["n_factors"] == 2
     assert payload["normalizer_digest"] == "b" * 64
+    assert payload["reward"]["baseline_window_hours"] == pytest.approx(720.0)
+    assert payload["reward"]["baseline_minimum_history_hours"] == pytest.approx(720.0)
+    assert payload["reward"]["baseline_tolerance"] == pytest.approx(0.015)

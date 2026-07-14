@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from trade_rl.data.artifacts import write_market_dataset_artifact
+from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
 from trade_rl.workflows.market_walk_forward import execute_market_walk_forward
 
@@ -61,7 +61,11 @@ def _candidate_run() -> dict[str, object]:
             "max_abs_weight": 1.0,
             "max_turnover": 2.0,
         },
-        "reward": {"scale": 1.0},
+        "reward": {
+            "scale": 1.0,
+            "baseline_window_hours": 4.0,
+            "baseline_minimum_history_hours": 4.0,
+        },
         "trend": {
             "fast_hours": 1.0,
             "base_hours": 2.0,
@@ -80,7 +84,7 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     tmp_path: Path,
 ) -> None:
     dataset_root = tmp_path / "dataset"
-    write_market_dataset_artifact(dataset_root, _dataset())
+    write_market_dataset_files(dataset_root, _dataset())
     config_path = tmp_path / "walk-forward.json"
     config_path.write_text(
         json.dumps(

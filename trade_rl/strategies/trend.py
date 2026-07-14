@@ -1,4 +1,3 @@
-# mypy: disable-error-code="index"
 """Deterministic multi-horizon trend baselines."""
 
 from __future__ import annotations

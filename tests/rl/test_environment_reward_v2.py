@@ -111,3 +111,65 @@ def test_drawdown_stop_liquidates_policy_and_terminates_without_fixed_jackpot() 
     assert np.any(np.abs(env.shadow.quantities) > 0.0)
     assert reward == pytest.approx(info["reward_total_scaled"])
     assert abs(reward) < env.config.reward.scale
+
+
+def test_reset_seeds_only_complete_reward_window() -> None:
+    env = ResidualMarketEnv(
+        dataset(1_000),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=32,
+            decision_every=4,
+            initial_capital=1_000.0,
+            reward=AbsoluteGrowthRewardConfig(),
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+
+    _, info = env.reset(options={"start_idx": 800})
+
+    assert info["reward_history_steps"] == 180
+    assert env.reward_tracker.last_context_after.history_bars == 180
+    assert env.reward_tracker.last_context_after.baseline_tolerance == pytest.approx(
+        0.015
+    )
+    assert (
+        env.reward_tracker.last_context_after.rolling_shadow_log_growth
+        != pytest.approx(0.0)
+    )
+
+
+def test_reset_does_not_seed_partial_reward_window() -> None:
+    env = environment()
+
+    _, info = env.reset(options={"start_idx": 24})
+
+    assert info["reward_history_steps"] == 0
+    assert env.reward_tracker.last_context_after.history_bars == 0
+
+
+def test_required_full_reward_preroll_rejects_early_start() -> None:
+    env = ResidualMarketEnv(
+        dataset(),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=32,
+            decision_every=4,
+            initial_capital=1_000.0,
+            require_full_reward_preroll=True,
+            reward=AbsoluteGrowthRewardConfig(
+                baseline_window_hours=8.0,
+                baseline_minimum_history_hours=8.0,
+            ),
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="sufficient causal or signal history"):
+        env.reset(options={"start_idx": 23})
+    _, info = env.reset(options={"start_idx": 24})
+    assert info["reward_history_steps"] == 2

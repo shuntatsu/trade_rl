@@ -52,6 +52,9 @@ jobs:
       - name: Apply architecture hardening
         run: uv run python scripts/apply_complete_architecture_hardening.py implementation
 
+      - name: Apply type narrowing fixes
+        run: uv run python scripts/fix_complete_architecture_hardening_types.py
+
       - name: Format
         run: uv run ruff format .
 
@@ -73,6 +76,7 @@ jobs:
       - name: Remove one-shot machinery
         run: |
           rm scripts/apply_complete_architecture_hardening.py
+          rm scripts/fix_complete_architecture_hardening_types.py
           rm .github/workflows/agent-complete-architecture-hardening.yml
 
       - name: Commit verified hardening

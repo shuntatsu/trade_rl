@@ -33,6 +33,20 @@ jobs:
             trade_rl/artifacts/signals.py \
             trade_rl/integrations/signal_artifacts.py \
             trade_rl/workflows/walk_forward.py
+      - name: Allow ordered duplicate replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/agent_tools/finalize_unified_semantics.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '    if count != 1:\n        raise RuntimeError(f"expected one match in {path}, found {count}: {old[:120]!r}")\n',
+              '    if count < 1:\n        raise RuntimeError(f"expected a match in {path}: {old[:120]!r}")\n',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Apply unified semantics
         id: apply
         continue-on-error: true

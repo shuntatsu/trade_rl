@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.simulation.test_critical_branch_coverage import market
+from tests.simulation.critical_helpers import market
 from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
 
 

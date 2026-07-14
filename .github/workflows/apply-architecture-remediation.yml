@@ -48,6 +48,8 @@ jobs:
             | sha256sum --check --strict
           git apply --check "$RUNNER_TEMP/architecture-remediation.patch"
           git apply --index "$RUNNER_TEMP/architecture-remediation.patch"
+          git apply --check .github/remediation/remediation-mypy-fix.patch
+          git apply --index .github/remediation/remediation-mypy-fix.patch
 
       - uses: astral-sh/setup-uv@v5
         with:

@@ -1,0 +1,65 @@
+{
+  "schema_version": "training_run_config_v1",
+  "training": {
+    "timesteps": 512,
+    "gamma": 0.9958826236582974,
+    "seeds": [0],
+    "n_steps": 64,
+    "batch_size": 32,
+    "n_epochs": 2,
+    "device": "cpu",
+    "decision_hours": 1.0,
+    "discount_half_life_hours": 168.0,
+    "policy_net_arch": [64, 64],
+    "asset_embedding_dim": 32,
+    "global_embedding_dim": 32,
+    "algorithm": "ppo"
+  },
+  "environment": {
+    "episode_hours": 168.0,
+    "decision_hours": 1.0,
+    "initial_capital": 100000.0,
+    "finite_horizon_observation": true,
+    "initial_state_modes": ["cash"]
+  },
+  "risk": {
+    "max_gross": 1.0,
+    "max_abs_weight": 1.0,
+    "max_turnover": 1.0,
+    "drawdown_start": 0.1,
+    "drawdown_stop": 0.2
+  },
+  "reward": {},
+  "trend": {
+    "fast_hours": 24.0,
+    "base_hours": 48.0,
+    "slow_hours": 96.0,
+    "mode": "time_series",
+    "signal_scale": 0.05
+  },
+  "action": {
+    "alpha_enabled": false,
+    "n_factors": 0,
+    "validation_mode": "clip"
+  },
+  "alpha_contract": {
+    "kind": "target_weight",
+    "expected_return_scale": 0.01,
+    "max_gross": 1.0
+  },
+  "execution": {
+    "fee_rate": 0.0005,
+    "spread_rate": 0.0002,
+    "impact_rate": 0.0001,
+    "max_participation_rate": 0.05,
+    "allow_short": true,
+    "max_leverage": 1.0,
+    "margin_mode": "cross",
+    "order_type": "market"
+  },
+  "exports": {
+    "onnx": false,
+    "torchscript": false,
+    "tolerance": 0.00001
+  }
+}

@@ -22,9 +22,11 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.policy_net_arch == (128, 128)
     assert config.environment.decision_hours == 1.0
     assert config.environment.episode_hours >= 720.0
-    assert config.execution.fee_rate > 0.0
-    assert config.execution.spread_rate > 0.0
-    assert config.execution.impact_rate > 0.0
+    execution = config.environment.execution_cost
+    assert execution.fee_rate > 0.0
+    assert execution.spread_rate > 0.0
+    assert execution.impact_rate > 0.0
+    assert config.portfolio_risk.max_abs_weight is not None
     assert config.portfolio_risk.max_abs_weight <= 0.5
 
 

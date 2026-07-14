@@ -79,20 +79,22 @@ def write_replay_buffer_artifact(
     output.mkdir(parents=True)
     replay_path = output / REPLAY_FILE
     shutil.copyfile(source_path, replay_path)
+    replay_digest = _digest(replay_path)
+    size_bytes = replay_path.stat().st_size
     payload = {
         "algorithm": algorithm,
         "environment_digest": environment_digest,
-        "replay_digest": _digest(replay_path),
+        "replay_digest": replay_digest,
         "replay_file": REPLAY_FILE,
         "schema_version": "replay_buffer_artifact_v1",
-        "size_bytes": replay_path.stat().st_size,
+        "size_bytes": size_bytes,
         "timesteps": timesteps,
         "training_config_digest": training_config_digest,
     }
     manifest = ReplayBufferManifest(
         artifact_digest=content_digest(payload),
-        replay_digest=str(payload["replay_digest"]),
-        size_bytes=int(payload["size_bytes"]),
+        replay_digest=replay_digest,
+        size_bytes=size_bytes,
         algorithm=algorithm,
         environment_digest=environment_digest,
         training_config_digest=training_config_digest,

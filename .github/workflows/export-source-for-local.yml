@@ -1,0 +1,25 @@
+name: Export Source For Local
+
+on:
+  push:
+    branches:
+      - agent/multitimeframe-three-asset-full-training
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Package source
+        run: |
+          tar --exclude='.git' --exclude='var' -czf trade_rl-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trade-rl-local-source
+          path: trade_rl-source.tar.gz
+          retention-days: 1

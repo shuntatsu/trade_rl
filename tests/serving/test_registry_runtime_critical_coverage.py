@@ -25,7 +25,11 @@ from trade_rl.serving.bundle import (
     write_serving_bundle_manifest,
 )
 from trade_rl.serving.registry import ServingRegistry
-from trade_rl.serving.runtime import LoadedPolicy, RuntimeIdentityContract, ServingRuntime
+from trade_rl.serving.runtime import (
+    LoadedPolicy,
+    RuntimeIdentityContract,
+    ServingRuntime,
+)
 
 
 class ConstantPolicy:
@@ -287,7 +291,10 @@ def test_runtime_activation_rejects_release_schemas_loader_and_normalizer(
         ServingRuntime(identity_contract=contract).activate(residual)
 
     root = create_bundle(tmp_path / "bundle")
-    assert ServingRuntime(allow_unbound_identity=True).activate(root).action_names == ACTION_NAMES
+    assert (
+        ServingRuntime(allow_unbound_identity=True).activate(root).action_names
+        == ACTION_NAMES
+    )
     forced = ServingRuntime(allow_unbound_identity=True)
     forced.allow_unbound_identity = False
     with pytest.raises(RuntimeError, match="identity contract"):

@@ -70,7 +70,9 @@ def test_loader_rejects_missing_or_nonmapping_manifest(tmp_path: Path) -> None:
         load_serving_bundle(root)
 
 
-def test_loader_rejects_missing_unbound_and_mismatched_normalizer(tmp_path: Path) -> None:
+def test_loader_rejects_missing_unbound_and_mismatched_normalizer(
+    tmp_path: Path,
+) -> None:
     missing = tmp_path / "missing-normalizer"
     missing.mkdir()
     (missing / "dataset.json").write_text("{}", encoding="utf-8")

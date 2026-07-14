@@ -125,9 +125,9 @@ def test_execution_unit_rounding_capacity_and_borrow_branches() -> None:
         market(volume_units=(VolumeUnit.QUOTE_NOTIONAL,)),
         ExecutionCostConfig.zero(),
     )
-    assert quote._capacity_notional(
-        np.array([100.0]), np.array([2.0])
-    ).tolist() == [2.0]
+    assert quote._capacity_notional(np.array([100.0]), np.array([2.0])).tolist() == [
+        2.0
+    ]
 
     no_short = MarketExecutor(market(), ExecutionCostConfig(allow_short=False))
     constrained = no_short._constrain_borrow(

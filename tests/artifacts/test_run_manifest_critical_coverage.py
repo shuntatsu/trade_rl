@@ -96,7 +96,9 @@ def _walk_forward_manifest(root: Path) -> run_manifest.WalkForwardRunManifest:
     )
 
 
-def test_manifest_dataclasses_reject_semantic_and_digest_tampering(tmp_path: Path) -> None:
+def test_manifest_dataclasses_reject_semantic_and_digest_tampering(
+    tmp_path: Path,
+) -> None:
     training = _training_manifest(tmp_path / "training")
     with pytest.raises(ValueError, match="ensemble_digest"):
         replace(training, ensemble_digest="bad")
@@ -161,7 +163,9 @@ def test_run_manifest_parsers_reject_malformed_payloads(tmp_path: Path) -> None:
         run_manifest.load_walk_forward_run_manifest(wrong_schema)
 
 
-def test_run_directory_detects_missing_size_and_digest_tampering(tmp_path: Path) -> None:
+def test_run_directory_detects_missing_size_and_digest_tampering(
+    tmp_path: Path,
+) -> None:
     missing_root = tmp_path / "missing"
     missing_manifest = _training_manifest(missing_root)
     run_manifest.write_training_run_manifest(missing_root, missing_manifest)

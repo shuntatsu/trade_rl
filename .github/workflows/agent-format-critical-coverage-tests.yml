@@ -1,0 +1,52 @@
+name: Format critical coverage tests
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - edited
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      github.head_ref == 'agent/unified-pr40-pr41'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/unified-pr40-pr41
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Format coverage tests
+        shell: bash
+        run: |
+          uv run ruff check --fix --unsafe-fixes \
+            tests/simulation/test_critical_branch_coverage.py \
+            tests/artifacts/test_*critical_coverage.py \
+            tests/serving/test_*critical_coverage.py
+          uv run ruff format \
+            tests/simulation/test_critical_branch_coverage.py \
+            tests/artifacts/test_*critical_coverage.py \
+            tests/serving/test_*critical_coverage.py
+          uv run ruff check \
+            tests/simulation/test_critical_branch_coverage.py \
+            tests/artifacts/test_*critical_coverage.py \
+            tests/serving/test_*critical_coverage.py
+      - name: Commit formatted tests
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/agent-format-critical-coverage-tests.yml
+          git add -A
+          git commit -m "Format critical coverage tests"
+          git push origin HEAD:agent/unified-pr40-pr41

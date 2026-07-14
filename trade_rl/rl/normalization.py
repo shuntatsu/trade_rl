@@ -10,7 +10,7 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
 
-NORMALIZER_SCHEMA = "observation_normalizer_v1"
+NORMALIZER_SCHEMA = "observation_normalizer_v2"
 
 
 def _readonly_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
@@ -19,6 +19,11 @@ def _readonly_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
         raise ValueError(f"{field_name} must be a non-empty finite vector")
     vector.setflags(write=False)
     return vector
+
+
+def _validate_digest(value: str | None, *, field: str) -> None:
+    if value is not None:
+        require_sha256(value, field=field)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +37,21 @@ class ObservationNormalizer:
     clip: float = 10.0
     epsilon: float = 1e-8
     passthrough_indices: tuple[int, ...] = ()
+    # ``dataset_id`` is the exact dataset/view used to fit the observation matrix.
     dataset_id: str | None = None
+    # ``source_dataset_id`` is the full immutable source dataset from which a
+    # fold view was derived. This lets evaluation environments on the full
+    # dataset verify the normalizer without accepting unrelated statistics.
+    source_dataset_id: str | None = None
+    source_dataset_artifact_digest: str | None = None
+    absolute_train_start: int | None = None
+    absolute_train_end: int | None = None
     observation_schema: str = "baseline_residual_observation_v3"
+    observation_schema_digest: str | None = None
+    action_spec_digest: str | None = None
+    alpha_artifact_digest: str | None = None
+    factor_artifact_digest: str | None = None
+    candidate_config_digest: str | None = None
     schema_version: str = NORMALIZER_SCHEMA
     digest: str = ""
 
@@ -70,15 +88,41 @@ class ObservationNormalizer:
         if len(set(passthrough)) != len(passthrough):
             raise ValueError("passthrough_indices must be unique")
         passthrough = tuple(sorted(passthrough))
-        if self.dataset_id is not None:
-            require_sha256(self.dataset_id, field="normalizer.dataset_id")
+        for field_name, value in (
+            ("normalizer.dataset_id", self.dataset_id),
+            ("normalizer.source_dataset_id", self.source_dataset_id),
+            (
+                "normalizer.source_dataset_artifact_digest",
+                self.source_dataset_artifact_digest,
+            ),
+            ("normalizer.observation_schema_digest", self.observation_schema_digest),
+            ("normalizer.action_spec_digest", self.action_spec_digest),
+            ("normalizer.alpha_artifact_digest", self.alpha_artifact_digest),
+            ("normalizer.factor_artifact_digest", self.factor_artifact_digest),
+            ("normalizer.candidate_config_digest", self.candidate_config_digest),
+        ):
+            _validate_digest(value, field=field_name)
+        if (self.absolute_train_start is None) != (self.absolute_train_end is None):
+            raise ValueError("absolute normalizer range must be specified as a pair")
+        if self.absolute_train_start is not None:
+            if (
+                isinstance(self.absolute_train_start, bool)
+                or isinstance(self.absolute_train_end, bool)
+                or not isinstance(self.absolute_train_start, int)
+                or not isinstance(self.absolute_train_end, int)
+                or self.absolute_train_start < 0
+                or self.absolute_train_end <= self.absolute_train_start
+            ):
+                raise ValueError("absolute normalizer training range is invalid")
         if not self.observation_schema:
             raise ValueError("observation_schema must be non-empty")
-        if self.schema_version != NORMALIZER_SCHEMA:
+        if self.schema_version not in {NORMALIZER_SCHEMA, "observation_normalizer_v1"}:
             raise ValueError("unsupported normalizer schema")
+        resolved_schema = NORMALIZER_SCHEMA
         object.__setattr__(self, "mean", mean)
         object.__setattr__(self, "scale", scale)
         object.__setattr__(self, "passthrough_indices", passthrough)
+        object.__setattr__(self, "schema_version", resolved_schema)
         expected = content_digest(self.digest_payload())
         if self.digest and self.digest != expected:
             raise ValueError("normalizer digest does not match its content")
@@ -90,14 +134,23 @@ class ObservationNormalizer:
 
     def digest_payload(self) -> dict[str, object]:
         return {
+            "absolute_train_end": self.absolute_train_end,
+            "absolute_train_start": self.absolute_train_start,
+            "action_spec_digest": self.action_spec_digest,
+            "alpha_artifact_digest": self.alpha_artifact_digest,
+            "candidate_config_digest": self.candidate_config_digest,
             "clip": self.clip,
-            "epsilon": self.epsilon,
             "dataset_id": self.dataset_id,
+            "epsilon": self.epsilon,
+            "factor_artifact_digest": self.factor_artifact_digest,
             "mean": tuple(float(value) for value in self.mean),
             "observation_schema": self.observation_schema,
+            "observation_schema_digest": self.observation_schema_digest,
             "passthrough_indices": self.passthrough_indices,
             "scale": tuple(float(value) for value in self.scale),
             "schema_version": self.schema_version,
+            "source_dataset_artifact_digest": self.source_dataset_artifact_digest,
+            "source_dataset_id": self.source_dataset_id,
             "train_end": self.train_end,
             "train_start": self.train_start,
         }
@@ -113,7 +166,16 @@ class ObservationNormalizer:
         epsilon: float = 1e-8,
         passthrough_indices: tuple[int, ...] = (),
         dataset_id: str | None = None,
+        source_dataset_id: str | None = None,
+        source_dataset_artifact_digest: str | None = None,
+        absolute_train_start: int | None = None,
+        absolute_train_end: int | None = None,
         observation_schema: str = "baseline_residual_observation_v3",
+        observation_schema_digest: str | None = None,
+        action_spec_digest: str | None = None,
+        alpha_artifact_digest: str | None = None,
+        factor_artifact_digest: str | None = None,
+        candidate_config_digest: str | None = None,
     ) -> ObservationNormalizer:
         matrix = np.asarray(observations, dtype=np.float64)
         if matrix.ndim != 2 or matrix.shape[0] == 0 or matrix.shape[1] == 0:
@@ -153,7 +215,16 @@ class ObservationNormalizer:
             epsilon=epsilon,
             passthrough_indices=passthrough,
             dataset_id=dataset_id,
+            source_dataset_id=source_dataset_id,
+            source_dataset_artifact_digest=source_dataset_artifact_digest,
+            absolute_train_start=absolute_train_start,
+            absolute_train_end=absolute_train_end,
             observation_schema=observation_schema,
+            observation_schema_digest=observation_schema_digest,
+            action_spec_digest=action_spec_digest,
+            alpha_artifact_digest=alpha_artifact_digest,
+            factor_artifact_digest=factor_artifact_digest,
+            candidate_config_digest=candidate_config_digest,
         )
 
     def transform(self, observation: np.ndarray) -> np.ndarray:

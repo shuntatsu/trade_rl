@@ -57,9 +57,10 @@ def test_quickstart_config_builds_a_compatible_environment() -> None:
 
     environment = _environment_factory(dataset, config)()
     try:
-        observation, info = environment.reset(seed=0)
+        observation, reset_info = environment.reset(seed=0)
         assert observation.shape == environment.observation_space.shape
-        assert info["dataset_id"] == dataset.dataset_id
+        assert environment.dataset_id == dataset.dataset_id
+        assert reset_info["reward_history_steps"] > 0
         action = np.zeros(environment.action_space.shape, dtype=np.float32)
         next_observation, reward, terminated, truncated, step_info = environment.step(
             action
@@ -67,7 +68,7 @@ def test_quickstart_config_builds_a_compatible_environment() -> None:
         assert next_observation.shape == environment.observation_space.shape
         assert np.isfinite(reward)
         assert not (terminated and truncated)
-        assert step_info["dataset_id"] == dataset.dataset_id
+        assert "termination_reason" in step_info
     finally:
         environment.close()
 

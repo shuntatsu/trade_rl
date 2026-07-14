@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind
 from trade_rl.domain.common import require_sha256
+from trade_rl.risk.portfolio import PortfolioRiskConfig
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.actions import ACTION_SCHEMA, ActionSpec, AlphaContract
 from trade_rl.rl.environment import ResidualMarketEnvConfig
@@ -27,6 +28,7 @@ class EnvironmentExperimentManifest:
     risk: PreTradeRiskConfig
     reward: RewardConfig
     trend: TrendConfig
+    portfolio_risk: PortfolioRiskConfig = field(default_factory=PortfolioRiskConfig)
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
@@ -67,6 +69,7 @@ class EnvironmentExperimentManifest:
             "observation_schema": OBSERVATION_SCHEMA,
             "reward": asdict(self.reward),
             "reward_schema": REWARD_SCHEMA,
+            "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "schema_version": self.schema_version,
             "trend": asdict(self.trend),
@@ -83,6 +86,7 @@ class EnvironmentExperimentManifest:
         risk: PreTradeRiskConfig,
         reward: RewardConfig,
         trend: TrendConfig,
+        portfolio_risk: PortfolioRiskConfig | None = None,
         alpha_artifact_digest: str | None = None,
         factor_artifact_digest: str | None = None,
         normalizer_digest: str | None = None,
@@ -99,6 +103,7 @@ class EnvironmentExperimentManifest:
             "observation_schema": OBSERVATION_SCHEMA,
             "reward": asdict(reward),
             "reward_schema": REWARD_SCHEMA,
+            "portfolio_risk": asdict(portfolio_risk or PortfolioRiskConfig()),
             "risk": asdict(risk),
             "schema_version": "environment_experiment_manifest_v1",
             "trend": asdict(trend),
@@ -112,6 +117,7 @@ class EnvironmentExperimentManifest:
             risk=risk,
             reward=reward,
             trend=trend,
+            portfolio_risk=portfolio_risk or PortfolioRiskConfig(),
             alpha_artifact_digest=alpha_artifact_digest,
             factor_artifact_digest=factor_artifact_digest,
             normalizer_digest=normalizer_digest,

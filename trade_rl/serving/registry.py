@@ -9,6 +9,7 @@ from pathlib import Path
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
+from trade_rl.release.attestation import default_attestation_path
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
@@ -66,17 +67,31 @@ class ServingRegistry:
                 )
         else:
             stage = self.staging_root / digest
+            stage_attestation = default_attestation_path(stage)
+            destination_attestation = default_attestation_path(destination)
+            source_attestation = default_attestation_path(source)
             if stage.exists():
                 shutil.rmtree(stage)
-            shutil.copytree(source, stage)
-            staged = load_serving_bundle(stage)
-            self._require_activatable(staged)
-            if staged.manifest.bundle_digest != digest:
+            stage_attestation.unlink(missing_ok=True)
+            try:
+                shutil.copytree(source, stage)
+                if source_attestation.is_file():
+                    shutil.copy2(source_attestation, stage_attestation)
+                staged = load_serving_bundle(stage)
+                self._require_activatable(staged)
+                if staged.manifest.bundle_digest != digest:
+                    raise ValueError(
+                        "staged bundle digest changed during registry copy"
+                    )
+                os.replace(stage, destination)
+                if stage_attestation.is_file():
+                    os.replace(stage_attestation, destination_attestation)
+                _fsync_directory(self.versions_root)
+                installed = load_serving_bundle(destination)
+            except Exception:
                 shutil.rmtree(stage, ignore_errors=True)
-                raise ValueError("staged bundle digest changed during registry copy")
-            os.replace(stage, destination)
-            _fsync_directory(self.versions_root)
-            installed = load_serving_bundle(destination)
+                stage_attestation.unlink(missing_ok=True)
+                raise
 
         pointer = {
             "bundle_digest": digest,
@@ -84,7 +99,7 @@ class ServingRegistry:
             "schema": "serving_registry_pointer_v1",
         }
         _atomic_write(self.active_pointer, canonical_json_bytes(pointer))
-        return ServingBundle(root=destination, manifest=installed.manifest)
+        return installed
 
     def active_bundle(self) -> ServingBundle:
         """Load and revalidate the currently active bundle."""

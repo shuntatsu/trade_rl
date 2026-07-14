@@ -68,6 +68,7 @@ class MarketWalkForwardConfig:
                     "action": asdict(item.run.action),
                     "alpha_contract": asdict(item.run.alpha_contract),
                     "environment": asdict(item.run.environment),
+                    "portfolio_risk": asdict(item.run.portfolio_risk),
                     "risk": asdict(item.run.risk),
                     "reward": asdict(item.run.reward),
                     "trend": asdict(item.run.trend),

@@ -26,6 +26,7 @@ from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.integrations.checkpoints import StableBaselines3CheckpointLoader
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
+from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.environment import ResidualMarketEnv
@@ -308,6 +309,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                 factor_count=run.action.n_factors,
                 action_spec=run.action,
                 pre_trade_risk=PreTradeRisk(run.risk),
+                portfolio_risk=PortfolioRiskModel(run.portfolio_risk),
                 normalizer=normalizer,
                 config=training_environment,
             )

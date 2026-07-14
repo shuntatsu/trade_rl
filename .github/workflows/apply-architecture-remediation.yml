@@ -83,45 +83,12 @@ jobs:
       - name: CLI smoke
         run: uv run trade-rl --version
 
-      - name: Commit verified implementation
-        id: commit_push
-        continue-on-error: true
+      - name: Commit and push verified product files
         shell: bash
         run: |
-          set +e
-          {
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            echo '=== STATUS ==='
-            git status --short
-            echo '=== STAGED STAT ==='
-            git diff --cached --stat
-            echo '=== COMMIT ==='
-            git commit -m "feat: remediate architecture audit findings"
-            commit_rc=$?
-            echo "commit_rc=${commit_rc}"
-            push_rc=99
-            if [ "${commit_rc}" -eq 0 ]; then
-              echo '=== PUSH ==='
-              git push --verbose origin HEAD:agent/architecture-audit-remediation
-              push_rc=$?
-            fi
-            echo "push_rc=${push_rc}"
-            echo "commit_rc=${commit_rc}" > "$RUNNER_TEMP/commit-push-result.txt"
-            echo "push_rc=${push_rc}" >> "$RUNNER_TEMP/commit-push-result.txt"
-            git status --short >> "$RUNNER_TEMP/commit-push-result.txt"
-            exit $(( commit_rc != 0 ? commit_rc : push_rc ))
-          } 2>&1 | tee "$RUNNER_TEMP/commit-push.log"
-          exit ${PIPESTATUS[0]}
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: remediation-commit-push
-          path: |
-            ${{ runner.temp }}/commit-push.log
-            ${{ runner.temp }}/commit-push-result.txt
-
-      - name: Fail when commit or push failed
-        if: steps.commit_push.outcome == 'failure'
-        run: exit 1
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git restore --staged --worktree .github/workflows/ci.yml
+          git commit -m "feat: remediate architecture audit findings"
+          git push origin HEAD:agent/architecture-audit-remediation

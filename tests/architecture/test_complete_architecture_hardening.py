@@ -59,7 +59,7 @@ def create_bundle(root: Path) -> Path:
         signal_digest="b" * 64,
         selection_digest="c" * 64,
         release_digest=None,
-        normalizer_digest="9" * 64,
+        normalizer_digest=None,
         artifact_paths=artifact_paths,
         created_at=datetime(2026, 7, 13, tzinfo=UTC),
     )
@@ -127,10 +127,9 @@ def env(
 
 def test_action_spec_digest_binds_validation_mode() -> None:
     value = dataset()
-    assert (
-        env(value, mode=ActionValidationMode.CLIP).action_spec_digest
-        != env(value, mode=ActionValidationMode.STRICT).action_spec_digest
-    )
+    assert env(value, mode=ActionValidationMode.CLIP).action_spec_digest != env(
+        value, mode=ActionValidationMode.STRICT
+    ).action_spec_digest
 
 
 def test_normalizer_source_dataset_binding_accepts_fold_view_identity() -> None:

@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -17,7 +17,12 @@ from trade_rl.domain.common import (
     require_non_empty,
     require_sha256,
 )
+from trade_rl.domain.releases import ReleaseManifest
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.serving.release import (
+    RELEASE_ATTESTATION_NAME,
+    load_release_attestation,
+)
 
 BUNDLE_MANIFEST_NAME = "bundle.json"
 
@@ -77,7 +82,7 @@ class ServingBundleManifest:
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
-    schema_version: str = "serving_bundle_v3"
+    schema_version: str = "serving_bundle_v4"
 
     def __post_init__(self) -> None:
         require_sha256(self.bundle_digest, field="bundle_digest")
@@ -96,7 +101,7 @@ class ServingBundleManifest:
             or self.action_size <= 0
         ):
             raise ValueError("action_size must be a positive integer")
-        if self.schema_version == "serving_bundle_v3":
+        if self.schema_version in {"serving_bundle_v3", "serving_bundle_v4"}:
             if len(self.action_names) != self.action_size:
                 raise ValueError("action_names must match action_size")
             if len(set(self.action_names)) != len(self.action_names) or any(
@@ -157,7 +162,7 @@ class ServingBundleManifest:
                 "selection_digest": self.selection_digest,
                 "signal_digest": self.signal_digest,
             }
-        return {
+        payload = {
             "action_names": self.action_names,
             "action_schema": self.action_schema,
             "action_size": self.action_size,
@@ -174,11 +179,13 @@ class ServingBundleManifest:
             "observation_size": self.observation_size,
             "policy_digest": self.policy_digest,
             "policy_mode": self.policy_mode,
-            "release_digest": self.release_digest,
             "schema_version": self.schema_version,
             "selection_digest": self.selection_digest,
             "signal_digest": self.signal_digest,
         }
+        if self.schema_version == "serving_bundle_v3":
+            payload["release_digest"] = self.release_digest
+        return payload
 
     @classmethod
     def build(
@@ -236,8 +243,7 @@ class ServingBundleManifest:
             "observation_size": observation_size,
             "policy_digest": policy_digest,
             "policy_mode": policy_mode,
-            "release_digest": release_digest,
-            "schema_version": "serving_bundle_v3",
+            "schema_version": "serving_bundle_v4",
             "selection_digest": selection_digest,
             "signal_digest": signal_digest,
         }
@@ -262,13 +268,27 @@ class ServingBundleManifest:
             alpha_artifact_digest=alpha_artifact_digest,
             factor_artifact_digest=factor_artifact_digest,
             normalizer_digest=normalizer_digest,
+            schema_version="serving_bundle_v4",
         )
+
+    def with_release(self, release: ReleaseManifest) -> ServingBundleManifest:
+        if self.schema_version != "serving_bundle_v4":
+            raise ValueError("release attestation binding requires serving bundle v4")
+        release.validate_bundle_identity(
+            bundle_digest=self.bundle_digest,
+            dataset_id=self.dataset_id,
+            signal_digest=self.signal_digest,
+            selection_digest=self.selection_digest,
+            selected_policy_digest=self.policy_digest,
+        )
+        return replace(self, release_digest=release.digest)
 
 
 @dataclass(frozen=True, slots=True)
 class ServingBundle:
     root: Path
     manifest: ServingBundleManifest
+    release: ReleaseManifest | None = None
 
 
 def write_serving_bundle_manifest(
@@ -410,6 +430,22 @@ def load_serving_bundle(root: Path) -> ServingBundle:
     manifest = _parse_manifest(_mapping(payload, field="bundle manifest"))
     root_resolved = root.resolve()
     declared = {BUNDLE_MANIFEST_NAME}
+    release: ReleaseManifest | None = None
+    if (
+        manifest.schema_version == "serving_bundle_v4"
+        and manifest.release_digest is not None
+    ):
+        release = load_release_attestation(root)
+        if release.digest != manifest.release_digest:
+            raise ValueError("release attestation pointer mismatch")
+        release.validate_bundle_identity(
+            bundle_digest=manifest.bundle_digest,
+            dataset_id=manifest.dataset_id,
+            signal_digest=manifest.signal_digest,
+            selection_digest=manifest.selection_digest,
+            selected_policy_digest=manifest.policy_digest,
+        )
+        declared.add(RELEASE_ATTESTATION_NAME)
     for file in manifest.files:
         path = root / file.path
         declared.add(file.path)
@@ -435,4 +471,4 @@ def load_serving_bundle(root: Path) -> ServingBundle:
         raise ValueError(f"serving bundle contains undeclared files: {undeclared}")
     if missing:
         raise ValueError(f"serving bundle is missing declared files: {missing}")
-    return ServingBundle(root=root, manifest=manifest)
+    return ServingBundle(root=root, manifest=manifest, release=release)

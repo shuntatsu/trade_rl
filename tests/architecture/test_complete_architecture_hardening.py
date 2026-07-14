@@ -37,13 +37,12 @@ ACTION_SPEC_DIGEST = content_digest({"names": ACTION_NAMES})
 
 def create_bundle(root: Path) -> Path:
     root.mkdir(parents=True)
-    artifact_paths = ("dataset.json", "signal.json", "selection.json", "release.json")
+    artifact_paths = ("dataset.json", "signal.json", "selection.json")
     (root / "dataset.json").write_text('{"dataset":"a"}', encoding="utf-8")
     (root / "signal.json").write_text('{"signal":"rejected"}', encoding="utf-8")
     (root / "selection.json").write_text(
         '{"selection":"baseline_only"}', encoding="utf-8"
     )
-    (root / "release.json").write_text('{"release":"approved"}', encoding="utf-8")
     manifest = ServingBundleManifest.build(
         root=root,
         dataset_id="a" * 64,
@@ -59,7 +58,7 @@ def create_bundle(root: Path) -> Path:
         policy_digest=None,
         signal_digest="b" * 64,
         selection_digest="c" * 64,
-        release_digest="f" * 64,
+        release_digest=None,
         normalizer_digest="9" * 64,
         artifact_paths=artifact_paths,
         created_at=datetime(2026, 7, 13, tzinfo=UTC),

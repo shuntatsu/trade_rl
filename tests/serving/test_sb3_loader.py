@@ -63,7 +63,7 @@ def _bundle(root: Path, member_count: int = 2):
         policy_digest="c" * 64,
         signal_digest="d" * 64,
         selection_digest="e" * 64,
-        release_digest="f" * 64,
+        release_digest=None,
         normalizer_digest=None,
         artifact_paths=tuple([*members, "policy-loader.json"]),
         created_at=datetime(2026, 7, 14, tzinfo=UTC),

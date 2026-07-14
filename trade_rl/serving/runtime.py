@@ -165,7 +165,7 @@ class ServingRuntime:
             policy_digest=manifest.policy_digest,
             signal_digest=manifest.signal_digest,
             selection_digest=manifest.selection_digest,
-            release_digest=manifest.release_digest,
+            release_digest=(None if bundle.release is None else bundle.release.digest),
             alpha_artifact_digest=manifest.alpha_artifact_digest,
             factor_artifact_digest=manifest.factor_artifact_digest,
             normalizer_digest=manifest.normalizer_digest,
@@ -216,8 +216,8 @@ class ServingRuntime:
     def activate(self, root: Path) -> RuntimeSnapshot:
         bundle = load_serving_bundle(root)
         manifest = bundle.manifest
-        if manifest.release_digest is None and not self.allow_unreleased:
-            raise ValueError("serving bundle requires an approved release identity")
+        if bundle.release is None and not self.allow_unreleased:
+            raise ValueError("serving bundle requires a verified release attestation")
         if manifest.action_schema != ACTION_SCHEMA:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"

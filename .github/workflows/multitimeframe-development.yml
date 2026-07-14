@@ -9,19 +9,38 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   focused:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
-      - name: Focused multi-timeframe tests
+      - name: Apply generic builder patch
+        run: uv run python .github/scripts/apply_multitimeframe_builder.py
+      - name: Format
+        run: uv run ruff format trade_rl tests
+      - name: Generic multi-timeframe tests
         run: |
           uv run pytest -q \
             tests/data/test_multitimeframe_builder.py \
-            tests/integrations/test_binance_multitimeframe.py \
-            tests/cli/test_binance_multitimeframe_command.py \
-            tests/examples/test_binance_multitimeframe_full_assets.py
+            tests/data/test_market_builder.py \
+            tests/data/test_information_availability.py \
+            tests/data/test_market_contracts.py
+      - name: Lint
+        run: uv run ruff check trade_rl tests
+      - name: Type check
+        run: uv run mypy trade_rl
+      - name: Commit generic multi-timeframe implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl tests
+          git commit -m "feat: add causal native timeframe dataset features"
+          git push origin HEAD:agent/multitimeframe-three-asset-full-training

@@ -6,8 +6,8 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 
-from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
+    domain_content_digest,
     require_aware_datetime,
     require_non_empty,
     require_sha256,
@@ -119,7 +119,7 @@ class PolicyEnsembleManifest:
         digests = tuple(member.checkpoint_digest for member in self.members)
         if len(set(digests)) != len(digests):
             raise ValueError("policy ensemble checkpoint digests must be unique")
-        if self.digest != content_digest(self.digest_payload()):
+        if self.digest != domain_content_digest(self.digest_payload()):
             raise ValueError("policy ensemble digest does not match content")
 
     def digest_payload(self) -> dict[str, object]:

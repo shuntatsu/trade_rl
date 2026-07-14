@@ -28,6 +28,7 @@ jobs:
           git apply --index /tmp/full-hardening.patch
           rm -rf .github/transfer
           rm -f .github/workflows/apply-full-hardening.yml
+          git add -A
           actual_tree="$(git write-tree)"
           test "$actual_tree" = "1623ba402a2195115d8e76783bf5828be979f5a4"
           git config user.name "OpenAI"

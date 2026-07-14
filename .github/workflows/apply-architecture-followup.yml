@@ -56,8 +56,10 @@ jobs:
       - name: Apply implementation
         run: uv run python scripts/apply_architecture_followup_bootstrap.py implementation
 
-      - name: Format
-        run: uv run ruff format .
+      - name: Normalize generated code
+        run: |
+          uv run ruff check --fix .
+          uv run ruff format .
 
       - name: Targeted tests
         run: |

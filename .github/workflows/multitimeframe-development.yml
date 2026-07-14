@@ -22,25 +22,30 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev --extra train-sb3
-      - name: Apply generic builder patch
-        run: uv run python .github/scripts/apply_multitimeframe_builder.py
-      - name: Format
-        run: uv run ruff format trade_rl tests
-      - name: Generic multi-timeframe tests
+      - name: Apply Binance multi-timeframe patch
+        run: uv run python .github/scripts/apply_binance_multitimeframe.py
+      - name: Format and organize imports
+        run: |
+          uv run ruff check --fix trade_rl tests
+          uv run ruff format trade_rl tests
+      - name: Multi-timeframe and Binance tests
         run: |
           uv run pytest -q \
             tests/data/test_multitimeframe_builder.py \
-            tests/data/test_market_builder.py \
-            tests/data/test_information_availability.py \
-            tests/data/test_market_contracts.py
+            tests/integrations/test_binance.py \
+            tests/integrations/test_binance_multitimeframe.py \
+            tests/cli/test_binance_data_command.py \
+            tests/cli/test_binance_multitimeframe_command.py
       - name: Lint
         run: uv run ruff check trade_rl tests
       - name: Type check
         run: uv run mypy trade_rl
-      - name: Commit generic multi-timeframe implementation
+      - name: Commit Binance multi-timeframe implementation
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add trade_rl tests
-          git commit -m "feat: add causal native timeframe dataset features"
-          git push origin HEAD:agent/multitimeframe-three-asset-full-training
+          if ! git diff --cached --quiet; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git commit -m "feat: add Binance native timeframe ingestion"
+            git push origin HEAD:agent/multitimeframe-three-asset-full-training
+          fi

@@ -1,0 +1,24 @@
+name: Binance E2E Development
+
+on:
+  push:
+    branches:
+      - agent/binance-e2e-pipeline
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Focused Binance tests
+        run: |
+          uv run pytest -q \
+            tests/data/test_binance_contract_metadata.py \
+            tests/integrations/test_binance.py \
+            tests/cli/test_binance_data_command.py \
+            tests/examples/test_binance_smoke_assets.py

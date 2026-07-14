@@ -67,7 +67,9 @@ class BookState:
             )
         )
         if multipliers.shape != quantities.shape or np.any(multipliers <= 0.0):
-            raise ValueError("contract_multipliers must match quantities and be positive")
+            raise ValueError(
+                "contract_multipliers must match quantities and be positive"
+            )
         if np.any(marks <= 0.0):
             raise ValueError("mark_prices must be strictly positive")
         for field_name, value in (
@@ -170,7 +172,9 @@ class BookState:
                 field_name="contract_multipliers",
             )
         )
-        if multiplier_vector.shape != price_vector.shape or np.any(multiplier_vector <= 0.0):
+        if multiplier_vector.shape != price_vector.shape or np.any(
+            multiplier_vector <= 0.0
+        ):
             raise ValueError("contract_multipliers must match prices and be positive")
         gross = float(np.abs(weight_vector).sum())
         if gross > max_gross + _TOLERANCE:

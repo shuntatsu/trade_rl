@@ -50,7 +50,9 @@ class PortfolioRiskResult:
 class PortfolioRiskModel:
     """Apply deterministic concentration, liquidity and scenario constraints."""
 
-    implementation_digest = content_digest({"schema_version": "portfolio-risk-model-v1"})
+    implementation_digest = content_digest(
+        {"schema_version": "portfolio-risk-model-v1"}
+    )
 
     def __init__(self, config: PortfolioRiskConfig | None = None) -> None:
         self.config = config or PortfolioRiskConfig()
@@ -83,7 +85,9 @@ class PortfolioRiskModel:
         weights = np.asarray(target, dtype=np.float64).reshape(-1).copy()
         liquidity = np.asarray(market_notional, dtype=np.float64).reshape(-1)
         if weights.size == 0 or weights.shape != liquidity.shape:
-            raise ValueError("target and market_notional must have the same non-empty shape")
+            raise ValueError(
+                "target and market_notional must have the same non-empty shape"
+            )
         if not np.isfinite(weights).all() or not np.isfinite(liquidity).all():
             raise ValueError("portfolio risk inputs must be finite")
         if not math.isfinite(portfolio_value) or portfolio_value <= 0.0:
@@ -125,7 +129,10 @@ class PortfolioRiskModel:
         volatility = 0.0
         if covariance is not None:
             matrix = np.asarray(covariance, dtype=np.float64)
-            if matrix.shape != (weights.size, weights.size) or not np.isfinite(matrix).all():
+            if (
+                matrix.shape != (weights.size, weights.size)
+                or not np.isfinite(matrix).all()
+            ):
                 raise ValueError("covariance must be a finite square matrix")
             variance = max(float(weights @ matrix @ weights), 0.0)
             volatility = math.sqrt(variance)
@@ -160,8 +167,13 @@ class PortfolioRiskModel:
         stress_loss = 0.0
         if stress_losses is not None:
             stress_vector = np.asarray(stress_losses, dtype=np.float64).reshape(-1)
-            if stress_vector.shape != weights.shape or not np.isfinite(stress_vector).all():
-                raise ValueError("stress_losses must be a finite vector matching target")
+            if (
+                stress_vector.shape != weights.shape
+                or not np.isfinite(stress_vector).all()
+            ):
+                raise ValueError(
+                    "stress_losses must be a finite vector matching target"
+                )
             stress_loss = abs(float(weights @ stress_vector))
             weights = self._scale_to_limit(
                 weights,

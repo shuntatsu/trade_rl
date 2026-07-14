@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 import numpy as np
 
 from trade_rl.data.builder import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.market import MarketCalendarKind
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 
@@ -40,7 +45,11 @@ def test_builder_preserves_irregular_session_clock() -> None:
         )
     ).build(
         InMemoryMarketDataSource({"AAPL": raw}),
-        (InstrumentContract(symbol="AAPL", listed_at=datetime(2020, 1, 1, tzinfo=timezone.utc)),),
+        (
+            InstrumentContract(
+                symbol="AAPL", listed_at=datetime(2020, 1, 1, tzinfo=timezone.utc)
+            ),
+        ),
     )
 
     assert dataset.calendar_kind is MarketCalendarKind.SESSION

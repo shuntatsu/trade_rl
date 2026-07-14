@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
     require_aware_datetime,
@@ -293,7 +292,10 @@ class PolicyTrainingResult:
         ):
             if value is not None:
                 require_sha256(value, field=field_name)
-        if self.replay_buffer_path is not None and self.replay_buffer_path.suffix != ".pkl":
+        if (
+            self.replay_buffer_path is not None
+            and self.replay_buffer_path.suffix != ".pkl"
+        ):
             raise ValueError("replay_buffer_path must use a .pkl suffix")
         if self.replay_buffer_digest is not None:
             require_sha256(self.replay_buffer_digest, field="replay_buffer_digest")

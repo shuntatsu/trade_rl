@@ -47,7 +47,8 @@ def summarize_independent_folds(
         median_fold_return=float(median(fold_returns)),
         worst_fold_return=min(fold_returns),
         best_fold_return=max(fold_returns),
-        positive_fold_rate=sum(value > 0.0 for value in fold_returns) / len(fold_returns),
+        positive_fold_rate=sum(value > 0.0 for value in fold_returns)
+        / len(fold_returns),
         turnover_total=sum(result.evidence.turnover_total for result in results),
         total_cost=sum(result.evidence.total_cost for result in results),
         funding_pnl=sum(result.evidence.funding_pnl for result in results),

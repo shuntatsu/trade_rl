@@ -62,7 +62,11 @@ class RunFile:
     def __post_init__(self) -> None:
         object.__setattr__(self, "path", _relative_path(self.path))
         require_sha256(self.digest, field="run_file.digest")
-        if isinstance(self.size_bytes, bool) or not isinstance(self.size_bytes, int) or self.size_bytes < 0:
+        if (
+            isinstance(self.size_bytes, bool)
+            or not isinstance(self.size_bytes, int)
+            or self.size_bytes < 0
+        ):
             raise ValueError("run file size_bytes must be a non-negative integer")
 
 
@@ -107,7 +111,10 @@ def _build_files(root: Path, artifact_paths: tuple[str, ...]) -> tuple[RunFile, 
         if path.is_symlink():
             raise ValueError(f"run artifact must not be a symlink: {relative}")
         resolved_path = path.resolve()
-        if resolved_root != resolved_path and resolved_root not in resolved_path.parents:
+        if (
+            resolved_root != resolved_path
+            and resolved_root not in resolved_path.parents
+        ):
             raise ValueError("run artifact path escapes its root")
         if not path.is_file():
             raise FileNotFoundError(f"run artifact does not exist: {relative}")
@@ -224,7 +231,11 @@ class WalkForwardRunManifest:
             ("policy_set_digest", self.policy_set_digest),
         ):
             require_sha256(value, field=field_name)
-        if isinstance(self.fold_count, bool) or not isinstance(self.fold_count, int) or self.fold_count <= 0:
+        if (
+            isinstance(self.fold_count, bool)
+            or not isinstance(self.fold_count, int)
+            or self.fold_count <= 0
+        ):
             raise ValueError("fold_count must be a positive integer")
         if self.schema_version != WALK_FORWARD_RUN_MANIFEST_SCHEMA:
             raise ValueError("unsupported walk-forward run schema")
@@ -288,7 +299,9 @@ def write_training_run_manifest(root: Path, manifest: TrainingRunManifest) -> Pa
     return path
 
 
-def write_walk_forward_run_manifest(root: Path, manifest: WalkForwardRunManifest) -> Path:
+def write_walk_forward_run_manifest(
+    root: Path, manifest: WalkForwardRunManifest
+) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     path = root / RUN_MANIFEST_NAME
     _atomic_write(path, canonical_json_bytes(manifest))
@@ -326,9 +339,18 @@ def _parse_files(payload: Mapping[str, object]) -> tuple[RunFile, ...]:
         raise ValueError("run files must be a list")
     return tuple(
         RunFile(
-            path=_string(_mapping(raw, field=f"files[{index}]").get("path"), field=f"files[{index}].path"),
-            digest=_string(_mapping(raw, field=f"files[{index}]").get("digest"), field=f"files[{index}].digest"),
-            size_bytes=_integer(_mapping(raw, field=f"files[{index}]").get("size_bytes"), field=f"files[{index}].size_bytes"),
+            path=_string(
+                _mapping(raw, field=f"files[{index}]").get("path"),
+                field=f"files[{index}].path",
+            ),
+            digest=_string(
+                _mapping(raw, field=f"files[{index}]").get("digest"),
+                field=f"files[{index}].digest",
+            ),
+            size_bytes=_integer(
+                _mapping(raw, field=f"files[{index}]").get("size_bytes"),
+                field=f"files[{index}].size_bytes",
+            ),
         )
         for index, raw in enumerate(raw_files)
     )
@@ -339,18 +361,30 @@ def load_training_run_manifest(root: Path) -> TrainingRunManifest:
     schema = _string(payload.get("schema_version"), field="schema_version")
     if schema != TRAINING_RUN_MANIFEST_SCHEMA:
         raise ValueError("unsupported training run schema")
-    created_at = datetime.fromisoformat(_string(payload.get("created_at"), field="created_at").replace("Z", "+00:00"))
+    created_at = datetime.fromisoformat(
+        _string(payload.get("created_at"), field="created_at").replace("Z", "+00:00")
+    )
     return TrainingRunManifest(
         digest=_string(payload.get("digest"), field="digest"),
         run_id=_string(payload.get("run_id"), field="run_id"),
         dataset_id=_string(payload.get("dataset_id"), field="dataset_id"),
-        environment_digest=_string(payload.get("environment_digest"), field="environment_digest"),
-        ensemble_digest=_string(payload.get("ensemble_digest"), field="ensemble_digest"),
-        training_config_digest=_string(payload.get("training_config_digest"), field="training_config_digest"),
-        provenance_digest=_string(payload.get("provenance_digest"), field="provenance_digest"),
+        environment_digest=_string(
+            payload.get("environment_digest"), field="environment_digest"
+        ),
+        ensemble_digest=_string(
+            payload.get("ensemble_digest"), field="ensemble_digest"
+        ),
+        training_config_digest=_string(
+            payload.get("training_config_digest"), field="training_config_digest"
+        ),
+        provenance_digest=_string(
+            payload.get("provenance_digest"), field="provenance_digest"
+        ),
         files=_parse_files(payload),
         created_at=created_at,
-        production_status=_string(payload.get("production_status"), field="production_status"),
+        production_status=_string(
+            payload.get("production_status"), field="production_status"
+        ),
         schema_version=schema,
     )
 
@@ -360,20 +394,34 @@ def load_walk_forward_run_manifest(root: Path) -> WalkForwardRunManifest:
     schema = _string(payload.get("schema_version"), field="schema_version")
     if schema != WALK_FORWARD_RUN_MANIFEST_SCHEMA:
         raise ValueError("unsupported walk-forward run schema")
-    created_at = datetime.fromisoformat(_string(payload.get("created_at"), field="created_at").replace("Z", "+00:00"))
+    created_at = datetime.fromisoformat(
+        _string(payload.get("created_at"), field="created_at").replace("Z", "+00:00")
+    )
     return WalkForwardRunManifest(
         digest=_string(payload.get("digest"), field="digest"),
         run_id=_string(payload.get("run_id"), field="run_id"),
         dataset_id=_string(payload.get("dataset_id"), field="dataset_id"),
-        environment_digest=_string(payload.get("environment_digest"), field="environment_digest"),
-        evaluation_digest=_string(payload.get("evaluation_digest"), field="evaluation_digest"),
-        workflow_config_digest=_string(payload.get("workflow_config_digest"), field="workflow_config_digest"),
-        policy_set_digest=_string(payload.get("policy_set_digest"), field="policy_set_digest"),
-        provenance_digest=_string(payload.get("provenance_digest"), field="provenance_digest"),
+        environment_digest=_string(
+            payload.get("environment_digest"), field="environment_digest"
+        ),
+        evaluation_digest=_string(
+            payload.get("evaluation_digest"), field="evaluation_digest"
+        ),
+        workflow_config_digest=_string(
+            payload.get("workflow_config_digest"), field="workflow_config_digest"
+        ),
+        policy_set_digest=_string(
+            payload.get("policy_set_digest"), field="policy_set_digest"
+        ),
+        provenance_digest=_string(
+            payload.get("provenance_digest"), field="provenance_digest"
+        ),
         fold_count=_integer(payload.get("fold_count"), field="fold_count"),
         files=_parse_files(payload),
         created_at=created_at,
-        production_status=_string(payload.get("production_status"), field="production_status"),
+        production_status=_string(
+            payload.get("production_status"), field="production_status"
+        ),
         schema_version=schema,
     )
 
@@ -387,19 +435,26 @@ def _validate_directory(root: Path, manifest: ManifestT) -> ManifestT:
     resolved_root = root.resolve()
     for path in root.rglob("*"):
         if path.is_symlink():
-            raise ValueError(f"run artifact must not be a symlink: {path.relative_to(root)}")
+            raise ValueError(
+                f"run artifact must not be a symlink: {path.relative_to(root)}"
+            )
         if path.is_file() and path.name != RUN_MANIFEST_NAME:
             actual.add(path.relative_to(root).as_posix())
     undeclared = actual - declared
     missing = declared - actual
     if undeclared:
-        raise ValueError(f"run directory contains undeclared files: {sorted(undeclared)}")
+        raise ValueError(
+            f"run directory contains undeclared files: {sorted(undeclared)}"
+        )
     if missing:
         raise ValueError(f"run artifact is missing: {sorted(missing)}")
     for item in manifest.files:
         path = root / item.path
         resolved_path = path.resolve()
-        if resolved_root != resolved_path and resolved_root not in resolved_path.parents:
+        if (
+            resolved_root != resolved_path
+            and resolved_root not in resolved_path.parents
+        ):
             raise ValueError(f"run artifact path escapes root: {item.path}")
         if path.stat().st_size != item.size_bytes:
             raise ValueError(f"run artifact size mismatch: {item.path}")

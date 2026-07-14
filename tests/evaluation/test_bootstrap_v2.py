@@ -10,6 +10,6 @@ def test_bootstrap_p_value_has_finite_sample_floor() -> None:
 
 def test_bootstrap_circular_blocks_are_deterministic() -> None:
     values = (0.1, -0.05, 0.08, -0.02, 0.03, 0.01)
-    assert moving_block_mean_test(values, n_bootstrap=100, seed=4) == moving_block_mean_test(
+    assert moving_block_mean_test(
         values, n_bootstrap=100, seed=4
-    )
+    ) == moving_block_mean_test(values, n_bootstrap=100, seed=4)

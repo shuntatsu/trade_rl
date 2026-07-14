@@ -6,7 +6,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.serving.helpers import OBSERVATION_SIZE, create_bundle, runtime_identity_contract
+from tests.serving.helpers import (
+    OBSERVATION_SIZE,
+    create_bundle,
+    runtime_identity_contract,
+)
 from trade_rl.serving.runtime import ServingRuntime
 
 
@@ -24,5 +28,7 @@ def test_runtime_rejects_normalizer_tampering_before_swap(tmp_path: Path) -> Non
     payload["mean"][0] = 999.0
     path.write_text(json.dumps(payload), encoding="utf-8")
     runtime = ServingRuntime(identity_contract=runtime_identity_contract())
-    with pytest.raises(ValueError, match="digest mismatch|bundle artifact (?:digest|size)"):
+    with pytest.raises(
+        ValueError, match="digest mismatch|bundle artifact (?:digest|size)"
+    ):
         runtime.activate(root)

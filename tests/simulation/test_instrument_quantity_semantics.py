@@ -14,7 +14,8 @@ def _dataset() -> MarketDataset:
     return MarketDataset(
         dataset_id="a" * 64,
         symbols=("BASE", "QUOTE", "CONTRACT"),
-        timestamps=np.datetime64("2026-01-01", "ns") + np.arange(n) * np.timedelta64(1, "h"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n) * np.timedelta64(1, "h"),
         features=np.zeros((n, 3, 1), dtype=np.float32),
         global_features=np.zeros((n, 1), dtype=np.float32),
         open=prices,
@@ -28,7 +29,11 @@ def _dataset() -> MarketDataset:
         feature_names=("dummy",),
         global_feature_names=("global",),
         periods_per_year=8_760,
-        volume_units=(VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL, VolumeUnit.CONTRACTS),
+        volume_units=(
+            VolumeUnit.BASE_ASSET,
+            VolumeUnit.QUOTE_NOTIONAL,
+            VolumeUnit.CONTRACTS,
+        ),
         contract_multipliers=np.array([1.0, 1.0, 0.1]),
     )
 

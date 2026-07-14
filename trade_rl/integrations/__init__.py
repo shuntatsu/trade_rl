@@ -11,10 +11,22 @@ from importlib import import_module
 from typing import Any
 
 _EXPORTS = {
-    "LoadedAlphaArtifact": ("trade_rl.integrations.signal_artifacts", "LoadedAlphaArtifact"),
-    "LoadedFactorArtifact": ("trade_rl.integrations.signal_artifacts", "LoadedFactorArtifact"),
-    "load_alpha_artifact": ("trade_rl.integrations.signal_artifacts", "load_alpha_artifact"),
-    "load_factor_artifact": ("trade_rl.integrations.signal_artifacts", "load_factor_artifact"),
+    "LoadedAlphaArtifact": (
+        "trade_rl.integrations.signal_artifacts",
+        "LoadedAlphaArtifact",
+    ),
+    "LoadedFactorArtifact": (
+        "trade_rl.integrations.signal_artifacts",
+        "LoadedFactorArtifact",
+    ),
+    "load_alpha_artifact": (
+        "trade_rl.integrations.signal_artifacts",
+        "load_alpha_artifact",
+    ),
+    "load_factor_artifact": (
+        "trade_rl.integrations.signal_artifacts",
+        "load_factor_artifact",
+    ),
     "StableBaselines3CheckpointLoader": (
         "trade_rl.integrations.checkpoints",
         "StableBaselines3CheckpointLoader",

@@ -7,13 +7,19 @@ from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.stitching import ExecutionEvidence, FoldOOSResult
 
 
-def _fold(index: int, start: int, values: tuple[float, ...], cost: float) -> FoldOOSResult:
+def _fold(
+    index: int, start: int, values: tuple[float, ...], cost: float
+) -> FoldOOSResult:
     return FoldOOSResult(
         fold_index=index,
         start=start,
         stop=start + len(values),
-        returns=ReturnSeries(values=values, kind=ReturnKind.BASE_BAR, periods_per_year=365),
-        evidence=ExecutionEvidence(total_cost=cost, turnover_total=2 * cost, n_trades=index + 1),
+        returns=ReturnSeries(
+            values=values, kind=ReturnKind.BASE_BAR, periods_per_year=365
+        ),
+        evidence=ExecutionEvidence(
+            total_cost=cost, turnover_total=2 * cost, n_trades=index + 1
+        ),
     )
 
 

@@ -8,14 +8,21 @@ import pytest
 
 from trade_rl.data import load_market_dataset_artifact, publish_market_dataset_artifact
 from trade_rl.data.builder import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 
 
 def _verified_dataset():
     n = 8
-    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(n) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(n) * np.timedelta64(
+        1, "h"
+    )
     close = 100.0 + np.arange(n, dtype=np.float64)
     raw = RawMarketSeries(
         timestamps=timestamps,
@@ -34,7 +41,11 @@ def _verified_dataset():
         )
     ).build(
         InMemoryMarketDataSource({"BTCUSDT": raw}),
-        (InstrumentContract(symbol="BTCUSDT", listed_at=datetime(2026, 1, 1, tzinfo=timezone.utc)),),
+        (
+            InstrumentContract(
+                symbol="BTCUSDT", listed_at=datetime(2026, 1, 1, tzinfo=timezone.utc)
+            ),
+        ),
     )
 
 
@@ -44,9 +55,22 @@ def _unverified_dataset() -> MarketDataset:
         **{
             item: getattr(verified, item)
             for item in (
-                "dataset_id", "symbols", "timestamps", "features", "global_features",
-                "open", "high", "low", "close", "volume", "funding_rate", "tradable",
-                "feature_available", "feature_names", "global_feature_names", "periods_per_year",
+                "dataset_id",
+                "symbols",
+                "timestamps",
+                "features",
+                "global_features",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "funding_rate",
+                "tradable",
+                "feature_available",
+                "feature_names",
+                "global_feature_names",
+                "periods_per_year",
             )
         }
     )

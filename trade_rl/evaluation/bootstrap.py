@@ -53,9 +53,7 @@ def moving_block_mean_test(
         sampled: list[int] = []
         while len(sampled) < n_values:
             start = int(rng.integers(0, n_values))
-            sampled.extend(
-                (start + offset) % n_values for offset in range(block_size)
-            )
+            sampled.extend((start + offset) % n_values for offset in range(block_size))
         means[draw] = float(values[np.asarray(sampled[:n_values])].mean())
 
     lower, upper = np.quantile(means, [0.025, 0.975])

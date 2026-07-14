@@ -66,7 +66,9 @@ class GateCheck:
             assert self.evidence_digest is not None
             assert self.implementation_digest is not None
             require_non_empty(self.metric_name, field="metric_name")
-            if not math.isfinite(self.observed_value) or not math.isfinite(self.threshold):
+            if not math.isfinite(self.observed_value) or not math.isfinite(
+                self.threshold
+            ):
                 raise ValueError("gate metric values must be finite")
             if self.comparator not in {">", ">=", "<", "<=", "=="}:
                 raise ValueError("gate comparator is unsupported")

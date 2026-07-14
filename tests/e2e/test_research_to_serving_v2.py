@@ -12,7 +12,12 @@ pytest.importorskip("stable_baselines3")
 
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.builder import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.integrations.sb3_serving import StableBaselines3PolicyLoader
@@ -28,7 +33,9 @@ from trade_rl.workflows.training_run import execute_training_run
 
 def _dataset():
     n = 64
-    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(n) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
     close = 100.0 * np.exp(np.arange(n, dtype=np.float64) * 0.001)
     raw = RawMarketSeries(
         timestamps=timestamps,

@@ -24,6 +24,7 @@ from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest
+from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
     load_factor_artifact,
@@ -32,7 +33,6 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.rewards import RewardConfig
-from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy

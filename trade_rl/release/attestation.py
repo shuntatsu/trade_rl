@@ -118,7 +118,9 @@ def load_release_attestation(path: str | Path) -> ReleaseAttestation:
     if not isinstance(raw, dict):
         raise ValueError("release attestation must be a mapping")
     try:
-        approved_at = datetime.fromisoformat(str(raw["approved_at"]).replace("Z", "+00:00"))
+        approved_at = datetime.fromisoformat(
+            str(raw["approved_at"]).replace("Z", "+00:00")
+        )
         return ReleaseAttestation(
             attestation_digest=str(raw["attestation_digest"]),
             bundle_digest=str(raw["bundle_digest"]),

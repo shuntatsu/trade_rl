@@ -11,7 +11,6 @@ from trade_rl.rl.algorithm_configs import (
     PPOConfig,
     SACConfig,
     TD3Config,
-    TQCConfig,
     build_algorithm_config,
 )
 from trade_rl.rl.replay import (

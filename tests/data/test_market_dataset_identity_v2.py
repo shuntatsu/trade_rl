@@ -7,13 +7,20 @@ import numpy as np
 import pytest
 
 from trade_rl.data.builder import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 
 
 def _dataset():
     n = 16
-    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(n) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        n
+    ) * np.timedelta64(1, "h")
     close = 100.0 + np.arange(n, dtype=np.float64)
     raw = RawMarketSeries(
         timestamps=timestamps,
@@ -60,7 +67,9 @@ def _dataset():
         ("delisting_recovery", 0.5),
     ],
 )
-def test_identity_binds_every_execution_array(field_name: str, replacement: float) -> None:
+def test_identity_binds_every_execution_array(
+    field_name: str, replacement: float
+) -> None:
     dataset = _dataset()
     original = dataset.resolved_array(field_name)
     changed = original.copy()

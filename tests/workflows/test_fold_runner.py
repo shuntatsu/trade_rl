@@ -178,7 +178,9 @@ def test_fold_runner_seals_outer_test_and_preserves_execution_evidence() -> None
                 score=result.score,
                 returns=result.returns,
                 evaluation_digest=result.evaluation_digest,
-                evidence=ExecutionEvidence(total_cost=4.0, turnover_total=0.5, n_trades=3),
+                evidence=ExecutionEvidence(
+                    total_cost=4.0, turnover_total=0.5, n_trades=3
+                ),
             )
 
     evaluator = EvidenceEvaluator(

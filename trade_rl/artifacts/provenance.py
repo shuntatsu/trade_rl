@@ -64,7 +64,10 @@ class RuntimeProvenance:
             self.deterministic_seed_config_digest,
             field="deterministic_seed_config_digest",
         )
-        if any(not value for value in (self.python_version, self.platform_name, self.hardware_name)):
+        if any(
+            not value
+            for value in (self.python_version, self.platform_name, self.hardware_name)
+        ):
             raise ValueError("runtime provenance strings must be non-empty")
         if tuple(sorted(self.package_versions)) != self.package_versions:
             raise ValueError("package versions must use deterministic ordering")
@@ -101,7 +104,9 @@ def capture_runtime_provenance(
     """Capture deterministic provenance without embedding local filesystem paths."""
 
     repository = Path(root)
-    resolved_commit = (git_commit or _git(repository, "rev-parse", "HEAD") or "").lower()
+    resolved_commit = (
+        git_commit or _git(repository, "rev-parse", "HEAD") or ""
+    ).lower()
     if not _GIT_SHA_RE.fullmatch(resolved_commit):
         raise ValueError("a valid git commit is required for runtime provenance")
     resolved_dirty = git_dirty
@@ -128,7 +133,10 @@ def capture_runtime_provenance(
         "deterministic_seed_config_digest": content_digest(deterministic_seed_config),
         "git_commit": resolved_commit,
         "git_dirty": resolved_dirty,
-        "hardware_name": hardware_name or platform.processor() or platform.machine() or "unknown",
+        "hardware_name": hardware_name
+        or platform.processor()
+        or platform.machine()
+        or "unknown",
         "lockfile_digest": lock_digest,
         "package_versions": tuple(sorted(versions.items())),
         "platform_name": platform_name or platform.platform(),

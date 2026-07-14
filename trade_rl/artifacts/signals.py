@@ -9,7 +9,7 @@ import os
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 import numpy as np
 
@@ -116,7 +116,7 @@ class SignalArrays:
         complete = self.valid if not axes else np.all(self.valid, axis=axes)
         return complete & (self.knowledge_cutoff >= 0)
 
-    def __getitem__(self, item: object) -> np.ndarray:
+    def __getitem__(self, item: Any) -> Any:
         return self.values[item]
 
     def __array__(self, dtype: np.dtype[np.generic] | None = None) -> np.ndarray:

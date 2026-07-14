@@ -158,9 +158,9 @@ def _decision_value(
     index: int,
     source_index: int,
     available_at: np.ndarray,
-) -> np.generic | int:
+) -> np.datetime64 | int:
     if np.issubdtype(available_at.dtype, np.datetime64):
-        return np.asarray(dataset.timestamps[index]).astype("datetime64[ns]")
+        return np.datetime64(dataset.timestamps[index], "ns")
     return source_index
 
 

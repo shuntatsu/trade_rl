@@ -50,6 +50,36 @@ jobs:
       - name: Apply release attestation implementation
         run: uv run python .github/agent_tools/release_attestation.py implementation
 
+      - name: Update candidate-bundle test fixtures
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          architecture = Path("tests/architecture/test_complete_architecture_hardening.py")
+          text = architecture.read_text(encoding="utf-8")
+          text = text.replace(
+              '("dataset.json", "signal.json", "selection.json", "release.json")',
+              '("dataset.json", "signal.json", "selection.json")',
+              1,
+          )
+          text = text.replace(
+              '    (root / "release.json").write_text(\'{"release":"approved"}\', encoding="utf-8")\n',
+              "",
+              1,
+          )
+          text = text.replace('release_digest="f" * 64,', 'release_digest=None,', 1)
+          architecture.write_text(text, encoding="utf-8")
+
+          sb3 = Path("tests/serving/test_sb3_loader.py")
+          text = sb3.read_text(encoding="utf-8")
+          if text.count('release_digest="f" * 64,') != 1:
+              raise RuntimeError("SB3 release fixture changed")
+          sb3.write_text(
+              text.replace('release_digest="f" * 64,', 'release_digest=None,', 1),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Format and lint
         run: |
           uv run ruff format .
@@ -72,23 +102,7 @@ jobs:
           rm .github/workflows/agent-release-attestation.yml
 
       - name: Run full test suite
-        id: full_tests
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          uv run pytest -q 2>&1 | tee "$RUNNER_TEMP/release-full-tests.txt"
-
-      - name: Upload full-suite diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-attestation-diagnostics
-          path: ${{ runner.temp }}/release-full-tests.txt
-
-      - name: Enforce full test suite
-        if: steps.full_tests.outcome != 'success'
-        run: exit 1
+        run: uv run pytest -q
 
       - name: Commit verified release hardening
         shell: bash

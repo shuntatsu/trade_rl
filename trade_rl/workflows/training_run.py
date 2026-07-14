@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,10 @@ from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
     load_factor_artifact,
+)
+from trade_rl.risk.portfolio import (
+    PortfolioRiskConfig,
+    PortfolioRiskModel,
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract
@@ -78,6 +82,7 @@ class TrainingRunConfig:
     trend: TrendConfig
     action: ActionSpec
     alpha_contract: AlphaContract
+    portfolio_risk: PortfolioRiskConfig = field(default_factory=PortfolioRiskConfig)
     alpha_artifact: Path | None = None
     factor_artifact: Path | None = None
     export_onnx: bool = False
@@ -151,6 +156,9 @@ class TrainingRunConfig:
             ),
             risk=PreTradeRiskConfig(**_mapping(payload.get("risk"), field="risk")),
             reward=reward,
+            portfolio_risk=PortfolioRiskConfig(
+                **_mapping(payload.get("portfolio_risk"), field="portfolio_risk")
+            ),
             trend=TrendConfig(**_mapping(payload.get("trend"), field="trend")),
             action=ActionSpec(**_mapping(payload.get("action"), field="action")),
             alpha_contract=AlphaContract(
@@ -209,6 +217,7 @@ class TrainingRunConfig:
             "export_tolerance": self.export_tolerance,
             "export_torchscript": self.export_torchscript,
             "git_commit": self.git_commit,
+            "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "reward": asdict(self.reward),
             "schema_version": self.schema_version,
@@ -291,6 +300,7 @@ def _environment_factory(
             factor_count=config.action.n_factors,
             action_spec=config.action,
             pre_trade_risk=PreTradeRisk(config.risk),
+            portfolio_risk=PortfolioRiskModel(config.portfolio_risk),
             config=config.environment,
         )
 

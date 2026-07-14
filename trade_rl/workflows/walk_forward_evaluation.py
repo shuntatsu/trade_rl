@@ -20,6 +20,7 @@ from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
     load_factor_artifact,
 )
+from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.episode import minimum_reward_start_index
@@ -201,6 +202,7 @@ def build_market_environment(
         factor_count=run.action.n_factors,
         action_spec=run.action,
         pre_trade_risk=PreTradeRisk(run.risk),
+        portfolio_risk=PortfolioRiskModel(run.portfolio_risk),
         normalizer=normalizer,
         config=environment_config,
     )

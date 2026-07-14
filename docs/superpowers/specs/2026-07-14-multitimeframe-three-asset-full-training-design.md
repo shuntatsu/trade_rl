@@ -85,19 +85,19 @@ A fixed-range build is performed twice into independent directories. Dataset IDs
 The maintained full-run configuration uses:
 
 - BTCUSDT, ETHUSDT, BNBUSDT;
+- fixed closed range `2025-01-01T00:00:00Z` through `2026-06-29T00:00:00Z`;
 - 1-hour decisions;
 - native 15-minute, 1-hour, 4-hour, and 1-day features;
-- at least 18 months of closed historical data;
-- PPO with three independent seeds;
+- PPO with three independent seeds `0`, `1`, and `2`;
 - 131,072 requested timesteps per seed;
 - 2,048-step rollouts, 64 batch size, 10 epochs;
 - shared per-asset encoder with 128x128 policy network;
 - realistic fees, spread, impact, participation, funding, and portfolio concentration limits;
 - checkpointing and atomic artifact publication.
 
-The nested walk-forward run uses multiple chronological folds with purge gaps. Candidate selection uses only checkpoint and selection ranges; outer test ranges remain sealed until selection.
+The nested walk-forward run uses two chronological folds with purge gaps. Candidate selection uses only checkpoint and selection ranges; outer test ranges remain sealed until selection. Fold-local candidate training uses 32,768 timesteps per seed so the evaluation is materially larger than smoke while remaining bounded on a standard CPU runner.
 
-If runtime constraints make the configured run exceed the bounded CI job, the failure must be explicit. The implementation may reduce fold count before reducing per-seed training, but it must not silently convert the full run back into the 64-step smoke.
+If runtime constraints make the configured run exceed the bounded CI job, the failure must be explicit. The implementation may reduce fold count from two to one before reducing per-seed full-run training, but it must not silently convert the full run back into the 64-step smoke.
 
 ## Failure handling
 

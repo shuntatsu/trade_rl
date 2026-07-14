@@ -143,3 +143,79 @@ replace_once(
         artifact_paths=("members/member-000/policy.zip", "policy-loader.json"),
 ''',
 )
+
+# Serving accepts either the legacy in-bundle release pointer or the newer adjacent
+# non-circular release attestation, while validating bundle identity in both cases.
+replace_once(
+    "trade_rl/serving/bundle.py",
+    '''from trade_rl.domain.releases import ReleaseManifest
+from trade_rl.domain.selection import PolicyMode
+''',
+    '''from trade_rl.domain.releases import ReleaseManifest
+from trade_rl.domain.selection import PolicyMode
+from trade_rl.release.attestation import (
+    ReleaseAttestation,
+    default_attestation_path,
+    load_release_attestation as load_external_release_attestation,
+)
+''',
+)
+replace_once(
+    "trade_rl/serving/bundle.py",
+    '''from trade_rl.serving.release import (
+    RELEASE_ATTESTATION_NAME,
+    load_release_attestation,
+)
+''',
+    '''from trade_rl.serving.release import (
+    RELEASE_ATTESTATION_NAME,
+    load_release_attestation as load_legacy_release_attestation,
+)
+''',
+)
+replace_once(
+    "trade_rl/serving/bundle.py",
+    '''    release: ReleaseManifest | None = None
+    normalizer: object | None = None
+''',
+    '''    release: ReleaseManifest | ReleaseAttestation | None = None
+    normalizer: object | None = None
+''',
+)
+replace_once(
+    "trade_rl/serving/bundle.py",
+    '''    release: ReleaseManifest | None = None
+    normalizer = None
+''',
+    '''    release: ReleaseManifest | ReleaseAttestation | None = None
+    normalizer = None
+''',
+)
+replace_once(
+    "trade_rl/serving/bundle.py",
+    '''        release = load_release_attestation(root)
+        if release.digest != manifest.release_digest:
+''',
+    '''        release = load_legacy_release_attestation(root)
+        if release.digest != manifest.release_digest:
+''',
+)
+replace_once(
+    "trade_rl/serving/bundle.py",
+    '''        declared.add(RELEASE_ATTESTATION_NAME)
+    for file in manifest.files:
+''',
+    '''        declared.add(RELEASE_ATTESTATION_NAME)
+    else:
+        external_path = default_attestation_path(root)
+        if external_path.is_file():
+            release = load_external_release_attestation(external_path)
+            if release.bundle_digest != manifest.bundle_digest:
+                raise ValueError("external release attestation bundle mismatch")
+            if release.dataset_id != manifest.dataset_id:
+                raise ValueError("external release attestation dataset mismatch")
+            if release.selected_policy_digest != manifest.policy_digest:
+                raise ValueError("external release attestation policy mismatch")
+    for file in manifest.files:
+''',
+)

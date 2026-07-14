@@ -14,7 +14,7 @@ from trade_rl.integrations.signal_artifacts import (
 DATASET_ID = "d" * 64
 
 
-def test_alpha_artifact_rejects_fit_range_touching_evaluation(tmp_path: Path) -> None:
+def test_alpha_artifact_uses_first_valid_prediction_after_fit(tmp_path: Path) -> None:
     write_signal_artifact(
         tmp_path,
         kind="alpha",
@@ -25,13 +25,13 @@ def test_alpha_artifact_rejects_fit_range_touching_evaluation(tmp_path: Path) ->
         values=np.zeros((200, 2), dtype=np.float64),
     )
 
-    with pytest.raises(ValueError, match="strictly before"):
-        load_alpha_artifact(
-            tmp_path,
-            dataset_id=DATASET_ID,
-            evaluation_start=99,
-            expected_symbols=("BTC", "ETH"),
-        )
+    loaded = load_alpha_artifact(
+        tmp_path,
+        dataset_id=DATASET_ID,
+        evaluation_start=0,
+        expected_symbols=("BTC", "ETH"),
+    )
+    assert loaded.minimum_index == 100
 
 
 def test_factor_artifact_requires_exact_factor_names(tmp_path: Path) -> None:

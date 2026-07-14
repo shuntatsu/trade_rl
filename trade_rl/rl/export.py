@@ -141,6 +141,10 @@ class ExportManifest:
             raise ValueError("export manifest must contain export records")
         if len({item.format for item in self.exports}) != len(self.exports):
             raise ValueError("export formats must be unique")
+        if not any(item.status == "verified" for item in self.exports):
+            raise ValueError(
+                "export manifest must contain at least one verified export"
+            )
         if self.schema_version != EXPORT_SCHEMA:
             raise ValueError("unsupported export manifest schema")
         expected = content_digest(self.digest_payload())
@@ -163,12 +167,30 @@ class ExportManifest:
 
 def _corpus(observation_size: int) -> np.ndarray:
     linear = np.linspace(-0.5, 0.5, observation_size, dtype=np.float32)
-    return np.stack(
+    rng = np.random.default_rng(0)
+    stochastic = rng.normal(0.0, 0.75, size=(8, observation_size)).astype(np.float32)
+    stochastic = np.clip(stochastic, -3.0, 3.0)
+    alternating = np.where(
+        np.arange(observation_size) % 2 == 0,
+        1.0,
+        -1.0,
+    ).astype(np.float32)
+    sparse = np.zeros(observation_size, dtype=np.float32)
+    sparse[:: max(1, observation_size // 16)] = 1.0
+    return np.concatenate(
         (
-            np.zeros(observation_size, dtype=np.float32),
-            np.full(observation_size, 0.25, dtype=np.float32),
-            linear,
-            -linear,
+            np.stack(
+                (
+                    np.zeros(observation_size, dtype=np.float32),
+                    np.full(observation_size, 0.25, dtype=np.float32),
+                    linear,
+                    -linear,
+                    alternating,
+                    sparse,
+                ),
+                axis=0,
+            ),
+            stochastic,
         ),
         axis=0,
     )

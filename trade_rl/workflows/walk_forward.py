@@ -7,6 +7,10 @@ from typing import Protocol
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.evaluation.fold_metrics import (
+    IndependentFoldSummary,
+    summarize_independent_folds,
+)
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.walk_forward.folds import WalkForwardFold, build_folds
 from trade_rl.evaluation.walk_forward.stitching import (
@@ -74,8 +78,10 @@ class WalkForwardExecutionResult:
     fold_results: tuple[FoldExecutionResult, ...]
     selected_stitched: StitchedOOS
     baseline_stitched: StitchedOOS
-    selected_metrics: PerformanceMetrics
-    baseline_metrics: PerformanceMetrics
+    selected_metrics: PerformanceMetrics | None
+    baseline_metrics: PerformanceMetrics | None
+    selected_independent_summary: IndependentFoldSummary | None
+    baseline_independent_summary: IndependentFoldSummary | None
     evaluation_digest: str
 
     def __post_init__(self) -> None:
@@ -176,17 +182,56 @@ def execute_walk_forward(
                 }
                 for result in detailed_results
             ),
-            "schema_version": "walk_forward_execution_v1",
+            "baseline_diagnostics": baseline_stitched.diagnostics.digest_payload(),
+            "schema_version": "walk_forward_execution_v2",
+            "selected_diagnostics": selected_stitched.diagnostics.digest_payload(),
             "stitch_mode": config.stitch_mode.value,
         }
     )
+    independent = config.stitch_mode is StitchMode.INDEPENDENT_FOLDS
     return WalkForwardExecutionResult(
         dataset_id=dataset_id,
         folds=folds,
         fold_results=tuple(detailed_results),
         selected_stitched=selected_stitched,
         baseline_stitched=baseline_stitched,
-        selected_metrics=evaluate_performance(selected_stitched.returns),
-        baseline_metrics=evaluate_performance(baseline_stitched.returns),
+        selected_metrics=(
+            None
+            if independent
+            else evaluate_performance(
+                selected_stitched.returns,
+                turnover_total=selected_stitched.diagnostics.turnover_total,
+                total_cost=selected_stitched.diagnostics.total_cost,
+                funding_pnl=selected_stitched.diagnostics.funding_pnl,
+                borrow_cost=selected_stitched.diagnostics.borrow_cost,
+                n_trades=selected_stitched.diagnostics.n_trades,
+                rebalance_events=selected_stitched.diagnostics.rebalance_events,
+                termination_count=selected_stitched.diagnostics.termination_count,
+            )
+        ),
+        baseline_metrics=(
+            None
+            if independent
+            else evaluate_performance(
+                baseline_stitched.returns,
+                turnover_total=baseline_stitched.diagnostics.turnover_total,
+                total_cost=baseline_stitched.diagnostics.total_cost,
+                funding_pnl=baseline_stitched.diagnostics.funding_pnl,
+                borrow_cost=baseline_stitched.diagnostics.borrow_cost,
+                n_trades=baseline_stitched.diagnostics.n_trades,
+                rebalance_events=baseline_stitched.diagnostics.rebalance_events,
+                termination_count=baseline_stitched.diagnostics.termination_count,
+            )
+        ),
+        selected_independent_summary=(
+            summarize_independent_folds(tuple(selected_results))
+            if independent
+            else None
+        ),
+        baseline_independent_summary=(
+            summarize_independent_folds(tuple(baseline_results))
+            if independent
+            else None
+        ),
         evaluation_digest=evaluation_digest,
     )

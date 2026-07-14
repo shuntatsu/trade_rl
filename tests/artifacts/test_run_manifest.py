@@ -26,6 +26,7 @@ def _build(root: Path) -> TrainingRunManifest:
         environment_digest="b" * 64,
         ensemble_digest="c" * 64,
         training_config_digest="d" * 64,
+        provenance_digest="e" * 64,
         artifact_paths=(
             "ensemble.json",
             "members/member-000/policy.zip",
@@ -75,6 +76,7 @@ def test_training_run_manifest_rejects_unsafe_paths(tmp_path: Path) -> None:
             environment_digest="b" * 64,
             ensemble_digest="c" * 64,
             training_config_digest="d" * 64,
+            provenance_digest="e" * 64,
             artifact_paths=("../outside.bin",),
             created_at=datetime(2026, 7, 14, tzinfo=UTC),
         )

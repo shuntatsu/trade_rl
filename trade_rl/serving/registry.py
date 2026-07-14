@@ -13,6 +13,8 @@ from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
 def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
@@ -43,8 +45,8 @@ class ServingRegistry:
             path.mkdir(parents=True, exist_ok=True)
 
     def _require_activatable(self, bundle: ServingBundle) -> None:
-        if bundle.manifest.release_digest is None and not self.allow_unreleased:
-            raise ValueError("serving bundle requires an approved release identity")
+        if bundle.release is None and not self.allow_unreleased:
+            raise ValueError("serving bundle requires a verified release attestation")
 
     def activate(self, source: Path) -> ServingBundle:
         """Validate a source bundle before copying and replacing active identity."""
@@ -74,7 +76,7 @@ class ServingRegistry:
                 raise ValueError("staged bundle digest changed during registry copy")
             os.replace(stage, destination)
             _fsync_directory(self.versions_root)
-            installed = staged
+            installed = load_serving_bundle(destination)
 
         pointer = {
             "bundle_digest": digest,

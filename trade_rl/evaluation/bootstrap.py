@@ -52,9 +52,8 @@ def moving_block_mean_test(
     for draw in range(n_bootstrap):
         sampled: list[int] = []
         while len(sampled) < n_values:
-            maximum_start = max(1, n_values - block_size + 1)
-            start = int(rng.integers(0, maximum_start))
-            sampled.extend(range(start, min(start + block_size, n_values)))
+            start = int(rng.integers(0, n_values))
+            sampled.extend((start + offset) % n_values for offset in range(block_size))
         means[draw] = float(values[np.asarray(sampled[:n_values])].mean())
 
     lower, upper = np.quantile(means, [0.025, 0.975])
@@ -62,7 +61,8 @@ def moving_block_mean_test(
         p_value = 1.0
     else:
         centered = means - means.mean()
-        p_value = float(np.mean(centered >= observed))
+        extreme = int(np.count_nonzero(centered >= observed))
+        p_value = float((extreme + 1) / (n_bootstrap + 1))
 
     return BootstrapResult(
         p_value=p_value,

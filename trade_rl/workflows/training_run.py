@@ -12,6 +12,7 @@ from typing import Any
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.provenance import capture_runtime_provenance
 from trade_rl.artifacts.run_manifest import (
     TrainingRunManifest,
     validate_training_run_directory,
@@ -23,6 +24,7 @@ from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest
+from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
     load_factor_artifact,
@@ -31,11 +33,7 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.rewards import RewardConfig
-from trade_rl.rl.training import (
-    ResidualTrainingConfig,
-    StableBaselines3Backend,
-    train_residual_ensemble,
-)
+from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -333,6 +331,15 @@ def _policy_loader_payload(
     }
 
 
+def _dataset_artifact_digest(root: Path) -> str:
+    manifest_path = root / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    digest = payload.get("artifact_digest")
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise ValueError("dataset artifact digest is missing or invalid")
+    return digest
+
+
 def execute_training_run(
     *,
     config_path: Path,
@@ -351,16 +358,26 @@ def execute_training_run(
     stage = store.stage_run(resolved_run_id)
     try:
         training_config_digest = content_digest(config.digest_payload())
+        provenance = capture_runtime_provenance(
+            Path(__file__).resolve().parents[2],
+            git_commit=config.git_commit,
+            deterministic_seed_config={
+                "seeds": config.training.seeds,
+                "training_config_digest": training_config_digest,
+            },
+        )
+        _write_json(stage / "provenance.json", asdict(provenance))
+        dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
         _write_json(stage / "training-config.json", config.digest_payload())
         _write_json(
             stage / "dataset-reference.json",
             {
-                "artifact_path": str(dataset_path),
+                "artifact_digest": dataset_artifact_digest,
                 "bar_hours": dataset.bar_hours,
                 "dataset_id": dataset.dataset_id,
                 "feature_names": dataset.feature_names,
                 "global_feature_names": dataset.global_feature_names,
-                "schema_version": "dataset_reference_v1",
+                "schema_version": "dataset_reference_v2",
                 "symbols": dataset.symbols,
             },
         )
@@ -369,20 +386,16 @@ def execute_training_run(
             {
                 "action": asdict(config.action),
                 "alpha_contract": asdict(config.alpha_contract),
-                "alpha_artifact": (
-                    None
-                    if config.alpha_artifact is None
-                    else str(config.alpha_artifact)
+                "alpha_artifact_digest": _signal_artifact_digest(
+                    config.alpha_artifact, kind="alpha"
                 ),
                 "environment": asdict(config.environment),
-                "factor_artifact": (
-                    None
-                    if config.factor_artifact is None
-                    else str(config.factor_artifact)
+                "factor_artifact_digest": _signal_artifact_digest(
+                    config.factor_artifact, kind="factor"
                 ),
                 "risk": asdict(config.risk),
                 "reward": asdict(config.reward),
-                "schema_version": "training_environment_v1",
+                "schema_version": "training_environment_v2",
                 "trend": asdict(config.trend),
             },
         )
@@ -419,6 +432,7 @@ def execute_training_run(
             environment_digest=ensemble.environment_digest,
             ensemble_digest=ensemble.digest,
             training_config_digest=training_config_digest,
+            provenance_digest=provenance.digest,
             artifact_paths=_artifact_paths(stage),
             created_at=resolved_created_at,
         )

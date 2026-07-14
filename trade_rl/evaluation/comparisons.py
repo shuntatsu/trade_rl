@@ -30,7 +30,12 @@ def _validate_compatible(candidate: ReturnSeries, benchmark: ReturnSeries) -> No
         raise ValueError("paired return series length mismatch")
     if candidate.kind is not benchmark.kind:
         raise ValueError("paired return series kind mismatch")
-    if candidate.periods_per_year != benchmark.periods_per_year:
+    if not math.isclose(
+        candidate.annualization_periods_per_year,
+        benchmark.annualization_periods_per_year,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
         raise ValueError("paired return series annualization mismatch")
 
 

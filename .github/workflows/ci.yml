@@ -31,7 +31,7 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --extra export
+        run: uv sync --extra dev --extra export --extra train-sb3
 
       - name: Ruff
         run: uv run ruff check .
@@ -46,7 +46,6 @@ jobs:
         run: uv run lint-imports
 
       - name: Dead-code report
-        continue-on-error: true
         run: uv run vulture trade_rl tests --min-confidence 100
 
       - name: Tests and coverage
@@ -57,3 +56,19 @@ jobs:
 
       - name: CLI smoke test
         run: uv run trade-rl --version
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving

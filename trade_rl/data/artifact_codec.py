@@ -25,6 +25,25 @@ DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v3"
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
 
 
+def verify_exact_artifact_files(root: Path) -> None:
+    expected = {DATASET_MANIFEST_NAME, DATASET_ARRAYS_NAME}
+    if not root.is_dir():
+        raise FileNotFoundError(f"dataset artifact directory is missing: {root}")
+    actual: set[str] = set()
+    for entry in root.iterdir():
+        if entry.is_symlink():
+            raise ValueError(f"dataset artifact contains symlink: {entry.name}")
+        if not entry.is_file():
+            raise ValueError(f"dataset artifact contains non-file entry: {entry.name}")
+        actual.add(entry.name)
+    undeclared = sorted(actual - expected)
+    missing = sorted(expected - actual)
+    if undeclared:
+        raise ValueError(f"dataset artifact contains undeclared files: {undeclared}")
+    if missing:
+        raise FileNotFoundError(f"dataset artifact is missing files: {missing}")
+
+
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -86,6 +105,8 @@ def _dataset_parts(
 def write_dataset_files(root: Path, dataset: MarketDataset) -> tuple[Path, str]:
     """Write canonical files inside an existing staging or destination directory."""
 
+    if dataset.identity_payload_json is None:
+        raise ValueError("formal dataset artifacts require a verified content identity")
     root.mkdir(parents=True, exist_ok=True)
     arrays, scalars = _dataset_parts(dataset)
     payload = _deterministic_npz(arrays)
@@ -150,6 +171,7 @@ def _string(value: object, *, field: str) -> str:
 def load_dataset_files(root: Path) -> MarketDataset:
     """Load and verify one canonical market-dataset artifact directory."""
 
+    verify_exact_artifact_files(root)
     manifest_path = root / DATASET_MANIFEST_NAME
     arrays_path = root / DATASET_ARRAYS_NAME
     if not manifest_path.is_file():

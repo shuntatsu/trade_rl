@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 import numpy as np
@@ -550,34 +551,6 @@ class MarketDataset:
             raise ValueError("cash_rate must be finite")
 
         identity_payload_json = self.identity_payload_json
-        if identity_payload_json is not None:
-            payload = parse_identity_json(identity_payload_json)
-            canonical_payload_json = canonical_identity_json(payload)
-            resolved_id = compute_market_dataset_id(
-                payload,
-                {
-                    "timestamps": timestamps,
-                    "available_at": available_at,
-                    "information_available": information_available,
-                    "features": features,
-                    "global_features": global_features,
-                    "open": open_price,
-                    "high": high,
-                    "low": low,
-                    "close": close,
-                    "volume": volume,
-                    "funding_rate": funding,
-                    "tradable": tradable,
-                    "symbol_active": asset_active,
-                    "feature_available": feature_available,
-                    "feature_staleness": feature_staleness,
-                },
-            )
-            if resolved_id != self.dataset_id:
-                raise ValueError(
-                    "dataset_id does not match identity payload and arrays"
-                )
-            identity_payload_json = canonical_payload_json
 
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "feature_names", feature_names)
@@ -617,7 +590,6 @@ class MarketDataset:
         object.__setattr__(self, "feature_staleness", feature_staleness)
         object.__setattr__(self, "volume_units", volume_units)
         object.__setattr__(self, "contract_multipliers", contract_multipliers)
-        object.__setattr__(self, "identity_payload_json", identity_payload_json)
         object.__setattr__(self, "buy_allowed", buy_allowed)
         object.__setattr__(self, "sell_allowed", sell_allowed)
         object.__setattr__(self, "mark_price", mark_price)
@@ -629,6 +601,106 @@ class MarketDataset:
         object.__setattr__(self, "_timestamp_ns", timestamp_ns)
         object.__setattr__(self, "_bar_duration_ns", bar_duration_ns)
         object.__setattr__(self, "_nominal_bar_hours", nominal_bar_hours)
+        if identity_payload_json is not None:
+            payload = parse_identity_json(identity_payload_json)
+            canonical_payload_json = canonical_identity_json(payload)
+            resolved_id = compute_market_dataset_id(payload, self.identity_arrays())
+            if resolved_id != self.dataset_id:
+                raise ValueError(
+                    "dataset_id does not match identity payload and arrays"
+                )
+            identity_payload_json = canonical_payload_json
+        object.__setattr__(self, "identity_payload_json", identity_payload_json)
+
+    def recomputed_dataset_id(self) -> str:
+        if self.identity_payload_json is None:
+            raise ValueError("dataset has no canonical identity payload")
+        return compute_market_dataset_id(
+            parse_identity_json(self.identity_payload_json),
+            self.identity_arrays(),
+        )
+
+    @property
+    def identity_verified(self) -> bool:
+        return (
+            self.identity_payload_json is not None
+            and self.recomputed_dataset_id() == self.dataset_id
+        )
+
+    def identity_contract_payload(self) -> dict[str, object]:
+        return {
+            "calendar_kind": MarketCalendarKind(self.calendar_kind).value,
+            "feature_config_digest": self.feature_config_digest,
+            "feature_names": self.feature_names,
+            "global_feature_names": self.global_feature_names,
+            "nominal_bar_hours": self._nominal_bar_hours,
+            "normalization_digest": self.normalization_digest,
+            "periods_per_year": self.periods_per_year,
+            "symbols": self.symbols,
+            "volume_units": tuple(value.value for value in self.volume_units),
+        }
+
+    def identity_arrays(self) -> dict[str, np.ndarray]:
+        return {
+            "timestamps": self.timestamps,
+            "available_at": self.resolved_array("available_at"),
+            "information_available": self.resolved_array("information_available"),
+            "features": self.features,
+            "feature_available": self.feature_available,
+            "feature_staleness": self.resolved_array("feature_staleness"),
+            "feature_staleness_hours": self.resolved_array("feature_staleness_hours"),
+            "feature_missing_reason": self.resolved_array("feature_missing_reason"),
+            "global_features": self.global_features,
+            "global_feature_available": self.resolved_array("global_feature_available"),
+            "global_feature_staleness_hours": self.resolved_array(
+                "global_feature_staleness_hours"
+            ),
+            "global_feature_missing_reason": self.resolved_array(
+                "global_feature_missing_reason"
+            ),
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+            "funding_rate": self.funding_rate,
+            "tradable": self.tradable,
+            "symbol_active": self.resolved_array("symbol_active"),
+            "fee_rate": self.resolved_array("fee_rate"),
+            "maker_fee_rate": self.resolved_array("maker_fee_rate"),
+            "taker_fee_rate": self.resolved_array("taker_fee_rate"),
+            "spread_rate": self.resolved_array("spread_rate"),
+            "max_participation_rate": self.resolved_array("max_participation_rate"),
+            "minimum_notional": self.resolved_array("minimum_notional"),
+            "lot_size": self.resolved_array("lot_size"),
+            "tick_size": self.resolved_array("tick_size"),
+            "borrow_available": self.resolved_array("borrow_available"),
+            "borrow_rate": self.resolved_array("borrow_rate"),
+            "funding_due": self.resolved_array("funding_due"),
+            "buy_allowed": self.resolved_array("buy_allowed"),
+            "sell_allowed": self.resolved_array("sell_allowed"),
+            "mark_price": self.resolved_array("mark_price"),
+            "index_price": self.resolved_array("index_price"),
+            "dividend": self.resolved_array("dividend"),
+            "split_factor": self.resolved_array("split_factor"),
+            "delisting_recovery": self.resolved_array("delisting_recovery"),
+            "cash_rate": self.resolved_array("cash_rate"),
+            "contract_multipliers": self.resolved_array("contract_multipliers"),
+        }
+
+    def with_content_identity(
+        self,
+        provenance: Mapping[str, object] | None = None,
+    ) -> MarketDataset:
+        payload = dict(provenance or {})
+        payload["schema"] = "market_dataset_identity_v5"
+        payload["dataset_contract"] = self.identity_contract_payload()
+        dataset_id = compute_market_dataset_id(payload, self.identity_arrays())
+        return replace(
+            self,
+            dataset_id=dataset_id,
+            identity_payload_json=canonical_identity_json(payload),
+        )
 
     def resolved_array(self, field_name: str) -> np.ndarray:
         """Return an optional input array after post-init normalization."""
@@ -774,10 +846,64 @@ class MarketDataset:
             )
         return eligible
 
+    def elapsed_year_fraction(self, start_index: int, end_index: int) -> float:
+        return self.elapsed_hours(start_index, end_index) / _HOURS_PER_YEAR
+
+    def quantity_notional(
+        self,
+        index: int,
+        quantities: np.ndarray,
+        prices: np.ndarray | None = None,
+    ) -> np.ndarray:
+        if not 0 <= index < self.n_bars:
+            raise IndexError("quantity-notional index is outside the dataset")
+        quantity_vector = np.asarray(quantities, dtype=np.float64).reshape(-1)
+        price_vector = (
+            self.resolved_array("mark_price")[index]
+            if prices is None
+            else np.asarray(prices, dtype=np.float64).reshape(-1)
+        )
+        if (
+            quantity_vector.shape != (self.n_symbols,)
+            or price_vector.shape != (self.n_symbols,)
+            or not np.isfinite(quantity_vector).all()
+            or not np.isfinite(price_vector).all()
+            or np.any(price_vector <= 0.0)
+        ):
+            raise ValueError("quantities and prices must match symbols and be finite")
+        multipliers = self.resolved_array("contract_multipliers")
+        return quantity_vector * price_vector * multipliers
+
+    def notional_to_quantity(
+        self,
+        index: int,
+        notionals: np.ndarray,
+        prices: np.ndarray | None = None,
+    ) -> np.ndarray:
+        notional_vector = np.asarray(notionals, dtype=np.float64).reshape(-1)
+        price_vector = (
+            self.open[index]
+            if prices is None
+            else np.asarray(prices, dtype=np.float64).reshape(-1)
+        )
+        if (
+            not 0 <= index < self.n_bars
+            or notional_vector.shape != (self.n_symbols,)
+            or price_vector.shape != (self.n_symbols,)
+            or not np.isfinite(notional_vector).all()
+            or not np.isfinite(price_vector).all()
+            or np.any(price_vector <= 0.0)
+        ):
+            raise ValueError("notionals and prices must match symbols and be finite")
+        multipliers = self.resolved_array("contract_multipliers")
+        return notional_vector / (price_vector * multipliers)
+
     def market_notional(
         self,
         index: int,
         prices: np.ndarray | None = None,
+        *,
+        volume: np.ndarray | None = None,
     ) -> np.ndarray:
         """Return quote-notional liquidity under explicit volume-unit semantics."""
 
@@ -795,9 +921,20 @@ class MarketDataset:
             raise ValueError("market notional prices must be finite and positive")
         multipliers = self.contract_multipliers
         assert multipliers is not None
+        raw_volume = (
+            self.volume[index]
+            if volume is None
+            else np.asarray(volume, dtype=np.float64).reshape(-1)
+        )
+        if (
+            raw_volume.shape != (self.n_symbols,)
+            or not np.isfinite(raw_volume).all()
+            or np.any(raw_volume < 0.0)
+        ):
+            raise ValueError("market volume must match symbols and be non-negative")
         result = np.empty(self.n_symbols, dtype=np.float64)
         for symbol_index, unit in enumerate(self.volume_units):
-            raw = self.volume[index, symbol_index]
+            raw = raw_volume[symbol_index]
             if unit is VolumeUnit.QUOTE_NOTIONAL:
                 result[symbol_index] = raw
             elif unit is VolumeUnit.BASE_ASSET:

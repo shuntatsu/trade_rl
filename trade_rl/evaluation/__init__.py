@@ -7,6 +7,7 @@ from trade_rl.evaluation.capacity import (
     evaluate_capacity_grid,
 )
 from trade_rl.evaluation.comparisons import PairedComparison, compare_paired_returns
+from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.gates import resolve_gate
 from trade_rl.evaluation.metrics import (
     PerformanceMetrics,
@@ -19,6 +20,7 @@ __all__ = [
     "BootstrapResult",
     "CapacityCurve",
     "CapacityPoint",
+    "ExecutionDiagnostics",
     "PairedComparison",
     "PerformanceMetrics",
     "ReturnKind",

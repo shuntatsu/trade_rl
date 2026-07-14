@@ -62,3 +62,14 @@ forbidden_modules =
     stable_baselines3
     sb3_contrib
     torch
+
+[importlinter:contract:training-core]
+name = Training core remains framework independent
+type = forbidden
+source_modules =
+    trade_rl.rl.training
+forbidden_modules =
+    gymnasium
+    stable_baselines3
+    sb3_contrib
+    torch

@@ -7,17 +7,19 @@ name = "trade-rl"
 version = "0.3.0"
 description = "Baseline-anchored residual reinforcement learning for portfolio research"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=1.26.0,<2.0.0",
     "gymnasium==0.29.1",
-    "stable-baselines3==2.3.2",
-    "sb3-contrib==2.3.0",
-    "torch==2.3.1",
     "packaging<24.0",
 ]
 
 [project.optional-dependencies]
+train-sb3 = [
+    "stable-baselines3==2.3.2",
+    "sb3-contrib==2.3.0",
+    "torch==2.3.1",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
@@ -94,13 +96,13 @@ target = 90.0
 
 [tool.trade_rl.critical_coverage.files]
 "trade_rl/simulation/accounting.py" = 93.0
-"trade_rl/simulation/execution.py" = 54.0
+"trade_rl/simulation/execution.py" = 90.0
 "trade_rl/risk/pretrade.py" = 90.0
 "trade_rl/rl/rewards.py" = 97.0
 "trade_rl/evaluation/gates.py" = 100.0
 
 [tool.trade_rl.critical_coverage.groups.artifacts]
-minimum = 63.0
+minimum = 90.0
 paths = [
     "trade_rl/artifacts/codec.py",
     "trade_rl/artifacts/run_manifest.py",
@@ -109,7 +111,7 @@ paths = [
 ]
 
 [tool.trade_rl.critical_coverage.groups.serving]
-minimum = 62.0
+minimum = 90.0
 paths = [
     "trade_rl/serving/bundle.py",
     "trade_rl/serving/registry.py",

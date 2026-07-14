@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import (
     BookState,
@@ -257,6 +258,20 @@ class MarketExecutor:
         rounded[mask] = np.trunc(rounded[mask] / lot[mask]) * lot[mask]
         return rounded
 
+    def _capacity_notional(
+        self,
+        prices: np.ndarray,
+        capacity_volume: np.ndarray,
+    ) -> np.ndarray:
+        result = np.empty_like(prices, dtype=np.float64)
+        for index, unit in enumerate(self.dataset.volume_units):
+            resolved = VolumeUnit(unit)
+            if resolved is VolumeUnit.QUOTE_NOTIONAL:
+                result[index] = capacity_volume[index]
+            else:
+                result[index] = prices[index] * capacity_volume[index]
+        return result
+
     def _constrain_borrow(
         self,
         desired: np.ndarray,
@@ -401,7 +416,11 @@ class MarketExecutor:
             )
             price_vector = self._round_prices(price_vector, index=market_index)
             trade_mask = trade_mask & touched
-        requested_notional_vector = requested_delta * price_vector
+        requested_notional_vector = self.dataset.quantity_notional(
+            market_index,
+            requested_delta,
+            price_vector,
+        )
         direction_allowed = np.where(
             requested_notional_vector > 0.0,
             self.dataset.resolved_array("buy_allowed")[market_index],
@@ -417,7 +436,11 @@ class MarketExecutor:
             requested_notional_vector,
             0.0,
         )
-        capacity_notional = price_vector * capacity_volume_vector
+        capacity_notional = self.dataset.market_notional(
+            market_index,
+            price_vector,
+            volume=capacity_volume_vector,
+        )
         participation_limit = np.minimum(
             self.dataset.resolved_array("max_participation_rate")[market_index],
             self.cost.max_participation_rate,
@@ -428,12 +451,20 @@ class MarketExecutor:
             np.abs(requested_notional_vector),
             capacity,
         )
-        filled_delta = filled_notional_vector / price_vector
+        filled_delta = self.dataset.notional_to_quantity(
+            market_index,
+            filled_notional_vector,
+            price_vector,
+        )
         next_quantities = self._round_quantities(
             book.quantities + filled_delta,
             index=market_index,
         )
-        filled_notional_vector = (next_quantities - book.quantities) * price_vector
+        filled_notional_vector = self.dataset.quantity_notional(
+            market_index,
+            next_quantities - book.quantities,
+            price_vector,
+        )
 
         positive_capacity = capacity_notional > 0.0
         participation = np.zeros_like(capacity_notional)
@@ -501,9 +532,11 @@ class MarketExecutor:
         )
         funding_amount = book.portfolio_value * funding_return
         short_values = np.maximum(-book.position_values, 0.0)
+        previous_index = max(0, index - 1)
+        year_fraction = self.dataset.elapsed_year_fraction(previous_index, index)
         borrow_amount = float(
             np.sum(short_values * self.dataset.resolved_array("borrow_rate")[index])
-            / self.dataset.periods_per_year
+            * year_fraction
             * self.cost.borrow_rate_multiplier
         )
         if borrow_amount > 0.0:
@@ -524,6 +557,11 @@ class MarketExecutor:
             raise ValueError("execution interval is outside the dataset")
         if book.weights.shape != (self.dataset.n_symbols,):
             raise ValueError("book weights shape does not match market symbols")
+        if not np.array_equal(
+            np.asarray(book.contract_multipliers),
+            self.dataset.resolved_array("contract_multipliers"),
+        ):
+            raise ValueError("book contract multipliers do not match market dataset")
 
         resolved_target = _target_weights(
             target,
@@ -575,12 +613,17 @@ class MarketExecutor:
             latency_elapsed = offset >= self.cost.order_latency_bars
             if desired_quantities is None and latency_elapsed:
                 decision_equity = max(value_at_open, _TOLERANCE)
-                desired_quantities = (
-                    resolved_target * decision_equity / self.dataset.open[next_index]
+                desired_quantities = self.dataset.notional_to_quantity(
+                    next_index,
+                    resolved_target * decision_equity,
+                    self.dataset.open[next_index],
                 )
                 requested_by_symbol = np.abs(
-                    (desired_quantities - result_book.quantities)
-                    * self.dataset.open[next_index]
+                    self.dataset.quantity_notional(
+                        next_index,
+                        desired_quantities - result_book.quantities,
+                        self.dataset.open[next_index],
+                    )
                 )
                 initial_requested_notional = float(requested_by_symbol.sum())
 
@@ -627,7 +670,10 @@ class MarketExecutor:
             )
             cash_interest = result_book.apply_cash_interest(
                 float(self.dataset.resolved_array("cash_rate")[next_index]),
-                periods_per_year=self.dataset.periods_per_year,
+                year_fraction=self.dataset.elapsed_year_fraction(
+                    close_index,
+                    next_index,
+                ),
             )
             total_dividend += dividend_amount
             total_cash_interest += cash_interest

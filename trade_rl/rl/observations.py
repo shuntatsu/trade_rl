@@ -256,6 +256,71 @@ def observation_passthrough_indices(
     return tuple(sorted(set(indices)))
 
 
+def observation_market_matrix(
+    dataset: MarketDataset,
+    *,
+    start: int,
+    stop: int,
+    action_size: int = 2,
+    n_factors: int = 0,
+    finite_horizon: bool = False,
+) -> np.ndarray:
+    if not 0 <= start < stop <= dataset.n_bars:
+        raise ValueError("observation matrix range is outside the dataset")
+    layout = observation_layout(
+        dataset,
+        action_size=action_size,
+        n_factors=n_factors,
+        finite_horizon=finite_horizon,
+    )
+    rows: list[np.ndarray] = []
+    n_features = dataset.n_features
+    n_global = len(dataset.global_feature_names)
+    for index in range(start, stop):
+        per_symbol = np.zeros(
+            (dataset.n_symbols, layout.per_symbol_width), dtype=np.float64
+        )
+        per_symbol[:, :n_features] = dataset.features[index]
+        per_symbol[:, n_features : 2 * n_features] = dataset.feature_available[index]
+        per_symbol[:, 2 * n_features : 3 * n_features] = _feature_staleness(
+            dataset, index
+        )
+        per_symbol[:, 3 * n_features : 4 * n_features] = dataset.resolved_array(
+            "feature_missing_reason"
+        )[index]
+        offset = 4 * n_features
+        per_symbol[:, offset] = dataset.resolved_array("asset_active")[index]
+        per_symbol[:, offset + 1] = dataset.observable_tradable(index)
+        per_symbol[:, offset + n_factors + 15] = dataset.resolved_array(
+            "borrow_available"
+        )[index]
+        per_symbol[:, offset + n_factors + 16] = dataset.resolved_array("borrow_rate")[
+            index
+        ]
+        per_symbol[:, offset + n_factors + 17] = (
+            dataset.resolved_array("mark_price")[index]
+            / dataset.resolved_array("index_price")[index]
+            - 1.0
+        )
+        global_values = np.zeros(layout.global_width, dtype=np.float64)
+        global_values[:n_global] = dataset.global_features[index]
+        global_values[n_global : 2 * n_global] = dataset.resolved_array(
+            "global_feature_available"
+        )[index]
+        global_values[2 * n_global : 3 * n_global] = dataset.resolved_array(
+            "global_feature_staleness_hours"
+        )[index]
+        global_values[3 * n_global : 4 * n_global] = dataset.resolved_array(
+            "global_feature_missing_reason"
+        )[index]
+        if finite_horizon:
+            global_values[-1] = (stop - index) / (stop - start)
+        rows.append(
+            np.concatenate((per_symbol.reshape(-1), global_values)).astype(np.float32)
+        )
+    return np.stack(rows, axis=0)
+
+
 def _drawdown(book: BookState) -> float:
     value = max(book.portfolio_value, 0.0)
     return min(1.0, max(0.0, 1.0 - value / max(book.peak_value, value, 1e-12)))
@@ -267,7 +332,7 @@ def _validate_book(book: BookState, dataset: MarketDataset, *, field_name: str) 
 
 
 def _feature_staleness(dataset: MarketDataset, index: int) -> np.ndarray:
-    staleness = dataset.resolved_array("feature_staleness_hours")[index].astype(
+    staleness = dataset.resolved_array("feature_staleness")[index].astype(
         np.float64,
         copy=False,
     )

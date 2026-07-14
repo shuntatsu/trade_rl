@@ -36,7 +36,7 @@ def _dataset() -> MarketDataset:
         fee_rate=np.full((n_bars, 1), 0.0005),
         borrow_available=np.ones((n_bars, 1), dtype=np.bool_),
         cash_rate=np.linspace(0.0, 0.001, n_bars),
-    )
+    ).with_content_identity()
 
 
 def test_market_dataset_artifact_round_trip_preserves_resolved_arrays(

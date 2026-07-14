@@ -37,6 +37,7 @@ class BookState:
     cash: float
     mark_prices: np.ndarray
     peak_value: float
+    contract_multipliers: np.ndarray | None = None
     max_drawdown: float = 0.0
     turnover_total: float = 0.0
     total_cost: float = 0.0
@@ -57,6 +58,18 @@ class BookState:
         marks = _finite_vector(self.mark_prices, field_name="mark_prices")
         if quantities.shape != marks.shape:
             raise ValueError("quantities and mark_prices must have identical shapes")
+        multipliers = (
+            np.ones_like(quantities)
+            if self.contract_multipliers is None
+            else _finite_vector(
+                self.contract_multipliers,
+                field_name="contract_multipliers",
+            )
+        )
+        if multipliers.shape != quantities.shape or np.any(multipliers <= 0.0):
+            raise ValueError(
+                "contract_multipliers must match quantities and be positive"
+            )
         if np.any(marks <= 0.0):
             raise ValueError("mark_prices must be strictly positive")
         for field_name, value in (
@@ -99,6 +112,7 @@ class BookState:
                 raise ValueError("termination_reason is not supported") from error
         object.__setattr__(self, "quantities", quantities)
         object.__setattr__(self, "mark_prices", marks)
+        object.__setattr__(self, "contract_multipliers", multipliers)
         object.__setattr__(self, "termination_reason", reason)
         self._refresh_economic_state()
         if not self.insolvent and self.peak_value + _TOLERANCE < self.portfolio_value:
@@ -110,6 +124,7 @@ class BookState:
         n_symbols: int,
         initial_capital: float,
         initial_prices: np.ndarray | None = None,
+        contract_multipliers: np.ndarray | None = None,
     ) -> BookState:
         if n_symbols <= 0:
             raise ValueError("n_symbols must be positive")
@@ -127,6 +142,7 @@ class BookState:
             cash=float(initial_capital),
             mark_prices=prices,
             peak_value=float(initial_capital),
+            contract_multipliers=contract_multipliers,
         )
 
     @classmethod
@@ -138,6 +154,7 @@ class BookState:
         prices: np.ndarray,
         peak_value: float | None = None,
         max_gross: float = 1.0,
+        contract_multipliers: np.ndarray | None = None,
     ) -> BookState:
         weight_vector = _finite_vector(weights, field_name="weights")
         price_vector = _finite_vector(prices, field_name="prices")
@@ -147,11 +164,23 @@ class BookState:
             raise ValueError("capital must be finite and positive")
         if not np.isfinite(max_gross) or max_gross <= 0.0:
             raise ValueError("max_gross must be finite and positive")
+        multiplier_vector = (
+            np.ones_like(price_vector)
+            if contract_multipliers is None
+            else _finite_vector(
+                contract_multipliers,
+                field_name="contract_multipliers",
+            )
+        )
+        if multiplier_vector.shape != price_vector.shape or np.any(
+            multiplier_vector <= 0.0
+        ):
+            raise ValueError("contract_multipliers must match prices and be positive")
         gross = float(np.abs(weight_vector).sum())
         if gross > max_gross + _TOLERANCE:
             raise ValueError("initial gross exposure exceeds max_gross")
-        quantities = weight_vector * capital / price_vector
-        cash = capital - float(np.dot(quantities, price_vector))
+        quantities = weight_vector * capital / (price_vector * multiplier_vector)
+        cash = capital - float(np.sum(quantities * price_vector * multiplier_vector))
         resolved_peak = capital if peak_value is None else float(peak_value)
         if resolved_peak < capital:
             raise ValueError("peak_value cannot be below capital")
@@ -160,11 +189,14 @@ class BookState:
             cash=cash,
             mark_prices=price_vector,
             peak_value=resolved_peak,
+            contract_multipliers=multiplier_vector,
         )
 
     @property
     def position_values(self) -> np.ndarray:
-        return self.quantities * self.mark_prices
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        return self.quantities * self.mark_prices * multipliers
 
     @property
     def portfolio_value(self) -> float:
@@ -211,6 +243,7 @@ class BookState:
             cash=self.cash,
             mark_prices=self.mark_prices.copy(),
             peak_value=self.peak_value,
+            contract_multipliers=np.asarray(self.contract_multipliers).copy(),
             max_drawdown=self.max_drawdown,
             turnover_total=self.turnover_total,
             total_cost=self.total_cost,
@@ -239,19 +272,31 @@ class BookState:
         dividend = _finite_vector(dividend_per_unit, field_name="dividend_per_unit")
         if dividend.shape != self.quantities.shape:
             raise ValueError("dividend_per_unit must match the book")
-        amount = float(np.dot(self.quantities, dividend))
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        amount = float(np.dot(self.quantities * multipliers, dividend))
         self.cash += amount
         self._refresh_economic_state()
         return amount
 
     def apply_cash_interest(
-        self, annual_rate: float, *, periods_per_year: int
+        self,
+        annual_rate: float,
+        *,
+        periods_per_year: int | None = None,
+        year_fraction: float | None = None,
     ) -> float:
         if not np.isfinite(annual_rate):
             raise ValueError("annual_rate must be finite")
-        if periods_per_year <= 0:
-            raise ValueError("periods_per_year must be positive")
-        amount = float(self.cash * annual_rate / periods_per_year)
+        if year_fraction is None:
+            if periods_per_year is None or periods_per_year <= 0:
+                raise ValueError("periods_per_year must be positive")
+            resolved_fraction = 1.0 / periods_per_year
+        else:
+            if not np.isfinite(year_fraction) or year_fraction < 0.0:
+                raise ValueError("year_fraction must be finite and non-negative")
+            resolved_fraction = float(year_fraction)
+        amount = float(self.cash * annual_rate * resolved_fraction)
         self.cash += amount
         self._refresh_economic_state()
         return amount
@@ -277,10 +322,13 @@ class BookState:
             or np.any(recovery_vector > 1.0)
         ):
             raise ValueError("settlement prices or recovery are invalid")
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
         proceeds = float(
             np.sum(
                 self.quantities[settle_mask]
                 * price_vector[settle_mask]
+                * multipliers[settle_mask]
                 * recovery_vector[settle_mask]
             )
         )
@@ -360,7 +408,9 @@ class BookState:
         delta = targets - self.quantities
         filled = np.abs(delta) > _TOLERANCE
         value_before = self.portfolio_value
-        self.cash -= float(np.dot(delta, prices)) + float(cost_amount)
+        multipliers = self.contract_multipliers
+        assert multipliers is not None
+        self.cash -= float(np.sum(delta * prices * multipliers)) + float(cost_amount)
         self.quantities = targets
         self.mark_prices = prices
         self.turnover_total += float(turnover)

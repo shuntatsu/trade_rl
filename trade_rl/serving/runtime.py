@@ -13,6 +13,7 @@ import numpy as np
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
+from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
@@ -146,6 +147,7 @@ class ServingRuntime:
         self._lock = RLock()
         self._snapshot: RuntimeSnapshot | None = None
         self._policy: LoadedPolicy | None = None
+        self._normalizer: ObservationNormalizer | None = None
 
     @staticmethod
     def _snapshot_for(bundle: ServingBundle) -> RuntimeSnapshot:
@@ -165,7 +167,7 @@ class ServingRuntime:
             policy_digest=manifest.policy_digest,
             signal_digest=manifest.signal_digest,
             selection_digest=manifest.selection_digest,
-            release_digest=manifest.release_digest,
+            release_digest=(None if bundle.release is None else bundle.release.digest),
             alpha_artifact_digest=manifest.alpha_artifact_digest,
             factor_artifact_digest=manifest.factor_artifact_digest,
             normalizer_digest=manifest.normalizer_digest,
@@ -213,11 +215,38 @@ class ServingRuntime:
             if observed != expected:
                 raise ValueError(f"serving bundle {label} does not match runtime")
 
+    @staticmethod
+    def _predict_action(
+        policy: LoadedPolicy,
+        snapshot: RuntimeSnapshot,
+        normalizer: ObservationNormalizer | None,
+        observation: np.ndarray,
+    ) -> np.ndarray:
+        vector = np.asarray(observation, dtype=np.float32).reshape(-1)
+        if (
+            vector.shape != (snapshot.observation_size,)
+            or not np.isfinite(vector).all()
+        ):
+            raise ValueError("observation violates the active observation schema")
+        policy_input = vector if normalizer is None else normalizer.transform(vector)
+        raw_action = np.asarray(
+            policy.predict(policy_input),
+            dtype=np.float32,
+        ).reshape(-1)
+        if (
+            raw_action.shape != (snapshot.action_size,)
+            or not np.isfinite(raw_action).all()
+        ):
+            raise ValueError("policy output violates the residual action schema")
+        if np.any(raw_action < -1.0) or np.any(raw_action > 1.0):
+            raise ValueError("policy output violates the residual action schema bounds")
+        return raw_action.copy()
+
     def activate(self, root: Path) -> RuntimeSnapshot:
         bundle = load_serving_bundle(root)
         manifest = bundle.manifest
-        if manifest.release_digest is None and not self.allow_unreleased:
-            raise ValueError("serving bundle requires an approved release identity")
+        if bundle.release is None and not self.allow_unreleased:
+            raise ValueError("serving bundle requires a verified release attestation")
         if manifest.action_schema != ACTION_SCHEMA:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"
@@ -243,9 +272,21 @@ class ServingRuntime:
             candidate_policy = loader.load(bundle)
 
         candidate_snapshot = self._snapshot_for(bundle)
+        candidate_normalizer = bundle.normalizer
+        if candidate_normalizer is not None and not isinstance(
+            candidate_normalizer, ObservationNormalizer
+        ):
+            raise ValueError("serving bundle normalizer type is invalid")
+        self._predict_action(
+            candidate_policy,
+            candidate_snapshot,
+            candidate_normalizer,
+            np.zeros(candidate_snapshot.observation_size, dtype=np.float32),
+        )
         with self._lock:
             self._policy = candidate_policy
             self._snapshot = candidate_snapshot
+            self._normalizer = candidate_normalizer
         return candidate_snapshot
 
     def snapshot(self) -> RuntimeSnapshot:
@@ -262,19 +303,7 @@ class ServingRuntime:
         with self._lock:
             policy = self._policy
             snapshot = self._snapshot
+            normalizer = self._normalizer
         if policy is None or snapshot is None:
             raise RuntimeError("serving runtime has no active policy")
-        if vector.shape != (snapshot.observation_size,):
-            raise ValueError("observation violates the active observation schema")
-        raw_action = np.asarray(
-            policy.predict(vector),
-            dtype=np.float32,
-        ).reshape(-1)
-        if (
-            raw_action.shape != (snapshot.action_size,)
-            or not np.isfinite(raw_action).all()
-        ):
-            raise ValueError("policy output violates the residual action schema")
-        if np.any(raw_action < -1.0) or np.any(raw_action > 1.0):
-            raise ValueError("policy output violates the residual action schema bounds")
-        return raw_action.copy()
+        return self._predict_action(policy, snapshot, normalizer, vector)

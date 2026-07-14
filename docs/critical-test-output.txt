@@ -1,0 +1,19 @@
+......................F................................................. [ 96%]
+...                                                                      [100%]
+=================================== FAILURES ===================================
+_____ test_inactive_assets_settle_and_zero_target_has_identity_fill_ratio ______
+tests/simulation/test_critical_branch_coverage.py:287: in test_inactive_assets_settle_and_zero_target_has_identity_fill_ratio
+    dataset = market(asset_active=active)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/simulation/test_critical_branch_coverage.py:40: in market
+    return MarketDataset(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+<string>:55: in __init__
+    ???
+trade_rl/data/market.py:413: in __post_init__
+    raise ValueError("tradable symbols must be active")
+E   ValueError: tradable symbols must be active
+=========================== short test summary info ============================
+FAILED tests/simulation/test_critical_branch_coverage.py::test_inactive_assets_settle_and_zero_target_has_identity_fill_ratio - ValueError: tradable symbols must be active
+1 failed, 74 passed in 1.42s
+exit_code=1

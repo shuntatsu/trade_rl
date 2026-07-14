@@ -22,7 +22,11 @@ class PolicyMember:
     checkpoint_digest: str
 
     def __post_init__(self) -> None:
-        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+        ):
             raise ValueError("seed must be non-negative")
         require_sha256(self.checkpoint_digest, field="checkpoint_digest")
 

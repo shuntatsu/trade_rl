@@ -19,30 +19,48 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Apply transported patch
-        id: apply
+      - name: Detect payload
+        id: payload
         shell: bash
         run: |
-          set -euo pipefail
-          echo "applied=false" >> "$GITHUB_OUTPUT"
-          if ! compgen -G ".github/transfer/patch-*" > /dev/null; then
-            exit 0
+          if compgen -G ".github/transfer/patch-*" > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
           fi
-          cat .github/transfer/patch-* | base64 --decode | xz --decompress > /tmp/full-hardening.patch
-          git apply --check /tmp/full-hardening.patch
-          git apply --index /tmp/full-hardening.patch
+      - name: Reconstruct patch
+        if: steps.payload.outputs.present == 'true'
+        shell: bash
+        run: cat .github/transfer/patch-* | base64 --decode | xz --decompress > /tmp/full-hardening.patch
+      - name: Validate patch
+        if: steps.payload.outputs.present == 'true'
+        run: git apply --check /tmp/full-hardening.patch
+      - name: Apply patch
+        if: steps.payload.outputs.present == 'true'
+        run: git apply --index /tmp/full-hardening.patch
+      - name: Restore workflow boundary
+        if: steps.payload.outputs.present == 'true'
+        shell: bash
+        run: |
           git restore --source=HEAD --staged --worktree .github/workflows
           rm -rf .github/transfer
           git add -A
+      - name: Commit source changes
+        if: steps.payload.outputs.present == 'true'
+        shell: bash
+        run: |
           actual_tree="$(git write-tree)"
           git config user.name "OpenAI"
           git config user.email "oai@example.com"
           git commit -m "feat: complete architecture hardening v2 source (tree $actual_tree)"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-          tar --exclude=.git --exclude=applied-source.tar.gz -czf applied-source.tar.gz .
-          echo "applied=true" >> "$GITHUB_OUTPUT"
+      - name: Push source changes
+        if: steps.payload.outputs.present == 'true'
+        run: git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+      - name: Archive applied source
+        if: steps.payload.outputs.present == 'true'
+        run: tar --exclude=.git --exclude=applied-source.tar.gz -czf applied-source.tar.gz .
       - uses: actions/upload-artifact@v4
-        if: steps.apply.outputs.applied == 'true'
+        if: steps.payload.outputs.present == 'true'
         with:
           name: applied-source
           path: applied-source.tar.gz

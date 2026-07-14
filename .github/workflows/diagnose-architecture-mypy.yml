@@ -11,5 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --extra dev --extra train-sb3
-      - run: uv run mypy trade_rl
+      - run: uv sync --quiet --extra dev --extra train-sb3
+      - name: Capture mypy output
+        run: |
+          set +e
+          uv run mypy trade_rl > mypy.log 2>&1
+          status=$?
+          cat mypy.log
+          echo "$status" > mypy.status
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: architecture-mypy
+          path: |
+            mypy.log
+            mypy.status

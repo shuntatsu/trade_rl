@@ -32,6 +32,28 @@ class NormalizationMode(StrEnum):
     ROLLING_ZSCORE = "rolling_zscore"
 
 
+_TIMEFRAME_HOURS = {
+    "15m": 0.25,
+    "30m": 0.5,
+    "1h": 1.0,
+    "2h": 2.0,
+    "4h": 4.0,
+    "6h": 6.0,
+    "8h": 8.0,
+    "12h": 12.0,
+    "1d": 24.0,
+}
+
+
+def timeframe_hours(value: str) -> float:
+    """Return the maintained duration for one canonical timeframe."""
+
+    try:
+        return _TIMEFRAME_HOURS[value]
+    except KeyError as error:
+        raise ValueError(f"unsupported timeframe: {value}") from error
+
+
 @dataclass(frozen=True, slots=True)
 class InstrumentContract:
     """Point-in-time instrument lifetime and execution-volume semantics."""
@@ -82,7 +104,7 @@ class InstrumentContract:
 
 @dataclass(frozen=True, slots=True)
 class FeatureSpec:
-    """One causal feature and its trailing normalization contract."""
+    """One causal feature and its native-timeframe normalization contract."""
 
     name: str
     kind: FeatureKind
@@ -91,9 +113,13 @@ class FeatureSpec:
     normalization_window: int = 1
     min_periods: int = 1
     max_staleness_hours: float = 24.0
+    timeframe: str | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.name, field="feature name")
+        if self.timeframe is not None:
+            require_non_empty(self.timeframe, field="feature timeframe")
+            timeframe_hours(self.timeframe)
         if (
             isinstance(self.lookback, bool)
             or not isinstance(self.lookback, int)
@@ -123,8 +149,12 @@ class FeatureSpec:
         ):
             raise ValueError("max_staleness_hours must be finite and positive")
 
+    def resolved_timeframe(self, base_timeframe: str) -> str:
+        timeframe_hours(base_timeframe)
+        return base_timeframe if self.timeframe is None else self.timeframe
+
     def canonical_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "name": self.name,
             "kind": self.kind.value,
             "lookback": self.lookback,
@@ -133,19 +163,9 @@ class FeatureSpec:
             "min_periods": self.min_periods,
             "max_staleness_hours": self.max_staleness_hours,
         }
-
-
-_TIMEFRAME_HOURS = {
-    "15m": 0.25,
-    "30m": 0.5,
-    "1h": 1.0,
-    "2h": 2.0,
-    "4h": 4.0,
-    "6h": 6.0,
-    "8h": 8.0,
-    "12h": 12.0,
-    "1d": 24.0,
-}
+        if self.timeframe is not None:
+            payload["timeframe"] = self.timeframe
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +180,7 @@ class MarketBuildConfig:
 
     def __post_init__(self) -> None:
         require_non_empty(self.base_timeframe, field="base_timeframe")
+        timeframe_hours(self.base_timeframe)
         raw_calendar = getattr(self.calendar_kind, "value", self.calendar_kind)
         if not isinstance(raw_calendar, str) or raw_calendar not in {
             "continuous_24_7",
@@ -180,18 +201,29 @@ class MarketBuildConfig:
             raise ValueError(
                 "session_periods_per_year is valid only for session calendar data"
             )
-        if self.base_timeframe not in _TIMEFRAME_HOURS:
-            raise ValueError(f"unsupported base_timeframe: {self.base_timeframe}")
         if not self.features:
             raise ValueError("features must not be empty")
         names = tuple(spec.name for spec in self.features)
         if len(set(names)) != len(names):
             raise ValueError("feature names must be unique")
+        if any(spec.timeframe == self.base_timeframe for spec in self.features):
+            raise ValueError(
+                "base timeframe features must omit timeframe instead of repeating it"
+            )
         require_non_empty(self.schema_version, field="schema_version")
 
     @property
     def bar_hours(self) -> float:
-        return _TIMEFRAME_HOURS[self.base_timeframe]
+        return timeframe_hours(self.base_timeframe)
+
+    @property
+    def native_timeframes(self) -> tuple[str, ...]:
+        ordered: list[str] = []
+        for spec in self.features:
+            resolved = spec.resolved_timeframe(self.base_timeframe)
+            if resolved not in ordered:
+                ordered.append(resolved)
+        return tuple(sorted(ordered, key=timeframe_hours))
 
     @property
     def global_feature_names(self) -> tuple[str, ...]:
@@ -203,7 +235,7 @@ class MarketBuildConfig:
         )
 
     def canonical_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "base_timeframe": self.base_timeframe,
             "bar_hours": self.bar_hours,
             "calendar_kind": self.calendar_kind,
@@ -212,3 +244,6 @@ class MarketBuildConfig:
             "global_feature_names": self.global_feature_names,
             "schema_version": self.schema_version,
         }
+        if any(spec.timeframe is not None for spec in self.features):
+            payload["native_timeframes"] = self.native_timeframes
+        return payload

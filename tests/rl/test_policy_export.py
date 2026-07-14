@@ -79,7 +79,7 @@ def test_torchscript_actor_export_matches_sb3_prediction(tmp_path: Path) -> None
     assert (output / "export.json").is_file()
 
 
-def test_torchscript_failure_is_recorded_as_unsupported(
+def test_torchscript_only_export_failure_is_rejected(
     monkeypatch, tmp_path: Path
 ) -> None:
     checkpoint = _checkpoint(tmp_path / "policy.zip")
@@ -89,22 +89,19 @@ def test_torchscript_failure_is_recorded_as_unsupported(
         raise RuntimeError("unsupported policy graph")
 
     monkeypatch.setattr("trade_rl.rl.export._export_torchscript", fail)
-    manifest = export_policy_actor(
-        checkpoint_path=checkpoint,
-        output_dir=tmp_path / "exports",
-        algorithm="ppo",
-        observation_size=2,
-        action_size=1,
-        action_spec_digest="a" * 64,
-        normalizer_digest=None,
-        onnx=False,
-        torchscript=True,
-        tolerance=1e-5,
-    )
-
-    record = next(item for item in manifest.exports if item.format == "torchscript")
-    assert record.status == "unsupported"
-    assert record.reason == "unsupported policy graph"
+    with pytest.raises(ValueError, match="verified export"):
+        export_policy_actor(
+            checkpoint_path=checkpoint,
+            output_dir=tmp_path / "exports",
+            algorithm="ppo",
+            observation_size=2,
+            action_size=1,
+            action_spec_digest="a" * 64,
+            normalizer_digest=None,
+            onnx=False,
+            torchscript=True,
+            tolerance=1e-5,
+        )
 
 
 def test_onnx_actor_export_matches_sb3_when_dependencies_exist(tmp_path: Path) -> None:

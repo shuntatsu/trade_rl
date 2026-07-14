@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/binance-e2e-pipeline
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read

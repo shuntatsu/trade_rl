@@ -17,8 +17,6 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
-    canonical_identity_json,
-    compute_market_dataset_id,
     content_and_arrays_digest,
 )
 from trade_rl.data.market import MarketDataset
@@ -375,32 +373,9 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
-        dataset_id = compute_market_dataset_id(
-            metadata,
-            {
-                "timestamps": timestamps,
-                "available_at": available_at,
-                "information_available": information_available,
-                "features": features,
-                "global_features": global_features,
-                "global_feature_available": global_feature_available,
-                "global_feature_staleness_hours": global_feature_staleness,
-                "global_feature_missing_reason": global_feature_missing_reason,
-                "open": open_price,
-                "high": high,
-                "low": low,
-                "close": close,
-                "volume": volume,
-                "funding_rate": funding_rate,
-                "tradable": tradable,
-                "symbol_active": symbol_active,
-                "feature_available": feature_available,
-                "feature_staleness": feature_staleness,
-            },
-        )
         periods_per_year = int(round(365.0 * 24.0 / self.config.bar_hours))
         return MarketDataset(
-            dataset_id=dataset_id,
+            dataset_id="0" * 64,
             symbols=symbols,
             timestamps=timestamps,
             features=features,
@@ -429,6 +404,5 @@ class MarketDatasetBuilder:
             ),
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
-            identity_payload_json=canonical_identity_json(metadata),
             periods_per_year=periods_per_year,
-        )
+        ).with_content_identity(metadata)

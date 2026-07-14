@@ -33,7 +33,7 @@ def _dataset() -> MarketDataset:
         feature_names=("feature",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
-    )
+    ).with_content_identity()
 
 
 def _config(path: Path) -> None:

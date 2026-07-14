@@ -86,6 +86,8 @@ def _dataset_parts(
 def write_dataset_files(root: Path, dataset: MarketDataset) -> tuple[Path, str]:
     """Write canonical files inside an existing staging or destination directory."""
 
+    if dataset.identity_payload_json is None:
+        raise ValueError("formal dataset artifacts require a verified content identity")
     root.mkdir(parents=True, exist_ok=True)
     arrays, scalars = _dataset_parts(dataset)
     payload = _deterministic_npz(arrays)

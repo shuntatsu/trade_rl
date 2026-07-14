@@ -344,7 +344,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             dataset.n_symbols,
             self.config.initial_capital,
             initial_prices,
-            contract_multipliers=dataset.contract_multipliers,
+            contract_multipliers=dataset.resolved_array("contract_multipliers"),
         )
         self.shadow = self.hybrid.clone()
         self._decision_step_index = 0
@@ -776,7 +776,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             prices=self.dataset.close[start],
             peak_value=peak,
             max_gross=self.pre_trade_risk.config.max_gross,
-            contract_multipliers=self.dataset.contract_multipliers,
+            contract_multipliers=self.dataset.resolved_array("contract_multipliers"),
         )
         book.max_drawdown = self._drawdown(book)
         gross_notional = float(np.abs(book.position_values).sum())
@@ -884,7 +884,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 raise ValueError("initial_book does not match dataset symbols")
             if not np.array_equal(
                 np.asarray(supplied.contract_multipliers),
-                self.dataset.contract_multipliers,
+                self.dataset.resolved_array("contract_multipliers"),
             ):
                 raise ValueError(
                     "initial_book contract multipliers do not match dataset"

@@ -19,13 +19,22 @@ from trade_rl.domain.common import (
 )
 from trade_rl.domain.releases import ReleaseManifest
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.release.attestation import (
+    ReleaseAttestation,
+    default_attestation_path,
+)
+from trade_rl.release.attestation import (
+    load_release_attestation as load_external_release_attestation,
+)
 from trade_rl.serving.normalizer import (
     NORMALIZER_ARTIFACT_NAME,
     load_observation_normalizer,
 )
 from trade_rl.serving.release import (
     RELEASE_ATTESTATION_NAME,
-    load_release_attestation,
+)
+from trade_rl.serving.release import (
+    load_release_attestation as load_legacy_release_attestation,
 )
 
 BUNDLE_MANIFEST_NAME = "bundle.json"
@@ -292,7 +301,7 @@ class ServingBundleManifest:
 class ServingBundle:
     root: Path
     manifest: ServingBundleManifest
-    release: ReleaseManifest | None = None
+    release: ReleaseManifest | ReleaseAttestation | None = None
     normalizer: object | None = None
 
 
@@ -435,7 +444,7 @@ def load_serving_bundle(root: Path) -> ServingBundle:
     manifest = _parse_manifest(_mapping(payload, field="bundle manifest"))
     root_resolved = root.resolve()
     declared = {BUNDLE_MANIFEST_NAME}
-    release: ReleaseManifest | None = None
+    release: ReleaseManifest | ReleaseAttestation | None = None
     normalizer = None
     declared_files = {item.path for item in manifest.files}
     if manifest.normalizer_digest is not None:
@@ -450,7 +459,7 @@ def load_serving_bundle(root: Path) -> ServingBundle:
         manifest.schema_version == "serving_bundle_v4"
         and manifest.release_digest is not None
     ):
-        release = load_release_attestation(root)
+        release = load_legacy_release_attestation(root)
         if release.digest != manifest.release_digest:
             raise ValueError("release attestation pointer mismatch")
         release.validate_bundle_identity(
@@ -461,6 +470,16 @@ def load_serving_bundle(root: Path) -> ServingBundle:
             selected_policy_digest=manifest.policy_digest,
         )
         declared.add(RELEASE_ATTESTATION_NAME)
+    else:
+        external_path = default_attestation_path(root)
+        if external_path.is_file():
+            release = load_external_release_attestation(external_path)
+            if release.bundle_digest != manifest.bundle_digest:
+                raise ValueError("external release attestation bundle mismatch")
+            if release.dataset_id != manifest.dataset_id:
+                raise ValueError("external release attestation dataset mismatch")
+            if release.selected_policy_digest != manifest.policy_digest:
+                raise ValueError("external release attestation policy mismatch")
     for file in manifest.files:
         path = root / file.path
         declared.add(file.path)

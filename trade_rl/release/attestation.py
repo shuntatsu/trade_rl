@@ -34,6 +34,10 @@ class ReleaseAttestation:
     approved_at: datetime
     schema_version: str = RELEASE_ATTESTATION_SCHEMA
 
+    @property
+    def digest(self) -> str:
+        return self.attestation_digest
+
     def __post_init__(self) -> None:
         for field_name, value in (
             ("attestation_digest", self.attestation_digest),

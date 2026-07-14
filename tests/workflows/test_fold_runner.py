@@ -166,7 +166,7 @@ def test_fold_runner_falls_back_to_baseline_without_duplicate_outer_evaluation()
 
 
 def test_fold_runner_seals_outer_test_and_preserves_execution_evidence() -> None:
-    from trade_rl.evaluation.walk_forward.stitching import ExecutionEvidence
+    from trade_rl.evaluation.evidence import ExecutionDiagnostics
 
     trainer = FakeTrainer()
 
@@ -178,7 +178,7 @@ def test_fold_runner_seals_outer_test_and_preserves_execution_evidence() -> None
                 score=result.score,
                 returns=result.returns,
                 evaluation_digest=result.evaluation_digest,
-                evidence=ExecutionEvidence(
+                diagnostics=ExecutionDiagnostics(
                     total_cost=4.0, turnover_total=0.5, n_trades=3
                 ),
             )
@@ -189,7 +189,7 @@ def test_fold_runner_seals_outer_test_and_preserves_execution_evidence() -> None
     runner = ConcreteFoldRunner(config=config(), trainer=trainer, evaluator=evaluator)
     result = runner.run_fold(fold())
 
-    assert result.selected_oos.evidence.total_cost == 4.0
+    assert result.selected_oos.diagnostics.total_cost == 4.0
     assert result.sealed_test_access.access_digest
     import pytest
 

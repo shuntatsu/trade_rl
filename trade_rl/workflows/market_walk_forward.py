@@ -589,13 +589,32 @@ def execute_market_walk_forward(
                 payload,
             )
         walk_forward_payload = {
-            "baseline_metrics": asdict(result.baseline_metrics),
+            "baseline_metrics": (
+                None
+                if result.baseline_metrics is None
+                else asdict(result.baseline_metrics)
+            ),
+            "baseline_independent_summary": (
+                None
+                if result.baseline_independent_summary is None
+                else asdict(result.baseline_independent_summary)
+            ),
             "dataset_id": dataset.dataset_id,
             "evaluation_digest": result.evaluation_digest,
             "folds": tuple(folds_payload),
             "production_status": "NO-GO",
-            "schema_version": "market_walk_forward_run_v1",
-            "selected_metrics": asdict(result.selected_metrics),
+            "schema_version": "market_walk_forward_run_v2",
+            "selected_metrics": (
+                None
+                if result.selected_metrics is None
+                else asdict(result.selected_metrics)
+            ),
+            "selected_independent_summary": (
+                None
+                if result.selected_independent_summary is None
+                else asdict(result.selected_independent_summary)
+            ),
+            "stitch_mode": config.workflow.stitch_mode.value,
         }
         _write_json(stage / "walk-forward.json", walk_forward_payload)
         _write_json(stage / "walk-forward-config.json", config.digest_payload())

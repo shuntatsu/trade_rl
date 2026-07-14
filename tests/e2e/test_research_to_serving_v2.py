@@ -90,7 +90,11 @@ def _config(path: Path) -> None:
                     "max_abs_weight": 1.0,
                     "max_turnover": 2.0,
                 },
-                "reward": {"scale": 1.0, "baseline_window_hours": 4.0},
+                "reward": {
+                    "scale": 1.0,
+                    "baseline_window_hours": 4.0,
+                    "baseline_minimum_history_hours": 1.0,
+                },
                 "trend": {
                     "fast_hours": 1.0,
                     "base_hours": 2.0,
@@ -144,6 +148,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         policy_digest=ensemble["digest"],
         signal_digest="1" * 64,
         selection_digest="2" * 64,
+        release_digest=None,
         artifact_paths=("members/member-000/policy.zip", "policy-loader.json"),
         created_at=datetime(2026, 7, 14, tzinfo=UTC),
         action_size=ensemble["action_size"],

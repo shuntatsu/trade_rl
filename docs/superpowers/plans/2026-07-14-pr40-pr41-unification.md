@@ -6,4 +6,5 @@ This branch combines the two July 14 architecture-hardening lines into one integ
 - Every path changed by PR #41 is taken from PR #41's verified head to avoid mixed-file conflict artifacts.
 - Temporary remediation payloads and one-shot workflows are intentionally excluded from the final tree.
 - PR #40-only additions remain in the unified branch and are validated against PR #41's causal-research and serving implementation.
+- Repository-wide Ruff formatting and automatic lint fixes are applied after the verified overlay.
 - The unified branch must pass the standard repository CI before it replaces the two source PRs.

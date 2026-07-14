@@ -7,5 +7,5 @@ This branch combines the two July 14 architecture-hardening lines into one integ
 - Temporary remediation payloads and one-shot workflows are intentionally excluded from the final tree.
 - PR #40-only additions remain in the unified branch and are aligned with PR #41's causal-research and serving contracts.
 - Repository-wide Ruff formatting and automatic lint fixes are applied after the verified overlay.
-- The integrated tree has passed Ruff, format, mypy, import architecture, and the full pytest suite inside the compatibility workflow.
+- Dataset closure, timestamp feature age, recomputable identity, multiplier accounting, session carry, elapsed-time metrics, and serving tamper regressions pass.
 - The standard Linux and Windows repository CI is the final merge gate.

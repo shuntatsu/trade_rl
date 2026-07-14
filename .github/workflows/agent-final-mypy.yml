@@ -1,0 +1,79 @@
+name: Apply final unified typing fixes
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - edited
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      github.head_ref == 'agent/unified-pr40-pr41'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/unified-pr40-pr41
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply typing fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          signals = Path('trade_rl/artifacts/signals.py')
+          text = signals.read_text(encoding='utf-8')
+          text = text.replace(
+              'from typing import Final, Literal\n',
+              'from typing import Any, Final, Literal\n',
+              1,
+          )
+          text = text.replace(
+              '    def __getitem__(self, item: object) -> np.ndarray:\n        return self.values[item]\n',
+              '    def __getitem__(self, item: Any) -> Any:\n        return self.values[item]\n',
+              1,
+          )
+          signals.write_text(text, encoding='utf-8')
+
+          integration = Path('trade_rl/integrations/signal_artifacts.py')
+          text = integration.read_text(encoding='utf-8')
+          text = text.replace(
+              ') -> np.generic | int:\n    if np.issubdtype(available_at.dtype, np.datetime64):\n        return np.asarray(dataset.timestamps[index]).astype("datetime64[ns]")\n',
+              ') -> np.datetime64 | int:\n    if np.issubdtype(available_at.dtype, np.datetime64):\n        return np.datetime64(dataset.timestamps[index], "ns")\n',
+              1,
+          )
+          integration.write_text(text, encoding='utf-8')
+          PY
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Verify complete tree
+        run: |
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+          uv run trade-rl --version
+      - name: Remove diagnostics and commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/agent-final-mypy.yml
+          rm -f .github/workflows/agent-release-mypy-diagnostics.yml
+          git add -A
+          git commit -m "Finalize unified signal typing"
+          git push origin HEAD:agent/unified-pr40-pr41

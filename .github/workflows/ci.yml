@@ -72,3 +72,33 @@ jobs:
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
       - run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+
+  training-image:
+    name: Training image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build complete training image
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --file Dockerfile.training \
+            --tag trade-rl-training:ci \
+            .
+
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:ci -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '

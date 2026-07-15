@@ -234,7 +234,38 @@ Expected: at least 80% total coverage and zero failures.
 Run: `git diff --check`
 Expected: exit 0.
 
-### Task 7: Container GPU smoke and full research execution
+### Task 7: Verify canonical nested checkpoints
+
+**Files:**
+- Modify: `examples/binance-multitimeframe/run_full_research.py`
+- Modify: `tests/examples/test_binance_multitimeframe_full_assets.py`
+
+**Interfaces:**
+- Consumes: canonical `checkpoint_manifests(member / "checkpoints")` artifacts with `step-*/checkpoint.json` and `step-*/policy.zip`.
+- Produces: full-run verification that accepts valid nested checkpoints and rejects missing or invalid checkpoint artifacts.
+
+- [ ] **Step 1: Write a failing nested-checkpoint regression**
+
+Build a three-member training directory in the test with non-empty run, ensemble, environment, policy files and canonical checkpoints published through `publish_checkpoint`. Call `_verify_training(root)` and require it to return normally.
+
+- [ ] **Step 2: Run RED**
+
+Run: `uv run pytest tests/examples/test_binance_multitimeframe_full_assets.py -q`
+Expected: failure `member 0 has no retained checkpoints` because the runner incorrectly searches `checkpoints/*.zip`.
+
+- [ ] **Step 3: Use the canonical checkpoint loader**
+
+Replace the flat glob with `checkpoint_manifests(member / "checkpoints")`. This validates both manifest identity and nested policy files rather than merely finding a filename.
+
+- [ ] **Step 4: Run GREEN and focused validation**
+
+Run: `uv run pytest tests/examples/test_binance_multitimeframe_full_assets.py tests/rl/test_checkpointing.py -q`
+Expected: all selected tests pass.
+
+Run: `uv run ruff check examples/binance-multitimeframe/run_full_research.py tests/examples/test_binance_multitimeframe_full_assets.py`
+Expected: exit 0.
+
+### Task 8: Container GPU smoke and full research execution
 
 **Files:**
 - Runtime artifacts only: Docker volume `trade-rl-training-data`.

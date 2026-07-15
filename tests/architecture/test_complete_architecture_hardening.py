@@ -18,7 +18,7 @@ from trade_rl.data.contracts import (
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.domain.selection import PolicyMode
-from trade_rl.rl.actions import ACTION_SCHEMA, ActionValidationMode
+from trade_rl.rl.actions import ACTION_SCHEMA, ActionSpec, ActionValidationMode
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA, observation_passthrough_indices
@@ -107,6 +107,7 @@ def env(
     *,
     mode: ActionValidationMode = ActionValidationMode.CLIP,
     normalizer: ObservationNormalizer | None = None,
+    action_spec: ActionSpec | None = None,
 ) -> ResidualMarketEnv:
     return ResidualMarketEnv(
         value,
@@ -114,6 +115,7 @@ def env(
             TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
         ),
         normalizer=normalizer,
+        action_spec=action_spec,
         config=ResidualMarketEnvConfig(
             initial_capital=1_000.0,
             episode_bars=8,
@@ -131,6 +133,16 @@ def test_action_spec_digest_binds_validation_mode() -> None:
         env(value, mode=ActionValidationMode.CLIP).action_spec_digest
         != env(value, mode=ActionValidationMode.STRICT).action_spec_digest
     )
+
+
+def test_action_spec_digest_binds_risk_tilt_layout() -> None:
+    value = dataset()
+    with_risk = env(value)
+    without_risk = env(value, action_spec=ActionSpec(risk_tilt_enabled=False))
+
+    assert without_risk.action_names == ("fast_tilt", "slow_tilt")
+    assert with_risk.action_spec_digest != without_risk.action_spec_digest
+    assert with_risk.environment_digest != without_risk.environment_digest
 
 
 def test_normalizer_source_dataset_binding_accepts_fold_view_identity() -> None:

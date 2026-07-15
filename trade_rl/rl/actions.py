@@ -133,12 +133,15 @@ class ActionSpec:
     """Exact maintained action layout for one environment identity."""
 
     alpha_enabled: bool = False
+    risk_tilt_enabled: bool = True
     n_factors: int = 0
     validation_mode: ActionValidationMode | str = ActionValidationMode.CLIP
 
     def __post_init__(self) -> None:
         if not isinstance(self.alpha_enabled, bool):
             raise ValueError("alpha_enabled must be a boolean")
+        if not isinstance(self.risk_tilt_enabled, bool):
+            raise ValueError("risk_tilt_enabled must be a boolean")
         if (
             isinstance(self.n_factors, bool)
             or not isinstance(self.n_factors, int)
@@ -153,7 +156,9 @@ class ActionSpec:
 
     @property
     def names(self) -> tuple[str, ...]:
-        names = ["fast_tilt", "slow_tilt", "risk_tilt"]
+        names = ["fast_tilt", "slow_tilt"]
+        if self.risk_tilt_enabled:
+            names.append("risk_tilt")
         if self.alpha_enabled:
             names.append("alpha_scale")
         names.extend(f"factor_{index}" for index in range(self.n_factors))
@@ -195,8 +200,10 @@ class ActionSpec:
         cursor += 1
         slow_tilt = float(clipped[cursor])
         cursor += 1
-        risk_tilt = float(clipped[cursor])
-        cursor += 1
+        risk_tilt = 0.0
+        if self.risk_tilt_enabled:
+            risk_tilt = float(clipped[cursor])
+            cursor += 1
         alpha_scale = 0.0
         if self.alpha_enabled:
             alpha_scale = float(clipped[cursor])
@@ -251,8 +258,15 @@ class ResidualActionV2:
         factors.setflags(write=False)
         object.__setattr__(self, "factor_tilts", factors)
 
-    def as_array(self, *, alpha_enabled: bool) -> np.ndarray:
-        values = [self.fast_tilt, self.slow_tilt, self.risk_tilt]
+    def as_array(
+        self,
+        *,
+        alpha_enabled: bool,
+        risk_tilt_enabled: bool = True,
+    ) -> np.ndarray:
+        values = [self.fast_tilt, self.slow_tilt]
+        if risk_tilt_enabled:
+            values.append(self.risk_tilt)
         if alpha_enabled:
             values.append(self.alpha_scale)
         values.extend(float(value) for value in self.factor_tilts)

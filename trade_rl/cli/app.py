@@ -333,6 +333,7 @@ def _environment_config(args: argparse.Namespace, stdout: TextIO) -> int:
     )
     action = ActionSpec(
         alpha_enabled=args.alpha_artifact_digest is not None,
+        risk_tilt_enabled=not args.no_risk_tilt,
         n_factors=args.factor_count,
     )
     alpha_contract = AlphaContract(kind=AlphaSignalKind(args.alpha_signal_kind))
@@ -592,6 +593,7 @@ def build_parser() -> argparse.ArgumentParser:
     environment_config.add_argument("--alpha-artifact-digest")
     environment_config.add_argument("--factor-count", type=int, default=0)
     environment_config.add_argument("--factor-artifact-digest")
+    environment_config.add_argument("--no-risk-tilt", action="store_true")
     environment_config.add_argument("--normalizer-digest")
     environment_config.set_defaults(handler=_environment_config)
 

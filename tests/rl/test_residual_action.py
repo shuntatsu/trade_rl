@@ -28,6 +28,23 @@ def test_alpha_disabled_has_no_dead_action_dimension() -> None:
     assert ActionSpec(alpha_enabled=True).size == 4
 
 
+def test_risk_tilt_can_be_removed_from_policy_action_layout() -> None:
+    spec = ActionSpec(risk_tilt_enabled=False, n_factors=3)
+    assert spec.names == (
+        "fast_tilt",
+        "slow_tilt",
+        "factor_0",
+        "factor_1",
+        "factor_2",
+    )
+    action = spec.parse(np.array([0.25, -0.5, 1.0, 0.0, -1.0]))
+    assert action.risk_tilt == 0.0
+    np.testing.assert_array_equal(
+        action.as_array(alpha_enabled=False, risk_tilt_enabled=False),
+        np.array([0.25, -0.5, 1.0, 0.0, -1.0], dtype=np.float32),
+    )
+
+
 def test_zero_v2_action_is_exact_baseline_identity() -> None:
     spec = ActionSpec(alpha_enabled=True, n_factors=2)
     action = spec.parse(np.zeros(spec.size))
@@ -36,6 +53,19 @@ def test_zero_v2_action_is_exact_baseline_identity() -> None:
         trends(),
         np.array([0.4, -0.4]),
         alpha_enabled=True,
+        factor_basis=np.array([[1.0, -1.0], [-1.0, 1.0]]),
+    )
+    np.testing.assert_array_equal(result.proposal, trends().base)
+
+
+def test_zero_action_without_risk_tilt_is_exact_baseline_identity() -> None:
+    spec = ActionSpec(risk_tilt_enabled=False, n_factors=2)
+    action = spec.parse(np.zeros(spec.size))
+    result = BaselineResidualComposer().compose(
+        action,
+        trends(),
+        np.array([0.4, -0.4]),
+        alpha_enabled=False,
         factor_basis=np.array([[1.0, -1.0], [-1.0, 1.0]]),
     )
     np.testing.assert_array_equal(result.proposal, trends().base)

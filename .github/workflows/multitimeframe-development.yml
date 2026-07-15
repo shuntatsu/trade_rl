@@ -1,0 +1,53 @@
+name: Multi-Timeframe Development
+
+on:
+  push:
+    branches:
+      - agent/multitimeframe-three-asset-full-training
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  focused:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Apply immutable Vision cache
+        run: uv run python .github/scripts/add_binance_vision_cache.py
+      - name: Format and organize imports
+        run: |
+          uv run ruff check --fix trade_rl tests examples
+          uv run ruff format trade_rl tests examples
+      - name: Full asset and cache tests
+        run: |
+          uv run pytest -q \
+            tests/integrations/test_binance_vision_cache.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py \
+            tests/data/test_multitimeframe_builder.py \
+            tests/integrations/test_binance_multitimeframe.py \
+            tests/cli/test_binance_multitimeframe_command.py
+      - name: Lint
+        run: uv run ruff check trade_rl tests examples
+      - name: Format check
+        run: uv run ruff format --check trade_rl tests examples
+      - name: Type check
+        run: uv run mypy trade_rl
+      - name: Commit full research assets
+        run: |
+          git add trade_rl tests examples
+          if ! git diff --cached --quiet; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git commit -m "feat: add full three-asset multi-timeframe research run"
+            git push origin HEAD:agent/multitimeframe-three-asset-full-training
+          fi

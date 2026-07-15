@@ -31,6 +31,7 @@ from trade_rl.integrations.binance import (
     binance_multitimeframe_feature_specs,
     build_binance_market_dataset,
 )
+from trade_rl.rl.checkpointing import checkpoint_manifests
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
@@ -325,7 +326,7 @@ def _verify_training(path: Path) -> None:
     for index in range(3):
         member = path / f"members/member-{index:03d}"
         _require_file(member / "policy.zip")
-        checkpoints = tuple(member.glob("checkpoints/*.zip"))
+        checkpoints = checkpoint_manifests(member / "checkpoints")
         if not checkpoints:
             raise RuntimeError(f"member {index} has no retained checkpoints")
 

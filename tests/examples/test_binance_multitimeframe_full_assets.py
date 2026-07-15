@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from trade_rl.rl.checkpointing import publish_checkpoint
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
@@ -89,6 +90,33 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
 
 def _runner_namespace() -> dict[str, Any]:
     return runpy.run_path(str(EXAMPLE_ROOT / "run_full_research.py"))
+
+
+class _CheckpointPolicy:
+    def save(self, target: str) -> None:
+        Path(target).with_suffix(".zip").write_bytes(b"checkpoint")
+
+
+def test_full_runner_accepts_canonical_nested_checkpoints(tmp_path: Path) -> None:
+    verify_training = _runner_namespace()["_verify_training"]
+    for name in ("run.json", "ensemble.json", "environment.json"):
+        (tmp_path / name).write_text("{}\n", encoding="utf-8")
+    for index in range(3):
+        member = tmp_path / "members" / f"member-{index:03d}"
+        member.mkdir(parents=True)
+        (member / "policy.zip").write_bytes(b"policy")
+        publish_checkpoint(
+            model=_CheckpointPolicy(),
+            checkpoint_root=member / "checkpoints",
+            algorithm="ppo",
+            seed=index,
+            requested_timestep=262_144,
+            observed_timestep=262_144,
+            environment_digest="e" * 64,
+            training_config_digest="c" * 64,
+        )
+
+    verify_training(tmp_path)
 
 
 def _write_walk_forward(path: Path, *, selected: float, baseline: float) -> None:

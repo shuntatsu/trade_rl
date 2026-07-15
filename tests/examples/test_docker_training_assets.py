@@ -73,16 +73,93 @@ def test_training_compose_renders_without_host_provenance_or_generation() -> Non
     assert 'TRADE_RL_RUN_GENERATION: ""' in completed.stdout
 
 
-def test_training_dockerfile_caches_dependencies_before_provenance_stamp() -> None:
+def test_training_dockerfile_isolates_fast_provenance_validation_stage() -> None:
     dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
 
-    dependency_sync = dockerfile.index("uv sync --frozen --extra train-sb3 --no-dev")
-    commit_argument = dockerfile.index("ARG TRADE_RL_GIT_COMMIT")
-    source_copy = dockerfile.index("COPY trade_rl ./trade_rl")
-    provenance_validation = dockerfile.index("^[0-9a-f]{40}$")
+    provenance_stage = dockerfile.index("AS provenance-validation")
+    runtime_stage = dockerfile.index("AS training-runtime")
+    marker_copy = dockerfile.index("COPY --from=provenance-validation")
 
-    assert "--no-install-project" in dockerfile
-    assert dependency_sync < source_copy < commit_argument < provenance_validation
+    assert provenance_stage < runtime_stage < marker_copy
+    assert dockerfile.count("ARG TRADE_RL_GIT_COMMIT") == 2
+    assert dockerfile.count("ARG TRADE_RL_GIT_DIRTY") == 2
+
+
+def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> None:
+    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
+    runtime = dockerfile.split("FROM python:3.12-slim AS training-runtime", 1)[1]
+
+    dependency_sync = runtime.index(
+        "uv sync --frozen --extra train-sb3 --no-dev --no-install-project"
+    )
+    source_copy = runtime.index("COPY --chown=trainer:trainer trade_rl ./trade_rl")
+    project_sync = runtime.index(
+        "RUN uv sync --frozen --extra train-sb3 --no-dev", source_copy
+    )
+    commit_argument = runtime.index("ARG TRADE_RL_GIT_COMMIT")
+    marker_copy = runtime.index("COPY --from=provenance-validation")
+
+    assert dependency_sync < source_copy < project_sync < commit_argument < marker_copy
+    assert "chown -R" not in dockerfile
+    assert "chown trainer:trainer /workspace/var" in runtime
+    assert "chown" not in runtime[commit_argument:]
+
+
+def test_training_image_build_checks_non_root_runtime_contract() -> None:
+    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
+    user = dockerfile.index("USER trainer")
+    runtime_contract = dockerfile.index('test "$(id -u)" -ne 0', user)
+
+    assert "test -w /workspace/var" in dockerfile[runtime_contract:]
+    assert "test -r /workspace/trade_rl/__init__.py" in dockerfile[runtime_contract:]
+    assert "test -r /workspace/examples" in dockerfile[runtime_contract:]
+    assert "cat /provenance.valid" in dockerfile[runtime_contract:]
+
+
+def test_provenance_validation_target_fails_fast_without_valid_arguments() -> None:
+    base_command = [
+        "docker",
+        "build",
+        "--progress",
+        "plain",
+        "--target",
+        "provenance-validation",
+        "-f",
+        "Dockerfile.training",
+    ]
+    cases = (
+        ([], False),
+        (
+            [
+                "--build-arg",
+                f"TRADE_RL_GIT_COMMIT={'a' * 40}",
+                "--build-arg",
+                "TRADE_RL_GIT_DIRTY=invalid",
+            ],
+            False,
+        ),
+        (
+            [
+                "--build-arg",
+                f"TRADE_RL_GIT_COMMIT={'a' * 40}",
+                "--build-arg",
+                "TRADE_RL_GIT_DIRTY=false",
+            ],
+            True,
+        ),
+    )
+
+    for arguments, succeeds in cases:
+        completed = subprocess.run(
+            [*base_command, *arguments, "."],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        output = completed.stdout + completed.stderr
+        assert (completed.returncode == 0) is succeeds, output
+        assert "uv sync --frozen" not in output
 
 
 def test_training_runbook_uses_unique_generations_and_shared_cache() -> None:

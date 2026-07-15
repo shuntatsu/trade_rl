@@ -47,11 +47,21 @@ jobs:
           uv python install 3.12
           uv sync --python 3.12 --extra train-sb3 --extra dev
       - name: Format and lint
+        shell: bash
         run: |
+          set +e
           uv run ruff format .
-          uv run ruff check . --fix
-          uv run ruff format --check .
-          uv run ruff check .
+          uv run ruff check . --fix --unsafe-fixes > /tmp/ruff.log 2>&1
+          uv run ruff format . >> /tmp/ruff.log 2>&1
+          uv run ruff format --check . >> /tmp/ruff.log 2>&1
+          uv run ruff check . >> /tmp/ruff.log 2>&1
+          status=$?
+          cat /tmp/ruff.log
+          if [ "$status" -ne 0 ]; then
+            { echo 'Ruff failure from causal sequence payload:'; echo '```'; tail -n 180 /tmp/ruff.log; echo '```'; } > /tmp/ruff-comment.md
+            gh issue comment 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/ruff-comment.md
+            exit "$status"
+          fi
       - name: Run causal sequence focused tests
         run: |
           uv run pytest -q \

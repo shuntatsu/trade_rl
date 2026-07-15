@@ -10,22 +10,23 @@
     ],
     "learning_rate": 0.0003,
     "n_steps": 2048,
+    "n_envs": 4,
     "batch_size": 64,
     "n_epochs": 10,
     "gae_lambda": 0.95,
     "ent_coef": 0.001,
-    "device": "cpu",
+    "device": "cuda",
     "decision_hours": 1.0,
     "discount_half_life_hours": 168.0,
     "log_std_init": -0.7,
     "target_kl": 0.02,
     "policy_net_arch": [
-      128,
-      128
+      256,
+      256
     ],
     "asset_set_encoder": true,
-    "asset_embedding_dim": 64,
-    "global_embedding_dim": 64,
+    "asset_embedding_dim": 128,
+    "global_embedding_dim": 128,
     "algorithm": "ppo",
     "checkpoint_interval_steps": 32768,
     "max_checkpoints": 8

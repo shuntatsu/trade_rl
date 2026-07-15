@@ -13,13 +13,18 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     config = TrainingRunConfig.from_json(EXAMPLE_ROOT / "training-full.json")
 
     assert config.training.algorithm == "ppo"
-    assert config.training.device == "cpu"
+    assert (
+        config.training.device,
+        config.training.n_envs,
+        config.training.policy_net_arch,
+        config.training.asset_embedding_dim,
+        config.training.global_embedding_dim,
+    ) == ("cuda", 4, (256, 256), 128, 128)
     assert config.training.seeds == (0, 1, 2)
     assert config.training.timesteps >= 262_144
     assert config.training.n_steps == 2_048
     assert config.training.batch_size == 64
     assert config.training.n_epochs == 10
-    assert config.training.policy_net_arch == (128, 128)
     assert config.environment.decision_hours == 1.0
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
@@ -43,6 +48,13 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
     assert len(folds) == 2
     assert len(config.candidates) == 1
     candidate = config.candidates[0].run
+    assert (
+        candidate.training.device,
+        candidate.training.n_envs,
+        candidate.training.policy_net_arch,
+        candidate.training.asset_embedding_dim,
+        candidate.training.global_embedding_dim,
+    ) == ("cuda", 4, (256, 256), 128, 128)
     assert candidate.training.seeds == (0, 1, 2)
     assert candidate.training.timesteps >= 65_536
     assert candidate.environment.decision_hours == 1.0

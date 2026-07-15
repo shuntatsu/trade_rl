@@ -41,7 +41,6 @@ class ResidualTrainingConfig:
     seeds: tuple[int, ...]
     learning_rate: float = 3e-4
     n_steps: int = 2_048
-    n_envs: int = 1
     batch_size: int = 64
     n_epochs: int = 10
     gae_lambda: float = 0.95
@@ -69,6 +68,7 @@ class ResidualTrainingConfig:
     gradient_steps: int = 1
     checkpoint_interval_steps: int | None = None
     max_checkpoints: int = 5
+    n_envs: int = 1
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (

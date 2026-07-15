@@ -50,3 +50,10 @@ def test_ppo_batch_and_timestep_rounding_use_complete_vector_rollout() -> None:
     )
 
     assert config.rounded_timesteps == 16
+
+
+def test_vector_environment_width_preserves_existing_positional_arguments() -> None:
+    config = ResidualTrainingConfig(8, 0.99, (0,), 3e-4, 8, 8)
+
+    assert config.batch_size == 8
+    assert config.n_envs == 1

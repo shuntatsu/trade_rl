@@ -17,6 +17,7 @@
 - The host has one CUDA-capable GPU, so seeds run sequentially. Parallelism is inside each seed through vectorized environments.
 - Docker Desktop exposes the GPU through the Compose `gpus: all` contract.
 - Named-volume data may be reused by later container invocations, but published dataset identities are always revalidated before use.
+- The final evidence run freezes two 360-hour outer windows from 2026-06-01 through 2026-07-01. Pre-June outer windows are development validation and are not reused as sealed evidence.
 
 ## Architecture
 
@@ -33,7 +34,7 @@ The full preset uses CUDA, four rollout environments, a `[256, 256]` policy/valu
 3. Two independent dataset artifacts are built and their IDs and digests are compared.
 4. The training configuration is materialized next to the dataset and factor artifact.
 5. Three PPO seeds train sequentially, each with four parallel rollout environments and GPU updates.
-6. Two-fold walk-forward evaluation trains fold-local candidates and opens sealed tests only after selection.
+6. Two-fold walk-forward evaluation keeps the top three checkpoint-validation policies per seed, chooses the fold policy on configuration-selection data, and opens each post-June outer test only after selection.
 7. A final gate writes machine-readable evidence and fails the process when any required threshold is missed.
 
 ## Failure and recovery

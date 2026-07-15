@@ -31,7 +31,10 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.n_steps == 2_048
     assert config.training.batch_size == 64
     assert config.training.n_epochs == 10
-    assert config.environment.decision_hours == 1.0
+    assert config.training.gamma == pytest.approx(0.98363193244419)
+    assert config.training.decision_hours == 4.0
+    assert config.environment.decision_hours == 4.0
+    assert config.risk.max_turnover == 0.02
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
     assert config.action.n_factors == 3
@@ -47,11 +50,14 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
 def test_full_walk_forward_config_has_two_material_folds() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / "walk-forward-full.json",
-        n_bars=13_128,
+        n_bars=13_848,
     )
 
     folds = config.workflow.build_folds()
     assert len(folds) == 2
+    assert config.checkpoint_finalists_per_seed == 3
+    assert (folds[0].test.start, folds[0].test.stop) == (13_128, 13_488)
+    assert (folds[1].test.start, folds[1].test.stop) == (13_488, 13_848)
     assert len(config.candidates) == 1
     candidate = config.candidates[0].run
     assert (
@@ -63,7 +69,10 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
     ) == ("cuda", 4, (256, 256), 128, 128)
     assert candidate.training.seeds == (0, 1, 2)
     assert candidate.training.timesteps >= 65_536
-    assert candidate.environment.decision_hours == 1.0
+    assert candidate.training.gamma == pytest.approx(0.98363193244419)
+    assert candidate.training.decision_hours == 4.0
+    assert candidate.environment.decision_hours == 4.0
+    assert candidate.risk.max_turnover == 0.02
     assert not candidate.action.risk_tilt_enabled
     assert candidate.action.n_factors == 3
     assert candidate.factor_artifact == EXAMPLE_ROOT / "relative-factor-artifact"
@@ -77,8 +86,8 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     for timeframe in ("15m", "1h", "4h", "1d"):
         assert timeframe in content
     assert "2024-12-01T00:00:00Z" in content
-    assert "2026-06-01T00:00:00Z" in content
-    assert "13_128" in content
+    assert "2026-07-01T00:00:00Z" in content
+    assert "13_848" in content
     assert "dataset_id" in content
     assert "artifact_digest" in content
     assert "binance_multitimeframe_feature_specs" in content

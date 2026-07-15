@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
-from trade_rl.workflows.market_walk_forward import execute_market_walk_forward
+from trade_rl.workflows.market_walk_forward import (
+    _experiment_plan_digest,
+    execute_market_walk_forward,
+)
+from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 
 
 def _dataset() -> MarketDataset:
@@ -80,6 +85,65 @@ def _candidate_run() -> dict[str, object]:
     }
 
 
+def test_experiment_plan_binds_workflow_and_complete_candidate_config(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "walk-forward.json"
+    path.write_text(
+        json.dumps(
+            {
+                "workflow": {
+                    "train_bars": 30,
+                    "checkpoint_bars": 6,
+                    "selection_bars": 6,
+                    "test_bars": 6,
+                    "purge_bars": 1,
+                    "max_folds": 1,
+                },
+                "checkpoint_finalists_per_seed": 2,
+                "candidates": [{"name": "ppo", "run": _candidate_run()}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = MarketWalkForwardConfig.from_json(path, n_bars=64)
+    original = _experiment_plan_digest(config, dataset_id="a" * 64)
+    changed_workflow = replace(
+        config,
+        workflow=replace(config.workflow, test_bars=7),
+    )
+    changed_training = replace(
+        config,
+        candidates=(
+            replace(
+                config.candidates[0],
+                run=replace(
+                    config.candidates[0].run,
+                    training=replace(
+                        config.candidates[0].run.training,
+                        seeds=(0, 1),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    assert (
+        _experiment_plan_digest(
+            changed_workflow,
+            dataset_id="a" * 64,
+        )
+        != original
+    )
+    assert (
+        _experiment_plan_digest(
+            changed_training,
+            dataset_id="a" * 64,
+        )
+        != original
+    )
+
+
 def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     tmp_path: Path,
 ) -> None:
@@ -115,9 +179,32 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     published = tmp_path / "artifacts" / "runs" / "wf-001"
     payload = json.loads((published / "walk-forward.json").read_text(encoding="utf-8"))
     assert payload["dataset_id"] == _dataset().dataset_id
+    assert payload["schema_version"] == "market_walk_forward_run_v3_seed_aware"
+    assert len(payload["experiment_plan_digest"]) == 64
     assert len(payload["folds"]) == 1
     assert payload["folds"][0]["test_range"] == [45, 51]
     assert payload["folds"][0]["sealed_test_evaluations"] in (1, 2)
+    sealed_access = payload["folds"][0]["sealed_test_access"]
+    assert sealed_access["experiment_plan_digest"] == payload["experiment_plan_digest"]
+    assert len(sealed_access["access_digest"]) == 64
+    assert sealed_access["test_range"] == [45, 51]
+    assert payload["folds"][0]["schema_version"] == (
+        "market_walk_forward_fold_v2_seed_aware"
+    )
+    assert len(payload["folds"][0]["seed_finalists"]) == 1
+    finalist = payload["folds"][0]["seed_finalists"][0]
+    assert finalist["seed"] == 0
+    assert len(finalist["checkpoint_evaluation_digest"]) == 64
+    assert len(finalist["selection_evaluation_digest"]) == 64
+    checkpoint_selection = json.loads(
+        (
+            published / "fold-000" / "candidates" / "ppo" / "checkpoint-selection.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert checkpoint_selection["schema_version"] == (
+        "checkpoint_selection_v2_seed_aware"
+    )
+    assert len(checkpoint_selection["seed_finalists"]) == 1
     normalizer = json.loads(
         (published / "fold-000" / "normalizer.json").read_text(encoding="utf-8")
     )

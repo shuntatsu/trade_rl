@@ -1,15 +1,17 @@
 {
   "schema_version": "market_walk_forward_config_v1",
   "workflow": {
-    "train_bars": 7000,
+    "train_bars": 10984,
     "checkpoint_bars": 1000,
     "selection_bars": 1000,
-    "test_bars": 1800,
+    "test_bars": 360,
     "purge_bars": 48,
+    "step_bars": 360,
     "max_folds": 2,
     "expanding_train": true
   },
   "minimum_selection_uplift": 0.0,
+  "checkpoint_finalists_per_seed": 3,
   "candidates": [
     {
       "name": "ppo-multitimeframe",
@@ -17,7 +19,7 @@
         "schema_version": "training_run_config_v1",
         "training": {
           "timesteps": 65536,
-          "gamma": 0.9958826236582974,
+          "gamma": 0.98363193244419,
           "seeds": [
             0,
             1,
@@ -31,7 +33,7 @@
           "gae_lambda": 0.95,
           "ent_coef": 0.001,
           "device": "cuda",
-          "decision_hours": 1.0,
+          "decision_hours": 4.0,
           "discount_half_life_hours": 168.0,
           "log_std_init": -0.7,
           "target_kl": 0.02,
@@ -48,7 +50,7 @@
         },
         "environment": {
           "episode_hours": 720.0,
-          "decision_hours": 1.0,
+          "decision_hours": 4.0,
           "initial_capital": 100000.0,
           "finite_horizon_observation": true,
           "initial_state_modes": [
@@ -60,7 +62,7 @@
         "risk": {
           "max_gross": 1.0,
           "max_abs_weight": 0.45,
-          "max_turnover": 0.05,
+          "max_turnover": 0.02,
           "drawdown_start": 0.1,
           "drawdown_stop": 0.2,
           "emergency_turnover_override": true

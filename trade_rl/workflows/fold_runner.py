@@ -48,10 +48,15 @@ class FoldExecutionConfig:
     candidates: tuple[CandidateConfiguration, ...]
     minimum_selection_uplift: float
     selected_at: datetime
+    experiment_plan_digest: str
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
         require_sha256(self.signal_digest, field="signal_digest")
+        require_sha256(
+            self.experiment_plan_digest,
+            field="experiment_plan_digest",
+        )
         if not self.candidates:
             raise ValueError("at least one residual candidate is required")
         names = tuple(candidate.name for candidate in self.candidates)
@@ -63,18 +68,6 @@ class FoldExecutionConfig:
         ):
             raise ValueError("minimum_selection_uplift must be finite and non-negative")
         require_aware_datetime(self.selected_at, field="selected_at")
-
-    @property
-    def experiment_plan_digest(self) -> str:
-        return content_digest(
-            {
-                "candidates": tuple(candidate.name for candidate in self.candidates),
-                "dataset_id": self.dataset_id,
-                "minimum_selection_uplift": self.minimum_selection_uplift,
-                "schema_version": "fold_execution_plan_v2",
-                "signal_digest": self.signal_digest,
-            }
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,15 +89,123 @@ class CandidateTrainingRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class PolicyTrainingArtifact:
-    """Frozen checkpoint identity selected within one residual configuration."""
+class CheckpointPolicyEvaluation:
+    """Checkpoint-validation evidence for one policy from one random seed."""
+
+    seed: int
+    policy_digest: str
+    score: float
+    evaluation_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+        ):
+            raise ValueError("seed must be a non-negative integer")
+        require_sha256(self.policy_digest, field="policy_digest")
+        if not math.isfinite(self.score):
+            raise ValueError("checkpoint score must be finite")
+        require_sha256(self.evaluation_digest, field="evaluation_digest")
+
+
+@dataclass(frozen=True, slots=True)
+class SeedPolicyFinalist:
+    """Auditable checkpoint-validation winner for one seed."""
+
+    seed: int
+    policy_digest: str
+    checkpoint_score: float
+    checkpoint_evaluation_digest: str
+
+    def __post_init__(self) -> None:
+        CheckpointPolicyEvaluation(
+            seed=self.seed,
+            policy_digest=self.policy_digest,
+            score=self.checkpoint_score,
+            evaluation_digest=self.checkpoint_evaluation_digest,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SeedFinalistSelection:
+    """Configuration-selection evidence attached to a seed-local finalist."""
 
     configuration: str
+    seed: int
     policy_digest: str
+    checkpoint_score: float
+    checkpoint_evaluation_digest: str
+    selection_score: float
+    selection_evaluation_digest: str
 
     def __post_init__(self) -> None:
         require_non_empty(self.configuration, field="configuration")
-        require_sha256(self.policy_digest, field="policy_digest")
+        SeedPolicyFinalist(
+            seed=self.seed,
+            policy_digest=self.policy_digest,
+            checkpoint_score=self.checkpoint_score,
+            checkpoint_evaluation_digest=self.checkpoint_evaluation_digest,
+        )
+        if not math.isfinite(self.selection_score):
+            raise ValueError("selection score must be finite")
+        require_sha256(
+            self.selection_evaluation_digest,
+            field="selection_evaluation_digest",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyTrainingArtifact:
+    """Checkpoint-validation finalists for one residual configuration."""
+
+    configuration: str
+    seed_finalists: tuple[SeedPolicyFinalist, ...]
+
+    def __post_init__(self) -> None:
+        require_non_empty(self.configuration, field="configuration")
+        if not self.seed_finalists:
+            raise ValueError("training artifact requires seed finalists")
+        policy_digests = tuple(
+            finalist.policy_digest for finalist in self.seed_finalists
+        )
+        if len(set(policy_digests)) != len(policy_digests):
+            raise ValueError("seed finalists must have unique policy digests")
+
+
+def select_seed_checkpoint_finalists(
+    *,
+    checkpoint_evaluations: tuple[CheckpointPolicyEvaluation, ...],
+    finalists_per_seed: int = 1,
+) -> tuple[SeedPolicyFinalist, ...]:
+    """Select a fixed top-k of checkpoint-validation winners for every seed."""
+
+    if not checkpoint_evaluations:
+        raise ValueError("checkpoint evaluations cannot be empty")
+    if (
+        isinstance(finalists_per_seed, bool)
+        or not isinstance(finalists_per_seed, int)
+        or finalists_per_seed <= 0
+    ):
+        raise ValueError("finalists_per_seed must be a positive integer")
+    checkpoint_digests = tuple(item.policy_digest for item in checkpoint_evaluations)
+    if len(set(checkpoint_digests)) != len(checkpoint_digests):
+        raise ValueError("checkpoint policy digests must be unique")
+    seeds = sorted({item.seed for item in checkpoint_evaluations})
+    return tuple(
+        SeedPolicyFinalist(
+            seed=winner.seed,
+            policy_digest=winner.policy_digest,
+            checkpoint_score=winner.score,
+            checkpoint_evaluation_digest=winner.evaluation_digest,
+        )
+        for seed in seeds
+        for winner in sorted(
+            (item for item in checkpoint_evaluations if item.seed == seed),
+            key=lambda item: (-item.score, item.policy_digest),
+        )[:finalists_per_seed]
+    )
 
 
 class EvaluationPhase(StrEnum):
@@ -171,6 +272,7 @@ class FoldExecutionResult:
     test_evaluation_digest: str
     selected_oos: FoldOOSResult
     baseline_oos: FoldOOSResult
+    seed_finalists: tuple[SeedFinalistSelection, ...] = ()
     sealed_test_access: SealedTestAccessRecord | None = None
 
     def __post_init__(self) -> None:
@@ -280,15 +382,44 @@ class ConcreteFoldRunner:
             policy_digest=None,
         )
         candidate_selection: dict[str, CandidateEvaluation] = {}
+        candidate_winners: dict[str, SeedFinalistSelection] = {}
+        seed_finalists: list[SeedFinalistSelection] = []
         for candidate in self.config.candidates:
             artifact = artifacts[candidate.name]
-            candidate_selection[candidate.name] = self._evaluate(
-                fold=fold,
-                phase=EvaluationPhase.CONFIGURATION_SELECTION,
-                evaluation_range=fold.configuration_selection,
-                configuration=candidate.name,
-                policy_digest=artifact.policy_digest,
+            evaluated_finalists: list[
+                tuple[SeedFinalistSelection, CandidateEvaluation]
+            ] = []
+            for finalist in artifact.seed_finalists:
+                evaluation = self._evaluate(
+                    fold=fold,
+                    phase=EvaluationPhase.CONFIGURATION_SELECTION,
+                    evaluation_range=fold.configuration_selection,
+                    configuration=candidate.name,
+                    policy_digest=finalist.policy_digest,
+                )
+                evidence = SeedFinalistSelection(
+                    configuration=candidate.name,
+                    seed=finalist.seed,
+                    policy_digest=finalist.policy_digest,
+                    checkpoint_score=finalist.checkpoint_score,
+                    checkpoint_evaluation_digest=(
+                        finalist.checkpoint_evaluation_digest
+                    ),
+                    selection_score=evaluation.score,
+                    selection_evaluation_digest=evaluation.evaluation_digest,
+                )
+                evaluated_finalists.append((evidence, evaluation))
+                seed_finalists.append(evidence)
+            winner, winner_evaluation = min(
+                evaluated_finalists,
+                key=lambda item: (
+                    -item[0].selection_score,
+                    item[0].seed,
+                    item[0].policy_digest,
+                ),
             )
+            candidate_winners[candidate.name] = winner
+            candidate_selection[candidate.name] = winner_evaluation
 
         selection_evaluation_digest = content_digest(
             {
@@ -300,10 +431,27 @@ class ConcreteFoldRunner:
                     {
                         "configuration": name,
                         "digest": evaluation.evaluation_digest,
-                        "policy_digest": artifacts[name].policy_digest,
+                        "policy_digest": candidate_winners[name].policy_digest,
                         "score": evaluation.score,
                     }
                     for name, evaluation in sorted(candidate_selection.items())
+                ),
+                "seed_finalists": tuple(
+                    {
+                        "checkpoint_evaluation_digest": (
+                            item.checkpoint_evaluation_digest
+                        ),
+                        "checkpoint_score": item.checkpoint_score,
+                        "configuration": item.configuration,
+                        "policy_digest": item.policy_digest,
+                        "seed": item.seed,
+                        "selection_evaluation_digest": item.selection_evaluation_digest,
+                        "selection_score": item.selection_score,
+                    }
+                    for item in sorted(
+                        seed_finalists,
+                        key=lambda item: (item.configuration, item.seed),
+                    )
                 ),
                 "dataset_id": self.config.dataset_id,
                 "fold_index": fold.fold_index,
@@ -334,7 +482,9 @@ class ConcreteFoldRunner:
             )
         else:
             selected_configuration = selected_candidate[0]
-            selected_policy_digest = artifacts[selected_configuration].policy_digest
+            selected_policy_digest = candidate_winners[
+                selected_configuration
+            ].policy_digest
             mode = PolicyMode.RESIDUAL_POLICY
             reasons = (
                 "selected residual candidate exceeded the baseline selection threshold",
@@ -402,5 +552,8 @@ class ConcreteFoldRunner:
             test_evaluation_digest=test_evaluation_digest,
             selected_oos=selected_oos,
             baseline_oos=baseline_oos,
+            seed_finalists=tuple(
+                sorted(seed_finalists, key=lambda item: (item.configuration, item.seed))
+            ),
             sealed_test_access=sealed_test_access,
         )

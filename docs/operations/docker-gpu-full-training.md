@@ -121,6 +121,15 @@ are:
 absent when an earlier stage fails. Inspect the container logs and any
 persisted stage logs in that case.
 
+The maintained July 2026 preset freezes two non-overlapping 360-hour outer
+windows covering `2026-06-01T00:00:00Z` through
+`2026-07-01T00:00:00Z`. Earlier outer windows were used during development and
+must not be described as sealed evidence. Within each fold, checkpoint data
+retains the top three policies per seed; configuration-selection data chooses
+among those finalists before the outer window is opened. Each fold artifact
+records the full experiment-plan digest and sealed-access digest needed to
+audit that ordering.
+
 ## Copy artifacts to the host
 
 In PowerShell, create the host destination and resolve it to an absolute path:

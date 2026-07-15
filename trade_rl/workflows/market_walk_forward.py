@@ -41,10 +41,12 @@ from trade_rl.workflows.fold_runner import (
     CandidateEvaluationRequest,
     CandidateTrainer,
     CandidateTrainingRequest,
+    CheckpointPolicyEvaluation,
     ConcreteFoldRunner,
     EvaluationPhase,
     FoldExecutionConfig,
     PolicyTrainingArtifact,
+    select_seed_checkpoint_finalists,
 )
 from trade_rl.workflows.market_walk_forward_config import (
     MarketWalkForwardConfig as MarketWalkForwardConfig,
@@ -90,6 +92,25 @@ class _PolicyRecord:
     algorithm: str
     normalizer: ObservationNormalizer
     run: TrainingRunConfig
+
+
+def _experiment_plan_digest(
+    config: MarketWalkForwardConfig,
+    *,
+    dataset_id: str,
+) -> str:
+    """Bind sealed access to the full workflow, candidates, and selector."""
+
+    return content_digest(
+        {
+            "dataset_id": dataset_id,
+            "market_walk_forward_config": config.digest_payload(),
+            "schema_version": "market_walk_forward_experiment_plan_v1",
+            "selection_protocol": (
+                "checkpoint_top_k_per_seed_then_configuration_selection_v1"
+            ),
+        }
+    )
 
 
 def _training_view_bounds(
@@ -225,6 +246,7 @@ class MarketCandidateTrainer(CandidateTrainer):
         root: Path,
         created_at: datetime,
         registry: dict[str, _PolicyRecord],
+        checkpoint_finalists_per_seed: int = 1,
         checkpoint_loader: PolicyCheckpointLoader | None = None,
     ) -> None:
         self.dataset = dataset
@@ -232,6 +254,7 @@ class MarketCandidateTrainer(CandidateTrainer):
         self.root = root
         self.created_at = created_at
         self.registry = registry
+        self.checkpoint_finalists_per_seed = checkpoint_finalists_per_seed
         self.checkpoint_loader = checkpoint_loader or StableBaselines3CheckpointLoader()
         self._normalizers: dict[tuple[int, str], ObservationNormalizer] = {}
 
@@ -338,17 +361,19 @@ class MarketCandidateTrainer(CandidateTrainer):
         _write_json(candidate_root / "ensemble.json", asdict(ensemble))
         _write_json(candidate_root / "training-config.json", run.digest_payload())
 
-        scored: list[tuple[float, str]] = []
+        scored: list[CheckpointPolicyEvaluation] = []
         for index, member in enumerate(ensemble.members):
             member_root = candidate_root / "members" / f"member-{index:03d}"
             candidates = [
-                (member.checkpoint_digest, member_root / "policy.zip"),
+                (member.seed, member.checkpoint_digest, member_root / "policy.zip"),
                 *(
-                    (checkpoint.policy_digest, checkpoint.policy_path)
+                    (checkpoint.seed, checkpoint.policy_digest, checkpoint.policy_path)
                     for checkpoint in checkpoint_manifests(member_root / "checkpoints")
                 ),
             ]
-            for policy_digest, path in candidates:
+            if any(seed != member.seed for seed, _, _ in candidates):
+                raise ValueError("checkpoint seed does not match ensemble member seed")
+            for seed, policy_digest, path in candidates:
                 record = _PolicyRecord(
                     path=path,
                     algorithm=run.training.algorithm,
@@ -368,26 +393,70 @@ class MarketCandidateTrainer(CandidateTrainer):
                     baseline=False,
                 )
                 score = sum(math.log1p(value) for value in evidence.returns.values)
-                scored.append((score, policy_digest))
-        selected_digest = min(scored, key=lambda item: (-item[0], item[1]))[1]
+                evaluation_digest = content_digest(
+                    {
+                        "dataset_id": request.dataset_id,
+                        "diagnostics": evidence.diagnostics.digest_payload(),
+                        "fold_index": request.fold_index,
+                        "phase": "checkpoint_validation",
+                        "policy_digest": policy_digest,
+                        "range": (
+                            request.checkpoint_validation.start,
+                            request.checkpoint_validation.stop,
+                        ),
+                        "returns": evidence.returns.values,
+                        "score": score,
+                        "seed": seed,
+                    }
+                )
+                scored.append(
+                    CheckpointPolicyEvaluation(
+                        seed=seed,
+                        policy_digest=policy_digest,
+                        score=score,
+                        evaluation_digest=evaluation_digest,
+                    )
+                )
+        finalists = select_seed_checkpoint_finalists(
+            checkpoint_evaluations=tuple(scored),
+            finalists_per_seed=self.checkpoint_finalists_per_seed,
+        )
         _write_json(
             candidate_root / "checkpoint-selection.json",
             {
                 "candidates": tuple(
-                    {"policy_digest": digest, "score": score}
-                    for score, digest in sorted(scored, key=lambda item: item[1])
+                    {
+                        "evaluation_digest": item.evaluation_digest,
+                        "policy_digest": item.policy_digest,
+                        "score": item.score,
+                        "seed": item.seed,
+                    }
+                    for item in sorted(
+                        scored,
+                        key=lambda item: (item.seed, item.policy_digest),
+                    )
                 ),
                 "checkpoint_range": [
                     request.checkpoint_validation.start,
                     request.checkpoint_validation.stop,
                 ],
-                "schema_version": "checkpoint_selection_v1",
-                "selected_policy_digest": selected_digest,
+                "schema_version": "checkpoint_selection_v2_seed_aware",
+                "seed_finalists": tuple(
+                    {
+                        "checkpoint_evaluation_digest": (
+                            finalist.checkpoint_evaluation_digest
+                        ),
+                        "checkpoint_score": finalist.checkpoint_score,
+                        "policy_digest": finalist.policy_digest,
+                        "seed": finalist.seed,
+                    }
+                    for finalist in finalists
+                ),
             },
         )
         return PolicyTrainingArtifact(
             configuration=request.configuration.name,
-            policy_digest=selected_digest,
+            seed_finalists=finalists,
         )
 
 
@@ -475,6 +544,9 @@ def _fold_payload(
     *,
     sealed_test_evaluations: int,
 ) -> dict[str, object]:
+    access = result.sealed_test_access
+    if access is None:
+        raise RuntimeError("sealed test access evidence is missing")
     return {
         "baseline_diagnostics": result.baseline_oos.diagnostics.digest_payload(),
         "baseline_returns": result.baseline_oos.returns.values,
@@ -483,12 +555,34 @@ def _fold_payload(
             fold.checkpoint_validation.stop,
         ],
         "fold_index": fold.fold_index,
-        "schema_version": "market_walk_forward_fold_v1",
+        "schema_version": "market_walk_forward_fold_v2_seed_aware",
+        "sealed_test_access": {
+            "access_digest": access.access_digest,
+            "dataset_id": access.dataset_id,
+            "experiment_plan_digest": access.experiment_plan_digest,
+            "fold_index": access.fold_index,
+            "schema_version": "sealed_test_access_v1",
+            "selected_configuration": access.selected_configuration,
+            "selected_policy_digest": access.selected_policy_digest,
+            "test_range": [access.test_range.start, access.test_range.stop],
+        },
         "sealed_test_evaluations": sealed_test_evaluations,
         "selected_configuration": result.selection.selected_configuration,
         "selected_policy_digest": result.selection.selected_policy_digest,
         "selected_diagnostics": result.selected_oos.diagnostics.digest_payload(),
         "selected_returns": result.selected_oos.returns.values,
+        "seed_finalists": tuple(
+            {
+                "checkpoint_evaluation_digest": item.checkpoint_evaluation_digest,
+                "checkpoint_score": item.checkpoint_score,
+                "configuration": item.configuration,
+                "policy_digest": item.policy_digest,
+                "seed": item.seed,
+                "selection_evaluation_digest": item.selection_evaluation_digest,
+                "selection_score": item.selection_score,
+            }
+            for item in result.seed_finalists
+        ),
         "selection_digest": result.selection.digest,
         "selection_range": [
             fold.configuration_selection.start,
@@ -531,6 +625,10 @@ def execute_market_walk_forward(
     config = MarketWalkForwardConfig.from_json(config_path, n_bars=dataset.n_bars)
     resolved_signal = resolve_signal_digest(config, dataset_id=dataset.dataset_id)
     config = replace(config, signal_digest=resolved_signal)
+    experiment_plan_digest = _experiment_plan_digest(
+        config,
+        dataset_id=dataset.dataset_id,
+    )
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
     registry: dict[str, _PolicyRecord] = {}
@@ -541,6 +639,7 @@ def execute_market_walk_forward(
         root=stage,
         created_at=resolved_created_at,
         registry=registry,
+        checkpoint_finalists_per_seed=config.checkpoint_finalists_per_seed,
     )
     evaluator = MarketCandidateEvaluator(
         dataset=dataset,
@@ -557,6 +656,7 @@ def execute_market_walk_forward(
                 ),
                 minimum_selection_uplift=config.minimum_selection_uplift,
                 selected_at=resolved_created_at,
+                experiment_plan_digest=experiment_plan_digest,
             ),
             trainer=trainer,
             evaluator=evaluator,
@@ -603,9 +703,10 @@ def execute_market_walk_forward(
             ),
             "dataset_id": dataset.dataset_id,
             "evaluation_digest": result.evaluation_digest,
+            "experiment_plan_digest": experiment_plan_digest,
             "folds": tuple(folds_payload),
             "production_status": "NO-GO",
-            "schema_version": "market_walk_forward_run_v2",
+            "schema_version": "market_walk_forward_run_v3_seed_aware",
             "selected_metrics": (
                 None
                 if result.selected_metrics is None

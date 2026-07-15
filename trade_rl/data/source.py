@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
@@ -110,6 +110,13 @@ class RawMarketSeries:
 
 class MarketDataSource(Protocol):
     def load(self, symbol: str) -> RawMarketSeries: ...
+
+
+@runtime_checkable
+class MultiTimeframeMarketDataSource(MarketDataSource, Protocol):
+    """Source capable of loading one symbol on an explicitly requested clock."""
+
+    def load_timeframe(self, symbol: str, timeframe: str) -> RawMarketSeries: ...
 
 
 class InMemoryMarketDataSource:

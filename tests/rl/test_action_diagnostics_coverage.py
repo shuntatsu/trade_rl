@@ -53,6 +53,10 @@ def test_alpha_contract_converts_all_supported_semantics() -> None:
             lambda: ActionSpec(alpha_enabled=1),
             "boolean",
         ),
+        (
+            lambda: ActionSpec(risk_tilt_enabled=1),
+            "boolean",
+        ),
         (lambda: ActionSpec(n_factors=-1), "non-negative"),
         (
             lambda: ActionSpec(validation_mode="unknown"),

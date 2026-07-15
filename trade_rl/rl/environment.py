@@ -417,6 +417,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "action_schema": ACTION_SCHEMA,
             "action_spec": {
                 "alpha_enabled": self.action_spec.alpha_enabled,
+                "risk_tilt_enabled": self.action_spec.risk_tilt_enabled,
                 "n_factors": self.action_spec.n_factors,
                 "names": self.action_spec.names,
                 "validation_mode": ActionValidationMode(
@@ -502,6 +503,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             {
                 "schema_version": ACTION_SCHEMA,
                 "alpha_enabled": self.action_spec.alpha_enabled,
+                "risk_tilt_enabled": self.action_spec.risk_tilt_enabled,
                 "n_factors": self.action_spec.n_factors,
                 "names": self.action_spec.names,
                 "validation_mode": ActionValidationMode(
@@ -1052,7 +1054,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             else:
                 migrated[1] = -legacy.trend_mix
             if self.alpha_enabled:
-                migrated[3] = legacy.alpha_budget
+                migrated[self.action_spec.names.index("alpha_scale")] = (
+                    legacy.alpha_budget
+                )
             saturated = int(np.count_nonzero(np.abs(vector) > 1.0))
             return (
                 legacy,
@@ -1063,7 +1067,10 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         parsed = self.action_spec.parse(value)
         return (
             parsed,
-            parsed.as_array(alpha_enabled=self.alpha_enabled),
+            parsed.as_array(
+                alpha_enabled=self.alpha_enabled,
+                risk_tilt_enabled=self.action_spec.risk_tilt_enabled,
+            ),
             parsed.saturated_count,
             parsed.raw_max_abs,
         )

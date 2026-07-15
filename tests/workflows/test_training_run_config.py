@@ -35,7 +35,8 @@ def test_training_config_accepts_alpha_artifact_path() -> None:
     raw = _mapping()
     raw["alpha_artifact"] = "artifacts/alpha"
     config = TrainingRunConfig.from_mapping(raw)
-    assert str(config.alpha_artifact) == "artifacts/alpha"
+    assert config.alpha_artifact is not None
+    assert config.alpha_artifact.as_posix() == "artifacts/alpha"
 
 
 def test_training_config_from_json_resolves_signal_artifact_paths(

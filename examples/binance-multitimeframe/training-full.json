@@ -1,0 +1,91 @@
+{
+  "schema_version": "training_run_config_v1",
+  "training": {
+    "timesteps": 131072,
+    "gamma": 0.98363193244419,
+    "seeds": [0, 1, 2],
+    "learning_rate": 0.0003,
+    "n_steps": 2048,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gae_lambda": 0.95,
+    "ent_coef": 0.001,
+    "device": "cpu",
+    "decision_hours": 4.0,
+    "discount_half_life_hours": 168.0,
+    "log_std_init": -0.7,
+    "target_kl": 0.02,
+    "policy_net_arch": [128, 128],
+    "asset_set_encoder": true,
+    "asset_embedding_dim": 64,
+    "global_embedding_dim": 64,
+    "algorithm": "ppo",
+    "checkpoint_interval_steps": 16384,
+    "max_checkpoints": 8
+  },
+  "environment": {
+    "episode_hours": 720.0,
+    "decision_hours": 4.0,
+    "initial_capital": 100000.0,
+    "finite_horizon_observation": true,
+    "initial_state_modes": ["cash", "baseline"],
+    "episode_sampling_mode": "uniform"
+  },
+  "risk": {
+    "max_gross": 1.0,
+    "max_abs_weight": 0.45,
+    "max_turnover": 0.05,
+    "drawdown_start": 0.1,
+    "drawdown_stop": 0.2,
+    "emergency_turnover_override": true
+  },
+  "portfolio_risk": {
+    "max_abs_weight": 0.45,
+    "max_net_exposure": 1.0,
+    "max_position_to_market_notional": 0.02
+  },
+  "reward": {
+    "absolute_growth_weight": 1.0,
+    "excess_growth_weight": 0.1,
+    "incremental_drawdown_weight": 0.05,
+    "baseline_underperformance_weight": 0.1,
+    "baseline_window_hours": 720.0,
+    "baseline_minimum_history_hours": 720.0,
+    "baseline_tolerance": 0.015,
+    "projection_penalty_weight": 0.01
+  },
+  "trend": {
+    "fast_hours": 24.0,
+    "base_hours": 168.0,
+    "slow_hours": 720.0,
+    "mode": "time_series",
+    "signal_scale": 0.1
+  },
+  "action": {
+    "alpha_enabled": false,
+    "risk_tilt_enabled": false,
+    "n_factors": 3,
+    "validation_mode": "clip"
+  },
+  "factor_artifact": "relative-factor-artifact",
+  "alpha_contract": {
+    "kind": "target_weight",
+    "expected_return_scale": 0.01,
+    "max_gross": 1.0
+  },
+  "execution": {
+    "fee_rate": 0.0005,
+    "spread_rate": 0.0002,
+    "impact_rate": 0.0002,
+    "max_participation_rate": 0.02,
+    "allow_short": true,
+    "max_leverage": 1.0,
+    "margin_mode": "cross",
+    "order_type": "market"
+  },
+  "exports": {
+    "onnx": false,
+    "torchscript": false,
+    "tolerance": 0.00001
+  }
+}

@@ -20,7 +20,12 @@ from trade_rl.data.identity import (
     content_and_arrays_digest,
 )
 from trade_rl.data.market import MarketDataset
-from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.data.multitimeframe import align_native_feature
+from trade_rl.data.source import (
+    MarketDataSource,
+    MultiTimeframeMarketDataSource,
+    RawMarketSeries,
+)
 
 _NS_PER_HOUR = 3_600_000_000_000
 
@@ -317,24 +322,48 @@ class MarketDatasetBuilder:
         feature_available = np.zeros_like(features, dtype=np.bool_)
         feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
-        for symbol_index in range(n_symbols):
+        native_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        for symbol_index, contract in enumerate(instruments):
             for feature_index, spec in enumerate(self.config.features):
-                event_values, event_valid = _feature_events(
-                    spec,
-                    close=close[:, symbol_index],
-                    volume=volume[:, symbol_index],
-                    funding_rate=funding_rate[:, symbol_index],
-                    funding_available=funding_available[:, symbol_index],
-                    row_present=causal_row_present[:, symbol_index],
-                    active=symbol_active[:, symbol_index],
-                )
-                values, available, age_hours, staleness = _carry_feature(
-                    event_values,
-                    event_valid,
-                    symbol_active[:, symbol_index],
-                    timestamps,
-                    max_staleness_hours=spec.max_staleness_hours,
-                )
+                native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
+                if native_timeframe == self.config.base_timeframe:
+                    event_values, event_valid = _feature_events(
+                        spec,
+                        close=close[:, symbol_index],
+                        volume=volume[:, symbol_index],
+                        funding_rate=funding_rate[:, symbol_index],
+                        funding_available=funding_available[:, symbol_index],
+                        row_present=causal_row_present[:, symbol_index],
+                        active=symbol_active[:, symbol_index],
+                    )
+                    values, available, age_hours, staleness = _carry_feature(
+                        event_values,
+                        event_valid,
+                        symbol_active[:, symbol_index],
+                        timestamps,
+                        max_staleness_hours=spec.max_staleness_hours,
+                    )
+                else:
+                    if not isinstance(source, MultiTimeframeMarketDataSource):
+                        raise ValueError(
+                            "native multi-timeframe features require a "
+                            "MultiTimeframeMarketDataSource"
+                        )
+                    key = (contract.symbol, native_timeframe)
+                    native = native_cache.get(key)
+                    if native is None:
+                        native = source.load_timeframe(
+                            contract.symbol, native_timeframe
+                        )
+                        native_cache[key] = native
+                    values, available, age_hours, staleness = align_native_feature(
+                        spec,
+                        native,
+                        contract,
+                        timestamps,
+                        symbol_active[:, symbol_index],
+                        timeframe=native_timeframe,
+                    )
                 features[:, symbol_index, feature_index] = values
                 feature_available[:, symbol_index, feature_index] = available
                 feature_age_hours[:, symbol_index, feature_index] = age_hours

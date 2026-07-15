@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final
@@ -20,6 +21,8 @@ def _validated_run_id(run_id: str) -> str:
 
 
 def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
@@ -35,6 +38,15 @@ def _atomic_write(path: Path, payload: bytes) -> None:
         os.fsync(handle.fileno())
     os.replace(temporary, path)
     _fsync_directory(path.parent)
+
+
+def _replace_directory(source: Path, destination: Path) -> None:
+    try:
+        os.replace(source, destination)
+    except PermissionError:
+        if os.name != "nt":
+            raise
+        shutil.move(str(source), str(destination))
 
 
 class ArtifactStore:
@@ -74,7 +86,7 @@ class ArtifactStore:
         published = self.runs_root / resolved_id
         if published.exists():
             raise FileExistsError(f"published run already exists: {resolved_id}")
-        os.replace(stage, published)
+        _replace_directory(stage, published)
         _fsync_directory(self.runs_root)
 
         pointer = {
@@ -94,6 +106,6 @@ class ArtifactStore:
         failed = self.failed_root / resolved_id
         if failed.exists():
             raise FileExistsError(f"failed run already exists: {resolved_id}")
-        os.replace(stage, failed)
+        _replace_directory(stage, failed)
         _fsync_directory(self.failed_root)
         return failed

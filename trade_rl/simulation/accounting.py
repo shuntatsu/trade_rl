@@ -115,7 +115,16 @@ class BookState:
         object.__setattr__(self, "contract_multipliers", multipliers)
         object.__setattr__(self, "termination_reason", reason)
         self._refresh_economic_state()
-        if not self.insolvent and self.peak_value + _TOLERANCE < self.portfolio_value:
+        portfolio_value = self.portfolio_value
+        comparison_tolerance = max(
+            _TOLERANCE,
+            abs(portfolio_value) * 1e-12,
+            abs(self.peak_value) * 1e-12,
+        )
+        if (
+            not self.insolvent
+            and self.peak_value + comparison_tolerance < portfolio_value
+        ):
             raise ValueError("peak_value cannot be below portfolio_value")
 
     @classmethod

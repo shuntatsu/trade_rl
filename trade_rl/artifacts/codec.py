@@ -53,7 +53,7 @@ def to_json_value(value: object) -> JsonValue:
     if isinstance(value, Enum):
         return to_json_value(value.value)
     if isinstance(value, Path):
-        return str(value)
+        return value.as_posix()
     if is_dataclass(value) and not isinstance(value, type):
         return _dataclass_value(value)
     if isinstance(value, Mapping):

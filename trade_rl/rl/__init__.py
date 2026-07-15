@@ -12,6 +12,7 @@ from typing import Any
 _MODULE_EXPORTS = {
     "trade_rl.rl.actions": (
         "ACTION_SCHEMA",
+        "ActionMode",
         "ActionSpec",
         "ActionValidationMode",
         "AlphaContract",
@@ -20,6 +21,7 @@ _MODULE_EXPORTS = {
         "ResidualAction",
         "ResidualActionV2",
         "ResidualComposition",
+        "TargetWeightAction",
     ),
     "trade_rl.rl.normalization": ("NORMALIZER_SCHEMA", "ObservationNormalizer"),
     "trade_rl.rl.observations": (

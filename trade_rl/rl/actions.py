@@ -10,7 +10,14 @@ import numpy as np
 from trade_rl.strategies.trend import TrendTargets
 
 LEGACY_ACTION_SCHEMA = "baseline_residual_v1"
-ACTION_SCHEMA = "baseline_residual_v2"
+ACTION_SCHEMA = "portfolio_action_v3"
+
+
+class ActionMode(str, Enum):
+    """Policy output semantics bound into the environment identity."""
+
+    RESIDUAL = "residual"
+    TARGET_WEIGHT = "target_weight"
 
 
 class AlphaSignalKind(str, Enum):
@@ -129,15 +136,49 @@ class ResidualAction:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetWeightAction:
+    """Direct per-symbol portfolio targets emitted by the policy."""
+
+    weights: np.ndarray
+    saturated_count: int = 0
+    raw_max_abs: float = 0.0
+
+    def __post_init__(self) -> None:
+        weights = np.asarray(self.weights, dtype=np.float64).reshape(-1).copy()
+        if weights.size == 0:
+            raise ValueError("target weights must not be empty")
+        if not np.isfinite(weights).all():
+            raise ValueError("target weights must be finite")
+        if np.any(np.abs(weights) > 1.0):
+            raise ValueError("target weights must be within [-1, 1]")
+        if self.saturated_count < 0:
+            raise ValueError("saturated_count must be non-negative")
+        if not np.isfinite(self.raw_max_abs) or self.raw_max_abs < 0.0:
+            raise ValueError("raw_max_abs must be finite and non-negative")
+        weights.setflags(write=False)
+        object.__setattr__(self, "weights", weights)
+
+    def as_array(self) -> np.ndarray:
+        return self.weights.astype(np.float32, copy=True)
+
+
+@dataclass(frozen=True, slots=True)
 class ActionSpec:
     """Exact maintained action layout for one environment identity."""
 
+    mode: ActionMode | str = ActionMode.RESIDUAL
     alpha_enabled: bool = False
     risk_tilt_enabled: bool = True
     n_factors: int = 0
+    target_weight_count: int = 0
     validation_mode: ActionValidationMode | str = ActionValidationMode.CLIP
 
     def __post_init__(self) -> None:
+        try:
+            action_mode = ActionMode(self.mode)
+        except ValueError as error:
+            raise ValueError("action mode is not supported") from error
+        object.__setattr__(self, "mode", action_mode)
         if not isinstance(self.alpha_enabled, bool):
             raise ValueError("alpha_enabled must be a boolean")
         if not isinstance(self.risk_tilt_enabled, bool):
@@ -148,6 +189,19 @@ class ActionSpec:
             or self.n_factors < 0
         ):
             raise ValueError("n_factors must be a non-negative integer")
+        if (
+            isinstance(self.target_weight_count, bool)
+            or not isinstance(self.target_weight_count, int)
+            or self.target_weight_count < 0
+        ):
+            raise ValueError("target_weight_count must be a non-negative integer")
+        if action_mode is ActionMode.TARGET_WEIGHT:
+            if self.alpha_enabled or self.risk_tilt_enabled or self.n_factors:
+                raise ValueError("target_weight mode does not accept residual controls")
+            if self.target_weight_count <= 0:
+                raise ValueError("target_weight mode requires positive target_weight_count")
+        elif self.target_weight_count:
+            raise ValueError("residual mode does not accept target_weight_count")
         try:
             mode = ActionValidationMode(self.validation_mode)
         except ValueError as error:
@@ -156,6 +210,10 @@ class ActionSpec:
 
     @property
     def names(self) -> tuple[str, ...]:
+        if self.mode is ActionMode.TARGET_WEIGHT:
+            return tuple(
+                f"target_weight:{index}" for index in range(self.target_weight_count)
+            )
         names = ["fast_tilt", "slow_tilt"]
         if self.risk_tilt_enabled:
             names.append("risk_tilt")
@@ -163,6 +221,13 @@ class ActionSpec:
             names.append("alpha_scale")
         names.extend(f"factor_{index}" for index in range(self.n_factors))
         return tuple(names)
+
+    def names_for_symbols(self, symbols: tuple[str, ...]) -> tuple[str, ...]:
+        if self.mode is ActionMode.TARGET_WEIGHT:
+            if len(symbols) != self.target_weight_count:
+                raise ValueError("target weight count does not match dataset symbols")
+            return tuple(f"target_weight:{symbol}" for symbol in symbols)
+        return self.names
 
     @property
     def size(self) -> int:
@@ -173,7 +238,7 @@ class ActionSpec:
         value: np.ndarray,
         *,
         mode: ActionValidationMode | str | None = None,
-    ) -> ResidualActionV2:
+    ) -> ResidualActionV2 | TargetWeightAction:
         vector = np.asarray(value, dtype=np.float64).reshape(-1)
         if vector.shape != (self.size,):
             raise ValueError(
@@ -195,6 +260,12 @@ class ActionSpec:
             )
             raise ValueError(label)
         clipped = np.clip(vector, -1.0, 1.0)
+        if self.mode is ActionMode.TARGET_WEIGHT:
+            return TargetWeightAction(
+                weights=clipped,
+                saturated_count=int(np.count_nonzero(outside)),
+                raw_max_abs=float(np.max(np.abs(vector), initial=0.0)),
+            )
         cursor = 0
         fast_tilt = float(clipped[cursor])
         cursor += 1
@@ -275,7 +346,7 @@ class ResidualActionV2:
 
 @dataclass(frozen=True, slots=True)
 class ResidualComposition:
-    action: ResidualAction | ResidualActionV2
+    action: ResidualAction | ResidualActionV2 | TargetWeightAction
     baseline: np.ndarray
     trend_component: np.ndarray
     alpha_component: np.ndarray
@@ -291,7 +362,7 @@ class BaselineResidualComposer:
 
     def compose(
         self,
-        action: ResidualAction | ResidualActionV2,
+        action: ResidualAction | ResidualActionV2 | TargetWeightAction,
         trends: TrendTargets,
         alpha: np.ndarray,
         *,
@@ -299,6 +370,8 @@ class BaselineResidualComposer:
         factor_basis: np.ndarray | None = None,
         max_gross: float = 1.0,
     ) -> ResidualComposition:
+        if isinstance(action, TargetWeightAction):
+            return self._compose_target(action, trends, max_gross=max_gross)
         if isinstance(action, ResidualAction):
             return self._compose_legacy(
                 action,
@@ -313,6 +386,32 @@ class BaselineResidualComposer:
             alpha_enabled=alpha_enabled,
             factor_basis=factor_basis,
             max_gross=max_gross,
+        )
+
+    @staticmethod
+    def _compose_target(
+        action: TargetWeightAction,
+        trends: TrendTargets,
+        *,
+        max_gross: float,
+    ) -> ResidualComposition:
+        if action.weights.shape != trends.base.shape:
+            raise ValueError("target weight count does not match trend targets")
+        if not np.isfinite(max_gross) or not 0.0 < max_gross <= 10.0:
+            raise ValueError("max_gross must be within (0, 10]")
+        raw_gross = float(np.abs(action.weights).sum())
+        proposal = _normalize_gross(action.weights, maximum=max_gross)
+        zeros = np.zeros_like(trends.base)
+        return ResidualComposition(
+            action=action,
+            baseline=trends.base.copy(),
+            trend_component=zeros.copy(),
+            alpha_component=zeros.copy(),
+            factor_component=zeros.copy(),
+            residual_component=proposal - trends.base,
+            proposal=proposal,
+            raw_gross=raw_gross,
+            target_gross=float(np.abs(proposal).sum()),
         )
 
     def _compose_legacy(

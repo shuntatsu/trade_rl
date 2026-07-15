@@ -68,16 +68,22 @@ class ResidualTrainingConfig:
     gradient_steps: int = 1
     checkpoint_interval_steps: int | None = None
     max_checkpoints: int = 5
+    n_envs: int = 1
+    behavior_cloning_epochs: int = 0
+    behavior_cloning_learning_rate: float = 1e-3
+    behavior_cloning_batch_size: int = 256
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (
             ("timesteps", self.timesteps),
             ("n_steps", self.n_steps),
+            ("n_envs", self.n_envs),
             ("batch_size", self.batch_size),
             ("n_epochs", self.n_epochs),
             ("buffer_size", self.buffer_size),
             ("train_freq", self.train_freq),
             ("gradient_steps", self.gradient_steps),
+            ("behavior_cloning_batch_size", self.behavior_cloning_batch_size),
         ):
             if (
                 isinstance(integer_value, bool)
@@ -85,6 +91,17 @@ class ResidualTrainingConfig:
                 or integer_value <= 0
             ):
                 raise ValueError(f"{integer_field_name} must be a positive integer")
+        if (
+            isinstance(self.behavior_cloning_epochs, bool)
+            or not isinstance(self.behavior_cloning_epochs, int)
+            or self.behavior_cloning_epochs < 0
+        ):
+            raise ValueError("behavior_cloning_epochs must be non-negative")
+        if (
+            not math.isfinite(self.behavior_cloning_learning_rate)
+            or self.behavior_cloning_learning_rate <= 0.0
+        ):
+            raise ValueError("behavior_cloning_learning_rate must be positive")
         if self.checkpoint_interval_steps is not None and (
             isinstance(self.checkpoint_interval_steps, bool)
             or not isinstance(self.checkpoint_interval_steps, int)
@@ -97,12 +114,17 @@ class ResidualTrainingConfig:
             or self.max_checkpoints <= 0
         ):
             raise ValueError("max_checkpoints must be a positive integer")
-        if self.algorithm.lower() == "ppo" and self.n_steps % self.batch_size != 0:
-            raise ValueError("batch_size must divide n_steps for one PPO environment")
+        if (
+            self.algorithm.lower() == "ppo"
+            and (self.n_steps * self.n_envs) % self.batch_size != 0
+        ):
+            raise ValueError("batch_size must divide the complete PPO rollout")
         algorithm = self.algorithm.lower()
         if algorithm not in {"ppo", "sac", "td3", "tqc"}:
             raise ValueError("algorithm must be one of ppo, sac, td3, or tqc")
         object.__setattr__(self, "algorithm", algorithm)
+        if self.behavior_cloning_epochs > 0 and algorithm != "ppo":
+            raise ValueError("behavior cloning warm start currently requires PPO")
         if (
             isinstance(self.learning_starts, bool)
             or not isinstance(self.learning_starts, int)
@@ -192,7 +214,8 @@ class ResidualTrainingConfig:
     @property
     def rounded_timesteps(self) -> int:
         if self.algorithm == "ppo":
-            return math.ceil(self.timesteps / self.n_steps) * self.n_steps
+            rollout_size = self.n_steps * self.n_envs
+            return math.ceil(self.timesteps / rollout_size) * rollout_size
         return self.timesteps
 
     @property
@@ -207,6 +230,9 @@ class ResidualTrainingConfig:
             "asset_embedding_dim": self.asset_embedding_dim,
             "asset_set_encoder": self.asset_set_encoder,
             "batch_size": self.batch_size,
+            "behavior_cloning_batch_size": self.behavior_cloning_batch_size,
+            "behavior_cloning_epochs": self.behavior_cloning_epochs,
+            "behavior_cloning_learning_rate": self.behavior_cloning_learning_rate,
             "buffer_size": self.buffer_size,
             "global_embedding_dim": self.global_embedding_dim,
             "checkpoint_interval_steps": self.checkpoint_interval_steps,
@@ -224,6 +250,7 @@ class ResidualTrainingConfig:
             "max_checkpoints": self.max_checkpoints,
             "max_grad_norm": self.max_grad_norm,
             "n_epochs": self.n_epochs,
+            "n_envs": self.n_envs,
             "n_steps": self.n_steps,
             "normalize_advantage": self.normalize_advantage,
             "policy": self.policy,

@@ -35,6 +35,7 @@ class MarketWalkForwardConfig:
     workflow: WalkForwardWorkflowConfig
     candidates: tuple[NamedCandidateRun, ...]
     minimum_selection_uplift: float = 0.0
+    checkpoint_finalists_per_seed: int = 1
     signal_digest: str = ""
     schema_version: str = "market_walk_forward_config_v1"
 
@@ -49,6 +50,12 @@ class MarketWalkForwardConfig:
             or self.minimum_selection_uplift < 0.0
         ):
             raise ValueError("minimum_selection_uplift must be non-negative")
+        if (
+            isinstance(self.checkpoint_finalists_per_seed, bool)
+            or not isinstance(self.checkpoint_finalists_per_seed, int)
+            or self.checkpoint_finalists_per_seed <= 0
+        ):
+            raise ValueError("checkpoint_finalists_per_seed must be a positive integer")
         if not self.signal_digest:
             object.__setattr__(
                 self,
@@ -117,6 +124,13 @@ class MarketWalkForwardConfig:
         signal = payload.get("signal_digest", "")
         if not isinstance(signal, str):
             raise ValueError("signal_digest must be a string")
+        finalists_per_seed = payload.get("checkpoint_finalists_per_seed", 1)
+        if (
+            isinstance(finalists_per_seed, bool)
+            or not isinstance(finalists_per_seed, int)
+            or finalists_per_seed <= 0
+        ):
+            raise ValueError("checkpoint_finalists_per_seed must be a positive integer")
         return cls(
             workflow=WalkForwardWorkflowConfig(
                 n_bars=n_bars,
@@ -126,6 +140,7 @@ class MarketWalkForwardConfig:
             minimum_selection_uplift=float(
                 payload.get("minimum_selection_uplift", 0.0)
             ),
+            checkpoint_finalists_per_seed=finalists_per_seed,
             signal_digest=signal,
             schema_version=str(
                 payload.get("schema_version", "market_walk_forward_config_v1")
@@ -138,6 +153,7 @@ class MarketWalkForwardConfig:
                 {"name": item.name, "run": item.run.digest_payload()}
                 for item in self.candidates
             ),
+            "checkpoint_finalists_per_seed": self.checkpoint_finalists_per_seed,
             "minimum_selection_uplift": self.minimum_selection_uplift,
             "schema_version": self.schema_version,
             "signal_digest": self.signal_digest,

@@ -5,19 +5,22 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import os
+import re
 import subprocess
 import sys
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.signals import write_signal_artifact
 from trade_rl.data import publish_market_dataset_artifact
-from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.research_gate import (
+    ResearchReturnGate,
+    evaluate_research_return_gate,
+)
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinancePublicTransport,
@@ -26,25 +29,20 @@ from trade_rl.integrations.binance import (
     binance_multitimeframe_feature_specs,
     build_binance_market_dataset,
 )
+from trade_rl.rl.checkpointing import checkpoint_manifests
+from trade_rl.rl.observations import ObservationBuilder
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
-_FEATURE_TIMEFRAMES = ("15m", "4h", "1d")
+_FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
-_END = "2026-06-01T00:00:00Z"
-_EXPECTED_HOURLY_BARS = 13_128
-_FACTOR_NAMES = ("factor_0", "factor_1", "factor_2")
-_RELATIVE_FACTOR_BASIS = np.asarray(
-    [
-        [0.50, -0.25, -0.25],
-        [-0.25, 0.50, -0.25],
-        [-0.25, -0.25, 0.50],
-    ],
-    dtype=np.float64,
-)
+_END = "2026-07-01T00:00:00Z"
+_EXPECTED_15M_BARS = 55_392
+_EXPECTED_POLICY_OBSERVATIONS = 1_241
+_GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
-_FALLBACK_METADATA: dict[str, dict[str, object]] = {
+_FALLBACK_METADATA: dict[str, dict[str, str | float]] = {
     "BTCUSDT": {
         "listed_at": "2019-09-08T00:00:00Z",
         "tick_size": 0.1,
@@ -88,29 +86,62 @@ def _load_json(path: Path) -> dict[str, Any]:
     return dict(payload)
 
 
+def _packaged_git_provenance() -> tuple[str, bool]:
+    commit = os.environ.get("TRADE_RL_GIT_COMMIT", "")
+    if not _GIT_COMMIT_PATTERN.fullmatch(commit):
+        raise ValueError(
+            "TRADE_RL_GIT_COMMIT must be a 40-character lowercase Git commit"
+        )
+    dirty = os.environ.get("TRADE_RL_GIT_DIRTY")
+    if dirty not in {"true", "false"}:
+        raise ValueError("TRADE_RL_GIT_DIRTY must be exactly true or false")
+    return commit, dirty == "true"
+
+
+def _prepare_run_roots(*, work_root: Path, cache_root: Path) -> tuple[Path, Path]:
+    resolved_work_root = work_root.resolve()
+    resolved_cache_root = cache_root.resolve()
+    if resolved_work_root.exists():
+        raise FileExistsError(
+            f"run generation already exists; choose a new --work-root: "
+            f"{resolved_work_root}"
+        )
+    if (
+        resolved_cache_root == resolved_work_root
+        or resolved_work_root in resolved_cache_root.parents
+        or resolved_cache_root in resolved_work_root.parents
+    ):
+        raise ValueError(
+            f"cache root must be outside the run generation: {resolved_cache_root}"
+        )
+    try:
+        resolved_work_root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as error:
+        raise FileExistsError(
+            f"run generation already exists; choose a new --work-root: "
+            f"{resolved_work_root}"
+        ) from error
+    resolved_cache_root.mkdir(parents=True, exist_ok=True)
+    return resolved_work_root, resolved_cache_root
+
+
 def _write_run_config(
     *,
     template_path: Path,
     output_path: Path,
-    factor_artifact: Path,
 ) -> Path:
     payload = _load_json(template_path)
-    action = payload.get("action")
-    if isinstance(action, dict):
-        payload["factor_artifact"] = factor_artifact.name
-        action["risk_tilt_enabled"] = False
-        action["n_factors"] = len(_FACTOR_NAMES)
+    git_commit, git_dirty = _packaged_git_provenance()
+    payload["git_commit"] = git_commit
+    payload["git_dirty"] = git_dirty
     for candidate in payload.get("candidates", ()):
         if not isinstance(candidate, dict):
             continue
         run = candidate.get("run")
         if not isinstance(run, dict):
             continue
-        run["factor_artifact"] = factor_artifact.name
-        run_action = run.get("action")
-        if isinstance(run_action, dict):
-            run_action["risk_tilt_enabled"] = False
-            run_action["n_factors"] = len(_FACTOR_NAMES)
+        run["git_commit"] = git_commit
+        run["git_dirty"] = git_dirty
     _write_json(output_path, payload)
     return output_path
 
@@ -156,7 +187,7 @@ def _filter_number(filters: list[dict[str, object]], kind: str, *names: str) -> 
     raise ValueError(f"exchangeInfo is missing {kind} {names}")
 
 
-def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, object]]:
+def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, str | float]]:
     if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
         raise ValueError("exchangeInfo payload is invalid")
     by_symbol = {
@@ -164,7 +195,7 @@ def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, object]
         for item in payload["symbols"]
         if isinstance(item, dict) and isinstance(item.get("symbol"), str)
     }
-    result: dict[str, dict[str, object]] = {}
+    result: dict[str, dict[str, str | float]] = {}
     for symbol in _SYMBOLS:
         item = by_symbol.get(symbol)
         if not isinstance(item, dict) or not isinstance(item.get("filters"), list):
@@ -193,7 +224,7 @@ def _resolve_metadata(
     transport: BinancePublicTransport,
     *,
     snapshot_path: Path,
-) -> tuple[dict[str, dict[str, object]], str, str | None]:
+) -> tuple[dict[str, dict[str, str | float]], str, str | None]:
     try:
         payload, source = transport.load_exchange_information(
             market=BinanceMarket.USDS_M
@@ -220,12 +251,12 @@ def _build_dataset(
     *,
     output: Path,
     transport: BinancePublicTransport,
-    metadata: dict[str, dict[str, object]],
+    metadata: dict[str, dict[str, str | float]],
 ) -> dict[str, object]:
     result = build_binance_market_dataset(
         market=BinanceMarket.USDS_M,
         symbols=_SYMBOLS,
-        interval="1h",
+        interval="15m",
         feature_timeframes=_FEATURE_TIMEFRAMES,
         start_time=_parse_utc(_START),
         end_time=_parse_utc(_END),
@@ -241,17 +272,17 @@ def _build_dataset(
         ),
     )
     published = publish_market_dataset_artifact(output, result.dataset)
-    if result.dataset.n_bars != _EXPECTED_HOURLY_BARS:
+    if result.dataset.n_bars != _EXPECTED_15M_BARS:
         raise RuntimeError(
             "expected "
-            f"{_EXPECTED_HOURLY_BARS:,} hourly bars, observed {result.dataset.n_bars}"
+            f"{_EXPECTED_15M_BARS:,} 15-minute bars, observed {result.dataset.n_bars}"
         )
     if result.dataset.symbols != _SYMBOLS:
         raise RuntimeError(f"unexpected symbol order: {result.dataset.symbols}")
     expected_features = tuple(
         spec.name
         for spec in binance_multitimeframe_feature_specs(
-            base_timeframe="1h",
+            base_timeframe="15m",
             feature_timeframes=_FEATURE_TIMEFRAMES,
         )
     )
@@ -276,39 +307,6 @@ def _build_dataset(
     }
 
 
-def _write_relative_factor_artifact(dataset: MarketDataset, output: Path) -> str:
-    if dataset.symbols != _SYMBOLS:
-        raise RuntimeError(
-            f"unexpected symbol order for factor basis: {dataset.symbols}"
-        )
-    values = np.broadcast_to(
-        _RELATIVE_FACTOR_BASIS[None, :, :],
-        (dataset.n_bars, len(_FACTOR_NAMES), dataset.n_symbols),
-    ).copy()
-    valid = np.ones_like(values, dtype=np.bool_)
-    valid[0] = False
-    generator_digest = content_digest(
-        {
-            "basis": tuple(tuple(float(value) for value in row) for row in values[1]),
-            "schema": "net_zero_relative_factor_basis_v1",
-            "symbols": dataset.symbols,
-        }
-    )
-    return write_signal_artifact(
-        output,
-        kind="factor",
-        dataset_id=dataset.dataset_id,
-        fit_start=0,
-        fit_stop=1,
-        prediction_start=1,
-        prediction_stop=dataset.n_bars,
-        generator_digest=generator_digest,
-        names=_FACTOR_NAMES,
-        values=values,
-        valid=valid,
-    )
-
-
 def _require_file(path: Path) -> None:
     if not path.is_file() or path.stat().st_size <= 0:
         raise RuntimeError(f"required artifact file is missing or empty: {path}")
@@ -320,27 +318,115 @@ def _verify_training(path: Path) -> None:
     for index in range(3):
         member = path / f"members/member-{index:03d}"
         _require_file(member / "policy.zip")
-        checkpoints = tuple(member.glob("checkpoints/*.zip"))
+        checkpoints = checkpoint_manifests(member / "checkpoints")
         if not checkpoints:
             raise RuntimeError(f"member {index} has no retained checkpoints")
 
 
+def _independent_fold_maximum_drawdown(folds: object) -> float | None:
+    if not isinstance(folds, list) or not folds:
+        return None
+    maximum = 0.0
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return None
+        selected_returns = fold.get("selected_returns")
+        if not isinstance(selected_returns, (list, tuple)) or not selected_returns:
+            return None
+        wealth = 1.0
+        peak = 1.0
+        for value in selected_returns:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            try:
+                resolved = float(value)
+            except (OverflowError, TypeError, ValueError):
+                return None
+            if not np.isfinite(resolved) or resolved < -1.0:
+                return None
+            wealth *= 1.0 + resolved
+            if not np.isfinite(wealth):
+                return None
+            peak = max(peak, wealth)
+            if not np.isfinite(peak):
+                return None
+            drawdown = 1.0 - wealth / peak
+            if not np.isfinite(drawdown):
+                return None
+            maximum = max(maximum, drawdown)
+    return maximum
+
+
+def _summary_mean(payload: dict[str, Any], name: str) -> object:
+    summary = payload.get(name)
+    if not isinstance(summary, dict):
+        return None
+    return summary.get("mean_fold_return")
+
+
+def _selected_fold_policy_digests(folds: object) -> object:
+    if not isinstance(folds, list) or not folds:
+        return None
+    identities: list[object] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return None
+        identities.append(fold.get("selected_policy_digest"))
+    return tuple(identities)
+
+
+def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
+    try:
+        payload = _load_json(path / "walk-forward.json")
+    except (OSError, ValueError):
+        payload = {}
+    folds = payload.get("folds")
+    return evaluate_research_return_gate(
+        selected_mean_return=_summary_mean(
+            payload,
+            "selected_independent_summary",
+        ),
+        baseline_mean_return=_summary_mean(
+            payload,
+            "baseline_independent_summary",
+        ),
+        maximum_fold_drawdown=_independent_fold_maximum_drawdown(folds),
+        selected_policy_digests=_selected_fold_policy_digests(folds),
+    )
+
+
+def _finalize_research_run(
+    *,
+    work_root: Path,
+    walk_forward_path: Path,
+    summary: dict[str, object],
+) -> int:
+    gate = asdict(_evaluate_walk_forward_research_gate(walk_forward_path))
+    summary["research_gate"] = gate
+    _write_json(work_root / "research-gate.json", gate)
+    _write_json(work_root / "summary.json", summary)
+    return 0 if gate["passed"] else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--work-root", type=Path, required=True)
     parser.add_argument(
-        "--work-root", type=Path, default=Path("var/binance-multitimeframe-full")
+        "--cache-root", type=Path, default=Path("var/cache/binance-vision")
     )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
-    work_root = (
+    requested_work_root = (
         args.work_root if args.work_root.is_absolute() else root / args.work_root
     )
-    if work_root.exists():
-        shutil.rmtree(work_root)
-    work_root.mkdir(parents=True)
-
-    cache_root = work_root / "vision-cache"
+    requested_cache_root = (
+        args.cache_root if args.cache_root.is_absolute() else root / args.cache_root
+    )
+    work_root, cache_root = _prepare_run_roots(
+        work_root=requested_work_root,
+        cache_root=requested_cache_root,
+    )
     transport = BinancePublicTransport(
         timeout_seconds=60.0,
         max_attempts=4,
@@ -375,20 +461,24 @@ def main() -> int:
     from trade_rl.data import load_market_dataset_artifact
 
     dataset = load_market_dataset_artifact(dataset_a_path)
-    factor_artifact_path = work_root / "relative-factor-artifact"
-    factor_artifact_digest = _write_relative_factor_artifact(
-        dataset,
-        factor_artifact_path,
-    )
+    policy_observation_count = ObservationBuilder(
+        action_size=3,
+        n_factors=0,
+        finite_horizon=True,
+    ).layout(dataset).size
+    if policy_observation_count != _EXPECTED_POLICY_OBSERVATIONS:
+        raise RuntimeError(
+            "expected "
+            f"{_EXPECTED_POLICY_OBSERVATIONS:,} policy observations, observed "
+            f"{policy_observation_count:,}"
+        )
     training_config_path = _write_run_config(
         template_path=root / "examples/binance-multitimeframe/training-full.json",
         output_path=work_root / "training-full.json",
-        factor_artifact=factor_artifact_path,
     )
     walk_forward_config_path = _write_run_config(
         template_path=root / "examples/binance-multitimeframe/walk-forward-full.json",
         output_path=work_root / "walk-forward-full.json",
-        factor_artifact=factor_artifact_path,
     )
 
     artifact_root = work_root / "artifacts"
@@ -436,23 +526,25 @@ def main() -> int:
         "dataset": dataset_a,
         "dataset_repeat": dataset_b,
         "end_time": _END,
-        "factor_artifact_digest": factor_artifact_digest,
-        "factor_artifact_path": str(factor_artifact_path),
-        "factor_basis": _RELATIVE_FACTOR_BASIS.tolist(),
         "metadata_error": metadata_error,
         "metadata_source": metadata_source,
         "native_timeframes": list(_NATIVE_TIMEFRAMES),
-        "decision_hours": 1.0,
-        "feature_count": 96,
+        "decision_hours": 0.25,
+        "raw_feature_count": dataset.n_features,
+        "policy_observation_count": policy_observation_count,
         "production_status": "NO-GO",
         "schema": "binance_multitimeframe_complete_research_v2",
         "start_time": _START,
         "training": training,
         "walk_forward": walk_forward,
     }
-    _write_json(work_root / "summary.json", summary)
+    exit_code = _finalize_research_run(
+        work_root=work_root,
+        walk_forward_path=walk_forward_path,
+        summary=summary,
+    )
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

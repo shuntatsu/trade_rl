@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, field
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.risk.emergency import EmergencyRiskConfig
 from trade_rl.rl.actions import ActionValidationMode
 from trade_rl.rl.rewards import AbsoluteGrowthRewardConfig, RewardConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -43,6 +44,7 @@ class ResidualMarketEnvConfig:
     stress_quantile: float = 0.90
     accept_legacy_actions: bool = True
     action_validation_mode: ActionValidationMode | str = ActionValidationMode.CLIP
+    emergency_risk: EmergencyRiskConfig = field(default_factory=EmergencyRiskConfig)
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
 
     def __post_init__(self) -> None:
@@ -148,6 +150,8 @@ class ResidualMarketEnvConfig:
         except ValueError as error:
             raise ValueError("action_validation_mode is not supported") from error
         object.__setattr__(self, "action_validation_mode", mode)
+        if not isinstance(self.emergency_risk, EmergencyRiskConfig):
+            raise ValueError("emergency_risk must be an EmergencyRiskConfig")
 
     def resolved_reward_config(self) -> RewardConfig:
         if self.reward_config is not None:

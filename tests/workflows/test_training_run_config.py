@@ -39,6 +39,27 @@ def test_training_config_accepts_alpha_artifact_path() -> None:
     assert config.alpha_artifact.as_posix() == "artifacts/alpha"
 
 
+def test_training_config_parses_git_dirty_and_includes_it_in_identity() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["git_commit"] = "a" * 40
+    raw["git_dirty"] = False
+
+    config = TrainingRunConfig.from_mapping(raw)
+
+    assert config.git_dirty is False
+    assert config.digest_payload()["git_dirty"] is False
+
+
+def test_training_config_rejects_non_boolean_git_dirty() -> None:
+    raw = _mapping()
+    raw["alpha_artifact"] = "artifacts/alpha"
+    raw["git_dirty"] = "false"
+
+    with pytest.raises(ValueError, match="git_dirty must be a boolean or null"):
+        TrainingRunConfig.from_mapping(raw)
+
+
 def test_training_config_from_json_resolves_signal_artifact_paths(
     tmp_path: object,
 ) -> None:

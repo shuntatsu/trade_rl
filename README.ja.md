@@ -127,6 +127,27 @@ uv run trade-rl walk-forward plan \
   --selection-bars 10 --test-bars 20 --purge-bars 2 --max-folds 2
 ```
 
+## Docker GPU完全リサーチ実行
+
+維持対象のコンテナはCUDAを必須とし、実行時データをDocker named volume
+`trade-rl-training-data`へ保存して、Binance multi-timeframeの完全な研究workflowを
+実行します。repository rootで次を実行します。
+
+```bash
+docker compose -f compose.training.yaml build trainer
+docker compose -f compose.training.yaml run --rm trainer
+```
+
+2番目のcommandは、CUDA preflight、学習、評価、またはresearch gateが失敗すると
+非ゼロで終了します。終了コード0は研究上の証拠であり、収益性を保証しません。
+production statusは`NO-GO`のままです。
+
+detached起動、status、log、volume確認、artifact抽出、fresh retry、cleanupの正確な
+commandは[Docker GPU完全学習の運用手順](docs/operations/docker-gpu-full-training.md)を
+参照してください。artifact抽出ではPowerShellの絶対host pathと、実行中のAlpine
+copy containerを使用します。CUDA preflightとsmoke toolは
+`examples/binance-multitimeframe/`配下にあります。
+
 ## 品質確認
 
 ```bash

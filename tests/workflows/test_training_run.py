@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
@@ -116,3 +117,34 @@ def test_execute_training_run_trains_serializes_and_publishes(tmp_path: Path) ->
     assert (published / "run.json").is_file()
     pointer = json.loads((store_root / "latest.json").read_text(encoding="utf-8"))
     assert pointer == {"path": "runs/tiny-run", "run_id": "tiny-run"}
+
+
+def test_execute_training_run_uses_explicit_provenance_without_git_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    write_market_dataset_files(dataset_root, _dataset())
+    config_path = tmp_path / "train.json"
+    _config(config_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["git_commit"] = "c" * 40
+    config["git_dirty"] = False
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    def fail_git_lookup(_root: Path, *_args: str) -> str | None:
+        raise AssertionError("explicit packaged provenance must avoid Git lookup")
+
+    monkeypatch.setattr("trade_rl.artifacts.provenance._git", fail_git_lookup)
+
+    result = execute_training_run(
+        config_path=config_path,
+        dataset_path=dataset_root,
+        store_root=tmp_path / "artifacts",
+        run_id="packaged-source-run",
+    )
+
+    provenance = json.loads(
+        (result.path / "provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance["git_commit"] == "c" * 40
+    assert provenance["git_dirty"] is False

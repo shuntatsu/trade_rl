@@ -14,6 +14,7 @@ from trade_rl.workflows.fold_runner import (
     EvaluationPhase,
     FoldExecutionConfig,
     PolicyTrainingArtifact,
+    SeedPolicyFinalist,
 )
 
 DATASET_ID = "a" * 64
@@ -41,7 +42,14 @@ class FakeTrainer:
         digit = 1 + len(self.calls)
         return PolicyTrainingArtifact(
             configuration=request.configuration.name,
-            policy_digest=f"{digit:064x}",
+            seed_finalists=(
+                SeedPolicyFinalist(
+                    seed=0,
+                    policy_digest=f"{digit:064x}",
+                    checkpoint_score=0.1,
+                    checkpoint_evaluation_digest=f"{50 + digit:064x}",
+                ),
+            ),
         )
 
 
@@ -79,6 +87,7 @@ def config(*, minimum_uplift: float = 0.0) -> FoldExecutionConfig:
         ),
         minimum_selection_uplift=minimum_uplift,
         selected_at=NOW,
+        experiment_plan_digest="e" * 64,
     )
 
 
@@ -132,6 +141,78 @@ def test_fold_runner_scopes_training_selection_and_outer_test_ranges() -> None:
     assert result.selected_oos.stop == fold().test.stop
     assert result.baseline_oos.start == fold().test.start
     assert result.baseline_oos.stop == fold().test.stop
+
+
+def test_fold_runner_selects_across_seed_local_checkpoint_finalists() -> None:
+    @dataclass
+    class MultiSeedTrainer:
+        def train(self, request: CandidateTrainingRequest) -> PolicyTrainingArtifact:
+            return PolicyTrainingArtifact(
+                configuration=request.configuration.name,
+                seed_finalists=(
+                    SeedPolicyFinalist(
+                        seed=0,
+                        policy_digest=f"{7:064x}",
+                        checkpoint_score=0.3,
+                        checkpoint_evaluation_digest=f"{70:064x}",
+                    ),
+                    SeedPolicyFinalist(
+                        seed=1,
+                        policy_digest=f"{8:064x}",
+                        checkpoint_score=0.2,
+                        checkpoint_evaluation_digest=f"{80:064x}",
+                    ),
+                ),
+            )
+
+    @dataclass
+    class DigestEvaluator(FakeEvaluator):
+        def evaluate(self, request: CandidateEvaluationRequest) -> CandidateEvaluation:
+            if (
+                request.phase is EvaluationPhase.CONFIGURATION_SELECTION
+                and request.policy_digest is not None
+            ):
+                self.calls.append(request)
+                score = {f"{7:064x}": 0.01, f"{8:064x}": 0.04}[request.policy_digest]
+                return CandidateEvaluation(
+                    score=score,
+                    returns=ReturnSeries(
+                        values=tuple(
+                            0.001 for _ in range(request.evaluation_range.size)
+                        ),
+                        kind=ReturnKind.BASE_BAR,
+                        periods_per_year=8_760,
+                    ),
+                    evaluation_digest=f"{300 + len(self.calls):064x}",
+                )
+            return super().evaluate(request)
+
+    evaluator = DigestEvaluator(
+        selection_scores={"baseline": 0.0, "candidate_a": 0.0, "candidate_b": 0.0}
+    )
+    one_candidate = FoldExecutionConfig(
+        dataset_id=DATASET_ID,
+        signal_digest=SIGNAL_DIGEST,
+        candidates=(CandidateConfiguration(name="candidate_a"),),
+        minimum_selection_uplift=0.0,
+        selected_at=NOW,
+        experiment_plan_digest="e" * 64,
+    )
+
+    result = ConcreteFoldRunner(
+        config=one_candidate,
+        trainer=MultiSeedTrainer(),
+        evaluator=evaluator,
+    ).run_fold(fold())
+
+    assert result.selection.selected_policy_digest == f"{8:064x}"
+    assert tuple(item.seed for item in result.seed_finalists) == (0, 1)
+    assert tuple(item.selection_score for item in result.seed_finalists) == (0.01, 0.04)
+    assert all(
+        call.evaluation_range == fold().configuration_selection
+        for call in evaluator.calls
+        if call.phase is EvaluationPhase.CONFIGURATION_SELECTION
+    )
 
 
 def test_fold_runner_falls_back_to_baseline_without_duplicate_outer_evaluation() -> (

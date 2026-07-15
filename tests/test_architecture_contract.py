@@ -19,14 +19,15 @@ def test_only_trade_rl_is_packaged() -> None:
     assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli.app:main"}
 
 
-def test_source_contains_no_maintained_direct_action_mode() -> None:
+def test_source_contains_maintained_direct_target_mode_without_legacy_env() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((ROOT / "trade_rl").rglob("*.py"))
     )
 
-    assert "action_mode" not in source
-    assert "direct-action" not in source
+    actions = (ROOT / "trade_rl/rl/actions.py").read_text(encoding="utf-8")
+    assert 'TARGET_WEIGHT = "target_weight"' in actions
+    assert "class TargetWeightAction" in actions
     assert "MarsLiteEnv" not in source
 
 

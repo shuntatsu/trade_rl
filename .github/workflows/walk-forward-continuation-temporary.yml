@@ -1,0 +1,125 @@
+name: Temporary Walk-Forward Continuation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  walk-forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONUNBUFFERED: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.12
+          uv sync --python 3.12 --extra train-sb3 --extra dev
+      - name: Restore completed full training artifacts
+        run: |
+          mkdir -p var/binance-multitimeframe-full
+          gh run download 29391007915 \
+            --name trade-rl-full-training-validation \
+            --dir var/binance-multitimeframe-full
+          test -f var/binance-multitimeframe-full/training.log
+          test -f var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-training/run.json
+      - name: Verify completed full training with fixed verifier
+        run: |
+          uv run --python 3.12 python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path("examples/binance-multitimeframe/run_full_research.py")
+          spec = importlib.util.spec_from_file_location("full_research_runner", path)
+          if spec is None or spec.loader is None:
+              raise RuntimeError(f"could not load {path}")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          training = Path("var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-training")
+          module._verify_training(training)
+          PY
+      - name: Run complete two-fold walk-forward
+        run: |
+          uv run --python 3.12 python -m trade_rl.cli.app walk-forward run \
+            --config var/binance-multitimeframe-full/walk-forward-full.json \
+            --dataset var/binance-multitimeframe-full/dataset-a \
+            --output var/binance-multitimeframe-full/artifacts \
+            --run-id binance-multitimeframe-full-walk-forward \
+            > var/binance-multitimeframe-full/walk-forward.stdout \
+            2> var/binance-multitimeframe-full/walk-forward.stderr
+          cat var/binance-multitimeframe-full/walk-forward.stdout
+          cat var/binance-multitimeframe-full/walk-forward.stderr
+      - name: Verify combined results and write summary
+        run: |
+          uv run --python 3.12 python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from trade_rl.data import load_market_dataset_artifact
+
+          root = Path("var/binance-multitimeframe-full")
+          dataset_a = load_market_dataset_artifact(root / "dataset-a")
+          dataset_b = load_market_dataset_artifact(root / "dataset-b")
+          if dataset_a.dataset_id != dataset_b.dataset_id:
+              raise RuntimeError("repeated builds have different dataset IDs")
+          if dataset_a.n_bars != 13_128 or dataset_a.n_symbols != 3 or dataset_a.n_features != 96:
+              raise RuntimeError(
+                  f"unexpected dataset shape: bars={dataset_a.n_bars}, symbols={dataset_a.n_symbols}, features={dataset_a.n_features}"
+              )
+          training_path = root / "artifacts/runs/binance-multitimeframe-full-training"
+          walk_forward_path = root / "artifacts/runs/binance-multitimeframe-full-walk-forward"
+          for path in (training_path / "run.json", walk_forward_path / "run.json"):
+              if not path.is_file() or path.stat().st_size <= 0:
+                  raise RuntimeError(f"missing required result: {path}")
+          lines = [
+              line
+              for line in (root / "walk-forward.stdout").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          walk_forward = json.loads(lines[-1])
+          training_run = json.loads((training_path / "run.json").read_text(encoding="utf-8"))
+          walk_forward_run = json.loads((walk_forward_path / "run.json").read_text(encoding="utf-8"))
+          summary = {
+              "schema": "binance_multitimeframe_complete_research_v2",
+              "production_status": "NO-GO",
+              "dataset_id": dataset_a.dataset_id,
+              "symbols": list(dataset_a.symbols),
+              "n_bars": dataset_a.n_bars,
+              "n_symbols": dataset_a.n_symbols,
+              "n_features": dataset_a.n_features,
+              "feature_names": list(dataset_a.feature_names),
+              "native_timeframes": ["15m", "1h", "4h", "1d"],
+              "decision_hours": 1.0,
+              "training_run_digest": training_run.get("run_digest"),
+              "walk_forward_run_digest": walk_forward_run.get("run_digest"),
+              "walk_forward": walk_forward,
+          }
+          (root / "summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+          PY
+      - name: Upload combined full validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-rl-complete-full-validation
+          path: var/binance-multitimeframe-full
+          if-no-files-found: error
+          retention-days: 3

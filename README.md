@@ -95,6 +95,27 @@ Spot and USDⓈ-M are supported linear products. COIN-M inverse futures fail clo
 
 Both execution commands print one machine-readable JSON result. Research runs remain non-production artifacts; a paper-serving activation additionally requires a verified external release attestation. Direct exchange connectivity is not implemented.
 
+## Docker GPU full research run
+
+The maintained container requires CUDA, keeps runtime data in the
+`trade-rl-training-data` Docker volume, and runs the complete Binance
+multi-timeframe research workflow. Build and run it from the repository root:
+
+```bash
+docker compose -f compose.training.yaml build trainer
+docker compose -f compose.training.yaml run --rm trainer
+```
+
+The second command exits nonzero when CUDA preflight, training, evaluation, or
+the research gate fails. A successful process is research evidence only: it is
+not a profitability guarantee and production status remains `NO-GO`.
+
+See [Docker GPU full-training operations](docs/operations/docker-gpu-full-training.md)
+for exact detached start, status, logs, volume inspection, artifact extraction,
+fresh retry, and cleanup commands. Artifact extraction uses an absolute
+PowerShell host path and a running Alpine copy container. The CUDA preflight and
+smoke tools live under `examples/binance-multitimeframe/`.
+
 ## Verification
 
 ```bash

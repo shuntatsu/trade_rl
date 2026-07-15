@@ -1,0 +1,47 @@
+FROM python:3.12-slim AS provenance-validation
+
+ARG TRADE_RL_GIT_COMMIT
+ARG TRADE_RL_GIT_DIRTY
+RUN printf '%s\n' "${TRADE_RL_GIT_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
+    && case "${TRADE_RL_GIT_DIRTY}" in "true"|"false") ;; *) exit 1 ;; esac \
+    && printf '%s:%s\n' "${TRADE_RL_GIT_COMMIT}" "${TRADE_RL_GIT_DIRTY}" \
+        > /provenance.valid
+
+FROM python:3.12-slim AS training-runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/trade-rl-venv \
+    PATH="/opt/trade-rl-venv/bin:${PATH}"
+
+RUN groupadd --system trainer \
+    && useradd --system --gid trainer --create-home trainer \
+    && pip install --no-cache-dir uv==0.8.4
+
+WORKDIR /workspace
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --extra train-sb3 --no-dev --no-install-project \
+    && mkdir -p /workspace/var \
+    && chown trainer:trainer /workspace/var
+
+COPY --chown=trainer:trainer trade_rl ./trade_rl
+COPY --chown=trainer:trainer examples ./examples
+RUN uv sync --frozen --extra train-sb3 --no-dev
+
+ARG TRADE_RL_GIT_COMMIT
+ARG TRADE_RL_GIT_DIRTY
+COPY --from=provenance-validation /provenance.valid /provenance.valid
+
+ENV TRADE_RL_GIT_COMMIT=${TRADE_RL_GIT_COMMIT} \
+    TRADE_RL_GIT_DIRTY=${TRADE_RL_GIT_DIRTY}
+
+USER trainer
+RUN test "$(id -u)" -ne 0 \
+    && test -w /workspace/var \
+    && test -r /workspace/trade_rl/__init__.py \
+    && test -r /workspace/examples \
+    && test "$(cat /provenance.valid)" \
+        = "${TRADE_RL_GIT_COMMIT}:${TRADE_RL_GIT_DIRTY}"
+
+CMD ["sh", "-c", ": \"${TRADE_RL_RUN_GENERATION:?Set TRADE_RL_RUN_GENERATION to a unique generation name}\" && python examples/binance-multitimeframe/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json && python examples/binance-multitimeframe/run_full_research.py --work-root /workspace/var/runs/${TRADE_RL_RUN_GENERATION} --cache-root /workspace/var/cache/binance-vision"]

@@ -29,6 +29,7 @@ from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
     load_factor_artifact,
 )
+from trade_rl.risk.emergency import EmergencyRiskConfig
 from trade_rl.risk.portfolio import (
     PortfolioRiskConfig,
     PortfolioRiskModel,
@@ -90,6 +91,7 @@ class TrainingRunConfig:
     export_tolerance: float = 1e-5
     git_commit: str | None = None
     schema_version: str = "training_run_config_v1"
+    git_dirty: bool | None = None
 
     def __post_init__(self) -> None:
         if not self.environment.require_full_reward_preroll:
@@ -112,6 +114,8 @@ class TrainingRunConfig:
             raise ValueError("export_tolerance must be finite and positive")
         if self.git_commit is not None and not self.git_commit:
             raise ValueError("git_commit must be non-empty when provided")
+        if self.git_dirty is not None and not isinstance(self.git_dirty, bool):
+            raise ValueError("git_dirty must be a boolean or null")
         if self.schema_version != "training_run_config_v1":
             raise ValueError("unsupported training run configuration schema")
 
@@ -134,10 +138,19 @@ class TrainingRunConfig:
         )
         environment_data.pop("reward_config", None)
         environment_data.pop("execution_cost", None)
+        emergency_risk = EmergencyRiskConfig(
+            **_mapping(
+                environment_data.pop("emergency_risk", {}),
+                field="emergency_risk",
+            )
+        )
         exports = _mapping(payload.get("exports"), field="exports")
         git_commit = payload.get("git_commit")
         if git_commit is not None and not isinstance(git_commit, str):
             raise ValueError("git_commit must be a string or null")
+        git_dirty = payload.get("git_dirty")
+        if git_dirty is not None and not isinstance(git_dirty, bool):
+            raise ValueError("git_dirty must be a boolean or null")
         schema_version = payload.get("schema_version", "training_run_config_v1")
         if not isinstance(schema_version, str):
             raise ValueError("schema_version must be a string")
@@ -152,6 +165,7 @@ class TrainingRunConfig:
             environment=ResidualMarketEnvConfig(
                 **environment_data,
                 reward_config=reward,
+                emergency_risk=emergency_risk,
                 execution_cost=execution,
             ),
             risk=PreTradeRiskConfig(**_mapping(payload.get("risk"), field="risk")),
@@ -181,6 +195,7 @@ class TrainingRunConfig:
             export_tolerance=float(exports.get("tolerance", 1e-5)),
             git_commit=git_commit,
             schema_version=schema_version,
+            git_dirty=git_dirty,
         )
 
     def resolve_artifact_paths(self, base: Path) -> TrainingRunConfig:
@@ -217,6 +232,7 @@ class TrainingRunConfig:
             "export_tolerance": self.export_tolerance,
             "export_torchscript": self.export_torchscript,
             "git_commit": self.git_commit,
+            "git_dirty": self.git_dirty,
             "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "reward": asdict(self.reward),
@@ -371,6 +387,7 @@ def execute_training_run(
         provenance = capture_runtime_provenance(
             Path(__file__).resolve().parents[2],
             git_commit=config.git_commit,
+            git_dirty=config.git_dirty,
             deterministic_seed_config={
                 "seeds": config.training.seeds,
                 "training_config_digest": training_config_digest,

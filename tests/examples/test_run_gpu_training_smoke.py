@@ -32,6 +32,9 @@ def test_smoke_config_preserves_the_maintained_cuda_training_contract(
     assert config.training.asset_embedding_dim == 128
     assert config.training.global_embedding_dim == 128
     assert config.training.timesteps == 128
+    assert config.training.behavior_cloning_epochs == 1
+    assert config.action.mode == "target_weight"
+    assert config.action.target_weight_count == 1
     assert config.git_commit == "a" * 40
     assert config.git_dirty is False
 

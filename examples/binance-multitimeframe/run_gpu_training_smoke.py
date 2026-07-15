@@ -72,8 +72,18 @@ def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
             "policy_net_arch": [256, 256],
             "seeds": [0],
             "timesteps": timesteps,
+            "behavior_cloning_epochs": 1,
+            "behavior_cloning_batch_size": 64,
         }
     )
+    payload["action"] = {
+        "mode": "target_weight",
+        "alpha_enabled": False,
+        "risk_tilt_enabled": False,
+        "n_factors": 0,
+        "target_weight_count": 1,
+        "validation_mode": "clip",
+    }
     return payload
 
 
@@ -177,10 +187,11 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
         },
         "cuda_preflight": preflight,
         "n_envs": config.training.n_envs,
+        "behavior_cloning_epochs": config.training.behavior_cloning_epochs,
         "policy": policy,
         "requested_timesteps": config.training.timesteps,
         "resolved_device": ensemble["resolved_device"],
-        "schema": "gpu_training_smoke_evidence_v1",
+        "schema": "gpu_target_oracle_bc_training_smoke_v2",
     }
     evidence_path = work_root / "gpu-training-smoke.json"
     evidence_path.write_text(

@@ -25,6 +25,17 @@ from trade_rl.rl.training import (
 )
 
 
+def _build_training_environment(
+    factory: Callable[[], Any], n_envs: int
+) -> Any:
+    if n_envs == 1:
+        return factory()
+
+    from stable_baselines3.common.vec_env import SubprocVecEnv
+
+    return SubprocVecEnv([factory for _ in range(n_envs)])
+
+
 class StableBaselines3Backend:
     """Train one policy with an optional SB3-family algorithm."""
 
@@ -48,9 +59,10 @@ class StableBaselines3Backend:
     ) -> PolicyTrainingResult:
         from stable_baselines3 import PPO, SAC, TD3
 
-        environment = self.environment_factory()
+        probe = self.environment_factory()
+        environment: Any | None = None
         try:
-            identity = _environment_identity(environment)
+            identity = _environment_identity(probe)
             _validate_training_environment(identity, config)
             algorithm_config = build_algorithm_config(config)
             policy_kwargs: dict[str, Any] = {
@@ -61,7 +73,7 @@ class StableBaselines3Backend:
             if config.asset_set_encoder:
                 from trade_rl.rl.policies import AssetSetFeatureExtractor
 
-                unwrapped: Any = getattr(environment, "unwrapped", environment)
+                unwrapped: Any = getattr(probe, "unwrapped", probe)
                 layout = getattr(unwrapped, "layout", None)
                 active_column = getattr(unwrapped, "asset_active_column", None)
                 if layout is None or not isinstance(active_column, int):
@@ -80,6 +92,15 @@ class StableBaselines3Backend:
                             "global_embedding_dim": config.global_embedding_dim,
                         },
                     }
+                )
+            if config.n_envs == 1:
+                environment = probe
+                probe = None
+            else:
+                probe.close()
+                probe = None
+                environment = _build_training_environment(
+                    self.environment_factory, config.n_envs
                 )
             common: dict[str, Any] = {
                 "learning_rate": algorithm_config.learning_rate,
@@ -206,7 +227,10 @@ class StableBaselines3Backend:
                 replay_buffer_digest=replay_buffer_digest,
             )
         finally:
-            environment.close()
+            if probe is not None:
+                probe.close()
+            if environment is not None:
+                environment.close()
 
 
 class StableBaselines3PPOBackend(StableBaselines3Backend):

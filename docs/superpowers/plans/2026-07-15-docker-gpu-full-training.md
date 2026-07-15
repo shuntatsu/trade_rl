@@ -300,7 +300,55 @@ Add `git_dirty` to parsing and digest identity, pass it to `capture_runtime_prov
 
 Run the RED command again, plus Ruff, Mypy, Compose config with explicit provenance variables, and the full test suite.
 
-### Task 9: Container GPU smoke and full research execution
+### Task 9: Require an actually selected RL policy at the research gate
+
+**Files:**
+- Modify: `trade_rl/evaluation/research_gate.py`
+- Modify: `tests/evaluation/test_research_gate.py`
+- Modify: `examples/binance-multitimeframe/run_full_research.py`
+- Modify: `tests/examples/test_binance_multitimeframe_full_assets.py`
+
+**Interfaces:**
+- Consumes: each sealed fold's selected policy identity.
+- Produces: a failing gate when any required fold fell back to Trend without selecting an RL candidate.
+
+- [ ] **Step 1: Write RED regressions for baseline-only fallback**
+
+Construct otherwise profitable fold evidence with `selected_policy_digest=null` and prove the gate rejects it. Cover mixed folds so one RL selection cannot hide another baseline-only fold.
+
+- [ ] **Step 2: Implement the fail-closed RL-selection condition**
+
+Carry selected policy identity into the gate input and require a non-empty RL identity for every sealed fold before return/uplift/drawdown thresholds can pass.
+
+- [ ] **Step 3: Run focused and full validation**
+
+Run the research-gate and full-runner tests, Ruff, MyPy, import contracts, and the full pytest suite.
+
+### Task 10: Preserve cache and prior run generations
+
+**Files:**
+- Modify: `examples/binance-multitimeframe/run_full_research.py`
+- Modify: `tests/examples/test_binance_multitimeframe_full_assets.py`
+- Modify: `compose.training.yaml`
+- Modify: `docs/operations/docker-gpu-full-training.md`
+
+**Interfaces:**
+- Produces: a stable named-volume Vision cache outside run generations and non-destructive run-root allocation.
+- Consumes: an explicit unique generation path or fails closed when a generation already exists.
+
+- [ ] **Step 1: Write RED persistence regressions**
+
+Prove the runner never recursively deletes an existing run generation and that the Vision cache path is outside the generation directory.
+
+- [ ] **Step 2: Implement stable cache plus non-destructive generations**
+
+Add an explicit cache-root interface, fail when the requested work-root already exists, and update Compose/runbook to use a unique generation while sharing `/workspace/var/cache/binance-vision`.
+
+- [ ] **Step 3: Run focused and full validation**
+
+Run full asset tests, Docker asset tests, Ruff, MyPy, Compose rendering, and the full pytest suite.
+
+### Task 11: Container GPU smoke and full research execution
 
 **Files:**
 - Runtime artifacts only: Docker volume `trade-rl-training-data`.
@@ -318,8 +366,8 @@ Expected: JSON reports CUDA available and RTX 4050 device memory.
 
 - [ ] **Step 2: Run a bounded vectorized GPU smoke**
 
-Run: `docker compose -f compose.training.yaml run --rm --entrypoint uv trainer run python examples/binance-multitimeframe/run_gpu_training_smoke.py --work-root /workspace/var/gpu-smoke --timesteps 8192 --n-envs 4`
-Expected: `/workspace/var/gpu-smoke/smoke-summary.json` reports `resolved_device` beginning with `cuda`, `n_envs` equal to 4, 8,192 observed timesteps, and a published policy checkpoint.
+Run: `docker compose -f compose.training.yaml run --rm --entrypoint python trainer examples/binance-multitimeframe/run_gpu_training_smoke.py --work-root /workspace/var/gpu-smoke --timesteps 8192`
+Expected: `/workspace/var/gpu-smoke/gpu-training-smoke.json` reports `resolved_device` beginning with `cuda`, `n_envs` equal to 4, 8,192 observed timesteps, and a published policy checkpoint.
 
 - [ ] **Step 3: Run the complete pipeline**
 

@@ -1,0 +1,54 @@
+name: Diagnose Causal Sequence Full Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Reproduce full suite and publish failure
+        shell: bash
+        run: |
+          set +e
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing > /tmp/pytest.log 2>&1
+          status=$?
+          cat /tmp/pytest.log
+          if [ "$status" -ne 0 ]; then
+            python - <<'PY'
+          from pathlib import Path
+
+          lines = Path('/tmp/pytest.log').read_text(encoding='utf-8', errors='replace').splitlines()
+          summary_start = next(
+              (index for index, line in enumerate(lines) if 'short test summary info' in line),
+              max(0, len(lines) - 450),
+          )
+          selected = lines[max(0, summary_start - 380):]
+          body = [
+              'Full-suite failure reproduced for PR #51.',
+              '',
+              '```text',
+              *selected[-700:],
+              '```',
+          ]
+          Path('/tmp/diagnostic.md').write_text('\n'.join(body) + '\n', encoding='utf-8')
+          PY
+            gh issue edit 53 --repo "$GITHUB_REPOSITORY" --body-file /tmp/diagnostic.md
+            exit "$status"
+          fi
+          gh issue edit 53 --repo "$GITHUB_REPOSITORY" --body 'Full suite passed; no failure reproduced.'

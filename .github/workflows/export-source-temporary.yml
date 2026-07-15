@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - .github/workflows/export-source-temporary.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read

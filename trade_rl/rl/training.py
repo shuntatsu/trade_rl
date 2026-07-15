@@ -41,6 +41,7 @@ class ResidualTrainingConfig:
     seeds: tuple[int, ...]
     learning_rate: float = 3e-4
     n_steps: int = 2_048
+    n_envs: int = 1
     batch_size: int = 64
     n_epochs: int = 10
     gae_lambda: float = 0.95
@@ -73,6 +74,7 @@ class ResidualTrainingConfig:
         for integer_field_name, integer_value in (
             ("timesteps", self.timesteps),
             ("n_steps", self.n_steps),
+            ("n_envs", self.n_envs),
             ("batch_size", self.batch_size),
             ("n_epochs", self.n_epochs),
             ("buffer_size", self.buffer_size),
@@ -97,8 +99,11 @@ class ResidualTrainingConfig:
             or self.max_checkpoints <= 0
         ):
             raise ValueError("max_checkpoints must be a positive integer")
-        if self.algorithm.lower() == "ppo" and self.n_steps % self.batch_size != 0:
-            raise ValueError("batch_size must divide n_steps for one PPO environment")
+        if (
+            self.algorithm.lower() == "ppo"
+            and (self.n_steps * self.n_envs) % self.batch_size != 0
+        ):
+            raise ValueError("batch_size must divide the complete PPO rollout")
         algorithm = self.algorithm.lower()
         if algorithm not in {"ppo", "sac", "td3", "tqc"}:
             raise ValueError("algorithm must be one of ppo, sac, td3, or tqc")
@@ -192,7 +197,8 @@ class ResidualTrainingConfig:
     @property
     def rounded_timesteps(self) -> int:
         if self.algorithm == "ppo":
-            return math.ceil(self.timesteps / self.n_steps) * self.n_steps
+            rollout_size = self.n_steps * self.n_envs
+            return math.ceil(self.timesteps / rollout_size) * rollout_size
         return self.timesteps
 
     @property
@@ -224,6 +230,7 @@ class ResidualTrainingConfig:
             "max_checkpoints": self.max_checkpoints,
             "max_grad_norm": self.max_grad_norm,
             "n_epochs": self.n_epochs,
+            "n_envs": self.n_envs,
             "n_steps": self.n_steps,
             "normalize_advantage": self.normalize_advantage,
             "policy": self.policy,

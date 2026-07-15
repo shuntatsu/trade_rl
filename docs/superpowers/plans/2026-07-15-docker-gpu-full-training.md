@@ -137,10 +137,10 @@ Expected: all selected tests pass.
 - Create: `Dockerfile.training`
 - Create: `compose.training.yaml`
 - Create: `.dockerignore`
-- Create: `scripts/training_cuda_preflight.py`
-- Create: `scripts/run_gpu_training_smoke.py`
-- Create: `tests/scripts/test_training_cuda_preflight.py`
-- Create: `tests/scripts/test_run_gpu_training_smoke.py`
+- Create: `examples/binance-multitimeframe/training_cuda_preflight.py`
+- Create: `examples/binance-multitimeframe/run_gpu_training_smoke.py`
+- Create: `tests/examples/test_training_cuda_preflight.py`
+- Create: `tests/examples/test_run_gpu_training_smoke.py`
 - Create: `tests/examples/test_docker_training_assets.py`
 
 **Interfaces:**
@@ -152,7 +152,7 @@ The Docker test must assert `gpus: all`, the named-volume mount, and the maintai
 
 - [ ] **Step 2: Run RED**
 
-Run: `uv run pytest tests/scripts/test_training_cuda_preflight.py tests/scripts/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py -q`
+Run: `uv run pytest tests/examples/test_training_cuda_preflight.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py -q`
 Expected: failures because files and preflight module do not exist.
 
 - [ ] **Step 3: Implement the preflight and container assets**
@@ -161,7 +161,7 @@ The image installs Python 3.12 and locked project dependencies, uses an unprivil
 
 - [ ] **Step 4: Run GREEN and build validation**
 
-Run: `uv run pytest tests/scripts/test_training_cuda_preflight.py tests/scripts/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py -q`
+Run: `uv run pytest tests/examples/test_training_cuda_preflight.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py -q`
 Expected: all selected tests pass.
 
 Run: `docker compose -f compose.training.yaml config`
@@ -247,12 +247,12 @@ Expected: exit 0.
 Run: `docker compose -f compose.training.yaml build trainer`
 Expected: image builds successfully.
 
-Run: `docker compose -f compose.training.yaml run --rm --entrypoint uv trainer run python scripts/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json`
+Run: `docker compose -f compose.training.yaml run --rm --entrypoint uv trainer run python examples/binance-multitimeframe/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json`
 Expected: JSON reports CUDA available and RTX 4050 device memory.
 
 - [ ] **Step 2: Run a bounded vectorized GPU smoke**
 
-Run: `docker compose -f compose.training.yaml run --rm --entrypoint uv trainer run python scripts/run_gpu_training_smoke.py --work-root /workspace/var/gpu-smoke --timesteps 8192 --n-envs 4`
+Run: `docker compose -f compose.training.yaml run --rm --entrypoint uv trainer run python examples/binance-multitimeframe/run_gpu_training_smoke.py --work-root /workspace/var/gpu-smoke --timesteps 8192 --n-envs 4`
 Expected: `/workspace/var/gpu-smoke/smoke-summary.json` reports `resolved_device` beginning with `cuda`, `n_envs` equal to 4, 8,192 observed timesteps, and a published policy checkpoint.
 
 - [ ] **Step 3: Run the complete pipeline**

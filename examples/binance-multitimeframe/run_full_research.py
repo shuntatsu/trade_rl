@@ -349,8 +349,15 @@ def _independent_fold_maximum_drawdown(folds: object) -> float | None:
             if not np.isfinite(resolved) or resolved < -1.0:
                 return None
             wealth *= 1.0 + resolved
+            if not np.isfinite(wealth):
+                return None
             peak = max(peak, wealth)
-            maximum = max(maximum, 1.0 - wealth / peak)
+            if not np.isfinite(peak):
+                return None
+            drawdown = 1.0 - wealth / peak
+            if not np.isfinite(drawdown):
+                return None
+            maximum = max(maximum, drawdown)
     return maximum
 
 

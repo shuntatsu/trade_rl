@@ -34,7 +34,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y zstd
           gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/52/comments" \
-            --jq 'sort_by(.created_at) | .[].body' > /tmp/payload.b64
+            --jq 'sort_by(.created_at) | .[0:2] | .[].body' > /tmp/payload.b64
           for file in $(find .sequence-payload -type f -name '*.b64' | sort); do
             cat "$file" >> /tmp/payload.b64
           done
@@ -58,8 +58,8 @@ jobs:
           status=$?
           cat /tmp/ruff.log
           if [ "$status" -ne 0 ]; then
-            { echo 'Ruff failure from causal sequence payload:'; echo '```'; tail -n 180 /tmp/ruff.log; echo '```'; } > /tmp/ruff-comment.md
-            gh issue comment 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/ruff-comment.md
+            { echo 'Ruff failure from causal sequence payload:'; echo; echo '```text'; tail -n 180 /tmp/ruff.log; echo '```'; } > /tmp/ruff-comment.md
+            gh issue edit 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/ruff-comment.md
             exit "$status"
           fi
       - name: Run causal sequence focused tests

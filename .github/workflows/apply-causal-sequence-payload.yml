@@ -41,6 +41,19 @@ jobs:
           base64 --decode /tmp/payload.b64 > /tmp/payload.tar.zst
           echo "83d436f47c13783f012b03bcfc88a2472aad676249c0e6fe69800b8c73e62d92  /tmp/payload.tar.zst" | sha256sum --check -
           zstd --decompress --stdout /tmp/payload.tar.zst | tar -xf -
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/rl/test_sequence_policy_core.py")
+          lines = path.read_text(encoding="utf-8").splitlines()
+          call = "torch.set_num_threads(1)"
+          lines.remove(call)
+          import_start = lines.index("from trade_rl.rl.sequence_policy import (")
+          import_end = lines.index(")", import_start)
+          lines.insert(import_end + 1, "")
+          lines.insert(import_end + 2, call)
+          path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+          PY
           rm -rf .sequence-payload .github/workflows/apply-causal-sequence-payload.yml
       - name: Install Python and dependencies
         run: |

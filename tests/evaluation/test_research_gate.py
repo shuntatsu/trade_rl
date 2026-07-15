@@ -143,7 +143,7 @@ def test_research_return_gate_rejects_drawdown_outside_financial_range(
     )
 
 
-def test_research_return_gate_fails_closed_on_non_finite_derived_uplift() -> None:
+def test_research_return_gate_rejects_extreme_baseline_before_uplift() -> None:
     result = evaluate_research_return_gate(
         selected_mean_return=1e308,
         baseline_mean_return=-1e308,
@@ -155,7 +155,7 @@ def test_research_return_gate_fails_closed_on_non_finite_derived_uplift() -> Non
     assert result.conditions["evidence_valid"] is False
     assert result.passed is False
     assert result.evidence_errors == (
-        "baseline_uplift must be a finite number",
+        "baseline_mean_return must be greater than or equal to -1",
     )
 
 
@@ -172,3 +172,68 @@ def test_research_return_gate_fails_closed_on_oversized_summary_integer() -> Non
     assert result.evidence_errors == (
         "selected_mean_return must be a finite number",
     )
+
+
+def test_research_return_gate_rejects_selected_return_below_total_loss() -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=-2.0,
+        baseline_mean_return=-1.0,
+        maximum_fold_drawdown=0.10,
+    )
+
+    assert result.observed["selected_mean_return"] is None
+    assert result.conditions["evidence_valid"] is False
+    assert result.passed is False
+    assert result.evidence_errors == (
+        "selected_mean_return must be greater than or equal to -1",
+    )
+
+
+def test_research_return_gate_rejects_baseline_return_below_total_loss() -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=0.05,
+        baseline_mean_return=-2.0,
+        maximum_fold_drawdown=0.10,
+    )
+
+    assert result.observed["baseline_mean_return"] is None
+    assert result.observed["baseline_uplift"] is None
+    assert result.conditions["evidence_valid"] is False
+    assert result.passed is False
+    assert result.evidence_errors == (
+        "baseline_mean_return must be greater than or equal to -1",
+    )
+
+
+def test_research_return_gate_accepts_total_loss_return_boundaries_as_evidence() -> None:
+    selected_boundary = evaluate_research_return_gate(
+        selected_mean_return=-1.0,
+        baseline_mean_return=-1.0,
+        maximum_fold_drawdown=0.0,
+    )
+    baseline_boundary = evaluate_research_return_gate(
+        selected_mean_return=0.05,
+        baseline_mean_return=-1.0,
+        maximum_fold_drawdown=0.0,
+    )
+
+    assert selected_boundary.conditions["evidence_valid"] is True
+    assert selected_boundary.passed is False
+    assert selected_boundary.evidence_errors == ()
+    assert baseline_boundary.conditions["evidence_valid"] is True
+    assert baseline_boundary.passed is True
+    assert baseline_boundary.evidence_errors == ()
+
+
+@pytest.mark.parametrize("drawdown", [0.0, 1.0])
+def test_research_return_gate_accepts_drawdown_domain_boundaries_as_evidence(
+    drawdown: float,
+) -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=0.05,
+        baseline_mean_return=0.01,
+        maximum_fold_drawdown=drawdown,
+    )
+
+    assert result.conditions["evidence_valid"] is True
+    assert result.evidence_errors == ()

@@ -38,6 +38,17 @@ def _finite_number(value: object, *, field_name: str) -> tuple[float | None, str
     return resolved, None
 
 
+def _total_return(
+    value: object,
+    *,
+    field_name: str,
+) -> tuple[float | None, str | None]:
+    resolved, error = _finite_number(value, field_name=field_name)
+    if resolved is not None and resolved < -1.0:
+        return None, f"{field_name} must be greater than or equal to -1"
+    return resolved, error
+
+
 def evaluate_research_return_gate(
     *,
     selected_mean_return: object,
@@ -46,11 +57,11 @@ def evaluate_research_return_gate(
 ) -> ResearchReturnGate:
     """Evaluate the final research return thresholds without raising on evidence."""
 
-    selected, selected_error = _finite_number(
+    selected, selected_error = _total_return(
         selected_mean_return,
         field_name="selected_mean_return",
     )
-    baseline, baseline_error = _finite_number(
+    baseline, baseline_error = _total_return(
         baseline_mean_return,
         field_name="baseline_mean_return",
     )

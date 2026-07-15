@@ -385,9 +385,7 @@ def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
             payload,
             "baseline_independent_summary",
         ),
-        maximum_fold_drawdown=_independent_fold_maximum_drawdown(
-            payload.get("folds")
-        ),
+        maximum_fold_drawdown=_independent_fold_maximum_drawdown(payload.get("folds")),
     )
 
 

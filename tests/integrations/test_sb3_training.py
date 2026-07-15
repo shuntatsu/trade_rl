@@ -28,9 +28,7 @@ class TinyEnvironment(gym.Env[np.ndarray, np.ndarray]):
 
     def __init__(self) -> None:
         super().__init__()
-        self.observation_space = spaces.Box(
-            -1.0, 1.0, shape=(2,), dtype=np.float32
-        )
+        self.observation_space = spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
 
     def reset(

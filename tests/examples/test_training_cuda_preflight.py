@@ -9,12 +9,7 @@ from typing import Any, Callable
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-PREFLIGHT = (
-    ROOT
-    / "examples"
-    / "binance-multitimeframe"
-    / "training_cuda_preflight.py"
-)
+PREFLIGHT = ROOT / "examples" / "binance-multitimeframe" / "training_cuda_preflight.py"
 
 
 def _load_preflight() -> Callable[[Path, Any], dict[str, object]]:

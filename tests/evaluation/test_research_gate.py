@@ -99,7 +99,9 @@ def test_research_return_gate_fails_closed_on_non_finite_evidence(
     assert result.evidence_errors == (f"{field_name} must be a finite number",)
 
 
-def test_research_return_gate_accepts_nonnegative_uplift_and_drawdown_boundary() -> None:
+def test_research_return_gate_accepts_nonnegative_uplift_and_drawdown_boundary() -> (
+    None
+):
     result = evaluate_research_return_gate(
         selected_mean_return=0.05,
         baseline_mean_return=0.05,
@@ -138,9 +140,7 @@ def test_research_return_gate_rejects_drawdown_outside_financial_range(
 
     assert result.conditions["evidence_valid"] is False
     assert result.passed is False
-    assert result.evidence_errors == (
-        "maximum_fold_drawdown must be between 0 and 1",
-    )
+    assert result.evidence_errors == ("maximum_fold_drawdown must be between 0 and 1",)
 
 
 def test_research_return_gate_rejects_extreme_baseline_before_uplift() -> None:
@@ -169,9 +169,7 @@ def test_research_return_gate_fails_closed_on_oversized_summary_integer() -> Non
     assert result.observed["selected_mean_return"] is None
     assert result.conditions["evidence_valid"] is False
     assert result.passed is False
-    assert result.evidence_errors == (
-        "selected_mean_return must be a finite number",
-    )
+    assert result.evidence_errors == ("selected_mean_return must be a finite number",)
 
 
 def test_research_return_gate_rejects_selected_return_below_total_loss() -> None:
@@ -205,7 +203,9 @@ def test_research_return_gate_rejects_baseline_return_below_total_loss() -> None
     )
 
 
-def test_research_return_gate_accepts_total_loss_return_boundaries_as_evidence() -> None:
+def test_research_return_gate_accepts_total_loss_return_boundaries_as_evidence() -> (
+    None
+):
     selected_boundary = evaluate_research_return_gate(
         selected_mean_return=-1.0,
         baseline_mean_return=-1.0,

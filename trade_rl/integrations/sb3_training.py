@@ -25,9 +25,7 @@ from trade_rl.rl.training import (
 )
 
 
-def _build_training_environment(
-    factory: Callable[[], Any], n_envs: int
-) -> Any:
+def _build_training_environment(factory: Callable[[], Any], n_envs: int) -> Any:
     if n_envs == 1:
         return factory()
 

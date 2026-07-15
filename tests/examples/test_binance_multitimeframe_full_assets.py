@@ -108,7 +108,9 @@ def _write_walk_forward(path: Path, *, selected: float, baseline: float) -> None
     )
 
 
-def test_full_runner_publishes_passing_research_gate_and_summary(tmp_path: Path) -> None:
+def test_full_runner_publishes_passing_research_gate_and_summary(
+    tmp_path: Path,
+) -> None:
     namespace = _runner_namespace()
     finalize = namespace["_finalize_research_run"]
     walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
@@ -156,10 +158,9 @@ def test_full_runner_preserves_failed_gate_and_summary_before_nonzero_exit(
     assert gate_path.is_file()
     assert summary_path.is_file()
     assert json.loads(gate_path.read_text(encoding="utf-8"))["passed"] is False
-    assert (
-        json.loads(summary_path.read_text(encoding="utf-8"))["research_gate"]
-        == json.loads(gate_path.read_text(encoding="utf-8"))
-    )
+    assert json.loads(summary_path.read_text(encoding="utf-8"))[
+        "research_gate"
+    ] == json.loads(gate_path.read_text(encoding="utf-8"))
 
 
 def test_full_runner_fails_closed_and_publishes_malformed_evidence(

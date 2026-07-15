@@ -125,9 +125,7 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
     if work_root.exists():
         shutil.rmtree(work_root)
     work_root.mkdir(parents=True)
-    preflight = write_cuda_preflight_evidence(
-        work_root / "cuda-preflight.json", torch
-    )
+    preflight = write_cuda_preflight_evidence(work_root / "cuda-preflight.json", torch)
 
     dataset_path = work_root / "dataset"
     write_market_dataset_files(dataset_path, build_demo_dataset())
@@ -187,7 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    work_root = args.work_root if args.work_root.is_absolute() else ROOT / args.work_root
+    work_root = (
+        args.work_root if args.work_root.is_absolute() else ROOT / args.work_root
+    )
     evidence = run_gpu_training_smoke(
         work_root=work_root,
         timesteps=args.timesteps,

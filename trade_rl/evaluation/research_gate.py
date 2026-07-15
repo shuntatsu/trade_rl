@@ -26,7 +26,9 @@ class ResearchReturnGate:
     evidence_errors: tuple[str, ...]
 
 
-def _finite_number(value: object, *, field_name: str) -> tuple[float | None, str | None]:
+def _finite_number(
+    value: object, *, field_name: str
+) -> tuple[float | None, str | None]:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None, f"{field_name} must be a finite number"
     try:

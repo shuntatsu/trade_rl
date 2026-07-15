@@ -72,7 +72,7 @@ def test_research_return_gate_rejects_one_baseline_fold_among_rl_folds() -> None
         selected_mean_return=0.08,
         baseline_mean_return=0.03,
         maximum_fold_drawdown=0.12,
-        selected_policy_digests=("a" * 64, None, "c" * 64),
+        selected_policy_digests=("a" * 64, None),
     )
 
     assert result.conditions["rl_policy_selected_all_folds"] is False
@@ -81,6 +81,53 @@ def test_research_return_gate_rejects_one_baseline_fold_among_rl_folds() -> None
     assert result.evidence_errors == (
         "selected_policy_digests[1] must be a non-empty string",
     )
+
+
+@pytest.mark.parametrize(
+    ("selected_policy_digests", "expected_error"),
+    [
+        (("a" * 64,), "selected_policy_digests must contain exactly 2 identities"),
+        (
+            ("a" * 64, "b" * 64, "c" * 64),
+            "selected_policy_digests must contain exactly 2 identities",
+        ),
+        (
+            ("rl-policy", "b" * 64),
+            "selected_policy_digests[0] must be a lowercase SHA-256 digest",
+        ),
+        (
+            (f" {'a' * 64} ", "b" * 64),
+            "selected_policy_digests[0] must be a lowercase SHA-256 digest",
+        ),
+        (
+            ("A" * 64, "b" * 64),
+            "selected_policy_digests[0] must be a lowercase SHA-256 digest",
+        ),
+        (
+            ("g" * 64, "b" * 64),
+            "selected_policy_digests[0] must be a lowercase SHA-256 digest",
+        ),
+        (
+            ("a" * 64, "a" * 64),
+            "selected_policy_digests must contain unique identities",
+        ),
+    ],
+)
+def test_research_return_gate_rejects_noncanonical_fold_policy_identity_set(
+    selected_policy_digests: tuple[str, ...],
+    expected_error: str,
+) -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=0.08,
+        baseline_mean_return=0.03,
+        maximum_fold_drawdown=0.12,
+        selected_policy_digests=selected_policy_digests,
+    )
+
+    assert result.conditions["rl_policy_selected_all_folds"] is False
+    assert result.conditions["evidence_valid"] is False
+    assert result.passed is False
+    assert expected_error in result.evidence_errors
 
 
 @pytest.mark.parametrize("selected_mean_return", [0.0, -0.01])

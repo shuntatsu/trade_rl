@@ -164,22 +164,25 @@ def _write_walk_forward(
     selected_policy_digests: tuple[str | None, ...] = ("a" * 64, "b" * 64),
 ) -> None:
     path.mkdir(parents=True)
+    returns_by_fold = ([0.10, -0.20], [-0.05, 0.02])
     folds = [
         {
             "selected_policy_digest": digest,
-            "selected_returns": returns,
+            "selected_returns": returns_by_fold[index % len(returns_by_fold)],
         }
-        for digest, returns in zip(
-            selected_policy_digests,
-            ([0.10, -0.20], [-0.05, 0.02]),
-            strict=True,
-        )
+        for index, digest in enumerate(selected_policy_digests)
     ]
     (path / "walk-forward.json").write_text(
         json.dumps(
             {
-                "selected_independent_summary": {"mean_fold_return": selected},
-                "baseline_independent_summary": {"mean_fold_return": baseline},
+                "selected_independent_summary": {
+                    "fold_count": 2,
+                    "mean_fold_return": selected,
+                },
+                "baseline_independent_summary": {
+                    "fold_count": 2,
+                    "mean_fold_return": baseline,
+                },
                 "folds": folds,
             }
         ),
@@ -224,9 +227,16 @@ def test_full_runner_publishes_passing_research_gate_and_summary(
     [
         (None, None),
         ("a" * 64, None),
+        ("a" * 64,),
+        ("a" * 64, "b" * 64, "c" * 64),
+        ("rl-policy", "b" * 64),
+        (f" {'a' * 64} ", "b" * 64),
+        ("A" * 64, "b" * 64),
+        ("g" * 64, "b" * 64),
+        ("a" * 64, "a" * 64),
     ],
 )
-def test_full_runner_rejects_profitable_baseline_fallback_in_any_fold(
+def test_full_runner_rejects_invalid_rl_policy_identity_set(
     tmp_path: Path,
     selected_policy_digests: tuple[str | None, ...],
 ) -> None:
@@ -484,7 +494,11 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
                     {
                         "selected_policy_digest": "a" * 64,
                         "selected_returns": [-1.0],
-                    }
+                    },
+                    {
+                        "selected_policy_digest": "b" * 64,
+                        "selected_returns": [0.0],
+                    },
                 ],
             }
         ),

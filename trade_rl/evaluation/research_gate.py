@@ -6,8 +6,12 @@ import math
 from dataclasses import dataclass
 from typing import TypeAlias
 
+from trade_rl.domain.common import require_sha256
+
 PolicyIdentity: TypeAlias = str | None
 ObservedValue: TypeAlias = float | tuple[PolicyIdentity, ...] | None
+
+_REQUIRED_SEALED_FOLD_COUNT = 2
 
 _THRESHOLDS = {
     "selected_mean_return_exclusive_minimum": 0.0,
@@ -55,18 +59,37 @@ def _total_return(
 def _selected_policy_identities(
     value: object,
 ) -> tuple[tuple[PolicyIdentity, ...] | None, tuple[str, ...]]:
-    if not isinstance(value, (list, tuple)) or not value:
-        return None, ("selected_policy_digests must be a non-empty sequence",)
+    if not isinstance(value, (list, tuple)):
+        return None, ("selected_policy_digests must be a sequence",)
     identities: list[PolicyIdentity] = []
+    canonical_identities: list[str] = []
     errors: list[str] = []
+    if len(value) != _REQUIRED_SEALED_FOLD_COUNT:
+        errors.append(
+            "selected_policy_digests must contain exactly "
+            f"{_REQUIRED_SEALED_FOLD_COUNT} identities"
+        )
     for index, identity in enumerate(value):
-        if not isinstance(identity, str) or not identity.strip():
+        if not isinstance(identity, str) or not identity:
             identities.append(None)
             errors.append(
                 f"selected_policy_digests[{index}] must be a non-empty string"
             )
         else:
             identities.append(identity)
+            try:
+                canonical_identities.append(
+                    require_sha256(
+                        identity,
+                        field=f"selected_policy_digests[{index}]",
+                    )
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+    if len(canonical_identities) == _REQUIRED_SEALED_FOLD_COUNT and len(
+        set(canonical_identities)
+    ) != len(canonical_identities):
+        errors.append("selected_policy_digests must contain unique identities")
     return tuple(identities), tuple(errors)
 
 

@@ -265,7 +265,42 @@ Expected: all selected tests pass.
 Run: `uv run ruff check examples/binance-multitimeframe/run_full_research.py tests/examples/test_binance_multitimeframe_full_assets.py`
 Expected: exit 0.
 
-### Task 8: Container GPU smoke and full research execution
+### Task 8: Preserve packaged-source Git provenance
+
+**Files:**
+- Modify: `trade_rl/workflows/training_run.py`
+- Modify: `tests/workflows/test_training_run_config.py`
+- Modify: `examples/binance-multitimeframe/run_full_research.py`
+- Modify: `examples/binance-multitimeframe/run_gpu_training_smoke.py`
+- Modify: `tests/examples/test_binance_multitimeframe_full_assets.py`
+- Modify: `tests/examples/test_run_gpu_training_smoke.py`
+- Modify: `Dockerfile.training`
+- Modify: `compose.training.yaml`
+- Modify: `tests/examples/test_docker_training_assets.py`
+- Modify: `docs/operations/docker-gpu-full-training.md`
+
+**Interfaces:**
+- Produces: `TrainingRunConfig.git_dirty: bool | None`, build-time `TRADE_RL_GIT_COMMIT`, and build-time `TRADE_RL_GIT_DIRTY`.
+- Consumes: exact 40-character lowercase Git commit and boolean dirty state from the host checkout used as Docker build context.
+
+- [ ] **Step 1: Write failing provenance tests**
+
+Assert training config parses/digests `git_dirty`; executing with explicit `git_commit` and `git_dirty=false` works outside a Git checkout; both maintained runners inject the two required environment values; Docker build requires and exports both values.
+
+- [ ] **Step 2: Run RED**
+
+Run: `uv run pytest tests/workflows/test_training_run_config.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_binance_multitimeframe_full_assets.py tests/examples/test_docker_training_assets.py -q`
+Expected: failures because dirty provenance and build arguments are absent.
+
+- [ ] **Step 3: Implement fail-closed packaged provenance**
+
+Add `git_dirty` to parsing and digest identity, pass it to `capture_runtime_provenance`, and require both environment values when the runners materialize Docker configs. Add Docker build arguments and environment variables. Document PowerShell commands that set the commit from `git rev-parse HEAD` and dirty state from `git status --porcelain` before build.
+
+- [ ] **Step 4: Run GREEN and focused validation**
+
+Run the RED command again, plus Ruff, Mypy, Compose config with explicit provenance variables, and the full test suite.
+
+### Task 9: Container GPU smoke and full research execution
 
 **Files:**
 - Runtime artifacts only: Docker volume `trade-rl-training-data`.

@@ -16,9 +16,13 @@
       "run": {
         "schema_version": "training_run_config_v1",
         "training": {
-          "timesteps": 32768,
-          "gamma": 0.98363193244419,
-          "seeds": [0, 1, 2],
+          "timesteps": 65536,
+          "gamma": 0.9958826236582974,
+          "seeds": [
+            0,
+            1,
+            2
+          ],
           "learning_rate": 0.0003,
           "n_steps": 2048,
           "batch_size": 64,
@@ -26,24 +30,30 @@
           "gae_lambda": 0.95,
           "ent_coef": 0.001,
           "device": "cpu",
-          "decision_hours": 4.0,
+          "decision_hours": 1.0,
           "discount_half_life_hours": 168.0,
           "log_std_init": -0.7,
           "target_kl": 0.02,
-          "policy_net_arch": [128, 128],
+          "policy_net_arch": [
+            128,
+            128
+          ],
           "asset_set_encoder": true,
           "asset_embedding_dim": 64,
           "global_embedding_dim": 64,
           "algorithm": "ppo",
-          "checkpoint_interval_steps": 8192,
+          "checkpoint_interval_steps": 16384,
           "max_checkpoints": 4
         },
         "environment": {
           "episode_hours": 720.0,
-          "decision_hours": 4.0,
+          "decision_hours": 1.0,
           "initial_capital": 100000.0,
           "finite_horizon_observation": true,
-          "initial_state_modes": ["cash", "baseline"],
+          "initial_state_modes": [
+            "cash",
+            "baseline"
+          ],
           "episode_sampling_mode": "uniform"
         },
         "risk": {
@@ -82,7 +92,6 @@
           "n_factors": 3,
           "validation_mode": "clip"
         },
-        "factor_artifact": "relative-factor-artifact",
         "alpha_contract": {
           "kind": "target_weight",
           "expected_return_scale": 0.01,
@@ -101,8 +110,9 @@
         "exports": {
           "onnx": false,
           "torchscript": false,
-          "tolerance": 0.00001
-        }
+          "tolerance": 1e-05
+        },
+        "factor_artifact": "relative-factor-artifact"
       }
     }
   ]

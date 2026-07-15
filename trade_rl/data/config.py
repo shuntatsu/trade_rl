@@ -100,6 +100,7 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
             "normalization_window",
             "min_periods",
             "max_staleness_hours",
+            "timeframe",
         },
         field=field,
     )
@@ -134,6 +135,7 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
             field=f"{field}.max_staleness_hours",
             default=24.0,
         ),
+        timeframe=_optional_string(item.get("timeframe"), field=f"{field}.timeframe"),
     )
 
 

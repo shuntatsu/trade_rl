@@ -23,6 +23,7 @@ from trade_rl.integrations.binance import (
     BinancePublicTransport,
     BinanceTransportError,
     BinanceTransportMode,
+    binance_multitimeframe_feature_specs,
     build_binance_market_dataset,
 )
 
@@ -247,18 +248,17 @@ def _build_dataset(
         )
     if result.dataset.symbols != _SYMBOLS:
         raise RuntimeError(f"unexpected symbol order: {result.dataset.symbols}")
-    expected_features = (
-        "15m__log_return_1bar",
-        "15m__realized_volatility_4bar",
-        "1h__log_return_1bar",
-        "1h__log_return_1d",
-        "1h__volume_zscore_1d",
-        "1h__funding_bps",
-        "4h__log_return_1bar",
-        "4h__realized_volatility_6bar",
-        "1d__log_return_1bar",
-        "1d__log_return_7bar",
+    expected_features = tuple(
+        spec.name
+        for spec in binance_multitimeframe_feature_specs(
+            base_timeframe="1h",
+            feature_timeframes=_FEATURE_TIMEFRAMES,
+        )
     )
+    if len(expected_features) != 96:
+        raise RuntimeError(
+            f"complete feature contract must contain 96 features, got {len(expected_features)}"
+        )
     if result.dataset.feature_names != expected_features:
         raise RuntimeError(
             f"unexpected feature contract: {result.dataset.feature_names}"
@@ -442,8 +442,10 @@ def main() -> int:
         "metadata_error": metadata_error,
         "metadata_source": metadata_source,
         "native_timeframes": list(_NATIVE_TIMEFRAMES),
+        "decision_hours": 1.0,
+        "feature_count": 96,
         "production_status": "NO-GO",
-        "schema": "binance_multitimeframe_full_research_v1",
+        "schema": "binance_multitimeframe_complete_research_v2",
         "start_time": _START,
         "training": training,
         "walk_forward": walk_forward,

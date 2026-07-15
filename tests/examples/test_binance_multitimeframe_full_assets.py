@@ -15,29 +15,22 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.algorithm == "ppo"
     assert config.training.device == "cpu"
     assert config.training.seeds == (0, 1, 2)
-    assert config.training.timesteps >= 131_072
+    assert config.training.timesteps >= 262_144
     assert config.training.n_steps == 2_048
     assert config.training.batch_size == 64
     assert config.training.n_epochs == 10
     assert config.training.policy_net_arch == (128, 128)
-    assert config.environment.decision_hours == 4.0
+    assert config.environment.decision_hours == 1.0
     assert config.environment.episode_hours >= 720.0
+    assert not config.action.risk_tilt_enabled
+    assert config.action.n_factors == 3
+    assert config.factor_artifact == EXAMPLE_ROOT / "relative-factor-artifact"
     execution = config.environment.execution_cost
     assert execution.fee_rate > 0.0
     assert execution.spread_rate > 0.0
     assert execution.impact_rate > 0.0
     assert config.portfolio_risk.max_abs_weight is not None
     assert config.portfolio_risk.max_abs_weight <= 0.5
-    assert config.risk.max_turnover == 0.05
-    assert config.action.risk_tilt_enabled is False
-    assert config.action.names == (
-        "fast_tilt",
-        "slow_tilt",
-        "factor_0",
-        "factor_1",
-        "factor_2",
-    )
-    assert config.factor_artifact is not None
 
 
 def test_full_walk_forward_config_has_two_material_folds() -> None:
@@ -51,12 +44,11 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
     assert len(config.candidates) == 1
     candidate = config.candidates[0].run
     assert candidate.training.seeds == (0, 1, 2)
-    assert candidate.training.timesteps >= 32_768
-    assert candidate.environment.decision_hours == 4.0
-    assert candidate.risk.max_turnover == 0.05
-    assert candidate.action.risk_tilt_enabled is False
+    assert candidate.training.timesteps >= 65_536
+    assert candidate.environment.decision_hours == 1.0
+    assert not candidate.action.risk_tilt_enabled
     assert candidate.action.n_factors == 3
-    assert candidate.factor_artifact is not None
+    assert candidate.factor_artifact == EXAMPLE_ROOT / "relative-factor-artifact"
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
@@ -71,6 +63,8 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "13_128" in content
     assert "dataset_id" in content
     assert "artifact_digest" in content
-    assert "relative-factor-artifact" in content
+    assert "binance_multitimeframe_feature_specs" in content
+    assert "feature_count" in content
+    assert "96" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content

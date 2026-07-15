@@ -222,3 +222,39 @@ def test_auto_transport_falls_back_from_rest_to_vision(
 
     assert observed == rows
     assert source == "vision"
+
+
+def test_vision_funding_uses_rest_for_partial_trailing_month(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1, retry_backoff_seconds=0.0)
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    july = datetime(2026, 7, 1, tzinfo=UTC)
+    end = datetime(2026, 7, 15, tzinfo=UTC)
+    calls: list[tuple[str, int, int]] = []
+
+    def vision(**kwargs: object) -> list[tuple[int, float]]:
+        calls.append(("vision", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
+        return [(_ms(start), 0.0001)]
+
+    def rest(**kwargs: object) -> list[tuple[int, float]]:
+        calls.append(("rest", int(kwargs["start_ms"]), int(kwargs["end_ms"])))
+        return [(_ms(july), 0.0002)]
+
+    monkeypatch.setattr(transport, "_load_vision_funding", vision)
+    monkeypatch.setattr(transport, "_load_rest_funding", rest)
+
+    observed, source = transport.load_funding_rates(
+        market=BinanceMarket.USDS_M,
+        symbol="BTCUSDT",
+        start_ms=_ms(start),
+        end_ms=_ms(end),
+        mode=BinanceTransportMode.VISION,
+    )
+
+    assert observed == [(_ms(start), 0.0001), (_ms(july), 0.0002)]
+    assert source == "vision+rest"
+    assert calls == [
+        ("vision", _ms(start), _ms(july)),
+        ("rest", _ms(july), _ms(end)),
+    ]

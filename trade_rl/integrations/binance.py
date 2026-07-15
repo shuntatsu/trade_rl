@@ -626,6 +626,58 @@ class BinancePublicTransport:
                     result.append((timestamp, rate))
         return result
 
+    def _load_vision_funding_range(
+        self,
+        *,
+        market: BinanceMarket,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> tuple[list[tuple[int, float]], str]:
+        end_time = datetime.fromtimestamp(end_ms / 1_000, tz=UTC)
+        trailing_month_start = end_time.replace(
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        trailing_month_start_ms = int(trailing_month_start.timestamp() * 1_000)
+        if end_ms == trailing_month_start_ms:
+            return (
+                self._load_vision_funding(
+                    market=market,
+                    symbol=symbol,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                ),
+                "vision",
+            )
+
+        vision_end_ms = max(start_ms, trailing_month_start_ms)
+        result: list[tuple[int, float]] = []
+        sources: list[str] = []
+        if start_ms < vision_end_ms:
+            result.extend(
+                self._load_vision_funding(
+                    market=market,
+                    symbol=symbol,
+                    start_ms=start_ms,
+                    end_ms=vision_end_ms,
+                )
+            )
+            sources.append("vision")
+        result.extend(
+            self._load_rest_funding(
+                market=market,
+                symbol=symbol,
+                start_ms=vision_end_ms,
+                end_ms=end_ms,
+            )
+        )
+        sources.append("rest")
+        return result, "+".join(sources)
+
     def load_funding_rates(
         self,
         *,
@@ -650,14 +702,11 @@ class BinancePublicTransport:
                 "rest",
             )
         if resolved_mode is BinanceTransportMode.VISION:
-            return (
-                self._load_vision_funding(
-                    market=resolved_market,
-                    symbol=symbol,
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                ),
-                "vision",
+            return self._load_vision_funding_range(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
             )
         try:
             return (
@@ -670,14 +719,11 @@ class BinancePublicTransport:
                 "rest",
             )
         except BinanceTransportError:
-            return (
-                self._load_vision_funding(
-                    market=resolved_market,
-                    symbol=symbol,
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                ),
-                "vision",
+            return self._load_vision_funding_range(
+                market=resolved_market,
+                symbol=symbol,
+                start_ms=start_ms,
+                end_ms=end_ms,
             )
 
     def load_exchange_information(

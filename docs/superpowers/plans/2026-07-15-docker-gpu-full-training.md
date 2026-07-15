@@ -330,7 +330,9 @@ Run the research-gate and full-runner tests, Ruff, MyPy, import contracts, and t
 - Modify: `examples/binance-multitimeframe/run_full_research.py`
 - Modify: `tests/examples/test_binance_multitimeframe_full_assets.py`
 - Modify: `compose.training.yaml`
+- Modify: `Dockerfile.training`
 - Modify: `docs/operations/docker-gpu-full-training.md`
+- Modify: `tests/examples/test_docker_training_assets.py`
 
 **Interfaces:**
 - Produces: a stable named-volume Vision cache outside run generations and non-destructive run-root allocation.
@@ -343,6 +345,8 @@ Prove the runner never recursively deletes an existing run generation and that t
 - [ ] **Step 2: Implement stable cache plus non-destructive generations**
 
 Add an explicit cache-root interface, fail when the requested work-root already exists, and update Compose/runbook to use a unique generation while sharing `/workspace/var/cache/binance-vision`.
+
+Keep Compose parseable for `run`/`down` after an image exists while retaining Dockerfile build-time provenance validation. Move provenance-only Docker layers after dependency installation so a new source commit does not force a CUDA/PyTorch dependency reinstall.
 
 - [ ] **Step 3: Run focused and full validation**
 

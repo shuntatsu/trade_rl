@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
+
+
+def _load_full_runner() -> ModuleType:
+    path = EXAMPLE_ROOT / "run_full_research.py"
+    spec = importlib.util.spec_from_file_location("binance_full_research_runner", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load full research runner: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_full_training_config_is_not_a_smoke_run() -> None:
@@ -68,3 +80,20 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "96" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
+
+
+def test_full_runner_accepts_versioned_checkpoint_layout(tmp_path: Path) -> None:
+    for relative in ("run.json", "ensemble.json", "environment.json"):
+        (tmp_path / relative).write_text("{}\n", encoding="utf-8")
+    for index in range(3):
+        member = tmp_path / f"members/member-{index:03d}"
+        member.mkdir(parents=True)
+        (member / "policy.zip").write_bytes(b"policy")
+        checkpoint = member / "checkpoints/step-000000032768"
+        checkpoint.mkdir(parents=True)
+        (checkpoint / "policy.zip").write_bytes(b"checkpoint")
+        (checkpoint / "checkpoint.json").write_text("{}\n", encoding="utf-8")
+
+    runner = _load_full_runner()
+
+    runner._verify_training(tmp_path)

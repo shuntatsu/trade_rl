@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+import runpy
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
@@ -80,3 +85,103 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "96" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
+
+
+def _runner_namespace() -> dict[str, Any]:
+    return runpy.run_path(str(EXAMPLE_ROOT / "run_full_research.py"))
+
+
+def _write_walk_forward(path: Path, *, selected: float, baseline: float) -> None:
+    path.mkdir(parents=True)
+    (path / "walk-forward.json").write_text(
+        json.dumps(
+            {
+                "selected_independent_summary": {"mean_fold_return": selected},
+                "baseline_independent_summary": {"mean_fold_return": baseline},
+                "folds": [
+                    {"selected_returns": [0.10, -0.20]},
+                    {"selected_returns": [-0.05, 0.02]},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_full_runner_publishes_passing_research_gate_and_summary(tmp_path: Path) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
+    _write_walk_forward(walk_forward_path, selected=0.04, baseline=0.01)
+    summary: dict[str, object] = {"production_status": "NO-GO"}
+
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary=summary,
+    )
+
+    gate = json.loads((tmp_path / "research-gate.json").read_text(encoding="utf-8"))
+    published_summary = json.loads(
+        (tmp_path / "summary.json").read_text(encoding="utf-8")
+    )
+    assert exit_code == 0
+    assert gate["passed"] is True
+    assert gate["observed"]["selected_mean_return"] == 0.04
+    assert gate["observed"]["baseline_uplift"] == 0.03
+    assert gate["observed"][
+        "maximum_independently_reset_fold_drawdown"
+    ] == pytest.approx(0.20)
+    assert published_summary["research_gate"] == gate
+    assert summary["research_gate"]["passed"] is True
+
+
+def test_full_runner_preserves_failed_gate_and_summary_before_nonzero_exit(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
+    _write_walk_forward(walk_forward_path, selected=0.01, baseline=0.02)
+
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+    )
+
+    gate_path = tmp_path / "research-gate.json"
+    summary_path = tmp_path / "summary.json"
+    assert exit_code != 0
+    assert gate_path.is_file()
+    assert summary_path.is_file()
+    assert json.loads(gate_path.read_text(encoding="utf-8"))["passed"] is False
+    assert (
+        json.loads(summary_path.read_text(encoding="utf-8"))["research_gate"]
+        == json.loads(gate_path.read_text(encoding="utf-8"))
+    )
+
+
+def test_full_runner_fails_closed_and_publishes_malformed_evidence(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
+    walk_forward_path.mkdir(parents=True)
+    (walk_forward_path / "walk-forward.json").write_text(
+        json.dumps({"folds": [{"selected_returns": [0.01, "invalid"]}]}),
+        encoding="utf-8",
+    )
+
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+    )
+
+    gate = json.loads((tmp_path / "research-gate.json").read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert gate["conditions"]["evidence_valid"] is False
+    assert gate["evidence_errors"]
+    assert (tmp_path / "summary.json").is_file()

@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 import sys
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,10 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.signals import write_signal_artifact
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.research_gate import (
+    ResearchReturnGate,
+    evaluate_research_return_gate,
+)
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinancePublicTransport,
@@ -325,6 +330,70 @@ def _verify_training(path: Path) -> None:
             raise RuntimeError(f"member {index} has no retained checkpoints")
 
 
+def _independent_fold_maximum_drawdown(folds: object) -> float | None:
+    if not isinstance(folds, list) or not folds:
+        return None
+    maximum = 0.0
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return None
+        selected_returns = fold.get("selected_returns")
+        if not isinstance(selected_returns, (list, tuple)) or not selected_returns:
+            return None
+        wealth = 1.0
+        peak = 1.0
+        for value in selected_returns:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            resolved = float(value)
+            if not np.isfinite(resolved) or resolved < -1.0:
+                return None
+            wealth *= 1.0 + resolved
+            peak = max(peak, wealth)
+            maximum = max(maximum, 1.0 - wealth / peak)
+    return maximum
+
+
+def _summary_mean(payload: dict[str, Any], name: str) -> object:
+    summary = payload.get(name)
+    if not isinstance(summary, dict):
+        return None
+    return summary.get("mean_fold_return")
+
+
+def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
+    try:
+        payload = _load_json(path / "walk-forward.json")
+    except (OSError, ValueError):
+        payload = {}
+    return evaluate_research_return_gate(
+        selected_mean_return=_summary_mean(
+            payload,
+            "selected_independent_summary",
+        ),
+        baseline_mean_return=_summary_mean(
+            payload,
+            "baseline_independent_summary",
+        ),
+        maximum_fold_drawdown=_independent_fold_maximum_drawdown(
+            payload.get("folds")
+        ),
+    )
+
+
+def _finalize_research_run(
+    *,
+    work_root: Path,
+    walk_forward_path: Path,
+    summary: dict[str, object],
+) -> int:
+    gate = asdict(_evaluate_walk_forward_research_gate(walk_forward_path))
+    summary["research_gate"] = gate
+    _write_json(work_root / "research-gate.json", gate)
+    _write_json(work_root / "summary.json", summary)
+    return 0 if gate["passed"] else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -450,9 +519,13 @@ def main() -> int:
         "training": training,
         "walk_forward": walk_forward,
     }
-    _write_json(work_root / "summary.json", summary)
+    exit_code = _finalize_research_run(
+        work_root=work_root,
+        walk_forward_path=walk_forward_path,
+        summary=summary,
+    )
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

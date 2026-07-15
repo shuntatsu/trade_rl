@@ -92,6 +92,70 @@ def _runner_namespace() -> dict[str, Any]:
     return runpy.run_path(str(EXAMPLE_ROOT / "run_full_research.py"))
 
 
+def test_full_runner_rejects_existing_generation_without_deleting_it(
+    tmp_path: Path,
+) -> None:
+    prepare_run_roots = _runner_namespace()["_prepare_run_roots"]
+    work_root = tmp_path / "runs" / "generation-001"
+    cache_root = tmp_path / "cache" / "binance-vision"
+    work_root.mkdir(parents=True)
+    evidence = work_root / "failed-evidence.json"
+    evidence.write_text('{"preserved": true}\n', encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="run generation already exists"):
+        prepare_run_roots(work_root=work_root, cache_root=cache_root)
+
+    assert evidence.read_text(encoding="utf-8") == '{"preserved": true}\n'
+    assert not cache_root.exists()
+
+
+def test_full_runner_prepares_stable_cache_outside_new_generation(
+    tmp_path: Path,
+) -> None:
+    prepare_run_roots = _runner_namespace()["_prepare_run_roots"]
+    cache_root = tmp_path / "cache" / "binance-vision"
+    cached_download = cache_root / "monthly-klines.zip"
+    cache_root.mkdir(parents=True)
+    cached_download.write_bytes(b"cached-market-data")
+    work_root = tmp_path / "runs" / "generation-002"
+
+    prepared_work_root, prepared_cache_root = prepare_run_roots(
+        work_root=work_root,
+        cache_root=cache_root,
+    )
+
+    assert prepared_work_root == work_root.resolve()
+    assert prepared_cache_root == cache_root.resolve()
+    assert work_root.is_dir()
+    assert cached_download.read_bytes() == b"cached-market-data"
+    assert cache_root not in work_root.parents
+    assert work_root not in cache_root.parents
+
+
+def test_full_runner_rejects_cache_inside_generation(tmp_path: Path) -> None:
+    prepare_run_roots = _runner_namespace()["_prepare_run_roots"]
+    work_root = tmp_path / "runs" / "generation-003"
+
+    with pytest.raises(ValueError, match="cache root must be outside"):
+        prepare_run_roots(
+            work_root=work_root,
+            cache_root=work_root / "vision-cache",
+        )
+
+    assert not work_root.exists()
+
+
+def test_full_runner_rejects_generation_inside_cache(tmp_path: Path) -> None:
+    prepare_run_roots = _runner_namespace()["_prepare_run_roots"]
+    cache_root = tmp_path / "cache" / "binance-vision"
+    work_root = cache_root / "runs" / "generation-004"
+
+    with pytest.raises(ValueError, match="cache root must be outside"):
+        prepare_run_roots(work_root=work_root, cache_root=cache_root)
+
+    assert not work_root.exists()
+
+
 def test_full_runner_injects_packaged_git_provenance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

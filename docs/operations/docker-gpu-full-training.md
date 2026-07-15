@@ -23,15 +23,24 @@ $env:TRADE_RL_GIT_DIRTY = if (git status --porcelain) { "true" } else { "false" 
 ```
 
 The commit must be exactly 40 lowercase hexadecimal characters, and the dirty
-state must be exactly `true` or `false`. Compose and the Docker build fail
-closed when either value is missing or invalid. The image exports both values
-so the maintained runners can preserve source provenance even though `.git` is
-excluded from the image.
+state must be exactly `true` or `false`. The Docker build fails closed when
+either value is missing or invalid. Compose itself remains parseable without
+the variables so an already built image can still be run or stopped from a new
+shell. The image exports both values so the maintained runners can preserve
+source provenance even though `.git` is excluded from the image.
 
 Build the locked Python 3.12 training image:
 
 ```bash
 docker compose -f compose.training.yaml build trainer
+```
+
+Choose a unique run generation before every full invocation. A UTC timestamp
+is a convenient default; add a suffix if another run could start in the same
+second:
+
+```powershell
+$env:TRADE_RL_RUN_GENERATION = "full-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))"
 ```
 
 Start the maintained full workflow in the foreground and automatically remove
@@ -43,10 +52,13 @@ docker compose -f compose.training.yaml run --rm trainer
 
 The command runs
 `examples/binance-multitimeframe/training_cuda_preflight.py` first and then
-`examples/binance-multitimeframe/run_full_research.py`. The fixed work root is
-`/workspace/var/binance-multitimeframe-full`. Exit code `0` means the workflow
-and its configured research gate completed successfully; any preflight,
-training, evaluation, artifact, or gate failure produces a nonzero exit code.
+`examples/binance-multitimeframe/run_full_research.py`. Its generation root is
+`/workspace/var/runs/$TRADE_RL_RUN_GENERATION`. The runner reuses the shared
+cache at `/workspace/var/cache/binance-vision` and never deletes or overwrites
+an existing generation: a duplicate name fails before cache or evidence is
+changed. Exit code `0` means the workflow and its configured research gate
+completed successfully; any preflight, training, evaluation, artifact, or gate
+failure produces a nonzero exit code.
 
 ## Detached start, status, and logs
 
@@ -94,14 +106,16 @@ List persisted files without granting the helper container write access:
 docker run --rm --mount type=volume,source=trade-rl-training-data,target=/workspace/var,readonly alpine:3.20 find /workspace/var -maxdepth 6 -type f -print
 ```
 
-The principal evidence paths are:
+For a generation named `full-20260715-120000`, the principal evidence paths
+are:
 
 - `/workspace/var/cuda-preflight.json`
-- `/workspace/var/binance-multitimeframe-full/training.log`
-- `/workspace/var/binance-multitimeframe-full/walk-forward.log`
-- `/workspace/var/binance-multitimeframe-full/research-gate.json`
-- `/workspace/var/binance-multitimeframe-full/summary.json`
-- `/workspace/var/binance-multitimeframe-full/artifacts/`
+- `/workspace/var/cache/binance-vision/`
+- `/workspace/var/runs/full-20260715-120000/training.log`
+- `/workspace/var/runs/full-20260715-120000/walk-forward.log`
+- `/workspace/var/runs/full-20260715-120000/research-gate.json`
+- `/workspace/var/runs/full-20260715-120000/summary.json`
+- `/workspace/var/runs/full-20260715-120000/artifacts/`
 
 `summary.json` and `research-gate.json` are finalization evidence and may be
 absent when an earlier stage fails. Inspect the container logs and any
@@ -136,9 +150,10 @@ the container uses `--rm`, it is removed automatically after `cp` exits.
 ## Retry and recovery semantics
 
 The maintained full runner does not resume an interrupted PPO or walk-forward
-process. At startup it deletes and recreates the fixed
-`binance-multitimeframe-full` work root. Therefore, preserve evidence from a
-failed or interrupted generation before retrying.
+process. Each invocation requires a new generation name. Failed and interrupted
+evidence stays in its original generation, while the next invocation reuses the
+shared cache. The runner refuses an existing generation even if it is empty or
+contains only partial evidence.
 
 First stop and remove a detached trainer if it is still present:
 
@@ -146,22 +161,24 @@ First stop and remove a detached trainer if it is still present:
 docker rm --force trade-rl-full-training
 ```
 
-Export the volume as described above, or rename the prior work root to a unique
-generation name. This example reserves `failed-001`; choose a new suffix for
-every retry:
+Set a fresh name, then start a fresh attempt:
 
-```bash
-docker run --rm --mount type=volume,source=trade-rl-training-data,target=/workspace/var alpine:3.20 sh -c 'if [ -e /workspace/var/binance-multitimeframe-full ]; then mv /workspace/var/binance-multitimeframe-full /workspace/var/binance-multitimeframe-full.failed-001; fi'
-```
-
-Then start a fresh attempt:
-
-```bash
+```powershell
+$env:TRADE_RL_RUN_GENERATION = "full-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))-retry1"
 docker compose -f compose.training.yaml run --rm trainer
 ```
 
+The prior generation and `/workspace/var/cache/binance-vision` remain intact.
+If the new command reports that the generation already exists, choose another
+name instead of moving or deleting volume contents.
+
 The named volume survives container removal, but the new invocation is a fresh
 run rather than checkpoint resume. Do not describe a retried run as resumed.
+
+An already built image can be stopped or inspected without re-exporting the Git
+provenance variables. A full `run` still requires
+`TRADE_RL_RUN_GENERATION`; an image rebuild still requires valid
+`TRADE_RL_GIT_COMMIT` and `TRADE_RL_GIT_DIRTY` values.
 
 ## Optional CUDA preflight and bounded smoke
 

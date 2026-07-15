@@ -7,7 +7,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import asdict
@@ -53,7 +52,7 @@ _RELATIVE_FACTOR_BASIS = np.asarray(
 )
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
-_FALLBACK_METADATA: dict[str, dict[str, object]] = {
+_FALLBACK_METADATA: dict[str, dict[str, str | float]] = {
     "BTCUSDT": {
         "listed_at": "2019-09-08T00:00:00Z",
         "tick_size": 0.1,
@@ -107,6 +106,33 @@ def _packaged_git_provenance() -> tuple[str, bool]:
     if dirty not in {"true", "false"}:
         raise ValueError("TRADE_RL_GIT_DIRTY must be exactly true or false")
     return commit, dirty == "true"
+
+
+def _prepare_run_roots(*, work_root: Path, cache_root: Path) -> tuple[Path, Path]:
+    resolved_work_root = work_root.resolve()
+    resolved_cache_root = cache_root.resolve()
+    if resolved_work_root.exists():
+        raise FileExistsError(
+            f"run generation already exists; choose a new --work-root: "
+            f"{resolved_work_root}"
+        )
+    if (
+        resolved_cache_root == resolved_work_root
+        or resolved_work_root in resolved_cache_root.parents
+        or resolved_cache_root in resolved_work_root.parents
+    ):
+        raise ValueError(
+            f"cache root must be outside the run generation: {resolved_cache_root}"
+        )
+    try:
+        resolved_work_root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as error:
+        raise FileExistsError(
+            f"run generation already exists; choose a new --work-root: "
+            f"{resolved_work_root}"
+        ) from error
+    resolved_cache_root.mkdir(parents=True, exist_ok=True)
+    return resolved_work_root, resolved_cache_root
 
 
 def _write_run_config(
@@ -182,7 +208,7 @@ def _filter_number(filters: list[dict[str, object]], kind: str, *names: str) -> 
     raise ValueError(f"exchangeInfo is missing {kind} {names}")
 
 
-def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, object]]:
+def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, str | float]]:
     if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
         raise ValueError("exchangeInfo payload is invalid")
     by_symbol = {
@@ -190,7 +216,7 @@ def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, object]
         for item in payload["symbols"]
         if isinstance(item, dict) and isinstance(item.get("symbol"), str)
     }
-    result: dict[str, dict[str, object]] = {}
+    result: dict[str, dict[str, str | float]] = {}
     for symbol in _SYMBOLS:
         item = by_symbol.get(symbol)
         if not isinstance(item, dict) or not isinstance(item.get("filters"), list):
@@ -219,7 +245,7 @@ def _resolve_metadata(
     transport: BinancePublicTransport,
     *,
     snapshot_path: Path,
-) -> tuple[dict[str, dict[str, object]], str, str | None]:
+) -> tuple[dict[str, dict[str, str | float]], str, str | None]:
     try:
         payload, source = transport.load_exchange_information(
             market=BinanceMarket.USDS_M
@@ -246,7 +272,7 @@ def _build_dataset(
     *,
     output: Path,
     transport: BinancePublicTransport,
-    metadata: dict[str, dict[str, object]],
+    metadata: dict[str, dict[str, str | float]],
 ) -> dict[str, object]:
     result = build_binance_market_dataset(
         market=BinanceMarket.USDS_M,
@@ -438,20 +464,23 @@ def _finalize_research_run(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--work-root", type=Path, required=True)
     parser.add_argument(
-        "--work-root", type=Path, default=Path("var/binance-multitimeframe-full")
+        "--cache-root", type=Path, default=Path("var/cache/binance-vision")
     )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
-    work_root = (
+    requested_work_root = (
         args.work_root if args.work_root.is_absolute() else root / args.work_root
     )
-    if work_root.exists():
-        shutil.rmtree(work_root)
-    work_root.mkdir(parents=True)
-
-    cache_root = work_root / "vision-cache"
+    requested_cache_root = (
+        args.cache_root if args.cache_root.is_absolute() else root / args.cache_root
+    )
+    work_root, cache_root = _prepare_run_roots(
+        work_root=requested_work_root,
+        cache_root=requested_cache_root,
+    )
     transport = BinancePublicTransport(
         timeout_seconds=60.0,
         max_attempts=4,

@@ -144,7 +144,8 @@ production statusは`NO-GO`のままです。
 
 detached起動、status、log、volume確認、artifact抽出、fresh retry、cleanupの正確な
 commandは[Docker GPU完全学習の運用手順](docs/operations/docker-gpu-full-training.md)を
-参照してください。CUDA preflightとsmoke toolは
+参照してください。artifact抽出ではPowerShellの絶対host pathと、実行中のAlpine
+copy containerを使用します。CUDA preflightとsmoke toolは
 `examples/binance-multitimeframe/`配下にあります。
 
 ## 品質確認

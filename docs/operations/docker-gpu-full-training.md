@@ -95,30 +95,29 @@ persisted stage logs in that case.
 
 ## Copy artifacts to the host
 
-Create a host destination. In PowerShell:
+In PowerShell, create the host destination and resolve it to an absolute path:
 
 ```powershell
-New-Item -ItemType Directory -Force training-export
+$ExportDir = Join-Path (Get-Location) "training-export"
+New-Item -ItemType Directory -Force -Path $ExportDir | Out-Null
+$ExportDir = (Resolve-Path -LiteralPath $ExportDir).Path
 ```
 
-In a POSIX shell:
+Start an ephemeral Alpine container with the training volume mounted read-only
+at `/volume` and the absolute host destination bind-mounted writable at
+`/export`. Quote both `--mount` values so a Windows path containing spaces is
+passed as one argument:
 
-```bash
-mkdir -p training-export
+```powershell
+docker run --rm `
+  --mount "type=volume,source=trade-rl-training-data,target=/volume,readonly" `
+  --mount "type=bind,source=$ExportDir,target=/export" `
+  alpine:3.20 sh -c "cp -a /volume/. /export/"
 ```
 
-Create a read-only helper container, copy the complete volume contents, and
-remove the helper:
-
-```bash
-docker create --name trade-rl-artifact-export --mount type=volume,source=trade-rl-training-data,target=/workspace/var,readonly alpine:3.20
-docker cp trade-rl-artifact-export:/workspace/var/. ./training-export
-docker rm trade-rl-artifact-export
-```
-
-The helper never starts and therefore cannot modify the mounted volume.
-Remove an old helper with `docker rm trade-rl-artifact-export` before repeating
-these commands if a previous copy was interrupted.
+The container must run for Docker to attach the user-created volume. The source
+mount is read-only, while `/export` is the only writable data mount. Because
+the container uses `--rm`, it is removed automatically after `cp` exits.
 
 ## Retry and recovery semantics
 

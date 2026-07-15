@@ -112,8 +112,9 @@ not a profitability guarantee and production status remains `NO-GO`.
 
 See [Docker GPU full-training operations](docs/operations/docker-gpu-full-training.md)
 for exact detached start, status, logs, volume inspection, artifact extraction,
-fresh retry, and cleanup commands. The CUDA preflight and smoke tools live under
-`examples/binance-multitimeframe/`.
+fresh retry, and cleanup commands. Artifact extraction uses an absolute
+PowerShell host path and a running Alpine copy container. The CUDA preflight and
+smoke tools live under `examples/binance-multitimeframe/`.
 
 ## Verification
 

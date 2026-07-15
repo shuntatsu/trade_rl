@@ -37,7 +37,6 @@ jobs:
             | sha256sum --check -
           zstd --decompress --stdout /tmp/final.patch.zst > /tmp/final.patch
           git apply --index --binary /tmp/final.patch
-          rm -rf .final-patch .github/workflows/apply-final-sequence-fix.yml
       - name: Install dependencies
         run: uv sync --extra dev --extra export --extra train-sb3
       - name: Verify complete implementation
@@ -57,6 +56,12 @@ jobs:
           uv run python -m compileall -q trade_rl examples tests
           uv run trade-rl --version
           git diff --check
+      - name: Prepare non-workflow product commit
+        run: |
+          git restore --source=HEAD --staged --worktree \
+            .github/workflows/ci.yml \
+            .github/workflows/fix-sequence-walk-forward-integration.yml
+          rm -rf .final-patch
       - name: Commit and push verified implementation
         run: |
           git config user.name github-actions[bot]

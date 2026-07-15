@@ -58,12 +58,21 @@ def evaluate_research_return_gate(
     if drawdown is not None and not 0.0 <= drawdown <= 1.0:
         drawdown = None
         drawdown_error = "maximum_fold_drawdown must be between 0 and 1"
+    uplift = None if selected is None or baseline is None else selected - baseline
+    uplift_error = None
+    if uplift is not None and not math.isfinite(uplift):
+        uplift = None
+        uplift_error = "baseline_uplift must be a finite number"
     errors = tuple(
         error
-        for error in (selected_error, baseline_error, drawdown_error)
+        for error in (
+            selected_error,
+            baseline_error,
+            drawdown_error,
+            uplift_error,
+        )
         if error is not None
     )
-    uplift = None if selected is None or baseline is None else selected - baseline
     evidence_valid = not errors
     selected_positive = selected is not None and selected > 0.0
     uplift_nonnegative = uplift is not None and uplift >= 0.0

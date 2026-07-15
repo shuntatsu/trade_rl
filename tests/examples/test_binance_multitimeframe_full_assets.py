@@ -221,3 +221,33 @@ def test_full_runner_fails_closed_when_fold_compounding_overflows(
     assert summary_path.is_file()
     published_summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert published_summary["research_gate"] == gate
+
+
+def test_full_runner_publishes_standard_json_when_baseline_uplift_overflows(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
+    _write_walk_forward(walk_forward_path, selected=1e308, baseline=-1e308)
+
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+    )
+
+    gate_path = tmp_path / "research-gate.json"
+    summary_path = tmp_path / "summary.json"
+    gate_text = gate_path.read_text(encoding="utf-8")
+    summary_text = summary_path.read_text(encoding="utf-8")
+    gate = json.loads(gate_text)
+    assert exit_code != 0
+    assert gate["passed"] is False
+    assert gate["conditions"]["evidence_valid"] is False
+    assert gate["observed"]["baseline_uplift"] is None
+    assert "Infinity" not in gate_text
+    assert "NaN" not in gate_text
+    assert "Infinity" not in summary_text
+    assert "NaN" not in summary_text
+    assert json.loads(summary_text)["research_gate"] == gate

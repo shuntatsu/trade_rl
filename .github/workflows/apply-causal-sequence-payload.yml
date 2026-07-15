@@ -71,8 +71,8 @@ jobs:
           status=$?
           cat /tmp/ruff.log
           if [ "$status" -ne 0 ]; then
-            { echo 'Ruff failure from causal sequence payload:'; echo; echo '```text'; tail -n 180 /tmp/ruff.log; echo '```'; } > /tmp/ruff-comment.md
-            gh issue edit 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/ruff-comment.md
+            { echo 'Ruff failure from causal sequence payload:'; echo; echo '```text'; tail -n 180 /tmp/ruff.log; echo '```'; } > /tmp/diagnostic.md
+            gh issue edit 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/diagnostic.md
             exit "$status"
           fi
       - name: Run causal sequence focused tests
@@ -86,10 +86,23 @@ jobs:
             tests/learning/test_behavior_cloning.py \
             tests/risk/test_pretrade.py
       - name: Type and syntax checks
+        shell: bash
         run: |
-          uv run mypy trade_rl
-          uv run python -m compileall -q trade_rl examples tests
-          git diff --check
+          set +e
+          status=0
+          uv run mypy trade_rl > /tmp/type.log 2>&1 || status=$?
+          if [ "$status" -eq 0 ]; then
+            uv run python -m compileall -q trade_rl examples tests >> /tmp/type.log 2>&1 || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            git diff --check >> /tmp/type.log 2>&1 || status=$?
+          fi
+          cat /tmp/type.log
+          if [ "$status" -ne 0 ]; then
+            { echo 'Type or syntax failure from causal sequence payload:'; echo; echo '```text'; tail -n 220 /tmp/type.log; echo '```'; } > /tmp/diagnostic.md
+            gh issue edit 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/diagnostic.md
+            exit "$status"
+          fi
       - name: Commit verified implementation
         run: |
           git config user.name github-actions[bot]

@@ -4,7 +4,19 @@ import math
 
 import pytest
 
-from trade_rl.evaluation.research_gate import evaluate_research_return_gate
+from trade_rl.evaluation.research_gate import (
+    ResearchReturnGate,
+)
+from trade_rl.evaluation.research_gate import (
+    evaluate_research_return_gate as _evaluate_research_return_gate,
+)
+
+RL_POLICY_DIGESTS = ("a" * 64, "b" * 64)
+
+
+def evaluate_research_return_gate(**evidence: object) -> ResearchReturnGate:
+    evidence.setdefault("selected_policy_digests", RL_POLICY_DIGESTS)
+    return _evaluate_research_return_gate(**evidence)
 
 
 def test_research_return_gate_passes_profitable_cost_adjusted_evidence() -> None:
@@ -24,15 +36,51 @@ def test_research_return_gate_passes_profitable_cost_adjusted_evidence() -> None
         "baseline_mean_return": 0.03,
         "baseline_uplift": pytest.approx(0.05),
         "maximum_independently_reset_fold_drawdown": 0.12,
+        "selected_policy_digests": RL_POLICY_DIGESTS,
     }
     assert result.conditions == {
         "selected_mean_return_positive": True,
         "baseline_uplift_nonnegative": True,
         "maximum_fold_drawdown_within_limit": True,
+        "rl_policy_selected_all_folds": True,
         "evidence_valid": True,
     }
     assert result.passed is True
     assert result.evidence_errors == ()
+
+
+def test_research_return_gate_rejects_all_baseline_fold_fallbacks() -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=0.08,
+        baseline_mean_return=0.08,
+        maximum_fold_drawdown=0.12,
+        selected_policy_digests=(None, None),
+    )
+
+    assert result.observed["selected_policy_digests"] == (None, None)
+    assert result.conditions["rl_policy_selected_all_folds"] is False
+    assert result.conditions["evidence_valid"] is False
+    assert result.passed is False
+    assert result.evidence_errors == (
+        "selected_policy_digests[0] must be a non-empty string",
+        "selected_policy_digests[1] must be a non-empty string",
+    )
+
+
+def test_research_return_gate_rejects_one_baseline_fold_among_rl_folds() -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=0.08,
+        baseline_mean_return=0.03,
+        maximum_fold_drawdown=0.12,
+        selected_policy_digests=("a" * 64, None, "c" * 64),
+    )
+
+    assert result.conditions["rl_policy_selected_all_folds"] is False
+    assert result.conditions["evidence_valid"] is False
+    assert result.passed is False
+    assert result.evidence_errors == (
+        "selected_policy_digests[1] must be a non-empty string",
+    )
 
 
 @pytest.mark.parametrize("selected_mean_return", [0.0, -0.01])

@@ -392,11 +392,23 @@ def _summary_mean(payload: dict[str, Any], name: str) -> object:
     return summary.get("mean_fold_return")
 
 
+def _selected_fold_policy_digests(folds: object) -> object:
+    if not isinstance(folds, list) or not folds:
+        return None
+    identities: list[object] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return None
+        identities.append(fold.get("selected_policy_digest"))
+    return tuple(identities)
+
+
 def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
     try:
         payload = _load_json(path / "walk-forward.json")
     except (OSError, ValueError):
         payload = {}
+    folds = payload.get("folds")
     return evaluate_research_return_gate(
         selected_mean_return=_summary_mean(
             payload,
@@ -406,7 +418,8 @@ def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
             payload,
             "baseline_independent_summary",
         ),
-        maximum_fold_drawdown=_independent_fold_maximum_drawdown(payload.get("folds")),
+        maximum_fold_drawdown=_independent_fold_maximum_drawdown(folds),
+        selected_policy_digests=_selected_fold_policy_digests(folds),
     )
 
 

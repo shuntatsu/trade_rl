@@ -156,17 +156,31 @@ def test_full_runner_accepts_canonical_nested_checkpoints(tmp_path: Path) -> Non
     verify_training(tmp_path)
 
 
-def _write_walk_forward(path: Path, *, selected: float, baseline: float) -> None:
+def _write_walk_forward(
+    path: Path,
+    *,
+    selected: float,
+    baseline: float,
+    selected_policy_digests: tuple[str | None, ...] = ("a" * 64, "b" * 64),
+) -> None:
     path.mkdir(parents=True)
+    folds = [
+        {
+            "selected_policy_digest": digest,
+            "selected_returns": returns,
+        }
+        for digest, returns in zip(
+            selected_policy_digests,
+            ([0.10, -0.20], [-0.05, 0.02]),
+            strict=True,
+        )
+    ]
     (path / "walk-forward.json").write_text(
         json.dumps(
             {
                 "selected_independent_summary": {"mean_fold_return": selected},
                 "baseline_independent_summary": {"mean_fold_return": baseline},
-                "folds": [
-                    {"selected_returns": [0.10, -0.20]},
-                    {"selected_returns": [-0.05, 0.02]},
-                ],
+                "folds": folds,
             }
         ),
         encoding="utf-8",
@@ -199,8 +213,45 @@ def test_full_runner_publishes_passing_research_gate_and_summary(
     assert gate["observed"][
         "maximum_independently_reset_fold_drawdown"
     ] == pytest.approx(0.20)
+    assert gate["observed"]["selected_policy_digests"] == ["a" * 64, "b" * 64]
+    assert gate["conditions"]["rl_policy_selected_all_folds"] is True
     assert published_summary["research_gate"] == gate
     assert summary["research_gate"]["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "selected_policy_digests",
+    [
+        (None, None),
+        ("a" * 64, None),
+    ],
+)
+def test_full_runner_rejects_profitable_baseline_fallback_in_any_fold(
+    tmp_path: Path,
+    selected_policy_digests: tuple[str | None, ...],
+) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
+    _write_walk_forward(
+        walk_forward_path,
+        selected=0.04,
+        baseline=0.01,
+        selected_policy_digests=selected_policy_digests,
+    )
+
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+    )
+
+    gate = json.loads((tmp_path / "research-gate.json").read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert gate["conditions"]["rl_policy_selected_all_folds"] is False
+    assert gate["conditions"]["evidence_valid"] is False
+    assert gate["evidence_errors"]
+    assert (tmp_path / "summary.json").is_file()
 
 
 def test_full_runner_preserves_failed_gate_and_summary_before_nonzero_exit(
@@ -429,7 +480,12 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
             {
                 "selected_independent_summary": {"mean_fold_return": 0.04},
                 "baseline_independent_summary": {"mean_fold_return": 0.01},
-                "folds": [{"selected_returns": [-1.0]}],
+                "folds": [
+                    {
+                        "selected_policy_digest": "a" * 64,
+                        "selected_returns": [-1.0],
+                    }
+                ],
             }
         ),
         encoding="utf-8",

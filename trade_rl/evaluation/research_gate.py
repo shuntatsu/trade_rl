@@ -6,7 +6,8 @@ import math
 from dataclasses import dataclass
 from typing import TypeAlias
 
-ObservedValue: TypeAlias = float | None
+PolicyIdentity: TypeAlias = str | None
+ObservedValue: TypeAlias = float | tuple[PolicyIdentity, ...] | None
 
 _THRESHOLDS = {
     "selected_mean_return_exclusive_minimum": 0.0,
@@ -51,11 +52,30 @@ def _total_return(
     return resolved, error
 
 
+def _selected_policy_identities(
+    value: object,
+) -> tuple[tuple[PolicyIdentity, ...] | None, tuple[str, ...]]:
+    if not isinstance(value, (list, tuple)) or not value:
+        return None, ("selected_policy_digests must be a non-empty sequence",)
+    identities: list[PolicyIdentity] = []
+    errors: list[str] = []
+    for index, identity in enumerate(value):
+        if not isinstance(identity, str) or not identity.strip():
+            identities.append(None)
+            errors.append(
+                f"selected_policy_digests[{index}] must be a non-empty string"
+            )
+        else:
+            identities.append(identity)
+    return tuple(identities), tuple(errors)
+
+
 def evaluate_research_return_gate(
     *,
     selected_mean_return: object,
     baseline_mean_return: object,
     maximum_fold_drawdown: object,
+    selected_policy_digests: object,
 ) -> ResearchReturnGate:
     """Evaluate the final research return thresholds without raising on evidence."""
 
@@ -79,15 +99,21 @@ def evaluate_research_return_gate(
     if uplift is not None and not math.isfinite(uplift):
         uplift = None
         uplift_error = "baseline_uplift must be a finite number"
-    errors = tuple(
-        error
-        for error in (
-            selected_error,
-            baseline_error,
-            drawdown_error,
-            uplift_error,
+    policy_identities, policy_identity_errors = _selected_policy_identities(
+        selected_policy_digests
+    )
+    errors = (
+        tuple(
+            error
+            for error in (
+                selected_error,
+                baseline_error,
+                drawdown_error,
+                uplift_error,
+            )
+            if error is not None
         )
-        if error is not None
+        + policy_identity_errors
     )
     evidence_valid = not errors
     selected_positive = selected is not None and selected > 0.0
@@ -97,10 +123,14 @@ def evaluate_research_return_gate(
         and drawdown >= 0.0
         and drawdown <= _THRESHOLDS["maximum_independently_reset_fold_drawdown"]
     )
+    rl_policy_selected_all_folds = (
+        policy_identities is not None and not policy_identity_errors
+    )
     conditions = {
         "selected_mean_return_positive": selected_positive,
         "baseline_uplift_nonnegative": uplift_nonnegative,
         "maximum_fold_drawdown_within_limit": drawdown_within_limit,
+        "rl_policy_selected_all_folds": rl_policy_selected_all_folds,
         "evidence_valid": evidence_valid,
     }
     return ResearchReturnGate(
@@ -110,6 +140,7 @@ def evaluate_research_return_gate(
             "baseline_mean_return": baseline,
             "baseline_uplift": uplift,
             "maximum_independently_reset_fold_drawdown": drawdown,
+            "selected_policy_digests": policy_identities,
         },
         conditions=conditions,
         passed=all(conditions.values()),

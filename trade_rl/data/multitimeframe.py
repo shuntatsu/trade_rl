@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone
 
 import numpy as np
 
-from trade_rl.data.contracts import (
-    FeatureKind,
-    FeatureSpec,
-    InstrumentContract,
-    NormalizationMode,
-    timeframe_hours,
-)
+from trade_rl.data.contracts import FeatureSpec, InstrumentContract, timeframe_hours
+from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.source import RawMarketSeries
 
 _NS_PER_HOUR = 3_600_000_000_000
@@ -40,86 +34,35 @@ def _active_mask(raw: RawMarketSeries, contract: InstrumentContract) -> np.ndarr
     return active
 
 
-def _window_available_at(raw: RawMarketSeries, start: int, stop: int) -> np.datetime64:
-    assert raw.available_at is not None
-    return np.max(raw.available_at[start:stop])
-
-
 def _native_events(
     spec: FeatureSpec,
     raw: RawMarketSeries,
     contract: InstrumentContract,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    n_bars = len(raw.timestamps)
-    values = np.zeros(n_bars, dtype=np.float64)
-    valid = np.zeros(n_bars, dtype=np.bool_)
-    available_at = np.full(n_bars, np.datetime64("NaT", "ns"), dtype="datetime64[ns]")
     active = _active_mask(raw, contract)
-
-    if spec.kind is FeatureKind.FUNDING_BPS:
-        assert raw.funding_available is not None
-        assert raw.available_at is not None
-        valid = raw.funding_available & active
-        values[valid] = raw.funding_rate[valid] * 10_000.0
-        available_at[valid] = raw.available_at[valid]
-    elif spec.kind is FeatureKind.LOG_RETURN:
-        for index in range(spec.lookback, n_bars):
-            start = index - spec.lookback
-            if not np.all(active[start : index + 1]):
-                continue
-            values[index] = math.log(raw.close[index] / raw.close[start])
-            valid[index] = True
-            available_at[index] = _window_available_at(raw, start, index + 1)
-    elif spec.kind is FeatureKind.REALIZED_VOLATILITY:
-        for index in range(spec.lookback, n_bars):
-            start = index - spec.lookback
-            if not np.all(active[start : index + 1]):
-                continue
-            returns = np.diff(np.log(raw.close[start : index + 1]))
-            values[index] = float(np.sqrt(np.mean(np.square(returns))))
-            valid[index] = True
-            available_at[index] = _window_available_at(raw, start, index + 1)
-    elif spec.kind is FeatureKind.VOLUME_ZSCORE:
-        for index in range(n_bars):
-            start = max(0, index - spec.lookback + 1)
-            window_active = active[start : index + 1]
-            sample = raw.volume[start : index + 1][window_active]
-            if not active[index] or sample.size < spec.min_periods:
-                continue
-            std = float(np.std(sample))
-            values[index] = (
-                0.0
-                if std <= 1e-12
-                else (raw.volume[index] - float(np.mean(sample))) / std
-            )
-            valid[index] = True
-            available_at[index] = _window_available_at(raw, start, index + 1)
-    else:
-        raise ValueError(f"unsupported feature kind: {spec.kind}")
-
-    if spec.normalization is not NormalizationMode.ROLLING_ZSCORE:
-        return values, valid, available_at
-
-    normalized = np.zeros_like(values)
-    normalized_valid = np.zeros_like(valid)
-    normalized_available_at = np.full_like(available_at, np.datetime64("NaT", "ns"))
-    for index in range(n_bars):
-        if not valid[index]:
-            continue
-        start = max(0, index - spec.normalization_window + 1)
-        sample_mask = valid[start : index + 1]
-        sample = values[start : index + 1][sample_mask]
-        if sample.size < spec.min_periods:
-            continue
-        std = float(np.std(sample))
-        normalized[index] = (
-            0.0 if std <= 1e-12 else (values[index] - float(np.mean(sample))) / std
-        )
-        normalized_valid[index] = True
-        normalized_available_at[index] = np.max(
-            available_at[start : index + 1][sample_mask]
-        )
-    return normalized, normalized_valid, normalized_available_at
+    assert raw.funding_available is not None
+    values, valid, source_start = calculate_feature_events(
+        spec,
+        open_price=raw.open,
+        high=raw.high,
+        low=raw.low,
+        close=raw.close,
+        volume=raw.volume,
+        funding_rate=raw.funding_rate,
+        funding_available=raw.funding_available,
+        row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
+        active=active,
+    )
+    available_at = np.full(
+        len(raw.timestamps), np.datetime64("NaT", "ns"), dtype="datetime64[ns]"
+    )
+    assert raw.available_at is not None
+    for index in np.flatnonzero(valid):
+        start = int(source_start[index])
+        if start < 0 or start > index:
+            raise ValueError("feature source range is invalid")
+        available_at[index] = np.max(raw.available_at[start : index + 1])
+    return values, valid, available_at
 
 
 def align_native_feature(
@@ -138,9 +81,7 @@ def align_native_feature(
     values = np.zeros(len(base_timestamps), dtype=np.float64)
     available = np.zeros(len(base_timestamps), dtype=np.bool_)
     age_hours = np.full(
-        len(base_timestamps),
-        spec.max_staleness_hours,
-        dtype=np.float64,
+        len(base_timestamps), spec.max_staleness_hours, dtype=np.float64
     )
     staleness = np.ones(len(base_timestamps), dtype=np.float64)
 

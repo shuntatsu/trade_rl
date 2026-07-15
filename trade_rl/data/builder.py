@@ -9,12 +9,10 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import (
-    FeatureKind,
-    FeatureSpec,
     InstrumentContract,
     MarketBuildConfig,
-    NormalizationMode,
 )
+from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
     content_and_arrays_digest,
@@ -35,29 +33,8 @@ def _utc_datetime64(value: datetime) -> np.datetime64:
     return np.datetime64(resolved, "ns")
 
 
-def _rolling_zscore(
-    values: np.ndarray,
-    valid: np.ndarray,
-    *,
-    window: int,
-    min_periods: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    result = np.zeros_like(values, dtype=np.float64)
-    result_valid = np.zeros_like(valid, dtype=np.bool_)
-    for index in range(len(values)):
-        if not valid[index]:
-            continue
-        start = max(0, index - window + 1)
-        mask = valid[start : index + 1]
-        sample = values[start : index + 1][mask]
-        if sample.size < min_periods:
-            continue
-        std = float(np.std(sample))
-        result[index] = (
-            0.0 if std <= 1e-12 else (values[index] - float(np.mean(sample))) / std
-        )
-        result_valid[index] = True
-    return result, result_valid
+def _contiguous_window(mask: np.ndarray, start: int, stop: int) -> bool:
+    return bool(np.all(mask[start:stop]))
 
 
 def _carry_feature(
@@ -93,71 +70,6 @@ def _carry_feature(
             values[index] = last_value
             available[index] = True
     return values, available, age, staleness
-
-
-def _contiguous_window(mask: np.ndarray, start: int, stop: int) -> bool:
-    return bool(np.all(mask[start:stop]))
-
-
-def _feature_events(
-    spec: FeatureSpec,
-    *,
-    close: np.ndarray,
-    volume: np.ndarray,
-    funding_rate: np.ndarray,
-    funding_available: np.ndarray,
-    row_present: np.ndarray,
-    active: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    n_bars = len(close)
-    values = np.zeros(n_bars, dtype=np.float64)
-    valid = np.zeros(n_bars, dtype=np.bool_)
-
-    if spec.kind is FeatureKind.FUNDING_BPS:
-        valid = funding_available & row_present & active
-        values[valid] = funding_rate[valid] * 10_000.0
-    elif spec.kind is FeatureKind.LOG_RETURN:
-        for index in range(spec.lookback, n_bars):
-            start = index - spec.lookback
-            if not _contiguous_window(row_present & active, start, index + 1):
-                continue
-            values[index] = math.log(close[index] / close[start])
-            valid[index] = True
-    elif spec.kind is FeatureKind.REALIZED_VOLATILITY:
-        for index in range(spec.lookback, n_bars):
-            start = index - spec.lookback
-            if not _contiguous_window(row_present & active, start, index + 1):
-                continue
-            returns = np.diff(np.log(close[start : index + 1]))
-            values[index] = float(np.sqrt(np.mean(np.square(returns))))
-            valid[index] = True
-    elif spec.kind is FeatureKind.VOLUME_ZSCORE:
-        for index in range(n_bars):
-            start = max(0, index - spec.lookback + 1)
-            mask = (row_present & active)[start : index + 1]
-            sample = volume[start : index + 1][mask]
-            if (
-                not row_present[index]
-                or not active[index]
-                or sample.size < spec.min_periods
-            ):
-                continue
-            std = float(np.std(sample))
-            values[index] = (
-                0.0 if std <= 1e-12 else (volume[index] - float(np.mean(sample))) / std
-            )
-            valid[index] = True
-    else:
-        raise ValueError(f"unsupported feature kind: {spec.kind}")
-
-    if spec.normalization is NormalizationMode.ROLLING_ZSCORE:
-        return _rolling_zscore(
-            values,
-            valid,
-            window=spec.normalization_window,
-            min_periods=spec.min_periods,
-        )
-    return values, valid
 
 
 def _regular_clock(
@@ -327,8 +239,11 @@ class MarketDatasetBuilder:
             for feature_index, spec in enumerate(self.config.features):
                 native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
                 if native_timeframe == self.config.base_timeframe:
-                    event_values, event_valid = _feature_events(
+                    event_values, event_valid, _ = calculate_feature_events(
                         spec,
+                        open_price=open_price[:, symbol_index],
+                        high=high[:, symbol_index],
+                        low=low[:, symbol_index],
                         close=close[:, symbol_index],
                         volume=volume[:, symbol_index],
                         funding_rate=funding_rate[:, symbol_index],

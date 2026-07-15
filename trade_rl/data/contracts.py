@@ -25,6 +25,23 @@ class FeatureKind(StrEnum):
     REALIZED_VOLATILITY = "realized_volatility"
     VOLUME_ZSCORE = "volume_zscore"
     FUNDING_BPS = "funding_bps"
+    RSI = "rsi"
+    MACD_LINE = "macd_line"
+    MACD_SIGNAL = "macd_signal"
+    MACD_HISTOGRAM = "macd_histogram"
+    BOLLINGER_POSITION = "bollinger_position"
+    BOLLINGER_BANDWIDTH = "bollinger_bandwidth"
+    ATR_PCT = "atr_pct"
+    ADX = "adx"
+    STOCHASTIC_K = "stochastic_k"
+    STOCHASTIC_D = "stochastic_d"
+    CCI = "cci"
+    WILLIAMS_R = "williams_r"
+    OBV_SLOPE = "obv_slope"
+    ICHIMOKU_TENKAN_DISTANCE = "ichimoku_tenkan_distance"
+    ICHIMOKU_KIJUN_DISTANCE = "ichimoku_kijun_distance"
+    ICHIMOKU_CLOUD_POSITION = "ichimoku_cloud_position"
+    ICHIMOKU_CLOUD_THICKNESS = "ichimoku_cloud_thickness"
 
 
 class NormalizationMode(StrEnum):

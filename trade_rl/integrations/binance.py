@@ -856,14 +856,10 @@ class BinanceMarketDataSource(MarketDataSource):
             start_ms=start_ms,
             end_ms=end_ms,
         )
-        if timeframe == self.interval:
-            funding, funding_available = _align_funding(
-                timestamps,
-                self._funding_events(symbol),
-            )
-        else:
-            funding = np.zeros(len(timestamps), dtype=np.float64)
-            funding_available = np.zeros(len(timestamps), dtype=np.bool_)
+        funding, funding_available = _align_funding(
+            timestamps,
+            self._funding_events(symbol),
+        )
         series = RawMarketSeries(
             timestamps=timestamps,
             available_at=timestamps,
@@ -989,6 +985,8 @@ def binance_multitimeframe_feature_specs(
     base_timeframe: str,
     feature_timeframes: Sequence[str],
 ) -> tuple[FeatureSpec, ...]:
+    """Return the maintained 24-indicator contract on every native clock."""
+
     _interval_ms(base_timeframe)
     resolved = tuple(feature_timeframes)
     if len(set(resolved)) != len(resolved):
@@ -998,67 +996,54 @@ def binance_multitimeframe_feature_specs(
     for timeframe in resolved:
         _interval_ms(timeframe)
     ordered = tuple(sorted((*resolved, base_timeframe), key=_interval_ms))
+
+    definitions = (
+        ("log_return_1bar", FeatureKind.LOG_RETURN, 1, 1),
+        ("log_return_4bar", FeatureKind.LOG_RETURN, 4, 1),
+        ("log_return_24bar", FeatureKind.LOG_RETURN, 24, 1),
+        ("realized_volatility_4bar", FeatureKind.REALIZED_VOLATILITY, 4, 1),
+        ("realized_volatility_24bar", FeatureKind.REALIZED_VOLATILITY, 24, 1),
+        ("volume_zscore_24bar", FeatureKind.VOLUME_ZSCORE, 24, 24),
+        ("funding_bps", FeatureKind.FUNDING_BPS, 1, 1),
+        ("rsi_14bar", FeatureKind.RSI, 14, 1),
+        ("macd_line_12_26", FeatureKind.MACD_LINE, 26, 1),
+        ("macd_signal_12_26_9", FeatureKind.MACD_SIGNAL, 35, 1),
+        ("macd_histogram_12_26_9", FeatureKind.MACD_HISTOGRAM, 35, 1),
+        ("bollinger_position_20_2", FeatureKind.BOLLINGER_POSITION, 20, 1),
+        ("bollinger_bandwidth_20_2", FeatureKind.BOLLINGER_BANDWIDTH, 20, 1),
+        ("atr_pct_14bar", FeatureKind.ATR_PCT, 14, 1),
+        ("adx_14bar", FeatureKind.ADX, 14, 1),
+        ("stochastic_k_14bar", FeatureKind.STOCHASTIC_K, 14, 1),
+        ("stochastic_d_14_3", FeatureKind.STOCHASTIC_D, 14, 1),
+        ("cci_20bar", FeatureKind.CCI, 20, 1),
+        ("williams_r_14bar", FeatureKind.WILLIAMS_R, 14, 1),
+        ("obv_slope_24bar", FeatureKind.OBV_SLOPE, 24, 1),
+        ("ichimoku_tenkan_distance_9bar", FeatureKind.ICHIMOKU_TENKAN_DISTANCE, 9, 1),
+        ("ichimoku_kijun_distance_26bar", FeatureKind.ICHIMOKU_KIJUN_DISTANCE, 26, 1),
+        ("ichimoku_cloud_position_9_26_52", FeatureKind.ICHIMOKU_CLOUD_POSITION, 52, 1),
+        (
+            "ichimoku_cloud_thickness_9_26_52",
+            FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+            52,
+            1,
+        ),
+    )
     features: list[FeatureSpec] = []
     for timeframe in ordered:
         native = None if timeframe == base_timeframe else timeframe
         native_hours = _interval_ms(timeframe) / 3_600_000.0
-        staleness = max(
-            native_hours * 2.0, base_timeframe == timeframe and 1.0 or native_hours
-        )
-        features.append(
-            FeatureSpec(
-                name=f"{timeframe}__log_return_1bar",
-                kind=FeatureKind.LOG_RETURN,
-                timeframe=native,
-                lookback=1,
-                max_staleness_hours=staleness,
-            )
-        )
-        if timeframe == base_timeframe:
-            one_day = max(1, int(round(24.0 / native_hours)))
-            features.extend(
-                (
-                    FeatureSpec(
-                        name=f"{timeframe}__log_return_1d",
-                        kind=FeatureKind.LOG_RETURN,
-                        lookback=one_day,
-                        max_staleness_hours=staleness,
-                    ),
-                    FeatureSpec(
-                        name=f"{timeframe}__volume_zscore_1d",
-                        kind=FeatureKind.VOLUME_ZSCORE,
-                        lookback=one_day,
-                        min_periods=min(one_day, 2),
-                        max_staleness_hours=staleness,
-                    ),
-                    FeatureSpec(
-                        name=f"{timeframe}__funding_bps",
-                        kind=FeatureKind.FUNDING_BPS,
-                        max_staleness_hours=8.0,
-                    ),
-                )
-            )
-        elif timeframe == "1d":
+        staleness = max(native_hours * 2.0, 1.0 if native is None else native_hours)
+        for suffix, kind, lookback, min_periods in definitions:
             features.append(
                 FeatureSpec(
-                    name="1d__log_return_7bar",
-                    kind=FeatureKind.LOG_RETURN,
-                    timeframe="1d",
-                    lookback=7,
-                    max_staleness_hours=48.0,
-                )
-            )
-        else:
-            volatility_lookback = (
-                4 if timeframe == "15m" else max(2, int(round(24.0 / native_hours)))
-            )
-            features.append(
-                FeatureSpec(
-                    name=(f"{timeframe}__realized_volatility_{volatility_lookback}bar"),
-                    kind=FeatureKind.REALIZED_VOLATILITY,
-                    timeframe=timeframe,
-                    lookback=volatility_lookback,
-                    max_staleness_hours=staleness,
+                    name=f"{timeframe}__{suffix}",
+                    kind=kind,
+                    timeframe=native,
+                    lookback=lookback,
+                    min_periods=min_periods,
+                    max_staleness_hours=(
+                        8.0 if kind is FeatureKind.FUNDING_BPS else staleness
+                    ),
                 )
             )
     return tuple(features)

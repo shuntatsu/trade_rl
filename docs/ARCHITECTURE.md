@@ -27,7 +27,7 @@ The dependency direction remains `cli -> workflows -> integrations`, `integratio
 
 ## Action contract
 
-`baseline_residual_v2` contains `fast_tilt`, `slow_tilt`, `risk_tilt`, optional `alpha_scale`, and zero or more named factor controls. The environment derives the exact dimension from `ActionSpec`; alpha-disabled environments do not expose an unused alpha coordinate. Zero action is exact baseline identity. Training may clip with diagnostics; evaluation and serving can reject out-of-range actions fail closed.
+`portfolio_action_v3` supports either the maintained baseline-residual controls or direct per-symbol `target_weight:<symbol>` controls. The environment derives the exact dimension from `ActionSpec` and binds symbol order into its identity. In target-weight mode, zero action means flat; in residual mode, zero action remains exact baseline identity. Training may clip with diagnostics; evaluation and serving can reject out-of-range actions fail closed.
 
 ## Baseline contract
 

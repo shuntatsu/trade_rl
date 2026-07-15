@@ -69,6 +69,9 @@ class ResidualTrainingConfig:
     checkpoint_interval_steps: int | None = None
     max_checkpoints: int = 5
     n_envs: int = 1
+    behavior_cloning_epochs: int = 0
+    behavior_cloning_learning_rate: float = 1e-3
+    behavior_cloning_batch_size: int = 256
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (
@@ -80,6 +83,7 @@ class ResidualTrainingConfig:
             ("buffer_size", self.buffer_size),
             ("train_freq", self.train_freq),
             ("gradient_steps", self.gradient_steps),
+            ("behavior_cloning_batch_size", self.behavior_cloning_batch_size),
         ):
             if (
                 isinstance(integer_value, bool)
@@ -87,6 +91,17 @@ class ResidualTrainingConfig:
                 or integer_value <= 0
             ):
                 raise ValueError(f"{integer_field_name} must be a positive integer")
+        if (
+            isinstance(self.behavior_cloning_epochs, bool)
+            or not isinstance(self.behavior_cloning_epochs, int)
+            or self.behavior_cloning_epochs < 0
+        ):
+            raise ValueError("behavior_cloning_epochs must be non-negative")
+        if (
+            not math.isfinite(self.behavior_cloning_learning_rate)
+            or self.behavior_cloning_learning_rate <= 0.0
+        ):
+            raise ValueError("behavior_cloning_learning_rate must be positive")
         if self.checkpoint_interval_steps is not None and (
             isinstance(self.checkpoint_interval_steps, bool)
             or not isinstance(self.checkpoint_interval_steps, int)
@@ -108,6 +123,8 @@ class ResidualTrainingConfig:
         if algorithm not in {"ppo", "sac", "td3", "tqc"}:
             raise ValueError("algorithm must be one of ppo, sac, td3, or tqc")
         object.__setattr__(self, "algorithm", algorithm)
+        if self.behavior_cloning_epochs > 0 and algorithm != "ppo":
+            raise ValueError("behavior cloning warm start currently requires PPO")
         if (
             isinstance(self.learning_starts, bool)
             or not isinstance(self.learning_starts, int)
@@ -213,6 +230,9 @@ class ResidualTrainingConfig:
             "asset_embedding_dim": self.asset_embedding_dim,
             "asset_set_encoder": self.asset_set_encoder,
             "batch_size": self.batch_size,
+            "behavior_cloning_batch_size": self.behavior_cloning_batch_size,
+            "behavior_cloning_epochs": self.behavior_cloning_epochs,
+            "behavior_cloning_learning_rate": self.behavior_cloning_learning_rate,
             "buffer_size": self.buffer_size,
             "global_embedding_dim": self.global_embedding_dim,
             "checkpoint_interval_steps": self.checkpoint_interval_steps,

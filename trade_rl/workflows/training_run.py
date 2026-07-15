@@ -29,6 +29,7 @@ from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
     load_factor_artifact,
 )
+from trade_rl.risk.emergency import EmergencyRiskConfig
 from trade_rl.risk.portfolio import (
     PortfolioRiskConfig,
     PortfolioRiskModel,
@@ -137,6 +138,12 @@ class TrainingRunConfig:
         )
         environment_data.pop("reward_config", None)
         environment_data.pop("execution_cost", None)
+        emergency_risk = EmergencyRiskConfig(
+            **_mapping(
+                environment_data.pop("emergency_risk", {}),
+                field="emergency_risk",
+            )
+        )
         exports = _mapping(payload.get("exports"), field="exports")
         git_commit = payload.get("git_commit")
         if git_commit is not None and not isinstance(git_commit, str):
@@ -158,6 +165,7 @@ class TrainingRunConfig:
             environment=ResidualMarketEnvConfig(
                 **environment_data,
                 reward_config=reward,
+                emergency_risk=emergency_risk,
                 execution_cost=execution,
             ),
             risk=PreTradeRiskConfig(**_mapping(payload.get("risk"), field="risk")),

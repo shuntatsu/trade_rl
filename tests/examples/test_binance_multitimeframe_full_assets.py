@@ -31,14 +31,21 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.n_steps == 2_048
     assert config.training.batch_size == 64
     assert config.training.n_epochs == 10
-    assert config.training.gamma == pytest.approx(0.98363193244419)
-    assert config.training.decision_hours == 4.0
-    assert config.environment.decision_hours == 4.0
+    assert config.training.gamma == pytest.approx(0.998969062762624)
+    assert config.training.decision_hours == 0.25
+    assert config.environment.decision_hours == 0.25
+    assert config.training.behavior_cloning_epochs == 15
     assert config.risk.max_turnover == 0.02
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
-    assert config.action.n_factors == 3
-    assert config.factor_artifact == EXAMPLE_ROOT / "relative-factor-artifact"
+    assert config.action.mode.value == "target_weight"
+    assert config.action.target_weight_count == 3
+    assert config.action.n_factors == 0
+    assert config.factor_artifact is None
+    assert config.risk.entry_threshold == 0.10
+    assert config.risk.exit_threshold == 0.03
+    assert config.risk.no_trade_band == 0.05
+    assert config.environment.emergency_risk.stop_loss_return == 0.03
     execution = config.environment.execution_cost
     assert execution.fee_rate > 0.0
     assert execution.spread_rate > 0.0
@@ -50,15 +57,18 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
 def test_full_walk_forward_config_has_two_material_folds() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / "walk-forward-full.json",
-        n_bars=13_848,
+        n_bars=55_392,
     )
 
     folds = config.workflow.build_folds()
     assert len(folds) == 2
     assert config.checkpoint_finalists_per_seed == 3
-    assert (folds[0].test.start, folds[0].test.stop) == (13_128, 13_488)
-    assert (folds[1].test.start, folds[1].test.stop) == (13_488, 13_848)
-    assert len(config.candidates) == 1
+    assert (folds[0].test.start, folds[0].test.stop) == (52_512, 53_952)
+    assert (folds[1].test.start, folds[1].test.stop) == (53_952, 55_392)
+    assert [candidate.name for candidate in config.candidates] == [
+        "ppo-15m-target",
+        "oracle-bc-ppo-15m-target",
+    ]
     candidate = config.candidates[0].run
     assert (
         candidate.training.device,
@@ -69,13 +79,17 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
     ) == ("cuda", 4, (256, 256), 128, 128)
     assert candidate.training.seeds == (0, 1, 2)
     assert candidate.training.timesteps >= 65_536
-    assert candidate.training.gamma == pytest.approx(0.98363193244419)
-    assert candidate.training.decision_hours == 4.0
-    assert candidate.environment.decision_hours == 4.0
+    assert candidate.training.gamma == pytest.approx(0.998969062762624)
+    assert candidate.training.decision_hours == 0.25
+    assert candidate.environment.decision_hours == 0.25
     assert candidate.risk.max_turnover == 0.02
     assert not candidate.action.risk_tilt_enabled
-    assert candidate.action.n_factors == 3
-    assert candidate.factor_artifact == EXAMPLE_ROOT / "relative-factor-artifact"
+    assert candidate.action.mode.value == "target_weight"
+    assert candidate.action.target_weight_count == 3
+    assert candidate.action.n_factors == 0
+    assert candidate.factor_artifact is None
+    assert candidate.training.behavior_cloning_epochs == 0
+    assert config.candidates[1].run.training.behavior_cloning_epochs == 15
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
@@ -87,11 +101,13 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
         assert timeframe in content
     assert "2024-12-01T00:00:00Z" in content
     assert "2026-07-01T00:00:00Z" in content
-    assert "13_848" in content
+    assert "55_392" in content
     assert "dataset_id" in content
     assert "artifact_digest" in content
     assert "binance_multitimeframe_feature_specs" in content
-    assert "feature_count" in content
+    assert "raw_feature_count" in content
+    assert "policy_observation_count" in content
+    assert "1_240" in content
     assert "96" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
@@ -176,7 +192,6 @@ def test_full_runner_injects_packaged_git_provenance(
     write_run_config(
         template_path=EXAMPLE_ROOT / "walk-forward-full.json",
         output_path=output,
-        factor_artifact=tmp_path / "relative-factor-artifact",
     )
 
     payload = json.loads(output.read_text(encoding="utf-8"))
@@ -198,7 +213,6 @@ def test_full_runner_fails_closed_without_packaged_git_provenance(
         write_run_config(
             template_path=EXAMPLE_ROOT / "training-full.json",
             output_path=tmp_path / "training.json",
-            factor_artifact=tmp_path / "relative-factor-artifact",
         )
 
 

@@ -121,7 +121,13 @@ are:
 absent when an earlier stage fails. Inspect the container logs and any
 persisted stage logs in that case.
 
-The maintained July 2026 preset freezes two non-overlapping 360-hour outer
+The maintained July 2026 preset observes and recomputes target positions every
+15 minutes, while no-trade and hysteresis controls suppress uneconomic orders.
+It uses 96 raw indicators across native 15m, 1h, 4h, and 1d clocks; after
+per-symbol availability, staleness, missingness, execution, book, and risk state
+are included, the policy input contains 1,240 values per decision.
+
+The preset freezes two non-overlapping 360-hour outer
 windows covering `2026-06-01T00:00:00Z` through
 `2026-07-01T00:00:00Z`. Earlier outer windows were used during development and
 must not be described as sealed evidence. Within each fold, checkpoint data

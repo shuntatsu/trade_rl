@@ -16,10 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.signals import write_signal_artifact
 from trade_rl.data import publish_market_dataset_artifact
-from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.research_gate import (
     ResearchReturnGate,
     evaluate_research_return_gate,
@@ -33,23 +30,16 @@ from trade_rl.integrations.binance import (
     build_binance_market_dataset,
 )
 from trade_rl.rl.checkpointing import checkpoint_manifests
+from trade_rl.rl.observations import ObservationBuilder
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
-_FEATURE_TIMEFRAMES = ("15m", "4h", "1d")
+_FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
 _END = "2026-07-01T00:00:00Z"
-_EXPECTED_HOURLY_BARS = 13_848
-_FACTOR_NAMES = ("factor_0", "factor_1", "factor_2")
+_EXPECTED_15M_BARS = 55_392
+_EXPECTED_POLICY_OBSERVATIONS = 1_240
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-_RELATIVE_FACTOR_BASIS = np.asarray(
-    [
-        [0.50, -0.25, -0.25],
-        [-0.25, 0.50, -0.25],
-        [-0.25, -0.25, 0.50],
-    ],
-    dtype=np.float64,
-)
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
 _FALLBACK_METADATA: dict[str, dict[str, str | float]] = {
@@ -139,17 +129,11 @@ def _write_run_config(
     *,
     template_path: Path,
     output_path: Path,
-    factor_artifact: Path,
 ) -> Path:
     payload = _load_json(template_path)
     git_commit, git_dirty = _packaged_git_provenance()
     payload["git_commit"] = git_commit
     payload["git_dirty"] = git_dirty
-    action = payload.get("action")
-    if isinstance(action, dict):
-        payload["factor_artifact"] = factor_artifact.name
-        action["risk_tilt_enabled"] = False
-        action["n_factors"] = len(_FACTOR_NAMES)
     for candidate in payload.get("candidates", ()):
         if not isinstance(candidate, dict):
             continue
@@ -158,11 +142,6 @@ def _write_run_config(
             continue
         run["git_commit"] = git_commit
         run["git_dirty"] = git_dirty
-        run["factor_artifact"] = factor_artifact.name
-        run_action = run.get("action")
-        if isinstance(run_action, dict):
-            run_action["risk_tilt_enabled"] = False
-            run_action["n_factors"] = len(_FACTOR_NAMES)
     _write_json(output_path, payload)
     return output_path
 
@@ -277,7 +256,7 @@ def _build_dataset(
     result = build_binance_market_dataset(
         market=BinanceMarket.USDS_M,
         symbols=_SYMBOLS,
-        interval="1h",
+        interval="15m",
         feature_timeframes=_FEATURE_TIMEFRAMES,
         start_time=_parse_utc(_START),
         end_time=_parse_utc(_END),
@@ -293,17 +272,17 @@ def _build_dataset(
         ),
     )
     published = publish_market_dataset_artifact(output, result.dataset)
-    if result.dataset.n_bars != _EXPECTED_HOURLY_BARS:
+    if result.dataset.n_bars != _EXPECTED_15M_BARS:
         raise RuntimeError(
             "expected "
-            f"{_EXPECTED_HOURLY_BARS:,} hourly bars, observed {result.dataset.n_bars}"
+            f"{_EXPECTED_15M_BARS:,} 15-minute bars, observed {result.dataset.n_bars}"
         )
     if result.dataset.symbols != _SYMBOLS:
         raise RuntimeError(f"unexpected symbol order: {result.dataset.symbols}")
     expected_features = tuple(
         spec.name
         for spec in binance_multitimeframe_feature_specs(
-            base_timeframe="1h",
+            base_timeframe="15m",
             feature_timeframes=_FEATURE_TIMEFRAMES,
         )
     )
@@ -326,39 +305,6 @@ def _build_dataset(
         "sources_used": list(result.sources_used),
         "symbols": list(result.dataset.symbols),
     }
-
-
-def _write_relative_factor_artifact(dataset: MarketDataset, output: Path) -> str:
-    if dataset.symbols != _SYMBOLS:
-        raise RuntimeError(
-            f"unexpected symbol order for factor basis: {dataset.symbols}"
-        )
-    values = np.broadcast_to(
-        _RELATIVE_FACTOR_BASIS[None, :, :],
-        (dataset.n_bars, len(_FACTOR_NAMES), dataset.n_symbols),
-    ).copy()
-    valid = np.ones_like(values, dtype=np.bool_)
-    valid[0] = False
-    generator_digest = content_digest(
-        {
-            "basis": tuple(tuple(float(value) for value in row) for row in values[1]),
-            "schema": "net_zero_relative_factor_basis_v1",
-            "symbols": dataset.symbols,
-        }
-    )
-    return write_signal_artifact(
-        output,
-        kind="factor",
-        dataset_id=dataset.dataset_id,
-        fit_start=0,
-        fit_stop=1,
-        prediction_start=1,
-        prediction_stop=dataset.n_bars,
-        generator_digest=generator_digest,
-        names=_FACTOR_NAMES,
-        values=values,
-        valid=valid,
-    )
 
 
 def _require_file(path: Path) -> None:
@@ -515,20 +461,24 @@ def main() -> int:
     from trade_rl.data import load_market_dataset_artifact
 
     dataset = load_market_dataset_artifact(dataset_a_path)
-    factor_artifact_path = work_root / "relative-factor-artifact"
-    factor_artifact_digest = _write_relative_factor_artifact(
-        dataset,
-        factor_artifact_path,
-    )
+    policy_observation_count = ObservationBuilder(
+        action_size=3,
+        n_factors=0,
+        finite_horizon=True,
+    ).layout(dataset).size
+    if policy_observation_count != _EXPECTED_POLICY_OBSERVATIONS:
+        raise RuntimeError(
+            "expected "
+            f"{_EXPECTED_POLICY_OBSERVATIONS:,} policy observations, observed "
+            f"{policy_observation_count:,}"
+        )
     training_config_path = _write_run_config(
         template_path=root / "examples/binance-multitimeframe/training-full.json",
         output_path=work_root / "training-full.json",
-        factor_artifact=factor_artifact_path,
     )
     walk_forward_config_path = _write_run_config(
         template_path=root / "examples/binance-multitimeframe/walk-forward-full.json",
         output_path=work_root / "walk-forward-full.json",
-        factor_artifact=factor_artifact_path,
     )
 
     artifact_root = work_root / "artifacts"
@@ -576,14 +526,12 @@ def main() -> int:
         "dataset": dataset_a,
         "dataset_repeat": dataset_b,
         "end_time": _END,
-        "factor_artifact_digest": factor_artifact_digest,
-        "factor_artifact_path": str(factor_artifact_path),
-        "factor_basis": _RELATIVE_FACTOR_BASIS.tolist(),
         "metadata_error": metadata_error,
         "metadata_source": metadata_source,
         "native_timeframes": list(_NATIVE_TIMEFRAMES),
-        "decision_hours": 1.0,
-        "feature_count": 96,
+        "decision_hours": 0.25,
+        "raw_feature_count": dataset.n_features,
+        "policy_observation_count": policy_observation_count,
         "production_status": "NO-GO",
         "schema": "binance_multitimeframe_complete_research_v2",
         "start_time": _START,

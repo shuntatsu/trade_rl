@@ -10,13 +10,18 @@ import pytest
 from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.market import MarketDataset
 from trade_rl.integrations import sb3_training
 from trade_rl.integrations.sb3_training import (
     StableBaselines3Backend,
     _build_training_environment,
 )
+from trade_rl.rl.actions import ActionSpec
+from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import ObservationLayout
 from trade_rl.rl.training import ResidualTrainingConfig
+from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 ENVIRONMENT_DIGEST = "e" * 64
 ACTION_NAMES = ("tilt",)
@@ -222,3 +227,73 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
     assert probe.close_calls == 1
     assert vector_environment.close_calls == 1
     assert events[-2:] == ["workers-build", "vector-close"]
+
+
+def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None:
+    n_bars = 40
+    close = np.column_stack(
+        [
+            np.linspace(100.0, 130.0, n_bars),
+            np.linspace(100.0, 80.0, n_bars),
+        ]
+    )
+    dataset = MarketDataset(
+        dataset_id="f" * 64,
+        symbols=("BTC", "ETH"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((n_bars, 2, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=np.vstack([close[0], close[:-1]]),
+        high=close + 1.0,
+        low=close - 1.0,
+        close=close,
+        volume=np.full((n_bars, 2), 1_000_000.0),
+        funding_rate=np.zeros_like(close),
+        tradable=np.ones_like(close, dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
+        feature_names=("ret",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+
+    def factory() -> ResidualMarketEnv:
+        return ResidualMarketEnv(
+            dataset,
+            trend_strategy=TrendStrategy(
+                TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
+            ),
+            action_spec=ActionSpec(
+                mode="target_weight",
+                risk_tilt_enabled=False,
+                target_weight_count=2,
+            ),
+            config=ResidualMarketEnvConfig(
+                initial_capital=100_000.0,
+                episode_bars=8,
+                decision_every=1,
+                execution_cost=ExecutionCostConfig.zero(),
+            ),
+        )
+
+    result = StableBaselines3Backend(factory).train(
+        seed=3,
+        config=ResidualTrainingConfig(
+            timesteps=2,
+            gamma=0.99,
+            seeds=(3,),
+            n_steps=2,
+            n_envs=1,
+            batch_size=2,
+            n_epochs=1,
+            asset_set_encoder=False,
+            device="cpu",
+            behavior_cloning_epochs=1,
+            behavior_cloning_batch_size=16,
+        ),
+        output_path=tmp_path / "member" / "policy.zip",
+    )
+
+    assert result.actual_timesteps == 2
+    assert (tmp_path / "member" / "teacher" / "manifest.json").is_file()
+    assert (tmp_path / "member" / "behavior-cloning.json").is_file()

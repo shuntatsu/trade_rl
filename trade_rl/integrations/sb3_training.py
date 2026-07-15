@@ -6,7 +6,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning import (
+    BehaviorCloningConfig,
+    OracleTeacherConfig,
+    collect_teacher_rollout,
+    oracle_target_path,
+    pretrain_policy,
+    write_teacher_artifact,
+)
 from trade_rl.rl.algorithm_configs import (
     PPOConfig,
     SACConfig,
@@ -161,6 +170,70 @@ class StableBaselines3Backend:
                         sde_sample_freq=algorithm_config.sde_sample_freq,
                         **off_policy,
                     )
+            if config.behavior_cloning_epochs > 0:
+                teacher_environment = self.environment_factory()
+                try:
+                    teacher_identity = _environment_identity(teacher_environment)
+                    if teacher_identity["environment_digest"] != identity[
+                        "environment_digest"
+                    ]:
+                        raise ValueError("teacher environment identity mismatch")
+                    unwrapped_teacher: Any = getattr(
+                        teacher_environment, "unwrapped", teacher_environment
+                    )
+                    action_names = tuple(teacher_identity["action_names"])
+                    if not action_names or not all(
+                        name.startswith("target_weight:") for name in action_names
+                    ):
+                        raise ValueError(
+                            "oracle behavior cloning requires direct target-weight actions"
+                        )
+                    dataset = unwrapped_teacher.dataset
+                    train_range = (
+                        int(unwrapped_teacher.minimum_start_index),
+                        int(dataset.n_bars),
+                    )
+                    teacher_config = OracleTeacherConfig(
+                        execution_cost=unwrapped_teacher.config.execution_cost,
+                        max_gross=unwrapped_teacher.pre_trade_risk.config.max_gross,
+                        reference_portfolio_value=unwrapped_teacher.initial_capital,
+                    )
+                    targets = oracle_target_path(dataset, train_range, teacher_config)
+                    teacher_dataset = collect_teacher_rollout(
+                        teacher_environment,
+                        targets,
+                        dataset_id=dataset.dataset_id,
+                        train_range=train_range,
+                        teacher_config_digest=teacher_config.digest,
+                    )
+                    teacher_digest = write_teacher_artifact(
+                        output_path.parent / "teacher",
+                        teacher_dataset,
+                    )
+                    cloning = pretrain_policy(
+                        model.policy,
+                        teacher_dataset,
+                        config=BehaviorCloningConfig(
+                            epochs=config.behavior_cloning_epochs,
+                            learning_rate=config.behavior_cloning_learning_rate,
+                            batch_size=config.behavior_cloning_batch_size,
+                        ),
+                        seed=seed,
+                    )
+                    cloning_payload = {
+                        "artifact_digest": teacher_digest,
+                        "behavior_cloning_digest": cloning.digest,
+                        "final_mse": cloning.final_mse,
+                        "initial_mse": cloning.initial_mse,
+                        "sample_count": cloning.sample_count,
+                        "schema_version": "oracle_behavior_cloning_run_v1",
+                    }
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    (output_path.parent / "behavior-cloning.json").write_bytes(
+                        canonical_json_bytes(cloning_payload)
+                    )
+                finally:
+                    teacher_environment.close()
             from trade_rl.rl.checkpointing import build_checkpoint_callback
 
             if self.resume_replay_artifact is not None:

@@ -16,16 +16,19 @@ from trade_rl.data.market import MarketCalendarKind, MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import (
     ACTION_SCHEMA,
+    ActionMode,
     ActionSpec,
     ActionValidationMode,
     AlphaContract,
     BaselineResidualComposer,
     ResidualAction,
     ResidualActionV2,
+    TargetWeightAction,
 )
 from trade_rl.rl.diagnostics import ActionDiagnosticsAccumulator
 from trade_rl.rl.environment_config import (
@@ -199,6 +202,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
         self.normalizer = normalizer
         self.config = config or ResidualMarketEnvConfig()
+        self.emergency_risk_monitor = CausalEmergencyRiskMonitor(
+            self.config.emergency_risk
+        )
         if (
             self.pre_trade_risk.config.max_gross
             > self.config.execution_cost.max_leverage
@@ -216,7 +222,13 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             raise ValueError("action_spec alpha mode does not match environment")
         if action_spec.n_factors != resolved_factor_count:
             raise ValueError("action_spec factor count does not match environment")
+        if (
+            action_spec.mode is ActionMode.TARGET_WEIGHT
+            and action_spec.target_weight_count != dataset.n_symbols
+        ):
+            raise ValueError("target weight count does not match dataset symbols")
         self.action_spec = action_spec
+        self._action_names = action_spec.names_for_symbols(dataset.symbols)
         self._nominal_episode_bars = self.config.resolve_nominal_episode_bars(dataset)
         self._nominal_decision_bars = self.config.resolve_nominal_decision_bars(dataset)
         if self._nominal_decision_bars > self._nominal_episode_bars:
@@ -417,9 +429,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "action_schema": ACTION_SCHEMA,
             "action_spec": {
                 "alpha_enabled": self.action_spec.alpha_enabled,
+                "mode": ActionMode(self.action_spec.mode).value,
                 "risk_tilt_enabled": self.action_spec.risk_tilt_enabled,
                 "n_factors": self.action_spec.n_factors,
-                "names": self.action_spec.names,
+                "names": self._action_names,
+                "target_weight_count": self.action_spec.target_weight_count,
                 "validation_mode": ActionValidationMode(
                     self.action_spec.validation_mode
                 ).value,
@@ -486,6 +500,10 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         return self._nominal_episode_bars
 
     @property
+    def minimum_start_index(self) -> int:
+        return self._minimum_start_index
+
+    @property
     def decision_bars(self) -> int:
         return self._nominal_decision_bars
 
@@ -495,7 +513,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
 
     @property
     def action_names(self) -> tuple[str, ...]:
-        return self.action_spec.names
+        return self._action_names
 
     @property
     def action_spec_digest(self) -> str:
@@ -503,9 +521,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             {
                 "schema_version": ACTION_SCHEMA,
                 "alpha_enabled": self.action_spec.alpha_enabled,
+                "mode": ActionMode(self.action_spec.mode).value,
                 "risk_tilt_enabled": self.action_spec.risk_tilt_enabled,
                 "n_factors": self.action_spec.n_factors,
-                "names": self.action_spec.names,
+                "names": self._action_names,
+                "target_weight_count": self.action_spec.target_weight_count,
                 "validation_mode": ActionValidationMode(
                     self.action_spec.validation_mode
                 ).value,
@@ -1010,10 +1030,16 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         target = np.asarray(proposal, dtype=np.float64).reshape(-1).copy()
         if target.shape != (self.dataset.n_symbols,) or not np.isfinite(target).all():
             raise ValueError("proposal does not match dataset symbols")
+        assessment = self.emergency_risk_monitor.assess(
+            self.dataset,
+            index=self.current_index,
+            weights=book.weights,
+        )
         pretrade = self.pre_trade_risk.constrain(
             target,
             current=book.weights,
             drawdown=self._drawdown(book),
+            emergency_flatten_mask=assessment.flatten_mask,
         )
         portfolio = self.portfolio_risk.constrain(
             pretrade.weights,
@@ -1026,6 +1052,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             dict.fromkeys(
                 (
                     *pretrade.reasons,
+                    *assessment.reasons,
                     *(f"portfolio:{item}" for item in portfolio.reasons),
                 )
             )
@@ -1044,9 +1071,18 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
     def _parse_action(
         self,
         value: np.ndarray,
-    ) -> tuple[ResidualAction | ResidualActionV2, np.ndarray, int, float]:
+    ) -> tuple[
+        ResidualAction | ResidualActionV2 | TargetWeightAction,
+        np.ndarray,
+        int,
+        float,
+    ]:
         vector = np.asarray(value, dtype=np.float64).reshape(-1)
-        if vector.shape == (2,) and self.config.accept_legacy_actions:
+        if (
+            self.action_spec.mode is ActionMode.RESIDUAL
+            and vector.shape == (2,)
+            and self.config.accept_legacy_actions
+        ):
             legacy = ResidualAction.from_array(vector)
             migrated = np.zeros(self.action_spec.size, dtype=np.float32)
             if legacy.trend_mix >= 0.0:
@@ -1065,12 +1101,16 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 float(np.max(np.abs(vector), initial=0.0)),
             )
         parsed = self.action_spec.parse(value)
-        return (
-            parsed,
-            parsed.as_array(
+        if isinstance(parsed, TargetWeightAction):
+            maintained = parsed.as_array()
+        else:
+            maintained = parsed.as_array(
                 alpha_enabled=self.alpha_enabled,
                 risk_tilt_enabled=self.action_spec.risk_tilt_enabled,
-            ),
+            )
+        return (
+            parsed,
+            maintained,
             parsed.saturated_count,
             parsed.raw_max_abs,
         )

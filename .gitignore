@@ -228,4 +228,5 @@ crash_log.txt
 elites_memo.txt
 
 .agents/
+.worktrees/
 /data_past/

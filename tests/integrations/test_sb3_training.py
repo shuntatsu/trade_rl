@@ -185,12 +185,21 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
         validate_environment(identity, config)
         events.append("validated")
 
+    class FakeParameter:
+        def numel(self) -> int:
+            return 2
+
+    class FakePolicy:
+        def parameters(self) -> tuple[FakeParameter, ...]:
+            return (FakeParameter(),)
+
     class FakePPO:
         device = "cpu"
         num_timesteps = 0
 
         def __init__(self, policy: str, environment: Any, **kwargs: Any) -> None:
             assert environment is vector_environment
+            self.policy = FakePolicy()
             model_arguments.update({"policy": policy, **kwargs})
 
         def learn(self, *, total_timesteps: int, callback: Any) -> None:

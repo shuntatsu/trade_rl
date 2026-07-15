@@ -1,6 +1,8 @@
 name: Fix Sequence Walk-Forward Integration
 
 on:
+  push:
+    branches: [agent/causal-sequence-feature-encoder]
   pull_request:
     branches: [main]
 

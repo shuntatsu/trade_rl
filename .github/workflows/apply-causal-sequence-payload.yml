@@ -1,0 +1,77 @@
+name: Apply Causal Sequence Payload
+
+on:
+  push:
+    branches:
+      - agent/causal-sequence-feature-encoder
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/causal-sequence-feature-encoder
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+      - name: Reconstruct and verify implementation payload
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/52/comments" \
+            --jq 'sort_by(.created_at) | .[].body' > /tmp/payload.b64
+          for file in $(find .sequence-payload -type f -name '*.b64' | sort); do
+            cat "$file" >> /tmp/payload.b64
+          done
+          base64 --decode /tmp/payload.b64 > /tmp/payload.tar.zst
+          echo "83d436f47c13783f012b03bcfc88a2472aad676249c0e6fe69800b8c73e62d92  /tmp/payload.tar.zst" | sha256sum --check -
+          zstd --decompress --stdout /tmp/payload.tar.zst | tar -xf -
+          rm -rf .sequence-payload .github/workflows/apply-causal-sequence-payload.yml
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.12
+          uv sync --python 3.12 --extra train-sb3 --extra dev
+      - name: Format and lint
+        run: |
+          uv run ruff format .
+          uv run ruff check . --fix
+          uv run ruff format --check .
+          uv run ruff check .
+      - name: Run causal sequence focused tests
+        run: |
+          uv run pytest -q \
+            tests/rl/test_sequence_observations.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/rl/test_sequence_environment_config.py \
+            tests/data/test_extended_indicator_features_v2.py \
+            tests/learning/test_structured_teacher_artifact.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/risk/test_pretrade.py
+      - name: Type and syntax checks
+        run: |
+          uv run mypy trade_rl
+          uv run python -m compileall -q trade_rl examples tests
+          git diff --check
+      - name: Commit verified implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: add causal sequence feature encoder"
+          git push origin HEAD:agent/causal-sequence-feature-encoder
+      - name: Close temporary payload issue
+        if: success()
+        run: |
+          gh issue close 52 --repo "$GITHUB_REPOSITORY" --comment "Payload applied and verified on PR #51."

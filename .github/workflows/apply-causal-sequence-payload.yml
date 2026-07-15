@@ -2,11 +2,9 @@ name: Apply Causal Sequence Payload
 
 on:
   push:
-    branches:
-      - agent/causal-sequence-feature-encoder
+    branches: [agent/causal-sequence-feature-encoder]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: write
@@ -28,7 +26,7 @@ jobs:
         with:
           version: "0.10.0"
           enable-cache: true
-      - name: Reconstruct and verify implementation payload
+      - name: Reconstruct and patch verified payload
         shell: bash
         run: |
           sudo apt-get update
@@ -44,18 +42,18 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          test_path = Path("tests/rl/test_sequence_policy_core.py")
-          lines = test_path.read_text(encoding="utf-8").splitlines()
+          path = Path("tests/rl/test_sequence_policy_core.py")
+          lines = path.read_text(encoding="utf-8").splitlines()
           call = "torch.set_num_threads(1)"
           lines.remove(call)
-          import_start = lines.index("from trade_rl.rl.sequence_policy import (")
-          import_end = lines.index(")", import_start)
-          lines.insert(import_end + 1, "")
-          lines.insert(import_end + 2, call)
-          test_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+          start = lines.index("from trade_rl.rl.sequence_policy import (")
+          end = lines.index(")", start)
+          lines.insert(end + 1, "")
+          lines.insert(end + 2, call)
+          path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
-          sequence_path = Path("trade_rl/rl/sequence_observations.py")
-          text = sequence_path.read_text(encoding="utf-8")
+          path = Path("trade_rl/rl/sequence_observations.py")
+          text = path.read_text(encoding="utf-8")
           text = text.replace(
               '            raw_staleness = dataset.feature_staleness_hours[rows][\n'
               '                :, :, columns\n'
@@ -63,10 +61,10 @@ jobs:
               '            staleness_hours = dataset.resolved_array("feature_staleness_hours")\n'
               '            raw_staleness = staleness_hours[rows][:, :, columns].transpose(1, 0, 2)\n',
           )
-          sequence_path.write_text(text, encoding="utf-8")
+          path.write_text(text, encoding="utf-8")
 
-          environment_path = Path("trade_rl/rl/environment.py")
-          text = environment_path.read_text(encoding="utf-8")
+          path = Path("trade_rl/rl/environment.py")
+          text = path.read_text(encoding="utf-8")
           text = text.replace("from typing import Protocol", "from typing import Any, Protocol, cast")
           text = text.replace(
               "class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):",
@@ -80,6 +78,18 @@ jobs:
               '            for window in sequence_windows:\n',
           )
           text = text.replace(
+              '                length = int(item["length"])\n'
+              '                feature_count = len(tuple(item["feature_names"]))\n',
+              '                raw_length = item["length"]\n'
+              '                if isinstance(raw_length, bool) or not isinstance(raw_length, int):\n'
+              '                    raise ValueError("sequence window length must be an integer")\n'
+              '                raw_feature_names = item["feature_names"]\n'
+              '                if not isinstance(raw_feature_names, (tuple, list)):\n'
+              '                    raise ValueError("sequence feature names must be ordered")\n'
+              '                length = raw_length\n'
+              '                feature_count = len(raw_feature_names)\n',
+          )
+          text = text.replace(
               "        options: dict[str, object] | None = None,\n"
               "    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict[str, object]]:\n",
               "        options: dict[str, Any] | None = None,\n"
@@ -89,10 +99,10 @@ jobs:
               "    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, object]]:\n",
               "    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:\n",
           )
-          environment_path.write_text(text, encoding="utf-8")
+          path.write_text(text, encoding="utf-8")
 
-          policies_path = Path("trade_rl/rl/policies.py")
-          text = policies_path.read_text(encoding="utf-8")
+          path = Path("trade_rl/rl/policies.py")
+          text = path.read_text(encoding="utf-8")
           text = text.replace(
               "            shape = (n_symbols, window_lengths[timeframe], feature_counts[timeframe])\n"
               "            for suffix in (\"values\", \"available\", \"staleness\"):\n"
@@ -111,48 +121,33 @@ jobs:
               "                raise ValueError(f\"sequence observation space is missing {key}\")\n"
               "            if observation_space.spaces[key].shape != expected_shape:\n",
           )
-          policies_path.write_text(text, encoding="utf-8")
+          path.write_text(text, encoding="utf-8")
 
-          sb3_path = Path("trade_rl/integrations/sb3_training.py")
-          text = sb3_path.read_text(encoding="utf-8")
-          old = (
+          path = Path("trade_rl/integrations/sb3_training.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace(
               '                unwrapped: Any = getattr(probe, "unwrapped", probe)\n'
               '                layout = getattr(unwrapped, "layout", None)\n'
-              '                active_column = getattr(unwrapped, "asset_active_column", None)\n'
-          )
-          new = (
+              '                active_column = getattr(unwrapped, "asset_active_column", None)\n',
               '                asset_unwrapped: Any = getattr(probe, "unwrapped", probe)\n'
               '                layout = getattr(asset_unwrapped, "layout", None)\n'
               '                active_column = getattr(\n'
               '                    asset_unwrapped, "asset_active_column", None\n'
-              '                )\n'
+              '                )\n',
           )
-          text = text.replace(old, new)
-          sb3_path.write_text(text, encoding="utf-8")
+          path.write_text(text, encoding="utf-8")
           PY
           rm -rf .sequence-payload .github/workflows/apply-causal-sequence-payload.yml
-      - name: Install Python and dependencies
+      - name: Install dependencies
         run: |
           uv python install 3.12
           uv sync --python 3.12 --extra train-sb3 --extra dev
-      - name: Format and lint
-        shell: bash
+      - name: Verify focused implementation
         run: |
-          set +e
           uv run ruff format .
-          uv run ruff check . --fix --unsafe-fixes > /tmp/ruff.log 2>&1
-          uv run ruff format . >> /tmp/ruff.log 2>&1
-          uv run ruff format --check . >> /tmp/ruff.log 2>&1
-          uv run ruff check . >> /tmp/ruff.log 2>&1
-          status=$?
-          cat /tmp/ruff.log
-          if [ "$status" -ne 0 ]; then
-            { echo 'Ruff failure from causal sequence payload:'; echo; echo '```text'; tail -n 180 /tmp/ruff.log; echo '```'; } > /tmp/diagnostic.md
-            gh issue edit 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/diagnostic.md
-            exit "$status"
-          fi
-      - name: Run causal sequence focused tests
-        run: |
+          uv run ruff check . --fix --unsafe-fixes
+          uv run ruff format --check .
+          uv run ruff check .
           uv run pytest -q \
             tests/rl/test_sequence_observations.py \
             tests/rl/test_sequence_policy_core.py \
@@ -161,24 +156,9 @@ jobs:
             tests/learning/test_structured_teacher_artifact.py \
             tests/learning/test_behavior_cloning.py \
             tests/risk/test_pretrade.py
-      - name: Type and syntax checks
-        shell: bash
-        run: |
-          set +e
-          status=0
-          uv run mypy trade_rl > /tmp/type.log 2>&1 || status=$?
-          if [ "$status" -eq 0 ]; then
-            uv run python -m compileall -q trade_rl examples tests >> /tmp/type.log 2>&1 || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            git diff --check >> /tmp/type.log 2>&1 || status=$?
-          fi
-          cat /tmp/type.log
-          if [ "$status" -ne 0 ]; then
-            { echo 'Type or syntax failure from causal sequence payload:'; echo; echo '```text'; tail -n 220 /tmp/type.log; echo '```'; } > /tmp/diagnostic.md
-            gh issue edit 52 --repo "$GITHUB_REPOSITORY" --body-file /tmp/diagnostic.md
-            exit "$status"
-          fi
+          uv run mypy trade_rl
+          uv run python -m compileall -q trade_rl examples tests
+          git diff --check
       - name: Commit verified implementation
         run: |
           git config user.name github-actions[bot]
@@ -186,7 +166,4 @@ jobs:
           git add -A
           git commit -m "feat: add causal sequence feature encoder"
           git push origin HEAD:agent/causal-sequence-feature-encoder
-      - name: Close temporary payload issue
-        if: success()
-        run: |
           gh issue close 52 --repo "$GITHUB_REPOSITORY" --comment "Payload applied and verified on PR #51."

@@ -157,3 +157,18 @@ def test_research_return_gate_fails_closed_on_non_finite_derived_uplift() -> Non
     assert result.evidence_errors == (
         "baseline_uplift must be a finite number",
     )
+
+
+def test_research_return_gate_fails_closed_on_oversized_summary_integer() -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=10**400,
+        baseline_mean_return=0.01,
+        maximum_fold_drawdown=0.10,
+    )
+
+    assert result.observed["selected_mean_return"] is None
+    assert result.conditions["evidence_valid"] is False
+    assert result.passed is False
+    assert result.evidence_errors == (
+        "selected_mean_return must be a finite number",
+    )

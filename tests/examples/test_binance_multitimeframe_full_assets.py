@@ -251,3 +251,65 @@ def test_full_runner_publishes_standard_json_when_baseline_uplift_overflows(
     assert "Infinity" not in summary_text
     assert "NaN" not in summary_text
     assert json.loads(summary_text)["research_gate"] == gate
+
+
+def test_full_runner_persists_failed_gate_for_oversized_summary_integer(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
+    _write_walk_forward(walk_forward_path, selected=10**400, baseline=0.01)
+
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+    )
+
+    gate_path = tmp_path / "research-gate.json"
+    summary_path = tmp_path / "summary.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert gate["passed"] is False
+    assert gate["conditions"]["evidence_valid"] is False
+    assert gate["observed"]["selected_mean_return"] is None
+    assert summary_path.is_file()
+    published_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert published_summary["research_gate"] == gate
+
+
+def test_full_runner_persists_failed_gate_for_oversized_fold_integer(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "artifacts" / "runs" / "wf"
+    walk_forward_path.mkdir(parents=True)
+    (walk_forward_path / "walk-forward.json").write_text(
+        json.dumps(
+            {
+                "selected_independent_summary": {"mean_fold_return": 0.04},
+                "baseline_independent_summary": {"mean_fold_return": 0.01},
+                "folds": [{"selected_returns": [10**400]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+    )
+
+    gate_path = tmp_path / "research-gate.json"
+    summary_path = tmp_path / "summary.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert gate["passed"] is False
+    assert gate["conditions"]["evidence_valid"] is False
+    assert gate["observed"]["maximum_independently_reset_fold_drawdown"] is None
+    assert summary_path.is_file()
+    published_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert published_summary["research_gate"] == gate

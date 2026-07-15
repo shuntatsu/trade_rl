@@ -345,7 +345,10 @@ def _independent_fold_maximum_drawdown(folds: object) -> float | None:
         for value in selected_returns:
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 return None
-            resolved = float(value)
+            try:
+                resolved = float(value)
+            except (OverflowError, TypeError, ValueError):
+                return None
             if not np.isfinite(resolved) or resolved < -1.0:
                 return None
             wealth *= 1.0 + resolved

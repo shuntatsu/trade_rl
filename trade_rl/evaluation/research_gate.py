@@ -29,7 +29,10 @@ class ResearchReturnGate:
 def _finite_number(value: object, *, field_name: str) -> tuple[float | None, str | None]:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None, f"{field_name} must be a finite number"
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None, f"{field_name} must be a finite number"
     if not math.isfinite(resolved):
         return None, f"{field_name} must be a finite number"
     return resolved, None

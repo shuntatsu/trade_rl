@@ -54,3 +54,17 @@ No GPU training or complete valid Docker image build was run for this code-only
 task. The focused asset tests cover fail-closed Dockerfile validation and
 Compose wiring, while Compose interpolation itself was validated with explicit
 provenance values.
+
+## Independent Review Follow-up
+
+The P2 execution-coverage finding is closed by
+`test_execute_training_run_uses_explicit_provenance_without_git_lookup`. The
+test runs the smallest maintained CPU training fixture with an explicit
+40-character commit and `git_dirty: false`, replaces Git discovery with a
+function that raises if called, and asserts the published `provenance.json`
+retains the exact commit and native boolean `false`.
+
+Regression RED was demonstrated by removing the two forwarding arguments from
+`execute_training_run`: the test failed at the forbidden `git rev-parse`
+lookup. Restoring `git_commit=config.git_commit` and
+`git_dirty=config.git_dirty` produced GREEN: 1 passed in 5.11s.

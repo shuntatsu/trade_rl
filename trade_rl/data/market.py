@@ -124,6 +124,13 @@ class MarketDataset:
     _timestamp_ns: np.ndarray = field(init=False, repr=False)
     _bar_duration_ns: int | None = field(init=False, repr=False)
     _nominal_bar_hours: float = field(init=False, repr=False)
+    _information_is_immediate: bool = field(init=False, repr=False)
+    _eligibility_invalid_prefix: np.ndarray = field(init=False, repr=False)
+    _feature_invalid_prefix: np.ndarray = field(init=False, repr=False)
+    _eligibility_active_source: np.ndarray = field(init=False, repr=False)
+    _eligibility_tradable_source: np.ndarray = field(init=False, repr=False)
+    _eligibility_available_source: np.ndarray = field(init=False, repr=False)
+    _eligibility_feature_source: np.ndarray = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
@@ -550,6 +557,30 @@ class MarketDataset:
         if not np.isfinite(cash_rate).all():
             raise ValueError("cash_rate must be finite")
 
+        information_is_immediate = bool(np.array_equal(available_at, event_times))
+        eligibility_invalid_prefix = np.vstack(
+            (
+                np.zeros((1, n_symbols), dtype=np.int32),
+                np.cumsum(
+                    ~(asset_active & tradable),
+                    axis=0,
+                    dtype=np.int32,
+                ),
+            )
+        )
+        feature_invalid_prefix = np.vstack(
+            (
+                np.zeros((1, n_symbols), dtype=np.int32),
+                np.cumsum(
+                    ~np.all(feature_available, axis=2),
+                    axis=0,
+                    dtype=np.int32,
+                ),
+            )
+        )
+        eligibility_invalid_prefix.setflags(write=False)
+        feature_invalid_prefix.setflags(write=False)
+
         identity_payload_json = self.identity_payload_json
 
         object.__setattr__(self, "symbols", symbols)
@@ -601,6 +632,25 @@ class MarketDataset:
         object.__setattr__(self, "_timestamp_ns", timestamp_ns)
         object.__setattr__(self, "_bar_duration_ns", bar_duration_ns)
         object.__setattr__(self, "_nominal_bar_hours", nominal_bar_hours)
+        object.__setattr__(
+            self,
+            "_information_is_immediate",
+            information_is_immediate,
+        )
+        object.__setattr__(
+            self,
+            "_eligibility_invalid_prefix",
+            eligibility_invalid_prefix,
+        )
+        object.__setattr__(
+            self,
+            "_feature_invalid_prefix",
+            feature_invalid_prefix,
+        )
+        object.__setattr__(self, "_eligibility_active_source", asset_active)
+        object.__setattr__(self, "_eligibility_tradable_source", tradable)
+        object.__setattr__(self, "_eligibility_available_source", available_at)
+        object.__setattr__(self, "_eligibility_feature_source", feature_available)
         if identity_payload_json is not None:
             payload = parse_identity_json(identity_payload_json)
             canonical_payload_json = canonical_identity_json(payload)
@@ -826,24 +876,46 @@ class MarketDataset:
         start = index - lookback
         if start < 0:
             raise ValueError("eligibility lookback exceeds available history")
-        active = self.asset_active
-        available_at = self.available_at
-        assert active is not None
-        assert available_at is not None
-        available_by_decision = (
-            available_at[start : index + 1] <= self.timestamps[index]
-        )
-        eligible = np.all(
-            active[start : index + 1]
-            & self.tradable[start : index + 1]
-            & available_by_decision,
-            axis=0,
-        )
-        if require_features:
-            eligible &= np.all(
-                self.feature_available[start : index + 1],
-                axis=(0, 2),
+        cache_matches = (
+            self.asset_active is self._eligibility_active_source
+            and self.tradable is self._eligibility_tradable_source
+            and self.available_at is self._eligibility_available_source
+            and (
+                not require_features
+                or self.feature_available is self._eligibility_feature_source
             )
+        )
+        if self._information_is_immediate and cache_matches:
+            invalid = (
+                self._eligibility_invalid_prefix[index + 1]
+                - self._eligibility_invalid_prefix[start]
+            )
+            eligible = invalid == 0
+            if require_features:
+                feature_invalid = (
+                    self._feature_invalid_prefix[index + 1]
+                    - self._feature_invalid_prefix[start]
+                )
+                eligible &= feature_invalid == 0
+        else:
+            active = self.asset_active
+            available_at = self.available_at
+            assert active is not None
+            assert available_at is not None
+            available_by_decision = (
+                available_at[start : index + 1] <= self.timestamps[index]
+            )
+            eligible = np.all(
+                active[start : index + 1]
+                & self.tradable[start : index + 1]
+                & available_by_decision,
+                axis=0,
+            )
+            if require_features:
+                eligible &= np.all(
+                    self.feature_available[start : index + 1],
+                    axis=(0, 2),
+                )
         return eligible
 
     def elapsed_year_fraction(self, start_index: int, end_index: int) -> float:

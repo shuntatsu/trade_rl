@@ -1,0 +1,55 @@
+name: Temporary Full Training Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  full-training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+          enable-cache: true
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.12
+          uv sync --python 3.12 --extra train-sb3 --extra dev
+      - name: Verify full research contract
+        run: |
+          uv run --python 3.12 pytest -q \
+            tests/data/test_complete_96_feature_dataset.py \
+            tests/data/test_indicator_features.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py \
+            tests/integrations/test_binance_multitimeframe.py
+      - name: Run complete three-asset training and walk-forward
+        run: |
+          uv run --python 3.12 python examples/binance-multitimeframe/run_full_research.py \
+            --work-root var/binance-multitimeframe-full
+      - name: Print summary and logs
+        if: always()
+        run: |
+          test ! -f var/binance-multitimeframe-full/summary.json || cat var/binance-multitimeframe-full/summary.json
+          test ! -f var/binance-multitimeframe-full/training.log || tail -n 200 var/binance-multitimeframe-full/training.log
+          test ! -f var/binance-multitimeframe-full/walk-forward.log || tail -n 200 var/binance-multitimeframe-full/walk-forward.log
+      - name: Upload full validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-rl-full-training-validation
+          path: var/binance-multitimeframe-full
+          if-no-files-found: warn
+          retention-days: 3

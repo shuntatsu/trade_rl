@@ -1,7 +1,14 @@
 FROM python:3.12-slim
 
+ARG TRADE_RL_GIT_COMMIT
+ARG TRADE_RL_GIT_DIRTY
+RUN printf '%s\n' "${TRADE_RL_GIT_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
+    && case "${TRADE_RL_GIT_DIRTY}" in "true"|"false") ;; *) exit 1 ;; esac
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    TRADE_RL_GIT_COMMIT=${TRADE_RL_GIT_COMMIT} \
+    TRADE_RL_GIT_DIRTY=${TRADE_RL_GIT_DIRTY} \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/trade-rl-venv \
     PATH="/opt/trade-rl-venv/bin:${PATH}"

@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +20,7 @@ from trade_rl.workflows.training_run import TrainingRunConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 _TEMPLATE = ROOT / "examples" / "quickstart" / "training.json"
+_GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -36,10 +39,25 @@ def _load_template() -> dict[str, Any]:
     return dict(payload)
 
 
+def _packaged_git_provenance() -> tuple[str, bool]:
+    commit = os.environ.get("TRADE_RL_GIT_COMMIT", "")
+    if not _GIT_COMMIT_PATTERN.fullmatch(commit):
+        raise ValueError(
+            "TRADE_RL_GIT_COMMIT must be a 40-character lowercase Git commit"
+        )
+    dirty = os.environ.get("TRADE_RL_GIT_DIRTY")
+    if dirty not in {"true", "false"}:
+        raise ValueError("TRADE_RL_GIT_DIRTY must be exactly true or false")
+    return commit, dirty == "true"
+
+
 def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
     if isinstance(timesteps, bool) or not isinstance(timesteps, int) or timesteps <= 0:
         raise ValueError("timesteps must be a positive integer")
     payload = _load_template()
+    git_commit, git_dirty = _packaged_git_provenance()
+    payload["git_commit"] = git_commit
+    payload["git_dirty"] = git_dirty
     training = payload.get("training")
     if not isinstance(training, dict):
         raise ValueError("quickstart training template has no training object")

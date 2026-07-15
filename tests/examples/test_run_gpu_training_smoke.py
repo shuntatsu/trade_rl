@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SMOKE = ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.py"
 
@@ -17,7 +19,11 @@ def _load_smoke() -> ModuleType:
     return module
 
 
-def test_smoke_config_preserves_the_maintained_cuda_training_contract() -> None:
+def test_smoke_config_preserves_the_maintained_cuda_training_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRADE_RL_GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("TRADE_RL_GIT_DIRTY", "false")
     config = _load_smoke().build_smoke_config(timesteps=128)
 
     assert config.training.device == "cuda"
@@ -26,3 +32,27 @@ def test_smoke_config_preserves_the_maintained_cuda_training_contract() -> None:
     assert config.training.asset_embedding_dim == 128
     assert config.training.global_embedding_dim == 128
     assert config.training.timesteps == 128
+    assert config.git_commit == "a" * 40
+    assert config.git_dirty is False
+
+
+@pytest.mark.parametrize(
+    ("commit", "dirty"),
+    ((None, "false"), ("A" * 40, "false"), ("a" * 40, None), ("a" * 40, "0")),
+)
+def test_smoke_config_fails_closed_without_valid_packaged_git_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+    commit: str | None,
+    dirty: str | None,
+) -> None:
+    if commit is None:
+        monkeypatch.delenv("TRADE_RL_GIT_COMMIT", raising=False)
+    else:
+        monkeypatch.setenv("TRADE_RL_GIT_COMMIT", commit)
+    if dirty is None:
+        monkeypatch.delenv("TRADE_RL_GIT_DIRTY", raising=False)
+    else:
+        monkeypatch.setenv("TRADE_RL_GIT_DIRTY", dirty)
+
+    with pytest.raises(ValueError, match="TRADE_RL_GIT_"):
+        _load_smoke().build_smoke_config(timesteps=128)

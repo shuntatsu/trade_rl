@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +42,7 @@ _START = "2024-12-01T00:00:00Z"
 _END = "2026-06-01T00:00:00Z"
 _EXPECTED_HOURLY_BARS = 13_128
 _FACTOR_NAMES = ("factor_0", "factor_1", "factor_2")
+_GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _RELATIVE_FACTOR_BASIS = np.asarray(
     [
         [0.50, -0.25, -0.25],
@@ -94,6 +97,18 @@ def _load_json(path: Path) -> dict[str, Any]:
     return dict(payload)
 
 
+def _packaged_git_provenance() -> tuple[str, bool]:
+    commit = os.environ.get("TRADE_RL_GIT_COMMIT", "")
+    if not _GIT_COMMIT_PATTERN.fullmatch(commit):
+        raise ValueError(
+            "TRADE_RL_GIT_COMMIT must be a 40-character lowercase Git commit"
+        )
+    dirty = os.environ.get("TRADE_RL_GIT_DIRTY")
+    if dirty not in {"true", "false"}:
+        raise ValueError("TRADE_RL_GIT_DIRTY must be exactly true or false")
+    return commit, dirty == "true"
+
+
 def _write_run_config(
     *,
     template_path: Path,
@@ -101,6 +116,9 @@ def _write_run_config(
     factor_artifact: Path,
 ) -> Path:
     payload = _load_json(template_path)
+    git_commit, git_dirty = _packaged_git_provenance()
+    payload["git_commit"] = git_commit
+    payload["git_dirty"] = git_dirty
     action = payload.get("action")
     if isinstance(action, dict):
         payload["factor_artifact"] = factor_artifact.name
@@ -112,6 +130,8 @@ def _write_run_config(
         run = candidate.get("run")
         if not isinstance(run, dict):
             continue
+        run["git_commit"] = git_commit
+        run["git_dirty"] = git_dirty
         run["factor_artifact"] = factor_artifact.name
         run_action = run.get("action")
         if isinstance(run_action, dict):

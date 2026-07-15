@@ -30,3 +30,15 @@ def test_training_docker_context_excludes_local_state() -> None:
 
     for entry in (".git", ".venv", ".worktrees", "var", "__pycache__"):
         assert entry in ignored
+
+
+def test_training_image_requires_and_exports_packaged_git_provenance() -> None:
+    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
+    compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
+
+    for name in ("TRADE_RL_GIT_COMMIT", "TRADE_RL_GIT_DIRTY"):
+        assert f"ARG {name}" in dockerfile
+        assert f"{name}=${{{name}}}" in dockerfile
+        assert f"{name}: ${{{name}:?" in compose
+    assert "^[0-9a-f]{40}$" in dockerfile
+    assert '"true"|"false"' in dockerfile

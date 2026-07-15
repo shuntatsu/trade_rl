@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.training
+      args:
+        TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:?Set TRADE_RL_GIT_COMMIT before building}
+        TRADE_RL_GIT_DIRTY: ${TRADE_RL_GIT_DIRTY:?Set TRADE_RL_GIT_DIRTY before building}
     gpus: all
     volumes:
       - trade-rl-training-data:/workspace/var

@@ -14,6 +14,20 @@ Run every command from the repository root.
 
 ## Build and foreground run
 
+In PowerShell, capture provenance from the checkout that supplies the Docker
+build context before building:
+
+```powershell
+$env:TRADE_RL_GIT_COMMIT = (git rev-parse HEAD).Trim()
+$env:TRADE_RL_GIT_DIRTY = if (git status --porcelain) { "true" } else { "false" }
+```
+
+The commit must be exactly 40 lowercase hexadecimal characters, and the dirty
+state must be exactly `true` or `false`. Compose and the Docker build fail
+closed when either value is missing or invalid. The image exports both values
+so the maintained runners can preserve source provenance even though `.git` is
+excluded from the image.
+
 Build the locked Python 3.12 training image:
 
 ```bash

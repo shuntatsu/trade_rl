@@ -92,6 +92,43 @@ def _runner_namespace() -> dict[str, Any]:
     return runpy.run_path(str(EXAMPLE_ROOT / "run_full_research.py"))
 
 
+def test_full_runner_injects_packaged_git_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRADE_RL_GIT_COMMIT", "b" * 40)
+    monkeypatch.setenv("TRADE_RL_GIT_DIRTY", "true")
+    write_run_config = _runner_namespace()["_write_run_config"]
+    output = tmp_path / "walk-forward.json"
+
+    write_run_config(
+        template_path=EXAMPLE_ROOT / "walk-forward-full.json",
+        output_path=output,
+        factor_artifact=tmp_path / "relative-factor-artifact",
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["git_commit"] == "b" * 40
+    assert payload["git_dirty"] is True
+    for candidate in payload["candidates"]:
+        assert candidate["run"]["git_commit"] == "b" * 40
+        assert candidate["run"]["git_dirty"] is True
+
+
+def test_full_runner_fails_closed_without_packaged_git_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TRADE_RL_GIT_COMMIT", raising=False)
+    monkeypatch.delenv("TRADE_RL_GIT_DIRTY", raising=False)
+    write_run_config = _runner_namespace()["_write_run_config"]
+
+    with pytest.raises(ValueError, match="TRADE_RL_GIT_COMMIT"):
+        write_run_config(
+            template_path=EXAMPLE_ROOT / "training-full.json",
+            output_path=tmp_path / "training.json",
+            factor_artifact=tmp_path / "relative-factor-artifact",
+        )
+
+
 class _CheckpointPolicy:
     def save(self, target: str) -> None:
         Path(target).with_suffix(".zip").write_bytes(b"checkpoint")

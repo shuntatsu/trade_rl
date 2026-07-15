@@ -107,7 +107,7 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "binance_multitimeframe_feature_specs" in content
     assert "raw_feature_count" in content
     assert "policy_observation_count" in content
-    assert "1_240" in content
+    assert "1_241" in content
     assert "96" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content

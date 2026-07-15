@@ -320,9 +320,11 @@ def _verify_training(path: Path) -> None:
     for index in range(3):
         member = path / f"members/member-{index:03d}"
         _require_file(member / "policy.zip")
-        checkpoints = tuple(member.glob("checkpoints/*.zip"))
+        checkpoints = tuple(member.glob("checkpoints/step-*/policy.zip"))
         if not checkpoints:
             raise RuntimeError(f"member {index} has no retained checkpoints")
+        for checkpoint in checkpoints:
+            _require_file(checkpoint)
 
 
 def main() -> int:

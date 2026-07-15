@@ -97,8 +97,9 @@ class StableBaselines3Backend:
                 environment = probe
                 probe = None
             else:
-                probe.close()
+                probe_to_close = probe
                 probe = None
+                probe_to_close.close()
                 environment = _build_training_environment(
                     self.environment_factory, config.n_envs
                 )

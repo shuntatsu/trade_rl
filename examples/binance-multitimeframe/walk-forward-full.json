@@ -17,7 +17,7 @@
         "schema_version": "training_run_config_v1",
         "training": {
           "timesteps": 32768,
-          "gamma": 0.9958826236582974,
+          "gamma": 0.98363193244419,
           "seeds": [0, 1, 2],
           "learning_rate": 0.0003,
           "n_steps": 2048,
@@ -26,7 +26,7 @@
           "gae_lambda": 0.95,
           "ent_coef": 0.001,
           "device": "cpu",
-          "decision_hours": 1.0,
+          "decision_hours": 4.0,
           "discount_half_life_hours": 168.0,
           "log_std_init": -0.7,
           "target_kl": 0.02,
@@ -40,7 +40,7 @@
         },
         "environment": {
           "episode_hours": 720.0,
-          "decision_hours": 1.0,
+          "decision_hours": 4.0,
           "initial_capital": 100000.0,
           "finite_horizon_observation": true,
           "initial_state_modes": ["cash", "baseline"],
@@ -49,7 +49,7 @@
         "risk": {
           "max_gross": 1.0,
           "max_abs_weight": 0.45,
-          "max_turnover": 0.5,
+          "max_turnover": 0.05,
           "drawdown_start": 0.1,
           "drawdown_stop": 0.2,
           "emergency_turnover_override": true
@@ -78,9 +78,11 @@
         },
         "action": {
           "alpha_enabled": false,
-          "n_factors": 0,
+          "risk_tilt_enabled": false,
+          "n_factors": 3,
           "validation_mode": "clip"
         },
+        "factor_artifact": "relative-factor-artifact",
         "alpha_contract": {
           "kind": "target_weight",
           "expected_return_scale": 0.01,

@@ -12,7 +12,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.signals import write_signal_artifact
 from trade_rl.data import publish_market_dataset_artifact
+from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinancePublicTransport,
@@ -27,6 +32,15 @@ _FEATURE_TIMEFRAMES = ("15m", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
 _END = "2026-06-01T00:00:00Z"
 _EXPECTED_HOURLY_BARS = 13_128
+_FACTOR_NAMES = ("factor_0", "factor_1", "factor_2")
+_RELATIVE_FACTOR_BASIS = np.asarray(
+    [
+        [0.50, -0.25, -0.25],
+        [-0.25, 0.50, -0.25],
+        [-0.25, -0.25, 0.50],
+    ],
+    dtype=np.float64,
+)
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
 _FALLBACK_METADATA: dict[str, dict[str, object]] = {
@@ -64,6 +78,40 @@ def _write_json(path: Path, payload: object) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON payload must be an object: {path}")
+    return dict(payload)
+
+
+def _write_run_config(
+    *,
+    template_path: Path,
+    output_path: Path,
+    factor_artifact: Path,
+) -> Path:
+    payload = _load_json(template_path)
+    action = payload.get("action")
+    if isinstance(action, dict):
+        payload["factor_artifact"] = factor_artifact.name
+        action["risk_tilt_enabled"] = False
+        action["n_factors"] = len(_FACTOR_NAMES)
+    for candidate in payload.get("candidates", ()):
+        if not isinstance(candidate, dict):
+            continue
+        run = candidate.get("run")
+        if not isinstance(run, dict):
+            continue
+        run["factor_artifact"] = factor_artifact.name
+        run_action = run.get("action")
+        if isinstance(run_action, dict):
+            run_action["risk_tilt_enabled"] = False
+            run_action["n_factors"] = len(_FACTOR_NAMES)
+    _write_json(output_path, payload)
+    return output_path
 
 
 def _run_cli(arguments: list[str], *, root: Path, log_path: Path) -> dict[str, Any]:
@@ -228,6 +276,39 @@ def _build_dataset(
     }
 
 
+def _write_relative_factor_artifact(dataset: MarketDataset, output: Path) -> str:
+    if dataset.symbols != _SYMBOLS:
+        raise RuntimeError(
+            f"unexpected symbol order for factor basis: {dataset.symbols}"
+        )
+    values = np.broadcast_to(
+        _RELATIVE_FACTOR_BASIS[None, :, :],
+        (dataset.n_bars, len(_FACTOR_NAMES), dataset.n_symbols),
+    ).copy()
+    valid = np.ones_like(values, dtype=np.bool_)
+    valid[0] = False
+    generator_digest = content_digest(
+        {
+            "basis": tuple(tuple(float(value) for value in row) for row in values[1]),
+            "schema": "net_zero_relative_factor_basis_v1",
+            "symbols": dataset.symbols,
+        }
+    )
+    return write_signal_artifact(
+        output,
+        kind="factor",
+        dataset_id=dataset.dataset_id,
+        fit_start=0,
+        fit_stop=1,
+        prediction_start=1,
+        prediction_stop=dataset.n_bars,
+        generator_digest=generator_digest,
+        names=_FACTOR_NAMES,
+        values=values,
+        valid=valid,
+    )
+
+
 def _require_file(path: Path) -> None:
     if not path.is_file() or path.stat().st_size <= 0:
         raise RuntimeError(f"required artifact file is missing or empty: {path}")
@@ -291,13 +372,31 @@ def main() -> int:
         raise RuntimeError(
             "repeated multi-timeframe builds produced different artifact digests"
         )
+    from trade_rl.data import load_market_dataset_artifact
+
+    dataset = load_market_dataset_artifact(dataset_a_path)
+    factor_artifact_path = work_root / "relative-factor-artifact"
+    factor_artifact_digest = _write_relative_factor_artifact(
+        dataset,
+        factor_artifact_path,
+    )
+    training_config_path = _write_run_config(
+        template_path=root / "examples/binance-multitimeframe/training-full.json",
+        output_path=work_root / "training-full.json",
+        factor_artifact=factor_artifact_path,
+    )
+    walk_forward_config_path = _write_run_config(
+        template_path=root / "examples/binance-multitimeframe/walk-forward-full.json",
+        output_path=work_root / "walk-forward-full.json",
+        factor_artifact=factor_artifact_path,
+    )
 
     artifact_root = work_root / "artifacts"
     training = _run_cli(
         [
             *_TRAIN_RUN_COMMAND,
             "--config",
-            str(root / "examples/binance-multitimeframe/training-full.json"),
+            str(training_config_path),
             "--dataset",
             str(dataset_a_path),
             "--output",
@@ -317,7 +416,7 @@ def main() -> int:
         [
             *_WALK_FORWARD_RUN_COMMAND,
             "--config",
-            str(root / "examples/binance-multitimeframe/walk-forward-full.json"),
+            str(walk_forward_config_path),
             "--dataset",
             str(dataset_a_path),
             "--output",
@@ -337,6 +436,9 @@ def main() -> int:
         "dataset": dataset_a,
         "dataset_repeat": dataset_b,
         "end_time": _END,
+        "factor_artifact_digest": factor_artifact_digest,
+        "factor_artifact_path": str(factor_artifact_path),
+        "factor_basis": _RELATIVE_FACTOR_BASIS.tolist(),
         "metadata_error": metadata_error,
         "metadata_source": metadata_source,
         "native_timeframes": list(_NATIVE_TIMEFRAMES),

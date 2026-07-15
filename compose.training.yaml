@@ -1,0 +1,17 @@
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.training
+    gpus: all
+    volumes:
+      - trade-rl-training-data:/workspace/var
+    command: >-
+      sh -c "python examples/binance-multitimeframe/training_cuda_preflight.py
+      --output /workspace/var/cuda-preflight.json
+      && python examples/binance-multitimeframe/run_full_research.py
+      --work-root /workspace/var/binance-multitimeframe-full"
+
+volumes:
+  trade-rl-training-data:
+    name: trade-rl-training-data

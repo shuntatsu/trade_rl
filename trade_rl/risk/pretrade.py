@@ -14,7 +14,7 @@ _TOLERANCE = 1e-12
 class PreTradeRiskConfig:
     max_gross: float = 1.0
     max_abs_weight: float = 0.40
-    max_turnover: float = 1.0
+    max_turnover: float | None = 1.0
     entry_threshold: float = 0.0
     exit_threshold: float = 0.0
     no_trade_band: float = 0.0
@@ -27,7 +27,6 @@ class PreTradeRiskConfig:
         for field_name, value in (
             ("max_gross", self.max_gross),
             ("max_abs_weight", self.max_abs_weight),
-            ("max_turnover", self.max_turnover),
             ("entry_threshold", self.entry_threshold),
             ("exit_threshold", self.exit_threshold),
             ("no_trade_band", self.no_trade_band),
@@ -41,8 +40,10 @@ class PreTradeRiskConfig:
             raise ValueError("max_gross must be within (0, 10]")
         if not 0.0 < self.max_abs_weight <= self.max_gross:
             raise ValueError("max_abs_weight must be within (0, max_gross]")
-        if not 0.0 <= self.max_turnover <= 2.0 * self.max_gross:
-            raise ValueError("max_turnover must be within [0, 2 * max_gross]")
+        if self.max_turnover is not None and not (
+            0.0 <= self.max_turnover <= 2.0 * self.max_gross
+        ):
+            raise ValueError("max_turnover must be null or within [0, 2 * max_gross]")
         if not 0.0 <= self.entry_threshold <= self.max_abs_weight:
             raise ValueError("entry_threshold must be within [0, max_abs_weight]")
         if not 0.0 <= self.exit_threshold <= self.entry_threshold:
@@ -231,15 +232,16 @@ class PreTradeRisk:
         # Turnover is a soft operational limit. It is applied before hard risk limits
         # so that an already-invalid current portfolio cannot block deleveraging.
         weights = controlled.copy()
-        if ordinary_turnover > self.config.max_turnover:
+        if (
+            self.config.max_turnover is not None
+            and ordinary_turnover > self.config.max_turnover
+        ):
             if self.config.max_turnover == 0.0:
                 weights[ordinary_mask] = existing[ordinary_mask]
             else:
                 weights[ordinary_mask] = existing[ordinary_mask] + (
                     controlled[ordinary_mask] - existing[ordinary_mask]
-                ) * (
-                    self.config.max_turnover / ordinary_turnover
-                )
+                ) * (self.config.max_turnover / ordinary_turnover)
             reasons.append("max_turnover")
 
         before_hard = weights.copy()
@@ -264,6 +266,7 @@ class PreTradeRisk:
             reasons.append("emergency_turnover_override")
         if (
             hard_changed
+            and self.config.max_turnover is not None
             and constrained_turnover > self.config.max_turnover + _TOLERANCE
         ):
             if self.config.emergency_turnover_override:

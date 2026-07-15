@@ -199,7 +199,9 @@ class ActionSpec:
             if self.alpha_enabled or self.risk_tilt_enabled or self.n_factors:
                 raise ValueError("target_weight mode does not accept residual controls")
             if self.target_weight_count <= 0:
-                raise ValueError("target_weight mode requires positive target_weight_count")
+                raise ValueError(
+                    "target_weight mode requires positive target_weight_count"
+                )
         elif self.target_weight_count:
             raise ValueError("residual mode does not accept target_weight_count")
         try:

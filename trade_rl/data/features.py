@@ -244,6 +244,139 @@ def _adx(
     return values, valid, source_start
 
 
+def _directional_indices(
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    usable: np.ndarray,
+    period: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    plus_values = np.zeros_like(close, dtype=np.float64)
+    minus_values = np.zeros_like(close, dtype=np.float64)
+    valid = np.zeros_like(usable, dtype=np.bool_)
+    source_start = np.full(len(close), -1, dtype=np.int64)
+    for start, stop in _contiguous_segments(usable):
+        if stop - start < period:
+            continue
+        tr = _true_range(high, low, close, start, stop)
+        plus_dm = np.zeros_like(close, dtype=np.float64)
+        minus_dm = np.zeros_like(close, dtype=np.float64)
+        for index in range(start + 1, stop):
+            up = high[index] - high[index - 1]
+            down = low[index - 1] - low[index]
+            plus_dm[index] = up if up > down and up > 0.0 else 0.0
+            minus_dm[index] = down if down > up and down > 0.0 else 0.0
+        atr = _wilder_average(tr, start, stop, period)
+        plus_avg = _wilder_average(plus_dm, start, stop, period)
+        minus_avg = _wilder_average(minus_dm, start, stop, period)
+        first = start + period - 1
+        for index in range(first, stop):
+            if atr[index] <= _EPSILON:
+                continue
+            plus_values[index] = float(np.clip(plus_avg[index] / atr[index], 0.0, 1.0))
+            minus_values[index] = float(
+                np.clip(minus_avg[index] / atr[index], 0.0, 1.0)
+            )
+            valid[index] = True
+            source_start[index] = start
+    return plus_values, minus_values, valid, source_start
+
+
+def _ema_feature(
+    close: np.ndarray,
+    usable: np.ndarray,
+    period: int,
+    *,
+    slope: bool,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    values = np.zeros_like(close, dtype=np.float64)
+    valid = np.zeros_like(usable, dtype=np.bool_)
+    source_start = np.full(len(close), -1, dtype=np.int64)
+    for start, stop in _contiguous_segments(usable):
+        if stop - start < period:
+            continue
+        slow = _ema(close, start, stop, period)
+        first = start + period - 1
+        if slope:
+            for index in range(max(first, start + 1), stop):
+                values[index] = (slow[index] - slow[index - 1]) / close[index]
+                valid[index] = True
+                source_start[index] = start
+        else:
+            fast_period = max(2, period // 2)
+            fast = _ema(close, start, stop, fast_period)
+            for index in range(first, stop):
+                values[index] = (fast[index] - slow[index]) / close[index]
+                valid[index] = True
+                source_start[index] = start
+    return values, valid, source_start
+
+
+def _atr_change(
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    usable: np.ndarray,
+    period: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    atr_values, atr_valid, atr_start = _atr(high, low, close, usable, period)
+    values = np.zeros_like(close, dtype=np.float64)
+    valid = np.zeros_like(usable, dtype=np.bool_)
+    source_start = np.full(len(close), -1, dtype=np.int64)
+    for index in range(1, len(close)):
+        if not atr_valid[index] or not atr_valid[index - 1]:
+            continue
+        previous = atr_values[index - 1]
+        current = atr_values[index]
+        values[index] = (
+            0.0 if previous <= _EPSILON else math.log(max(current, _EPSILON) / previous)
+        )
+        valid[index] = True
+        source_start[index] = min(int(atr_start[index - 1]), int(atr_start[index]))
+    return values, valid, source_start
+
+
+def _funding_feature(
+    funding_rate: np.ndarray,
+    funding_available: np.ndarray,
+    usable: np.ndarray,
+    lookback: int,
+    *,
+    zscore: bool,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    values = np.zeros_like(funding_rate, dtype=np.float64)
+    valid = np.zeros_like(usable, dtype=np.bool_)
+    source_start = np.full(len(funding_rate), -1, dtype=np.int64)
+    history: list[int] = []
+    for index in range(len(funding_rate)):
+        if not usable[index]:
+            history.clear()
+            continue
+        if not funding_available[index]:
+            continue
+        history.append(index)
+        sample_indices = history[-lookback:]
+        if zscore:
+            if len(sample_indices) < min(4, lookback):
+                continue
+            sample = funding_rate[sample_indices]
+            std = float(np.std(sample))
+            values[index] = (
+                0.0
+                if std <= _EPSILON
+                else (funding_rate[index] - float(np.mean(sample))) / std
+            )
+            source_start[index] = sample_indices[0]
+        else:
+            if len(history) < 2:
+                continue
+            previous = history[-2]
+            values[index] = (funding_rate[index] - funding_rate[previous]) * 10_000.0
+            source_start[index] = previous
+        valid[index] = True
+    return values, valid, source_start
+
+
 def _ichimoku_line(high: np.ndarray, low: np.ndarray, start: int, stop: int) -> float:
     return 0.5 * (float(np.max(high[start:stop])) + float(np.min(low[start:stop])))
 
@@ -291,6 +424,14 @@ def calculate_feature_events(
         valid = np.asarray(funding_available, dtype=np.bool_) & usable
         values[valid] = np.asarray(funding_rate, dtype=np.float64)[valid] * 10_000.0
         source_start[valid] = np.flatnonzero(valid)
+    elif kind in {FeatureKind.FUNDING_CHANGE, FeatureKind.FUNDING_ZSCORE}:
+        values, valid, source_start = _funding_feature(
+            funding_rate,
+            np.asarray(funding_available, dtype=np.bool_),
+            usable,
+            spec.lookback,
+            zscore=kind is FeatureKind.FUNDING_ZSCORE,
+        )
     elif kind is FeatureKind.RSI:
         values, valid, source_start = _rsi(close, usable, spec.lookback)
     elif kind in {
@@ -301,8 +442,29 @@ def calculate_feature_events(
         values, valid, source_start = _macd(close, usable, kind)
     elif kind is FeatureKind.ATR_PCT:
         values, valid, source_start = _atr(high, low, close, usable, spec.lookback)
+    elif kind is FeatureKind.ATR_CHANGE:
+        values, valid, source_start = _atr_change(
+            high, low, close, usable, spec.lookback
+        )
     elif kind is FeatureKind.ADX:
         values, valid, source_start = _adx(high, low, close, usable, spec.lookback)
+    elif kind in {FeatureKind.PLUS_DI, FeatureKind.MINUS_DI, FeatureKind.DI_SPREAD}:
+        plus_di, minus_di, valid, source_start = _directional_indices(
+            high, low, close, usable, spec.lookback
+        )
+        if kind is FeatureKind.PLUS_DI:
+            values = plus_di
+        elif kind is FeatureKind.MINUS_DI:
+            values = minus_di
+        else:
+            values = plus_di - minus_di
+    elif kind in {FeatureKind.EMA_DISTANCE, FeatureKind.EMA_SLOPE}:
+        values, valid, source_start = _ema_feature(
+            close,
+            usable,
+            spec.lookback,
+            slope=kind is FeatureKind.EMA_SLOPE,
+        )
     else:
         obv = np.zeros(n_bars, dtype=np.float64)
         for segment_start, segment_stop in _contiguous_segments(usable):
@@ -312,7 +474,251 @@ def calculate_feature_events(
         for index in range(n_bars):
             if not usable[index]:
                 continue
-            if kind is FeatureKind.LOG_RETURN:
+            if kind is FeatureKind.BODY_RETURN:
+                values[index] = math.log(close[index] / open_price[index])
+                valid[index] = True
+                source_start[index] = index
+            elif kind is FeatureKind.HIGH_LOW_RANGE:
+                values[index] = (high[index] - low[index]) / close[index]
+                valid[index] = True
+                source_start[index] = index
+            elif kind in {
+                FeatureKind.UPPER_WICK_RATIO,
+                FeatureKind.LOWER_WICK_RATIO,
+                FeatureKind.CLOSE_LOCATION_VALUE,
+            }:
+                spread = high[index] - low[index]
+                if spread <= _EPSILON:
+                    values[index] = 0.0
+                elif kind is FeatureKind.UPPER_WICK_RATIO:
+                    values[index] = (
+                        high[index] - max(open_price[index], close[index])
+                    ) / spread
+                elif kind is FeatureKind.LOWER_WICK_RATIO:
+                    values[index] = (
+                        min(open_price[index], close[index]) - low[index]
+                    ) / spread
+                else:
+                    values[index] = (
+                        2.0 * close[index] - high[index] - low[index]
+                    ) / spread
+                valid[index] = True
+                source_start[index] = index
+            elif kind in {FeatureKind.GAP_RETURN, FeatureKind.VOLUME_LOG_CHANGE}:
+                start = index - 1
+                if _window_is_valid(usable, start, index + 1):
+                    if kind is FeatureKind.GAP_RETURN:
+                        values[index] = math.log(open_price[index] / close[start])
+                    else:
+                        previous = volume[start]
+                        current = volume[index]
+                        values[index] = (
+                            0.0
+                            if previous <= _EPSILON or current <= _EPSILON
+                            else math.log(current / previous)
+                        )
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind in {
+                FeatureKind.PARKINSON_VOLATILITY,
+                FeatureKind.GARMAN_KLASS_VOLATILITY,
+            }:
+                start = index - spec.lookback + 1
+                if _window_is_valid(usable, start, index + 1):
+                    log_range = np.log(high[start : index + 1] / low[start : index + 1])
+                    if kind is FeatureKind.PARKINSON_VOLATILITY:
+                        variance = float(np.mean(np.square(log_range))) / (
+                            4.0 * math.log(2.0)
+                        )
+                    else:
+                        log_body = np.log(
+                            close[start : index + 1] / open_price[start : index + 1]
+                        )
+                        terms = 0.5 * np.square(log_range) - (
+                            2.0 * math.log(2.0) - 1.0
+                        ) * np.square(log_body)
+                        variance = max(float(np.mean(terms)), 0.0)
+                    values[index] = math.sqrt(max(variance, 0.0))
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind in {
+                FeatureKind.DOWNSIDE_VOLATILITY,
+                FeatureKind.UPSIDE_VOLATILITY,
+                FeatureKind.VOLATILITY_OF_VOLATILITY,
+            }:
+                start = index - spec.lookback
+                if _window_is_valid(usable, start, index + 1):
+                    returns = np.diff(np.log(close[start : index + 1]))
+                    if kind is FeatureKind.DOWNSIDE_VOLATILITY:
+                        sample = returns[returns < 0.0]
+                        values[index] = (
+                            0.0
+                            if sample.size == 0
+                            else float(np.sqrt(np.mean(np.square(sample))))
+                        )
+                    elif kind is FeatureKind.UPSIDE_VOLATILITY:
+                        sample = returns[returns > 0.0]
+                        values[index] = (
+                            0.0
+                            if sample.size == 0
+                            else float(np.sqrt(np.mean(np.square(sample))))
+                        )
+                    else:
+                        values[index] = float(np.std(np.abs(returns)))
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind is FeatureKind.RANGE_EXPANSION:
+                start = index - spec.lookback
+                if _window_is_valid(usable, start, index + 1):
+                    prior = (high[start:index] - low[start:index]) / close[start:index]
+                    current = (high[index] - low[index]) / close[index]
+                    mean = float(np.mean(prior))
+                    values[index] = 0.0 if mean <= _EPSILON else current / mean - 1.0
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind in {
+                FeatureKind.LINEAR_REGRESSION_SLOPE,
+                FeatureKind.TREND_R2,
+            }:
+                start = index - spec.lookback + 1
+                if _window_is_valid(usable, start, index + 1):
+                    sample = np.log(close[start : index + 1])
+                    x = np.arange(sample.size, dtype=np.float64)
+                    x_centered = x - float(np.mean(x))
+                    y_centered = sample - float(np.mean(sample))
+                    denominator = float(np.dot(x_centered, x_centered))
+                    slope = (
+                        0.0
+                        if denominator <= _EPSILON
+                        else float(np.dot(x_centered, y_centered) / denominator)
+                    )
+                    if kind is FeatureKind.LINEAR_REGRESSION_SLOPE:
+                        values[index] = slope
+                    else:
+                        fitted = float(np.mean(sample)) + slope * x_centered
+                        total = float(np.dot(y_centered, y_centered))
+                        residual = float(np.sum(np.square(sample - fitted)))
+                        values[index] = (
+                            0.0
+                            if total <= _EPSILON
+                            else float(np.clip(1.0 - residual / total, 0.0, 1.0))
+                        )
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind is FeatureKind.MFI:
+                start = index - spec.lookback
+                if _window_is_valid(usable, start, index + 1):
+                    typical = (
+                        high[start : index + 1]
+                        + low[start : index + 1]
+                        + close[start : index + 1]
+                    ) / 3.0
+                    flow = typical * volume[start : index + 1]
+                    changes = np.diff(typical)
+                    positive = float(np.sum(flow[1:][changes > 0.0]))
+                    negative = float(np.sum(flow[1:][changes < 0.0]))
+                    if negative <= _EPSILON:
+                        mfi = 100.0 if positive > _EPSILON else 50.0
+                    else:
+                        ratio = positive / negative
+                        mfi = 100.0 - 100.0 / (1.0 + ratio)
+                    values[index] = (mfi - 50.0) / 50.0
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind is FeatureKind.CMF:
+                start = index - spec.lookback + 1
+                if _window_is_valid(usable, start, index + 1):
+                    spread = high[start : index + 1] - low[start : index + 1]
+                    multiplier = np.divide(
+                        2.0 * close[start : index + 1]
+                        - high[start : index + 1]
+                        - low[start : index + 1],
+                        spread,
+                        out=np.zeros_like(spread),
+                        where=spread > _EPSILON,
+                    )
+                    denominator = float(np.sum(volume[start : index + 1]))
+                    values[index] = (
+                        0.0
+                        if denominator <= _EPSILON
+                        else float(
+                            np.sum(multiplier * volume[start : index + 1]) / denominator
+                        )
+                    )
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind is FeatureKind.VWAP_DISTANCE:
+                start = index - spec.lookback + 1
+                if _window_is_valid(usable, start, index + 1):
+                    typical = (
+                        high[start : index + 1]
+                        + low[start : index + 1]
+                        + close[start : index + 1]
+                    ) / 3.0
+                    denominator = float(np.sum(volume[start : index + 1]))
+                    vwap = (
+                        close[index]
+                        if denominator <= _EPSILON
+                        else float(
+                            np.sum(typical * volume[start : index + 1]) / denominator
+                        )
+                    )
+                    values[index] = (close[index] - vwap) / close[index]
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind is FeatureKind.PRICE_VOLUME_CORRELATION:
+                start = index - spec.lookback
+                if _window_is_valid(usable, start, index + 1):
+                    price_returns = np.diff(np.log(close[start : index + 1]))
+                    safe_volume = np.maximum(volume[start : index + 1], _EPSILON)
+                    volume_changes = np.diff(np.log(safe_volume))
+                    if (
+                        np.std(price_returns) <= _EPSILON
+                        or np.std(volume_changes) <= _EPSILON
+                    ):
+                        values[index] = 0.0
+                    else:
+                        values[index] = float(
+                            np.clip(
+                                np.corrcoef(price_returns, volume_changes)[0, 1],
+                                -1.0,
+                                1.0,
+                            )
+                        )
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind in {FeatureKind.OBV_CHANGE, FeatureKind.OBV_ACCELERATION}:
+                if kind is FeatureKind.OBV_CHANGE:
+                    start = index - spec.lookback
+                    middle = start
+                else:
+                    start = index - 2 * spec.lookback
+                    middle = index - spec.lookback
+                if _window_is_valid(usable, start, index + 1):
+                    denominator = float(np.sum(volume[start + 1 : index + 1]))
+                    if denominator <= _EPSILON:
+                        values[index] = 0.0
+                    elif kind is FeatureKind.OBV_CHANGE:
+                        values[index] = float(
+                            np.clip((obv[index] - obv[start]) / denominator, -1.0, 1.0)
+                        )
+                    else:
+                        recent = obv[index] - obv[middle]
+                        previous = obv[middle] - obv[start]
+                        values[index] = float(
+                            np.clip((recent - previous) / denominator, -1.0, 1.0)
+                        )
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind is FeatureKind.RELATIVE_VOLUME:
+                start = index - spec.lookback + 1
+                if _window_is_valid(usable, start, index + 1):
+                    mean = float(np.mean(volume[start : index + 1]))
+                    relative = 0.0 if mean <= _EPSILON else volume[index] / mean - 1.0
+                    values[index] = math.tanh(relative)
+                    valid[index] = True
+                    source_start[index] = start
+            elif kind is FeatureKind.LOG_RETURN:
                 start = index - spec.lookback
                 if _window_is_valid(usable, start, index + 1):
                     values[index] = math.log(close[index] / close[start])

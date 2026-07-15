@@ -18,12 +18,16 @@
       "run": {
         "schema_version": "training_run_config_v1",
         "training": {
-          "timesteps": 65536,
+          "timesteps": 131072,
           "gamma": 0.998969062762624,
-          "seeds": [0, 1, 2],
-          "n_steps": 2048,
+          "seeds": [
+            0,
+            1,
+            2
+          ],
+          "n_steps": 1024,
           "n_envs": 4,
-          "batch_size": 64,
+          "batch_size": 128,
           "n_epochs": 10,
           "ent_coef": 0.001,
           "device": "cuda",
@@ -31,21 +35,42 @@
           "discount_half_life_hours": 168.0,
           "log_std_init": -0.7,
           "target_kl": 0.02,
-          "policy_net_arch": [256, 256],
-          "asset_set_encoder": true,
-          "asset_embedding_dim": 128,
-          "global_embedding_dim": 128,
+          "policy_net_arch": [
+            384,
+            256,
+            128
+          ],
+          "asset_set_encoder": false,
           "algorithm": "ppo",
-          "checkpoint_interval_steps": 16384,
+          "checkpoint_interval_steps": 32768,
           "max_checkpoints": 4,
-          "behavior_cloning_epochs": 0
+          "behavior_cloning_epochs": 0,
+          "learning_rate": 0.00012,
+          "policy": "MultiInputPolicy",
+          "value_net_arch": [
+            512,
+            384,
+            256
+          ],
+          "sequence_encoder": true,
+          "sequence_d_model": 320,
+          "sequence_attention_heads": 8,
+          "sequence_attention_layers": 2,
+          "sequence_dropout": 0.05,
+          "max_policy_parameters": 12000000,
+          "behavior_cloning_validation_fraction": 0.0,
+          "behavior_cloning_patience": 5,
+          "behavior_cloning_minimum_improvement": 1e-07
         },
         "environment": {
           "episode_hours": 720.0,
           "decision_hours": 0.25,
           "initial_capital": 100000.0,
           "finite_horizon_observation": true,
-          "initial_state_modes": ["cash", "baseline"],
+          "initial_state_modes": [
+            "cash",
+            "baseline"
+          ],
           "episode_sampling_mode": "uniform",
           "emergency_risk": {
             "stop_loss_return": 0.03,
@@ -55,13 +80,32 @@
             "volatility_short_hours": 24.0,
             "volatility_long_hours": 720.0,
             "flatten_untradable": true
-          }
+          },
+          "structured_sequence_observation": true,
+          "sequence_windows": [
+            [
+              "15m",
+              96
+            ],
+            [
+              "1h",
+              168
+            ],
+            [
+              "4h",
+              120
+            ],
+            [
+              "1d",
+              60
+            ]
+          ]
         },
         "risk": {
           "max_gross": 1.0,
           "max_abs_weight": 0.45,
-          "max_turnover": 0.02,
-          "entry_threshold": 0.10,
+          "max_turnover": null,
+          "entry_threshold": 0.1,
           "exit_threshold": 0.03,
           "no_trade_band": 0.05,
           "drawdown_start": 0.1,
@@ -98,7 +142,9 @@
           "target_weight_count": 3,
           "validation_mode": "clip"
         },
-        "alpha_contract": {"kind": "target_weight"},
+        "alpha_contract": {
+          "kind": "target_weight"
+        },
         "execution": {
           "fee_rate": 0.0005,
           "spread_rate": 0.0002,
@@ -109,7 +155,11 @@
           "margin_mode": "cross",
           "order_type": "market"
         },
-        "exports": {"onnx": false, "torchscript": false, "tolerance": 0.00001}
+        "exports": {
+          "onnx": false,
+          "torchscript": false,
+          "tolerance": 1e-05
+        }
       }
     },
     {
@@ -117,12 +167,16 @@
       "run": {
         "schema_version": "training_run_config_v1",
         "training": {
-          "timesteps": 65536,
+          "timesteps": 131072,
           "gamma": 0.998969062762624,
-          "seeds": [0, 1, 2],
-          "n_steps": 2048,
+          "seeds": [
+            0,
+            1,
+            2
+          ],
+          "n_steps": 1024,
           "n_envs": 4,
-          "batch_size": 64,
+          "batch_size": 128,
           "n_epochs": 10,
           "ent_coef": 0.001,
           "device": "cuda",
@@ -130,23 +184,44 @@
           "discount_half_life_hours": 168.0,
           "log_std_init": -0.7,
           "target_kl": 0.02,
-          "policy_net_arch": [256, 256],
-          "asset_set_encoder": true,
-          "asset_embedding_dim": 128,
-          "global_embedding_dim": 128,
+          "policy_net_arch": [
+            384,
+            256,
+            128
+          ],
+          "asset_set_encoder": false,
           "algorithm": "ppo",
-          "checkpoint_interval_steps": 16384,
+          "checkpoint_interval_steps": 32768,
           "max_checkpoints": 4,
           "behavior_cloning_epochs": 15,
           "behavior_cloning_learning_rate": 0.001,
-          "behavior_cloning_batch_size": 256
+          "behavior_cloning_batch_size": 256,
+          "learning_rate": 0.00012,
+          "policy": "MultiInputPolicy",
+          "value_net_arch": [
+            512,
+            384,
+            256
+          ],
+          "sequence_encoder": true,
+          "sequence_d_model": 320,
+          "sequence_attention_heads": 8,
+          "sequence_attention_layers": 2,
+          "sequence_dropout": 0.05,
+          "max_policy_parameters": 12000000,
+          "behavior_cloning_validation_fraction": 0.1,
+          "behavior_cloning_patience": 5,
+          "behavior_cloning_minimum_improvement": 1e-07
         },
         "environment": {
           "episode_hours": 720.0,
           "decision_hours": 0.25,
           "initial_capital": 100000.0,
           "finite_horizon_observation": true,
-          "initial_state_modes": ["cash", "baseline"],
+          "initial_state_modes": [
+            "cash",
+            "baseline"
+          ],
           "episode_sampling_mode": "uniform",
           "emergency_risk": {
             "stop_loss_return": 0.03,
@@ -156,13 +231,32 @@
             "volatility_short_hours": 24.0,
             "volatility_long_hours": 720.0,
             "flatten_untradable": true
-          }
+          },
+          "structured_sequence_observation": true,
+          "sequence_windows": [
+            [
+              "15m",
+              96
+            ],
+            [
+              "1h",
+              168
+            ],
+            [
+              "4h",
+              120
+            ],
+            [
+              "1d",
+              60
+            ]
+          ]
         },
         "risk": {
           "max_gross": 1.0,
           "max_abs_weight": 0.45,
-          "max_turnover": 0.02,
-          "entry_threshold": 0.10,
+          "max_turnover": null,
+          "entry_threshold": 0.1,
           "exit_threshold": 0.03,
           "no_trade_band": 0.05,
           "drawdown_start": 0.1,
@@ -199,7 +293,9 @@
           "target_weight_count": 3,
           "validation_mode": "clip"
         },
-        "alpha_contract": {"kind": "target_weight"},
+        "alpha_contract": {
+          "kind": "target_weight"
+        },
         "execution": {
           "fee_rate": 0.0005,
           "spread_rate": 0.0002,
@@ -210,7 +306,11 @@
           "margin_mode": "cross",
           "order_type": "market"
         },
-        "exports": {"onnx": false, "torchscript": false, "tolerance": 0.00001}
+        "exports": {
+          "onnx": false,
+          "torchscript": false,
+          "tolerance": 1e-05
+        }
       }
     }
   ]

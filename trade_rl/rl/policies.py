@@ -79,3 +79,98 @@ class AssetSetFeatureExtractor(BaseFeaturesExtractor):
         )
         encoded_globals = self.global_encoder(globals_)
         return torch.cat((pooled_assets, encoded_globals), dim=1)
+
+
+class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
+    """Encode native-clock sequences and fuse current cross-asset state."""
+
+    def __init__(
+        self,
+        observation_space: spaces.Dict,
+        *,
+        feature_counts: dict[str, int],
+        window_lengths: dict[str, int],
+        snapshot_width: int,
+        asset_state_width: int,
+        global_width: int,
+        n_symbols: int,
+        d_model: int = 320,
+        attention_heads: int = 8,
+        attention_layers: int = 2,
+        dropout: float = 0.05,
+    ) -> None:
+        from trade_rl.rl.sequence_policy import (
+            MultiTimeframeAssetEncoder,
+            SequencePolicyArchitecture,
+        )
+
+        timeframes = ("15m", "1h", "4h", "1d")
+        if tuple(feature_counts) != timeframes or tuple(window_lengths) != timeframes:
+            raise ValueError("sequence metadata must use ordered maintained clocks")
+        expected_shapes: dict[str, tuple[int, ...]] = {
+            "current_snapshot": (n_symbols, snapshot_width),
+            "asset_state": (n_symbols, asset_state_width),
+            "global_state": (global_width,),
+            "active": (n_symbols,),
+        }
+        for timeframe in timeframes:
+            sequence_shape = (
+                n_symbols,
+                window_lengths[timeframe],
+                feature_counts[timeframe],
+            )
+            for suffix in ("values", "available", "staleness"):
+                expected_shapes[f"sequence_{timeframe}_{suffix}"] = sequence_shape
+        for key, expected_shape in expected_shapes.items():
+            if key not in observation_space.spaces:
+                raise ValueError(f"sequence observation space is missing {key}")
+            if observation_space.spaces[key].shape != expected_shape:
+                raise ValueError(f"sequence observation shape mismatch for {key}")
+        super().__init__(observation_space, features_dim=d_model + 128)
+        self.timeframes = timeframes
+        architecture = SequencePolicyArchitecture(
+            input_channels={
+                timeframe: 3 * feature_counts[timeframe] for timeframe in timeframes
+            },
+            latent_dims={"15m": 192, "1h": 192, "4h": 160, "1d": 128},
+            asset_state_width=asset_state_width,
+            snapshot_width=snapshot_width,
+            d_model=d_model,
+            attention_heads=attention_heads,
+            attention_layers=attention_layers,
+            dropout=dropout,
+        )
+        self.asset_encoder = MultiTimeframeAssetEncoder(architecture)
+        self.global_encoder = nn.Sequential(
+            nn.Linear(global_width, 256),
+            nn.LayerNorm(256),
+            nn.SiLU(),
+            nn.Linear(256, 128),
+            nn.LayerNorm(128),
+            nn.SiLU(),
+        )
+
+    def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
+        sequences: dict[str, torch.Tensor] = {}
+        available: dict[str, torch.Tensor] = {}
+        for timeframe in self.timeframes:
+            values = observations[f"sequence_{timeframe}_values"].float()
+            availability = observations[f"sequence_{timeframe}_available"].float()
+            staleness = observations[f"sequence_{timeframe}_staleness"].float()
+            sequences[timeframe] = torch.cat(
+                (values, availability, torch.log1p(staleness.clamp_min(0.0))),
+                dim=-1,
+            )
+            available[timeframe] = availability > 0.5
+        assets = self.asset_encoder(
+            sequences=sequences,
+            available=available,
+            snapshot=observations["current_snapshot"].float(),
+            asset_state=observations["asset_state"].float(),
+            active=observations["active"].float(),
+        )
+        globals_ = self.global_encoder(observations["global_state"].float())
+        return torch.cat((assets, globals_), dim=-1)
+
+
+__all__ = ["AssetSetFeatureExtractor", "SequenceAssetFeatureExtractor"]

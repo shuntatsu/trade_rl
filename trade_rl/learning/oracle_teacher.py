@@ -111,9 +111,7 @@ def _transition_log_cost(
         + cost.spread_rate
         + dataset.resolved_array("spread_rate")[execution_index, symbol_index]
     )
-    market_notional = float(
-        dataset.market_notional(execution_index)[symbol_index]
-    )
+    market_notional = float(dataset.market_notional(execution_index)[symbol_index])
     requested_notional = absolute_delta * config.reference_portfolio_value
     participation = requested_notional / market_notional if market_notional > 0 else 1.0
     impact_rate = cost.multiplier * cost.impact_rate * math.sqrt(participation)
@@ -138,19 +136,20 @@ def _symbol_path(
     )
     steps = len(returns)
     state_count = len(states)
-    holding = np.log(
-        np.clip(1.0 + returns[:, None] * states[None, :], 1e-12, None)
-    )
+    holding = np.log(np.clip(1.0 + returns[:, None] * states[None, :], 1e-12, None))
     scores = np.full((steps, state_count), -np.inf, dtype=np.float64)
     pointers = np.zeros((steps, state_count), dtype=np.int64)
     for state_index, state in enumerate(states):
-        scores[0, state_index] = _transition_log_cost(
-            dataset,
-            config,
-            execution_index=start + 1,
-            symbol_index=symbol_index,
-            delta_weight=float(state),
-        ) + holding[0, state_index]
+        scores[0, state_index] = (
+            _transition_log_cost(
+                dataset,
+                config,
+                execution_index=start + 1,
+                symbol_index=symbol_index,
+                delta_weight=float(state),
+            )
+            + holding[0, state_index]
+        )
     for step in range(1, steps):
         execution_index = start + step + 1
         for state_index, state in enumerate(states):
@@ -167,9 +166,9 @@ def _symbol_path(
                 )
             best_prior = int(np.argmax(candidates))
             pointers[step, state_index] = best_prior
-            scores[step, state_index] = candidates[best_prior] + holding[
-                step, state_index
-            ]
+            scores[step, state_index] = (
+                candidates[best_prior] + holding[step, state_index]
+            )
     state_path = np.zeros(steps, dtype=np.int64)
     state_path[-1] = int(np.argmax(scores[-1]))
     for step in range(steps - 1, 0, -1):

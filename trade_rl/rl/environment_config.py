@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from trade_rl.data.contracts import timeframe_hours
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk.emergency import EmergencyRiskConfig
 from trade_rl.rl.actions import ActionValidationMode
@@ -33,6 +34,8 @@ class ResidualMarketEnvConfig:
     reward: AbsoluteGrowthRewardConfig | None = None
     liquidate_on_end: bool = False
     finite_horizon_observation: bool = False
+    structured_sequence_observation: bool = False
+    sequence_windows: tuple[tuple[str, int], ...] = ()
     require_full_reward_preroll: bool = False
     initial_state_modes: tuple[str, ...] = ("cash",)
     random_initial_gross: float = 0.50
@@ -138,11 +141,32 @@ class ResidualMarketEnvConfig:
         for field_name, value in (
             ("liquidate_on_end", self.liquidate_on_end),
             ("finite_horizon_observation", self.finite_horizon_observation),
+            ("structured_sequence_observation", self.structured_sequence_observation),
             ("require_full_reward_preroll", self.require_full_reward_preroll),
             ("accept_legacy_actions", self.accept_legacy_actions),
         ):
             if not isinstance(value, bool):
                 raise ValueError(f"{field_name} must be a boolean")
+        normalized_windows: list[tuple[str, int]] = []
+        for item in self.sequence_windows:
+            if not isinstance(item, (tuple, list)) or len(item) != 2:
+                raise ValueError(
+                    "sequence_windows entries must be timeframe/length pairs"
+                )
+            timeframe, length = item
+            if not isinstance(timeframe, str):
+                raise ValueError("sequence timeframe must be a string")
+            timeframe_hours(timeframe)
+            if isinstance(length, bool) or not isinstance(length, int) or length <= 0:
+                raise ValueError("sequence length must be a positive integer")
+            normalized_windows.append((timeframe, length))
+        if len({timeframe for timeframe, _ in normalized_windows}) != len(
+            normalized_windows
+        ):
+            raise ValueError("sequence timeframes must be unique")
+        if normalized_windows and not self.structured_sequence_observation:
+            raise ValueError("sequence_windows require structured_sequence_observation")
+        object.__setattr__(self, "sequence_windows", tuple(normalized_windows))
         if self.reward_config is not None and self.reward is not None:
             raise ValueError("reward and reward_config cannot both be configured")
         try:
@@ -152,6 +176,14 @@ class ResidualMarketEnvConfig:
         object.__setattr__(self, "action_validation_mode", mode)
         if not isinstance(self.emergency_risk, EmergencyRiskConfig):
             raise ValueError("emergency_risk must be an EmergencyRiskConfig")
+
+    @property
+    def resolved_sequence_windows(self) -> tuple[tuple[str, int], ...]:
+        if not self.structured_sequence_observation:
+            return ()
+        if self.sequence_windows:
+            return self.sequence_windows
+        return (("15m", 96), ("1h", 168), ("4h", 120), ("1d", 60))
 
     def resolved_reward_config(self) -> RewardConfig:
         if self.reward_config is not None:

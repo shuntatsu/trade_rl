@@ -49,7 +49,7 @@ class CompleteSource:
         return self.series[timeframe]
 
 
-def test_complete_preset_builds_96_causal_features() -> None:
+def test_complete_preset_builds_206_role_specific_causal_features() -> None:
     specs = binance_multitimeframe_feature_specs(
         base_timeframe="1h",
         feature_timeframes=("15m", "4h", "1d"),
@@ -66,10 +66,12 @@ def test_complete_preset_builds_96_causal_features() -> None:
         ),
     )
 
-    assert dataset.n_features == 96
-    assert dataset.features.shape == (1_441, 1, 96)
+    assert dataset.n_features == 206
+    assert dataset.features.shape == (1_441, 1, 206)
     assert dataset.feature_available[-1, 0].all()
     assert np.isfinite(dataset.features).all()
     assert np.isfinite(dataset.feature_staleness).all()
-    assert dataset.feature_names[20].endswith("ichimoku_tenkan_distance_9bar")
-    assert dataset.feature_names[-1].endswith("ichimoku_cloud_thickness_9_26_52")
+    assert "15m__bollinger_percent_b_centered_20_2" in dataset.feature_names
+    assert "1h__price_volume_correlation_24bar" in dataset.feature_names
+    assert "4h__plus_di_14bar" in dataset.feature_names
+    assert dataset.feature_names[-1] == "1d__funding_zscore_12events"

@@ -1,17 +1,17 @@
 {
   "schema_version": "training_run_config_v1",
   "training": {
-    "timesteps": 262144,
+    "timesteps": 524288,
     "gamma": 0.998969062762624,
     "seeds": [
       0,
       1,
       2
     ],
-    "learning_rate": 0.0003,
-    "n_steps": 2048,
+    "learning_rate": 0.00012,
+    "n_steps": 1024,
     "n_envs": 4,
-    "batch_size": 64,
+    "batch_size": 128,
     "n_epochs": 10,
     "gae_lambda": 0.95,
     "ent_coef": 0.001,
@@ -21,18 +21,32 @@
     "log_std_init": -0.7,
     "target_kl": 0.02,
     "policy_net_arch": [
+      384,
       256,
-      256
+      128
     ],
-    "asset_set_encoder": true,
-    "asset_embedding_dim": 128,
-    "global_embedding_dim": 128,
+    "asset_set_encoder": false,
     "algorithm": "ppo",
     "checkpoint_interval_steps": 32768,
     "max_checkpoints": 8,
     "behavior_cloning_epochs": 15,
     "behavior_cloning_learning_rate": 0.001,
-    "behavior_cloning_batch_size": 256
+    "behavior_cloning_batch_size": 256,
+    "policy": "MultiInputPolicy",
+    "value_net_arch": [
+      512,
+      384,
+      256
+    ],
+    "sequence_encoder": true,
+    "sequence_d_model": 320,
+    "sequence_attention_heads": 8,
+    "sequence_attention_layers": 2,
+    "sequence_dropout": 0.05,
+    "max_policy_parameters": 12000000,
+    "behavior_cloning_validation_fraction": 0.1,
+    "behavior_cloning_patience": 5,
+    "behavior_cloning_minimum_improvement": 1e-07
   },
   "environment": {
     "episode_hours": 720.0,
@@ -52,13 +66,32 @@
       "volatility_short_hours": 24.0,
       "volatility_long_hours": 720.0,
       "flatten_untradable": true
-    }
+    },
+    "structured_sequence_observation": true,
+    "sequence_windows": [
+      [
+        "15m",
+        96
+      ],
+      [
+        "1h",
+        168
+      ],
+      [
+        "4h",
+        120
+      ],
+      [
+        "1d",
+        60
+      ]
+    ]
   },
   "risk": {
     "max_gross": 1.0,
     "max_abs_weight": 0.45,
-    "max_turnover": 0.02,
-    "entry_threshold": 0.10,
+    "max_turnover": null,
+    "entry_threshold": 0.1,
     "exit_threshold": 0.03,
     "no_trade_band": 0.05,
     "drawdown_start": 0.1,

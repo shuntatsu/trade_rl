@@ -126,6 +126,7 @@ class TrainingRunConfig:
             _mapping(payload.get("training"), field="training"),
             "seeds",
             "policy_net_arch",
+            "value_net_arch",
         )
         reward = RewardConfig(**_mapping(payload.get("reward"), field="reward"))
         execution = ExecutionCostConfig(
@@ -135,6 +136,7 @@ class TrainingRunConfig:
             _mapping(payload.get("environment"), field="environment"),
             "episode_hour_choices",
             "initial_state_modes",
+            "sequence_windows",
         )
         environment_data.pop("reward_config", None)
         environment_data.pop("execution_cost", None)

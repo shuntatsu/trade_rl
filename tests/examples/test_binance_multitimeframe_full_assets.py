@@ -22,20 +22,21 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert (
         config.training.device,
         config.training.n_envs,
+        config.training.policy,
         config.training.policy_net_arch,
-        config.training.asset_embedding_dim,
-        config.training.global_embedding_dim,
-    ) == ("cuda", 4, (256, 256), 128, 128)
+        config.training.value_net_arch,
+        config.training.sequence_encoder,
+    ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert config.training.seeds == (0, 1, 2)
-    assert config.training.timesteps >= 262_144
-    assert config.training.n_steps == 2_048
-    assert config.training.batch_size == 64
+    assert config.training.timesteps >= 524_288
+    assert config.training.n_steps == 1_024
+    assert config.training.batch_size == 128
     assert config.training.n_epochs == 10
     assert config.training.gamma == pytest.approx(0.998969062762624)
     assert config.training.decision_hours == 0.25
     assert config.environment.decision_hours == 0.25
     assert config.training.behavior_cloning_epochs == 15
-    assert config.risk.max_turnover == 0.02
+    assert config.risk.max_turnover is None
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
     assert config.action.mode.value == "target_weight"
@@ -73,16 +74,24 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
     assert (
         candidate.training.device,
         candidate.training.n_envs,
+        candidate.training.policy,
         candidate.training.policy_net_arch,
-        candidate.training.asset_embedding_dim,
-        candidate.training.global_embedding_dim,
-    ) == ("cuda", 4, (256, 256), 128, 128)
+        candidate.training.value_net_arch,
+        candidate.training.sequence_encoder,
+    ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert candidate.training.seeds == (0, 1, 2)
-    assert candidate.training.timesteps >= 65_536
+    assert candidate.training.timesteps >= 131_072
     assert candidate.training.gamma == pytest.approx(0.998969062762624)
     assert candidate.training.decision_hours == 0.25
     assert candidate.environment.decision_hours == 0.25
-    assert candidate.risk.max_turnover == 0.02
+    assert candidate.environment.structured_sequence_observation
+    assert candidate.environment.resolved_sequence_windows == (
+        ("15m", 96),
+        ("1h", 168),
+        ("4h", 120),
+        ("1d", 60),
+    )
+    assert candidate.risk.max_turnover is None
     assert not candidate.action.risk_tilt_enabled
     assert candidate.action.mode.value == "target_weight"
     assert candidate.action.target_weight_count == 3
@@ -107,8 +116,8 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "binance_multitimeframe_feature_specs" in content
     assert "raw_feature_count" in content
     assert "policy_observation_count" in content
-    assert "1_241" in content
-    assert "96" in content
+    assert "210_785" in content
+    assert "206" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
 

@@ -72,17 +72,40 @@ class StableBaselines3Backend:
             identity = _environment_identity(probe)
             _validate_training_environment(identity, config)
             algorithm_config = build_algorithm_config(config)
-            policy_kwargs: dict[str, Any] = {
-                "net_arch": list(algorithm_config.policy_net_arch)
-            }
+            policy_kwargs: dict[str, Any]
+            if config.sequence_encoder:
+                from trade_rl.rl.policies import SequenceAssetFeatureExtractor
+
+                unwrapped: Any = getattr(probe, "unwrapped", probe)
+                metadata = getattr(unwrapped, "sequence_layout_metadata", None)
+                if not isinstance(metadata, dict):
+                    raise ValueError(
+                        "sequence training requires environment sequence metadata"
+                    )
+                policy_kwargs = {
+                    "net_arch": {
+                        "pi": list(config.policy_net_arch),
+                        "vf": list(config.value_net_arch),
+                    },
+                    "features_extractor_class": SequenceAssetFeatureExtractor,
+                    "features_extractor_kwargs": {
+                        **metadata,
+                        "d_model": config.sequence_d_model,
+                        "attention_heads": config.sequence_attention_heads,
+                        "attention_layers": config.sequence_attention_layers,
+                        "dropout": config.sequence_dropout,
+                    },
+                }
+            else:
+                policy_kwargs = {"net_arch": list(algorithm_config.policy_net_arch)}
             if isinstance(algorithm_config, PPOConfig):
                 policy_kwargs["log_std_init"] = algorithm_config.log_std_init
             if config.asset_set_encoder:
                 from trade_rl.rl.policies import AssetSetFeatureExtractor
 
-                unwrapped: Any = getattr(probe, "unwrapped", probe)
-                layout = getattr(unwrapped, "layout", None)
-                active_column = getattr(unwrapped, "asset_active_column", None)
+                asset_unwrapped: Any = getattr(probe, "unwrapped", probe)
+                layout = getattr(asset_unwrapped, "layout", None)
+                active_column = getattr(asset_unwrapped, "asset_active_column", None)
                 if layout is None or not isinstance(active_column, int):
                     raise ValueError(
                         "asset-set training requires environment layout metadata"
@@ -170,13 +193,40 @@ class StableBaselines3Backend:
                         sde_sample_freq=algorithm_config.sde_sample_freq,
                         **off_policy,
                     )
+            parameter_count = sum(
+                int(parameter.numel()) for parameter in model.policy.parameters()
+            )
+            if parameter_count > config.max_policy_parameters:
+                raise ValueError(
+                    "policy parameter count exceeds max_policy_parameters: "
+                    f"{parameter_count} > {config.max_policy_parameters}"
+                )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            (output_path.parent / "model-architecture.json").write_bytes(
+                canonical_json_bytes(
+                    {
+                        "environment_digest": identity["environment_digest"],
+                        "observation_contract_digest": identity[
+                            "observation_contract_digest"
+                        ],
+                        "observation_schema": identity["observation_schema"],
+                        "parameter_count": parameter_count,
+                        "policy": config.policy,
+                        "schema_version": "policy_architecture_v1",
+                        "training_config_digest": content_digest(
+                            config.digest_payload()
+                        ),
+                    }
+                )
+            )
             if config.behavior_cloning_epochs > 0:
                 teacher_environment = self.environment_factory()
                 try:
                     teacher_identity = _environment_identity(teacher_environment)
-                    if teacher_identity["environment_digest"] != identity[
-                        "environment_digest"
-                    ]:
+                    if (
+                        teacher_identity["environment_digest"]
+                        != identity["environment_digest"]
+                    ):
                         raise ValueError("teacher environment identity mismatch")
                     unwrapped_teacher: Any = getattr(
                         teacher_environment, "unwrapped", teacher_environment
@@ -217,6 +267,13 @@ class StableBaselines3Backend:
                             epochs=config.behavior_cloning_epochs,
                             learning_rate=config.behavior_cloning_learning_rate,
                             batch_size=config.behavior_cloning_batch_size,
+                            validation_fraction=(
+                                config.behavior_cloning_validation_fraction
+                            ),
+                            early_stopping_patience=config.behavior_cloning_patience,
+                            minimum_improvement=(
+                                config.behavior_cloning_minimum_improvement
+                            ),
                         ),
                         seed=seed,
                     )
@@ -226,7 +283,10 @@ class StableBaselines3Backend:
                         "final_mse": cloning.final_mse,
                         "initial_mse": cloning.initial_mse,
                         "sample_count": cloning.sample_count,
-                        "schema_version": "oracle_behavior_cloning_run_v1",
+                        "validation_mse": cloning.validation_mse,
+                        "validation_sample_count": cloning.validation_sample_count,
+                        "best_epoch": cloning.best_epoch,
+                        "schema_version": "oracle_behavior_cloning_run_v2",
                     }
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     (output_path.parent / "behavior-cloning.json").write_bytes(
@@ -292,6 +352,9 @@ class StableBaselines3Backend:
                 action_names=tuple(identity["action_names"]),
                 action_spec_digest=str(identity["action_spec_digest"]),
                 observation_size=int(identity["observation_size"]),
+                observation_schema=str(identity["observation_schema"]),
+                observation_contract_digest=identity["observation_contract_digest"],
+                parameter_count=parameter_count,
                 alpha_artifact_digest=identity["alpha_artifact_digest"],
                 factor_artifact_digest=identity["factor_artifact_digest"],
                 normalizer_digest=identity["normalizer_digest"],

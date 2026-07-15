@@ -45,8 +45,12 @@ def test_stop_loss_uses_only_completed_history_through_current_bar() -> None:
         EmergencyRiskConfig(stop_loss_return=0.03, stop_loss_hours=1.0)
     )
 
-    before = monitor.assess(dataset, index=dataset.n_bars - 2, weights=np.array([0.4, 0.0]))
-    after = monitor.assess(dataset, index=dataset.n_bars - 1, weights=np.array([0.4, 0.0]))
+    before = monitor.assess(
+        dataset, index=dataset.n_bars - 2, weights=np.array([0.4, 0.0])
+    )
+    after = monitor.assess(
+        dataset, index=dataset.n_bars - 1, weights=np.array([0.4, 0.0])
+    )
 
     np.testing.assert_array_equal(before.flatten_mask, np.array([False, False]))
     np.testing.assert_array_equal(after.flatten_mask, np.array([True, False]))
@@ -70,7 +74,9 @@ def test_gap_and_untradable_checks_are_symbol_local() -> None:
         EmergencyRiskConfig(gap_return=0.04, flatten_untradable=True)
     )
 
-    result = monitor.assess(shocked, index=shocked.n_bars - 1, weights=np.array([0.3, -0.2]))
+    result = monitor.assess(
+        shocked, index=shocked.n_bars - 1, weights=np.array([0.3, -0.2])
+    )
 
     np.testing.assert_array_equal(result.flatten_mask, np.array([True, True]))
     assert set(result.reasons) == {"untradable:BTC", "gap:ETH"}

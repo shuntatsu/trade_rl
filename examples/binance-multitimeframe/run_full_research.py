@@ -38,7 +38,7 @@ _FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
 _END = "2026-07-01T00:00:00Z"
 _EXPECTED_15M_BARS = 55_392
-_EXPECTED_POLICY_OBSERVATIONS = 1_241
+_EXPECTED_POLICY_OBSERVATIONS = 210_785
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
@@ -286,9 +286,9 @@ def _build_dataset(
             feature_timeframes=_FEATURE_TIMEFRAMES,
         )
     )
-    if len(expected_features) != 96:
+    if len(expected_features) != 206:
         raise RuntimeError(
-            f"complete feature contract must contain 96 features, got {len(expected_features)}"
+            f"extended feature contract must contain 206 features, got {len(expected_features)}"
         )
     if result.dataset.feature_names != expected_features:
         raise RuntimeError(
@@ -461,11 +461,28 @@ def main() -> int:
     from trade_rl.data import load_market_dataset_artifact
 
     dataset = load_market_dataset_artifact(dataset_a_path)
-    policy_observation_count = ObservationBuilder(
-        action_size=3,
-        n_factors=0,
-        finite_horizon=True,
-    ).layout(dataset).size
+    flat_observation_count = (
+        ObservationBuilder(
+            action_size=3,
+            n_factors=0,
+            finite_horizon=True,
+        )
+        .layout(dataset)
+        .size
+    )
+    from trade_rl.rl.sequence_observations import SequenceObservationBuilder
+
+    sequence_payload = SequenceObservationBuilder().schema_payload(dataset)
+    sequence_observation_count = 0
+    for window in sequence_payload["windows"]:
+        item = dict(window)
+        sequence_observation_count += (
+            dataset.n_symbols
+            * int(item["length"])
+            * len(tuple(item["feature_names"]))
+            * 3
+        )
+    policy_observation_count = flat_observation_count + sequence_observation_count
     if policy_observation_count != _EXPECTED_POLICY_OBSERVATIONS:
         raise RuntimeError(
             "expected "
@@ -531,6 +548,8 @@ def main() -> int:
         "native_timeframes": list(_NATIVE_TIMEFRAMES),
         "decision_hours": 0.25,
         "raw_feature_count": dataset.n_features,
+        "flat_observation_count": flat_observation_count,
+        "sequence_observation_count": sequence_observation_count,
         "policy_observation_count": policy_observation_count,
         "production_status": "NO-GO",
         "schema": "binance_multitimeframe_complete_research_v2",

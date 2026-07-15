@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pytest
-
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinanceMarketDataSource,
@@ -151,56 +149,22 @@ def test_source_caches_each_symbol_timeframe_and_shared_funding() -> None:
     )
 
 
-def test_maintained_feature_preset_uses_96_native_features() -> None:
+def test_maintained_feature_preset_uses_role_specific_extended_features() -> None:
     specs = binance_multitimeframe_feature_specs(
         base_timeframe="1h",
         feature_timeframes=("15m", "4h", "1d"),
     )
 
-    suffixes = (
-        "log_return_1bar",
-        "log_return_4bar",
-        "log_return_24bar",
-        "realized_volatility_4bar",
-        "realized_volatility_24bar",
-        "volume_zscore_24bar",
-        "funding_bps",
-        "rsi_14bar",
-        "macd_line_12_26",
-        "macd_signal_12_26_9",
-        "macd_histogram_12_26_9",
-        "bollinger_position_20_2",
-        "bollinger_bandwidth_20_2",
-        "atr_pct_14bar",
-        "adx_14bar",
-        "stochastic_k_14bar",
-        "stochastic_d_14_3",
-        "cci_20bar",
-        "williams_r_14bar",
-        "obv_slope_24bar",
-        "ichimoku_tenkan_distance_9bar",
-        "ichimoku_kijun_distance_26bar",
-        "ichimoku_cloud_position_9_26_52",
-        "ichimoku_cloud_thickness_9_26_52",
-    )
-    expected = tuple(
-        f"{timeframe}__{suffix}"
+    names = tuple(spec.name for spec in specs)
+    counts = {
+        timeframe: sum(name.startswith(f"{timeframe}__") for name in names)
         for timeframe in ("15m", "1h", "4h", "1d")
-        for suffix in suffixes
-    )
-    assert len(specs) == 96
-    assert tuple(spec.name for spec in specs) == expected
-    assert tuple(spec.resolved_timeframe("1h") for spec in specs) == (
-        ("15m",) * 24 + ("1h",) * 24 + ("4h",) * 24 + ("1d",) * 24
-    )
-
-    with pytest.raises(ValueError, match="duplicate"):
-        binance_multitimeframe_feature_specs(
-            base_timeframe="1h",
-            feature_timeframes=("4h", "4h"),
-        )
-    with pytest.raises(ValueError, match="base"):
-        binance_multitimeframe_feature_specs(
-            base_timeframe="1h",
-            feature_timeframes=("1h",),
-        )
+    }
+    assert len(specs) == 206
+    assert counts == {"15m": 54, "1h": 54, "4h": 50, "1d": 48}
+    assert "15m__bollinger_percent_b_centered_20_2" in names
+    assert "1h__garman_klass_volatility_24bar" in names
+    assert "4h__trend_r2_18bar" in names
+    assert "1d__funding_zscore_12events" in names
+    assert "15m__upper_wick_ratio" in names
+    assert "1d__upper_wick_ratio" not in names

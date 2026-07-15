@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import gymnasium as gym
 import numpy as np
@@ -54,6 +54,12 @@ from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
     RewardTracker,
 )
+from trade_rl.rl.sequence_observations import (
+    SEQUENCE_OBSERVATION_SCHEMA,
+    SequenceObservationBuilder,
+    SequenceWindowSpec,
+    build_structured_policy_observation,
+)
 from trade_rl.rl.transition import classify_economic_transition
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
@@ -82,7 +88,7 @@ class FactorBasisProvider(Protocol):
     def basis_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
 
 
-class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
+class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray]):
     """Dynamic residual-action environment with an independent shadow book."""
 
     metadata = {"render_modes": []}
@@ -334,12 +340,110 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 )
         self.layout = layout
         self.asset_active_column = 4 * dataset.n_features
-        self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(layout.size,),
-            dtype=np.float32,
-        )
+        self.sequence_observation_builder: SequenceObservationBuilder | None = None
+        self.sequence_layout_metadata: dict[str, object] | None = None
+        if self.config.structured_sequence_observation:
+            self.sequence_observation_builder = SequenceObservationBuilder(
+                windows=tuple(
+                    SequenceWindowSpec(timeframe, length)
+                    for timeframe, length in self.config.resolved_sequence_windows
+                )
+            )
+            self._minimum_start_index = max(
+                self._minimum_start_index,
+                self.sequence_observation_builder.minimum_index(dataset),
+            )
+            sequence_payload = self.sequence_observation_builder.schema_payload(dataset)
+            sequence_spaces: dict[str, spaces.Space[np.ndarray]] = {
+                "current_snapshot": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(dataset.n_symbols, 4 * dataset.n_features),
+                    dtype=np.float32,
+                ),
+                "asset_state": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(
+                        dataset.n_symbols,
+                        layout.per_symbol_width - 4 * dataset.n_features,
+                    ),
+                    dtype=np.float32,
+                ),
+                "global_state": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(layout.global_width,),
+                    dtype=np.float32,
+                ),
+                "active": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(dataset.n_symbols,),
+                    dtype=np.float32,
+                ),
+            }
+            feature_counts: dict[str, int] = {}
+            window_lengths: dict[str, int] = {}
+            sequence_windows = cast(
+                tuple[dict[str, object], ...], sequence_payload["windows"]
+            )
+            for window in sequence_windows:
+                item = dict(window)
+                timeframe = str(item["timeframe"])
+                raw_length = item["length"]
+                if isinstance(raw_length, bool) or not isinstance(raw_length, int):
+                    raise ValueError("sequence window length must be an integer")
+                raw_feature_names = item["feature_names"]
+                if not isinstance(raw_feature_names, (tuple, list)):
+                    raise ValueError("sequence feature names must be ordered")
+                length = raw_length
+                feature_count = len(raw_feature_names)
+                feature_counts[timeframe] = feature_count
+                window_lengths[timeframe] = length
+                base_shape = (dataset.n_symbols, length, feature_count)
+                sequence_spaces[f"sequence_{timeframe}_values"] = spaces.Box(
+                    low=-np.inf, high=np.inf, shape=base_shape, dtype=np.float32
+                )
+                sequence_spaces[f"sequence_{timeframe}_available"] = spaces.Box(
+                    low=0, high=1, shape=base_shape, dtype=np.uint8
+                )
+                sequence_spaces[f"sequence_{timeframe}_staleness"] = spaces.Box(
+                    low=0.0, high=np.inf, shape=base_shape, dtype=np.float16
+                )
+            self.sequence_layout_metadata = {
+                "feature_counts": feature_counts,
+                "window_lengths": window_lengths,
+                "snapshot_width": 4 * dataset.n_features,
+                "asset_state_width": layout.per_symbol_width - 4 * dataset.n_features,
+                "global_width": layout.global_width,
+                "n_symbols": dataset.n_symbols,
+            }
+            self._observation_schema = SEQUENCE_OBSERVATION_SCHEMA
+            self._observation_contract_digest = content_digest(
+                {
+                    "current_schema_digest": self.observation_builder.schema_digest(
+                        dataset
+                    ),
+                    "sequence_schema_digest": self.sequence_observation_builder.schema_digest(
+                        dataset
+                    ),
+                    "layout": self.sequence_layout_metadata,
+                    "schema_version": SEQUENCE_OBSERVATION_SCHEMA,
+                }
+            )
+            self.observation_space = spaces.Dict(sequence_spaces)
+        else:
+            self._observation_schema = OBSERVATION_SCHEMA
+            self._observation_contract_digest = self.observation_builder.schema_digest(
+                dataset
+            )
+            self.observation_space = spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(layout.size,),
+                dtype=np.float32,
+            )
         self.action_space = spaces.Box(
             low=-1.0,
             high=1.0,
@@ -452,6 +556,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 "episode_hours": self.config.episode_hours,
                 "execution_cost": asdict(self.config.execution_cost),
                 "finite_horizon_observation": self.config.finite_horizon_observation,
+                "structured_sequence_observation": self.config.structured_sequence_observation,
+                "sequence_windows": self.config.resolved_sequence_windows,
                 "require_full_reward_preroll": self.config.require_full_reward_preroll,
                 "initial_capital": self.config.initial_capital,
                 "initial_state_modes": self.config.initial_state_modes,
@@ -474,7 +580,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "normalizer_digest": (
                 None if self.normalizer is None else self.normalizer.digest
             ),
-            "observation_schema": OBSERVATION_SCHEMA,
+            "observation_schema": self._observation_schema,
+            "observation_contract_digest": self._observation_contract_digest,
             "portfolio_risk": asdict(self.portfolio_risk.config),
             "pre_trade_risk": asdict(self.pre_trade_risk.config),
             "reward": asdict(self.reward_tracker.config),
@@ -482,6 +589,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "schema_version": "residual_market_environment_v3",
             "trend": asdict(self.trend_strategy.config),
         }
+
+    @property
+    def observation_schema(self) -> str:
+        return self._observation_schema
+
+    @property
+    def observation_contract_digest(self) -> str:
+        return self._observation_contract_digest
 
     @property
     def dataset_id(self) -> str:
@@ -581,7 +696,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             )
         return trends, alpha, self._factor_basis_at(self.current_index)
 
-    def _observation(self) -> np.ndarray:
+    def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
         trends, alpha, factor_basis = self._market_inputs()
         raw = self.observation_builder.build(
             ObservationInput(
@@ -606,7 +721,18 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 finite_horizon=self.config.finite_horizon_observation,
             )
         )
-        return raw if self.normalizer is None else self.normalizer.transform(raw)
+        current = raw if self.normalizer is None else self.normalizer.transform(raw)
+        if self.sequence_observation_builder is None:
+            return current
+        sequence = self.sequence_observation_builder.build(
+            self.dataset, index=self.current_index
+        )
+        return build_structured_policy_observation(
+            sequence=sequence,
+            current_flat=current,
+            layout=self.layout,
+            n_features=self.dataset.n_features,
+        )
 
     def _episode_end(self, start: int, *, hours: float, bars: int | None) -> int:
         if bars is not None:
@@ -877,8 +1003,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self,
         *,
         seed: int | None = None,
-        options: dict[str, object] | None = None,
-    ) -> tuple[np.ndarray, dict[str, object]]:
+        options: dict[str, Any] | None = None,
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict[str, Any]]:
         resolved_seed = (
             self.config.execution_cost.random_seed
             if seed is None and not self._has_reset
@@ -1208,7 +1334,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
     def step(
         self,
         action: np.ndarray,
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
         if self.current_index >= self.end_index:
             raise RuntimeError("step called after the episode ended")
         trends, alpha, factor_basis = self._market_inputs()

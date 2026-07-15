@@ -72,6 +72,11 @@ class FeatureKind(StrEnum):
     RELATIVE_VOLUME = "relative_volume"
     FUNDING_CHANGE = "funding_change"
     FUNDING_ZSCORE = "funding_zscore"
+    RELATIVE_RETURN_TO_BTC = "relative_return_to_btc"
+    ROLLING_CORRELATION_TO_BTC = "rolling_correlation_to_btc"
+    ROLLING_BETA_TO_BTC = "rolling_beta_to_btc"
+    CROSS_SECTIONAL_MOMENTUM_RANK = "cross_sectional_momentum_rank"
+    CROSS_ASSET_DISPERSION = "cross_asset_dispersion"
 
 
 class NormalizationMode(StrEnum):

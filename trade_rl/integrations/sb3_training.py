@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning import (
     BehaviorCloningConfig,
     OracleTeacherConfig,
+    StructuredTeacherObservationProvider,
     collect_teacher_rollout,
     oracle_target_path,
     pretrain_policy,
@@ -26,6 +27,7 @@ from trade_rl.rl.replay import (
     load_replay_buffer_artifact,
     write_replay_buffer_artifact,
 )
+from trade_rl.rl.rollout_memory import estimate_ppo_rollout_buffer_bytes
 from trade_rl.rl.training import (
     PolicyTrainingResult,
     ResidualTrainingConfig,
@@ -72,6 +74,19 @@ class StableBaselines3Backend:
             identity = _environment_identity(probe)
             _validate_training_environment(identity, config)
             algorithm_config = build_algorithm_config(config)
+            rollout_buffer_bytes: int | None = None
+            if isinstance(algorithm_config, PPOConfig):
+                rollout_buffer_bytes = estimate_ppo_rollout_buffer_bytes(
+                    probe.observation_space,
+                    n_steps=algorithm_config.n_steps,
+                    n_envs=config.n_envs,
+                    action_dim=int(identity["action_size"]),
+                )
+                if rollout_buffer_bytes > config.max_rollout_buffer_bytes:
+                    raise ValueError(
+                        "estimated PPO rollout buffer exceeds max_rollout_buffer_bytes: "
+                        f"{rollout_buffer_bytes} > {config.max_rollout_buffer_bytes}"
+                    )
             policy_kwargs: dict[str, Any]
             if config.sequence_encoder:
                 from trade_rl.rl.policies import SequenceAssetFeatureExtractor
@@ -212,6 +227,7 @@ class StableBaselines3Backend:
                         "observation_schema": identity["observation_schema"],
                         "parameter_count": parameter_count,
                         "policy": config.policy,
+                        "rollout_buffer_bytes": rollout_buffer_bytes,
                         "schema_version": "policy_architecture_v1",
                         "training_config_digest": content_digest(
                             config.digest_payload()
@@ -260,6 +276,20 @@ class StableBaselines3Backend:
                         output_path.parent / "teacher",
                         teacher_dataset,
                     )
+                    observation_provider = None
+                    if isinstance(teacher_dataset.observations, Mapping):
+                        sequence_builder = getattr(
+                            unwrapped_teacher, "sequence_observation_builder", None
+                        )
+                        if sequence_builder is None:
+                            raise ValueError(
+                                "structured teacher requires a sequence observation builder"
+                            )
+                        observation_provider = StructuredTeacherObservationProvider(
+                            dataset=dataset,
+                            sequence_builder=sequence_builder,
+                            observations=teacher_dataset.observations,
+                        )
                     cloning = pretrain_policy(
                         model.policy,
                         teacher_dataset,
@@ -276,6 +306,7 @@ class StableBaselines3Backend:
                             ),
                         ),
                         seed=seed,
+                        observation_provider=observation_provider,
                     )
                     cloning_payload = {
                         "artifact_digest": teacher_digest,
@@ -355,6 +386,7 @@ class StableBaselines3Backend:
                 observation_schema=str(identity["observation_schema"]),
                 observation_contract_digest=identity["observation_contract_digest"],
                 parameter_count=parameter_count,
+                rollout_buffer_bytes=rollout_buffer_bytes,
                 alpha_artifact_digest=identity["alpha_artifact_digest"],
                 factor_artifact_digest=identity["factor_artifact_digest"],
                 normalizer_digest=identity["normalizer_digest"],

@@ -121,12 +121,24 @@ are:
 absent when an earlier stage fails. Inspect the container logs and any
 persisted stage logs in that case.
 
-The maintained July 2026 preset observes and recomputes target positions every
+The maintained sequence preset observes and recomputes target positions every
 15 minutes, while no-trade and hysteresis controls suppress uneconomic orders.
-It uses 96 raw indicators across native 15m, 1h, 4h, and 1d clocks; after
-per-symbol availability, staleness, missingness, execution, book, and risk state
-are included, the policy input contains 1,241 values per decision (including
-the finite-horizon remaining-time coordinate).
+It uses 226 ordered point-in-time feature channels across native clocks:
+59 on 15m, 59 on 1h, 55 on 4h, and 53 on 1d. The policy receives completed
+native sequences of 96, 168, 120, and 60 bars respectively, together with
+feature availability/staleness masks, the current snapshot, execution state,
+portfolio/risk state, and the finite-horizon coordinate when enabled. These
+inputs remain a structured Dict observation and are not flattened into the old
+1,241-value snapshot MLP contract.
+
+The maintained policy uses `d_model=336`, two eight-head cross-asset attention
+layers, separate actor and critic heads, and approximately 6.08 million
+parameters. Four PPO environments use `n_steps=128` and batch size 128. Before
+workers or the model are allocated, training estimates the exact SB3 Dict
+rollout-buffer payload and rejects configurations above 768 MiB. The maintained
+configuration estimates 473,122,816 bytes. Structured Oracle teacher artifacts
+store compact decision indices and reconstruct only the requested sequence
+mini-batch, avoiding duplication of overlapping 60-day windows.
 
 The preset freezes two non-overlapping 360-hour outer
 windows covering `2026-06-01T00:00:00Z` through

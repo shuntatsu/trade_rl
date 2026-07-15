@@ -173,3 +173,14 @@ def test_training_runbook_uses_unique_generations_and_shared_cache() -> None:
     assert "/workspace/var/cache/binance-vision" in runbook
     assert "never deletes or overwrites an existing generation" in normalized
     assert "reuses the shared cache" in normalized
+
+
+def test_ci_builds_and_probes_the_complete_training_image() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "training-image:" in workflow
+    assert "docker build" in workflow
+    assert "--build-arg TRADE_RL_GIT_COMMIT=" in workflow
+    assert "--build-arg TRADE_RL_GIT_DIRTY=false" in workflow
+    assert "docker run --rm --entrypoint sh" in workflow
+    assert 'test "$(id -u)" -ne 0' in workflow

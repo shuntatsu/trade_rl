@@ -43,10 +43,12 @@ def _array_digest(array: np.ndarray) -> str:
 
 def _deterministic_npz(arrays: dict[str, np.ndarray]) -> bytes:
     output = io.BytesIO()
-    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(
+        output, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+    ) as archive:
         for name in sorted(arrays):
             info = zipfile.ZipInfo(f"{name}.npy", date_time=_FIXED_ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_STORED
+            info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3
             info.external_attr = 0o100644 << 16
             archive.writestr(info, _npy_bytes(arrays[name]))
@@ -428,6 +430,80 @@ def load_teacher_artifact(
     return manifest, dataset
 
 
+class StructuredTeacherObservationProvider:
+    """Reconstruct overlapping sequence tensors only for the requested mini-batch."""
+
+    def __init__(
+        self,
+        *,
+        dataset: object,
+        sequence_builder: object,
+        observations: Mapping[str, np.ndarray],
+    ) -> None:
+        from trade_rl.data.market import MarketDataset
+        from trade_rl.rl.sequence_observations import SequenceObservationBuilder
+
+        if not isinstance(dataset, MarketDataset):
+            raise TypeError("structured teacher provider requires a MarketDataset")
+        if not isinstance(sequence_builder, SequenceObservationBuilder):
+            raise TypeError("structured teacher provider requires a sequence builder")
+        if "decision_index" not in observations:
+            raise ValueError("compact structured observations require decision_index")
+        self.dataset = dataset
+        self.sequence_builder = sequence_builder
+        self.observations = {
+            key: np.asarray(value) for key, value in observations.items()
+        }
+        self.sample_count = len(self.observations["decision_index"])
+        if any(len(value) != self.sample_count for value in self.observations.values()):
+            raise ValueError("compact structured observation sample counts differ")
+        self.maximum_requested_batch = 0
+
+    def get(self, indices: np.ndarray) -> dict[str, np.ndarray]:
+        requested = np.asarray(indices, dtype=np.int64).reshape(-1)
+        if (
+            requested.size == 0
+            or np.any(requested < 0)
+            or np.any(requested >= self.sample_count)
+        ):
+            raise ValueError("structured teacher batch indices are invalid")
+        self.maximum_requested_batch = max(
+            self.maximum_requested_batch, int(requested.size)
+        )
+        result = {
+            key: np.asarray(value[requested]).copy(order="C")
+            for key, value in self.observations.items()
+            if key != "decision_index"
+        }
+        decision_indices = self.observations["decision_index"][requested].reshape(-1)
+        per_timeframe_values: dict[str, list[np.ndarray]] = {}
+        per_timeframe_available: dict[str, list[np.ndarray]] = {}
+        per_timeframe_staleness: dict[str, list[np.ndarray]] = {}
+        for raw_index in decision_indices:
+            sequence = self.sequence_builder.build(self.dataset, index=int(raw_index))
+            for timeframe in sequence.values:
+                per_timeframe_values.setdefault(timeframe, []).append(
+                    sequence.values[timeframe]
+                )
+                per_timeframe_available.setdefault(timeframe, []).append(
+                    sequence.available[timeframe].astype(np.uint8, copy=False)
+                )
+                per_timeframe_staleness.setdefault(timeframe, []).append(
+                    sequence.staleness[timeframe].astype(np.float16, copy=False)
+                )
+        for timeframe in per_timeframe_values:
+            result[f"sequence_{timeframe}_values"] = np.stack(
+                per_timeframe_values[timeframe], axis=0
+            ).astype(np.float32, copy=False)
+            result[f"sequence_{timeframe}_available"] = np.stack(
+                per_timeframe_available[timeframe], axis=0
+            ).astype(np.uint8, copy=False)
+            result[f"sequence_{timeframe}_staleness"] = np.stack(
+                per_timeframe_staleness[timeframe], axis=0
+            ).astype(np.float16, copy=False)
+        return result
+
+
 class TeacherRolloutEnvironment(Protocol):
     current_index: int
 
@@ -481,32 +557,48 @@ def collect_teacher_rollout(
     structured_observations: dict[str, list[np.ndarray]] | None = None
     expected_keys: tuple[str, ...] | None = None
     expected_shapes: dict[str, tuple[int, ...]] = {}
+    compact_keys = ("active", "asset_state", "current_snapshot", "global_state")
     for offset, target in enumerate(action_array):
         expected_index = start + offset
         if environment.current_index != expected_index:
             raise ValueError("teacher environment did not advance one training bar")
-        copied = _copy_observation(observation)
-        if isinstance(copied, dict):
-            keys = tuple(copied)
+        if isinstance(observation, Mapping):
+            keys = tuple(sorted(observation))
             if expected_keys is None:
                 expected_keys = keys
-                structured_observations = {key: [] for key in keys}
-                expected_shapes = {key: copied[key].shape for key in keys}
+                missing = set(compact_keys) - set(keys)
+                if missing:
+                    raise ValueError(
+                        f"structured teacher observation is missing compact keys: {sorted(missing)}"
+                    )
+                structured_observations = {key: [] for key in compact_keys}
+                structured_observations["decision_index"] = []
+                expected_shapes = {
+                    key: np.asarray(observation[key]).shape for key in keys
+                }
             if keys != expected_keys:
                 raise ValueError(
                     "teacher structured observation keys changed during rollout"
                 )
             assert structured_observations is not None
             for key in keys:
-                if copied[key].shape != expected_shapes[key]:
+                if np.asarray(observation[key]).shape != expected_shapes[key]:
                     raise ValueError(
                         "teacher structured observation shape changed during rollout"
                     )
-                structured_observations[key].append(copied[key])
+            for key in compact_keys:
+                structured_observations[key].append(
+                    np.asarray(observation[key]).copy(order="C")
+                )
+            structured_observations["decision_index"].append(
+                np.asarray([expected_index], dtype=np.int64)
+            )
         elif expected_keys is not None:
             raise ValueError("teacher observation kind changed during rollout")
         else:
-            flat_observations.append(copied)
+            flat_observations.append(
+                np.asarray(observation, dtype=np.float32).copy(order="C")
+            )
         observation, _, terminated, truncated, _ = environment.step(target)
         if (terminated or truncated) != (offset == expected_count - 1):
             raise ValueError("teacher environment ended outside the training range")
@@ -535,6 +627,7 @@ __all__ = [
     "TEACHER_ARTIFACT_SCHEMA",
     "TEACHER_MANIFEST_NAME",
     "ObservationBatch",
+    "StructuredTeacherObservationProvider",
     "SupervisedPolicyDataset",
     "TeacherArtifactManifest",
     "TeacherRolloutEnvironment",

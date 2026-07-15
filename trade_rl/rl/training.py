@@ -65,6 +65,7 @@ class ResidualTrainingConfig:
     sequence_attention_layers: int = 2
     sequence_dropout: float = 0.05
     max_policy_parameters: int = 12_000_000
+    max_rollout_buffer_bytes: int = 805_306_368
     asset_set_encoder: bool = True
     asset_embedding_dim: int = 64
     global_embedding_dim: int = 64
@@ -258,6 +259,12 @@ class ResidualTrainingConfig:
             raise ValueError(
                 "sequence_encoder and asset_set_encoder are mutually exclusive"
             )
+        if (
+            isinstance(self.max_rollout_buffer_bytes, bool)
+            or not isinstance(self.max_rollout_buffer_bytes, int)
+            or self.max_rollout_buffer_bytes <= 0
+        ):
+            raise ValueError("max_rollout_buffer_bytes must be a positive integer")
         if not isinstance(self.asset_set_encoder, bool):
             raise ValueError("asset_set_encoder must be a boolean")
         for field_name, value in (
@@ -321,6 +328,7 @@ class ResidualTrainingConfig:
             "sequence_attention_layers": self.sequence_attention_layers,
             "sequence_dropout": self.sequence_dropout,
             "max_policy_parameters": self.max_policy_parameters,
+            "max_rollout_buffer_bytes": self.max_rollout_buffer_bytes,
             "sde_sample_freq": self.sde_sample_freq,
             "seeds": self.seeds,
             "target_kl": self.target_kl,
@@ -347,6 +355,7 @@ class PolicyTrainingResult:
     observation_schema: str = OBSERVATION_SCHEMA
     observation_contract_digest: str | None = None
     parameter_count: int | None = None
+    rollout_buffer_bytes: int | None = None
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
@@ -386,6 +395,12 @@ class PolicyTrainingResult:
             or self.parameter_count <= 0
         ):
             raise ValueError("parameter_count must be a positive integer")
+        if self.rollout_buffer_bytes is not None and (
+            isinstance(self.rollout_buffer_bytes, bool)
+            or not isinstance(self.rollout_buffer_bytes, int)
+            or self.rollout_buffer_bytes <= 0
+        ):
+            raise ValueError("rollout_buffer_bytes must be a positive integer")
         if self.observation_size is not None and (
             isinstance(self.observation_size, bool)
             or not isinstance(self.observation_size, int)

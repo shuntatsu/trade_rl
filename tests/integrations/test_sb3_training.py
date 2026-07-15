@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -306,3 +307,26 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
     assert result.actual_timesteps == 2
     assert (tmp_path / "member" / "teacher" / "manifest.json").is_file()
     assert (tmp_path / "member" / "behavior-cloning.json").is_file()
+
+
+def test_backend_rejects_ppo_rollout_before_worker_or_model_allocation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    probe = TrainingProbe([])
+    model_created = False
+
+    class ForbiddenPPO:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            nonlocal model_created
+            model_created = True
+
+    monkeypatch.setattr("stable_baselines3.PPO", ForbiddenPPO)
+    config = replace(_training_config(), max_rollout_buffer_bytes=1)
+    with pytest.raises(ValueError, match="rollout buffer"):
+        StableBaselines3Backend(lambda: probe).train(
+            seed=0,
+            config=config,
+            output_path=tmp_path / "policy.zip",
+        )
+    assert model_created is False
+    assert probe.close_calls == 1

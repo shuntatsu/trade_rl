@@ -129,3 +129,29 @@ def test_behavior_cloning_supports_structured_observations_and_chronological_val
     assert result.final_mse < result.initial_mse
     assert result.validation_sample_count == 2
     assert result.best_epoch > 0
+
+
+class _TrackingProvider:
+    def __init__(self, observations: np.ndarray) -> None:
+        self.observations = observations
+        self.sample_count = len(observations)
+        self.maximum_requested_batch = 0
+
+    def get(self, indices: np.ndarray) -> np.ndarray:
+        self.maximum_requested_batch = max(self.maximum_requested_batch, len(indices))
+        return self.observations[indices]
+
+
+def test_behavior_cloning_never_materializes_more_than_one_configured_batch() -> None:
+    dataset = teacher_dataset()
+    assert isinstance(dataset.observations, np.ndarray)
+    provider = _TrackingProvider(dataset.observations)
+    config = BehaviorCloningConfig(epochs=3, learning_rate=0.01, batch_size=2)
+    pretrain_policy(
+        _LinearPolicy(),
+        dataset,
+        config=config,
+        seed=4,
+        observation_provider=provider,
+    )
+    assert provider.maximum_requested_batch <= config.batch_size

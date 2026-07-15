@@ -1,6 +1,6 @@
 # Causal Sequence Feature Encoder Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace the single-snapshot market encoder with leak-safe native-timeframe sequences, expand point-in-time features, remove the per-decision turnover throttle, and resize the PPO/BC policy for the richer observation contract.
 
@@ -34,11 +34,11 @@
 - Produces `SequenceWindowSpec`, `StructuredObservationLayout`, and a builder returning ordered native-timeframe tensors plus snapshot, execution, global, availability, and staleness arrays.
 - Sequence lengths: 15m=96, 1h=168, 4h=120, 1d=60.
 
-- [ ] Write failing layout, boundary, digest, prefix-causality, incomplete-bar, and symbol/feature-order rejection tests.
-- [ ] Verify RED with focused pytest.
-- [ ] Implement native-clock index mapping and structured observation construction without future access.
-- [ ] Verify GREEN and run existing observation causality tests.
-- [ ] Commit.
+- [x] Write failing layout, boundary, digest, prefix-causality, incomplete-bar, and symbol/feature-order rejection tests.
+- [x] Verify RED with focused pytest.
+- [x] Implement native-clock index mapping and structured observation construction without future access.
+- [x] Verify GREEN and run existing observation causality tests.
+- [x] Commit.
 
 ### Task 2: Add point-in-time feature families
 
@@ -55,12 +55,12 @@
 - Adds candle geometry, Parkinson and Garman-Klass volatility, upside/downside volatility, volatility-of-volatility, range expansion, ATR change, +DI/-DI/DI spread, EMA distance/slope, rolling regression slope/R², MFI, CMF, VWAP distance, price-volume correlation, OBV change/acceleration, relative volume, funding change/z-score, basis change, rolling BTC correlation/beta, relative return, momentum rank, and dispersion.
 - Renames the maintained Bollinger position label to `bollinger_percent_b_centered` while preserving its centered-%B mathematics.
 
-- [ ] Write numerical fixture tests and prefix-mutation causality tests first.
-- [ ] Verify RED.
-- [ ] Implement each feature with trailing windows only and explicit source-start/availability metadata.
-- [ ] Define ordered timeframe-specific feature presets rather than blindly duplicating every channel.
-- [ ] Verify GREEN and deterministic dataset identity.
-- [ ] Commit.
+- [x] Write numerical fixture tests and prefix-mutation causality tests first.
+- [x] Verify RED.
+- [x] Implement each feature with trailing windows only and explicit source-start/availability metadata.
+- [x] Define ordered timeframe-specific feature presets rather than blindly duplicating every channel.
+- [x] Verify GREEN and deterministic dataset identity.
+- [x] Commit.
 
 ### Task 3: Remove the per-decision turnover throttle from the maintained preset
 
@@ -75,11 +75,11 @@
 - Makes turnover throttling explicitly optional for direct target-weight policies; disabled means the requested target is not sliced across decisions.
 - Preserves all hard portfolio, execution, and emergency constraints.
 
-- [ ] Write failing tests proving 0→40% can be requested in one decision when turnover throttling is disabled, while risk and liquidity still constrain realized fills.
-- [ ] Verify RED.
-- [ ] Implement optional throttle semantics and update maintained presets.
-- [ ] Verify GREEN and property tests.
-- [ ] Commit.
+- [x] Write failing tests proving 0→40% can be requested in one decision when turnover throttling is disabled, while risk and liquidity still constrain realized fills.
+- [x] Verify RED.
+- [x] Implement optional throttle semantics and update maintained presets.
+- [x] Verify GREEN and property tests.
+- [x] Commit.
 
 ### Task 4: Implement native-timeframe causal TCN encoders
 
@@ -96,11 +96,11 @@
 - Asset fusion is 640→384→320, cross-asset attention is 2 layers with 8 heads and `d_model=320`, actor is 384→256→128, critic is 512→384→256.
 - Total parameters must be measured and remain between approximately 6M and 10M, with a hard rejection above 12M.
 
-- [ ] Write failing shape, strict-causality, parameter-budget, mask, shared-BC/PPO-encoder, and deterministic inference tests.
-- [ ] Verify RED.
-- [ ] Implement the feature extractor and separate actor/critic heads.
-- [ ] Verify GREEN on CPU.
-- [ ] Commit.
+- [x] Write failing shape, strict-causality, parameter-budget, mask, shared-BC/PPO-encoder, and deterministic inference tests.
+- [x] Verify RED.
+- [x] Implement the feature extractor and separate actor/critic heads.
+- [x] Verify GREEN on CPU.
+- [x] Commit.
 
 ### Task 5: Bind sequence identity through BC, PPO, serving, and walk-forward
 
@@ -121,11 +121,11 @@
 - BC early stopping uses a chronological validation slice contained wholly inside the fold train range.
 - Outer ranges cannot be requested by Oracle, normalizer, BC, checkpoint selection, or feature-filter code.
 
-- [ ] Write failing artifact-tamper, range-overlap, order-mismatch, and train-only-fit tests.
-- [ ] Verify RED.
-- [ ] Implement digest propagation and fail-closed range checks.
-- [ ] Verify GREEN.
-- [ ] Commit.
+- [x] Write failing artifact-tamper, range-overlap, order-mismatch, and train-only-fit tests.
+- [x] Verify RED.
+- [x] Implement digest propagation and fail-closed range checks.
+- [x] Verify GREEN.
+- [x] Commit.
 
 ### Task 6: Add memory-safe rollout handling and maintained configurations
 
@@ -138,14 +138,14 @@
 - Test: `tests/integrations/test_sb3_sequence_policy.py`
 
 **Interfaces:**
-- Initial PPO settings: 4 envs, `n_steps=1024`, `batch_size=128`, learning rate in `[1e-4, 1.5e-4]`, gradient clipping 0.5, target KL `[0.015, 0.02]`.
+- Initial PPO settings: 4 envs, `n_steps=128`, `batch_size=128`, learning rate in `[1e-4, 1.5e-4]`, gradient clipping 0.5, target KL `[0.015, 0.02]`.
 - Rollout memory is measured. Any compressed storage must be lossless with respect to policy input after float32 reconstruction and must not bypass causality or identity checks.
 
-- [ ] Write failing configuration and memory-budget tests.
-- [ ] Verify RED.
-- [ ] Implement maintained config and bounded storage path.
-- [ ] Verify GREEN.
-- [ ] Commit.
+- [x] Write failing configuration and memory-budget tests.
+- [x] Verify RED.
+- [x] Implement maintained config and bounded storage path.
+- [x] Verify GREEN.
+- [x] Commit.
 
 ### Task 7: Verification, ablation assets, and research-only documentation
 
@@ -158,9 +158,28 @@
 **Interfaces:**
 - Supports comparisons: snapshot MLP; existing features + TCN; extended features + TCN; extended features + larger network; 262,144 vs 524,288 steps; pure PPO vs Oracle BC→PPO.
 
-- [ ] Run focused tests after every task.
-- [ ] Run Ruff format/check, MyPy, import contracts, full pytest/coverage, and `git diff --check`.
-- [ ] Build clean provenance Docker image.
-- [ ] Run CPU smoke and CUDA sequence/BC/PPO smoke on 4 environments.
-- [ ] Report parameter count, rollout memory, feature counts by timeframe, and any remaining leakage or sample-size limitations.
-- [ ] Keep production status `NO-GO`; do not reuse the opened July range as confirmatory evidence.
+- [x] Run focused tests after every task.
+- [x] Run Ruff format/check, MyPy, import contracts, full pytest/coverage, and `git diff --check`.
+- [ ] Build clean provenance Docker image on a Docker-capable host.
+- [x] Run the full-window CPU sequence/BC/PPO smoke.
+- [ ] Run the maintained CUDA sequence/BC/PPO smoke on an NVIDIA Docker host.
+- [x] Report parameter count, rollout memory, feature counts by timeframe, and any remaining leakage or sample-size limitations.
+- [x] Keep production status `NO-GO`; do not reuse the opened July range as confirmatory evidence.
+
+
+## Completion evidence update — 2026-07-16
+
+The maintained implementation now contains 226 ordered native-clock features
+(15m=59, 1h=59, 4h=55, 1d=53), including explicit causal cross-asset signals.
+The sequence policy uses `d_model=336` and measures approximately 6,077,043
+parameters. The full four-environment configuration uses `n_steps=128`; its
+exact estimated Dict rollout buffer is 473,122,816 bytes under the 768 MiB
+fail-closed cap. Structured teacher data is stored compactly and sequence
+mini-batches are reconstructed from the immutable dataset.
+
+Ruff, MyPy, import contracts, vulture, the complete non-Docker pytest suite,
+coverage/critical-coverage ratchets, CLI smoke, compileall, and a full-window
+CPU Oracle BC→PPO smoke pass. A Docker daemon and NVIDIA device are not exposed
+in the connected execution environment; the actual CUDA smoke remains a host
+acceptance check, not an unverified success claim. Production remains `NO-GO`
+and the opened July range remains development-only.

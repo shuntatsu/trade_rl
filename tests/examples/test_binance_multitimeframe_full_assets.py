@@ -29,7 +29,7 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert config.training.seeds == (0, 1, 2)
     assert config.training.timesteps >= 524_288
-    assert config.training.n_steps == 1_024
+    assert config.training.n_steps == 128
     assert config.training.batch_size == 128
     assert config.training.n_epochs == 10
     assert config.training.gamma == pytest.approx(0.998969062762624)
@@ -117,7 +117,7 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "raw_feature_count" in content
     assert "policy_observation_count" in content
     assert "210_785" in content
-    assert "206" in content
+    assert "226" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
 

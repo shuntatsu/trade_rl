@@ -32,6 +32,10 @@ from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import observation_passthrough_indices
+from trade_rl.rl.sequence_observations import (
+    SequenceObservationBuilder,
+    SequenceWindowSpec,
+)
 from trade_rl.rl.training import train_residual_ensemble
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.fold_runner import (
@@ -113,15 +117,50 @@ def _experiment_plan_digest(
     )
 
 
+def _sequence_history_bars(
+    dataset: MarketDataset,
+    run: TrainingRunConfig,
+) -> int:
+    if not run.environment.structured_sequence_observation:
+        return 0
+    builder = SequenceObservationBuilder(
+        windows=tuple(
+            SequenceWindowSpec(timeframe, length)
+            for timeframe, length in run.environment.resolved_sequence_windows
+        )
+    )
+    return builder.minimum_index(dataset)
+
+
 def _training_view_bounds(
     dataset: MarketDataset,
     train_range: IndexRange,
     run: TrainingRunConfig,
 ) -> tuple[int, int]:
-    trend = TrendStrategy(run.trend)
-    history = trend.minimum_history_for(dataset)
-    history_start = max(0, train_range.start - history)
-    return history_start, train_range.stop
+    signal_minimum = TrendStrategy(run.trend).minimum_history_for(dataset)
+    reward_minimum = signal_minimum
+    if run.reward.baseline_underperformance_weight > 0.0:
+        from trade_rl.rl.episode import minimum_reward_start_index
+
+        reward_minimum = minimum_reward_start_index(
+            dataset,
+            signal_minimum=signal_minimum,
+            window_hours=run.reward.baseline_window_hours,
+        )
+    required_history = max(
+        reward_minimum,
+        _sequence_history_bars(dataset, run),
+    )
+    if train_range.start == 0:
+        # The first fold cannot borrow history from before the sealed dataset.
+        # Its causal warm-up is excluded from fitted observations and recorded
+        # as the effective absolute training start below.
+        return 0, train_range.stop
+    if train_range.start < required_history:
+        raise ValueError(
+            "training range lacks causal signal, reward, or sequence history"
+        )
+    return train_range.start - required_history, train_range.stop
 
 
 def _training_view(
@@ -157,9 +196,21 @@ def _fit_normalizer(
     episode_bars = training_dataset.n_bars - 1 - start
     if episode_bars <= 0:
         raise ValueError("training range is too short to fit an observation normalizer")
+    normalizer_run = (
+        replace(
+            run,
+            environment=replace(
+                run.environment,
+                structured_sequence_observation=False,
+                sequence_windows=(),
+            ),
+        )
+        if run.environment.structured_sequence_observation
+        else run
+    )
     env = build_market_environment(
         training_dataset,
-        run,
+        normalizer_run,
         normalizer=None,
         episode_bars=episode_bars,
         liquidate_on_end=False,
@@ -199,7 +250,7 @@ def _fit_normalizer(
         passthrough_indices=passthrough,
         dataset_id=training_dataset.dataset_id,
         source_dataset_id=dataset.dataset_id,
-        absolute_train_start=train_range.start,
+        absolute_train_start=view_start + start,
         absolute_train_end=train_range.stop,
         observation_schema_digest=env.observation_builder.schema_digest(
             training_dataset
@@ -222,7 +273,10 @@ def _normalizer_payload(
     train_range: IndexRange,
 ) -> dict[str, object]:
     return {
-        "absolute_train_range": [train_range.start, train_range.stop],
+        "absolute_train_range": [
+            normalizer.absolute_train_start,
+            normalizer.absolute_train_end,
+        ],
         "clip": normalizer.clip,
         "dataset_id": dataset_id,
         "digest": normalizer.digest,

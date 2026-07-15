@@ -286,9 +286,9 @@ def _build_dataset(
             feature_timeframes=_FEATURE_TIMEFRAMES,
         )
     )
-    if len(expected_features) != 206:
+    if len(expected_features) != 226:
         raise RuntimeError(
-            f"extended feature contract must contain 206 features, got {len(expected_features)}"
+            f"extended feature contract must contain 226 features, got {len(expected_features)}"
         )
     if result.dataset.feature_names != expected_features:
         raise RuntimeError(

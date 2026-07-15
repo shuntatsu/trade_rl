@@ -1184,6 +1184,23 @@ def _extended_timeframe_feature_definitions(
         ("funding_change_bps", FeatureKind.FUNDING_CHANGE, 2, 1),
         ("funding_zscore_12events", FeatureKind.FUNDING_ZSCORE, 12, 4),
     )
+    cross_asset = (
+        ("relative_return_to_btc_1bar", FeatureKind.RELATIVE_RETURN_TO_BTC, 1, 1),
+        (
+            "rolling_correlation_to_btc_24bar",
+            FeatureKind.ROLLING_CORRELATION_TO_BTC,
+            24,
+            8,
+        ),
+        ("rolling_beta_to_btc_24bar", FeatureKind.ROLLING_BETA_TO_BTC, 24, 8),
+        (
+            "cross_sectional_momentum_rank_24bar",
+            FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+            24,
+            8,
+        ),
+        ("cross_asset_dispersion_1bar", FeatureKind.CROSS_ASSET_DISPERSION, 1, 1),
+    )
     return (
         *common,
         *candle_by_timeframe[timeframe],
@@ -1191,6 +1208,7 @@ def _extended_timeframe_feature_definitions(
         *trend,
         *flow,
         *funding,
+        *cross_asset,
     )
 
 

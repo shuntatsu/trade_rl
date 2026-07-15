@@ -25,6 +25,10 @@ from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.episode import minimum_reward_start_index
 from trade_rl.rl.normalization import ObservationNormalizer
+from trade_rl.rl.sequence_observations import (
+    SequenceObservationBuilder,
+    SequenceWindowSpec,
+)
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.training_run import TrainingRunConfig
 
@@ -165,6 +169,14 @@ def minimum_environment_start(
             signal_minimum=minimum,
             window_hours=run.reward.baseline_window_hours,
         )
+    if run.environment.structured_sequence_observation:
+        sequence_builder = SequenceObservationBuilder(
+            windows=tuple(
+                SequenceWindowSpec(timeframe, length)
+                for timeframe, length in run.environment.resolved_sequence_windows
+            )
+        )
+        minimum = max(minimum, sequence_builder.minimum_index(dataset))
     return minimum
 
 

@@ -232,7 +232,7 @@ class MultiTimeframeAssetEncoder(nn.Module):
             if sequence.shape[-1] != self.architecture.input_channels[timeframe]:
                 raise ValueError("sequence channel count does not match architecture")
             if mask.ndim == 4:
-                mask = mask.all(dim=-1)
+                mask = mask.any(dim=-1)
             if mask.shape != sequence.shape[:3]:
                 raise ValueError("sequence availability shape is invalid")
             flattened = sequence.reshape(

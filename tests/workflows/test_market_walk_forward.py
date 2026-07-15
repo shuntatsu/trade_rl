@@ -208,6 +208,151 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     normalizer = json.loads(
         (published / "fold-000" / "normalizer.json").read_text(encoding="utf-8")
     )
-    assert normalizer["absolute_train_range"] == [0, 30]
+    assert normalizer["absolute_train_range"][1] == 30
+    assert normalizer["absolute_train_range"][0] > 0
     assert normalizer["dataset_id"] == _dataset().dataset_id
     assert (published / "run.json").is_file()
+
+
+def _sequence_dataset() -> MarketDataset:
+    n_bars = 320
+    timestamps = np.datetime64("2026-01-01T00:15:00", "ns") + np.arange(
+        n_bars
+    ) * np.timedelta64(15, "m")
+    phase = np.arange(n_bars, dtype=np.float64)
+    close = (100.0 * np.exp(0.0001 * phase))[:, None]
+    feature_names = (
+        "15m__feature",
+        "1h__feature",
+        "4h__feature",
+        "1d__feature",
+    )
+    features = np.stack(
+        tuple(np.sin(phase / divisor) for divisor in (5.0, 7.0, 11.0, 17.0)),
+        axis=1,
+    )[:, None, :].astype(np.float32)
+    return MarketDataset(
+        dataset_id="b" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=timestamps,
+        features=features,
+        global_features=np.cos(phase / 13.0)[:, None].astype(np.float32),
+        open=close,
+        high=close + 0.5,
+        low=close - 0.5,
+        close=close,
+        volume=np.full((n_bars, 1), 1_000_000.0),
+        funding_rate=np.zeros((n_bars, 1)),
+        tradable=np.ones((n_bars, 1), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 1, len(feature_names)), dtype=np.bool_),
+        feature_names=feature_names,
+        global_feature_names=("regime",),
+        periods_per_year=35_040,
+    ).with_content_identity()
+
+
+def _sequence_candidate_config():
+    from trade_rl.workflows.training_run import TrainingRunConfig
+
+    return TrainingRunConfig.from_mapping(
+        {
+            "training": {
+                "timesteps": 8,
+                "gamma": 0.99,
+                "seeds": [0],
+                "n_steps": 8,
+                "batch_size": 8,
+                "n_epochs": 1,
+                "asset_set_encoder": False,
+                "device": "cpu",
+                "policy": "MultiInputPolicy",
+                "sequence_encoder": True,
+            },
+            "environment": {
+                "episode_hours": 4.0,
+                "decision_hours": 0.25,
+                "episode_bars": 16,
+                "decision_every": 1,
+                "initial_capital": 1_000.0,
+                "initial_state_modes": ["cash"],
+                "structured_sequence_observation": True,
+                "sequence_windows": [
+                    ["15m", 4],
+                    ["1h", 3],
+                    ["4h", 2],
+                    ["1d", 2],
+                ],
+            },
+            "risk": {
+                "max_gross": 1.0,
+                "max_abs_weight": 1.0,
+                "max_turnover": None,
+            },
+            "reward": {
+                "scale": 1.0,
+                "baseline_window_hours": 4.0,
+                "baseline_minimum_history_hours": 4.0,
+                "baseline_underperformance_weight": 0.1,
+            },
+            "trend": {
+                "fast_hours": 1.0,
+                "base_hours": 2.0,
+                "slow_hours": 3.0,
+                "fast_lookback": 1,
+                "base_lookback": 2,
+                "slow_lookback": 3,
+                "mode": "time_series",
+            },
+            "action": {
+                "mode": "target_weight",
+                "alpha_enabled": False,
+                "risk_tilt_enabled": False,
+                "n_factors": 0,
+                "target_weight_count": 1,
+            },
+            "exports": {"onnx": False, "torchscript": False},
+        }
+    )
+
+
+def test_structured_training_view_preserves_exact_sequence_and_reward_preroll() -> None:
+    from trade_rl.evaluation.walk_forward.folds import IndexRange
+    from trade_rl.workflows.market_walk_forward import (
+        _training_view,
+        _training_view_bounds,
+    )
+    from trade_rl.workflows.walk_forward_evaluation import minimum_environment_start
+
+    dataset = _sequence_dataset()
+    run = _sequence_candidate_config()
+    train_range = IndexRange(150, 220)
+
+    view_start, view_stop = _training_view_bounds(dataset, train_range, run)
+    training_dataset = _training_view(dataset, train_range, run)
+    minimum = minimum_environment_start(training_dataset, run)
+
+    assert view_stop == train_range.stop
+    assert minimum == train_range.start - view_start
+
+
+def test_structured_walk_forward_fits_flat_snapshot_normalizer_train_only() -> None:
+    from trade_rl.evaluation.walk_forward.folds import IndexRange
+    from trade_rl.rl.observations import observation_layout
+    from trade_rl.workflows.market_walk_forward import _fit_normalizer, _training_view
+
+    dataset = _sequence_dataset()
+    run = _sequence_candidate_config()
+    train_range = IndexRange(150, 220)
+
+    normalizer = _fit_normalizer(dataset, train_range, run)
+    training_dataset = _training_view(dataset, train_range, run)
+    expected = observation_layout(
+        training_dataset,
+        action_size=run.action.size,
+        n_factors=run.action.n_factors,
+        finite_horizon=run.environment.finite_horizon_observation,
+    )
+
+    assert normalizer.size == expected.size
+    assert normalizer.absolute_train_start == train_range.start
+    assert normalizer.absolute_train_end == train_range.stop

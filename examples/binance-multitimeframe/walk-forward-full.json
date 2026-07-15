@@ -25,7 +25,7 @@
             1,
             2
           ],
-          "n_steps": 1024,
+          "n_steps": 128,
           "n_envs": 4,
           "batch_size": 128,
           "n_epochs": 10,
@@ -53,11 +53,12 @@
             256
           ],
           "sequence_encoder": true,
-          "sequence_d_model": 320,
+          "sequence_d_model": 336,
           "sequence_attention_heads": 8,
           "sequence_attention_layers": 2,
           "sequence_dropout": 0.05,
           "max_policy_parameters": 12000000,
+          "max_rollout_buffer_bytes": 805306368,
           "behavior_cloning_validation_fraction": 0.0,
           "behavior_cloning_patience": 5,
           "behavior_cloning_minimum_improvement": 1e-07
@@ -174,7 +175,7 @@
             1,
             2
           ],
-          "n_steps": 1024,
+          "n_steps": 128,
           "n_envs": 4,
           "batch_size": 128,
           "n_epochs": 10,
@@ -204,11 +205,12 @@
             256
           ],
           "sequence_encoder": true,
-          "sequence_d_model": 320,
+          "sequence_d_model": 336,
           "sequence_attention_heads": 8,
           "sequence_attention_layers": 2,
           "sequence_dropout": 0.05,
           "max_policy_parameters": 12000000,
+          "max_rollout_buffer_bytes": 805306368,
           "behavior_cloning_validation_fraction": 0.1,
           "behavior_cloning_patience": 5,
           "behavior_cloning_minimum_improvement": 1e-07

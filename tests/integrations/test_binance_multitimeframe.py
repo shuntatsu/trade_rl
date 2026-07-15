@@ -160,8 +160,8 @@ def test_maintained_feature_preset_uses_role_specific_extended_features() -> Non
         timeframe: sum(name.startswith(f"{timeframe}__") for name in names)
         for timeframe in ("15m", "1h", "4h", "1d")
     }
-    assert len(specs) == 206
-    assert counts == {"15m": 54, "1h": 54, "4h": 50, "1d": 48}
+    assert len(specs) == 226
+    assert counts == {"15m": 59, "1h": 59, "4h": 55, "1d": 53}
     assert "15m__bollinger_percent_b_centered_20_2" in names
     assert "1h__garman_klass_volatility_24bar" in names
     assert "4h__trend_r2_18bar" in names

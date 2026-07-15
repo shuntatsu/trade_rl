@@ -28,9 +28,19 @@ def test_smoke_config_preserves_the_maintained_cuda_training_contract(
 
     assert config.training.device == "cuda"
     assert config.training.n_envs == 4
-    assert config.training.policy_net_arch == (256, 256)
-    assert config.training.asset_embedding_dim == 128
-    assert config.training.global_embedding_dim == 128
+    assert config.training.policy == "MultiInputPolicy"
+    assert config.training.sequence_encoder is True
+    assert config.training.sequence_d_model == 336
+    assert config.training.asset_set_encoder is False
+    assert config.training.policy_net_arch == (384, 256, 128)
+    assert config.training.value_net_arch == (512, 384, 256)
+    assert config.environment.structured_sequence_observation is True
+    assert config.environment.resolved_sequence_windows == (
+        ("15m", 96),
+        ("1h", 168),
+        ("4h", 120),
+        ("1d", 60),
+    )
     assert config.training.timesteps == 128
     assert config.training.behavior_cloning_epochs == 1
     assert config.action.mode == "target_weight"

@@ -44,15 +44,91 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("tests/rl/test_sequence_policy_core.py")
-          lines = path.read_text(encoding="utf-8").splitlines()
+          test_path = Path("tests/rl/test_sequence_policy_core.py")
+          lines = test_path.read_text(encoding="utf-8").splitlines()
           call = "torch.set_num_threads(1)"
           lines.remove(call)
           import_start = lines.index("from trade_rl.rl.sequence_policy import (")
           import_end = lines.index(")", import_start)
           lines.insert(import_end + 1, "")
           lines.insert(import_end + 2, call)
-          path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+          test_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+          sequence_path = Path("trade_rl/rl/sequence_observations.py")
+          text = sequence_path.read_text(encoding="utf-8")
+          text = text.replace(
+              '            raw_staleness = dataset.feature_staleness_hours[rows][\n'
+              '                :, :, columns\n'
+              '            ].transpose(1, 0, 2)\n',
+              '            staleness_hours = dataset.resolved_array("feature_staleness_hours")\n'
+              '            raw_staleness = staleness_hours[rows][:, :, columns].transpose(1, 0, 2)\n',
+          )
+          sequence_path.write_text(text, encoding="utf-8")
+
+          environment_path = Path("trade_rl/rl/environment.py")
+          text = environment_path.read_text(encoding="utf-8")
+          text = text.replace("from typing import Protocol", "from typing import Any, Protocol, cast")
+          text = text.replace(
+              "class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):",
+              "class ResidualMarketEnv(\n    gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray]\n):",
+          )
+          text = text.replace(
+              '            for window in sequence_payload["windows"]:  # type: ignore[assignment]\n',
+              '            sequence_windows = cast(\n'
+              '                tuple[dict[str, object], ...], sequence_payload["windows"]\n'
+              '            )\n'
+              '            for window in sequence_windows:\n',
+          )
+          text = text.replace(
+              "        options: dict[str, object] | None = None,\n"
+              "    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict[str, object]]:\n",
+              "        options: dict[str, Any] | None = None,\n"
+              "    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict[str, Any]]:\n",
+          )
+          text = text.replace(
+              "    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, object]]:\n",
+              "    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:\n",
+          )
+          environment_path.write_text(text, encoding="utf-8")
+
+          policies_path = Path("trade_rl/rl/policies.py")
+          text = policies_path.read_text(encoding="utf-8")
+          text = text.replace(
+              "            shape = (n_symbols, window_lengths[timeframe], feature_counts[timeframe])\n"
+              "            for suffix in (\"values\", \"available\", \"staleness\"):\n"
+              "                expected_shapes[f\"sequence_{timeframe}_{suffix}\"] = shape\n"
+              "        for key, shape in expected_shapes.items():\n"
+              "            if key not in observation_space.spaces:\n"
+              "                raise ValueError(f\"sequence observation space is missing {key}\")\n"
+              "            if observation_space.spaces[key].shape != shape:\n",
+              "            sequence_shape = (\n"
+              "                n_symbols, window_lengths[timeframe], feature_counts[timeframe]\n"
+              "            )\n"
+              "            for suffix in (\"values\", \"available\", \"staleness\"):\n"
+              "                expected_shapes[f\"sequence_{timeframe}_{suffix}\"] = sequence_shape\n"
+              "        for key, expected_shape in expected_shapes.items():\n"
+              "            if key not in observation_space.spaces:\n"
+              "                raise ValueError(f\"sequence observation space is missing {key}\")\n"
+              "            if observation_space.spaces[key].shape != expected_shape:\n",
+          )
+          policies_path.write_text(text, encoding="utf-8")
+
+          sb3_path = Path("trade_rl/integrations/sb3_training.py")
+          text = sb3_path.read_text(encoding="utf-8")
+          old = (
+              '                unwrapped: Any = getattr(probe, "unwrapped", probe)\n'
+              '                layout = getattr(unwrapped, "layout", None)\n'
+              '                active_column = getattr(unwrapped, "asset_active_column", None)\n'
+          )
+          new = (
+              '                asset_unwrapped: Any = getattr(probe, "unwrapped", probe)\n'
+              '                layout = getattr(asset_unwrapped, "layout", None)\n'
+              '                active_column = getattr(\n'
+              '                    asset_unwrapped, "asset_active_column", None\n'
+              '                )\n'
+          )
+          text = text.replace(old, new)
+          sb3_path.write_text(text, encoding="utf-8")
           PY
           rm -rf .sequence-payload .github/workflows/apply-causal-sequence-payload.yml
       - name: Install Python and dependencies

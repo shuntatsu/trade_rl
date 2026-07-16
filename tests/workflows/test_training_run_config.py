@@ -249,3 +249,17 @@ def test_training_config_rejects_resume_seed_outside_ensemble() -> None:
     raw["resume_checkpoints"] = {"7": "resume/step-1"}
     with pytest.raises(ValueError, match="resume checkpoint seed"):
         TrainingRunConfig.from_mapping(raw)
+
+
+def test_training_dataset_reference_declares_unshifted_ichimoku_alignment() -> None:
+    from trade_rl.workflows.training_run import _feature_alignment_payload
+
+    names = (
+        "15m__log_return_1bar",
+        "15m__ichimoku_tenkan_distance_9bar",
+        "1h__ichimoku_cloud_position_9_26_52",
+    )
+    assert _feature_alignment_payload(names) == {
+        "15m__ichimoku_tenkan_distance_9bar": "unshifted_decision_time",
+        "1h__ichimoku_cloud_position_9_26_52": "unshifted_decision_time",
+    }

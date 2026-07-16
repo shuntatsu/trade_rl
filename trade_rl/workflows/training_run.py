@@ -391,6 +391,16 @@ def _ensemble_payload(manifest: PolicyEnsembleManifest) -> dict[str, object]:
     return asdict(manifest)
 
 
+def _feature_alignment_payload(
+    feature_names: tuple[str, ...],
+) -> dict[str, str]:
+    return {
+        name: "unshifted_decision_time"
+        for name in feature_names
+        if "__ichimoku_" in name or name.startswith("ichimoku_")
+    }
+
+
 def _policy_loader_payload(
     ensemble: PolicyEnsembleManifest,
     *,
@@ -604,8 +614,9 @@ def execute_training_run(
                 "dataset_id": dataset.dataset_id,
                 "feature_config_digest": dataset.feature_config_digest,
                 "feature_names": dataset.feature_names,
+                "feature_alignments": _feature_alignment_payload(dataset.feature_names),
                 "global_feature_names": dataset.global_feature_names,
-                "schema_version": "dataset_reference_v3",
+                "schema_version": "dataset_reference_v4",
                 "symbols": dataset.symbols,
             },
         )

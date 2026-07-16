@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from trade_rl.data.contracts import FeatureAlignment, FeatureKind
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinanceMarketDataSource,
@@ -168,3 +169,17 @@ def test_maintained_feature_preset_uses_role_specific_extended_features() -> Non
     assert "1d__funding_zscore_12events" in names
     assert "15m__upper_wick_ratio" in names
     assert "1d__upper_wick_ratio" not in names
+    ichimoku_kinds = {
+        FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+        FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
+        FeatureKind.ICHIMOKU_CLOUD_POSITION,
+        FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+    }
+    ichimoku = tuple(spec for spec in specs if spec.kind in ichimoku_kinds)
+    assert len(ichimoku) == 16
+    assert all(
+        spec.alignment is FeatureAlignment.UNSHIFTED_DECISION_TIME for spec in ichimoku
+    )
+    assert all(
+        spec.alignment is None for spec in specs if spec.kind not in ichimoku_kinds
+    )

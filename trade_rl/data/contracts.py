@@ -84,6 +84,12 @@ class NormalizationMode(StrEnum):
     ROLLING_ZSCORE = "rolling_zscore"
 
 
+class FeatureAlignment(StrEnum):
+    """Semantic placement of one feature on the decision-time axis."""
+
+    UNSHIFTED_DECISION_TIME = "unshifted_decision_time"
+
+
 _TIMEFRAME_HOURS = {
     "15m": 0.25,
     "30m": 0.5,
@@ -166,12 +172,21 @@ class FeatureSpec:
     min_periods: int = 1
     max_staleness_hours: float = 24.0
     timeframe: str | None = None
+    alignment: FeatureAlignment | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.name, field="feature name")
         if self.timeframe is not None:
             require_non_empty(self.timeframe, field="feature timeframe")
             timeframe_hours(self.timeframe)
+        if self.alignment is not None:
+            try:
+                resolved_alignment = FeatureAlignment(
+                    getattr(self.alignment, "value", self.alignment)
+                )
+            except ValueError as error:
+                raise ValueError("feature alignment is unsupported") from error
+            object.__setattr__(self, "alignment", resolved_alignment)
         if (
             isinstance(self.lookback, bool)
             or not isinstance(self.lookback, int)
@@ -217,6 +232,8 @@ class FeatureSpec:
         }
         if self.timeframe is not None:
             payload["timeframe"] = self.timeframe
+        if self.alignment is not None:
+            payload["alignment"] = self.alignment.value
         return payload
 
 

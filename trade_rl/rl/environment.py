@@ -17,6 +17,10 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
+from trade_rl.risk.inputs import (
+    PortfolioRiskInputsProvider,
+    RollingPortfolioRiskInputsProvider,
+)
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import (
@@ -116,6 +120,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         composer: BaselineResidualComposer | None = None,
         pre_trade_risk: PreTradeRisk | None = None,
         portfolio_risk: PortfolioRiskModel | None = None,
+        portfolio_risk_inputs_provider: PortfolioRiskInputsProvider | None = None,
         normalizer: ObservationNormalizer | None = None,
         sequence_normalizer: SequenceFeatureNormalizer | None = None,
         config: ResidualMarketEnvConfig | None = None,
@@ -208,6 +213,27 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
+        resolved_risk_provider = portfolio_risk_inputs_provider
+        if (
+            self.portfolio_risk.requires_advanced_inputs
+            and resolved_risk_provider is None
+        ):
+            resolved_risk_provider = RollingPortfolioRiskInputsProvider()
+        self.portfolio_risk_inputs_provider = resolved_risk_provider
+        if resolved_risk_provider is not None:
+            require_sha256(
+                resolved_risk_provider.identity_digest,
+                field="portfolio_risk_inputs_provider.identity_digest",
+            )
+            minimum_index = resolved_risk_provider.minimum_index
+            if (
+                isinstance(minimum_index, bool)
+                or not isinstance(minimum_index, int)
+                or minimum_index < 0
+                or minimum_index >= dataset.n_bars
+            ):
+                raise ValueError("portfolio risk inputs minimum_index is invalid")
+            self._minimum_start_index = max(self._minimum_start_index, minimum_index)
         self.normalizer = normalizer
         self.sequence_normalizer = sequence_normalizer
         self.config = config or ResidualMarketEnvConfig()
@@ -620,6 +646,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             "observation_schema": self._observation_schema,
             "observation_contract_digest": self._observation_contract_digest,
             "portfolio_risk": asdict(self.portfolio_risk.config),
+            "portfolio_risk_inputs_digest": (
+                None
+                if self.portfolio_risk_inputs_provider is None
+                else self.portfolio_risk_inputs_provider.identity_digest
+            ),
             "pre_trade_risk": asdict(self.pre_trade_risk.config),
             "reward": asdict(self.reward_tracker.config),
             "reward_schema": REWARD_SCHEMA,
@@ -1217,10 +1248,21 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             drawdown=self._drawdown(book),
             emergency_flatten_mask=assessment.flatten_mask,
         )
+        risk_inputs = None
+        if self.portfolio_risk.requires_advanced_inputs:
+            provider = self.portfolio_risk_inputs_provider
+            if provider is None:
+                raise RuntimeError(
+                    "advanced portfolio risk requires a causal input provider"
+                )
+            risk_inputs = provider.inputs(self.dataset, index=self.current_index)
         portfolio = self.portfolio_risk.constrain(
             pretrade.weights,
             portfolio_value=max(book.portfolio_value, 1e-12),
             market_notional=self._market_notional(self.current_index),
+            covariance=None if risk_inputs is None else risk_inputs.covariance,
+            beta=None if risk_inputs is None else risk_inputs.beta,
+            stress_losses=None if risk_inputs is None else risk_inputs.stress_losses,
         )
         final_weights = np.asarray(portfolio.weights, dtype=np.float64)
         constrained_turnover = float(np.abs(final_weights - book.weights).sum())
@@ -1452,9 +1494,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             and pending_hybrid_target is not None
         )
         discarded_pending_target = (
-            None
-            if not pending_target_discarded or pending_hybrid_target is None
-            else pending_hybrid_target.copy()
+            pending_hybrid_target.copy()
+            if pending_target_discarded and pending_hybrid_target is not None
+            else None
         )
         if time_limit_reached:
             self._pending_hybrid_target = None

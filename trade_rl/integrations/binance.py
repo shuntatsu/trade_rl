@@ -23,6 +23,7 @@ import numpy as np
 
 from trade_rl.data.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
+    FeatureAlignment,
     FeatureKind,
     FeatureSpec,
     InstrumentContract,
@@ -1250,6 +1251,17 @@ def binance_multitimeframe_feature_specs(
                     name=f"{timeframe}__{suffix}",
                     kind=kind,
                     timeframe=native,
+                    alignment=(
+                        FeatureAlignment.UNSHIFTED_DECISION_TIME
+                        if kind
+                        in {
+                            FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+                            FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
+                            FeatureKind.ICHIMOKU_CLOUD_POSITION,
+                            FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+                        }
+                        else None
+                    ),
                     lookback=lookback,
                     min_periods=min_periods,
                     max_staleness_hours=(

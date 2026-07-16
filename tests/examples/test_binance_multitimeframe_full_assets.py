@@ -55,17 +55,19 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.portfolio_risk.max_abs_weight <= 0.5
 
 
-def test_full_walk_forward_config_has_two_material_folds() -> None:
+def test_full_walk_forward_config_has_six_material_folds() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / "walk-forward-full.json",
         n_bars=55_392,
     )
 
     folds = config.workflow.build_folds()
-    assert len(folds) == 2
+    assert len(folds) == 6
     assert config.checkpoint_finalists_per_seed == 1
-    assert (folds[0].test.start, folds[0].test.stop) == (52_512, 53_952)
-    assert (folds[1].test.start, folds[1].test.stop) == (53_952, 55_392)
+    assert all(fold.test.size == 2_880 for fold in folds)
+    assert sum(fold.test.size for fold in folds) == 17_280
+    assert (folds[0].test.start, folds[0].test.stop) == (26_336, 29_216)
+    assert (folds[-1].test.start, folds[-1].test.stop) == (40_736, 43_616)
     assert [candidate.name for candidate in config.candidates] == [
         "snapshot-ppo-15m-target",
         "ppo-15m-target",
@@ -683,7 +685,7 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
     assert (tmp_path / "summary.json").is_file()
 
 
-def test_full_runner_requires_same_representative_seed_across_folds(
+def test_full_runner_treats_seed_as_nuisance_not_selected_hyperparameter(
     tmp_path: Path,
 ) -> None:
     namespace = _runner_namespace()
@@ -699,10 +701,10 @@ def test_full_runner_requires_same_representative_seed_across_folds(
         for seed in (0, 1)
     ]
 
-    assert stability(folds) is False
+    assert stability(folds) is True
 
 
-def test_selected_walk_forward_recipe_freezes_representative_seed(
+def test_selected_walk_forward_recipe_preserves_seed_ensemble(
     tmp_path: Path,
 ) -> None:
     namespace = _runner_namespace()
@@ -742,10 +744,43 @@ def test_selected_walk_forward_recipe_freezes_representative_seed(
     )
     output = tmp_path / "selected.json"
 
-    name, seed, path = select_recipe(walk_forward_path, config_path, output)
+    name, seeds, path = select_recipe(walk_forward_path, config_path, output)
 
     assert name == "ppo-15m-target"
-    assert seed == 2
+    assert seeds == (0, 1, 2)
     assert path == output
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["training"]["seeds"] == [2]
+    assert payload["training"]["seeds"] == [0, 1, 2]
+
+
+def test_full_runner_preserves_all_selected_recipe_seeds(tmp_path: Path) -> None:
+    namespace = _runner_namespace()
+    select_recipe = namespace["_selected_walk_forward_recipe"]
+    walk_forward_path = tmp_path / "wf"
+    _write_walk_forward(walk_forward_path, selected=0.04, baseline=0.01)
+    selected_name, seeds, output = select_recipe(
+        walk_forward_path,
+        EXAMPLE_ROOT / "walk-forward-full.json",
+        tmp_path / "selected.json",
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert selected_name == "oracle-bc-ppo-15m-target"
+    assert seeds == (0, 1, 2)
+    assert payload["training"]["seeds"] == [0, 1, 2]
+
+
+def test_full_runner_strict_gate_rejects_two_short_folds(tmp_path: Path) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "wf"
+    _write_walk_forward(walk_forward_path, selected=0.04, baseline=0.01)
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+        strict=True,
+    )
+    gate = json.loads((tmp_path / "research-gate.json").read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert gate["conditions"]["minimum_fold_count_met"] is False
+    assert gate["conditions"]["minimum_oos_days_met"] is False

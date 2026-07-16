@@ -356,3 +356,79 @@ def test_research_gate_rejects_excess_turnover_cost_or_unstable_selection() -> N
     assert not result.conditions["cost_fraction_within_limit"]
     assert not result.conditions["selection_stability_passed"]
     assert not result.passed
+
+
+def test_strict_research_gate_requires_material_fold_and_oos_evidence() -> None:
+    from trade_rl.evaluation.research_gate import ResearchEvidenceRequirements
+
+    requirements = ResearchEvidenceRequirements(
+        required_fold_count=6,
+        minimum_oos_days=180.0,
+        require_positive_bootstrap_lower_bound=True,
+    )
+    result = _evaluate_research_return_gate(
+        selected_mean_return=0.08,
+        baseline_mean_return=0.03,
+        maximum_fold_drawdown=0.12,
+        selected_policy_digests=tuple(chr(97 + index) * 64 for index in range(6)),
+        sealed_fold_count=6,
+        oos_days=180.0,
+        bootstrap_lower_bound=0.0001,
+        requirements=requirements,
+    )
+    assert result.passed
+    assert result.conditions["minimum_fold_count_met"]
+    assert result.conditions["minimum_oos_days_met"]
+    assert result.conditions["bootstrap_lower_bound_positive"]
+
+    insufficient = _evaluate_research_return_gate(
+        selected_mean_return=0.08,
+        baseline_mean_return=0.03,
+        maximum_fold_drawdown=0.12,
+        selected_policy_digests=("a" * 64, "b" * 64),
+        sealed_fold_count=2,
+        oos_days=30.0,
+        bootstrap_lower_bound=-0.001,
+        requirements=requirements,
+    )
+    assert not insufficient.passed
+    assert not insufficient.conditions["minimum_fold_count_met"]
+    assert not insufficient.conditions["minimum_oos_days_met"]
+    assert not insufficient.conditions["bootstrap_lower_bound_positive"]
+
+
+def test_strict_research_gate_requires_fresh_confirmation_when_requested() -> None:
+    from trade_rl.evaluation.research_gate import ResearchEvidenceRequirements
+
+    requirements = ResearchEvidenceRequirements(
+        required_fold_count=2,
+        minimum_oos_days=1.0,
+        require_positive_bootstrap_lower_bound=True,
+        require_confirmation=True,
+        minimum_confirmation_days=30.0,
+    )
+    result = _evaluate_research_return_gate(
+        selected_mean_return=0.08,
+        baseline_mean_return=0.03,
+        maximum_fold_drawdown=0.12,
+        selected_policy_digests=RL_POLICY_DIGESTS,
+        sealed_fold_count=2,
+        oos_days=30.0,
+        bootstrap_lower_bound=0.001,
+        confirmation_passed=False,
+        confirmation_days=0.0,
+        requirements=requirements,
+    )
+    assert not result.passed
+    assert not result.conditions["fresh_confirmation_passed"]
+    assert not result.conditions["minimum_confirmation_days_met"]
+
+
+def test_block_bootstrap_lower_bound_is_deterministic_and_positive_for_growth() -> None:
+    from trade_rl.evaluation.research_gate import block_bootstrap_mean_lower_bound
+
+    daily = [0.001] * 200
+    first = block_bootstrap_mean_lower_bound(daily, samples=500, seed=7)
+    second = block_bootstrap_mean_lower_bound(daily, samples=500, seed=7)
+    assert first == pytest.approx(second)
+    assert first > 0.0

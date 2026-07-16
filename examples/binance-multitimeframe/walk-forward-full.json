@@ -1,13 +1,13 @@
 {
   "schema_version": "market_walk_forward_config_v1",
   "workflow": {
-    "train_bars": 43936,
-    "checkpoint_bars": 4000,
-    "selection_bars": 4000,
-    "test_bars": 1440,
+    "train_bars": 20000,
+    "checkpoint_bars": 2880,
+    "selection_bars": 2880,
+    "test_bars": 2880,
     "purge_bars": 192,
-    "step_bars": 1440,
-    "max_folds": 2,
+    "step_bars": 2880,
+    "max_folds": 6,
     "expanding_train": true
   },
   "minimum_selection_uplift": 0.0,

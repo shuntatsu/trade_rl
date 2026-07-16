@@ -1,0 +1,28 @@
+name: Export architecture fix source temporary
+
+on:
+  push:
+    branches:
+      - agent/causal-sequence-feature-encoder
+    paths:
+      - .github/workflows/export-architecture-fix-source-temporary.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Package source
+        run: |
+          git archive --format=tar.gz --prefix=trade_rl/ HEAD > trade_rl-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trade-rl-architecture-fix-source
+          path: trade_rl-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1

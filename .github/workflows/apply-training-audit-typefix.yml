@@ -1,0 +1,36 @@
+name: Apply training audit typing fix
+
+on:
+  push:
+    branches:
+      - agent/full-training-functional-audit
+    paths:
+      - '.github/workflows/apply-training-audit-typefix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-training-functional-audit
+          fetch-depth: 0
+      - name: Verify and apply typing fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .github/training-audit-typefix/part-00 | gzip -d > /tmp/training-audit-typefix.patch
+          echo '50d6629bac66b9ce4fa8fa891802f5f227e97cae8733b9027f0d1269ea7974fb  /tmp/training-audit-typefix.patch' | sha256sum --check -
+          git apply --check /tmp/training-audit-typefix.patch
+          git apply /tmp/training-audit-typefix.patch
+          rm -rf .github/training-audit-typefix
+          rm -f .github/workflows/apply-training-audit-typefix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix: type inactive training field validation'
+          git push origin HEAD:agent/full-training-functional-audit

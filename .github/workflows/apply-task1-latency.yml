@@ -4,13 +4,17 @@ on:
   push:
     branches:
       - agent/complete-architecture-hardening
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: ${{ !startsWith(github.event.head_commit.message, 'feat: enforce delayed decision execution') }}
+    if: ${{ github.event_name == 'pull_request' || !startsWith(github.event.head_commit.message, 'feat: enforce delayed decision execution') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

@@ -67,6 +67,8 @@ class DetailedRunner:
             test_evaluation_digest=test_digest,
             selected_oos=selected,
             baseline_oos=baseline,
+            selected_member_policy_digests=(f"{300 + fold.fold_index:064x}",),
+            selected_member_seeds=(fold.fold_index,),
         )
 
 

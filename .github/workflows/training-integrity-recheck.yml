@@ -1,0 +1,200 @@
+name: Training integrity recheck
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-integrity-recheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-full-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install all maintained dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Static, typing, architecture, and dead-code checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check .
+          uv run ruff format --check --diff .
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+      - name: Full tests and branch coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest \
+            --cov=trade_rl \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=json:coverage.json \
+            2>&1 | tee full-pytest.log
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+          uv run trade-rl --version
+      - name: Fresh real-training capability audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf var/training-integrity-recheck
+          uv run python tools/run_training_capability_audit.py \
+            --output var/training-integrity-recheck \
+            2>&1 | tee training-integrity-recheck.log
+      - name: Verify every capability was materially exercised
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = Path('var/training-integrity-recheck/audit-report.json')
+          payload = json.loads(report.read_text(encoding='utf-8'))
+          assert payload['schema_version'] == 'full_training_capability_audit_v1'
+          assert len(payload['digest']) == 64
+
+          algorithms = payload['algorithms']
+          assert set(algorithms) == {'ppo', 'sac', 'td3', 'tqc'}
+          expected_sde = {'ppo': False, 'sac': True, 'td3': False, 'tqc': True}
+          for name, record in algorithms.items():
+              assert record['status'] == 'pass', (name, record)
+              assert record['actual_timesteps'] >= 16, (name, record)
+              assert record['checkpoint_count'] >= 1, (name, record)
+              assert record['architecture']['actor'] == [16, 8], (name, record)
+              assert record['architecture']['critic'] == [24, 12], (name, record)
+              assert record['parameter_count'] > 0, (name, record)
+              assert record['sde_enabled'] is expected_sde[name], (name, record)
+              if name == 'ppo':
+                  assert record['replay_buffer_digest'] is None
+              else:
+                  assert len(record['replay_buffer_digest']) == 64
+
+          bc = payload['behavior_cloning']
+          assert bc['status'] == 'pass'
+          assert bc['sample_count'] > 0
+          assert bc['final_mse'] < bc['initial_mse']
+          assert bc['actual_timesteps'] >= 8
+
+          exports = payload['exports']
+          assert exports['status'] == 'pass'
+          assert len(exports['manifest_digest']) == 64
+          assert set(exports['records']) == {'onnx', 'torchscript'}
+          assert exports['records']['onnx']['status'] == 'verified'
+          assert exports['records']['torchscript']['status'] == 'verified'
+          assert exports['records']['onnx']['max_abs_error'] <= 1e-6
+          assert exports['records']['torchscript']['max_abs_error'] <= 1e-6
+
+          replay = payload['replay_resume']
+          assert replay['status'] == 'pass'
+          assert replay['actual_timesteps'] >= 16
+          assert len(replay['source_replay_digest']) == 64
+
+          resume = payload['training_resume']
+          assert resume['status'] == 'pass'
+          assert resume['actual_timesteps'] >= 16
+          assert resume['resume_checkpoint']
+
+          residual = payload['residual_controls']
+          assert residual['status'] == 'pass'
+          assert residual['action_names'] == [
+              'fast_tilt',
+              'slow_tilt',
+              'risk_tilt',
+              'alpha_scale',
+              'factor_0',
+              'factor_1',
+          ]
+          assert residual['action_size'] == 6
+          assert len(residual['alpha_artifact_digest']) == 64
+          assert len(residual['factor_artifact_digest']) == 64
+
+          sequence = payload['sequence']
+          assert sequence['status'] == 'pass'
+          assert sequence['actual_timesteps'] >= 8
+          assert sequence['observation_schema'] == 'native_timeframe_sequence_observation_v2'
+          assert sequence['sequence_encoder'] == 'MultiTimeframeTCNEncoder'
+          assert sequence['parameter_count'] > 1_000_000
+          PY
+      - name: Focused loophole and causality matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/rl/test_training_config_active_fields.py \
+            tests/integrations/test_sb3_training_active_architecture.py \
+            tests/rl/test_training_resume.py \
+            tests/rl/test_policy_export.py \
+            tests/rl/test_signal_artifact_environment.py \
+            tests/rl/test_sequence_normalization.py \
+            tests/rl/test_sequence_observations.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/workflows/test_fold_runner.py \
+            tests/workflows/test_market_walk_forward.py \
+            tests/workflows/test_training_run.py \
+            tests/data/test_market_builder.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            2>&1 | tee loophole-causality-recheck.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: training-integrity-recheck
+          path: |
+            var/training-integrity-recheck
+            training-integrity-recheck.log
+            loophole-causality-recheck.log
+            full-pytest.log
+            coverage.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows-compatibility:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+
+  training-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build complete training image
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --file Dockerfile.training \
+            --tag trade-rl-training:integrity-recheck \
+            .
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:integrity-recheck -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '

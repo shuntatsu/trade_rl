@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: training-integrity-recheck-${{ github.ref }}
@@ -17,6 +17,8 @@ jobs:
   ubuntu-full-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    outputs:
+      audit_digest: ${{ steps.audit_digest.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -55,6 +57,7 @@ jobs:
             --output var/training-integrity-recheck \
             2>&1 | tee training-integrity-recheck.log
       - name: Verify every capability was materially exercised
+        id: audit_digest
         shell: bash
         run: |
           set -euo pipefail
@@ -128,7 +131,10 @@ jobs:
           assert sequence['observation_schema'] == 'native_timeframe_sequence_observation_v2'
           assert sequence['sequence_encoder'] == 'MultiTimeframeTCNEncoder'
           assert sequence['parameter_count'] > 1_000_000
+
+          Path('/tmp/audit-digest.txt').write_text(payload['digest'], encoding='utf-8')
           PY
+          echo "digest=$(cat /tmp/audit-digest.txt)" >> "$GITHUB_OUTPUT"
       - name: Focused loophole and causality matrix
         shell: bash
         run: |
@@ -198,3 +204,53 @@ jobs:
             test -w /workspace/var
             python -c "import torch, trade_rl; print(torch.__version__)"
           '
+
+  record-result:
+    if: always()
+    needs: [ubuntu-full-audit, windows-compatibility, training-image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/training-integrity-recheck
+          fetch-depth: 0
+      - name: Record independent result and remove temporary audit files
+        shell: bash
+        env:
+          AUDIT_DIGEST: ${{ needs.ubuntu-full-audit.outputs.audit_digest }}
+          UBUNTU_RESULT: ${{ needs.ubuntu-full-audit.result }}
+          WINDOWS_RESULT: ${{ needs.windows-compatibility.result }}
+          IMAGE_RESULT: ${{ needs.training-image.result }}
+          RUN_ID: ${{ github.run_id }}
+          TESTED_MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch_sha="$(git rev-parse HEAD)"
+          if [ "$UBUNTU_RESULT" = success ] && \
+             [ "$WINDOWS_RESULT" = success ] && \
+             [ "$IMAGE_RESULT" = success ] && \
+             [ -n "$AUDIT_DIGEST" ]; then
+            verdict=pass
+          else
+            verdict=fail
+          fi
+          cat > docs/audits/2026-07-17-training-integrity-recheck-result.txt <<EOF
+          training_integrity_recheck_v1
+          verdict=$verdict
+          source_main_sha=ecf0737913c30185a4ee1a87346bcde93f03a17b
+          branch_sha=$branch_sha
+          tested_merge_sha=$TESTED_MERGE_SHA
+          run_id=$RUN_ID
+          ubuntu_full_audit=$UBUNTU_RESULT
+          windows_compatibility=$WINDOWS_RESULT
+          training_image=$IMAGE_RESULT
+          audit_digest=$AUDIT_DIGEST
+          EOF
+          rm -f .github/workflows/training-integrity-recheck.yml
+          rm -f docs/audits/2026-07-17-training-integrity-recheck-scope.md
+          rm -f docs/audits/.training-integrity-recheck-trigger
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'chore: record independent training integrity recheck'
+          git push origin HEAD:agent/training-integrity-recheck

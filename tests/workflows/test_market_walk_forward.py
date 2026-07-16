@@ -411,9 +411,7 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
                     "max_folds": 1,
                 },
                 "minimum_selection_uplift": 0.0,
-                "candidates": [
-                    {"name": "sequence-ppo", "run": run.digest_payload()}
-                ],
+                "candidates": [{"name": "sequence-ppo", "run": run.digest_payload()}],
             }
         ),
         encoding="utf-8",

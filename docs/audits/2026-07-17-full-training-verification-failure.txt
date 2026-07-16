@@ -1,6 +1,0 @@
-final_training_verification_failure_v1
-branch_sha=bcbd577c611e84d0199b32c05bec99a37266fde9
-tested_merge_sha=3676596227c5242a28d49163fe3b0ff765d9dbc5
-run_id=29540437315
-ubuntu_result=failure
-windows_result=success

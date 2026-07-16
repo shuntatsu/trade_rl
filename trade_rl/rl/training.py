@@ -34,6 +34,15 @@ def _require_inactive_default(
         )
 
 
+def _require_inactive_defaults(
+    fields: tuple[tuple[str, object, object], ...],
+    *,
+    context: str,
+) -> None:
+    for field_name, value, default in fields:
+        _require_inactive_default(field_name, value, default, context=context)
+
+
 def gamma_from_half_life(*, decision_hours: float, half_life_hours: float) -> float:
     """Convert a real-time discount half-life to a per-decision gamma."""
 
@@ -288,86 +297,88 @@ class ResidualTrainingConfig:
                 raise ValueError(f"{field_name} must be a positive integer")
 
         if algorithm == "ppo":
-            for field_name, value, default in (
-                ("buffer_size", self.buffer_size, 100_000),
-                ("learning_starts", self.learning_starts, 10_000),
-                ("train_freq", self.train_freq, 1),
-                ("gradient_steps", self.gradient_steps, 1),
-            ):
-                _require_inactive_default(field_name, value, default, context="PPO")
-        else:
-            for field_name, value, default in (
-                ("n_steps", self.n_steps, 2_048),
-                ("n_epochs", self.n_epochs, 10),
-                ("gae_lambda", self.gae_lambda, 0.95),
-                ("clip_range", self.clip_range, 0.2),
-                ("normalize_advantage", self.normalize_advantage, True),
-                ("ent_coef", self.ent_coef, 0.0),
-                ("vf_coef", self.vf_coef, 0.5),
-                ("max_grad_norm", self.max_grad_norm, 0.5),
-                ("log_std_init", self.log_std_init, -0.5),
-                ("target_kl", self.target_kl, 0.02),
+            _require_inactive_defaults(
                 (
-                    "max_rollout_buffer_bytes",
-                    self.max_rollout_buffer_bytes,
-                    805_306_368,
+                    ("buffer_size", self.buffer_size, 100_000),
+                    ("learning_starts", self.learning_starts, 10_000),
+                    ("train_freq", self.train_freq, 1),
+                    ("gradient_steps", self.gradient_steps, 1),
                 ),
-            ):
-                _require_inactive_default(
-                    field_name, value, default, context=algorithm.upper()
-                )
+                context="PPO",
+            )
+        else:
+            _require_inactive_defaults(
+                (
+                    ("n_steps", self.n_steps, 2_048),
+                    ("n_epochs", self.n_epochs, 10),
+                    ("gae_lambda", self.gae_lambda, 0.95),
+                    ("clip_range", self.clip_range, 0.2),
+                    ("normalize_advantage", self.normalize_advantage, True),
+                    ("ent_coef", self.ent_coef, 0.0),
+                    ("vf_coef", self.vf_coef, 0.5),
+                    ("max_grad_norm", self.max_grad_norm, 0.5),
+                    ("log_std_init", self.log_std_init, -0.5),
+                    ("target_kl", self.target_kl, 0.02),
+                    (
+                        "max_rollout_buffer_bytes",
+                        self.max_rollout_buffer_bytes,
+                        805_306_368,
+                    ),
+                ),
+                context=algorithm.upper(),
+            )
 
         if algorithm == "td3":
             if self.use_sde or self.sde_sample_freq != -1:
                 raise ValueError("TD3 does not support SDE settings")
 
         if not self.sequence_encoder:
-            for field_name, value, default in (
-                ("sequence_d_model", self.sequence_d_model, 320),
-                ("sequence_attention_heads", self.sequence_attention_heads, 8),
-                ("sequence_attention_layers", self.sequence_attention_layers, 2),
-                ("sequence_dropout", self.sequence_dropout, 0.05),
-            ):
-                _require_inactive_default(
-                    field_name, value, default, context="sequence_encoder=False"
-                )
+            _require_inactive_defaults(
+                (
+                    ("sequence_d_model", self.sequence_d_model, 320),
+                    ("sequence_attention_heads", self.sequence_attention_heads, 8),
+                    ("sequence_attention_layers", self.sequence_attention_layers, 2),
+                    ("sequence_dropout", self.sequence_dropout, 0.05),
+                ),
+                context="sequence_encoder=False",
+            )
 
         if not self.asset_set_encoder:
-            for field_name, value, default in (
-                ("asset_embedding_dim", self.asset_embedding_dim, 64),
-                ("global_embedding_dim", self.global_embedding_dim, 64),
-            ):
-                _require_inactive_default(
-                    field_name, value, default, context="asset_set_encoder=False"
-                )
+            _require_inactive_defaults(
+                (
+                    ("asset_embedding_dim", self.asset_embedding_dim, 64),
+                    ("global_embedding_dim", self.global_embedding_dim, 64),
+                ),
+                context="asset_set_encoder=False",
+            )
 
         if self.behavior_cloning_epochs == 0:
-            for field_name, value, default in (
+            _require_inactive_defaults(
                 (
-                    "behavior_cloning_learning_rate",
-                    self.behavior_cloning_learning_rate,
-                    1e-3,
+                    (
+                        "behavior_cloning_learning_rate",
+                        self.behavior_cloning_learning_rate,
+                        1e-3,
+                    ),
+                    (
+                        "behavior_cloning_batch_size",
+                        self.behavior_cloning_batch_size,
+                        256,
+                    ),
+                    (
+                        "behavior_cloning_validation_fraction",
+                        self.behavior_cloning_validation_fraction,
+                        0.0,
+                    ),
+                    ("behavior_cloning_patience", self.behavior_cloning_patience, 3),
+                    (
+                        "behavior_cloning_minimum_improvement",
+                        self.behavior_cloning_minimum_improvement,
+                        0.0,
+                    ),
                 ),
-                (
-                    "behavior_cloning_batch_size",
-                    self.behavior_cloning_batch_size,
-                    256,
-                ),
-                (
-                    "behavior_cloning_validation_fraction",
-                    self.behavior_cloning_validation_fraction,
-                    0.0,
-                ),
-                ("behavior_cloning_patience", self.behavior_cloning_patience, 3),
-                (
-                    "behavior_cloning_minimum_improvement",
-                    self.behavior_cloning_minimum_improvement,
-                    0.0,
-                ),
-            ):
-                _require_inactive_default(
-                    field_name, value, default, context="behavior cloning disabled"
-                )
+                context="behavior cloning disabled",
+            )
 
     @property
     def rounded_timesteps(self) -> int:

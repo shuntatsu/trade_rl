@@ -85,6 +85,7 @@ jobs:
         run: |
           python tools/apply_task10_terminal_accounting.py implementation
           python tools/apply_architecture_audit_fixes.py implementation
+          python tools/apply_architecture_audit_followup.py
 
       - name: Format and lint
         run: |
@@ -158,6 +159,7 @@ jobs:
           git checkout origin/agent/complete-architecture-hardening -- .github/workflows/ci.yml
           rm -f .github/workflows/architecture-audit-fixes.yml
           rm -f tools/apply_architecture_audit_fixes.py
+          rm -f tools/apply_architecture_audit_followup.py
           rm -f tools/apply_task10_terminal_accounting.py
           rm -f tools/apply_task10_followup.py
           rm -f tools/task9-trigger.txt tools/task10-trigger.txt

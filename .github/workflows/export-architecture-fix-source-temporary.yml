@@ -8,7 +8,7 @@ on:
       - .github/workflows/export-architecture-fix-source-temporary.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
@@ -16,13 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: agent/causal-sequence-feature-encoder
           fetch-depth: 0
-      - name: Package source
+      - name: Package source into temporary branch file
         run: |
+          set -euo pipefail
           git archive --format=tar.gz --prefix=trade_rl/ HEAD > trade_rl-source.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: trade-rl-architecture-fix-source
-          path: trade_rl-source.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+          base64 -w 0 trade_rl-source.tar.gz > architecture-fix-source.b64
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add architecture-fix-source.b64
+          git commit -m "chore: stage architecture fix source export"
+          git push origin HEAD:agent/causal-sequence-feature-encoder

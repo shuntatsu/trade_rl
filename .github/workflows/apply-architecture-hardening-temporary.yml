@@ -26,7 +26,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat architecture-hardening.part-00 architecture-hardening.part-01 architecture-hardening.part-02 architecture-hardening.part-03 architecture-hardening.part-04 | base64 --decode > /tmp/architecture-hardening.patch.gz
+          cat architecture-hardening.part-00 architecture-hardening.part-01 > /tmp/architecture-hardening.b64
+          python - <<'PY'
+          from pathlib import Path
+          encoded = Path("architecture-hardening.tailhex-00").read_text().strip()
+          bridge = bytes.fromhex(encoded).decode("ascii")[:4000]
+          with Path("/tmp/architecture-hardening.b64").open("a", encoding="ascii") as handle:
+              handle.write(bridge)
+          PY
+          cat architecture-hardening.part-02 architecture-hardening.part-03 architecture-hardening.part-04 >> /tmp/architecture-hardening.b64
+          base64 --decode /tmp/architecture-hardening.b64 > /tmp/architecture-hardening.patch.gz
           echo "2ea8a00fd629afc321d9e4c69c71830d8c00b4502a47ae7d0c0a8e7232ed6944  /tmp/architecture-hardening.patch.gz" | sha256sum --check -
           gzip -dc /tmp/architecture-hardening.patch.gz > /tmp/architecture-hardening.patch
           git apply --check /tmp/architecture-hardening.patch
@@ -60,6 +69,6 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git reset -- architecture-hardening.part-00 architecture-hardening.part-01 architecture-hardening.part-02 architecture-hardening.part-03 architecture-hardening.part-04 .github/workflows/apply-architecture-hardening-temporary.yml
+          git reset -- architecture-hardening.part-00 architecture-hardening.part-01 architecture-hardening.part-02 architecture-hardening.part-03 architecture-hardening.part-04 architecture-hardening.tail-00 architecture-hardening.tailhex-00 .github/workflows/apply-architecture-hardening-temporary.yml
           git commit -m "fix: harden sequence research architecture"
           git push origin HEAD:agent/causal-sequence-feature-encoder

@@ -6,6 +6,9 @@ on:
       - agent/full-training-functional-audit
     paths:
       - '.github/workflows/export-training-audit-source.yml'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -13,6 +16,7 @@ permissions:
 
 jobs:
   export:
+    if: github.event_name != 'pull_request' || github.head_ref == 'agent/full-training-functional-audit'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

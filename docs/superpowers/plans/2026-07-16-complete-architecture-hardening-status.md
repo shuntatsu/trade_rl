@@ -1,6 +1,6 @@
 # Complete Architecture Hardening Status
 
-Tasks 1 through 8 have been implemented test-first on PR #55. Task 9 adds a bounded target-weight probability contract, and Task 10 makes terminal accounting explicit.
+Tasks 1 through 8 have been implemented test-first on PR #55. Task 9 adds a bounded target-weight probability contract, Task 10 makes terminal accounting explicit, and Task 11 wires causal advanced-risk inputs.
 
 Verified contracts include delayed execution, executor-aligned approximate teaching, a shared per-asset actor, semantic state normalization, index-backed PPO rollout reconstruction, six-fold/180-day OOS statistical gates, structured sequence serving, and checkpoint recovery.
 
@@ -10,6 +10,6 @@ Task 9 was verified red-green: structured PPO now samples target weights through
 
 Task 10 was verified red-green across the related environment and training suites. Time-limit mark-to-market truncation, optional close liquidation cost, and final delayed-target disposal are now emitted as machine-readable terminal evidence. The configured terminal accounting mode is also written into the training environment artifact.
 
-Task 11 has passed its 33 related tests. Verification is rerunning after narrowing the dataset protocol to read-only properties so that MyPy matches the immutable `MarketDataset` contract.
+Task 11 was verified red-green with 33 related tests, MyPy, and import contracts. Advanced volatility, beta, and stress constraints now receive rolling inputs computed only from completed returns through the decision index, and the provider identity is bound into the environment digest.
 
 Production remains NO-GO until the manually dispatched CUDA verification, fresh sealed confirmation data, and paper-trading reconciliation are complete.

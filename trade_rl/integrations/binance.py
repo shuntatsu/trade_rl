@@ -27,6 +27,7 @@ from trade_rl.data.contracts import (
     FeatureKind,
     FeatureSpec,
     InstrumentContract,
+    InstrumentExecutionRule,
     MarketBuildConfig,
     VolumeUnit,
 )
@@ -97,6 +98,7 @@ class BinanceInstrumentMetadata:
     minimum_notional: float
     volume_unit: VolumeUnit
     contract_multiplier: float = 1.0
+    execution_rules: tuple[InstrumentExecutionRule, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.symbol:
@@ -125,6 +127,7 @@ class BinanceInstrumentMetadata:
             tick_size=self.tick_size,
             lot_size=self.lot_size,
             minimum_notional=self.minimum_notional,
+            execution_rules=self.execution_rules,
         )
 
 
@@ -794,23 +797,32 @@ def _parse_kline_rows(
 def _align_funding(
     timestamps: np.ndarray,
     events: Sequence[tuple[int, float]],
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Aggregate every funding event into its completed native bar."""
+
     timestamp_ms = timestamps.astype("datetime64[ms]").astype(np.int64)
-    index_by_timestamp = {int(value): index for index, value in enumerate(timestamp_ms)}
+    if timestamp_ms.size < 2:
+        raise ValueError("funding alignment requires at least two native bars")
+    intervals = np.diff(timestamp_ms)
+    if np.any(intervals <= 0) or np.any(intervals != intervals[0]):
+        raise ValueError("funding alignment requires a regular native clock")
+    interval_ms = int(intervals[0])
     funding = np.zeros(len(timestamps), dtype=np.float64)
-    available = np.zeros(len(timestamps), dtype=np.bool_)
+    counts = np.zeros(len(timestamps), dtype=np.int32)
     previous: int | None = None
     for raw_timestamp, raw_rate in sorted(events):
         timestamp = _normalize_epoch_ms(raw_timestamp)
         if previous is not None and timestamp == previous:
             raise ValueError("Binance funding timestamps must be unique")
         previous = timestamp
-        index = index_by_timestamp.get(timestamp)
-        if index is None:
+        index = int(np.searchsorted(timestamp_ms, timestamp, side="left"))
+        if index >= len(timestamp_ms):
             continue
-        funding[index] = _finite_float(raw_rate, field="funding rate")
-        available[index] = True
-    return funding, available
+        if timestamp <= int(timestamp_ms[index]) - interval_ms:
+            continue
+        funding[index] += _finite_float(raw_rate, field="funding rate")
+        counts[index] += 1
+    return funding, counts > 0, counts
 
 
 class BinanceMarketDataSource(MarketDataSource):
@@ -903,7 +915,7 @@ class BinanceMarketDataSource(MarketDataSource):
             start_ms=start_ms,
             end_ms=end_ms,
         )
-        funding, funding_available = _align_funding(
+        funding, funding_available, funding_event_count = _align_funding(
             timestamps,
             self._funding_events(symbol),
         )
@@ -917,6 +929,7 @@ class BinanceMarketDataSource(MarketDataSource):
             volume=volume,
             funding_rate=funding,
             funding_available=funding_available,
+            funding_event_count=funding_event_count,
             tradable=np.ones(len(timestamps), dtype=np.bool_),
         )
         self._series_cache[key] = series
@@ -1331,6 +1344,8 @@ def build_binance_market_dataset(
     minimum_notionals: Sequence[float] | None = None,
     listed_ats: Sequence[datetime] | None = None,
     feature_timeframes: Sequence[str] | None = None,
+    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
+    | None = None,
 ) -> BinanceDatasetBuildResult:
     """Build one deterministic linear-product dataset from public Binance data."""
 
@@ -1431,6 +1446,31 @@ def build_binance_market_dataset(
             )
             for index, item in enumerate(metadata)
         )
+    if execution_rule_histories is not None:
+        unknown = set(execution_rule_histories) - set(resolved_symbols)
+        if unknown:
+            raise ValueError(
+                f"execution rule histories contain unknown symbols: {sorted(unknown)}"
+            )
+        missing = set(resolved_symbols) - set(execution_rule_histories)
+        if missing:
+            raise ValueError(
+                f"execution rule histories are missing symbols: {sorted(missing)}"
+            )
+        metadata = tuple(
+            BinanceInstrumentMetadata(
+                symbol=item.symbol,
+                listed_at=item.listed_at,
+                tick_size=item.tick_size,
+                lot_size=item.lot_size,
+                minimum_notional=item.minimum_notional,
+                volume_unit=item.volume_unit,
+                contract_multiplier=item.contract_multiplier,
+                execution_rules=tuple(execution_rule_histories[item.symbol]),
+            )
+            for item in metadata
+        )
+
     source = BinanceMarketDataSource(
         market=resolved_market,
         interval=interval,
@@ -1469,6 +1509,7 @@ def build_binance_market_dataset(
 __all__ = [
     "BinanceDatasetBuildResult",
     "BinanceInstrumentMetadata",
+    "InstrumentExecutionRule",
     "BinanceMarket",
     "BinanceMarketDataSource",
     "BinancePublicTransport",

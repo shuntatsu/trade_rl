@@ -5,15 +5,22 @@ from pathlib import Path
 
 import pytest
 
-from tests.serving.helpers import create_bundle
+from tests.serving.helpers import (
+    TEST_TRUSTED_ATTESTATION_KEYS,
+    create_authenticated_bundle,
+    create_bundle,
+)
 from trade_rl.serving.registry import ServingRegistry
 
 
 def test_registry_activates_released_validated_bundle_atomically(
     tmp_path: Path,
 ) -> None:
-    source = create_bundle(tmp_path / "source")
-    registry = ServingRegistry(tmp_path / "registry")
+    source = create_authenticated_bundle(tmp_path / "source")
+    registry = ServingRegistry(
+        tmp_path / "registry",
+        trusted_attestation_keys=TEST_TRUSTED_ATTESTATION_KEYS,
+    )
 
     active = registry.activate(source)
 
@@ -48,9 +55,12 @@ def test_research_registry_can_explicitly_allow_unreleased_bundle(
 
 
 def test_failed_activation_preserves_previous_active_bundle(tmp_path: Path) -> None:
-    valid = create_bundle(tmp_path / "valid")
-    invalid = create_bundle(tmp_path / "invalid")
-    registry = ServingRegistry(tmp_path / "registry")
+    valid = create_authenticated_bundle(tmp_path / "valid")
+    invalid = create_authenticated_bundle(tmp_path / "invalid")
+    registry = ServingRegistry(
+        tmp_path / "registry",
+        trusted_attestation_keys=TEST_TRUSTED_ATTESTATION_KEYS,
+    )
     first = registry.activate(valid)
     (invalid / "dataset.json").write_text('{"tampered":true}', encoding="utf-8")
 

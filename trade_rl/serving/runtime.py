@@ -13,11 +13,13 @@ import numpy as np
 
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.release.attestation import ReleaseAttestation
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
+from trade_rl.serving.state import ServingStateGuard, ServingStateSnapshot
 
 PolicyObservation = np.ndarray | Mapping[str, np.ndarray]
 
@@ -105,6 +107,9 @@ class ServingRuntime:
         expected_normalizer_digest: str | None = None,
         expected_alpha_artifact_digest: str | None = None,
         expected_factor_artifact_digest: str | None = None,
+        trusted_attestation_keys: Mapping[str, bytes | bytearray | memoryview]
+        | None = None,
+        allow_unbound_state: bool = False,
     ) -> None:
         legacy_values = (
             expected_environment_digest,
@@ -142,13 +147,19 @@ class ServingRuntime:
             )
         if not isinstance(allow_unbound_identity, bool):
             raise ValueError("allow_unbound_identity must be a boolean")
+        if not isinstance(allow_unbound_state, bool):
+            raise ValueError("allow_unbound_state must be a boolean")
         if identity_contract is None and not allow_unbound_identity:
             raise ValueError("serving runtime requires an explicit identity contract")
         self.policy_loader = policy_loader
         self.allow_unreleased = allow_unreleased
         self.identity_contract = identity_contract
         self.allow_unbound_identity = allow_unbound_identity
+        self.trusted_attestation_keys = dict(trusted_attestation_keys or {})
+        self.allow_unbound_state = allow_unbound_state or allow_unreleased
+        self._state_guard = ServingStateGuard()
         self._lock = RLock()
+        self._state_lock = RLock()
         self._snapshot: RuntimeSnapshot | None = None
         self._policy: LoadedPolicy | None = None
         self._normalizer: ObservationNormalizer | None = None
@@ -262,8 +273,17 @@ class ServingRuntime:
     def activate(self, root: Path) -> RuntimeSnapshot:
         bundle = load_serving_bundle(root)
         manifest = bundle.manifest
-        if bundle.release is None and not self.allow_unreleased:
-            raise ValueError("serving bundle requires a verified release attestation")
+        if bundle.release is None:
+            if not self.allow_unreleased:
+                raise ValueError(
+                    "serving bundle requires a verified release attestation"
+                )
+        elif isinstance(bundle.release, ReleaseAttestation):
+            bundle.release.verify(self.trusted_attestation_keys)
+        elif not self.allow_unreleased:
+            raise ValueError(
+                "legacy release metadata is not an authenticated signed attestation"
+            )
         if manifest.action_schema != ACTION_SCHEMA:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"
@@ -342,6 +362,9 @@ class ServingRuntime:
         *,
         index: int,
         current_flat: np.ndarray,
+        state_snapshot: ServingStateSnapshot | None = None,
+        portfolio_state: np.ndarray | None = None,
+        pending_target: np.ndarray | None = None,
     ) -> np.ndarray:
         with self._lock:
             policy = self._policy
@@ -353,10 +376,41 @@ class ServingRuntime:
             raise RuntimeError(
                 "active policy does not support structured dataset serving"
             )
-        raw = np.asarray(
-            predictor(dataset, index=index, current_flat=current_flat),
-            dtype=np.float32,
-        ).reshape(-1)
+        if state_snapshot is None:
+            if not self.allow_unbound_state:
+                raise ValueError(
+                    "structured serving requires an identity-bound state snapshot"
+                )
+            raw = np.asarray(
+                predictor(dataset, index=index, current_flat=current_flat),
+                dtype=np.float32,
+            ).reshape(-1)
+        else:
+            if portfolio_state is None:
+                raise ValueError(
+                    "identity-bound structured serving requires the portfolio state"
+                )
+            if pending_target is None:
+                raise ValueError(
+                    "identity-bound structured serving requires the pending target"
+                )
+            dataset_id = getattr(dataset, "dataset_id", None)
+            if not isinstance(dataset_id, str):
+                raise ValueError("structured serving dataset lacks dataset_id")
+            with self._state_lock:
+                self._state_guard.require_matches(
+                    state_snapshot,
+                    dataset_id=dataset_id,
+                    decision_index=index,
+                    portfolio_state=portfolio_state,
+                    pending_target=pending_target,
+                    current_flat=current_flat,
+                )
+                raw = np.asarray(
+                    predictor(dataset, index=index, current_flat=current_flat),
+                    dtype=np.float32,
+                ).reshape(-1)
+                self._state_guard.accept(state_snapshot)
         if (
             raw.shape != (snapshot.action_size,)
             or not np.isfinite(raw).all()

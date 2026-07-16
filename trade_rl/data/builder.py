@@ -181,6 +181,7 @@ def _align_series(
         "funding_rate": np.zeros(n_bars, dtype=np.float64),
         "tradable": np.zeros(n_bars, dtype=np.bool_),
         "funding_available": np.zeros(n_bars, dtype=np.bool_),
+        "funding_event_count": np.zeros(n_bars, dtype=np.int32),
         "row_present": np.zeros(n_bars, dtype=np.bool_),
         "information_available": np.zeros(n_bars, dtype=np.bool_),
         "available_at": timestamps.copy(),
@@ -191,6 +192,8 @@ def _align_series(
     assert raw.funding_available is not None
     assert raw.available_at is not None
     result["funding_available"][indices] = raw.funding_available
+    assert raw.funding_event_count is not None
+    result["funding_event_count"][indices] = raw.funding_event_count
     result["row_present"][indices] = True
     result["available_at"][indices] = raw.available_at
     result["information_available"][indices] = raw.available_at <= raw.timestamps
@@ -246,9 +249,13 @@ class MarketDatasetBuilder:
         row_present = np.zeros((n_bars, n_symbols), dtype=np.bool_)
         raw_tradable = np.zeros_like(row_present)
         funding_available = np.zeros_like(row_present)
+        funding_event_count = np.zeros_like(row_present, dtype=np.int32)
         information_available = np.zeros_like(row_present)
         available_at = np.broadcast_to(timestamps[:, None], row_present.shape).copy()
         symbol_active = np.zeros_like(row_present)
+        tick_size = np.zeros_like(open_price)
+        lot_size = np.zeros_like(open_price)
+        minimum_notional = np.zeros_like(open_price)
 
         for symbol_index, (contract, raw) in enumerate(zip(instruments, raw_series)):
             aligned = _align_series(raw, timestamps, step_ns=alignment_step)
@@ -261,6 +268,7 @@ class MarketDatasetBuilder:
             row_present[:, symbol_index] = aligned["row_present"]
             raw_tradable[:, symbol_index] = aligned["tradable"]
             funding_available[:, symbol_index] = aligned["funding_available"]
+            funding_event_count[:, symbol_index] = aligned["funding_event_count"]
             information_available[:, symbol_index] = aligned["information_available"]
             available_at[:, symbol_index] = aligned["available_at"]
 
@@ -269,6 +277,12 @@ class MarketDatasetBuilder:
             if contract.delisted_at is not None:
                 active &= timestamps < _utc_datetime64(contract.delisted_at)
             symbol_active[:, symbol_index] = active
+            resolved_tick, resolved_lot, resolved_minimum = (
+                contract.execution_rule_arrays(timestamps)
+            )
+            tick_size[:, symbol_index] = resolved_tick
+            lot_size[:, symbol_index] = resolved_lot
+            minimum_notional[:, symbol_index] = resolved_minimum
 
         information_available &= symbol_active & row_present
         causal_row_present = row_present & information_available
@@ -461,6 +475,7 @@ class MarketDatasetBuilder:
             close=close,
             volume=volume,
             funding_rate=funding_rate,
+            funding_event_count=funding_event_count,
             tradable=tradable,
             symbol_active=symbol_active,
             information_available=information_available,
@@ -475,27 +490,9 @@ class MarketDatasetBuilder:
                 [contract.contract_multiplier for contract in instruments],
                 dtype=np.float64,
             ),
-            tick_size=np.broadcast_to(
-                np.asarray(
-                    [contract.tick_size for contract in instruments],
-                    dtype=np.float64,
-                )[None, :],
-                (n_bars, n_symbols),
-            ).copy(),
-            lot_size=np.broadcast_to(
-                np.asarray(
-                    [contract.lot_size for contract in instruments],
-                    dtype=np.float64,
-                )[None, :],
-                (n_bars, n_symbols),
-            ).copy(),
-            minimum_notional=np.broadcast_to(
-                np.asarray(
-                    [contract.minimum_notional for contract in instruments],
-                    dtype=np.float64,
-                )[None, :],
-                (n_bars, n_symbols),
-            ).copy(),
+            tick_size=tick_size,
+            lot_size=lot_size,
+            minimum_notional=minimum_notional,
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
             periods_per_year=periods_per_year,

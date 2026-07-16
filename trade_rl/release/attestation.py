@@ -1,8 +1,9 @@
-"""External, non-circular approval attestations for immutable bundles."""
+"""External authenticated approval attestations for immutable bundles."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -15,8 +16,9 @@ from trade_rl.domain.common import (
     require_non_empty,
     require_sha256,
 )
+from trade_rl.release.signing import AuthenticatedEnvelope, sign_payload, verify_payload
 
-RELEASE_ATTESTATION_SCHEMA = "release_attestation_v1"
+RELEASE_ATTESTATION_SCHEMA = "release_attestation_v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,8 @@ class ReleaseAttestation:
     dependency_digest: str
     approver: str
     approved_at: datetime
+    key_id: str
+    signature: str
     schema_version: str = RELEASE_ATTESTATION_SCHEMA
 
     @property
@@ -47,12 +51,14 @@ class ReleaseAttestation:
             ("gate_evaluation_digest", self.gate_evaluation_digest),
             ("gate_evidence_digest", self.gate_evidence_digest),
             ("dependency_digest", self.dependency_digest),
+            ("signature", self.signature),
         ):
             require_sha256(value, field=field_name)
         if self.selected_policy_digest is not None:
             require_sha256(self.selected_policy_digest, field="selected_policy_digest")
         require_git_sha(self.git_commit)
         require_non_empty(self.approver, field="approver")
+        require_non_empty(self.key_id, field="key_id")
         require_aware_datetime(self.approved_at, field="approved_at")
         if self.schema_version != RELEASE_ATTESTATION_SCHEMA:
             raise ValueError("unsupported release attestation schema")
@@ -69,10 +75,28 @@ class ReleaseAttestation:
             "gate_evaluation_digest": self.gate_evaluation_digest,
             "gate_evidence_digest": self.gate_evidence_digest,
             "git_commit": self.git_commit,
+            "key_id": self.key_id,
             "schema_version": self.schema_version,
             "selected_policy_digest": self.selected_policy_digest,
             "selection_evaluation_digest": self.selection_evaluation_digest,
         }
+
+    def envelope(self) -> AuthenticatedEnvelope:
+        return AuthenticatedEnvelope(
+            key_id=self.key_id,
+            payload_digest=self.attestation_digest,
+            signature=self.signature,
+        )
+
+    def verify(
+        self,
+        trusted_keys: Mapping[str, bytes | bytearray | memoryview],
+    ) -> None:
+        verify_payload(
+            self.digest_payload(),
+            self.envelope(),
+            trusted_keys=trusted_keys,
+        )
 
     @classmethod
     def create(
@@ -88,6 +112,8 @@ class ReleaseAttestation:
         dependency_digest: str,
         approver: str,
         approved_at: datetime,
+        key_id: str,
+        signing_key: bytes | bytearray | memoryview,
     ) -> ReleaseAttestation:
         payload = {
             "approved_at": approved_at,
@@ -98,12 +124,14 @@ class ReleaseAttestation:
             "gate_evaluation_digest": gate_evaluation_digest,
             "gate_evidence_digest": gate_evidence_digest,
             "git_commit": git_commit,
+            "key_id": key_id,
             "schema_version": RELEASE_ATTESTATION_SCHEMA,
             "selected_policy_digest": selected_policy_digest,
             "selection_evaluation_digest": selection_evaluation_digest,
         }
+        envelope = sign_payload(payload, key_id=key_id, signing_key=signing_key)
         return cls(
-            attestation_digest=content_digest(payload),
+            attestation_digest=envelope.payload_digest,
             bundle_digest=bundle_digest,
             dataset_id=dataset_id,
             selection_evaluation_digest=selection_evaluation_digest,
@@ -114,6 +142,8 @@ class ReleaseAttestation:
             dependency_digest=dependency_digest,
             approver=approver,
             approved_at=approved_at,
+            key_id=key_id,
+            signature=envelope.signature,
         )
 
 
@@ -153,6 +183,8 @@ def load_release_attestation(path: str | Path) -> ReleaseAttestation:
             dependency_digest=str(raw["dependency_digest"]),
             approver=str(raw["approver"]),
             approved_at=approved_at,
+            key_id=str(raw["key_id"]),
+            signature=str(raw["signature"]),
             schema_version=str(raw["schema_version"]),
         )
     except (KeyError, TypeError, ValueError) as error:

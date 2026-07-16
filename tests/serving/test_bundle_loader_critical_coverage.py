@@ -155,6 +155,8 @@ def _external_attestation(
         dependency_digest="5" * 64,
         approver="coverage-test",
         approved_at=NOW,
+        key_id="bundle-loader-key",
+        signing_key=b"bundle-loader-signing-key",
     )
     write_release_attestation(default_attestation_path(root), attestation)
 

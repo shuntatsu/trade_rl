@@ -9,10 +9,12 @@ from trade_rl.data.artifact_codec import (
     DatasetArtifactFiles,
     write_market_dataset_files,
 )
+from trade_rl.data.contracts import InstrumentExecutionRule
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
 
 __all__ = [
     "DatasetArtifactFiles",
+    "InstrumentExecutionRule",
     "MarketCalendarKind",
     "MarketDataset",
     "PublishedDatasetArtifact",

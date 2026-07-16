@@ -31,6 +31,7 @@ class ResearchEvidenceRequirements:
     require_positive_bootstrap_lower_bound: bool = False
     require_confirmation: bool = False
     minimum_confirmation_days: float = 0.0
+    minimum_baseline_uplift: float = 0.0
 
     def __post_init__(self) -> None:
         if (
@@ -42,6 +43,7 @@ class ResearchEvidenceRequirements:
         for name, value in (
             ("minimum_oos_days", self.minimum_oos_days),
             ("minimum_confirmation_days", self.minimum_confirmation_days),
+            ("minimum_baseline_uplift", self.minimum_baseline_uplift),
         ):
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{name} must be finite and non-negative")
@@ -94,6 +96,49 @@ def block_bootstrap_mean_lower_bound(
         means[sample_index] = float(np.mean(log_returns[indices[: values.size]]))
     lower_log = float(np.quantile(means, 1.0 - confidence))
     return float(np.expm1(lower_log))
+
+
+def paired_block_bootstrap_excess_lower_bound(
+    selected_daily_returns: object,
+    baseline_daily_returns: object,
+    *,
+    confidence: float = 0.95,
+    samples: int = 2_000,
+    block_size: int = 5,
+    seed: int = 0,
+) -> float:
+    """Lower confidence bound for paired daily log-return excess."""
+
+    selected = np.asarray(selected_daily_returns, dtype=np.float64).reshape(-1)
+    baseline = np.asarray(baseline_daily_returns, dtype=np.float64).reshape(-1)
+    if selected.shape != baseline.shape or selected.size < 2:
+        raise ValueError(
+            "selected and baseline daily returns must have the same length of at least two"
+        )
+    if (
+        not np.isfinite(selected).all()
+        or not np.isfinite(baseline).all()
+        or np.any(selected < -1.0)
+        or np.any(baseline < -1.0)
+    ):
+        raise ValueError("paired daily returns must be finite and at least -1")
+    if not 0.5 < confidence < 1.0:
+        raise ValueError("confidence must be within (0.5, 1)")
+    for name, value in (("samples", samples), ("block_size", block_size)):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    excess = np.log1p(selected) - np.log1p(baseline)
+    if np.all(excess == 0.0):
+        return 0.0
+    rng = np.random.default_rng(seed)
+    block_count = math.ceil(excess.size / block_size)
+    means = np.empty(samples, dtype=np.float64)
+    offsets = np.arange(block_size, dtype=np.int64)
+    for sample_index in range(samples):
+        starts = rng.integers(0, excess.size, size=block_count)
+        indices = ((starts[:, None] + offsets[None, :]) % excess.size).reshape(-1)
+        means[sample_index] = float(np.mean(excess[indices[: excess.size]]))
+    return float(np.expm1(np.quantile(means, 1.0 - confidence)))
 
 
 def _finite_number(
@@ -333,6 +378,13 @@ def evaluate_research_return_gate(
         conditions["minimum_oos_days_met"] = (
             oos is not None and oos >= resolved_requirements.minimum_oos_days
         )
+        thresholds["minimum_material_baseline_uplift"] = (
+            resolved_requirements.minimum_baseline_uplift
+        )
+        conditions["material_baseline_uplift_met"] = (
+            uplift is not None
+            and uplift >= resolved_requirements.minimum_baseline_uplift
+        )
         observed["sealed_fold_count"] = fold_count
         observed["oos_days"] = oos
         if resolved_requirements.require_positive_bootstrap_lower_bound:
@@ -368,5 +420,6 @@ __all__ = [
     "ResearchEvidenceRequirements",
     "ResearchReturnGate",
     "block_bootstrap_mean_lower_bound",
+    "paired_block_bootstrap_excess_lower_bound",
     "evaluate_research_return_gate",
 ]

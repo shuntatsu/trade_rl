@@ -165,11 +165,11 @@ def test_release_attestation_requires_authenticated_signature() -> None:
         approver="risk-committee",
         approved_at=NOW,
         key_id="ci-release-key",
-        signing_key=b"release-secret",
+        signing_key=b"release-secret-key",
     )
-    attestation.verify({"ci-release-key": b"release-secret"})
+    attestation.verify({"ci-release-key": b"release-secret-key"})
     with pytest.raises(ValueError, match="signature|trusted"):
-        attestation.verify({"ci-release-key": b"wrong-secret"})
+        attestation.verify({"ci-release-key": b"wrong-secret-key!"})
 
 
 def test_confirmation_evidence_recomputes_metrics_and_rejects_tampering() -> None:
@@ -179,12 +179,13 @@ def test_confirmation_evidence_recomputes_metrics_and_rejects_tampering() -> Non
         dataset_id="a" * 64,
         environment_digest="b" * 64,
         policy_digest="c" * 64,
-        bundle_digest="d" * 64,
+        training_run_digest="d" * 64,
         git_commit="e" * 40,
         dependency_digest="f" * 64,
         start_time=NOW,
         end_time=NOW + timedelta(days=30),
         returns=(0.01, -0.005, 0.02),
+        return_period_hours=240.0,
         order_log_digest="1" * 64,
         fill_log_digest="2" * 64,
         reconciliation_digest="3" * 64,
@@ -195,7 +196,7 @@ def test_confirmation_evidence_recomputes_metrics_and_rejects_tampering() -> Non
     assert evidence.total_return == pytest.approx((1.01 * 0.995 * 1.02) - 1.0)
     assert evidence.days == pytest.approx(30.0)
     with pytest.raises(ValueError, match="signature|digest"):
-        evidence.with_returns((0.50,)).verify(
+        evidence.with_returns((0.50, 0.0, 0.0)).verify(
             {"confirmation-key": b"confirmation-secret"}
         )
 
@@ -297,4 +298,137 @@ def test_serving_state_snapshot_rejects_stale_or_mismatched_state() -> None:
             dataset_id="a" * 64,
             decision_index=11,
             pending_target=np.asarray([0.0, 0.0]),
+        )
+
+
+def test_execution_rule_history_only_needs_to_cover_requested_dataset_range() -> None:
+    from trade_rl.data.contracts import InstrumentContract, InstrumentExecutionRule
+
+    contract = InstrumentContract(
+        symbol="BTCUSDT",
+        listed_at=datetime(2020, 1, 1, tzinfo=UTC),
+        execution_rules=(
+            InstrumentExecutionRule(
+                effective_at=datetime(2025, 1, 1, tzinfo=UTC),
+                tick_size=0.1,
+                lot_size=0.001,
+                minimum_notional=5.0,
+            ),
+        ),
+    )
+    tick, _, _ = contract.execution_rule_arrays(
+        np.asarray([np.datetime64("2025-12-31T00:00:00", "ns")])
+    )
+    np.testing.assert_allclose(tick, [0.1])
+
+
+def test_deployable_ensemble_execution_limits_are_part_of_eligibility() -> None:
+    @dataclass
+    class Trainer:
+        def train(self, request: CandidateTrainingRequest) -> PolicyTrainingArtifact:
+            return PolicyTrainingArtifact(
+                configuration=request.configuration.name,
+                seed_finalists=(
+                    SeedPolicyFinalist(
+                        seed=0,
+                        policy_digest="1" * 64,
+                        checkpoint_score=0.1,
+                        checkpoint_evaluation_digest="3" * 64,
+                    ),
+                    SeedPolicyFinalist(
+                        seed=1,
+                        policy_digest="2" * 64,
+                        checkpoint_score=0.2,
+                        checkpoint_evaluation_digest="4" * 64,
+                    ),
+                ),
+            )
+
+    artifact = Trainer().train(
+        CandidateTrainingRequest(
+            dataset_id=DATASET_ID,
+            fold_index=0,
+            configuration=CandidateConfiguration("candidate"),
+            train=_fold().train,
+            checkpoint_validation=_fold().checkpoint_validation,
+        )
+    )
+
+    @dataclass
+    class Evaluator:
+        def evaluate(self, request: CandidateEvaluationRequest) -> CandidateEvaluation:
+            evaluation = _evaluation(
+                request,
+                score=0.0 if request.configuration == "baseline" else 0.02,
+            )
+            if request.policy_digest == artifact.ensemble_policy_digest:
+                return CandidateEvaluation(
+                    score=evaluation.score,
+                    returns=evaluation.returns,
+                    evaluation_digest="9" * 64,
+                    cost_fraction=0.50,
+                )
+            return evaluation
+
+    result = ConcreteFoldRunner(
+        config=FoldExecutionConfig(
+            dataset_id=DATASET_ID,
+            signal_digest=SIGNAL_DIGEST,
+            candidates=(CandidateConfiguration("candidate"),),
+            minimum_selection_uplift=0.0,
+            maximum_selection_cost_fraction=0.10,
+            selected_at=NOW,
+            experiment_plan_digest="e" * 64,
+        ),
+        trainer=Trainer(),
+        evaluator=Evaluator(),
+    ).run_fold(_fold())
+
+    assert result.selection.selected_configuration == "baseline"
+    assert "selection_cost_above_limit" in result.candidate_aggregates[0].reasons
+
+
+def test_serving_state_match_requires_explicit_portfolio_state() -> None:
+    from trade_rl.serving.state import ServingStateGuard, ServingStateSnapshot
+
+    snapshot = ServingStateSnapshot.create(
+        dataset_id="a" * 64,
+        decision_index=10,
+        portfolio_state=np.asarray([1.0, 0.0]),
+        pending_target=np.asarray([0.2, -0.2]),
+        observation_digest=ServingStateSnapshot.observation_digest_for(
+            np.asarray([1.0, 2.0])
+        ),
+    )
+    with pytest.raises(ValueError, match="portfolio"):
+        ServingStateGuard().require_matches(
+            snapshot,
+            dataset_id="a" * 64,
+            decision_index=10,
+            portfolio_state=None,
+            pending_target=np.asarray([0.2, -0.2]),
+            current_flat=np.asarray([1.0, 2.0]),
+        )
+
+
+def test_confirmation_return_cadence_must_cover_declared_interval() -> None:
+    from trade_rl.evaluation.confirmation import FreshConfirmationEvidence
+
+    with pytest.raises(ValueError, match="cadence|interval|duration"):
+        FreshConfirmationEvidence.create(
+            dataset_id="a" * 64,
+            environment_digest="b" * 64,
+            policy_digest="c" * 64,
+            training_run_digest="d" * 64,
+            git_commit="e" * 40,
+            dependency_digest="f" * 64,
+            start_time=NOW,
+            end_time=NOW + timedelta(days=2),
+            returns=(0.01, 0.02),
+            return_period_hours=1.0,
+            order_log_digest="1" * 64,
+            fill_log_digest="2" * 64,
+            reconciliation_digest="3" * 64,
+            key_id="confirmation-key",
+            signing_key=b"confirmation-secret",
         )

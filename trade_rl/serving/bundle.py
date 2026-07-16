@@ -480,6 +480,8 @@ def load_serving_bundle(root: Path) -> ServingBundle:
                 raise ValueError("external release attestation dataset mismatch")
             if release.selected_policy_digest != manifest.policy_digest:
                 raise ValueError("external release attestation policy mismatch")
+            if release.selection_evaluation_digest != manifest.selection_digest:
+                raise ValueError("external release attestation selection mismatch")
     for file in manifest.files:
         path = root / file.path
         declared.add(file.path)

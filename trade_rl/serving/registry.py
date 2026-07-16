@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
-from trade_rl.release.attestation import default_attestation_path
+from trade_rl.release.attestation import ReleaseAttestation, default_attestation_path
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
@@ -36,9 +37,17 @@ def _atomic_write(path: Path, payload: bytes) -> None:
 class ServingRegistry:
     """Validated immutable bundle versions with an atomic active pointer."""
 
-    def __init__(self, root: Path, *, allow_unreleased: bool = False) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        allow_unreleased: bool = False,
+        trusted_attestation_keys: Mapping[str, bytes | bytearray | memoryview]
+        | None = None,
+    ) -> None:
         self.root = root
         self.allow_unreleased = allow_unreleased
+        self.trusted_attestation_keys = dict(trusted_attestation_keys or {})
         self.staging_root = root / ".staging"
         self.versions_root = root / "versions"
         self.active_pointer = root / "active.json"
@@ -46,8 +55,19 @@ class ServingRegistry:
             path.mkdir(parents=True, exist_ok=True)
 
     def _require_activatable(self, bundle: ServingBundle) -> None:
-        if bundle.release is None and not self.allow_unreleased:
-            raise ValueError("serving bundle requires a verified release attestation")
+        if bundle.release is None:
+            if not self.allow_unreleased:
+                raise ValueError(
+                    "serving bundle requires a verified release attestation"
+                )
+            return
+        if isinstance(bundle.release, ReleaseAttestation):
+            bundle.release.verify(self.trusted_attestation_keys)
+            return
+        if not self.allow_unreleased:
+            raise ValueError(
+                "legacy release metadata is not an authenticated signed attestation"
+            )
 
     def activate(self, source: Path) -> ServingBundle:
         """Validate a source bundle before copying and replacing active identity."""

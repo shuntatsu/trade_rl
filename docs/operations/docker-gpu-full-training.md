@@ -35,6 +35,15 @@ Build the locked Python 3.12 training image:
 docker compose -f compose.training.yaml build trainer
 ```
 
+Before starting strict research, place an authenticated point-in-time Binance execution-rule history inside the named volume (for example `/workspace/var/metadata/binance-rule-history.json`) and configure the in-container path plus trusted key map:
+
+```powershell
+$env:TRADE_RL_BINANCE_RULE_HISTORY = "/workspace/var/metadata/binance-rule-history.json"
+$env:TRADE_RL_METADATA_KEYS = '{"binance-metadata-2026":"replace-with-secret-from-your-secret-store"}'
+```
+
+The `binance_instrument_rule_history_v2` payload must contain the authoritative listing time and an ordered execution-rule history for every selected symbol. Its first rule must be effective no later than the requested dataset start, and the history must cover the full research interval. The runner verifies its HMAC-SHA256 envelope and fails closed when the file, trusted key, signature, symbol history, or coverage is missing. Strict research does not use current `exchangeInfo` as historical evidence. Do not commit signing keys.
+
 Choose a unique run generation before every full invocation. A UTC timestamp
 is a convenient default; add a suffix if another run could start in the same
 second:
@@ -143,12 +152,7 @@ estimate from roughly 200.5 MiB to roughly 5.77 MiB. Configurations above the
 configured memory ceiling still fail closed. Approximate portfolio teacher
 artifacts likewise reconstruct only requested normalized sequence minibatches.
 
-The maintained gate requires six sealed walk-forward folds covering at
-least 180 OOS days. It rejects a candidate when the circular block-bootstrap
-lower confidence bound on mean daily log growth is non-positive, or when drawdown,
-turnover, cost fraction, or selection stability violates configured limits. The
-final run preserves the predetermined three-seed ensemble. A separate fresh
-confirmation interval is opened only after the recipe and ensemble are frozen.
+The maintained gate requires six sealed walk-forward folds covering at least 180 OOS days. It rejects a candidate when the paired circular block-bootstrap lower confidence bound on daily log-return excess over the shadow baseline is non-positive, material mean uplift is below the configured threshold, or drawdown, turnover, cost fraction, seed stability or selection stability violates configured limits. Every fold evaluates the exact deterministic mean action across the fixed seed members used by serving. A separate signed fresh-confirmation interval is opened only after the recipe and ensemble are frozen; confirmation metrics are recomputed from the authenticated return series and identity-bound reconciliation evidence.
 
 ## Copy artifacts to the host
 

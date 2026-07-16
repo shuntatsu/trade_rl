@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 
+import numpy as np
+
 from trade_rl.domain.common import require_aware_datetime, require_non_empty
 
 
@@ -113,6 +115,34 @@ def timeframe_hours(value: str) -> float:
 
 
 @dataclass(frozen=True, slots=True)
+class InstrumentExecutionRule:
+    """Execution filters that become effective at one point in time."""
+
+    effective_at: datetime
+    tick_size: float
+    lot_size: float
+    minimum_notional: float
+
+    def __post_init__(self) -> None:
+        require_aware_datetime(self.effective_at, field="effective_at")
+        for name, value in (
+            ("tick_size", self.tick_size),
+            ("lot_size", self.lot_size),
+            ("minimum_notional", self.minimum_notional),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
+
+    def canonical_payload(self) -> dict[str, object]:
+        return {
+            "effective_at": self.effective_at.isoformat(),
+            "lot_size": self.lot_size,
+            "minimum_notional": self.minimum_notional,
+            "tick_size": self.tick_size,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentContract:
     """Point-in-time instrument lifetime and execution-volume semantics."""
 
@@ -124,6 +154,7 @@ class InstrumentContract:
     tick_size: float = 0.0
     lot_size: float = 0.0
     minimum_notional: float = 0.0
+    execution_rules: tuple[InstrumentExecutionRule, ...] = ()
 
     def __post_init__(self) -> None:
         require_non_empty(self.symbol, field="symbol")
@@ -144,6 +175,54 @@ class InstrumentContract:
         ):
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{field_name} must be finite and non-negative")
+        rules = tuple(sorted(self.execution_rules, key=lambda item: item.effective_at))
+        if len({item.effective_at for item in rules}) != len(rules):
+            raise ValueError("execution rule effective_at values must be unique")
+        object.__setattr__(self, "execution_rules", rules)
+
+    def execution_rule_arrays(
+        self, timestamps: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        values = np.asarray(timestamps)
+        if values.ndim != 1 or not np.issubdtype(values.dtype, np.datetime64):
+            raise ValueError(
+                "execution rule timestamps must be one-dimensional datetime64"
+            )
+        if not self.execution_rules:
+            shape = values.shape
+            return (
+                np.full(shape, self.tick_size, dtype=np.float64),
+                np.full(shape, self.lot_size, dtype=np.float64),
+                np.full(shape, self.minimum_notional, dtype=np.float64),
+            )
+        timestamp_ns = values.astype("datetime64[ns]").astype(np.int64)
+        effective_ns = np.asarray(
+            [
+                np.datetime64(
+                    item.effective_at.astimezone(timezone.utc).replace(tzinfo=None),
+                    "ns",
+                ).astype(np.int64)
+                for item in self.execution_rules
+            ],
+            dtype=np.int64,
+        )
+        indices = np.searchsorted(effective_ns, timestamp_ns, side="right") - 1
+        if np.any(indices < 0):
+            raise ValueError("execution rule history does not cover all timestamps")
+        return (
+            np.asarray(
+                [self.execution_rules[index].tick_size for index in indices],
+                dtype=np.float64,
+            ),
+            np.asarray(
+                [self.execution_rules[index].lot_size for index in indices],
+                dtype=np.float64,
+            ),
+            np.asarray(
+                [self.execution_rules[index].minimum_notional for index in indices],
+                dtype=np.float64,
+            ),
+        )
 
     def canonical_payload(self) -> dict[str, object]:
         return {
@@ -157,6 +236,9 @@ class InstrumentContract:
             "tick_size": self.tick_size,
             "lot_size": self.lot_size,
             "minimum_notional": self.minimum_notional,
+            "execution_rules": tuple(
+                item.canonical_payload() for item in self.execution_rules
+            ),
         }
 
 

@@ -191,20 +191,60 @@ class SeedFinalistSelection:
 
 @dataclass(frozen=True, slots=True)
 class PolicyTrainingArtifact:
-    """Checkpoint-validation finalists for one residual configuration."""
+    """Checkpoint finalists plus the exact deterministic deployable ensemble identity."""
 
     configuration: str
     seed_finalists: tuple[SeedPolicyFinalist, ...]
+    ensemble_policy_digest: str = ""
 
     def __post_init__(self) -> None:
         require_non_empty(self.configuration, field="configuration")
         if not self.seed_finalists:
             raise ValueError("training artifact requires seed finalists")
-        policy_digests = tuple(
-            finalist.policy_digest for finalist in self.seed_finalists
+        ordered = tuple(
+            sorted(
+                self.seed_finalists,
+                key=lambda item: (
+                    item.seed,
+                    -item.checkpoint_score,
+                    item.policy_digest,
+                ),
+            )
         )
+        policy_digests = tuple(item.policy_digest for item in ordered)
         if len(set(policy_digests)) != len(policy_digests):
             raise ValueError("seed finalists must have unique policy digests")
+        object.__setattr__(self, "seed_finalists", ordered)
+        resolved = self.ensemble_policy_digest
+        if not resolved:
+            members = self.deployment_members
+            resolved = (
+                members[0].policy_digest
+                if len(members) == 1
+                else content_digest(
+                    {
+                        "members": tuple(
+                            {"policy_digest": item.policy_digest, "seed": item.seed}
+                            for item in members
+                        ),
+                        "schema_version": "deployable_mean_policy_ensemble_v1",
+                    }
+                )
+            )
+            object.__setattr__(self, "ensemble_policy_digest", resolved)
+        require_sha256(resolved, field="ensemble_policy_digest")
+
+    @property
+    def deployment_members(self) -> tuple[SeedPolicyFinalist, ...]:
+        """Return the checkpoint-validation winner for each fixed seed."""
+
+        winners: list[SeedPolicyFinalist] = []
+        seen: set[int] = set()
+        for item in self.seed_finalists:
+            if item.seed not in seen:
+                winners.append(item)
+                seen.add(item.seed)
+        return tuple(winners)
 
 
 def select_seed_checkpoint_finalists(
@@ -381,6 +421,8 @@ class FoldExecutionResult:
     baseline_oos: FoldOOSResult
     seed_finalists: tuple[SeedFinalistSelection, ...] = ()
     candidate_aggregates: tuple[CandidateSelectionAggregate, ...] = ()
+    selected_member_policy_digests: tuple[str, ...] = ()
+    selected_member_seeds: tuple[int, ...] = ()
     sealed_test_access: SealedTestAccessRecord | None = None
 
     def __post_init__(self) -> None:
@@ -411,6 +453,26 @@ class FoldExecutionResult:
         )
         if len(set(aggregate_names)) != len(aggregate_names):
             raise ValueError("candidate aggregate configurations must be unique")
+        if len(self.selected_member_policy_digests) != len(self.selected_member_seeds):
+            raise ValueError(
+                "selected ensemble member identities must align with seeds"
+            )
+        for digest in self.selected_member_policy_digests:
+            require_sha256(digest, field="selected_member_policy_digest")
+        if len(set(self.selected_member_policy_digests)) != len(
+            self.selected_member_policy_digests
+        ):
+            raise ValueError("selected ensemble member policy digests must be unique")
+        if len(set(self.selected_member_seeds)) != len(self.selected_member_seeds):
+            raise ValueError("selected ensemble member seeds must be unique")
+        if self.selection.mode is PolicyMode.BASELINE_ONLY and (
+            self.selected_member_policy_digests or self.selected_member_seeds
+        ):
+            raise ValueError("baseline selection cannot declare ensemble members")
+        if self.selection.mode is PolicyMode.RESIDUAL_POLICY and not (
+            self.selected_member_policy_digests and self.selected_member_seeds
+        ):
+            raise ValueError("residual selection requires ensemble member evidence")
 
 
 class ConcreteFoldRunner:
@@ -495,7 +557,9 @@ class ConcreteFoldRunner:
             policy_digest=None,
         )
         candidate_selection: dict[str, CandidateEvaluation] = {}
-        candidate_winners: dict[str, SeedFinalistSelection] = {}
+        candidate_winners: dict[str, str] = {}
+        candidate_member_digests: dict[str, tuple[str, ...]] = {}
+        candidate_member_seeds: dict[str, tuple[int, ...]] = {}
         candidate_aggregates: dict[str, CandidateSelectionAggregate] = {}
         seed_finalists: list[SeedFinalistSelection] = []
         threshold = max(
@@ -507,7 +571,7 @@ class ConcreteFoldRunner:
             evaluated_finalists: list[
                 tuple[SeedFinalistSelection, CandidateEvaluation]
             ] = []
-            for finalist in artifact.seed_finalists:
+            for finalist in artifact.deployment_members:
                 evaluation = self._evaluate(
                     fold=fold,
                     phase=EvaluationPhase.CONFIGURATION_SELECTION,
@@ -544,17 +608,35 @@ class ConcreteFoldRunner:
             maximum_drawdown = max(
                 item[1].maximum_drawdown for item in evaluated_finalists
             )
-            ordered_finalists = sorted(
-                evaluated_finalists,
-                key=lambda item: (
-                    item[0].selection_score,
-                    item[0].seed,
-                    item[0].policy_digest,
-                ),
-            )
-            representative, representative_evaluation = ordered_finalists[
-                (len(ordered_finalists) - 1) // 2
+            ensemble_digest = artifact.ensemble_policy_digest
+            matching = [
+                evaluation
+                for evidence, evaluation in evaluated_finalists
+                if evidence.policy_digest == ensemble_digest
             ]
+            ensemble_evaluation = (
+                matching[0]
+                if len(matching) == 1
+                else self._evaluate(
+                    fold=fold,
+                    phase=EvaluationPhase.CONFIGURATION_SELECTION,
+                    evaluation_range=fold.configuration_selection,
+                    configuration=candidate.name,
+                    policy_digest=ensemble_digest,
+                )
+            )
+            maximum_turnover_per_day = max(
+                maximum_turnover_per_day,
+                ensemble_evaluation.turnover_per_day,
+            )
+            maximum_cost_fraction = max(
+                maximum_cost_fraction,
+                ensemble_evaluation.cost_fraction,
+            )
+            maximum_drawdown = max(
+                maximum_drawdown,
+                ensemble_evaluation.maximum_drawdown,
+            )
             reasons: list[str] = []
             if median_score <= threshold:
                 reasons.append("median_seed_score_below_threshold")
@@ -587,8 +669,16 @@ class ConcreteFoldRunner:
                 and maximum_drawdown > self.config.maximum_selection_drawdown
             ):
                 reasons.append("selection_drawdown_above_limit")
-            candidate_winners[candidate.name] = representative
-            candidate_selection[candidate.name] = representative_evaluation
+            if ensemble_evaluation.score <= threshold:
+                reasons.append("deployable_ensemble_score_below_threshold")
+            candidate_winners[candidate.name] = ensemble_digest
+            candidate_selection[candidate.name] = ensemble_evaluation
+            candidate_member_digests[candidate.name] = tuple(
+                item.policy_digest for item in artifact.deployment_members
+            )
+            candidate_member_seeds[candidate.name] = tuple(
+                item.seed for item in artifact.deployment_members
+            )
             candidate_aggregates[candidate.name] = CandidateSelectionAggregate(
                 configuration=candidate.name,
                 eligible=not reasons,
@@ -613,8 +703,10 @@ class ConcreteFoldRunner:
                     {
                         "configuration": name,
                         "digest": evaluation.evaluation_digest,
-                        "policy_digest": candidate_winners[name].policy_digest,
-                        "representative_score": evaluation.score,
+                        "policy_digest": candidate_winners[name],
+                        "deployable_ensemble_score": evaluation.score,
+                        "member_policy_digests": candidate_member_digests[name],
+                        "member_seeds": candidate_member_seeds[name],
                         "aggregate": candidate_aggregates[name].digest_payload(),
                     }
                     for name, evaluation in sorted(candidate_selection.items())
@@ -652,7 +744,7 @@ class ConcreteFoldRunner:
         selected_candidate = (
             min(
                 eligible,
-                key=lambda item: (-item[1].median_score, item[0]),
+                key=lambda item: (-candidate_selection[item[0]].score, item[0]),
             )
             if eligible
             else None
@@ -668,9 +760,7 @@ class ConcreteFoldRunner:
             )
         else:
             selected_configuration = selected_candidate[0]
-            selected_policy_digest = candidate_winners[
-                selected_configuration
-            ].policy_digest
+            selected_policy_digest = candidate_winners[selected_configuration]
             mode = PolicyMode.RESIDUAL_POLICY
             selection_reasons = (
                 "selected residual candidate exceeded the baseline selection threshold",
@@ -743,6 +833,16 @@ class ConcreteFoldRunner:
             ),
             candidate_aggregates=tuple(
                 candidate_aggregates[name] for name in sorted(candidate_aggregates)
+            ),
+            selected_member_policy_digests=(
+                ()
+                if selected_candidate is None
+                else candidate_member_digests[selected_configuration]
+            ),
+            selected_member_seeds=(
+                ()
+                if selected_candidate is None
+                else candidate_member_seeds[selected_configuration]
             ),
             sealed_test_access=sealed_test_access,
         )

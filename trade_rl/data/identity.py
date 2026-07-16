@@ -10,7 +10,7 @@ import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 
-MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v5"
+MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
 
 DATASET_ID_ARRAY_FIELDS = (
     "timestamps",
@@ -31,6 +31,7 @@ DATASET_ID_ARRAY_FIELDS = (
     "close",
     "volume",
     "funding_rate",
+    "funding_event_count",
     "tradable",
     "symbol_active",
     "fee_rate",

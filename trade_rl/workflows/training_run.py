@@ -575,6 +575,17 @@ def _dataset_artifact_digest(root: Path) -> str:
     return digest
 
 
+def _maintained_training_run_config(config: TrainingRunConfig) -> TrainingRunConfig:
+    """Bind full training to the same liquidation-at-close terminal contract as OOS."""
+
+    if config.environment.liquidate_on_end:
+        return config
+    return replace(
+        config,
+        environment=replace(config.environment, liquidate_on_end=True),
+    )
+
+
 def execute_training_run(
     *,
     config_path: Path,
@@ -587,7 +598,7 @@ def execute_training_run(
 
     resolved_created_at = created_at or datetime.now(UTC)
     resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%SZ")
-    config = TrainingRunConfig.from_json(config_path)
+    config = _maintained_training_run_config(TrainingRunConfig.from_json(config_path))
     dataset = load_market_dataset_artifact(dataset_path)
     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)

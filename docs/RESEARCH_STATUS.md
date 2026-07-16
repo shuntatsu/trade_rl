@@ -26,7 +26,7 @@ Paired moving-block inference continues to use `log1p(candidate_return) - log1p(
 
 ## Causal training contract
 
-Random training episodes end as time-limit truncations without forced liquidation. Stable-Baselines3 may therefore bootstrap their terminal observations. Explicit end-of-window liquidation is reserved for sealed evaluation, is reported as a terminal transition, and fails closed if liquidity prevents a complete exit.
+Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed outer evaluation all use the same `liquidate_at_close` terminal-accounting contract. Terminal liquidation costs therefore enter both optimization and evaluation, and every stage fails closed if liquidity prevents a complete exit. Legacy bootstrap-compatible truncation remains available only through non-maintained custom configurations and is not eligible for the complete research workflow.
 
 Policy observations do not include synthetic episode progress or next-bar tradability. They do include rolling hybrid and shadow growth, their growth gap, baseline shortfall, scaled tolerance, hinge level, and emergency-deleverage state because those values determine future reward and termination semantics. Next-open execution uses the last completed bar's volume as its capacity proxy, while actual next-bar tradability remains part of transition dynamics.
 
@@ -46,7 +46,7 @@ Capacity conclusions must therefore be evaluated at predeclared AUM scenarios. P
 
 The maintained workflow uses fold-local signal lineage, stage-scoped dataset capabilities and a one-shot sealed-test access ledger. Alpha and factor artifacts identify fit and prediction ranges, generator configuration/code digests, validity masks and per-row availability times. Training predictions must be causal inside the train capability; checkpoint, selection and test predictions must be generated from the authorized train fit.
 
-Every fold preserves execution evidence including turnover, fees, funding, borrow, dividends, cash interest, fills, participation and economic termination. Independent folds are summarized as a distribution with median, weighted mean, win rate and worst fold. They are not mislabeled as one continuous portfolio return or drawdown. Continuous metrics require contiguous ranges and verified opening/closing state digests. Session-market annualization and carry use actual elapsed time.
+Every fold preserves execution evidence including turnover, fees, funding, borrow, dividends, cash interest, fills, participation and economic termination. Candidate eligibility is still computed from the fixed seed distribution, while configuration selection and sealed outer testing evaluate the exact deterministic mean-action ensemble that final serving loads. Independent folds are summarized as a distribution with median, weighted mean, win rate and worst fold. They are not mislabeled as one continuous portfolio return or drawdown. Continuous metrics require contiguous ranges and verified opening/closing state digests. Session-market annualization and carry use actual elapsed time.
 
 Training and walk-forward runs have separate manifest schemas, exact file closure and content-addressed provenance. Git commit, dirty state, lockfile digest, runtime/library versions, platform/hardware and deterministic seed configuration are captured automatically.
 
@@ -54,7 +54,7 @@ Training and walk-forward runs have separate manifest schemas, exact file closur
 
 Serving candidate bundle schema v4 binds the exact runtime contract and declared files but deliberately contains no release digest. A separate external `ReleaseAttestation` binds the candidate bundle to verified dataset, selection/evaluation and evidence-bound gate digests, selected policy, source commit, dependency provenance, approver and approval time. This removes the former bundle/release circular hash.
 
-Registry and runtime activation require a verified attestation by default. Before swapping live state, the runtime verifies exact file closure, rejects symlinks, loads the shared observation normalizer and executes deterministic zero/positive/negative probe observations through every policy member. Shape, finite-value, bounds, action-name, observation-schema and normalizer mismatches fail before activation.
+Registry and runtime activation require an HMAC-SHA256-authenticated external attestation issued under an explicitly trusted key ID. Unknown-key, unsigned, or tampered attestations fail closed. Before swapping live state, the runtime verifies exact file closure, rejects symlinks, loads the shared observation normalizer and executes deterministic probe observations through every policy member. Structured predictions additionally require a monotonic identity-bound `ServingStateSnapshot` so stale portfolio or pending-target state cannot be reused. Shape, finite-value, bounds, action-name, observation-schema, normalizer, and state-identity mismatches fail before activation or inference.
 
 ## Capability boundary
 

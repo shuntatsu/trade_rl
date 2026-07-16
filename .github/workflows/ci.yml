@@ -94,10 +94,23 @@ jobs:
           uv run ruff check .
 
       - name: Static architecture checks
+        id: static
+        shell: bash
         run: |
-          uv run mypy trade_rl
-          uv run lint-imports
-          uv run vulture trade_rl tests --min-confidence 100
+          set -o pipefail
+          {
+            uv run mypy trade_rl
+            uv run lint-imports
+            uv run vulture trade_rl tests --min-confidence 100
+          } 2>&1 | tee audit-static.log
+
+      - name: Upload audit static diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-audit-static-${{ github.run_id }}
+          path: audit-static.log
+          if-no-files-found: ignore
 
       - name: Focused verification
         run: |

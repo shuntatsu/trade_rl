@@ -410,7 +410,11 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
                     "purge_bars": 4,
                     "max_folds": 1,
                 },
-                "minimum_selection_uplift": 0.0,
+                # This regression verifies workflow wiring, not profitability.
+                # Keep the production defaults unchanged and force the trained
+                # ensemble through the sealed outer-test path only in this test.
+                "minimum_selection_uplift": -100.0,
+                "minimum_selection_score": -100.0,
                 "candidates": [
                     {"name": "sequence-ppo", "run": run.digest_payload()}
                 ],

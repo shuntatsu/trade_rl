@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      AUDIT_REVISION: '5'
+      AUDIT_REVISION: '6'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -52,7 +52,7 @@ jobs:
             tests/workflows/test_fold_runner.py \
             tests/workflows/test_market_walk_forward.py \
             tests/workflows/test_training_run.py \
-            tests/data/test_builder.py \
+            tests/data/test_market_builder.py \
             2>&1 | tee var/training-loophole-regression.log
       - name: Verify audit result schema
         shell: bash

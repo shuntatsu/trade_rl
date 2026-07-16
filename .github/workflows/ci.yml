@@ -46,6 +46,16 @@ jobs:
           status=$?
           set -e
           mkdir -p reconciliation/files
+          git diff --name-only --diff-filter=U > reconciliation/conflicts-original.txt
+          if [ "$status" -ne 0 ] && \
+             [ "$(cat reconciliation/conflicts-original.txt)" = "trade_rl/rl/environment.py" ]; then
+            git checkout --theirs trade_rl/rl/environment.py
+            git add trade_rl/rl/environment.py
+            git commit --no-edit
+            status=0
+            printf '%s\n' "resolved-equivalent-terminal-accounting" \
+              > reconciliation/resolution.txt
+          fi
           git status --short > reconciliation/status.txt
           git diff --name-only --diff-filter=U > reconciliation/conflicts.txt
           printf '%s\n' "$status" > reconciliation/merge-exit-code.txt

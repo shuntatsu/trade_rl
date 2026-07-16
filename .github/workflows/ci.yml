@@ -66,7 +66,20 @@ jobs:
           tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
 
       - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest.log
+            coverage.json
+          if-no-files-found: ignore
 
       - name: Critical branch coverage
         run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml

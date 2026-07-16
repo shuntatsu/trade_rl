@@ -107,3 +107,5 @@ jobs:
           git add -A
           git commit -m "fix: close architecture audit gaps"
           git push origin HEAD:agent/architecture-audit-fixes
+
+# audit-trigger: 2

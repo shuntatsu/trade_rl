@@ -25,6 +25,7 @@ class ResidualMarketEnvConfig:
     episode_hour_choices: tuple[float, ...] = ()
     episode_bars: int | None = None
     decision_every: int | None = None
+    signal_delay_decisions: int = 0
     reward_scale: float = 100.0
     initial_capital: float = math.nan
     minimum_equity_fraction: float = 1e-6
@@ -78,6 +79,15 @@ class ResidualMarketEnvConfig:
                 or optional_value <= 0
             ):
                 raise ValueError(f"{optional_field_name} must be a positive integer")
+        if (
+            isinstance(self.signal_delay_decisions, bool)
+            or not isinstance(self.signal_delay_decisions, int)
+            or self.signal_delay_decisions not in {0, 1}
+        ):
+            raise ValueError(
+                "signal_delay_decisions must be exactly zero or one so the pending "
+                "target remains fully observable"
+            )
         if self.episode_bars is not None and self.episode_hour_choices:
             raise ValueError(
                 "episode_bars cannot be combined with episode_hour_choices"

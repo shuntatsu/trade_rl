@@ -491,6 +491,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._episode_hours = self.config.episode_hours
         self._initial_state_mode = "cash"
         self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
+        self._pending_hybrid_target: np.ndarray | None = None
+        self._pending_shadow_target: np.ndarray | None = None
         self._position_age = np.zeros(dataset.n_symbols, dtype=np.float64)
         self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
         self._action_diagnostics = ActionDiagnosticsAccumulator()
@@ -573,6 +575,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 "accept_legacy_actions": self.config.accept_legacy_actions,
                 "decision_every": self.config.decision_every,
                 "decision_hours": self.config.decision_hours,
+                "signal_delay_decisions": self.config.signal_delay_decisions,
                 "resolved_decision_hours": self._resolved_decision_hours,
                 "episode_bars": self.config.episode_bars,
                 "episode_hour_choices": self.config.episode_hour_choices,
@@ -1003,9 +1006,17 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         executor = MarketExecutor(self.dataset, self.config.execution_cost)
         executor.reset_random_state(reward_start)
         cursor = history_start
+        pending_target: np.ndarray | None = None
         returns: list[float] = []
         while cursor < reward_start:
-            target = self.trend_strategy.targets(self.dataset, cursor).base
+            submitted_target = self.trend_strategy.targets(self.dataset, cursor).base
+            if self.config.signal_delay_decisions == 0:
+                target = submitted_target
+            else:
+                target = (
+                    book.weights.copy() if pending_target is None else pending_target
+                )
+                pending_target = submitted_target.copy()
             constrained = self.pre_trade_risk.constrain(
                 target,
                 current=book.weights,
@@ -1104,6 +1115,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._episode_hours = resolved_hours
         self._initial_state_mode = mode
         self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
+        self._pending_hybrid_target = None
+        self._pending_shadow_target = None
         self._position_age = np.zeros(self.dataset.n_symbols, dtype=np.float64)
         if mode == "partial_fill":
             raw_requested = self.trend_strategy.targets(self.dataset, start).base
@@ -1378,8 +1391,30 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             factor_basis=factor_basis,
             max_gross=self.pre_trade_risk.config.max_gross,
         )
-        hybrid_risk = self._constrain_target(composition.proposal, self.hybrid)
-        shadow_risk = self._constrain_target(trends.base, self.shadow)
+        submitted_hybrid_target = np.asarray(
+            composition.proposal, dtype=np.float64
+        ).copy()
+        submitted_shadow_target = np.asarray(trends.base, dtype=np.float64).copy()
+        execution_delay_warmup = False
+        if self.config.signal_delay_decisions == 0:
+            executed_hybrid_target = submitted_hybrid_target
+            executed_shadow_target = submitted_shadow_target
+        else:
+            execution_delay_warmup = self._pending_hybrid_target is None
+            executed_hybrid_target = (
+                self.hybrid.weights.copy()
+                if self._pending_hybrid_target is None
+                else self._pending_hybrid_target.copy()
+            )
+            executed_shadow_target = (
+                self.shadow.weights.copy()
+                if self._pending_shadow_target is None
+                else self._pending_shadow_target.copy()
+            )
+            self._pending_hybrid_target = submitted_hybrid_target
+            self._pending_shadow_target = submitted_shadow_target
+        hybrid_risk = self._constrain_target(executed_hybrid_target, self.hybrid)
+        shadow_risk = self._constrain_target(executed_shadow_target, self.shadow)
         bars = self._decision_bar_count()
         previous_hybrid_weights = self.hybrid.weights.copy()
         hybrid_execution = self.hybrid_executor.execute_interval(
@@ -1509,6 +1544,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             "decision_step_index": self._decision_step_index,
             "excess_log_return": hybrid_log_return - shadow_log_return,
             "emergency_deleverage": emergency_deleverage,
+            "execution_delay_warmup": execution_delay_warmup,
+            "submitted_target": submitted_hybrid_target.copy(),
+            "executed_target": executed_hybrid_target.copy(),
             "drawdown_after": self._drawdown(self.hybrid),
             "portfolio_value_after": self.hybrid.portfolio_value,
             "reward_growth_raw": reward_breakdown.absolute_log_growth,

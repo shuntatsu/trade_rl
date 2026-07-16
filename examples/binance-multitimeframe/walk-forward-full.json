@@ -83,7 +83,8 @@
             "volatility_long_hours": 720.0,
             "flatten_untradable": true
           },
-          "structured_sequence_observation": false
+          "structured_sequence_observation": false,
+          "signal_delay_decisions": 1
         },
         "risk": {
           "max_gross": 1.0,
@@ -233,7 +234,8 @@
               "1d",
               60
             ]
-          ]
+          ],
+          "signal_delay_decisions": 1
         },
         "risk": {
           "max_gross": 1.0,
@@ -385,7 +387,8 @@
               "1d",
               60
             ]
-          ]
+          ],
+          "signal_delay_decisions": 1
         },
         "risk": {
           "max_gross": 1.0,

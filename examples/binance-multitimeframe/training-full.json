@@ -86,7 +86,8 @@
         "1d",
         60
       ]
-    ]
+    ],
+    "signal_delay_decisions": 1
   },
   "risk": {
     "max_gross": 1.0,

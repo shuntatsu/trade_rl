@@ -302,6 +302,9 @@ def _fit_sequence_normalizer(
 def _sequence_normalizer_payload(
     normalizer: SequenceFeatureNormalizer,
 ) -> dict[str, object]:
+    sample_count = normalizer.sample_count
+    if sample_count is None:
+        raise RuntimeError("sequence normalizer sample counts are unavailable")
     return {
         "center": {
             key: tuple(float(value) for value in normalizer.center[key])
@@ -316,7 +319,7 @@ def _sequence_normalizer_payload(
             for key in normalizer.feature_names
         },
         "sample_count": {
-            key: tuple(int(value) for value in normalizer.sample_count[key])
+            key: tuple(int(value) for value in sample_count[key])
             for key in normalizer.feature_names
         },
         "minimum_samples_per_channel": normalizer.minimum_samples_per_channel,

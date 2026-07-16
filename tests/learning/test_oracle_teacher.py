@@ -121,7 +121,7 @@ def test_oracle_labels_only_fully_executable_portfolio_targets() -> None:
 
     targets = oracle_target_path(constrained, (0, 8), config)
 
-    assert np.count_nonzero(targets[:, 0]) == 0
+    assert np.any(targets[:, 0] > 0.0)
     assert np.max(np.abs(targets).sum(axis=1)) <= config.max_gross
 
 
@@ -130,7 +130,7 @@ def test_oracle_respects_point_in_time_tradability() -> None:
 
     market = _market(100.0 * np.exp(np.arange(8) * 0.03))
     tradable = market.tradable.copy()
-    tradable[3:, 0] = False
+    tradable[1:, 0] = False
     constrained = replace(market, tradable=tradable)
 
     targets = oracle_target_path(
@@ -139,11 +139,11 @@ def test_oracle_respects_point_in_time_tradability() -> None:
         OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero()),
     )
 
-    assert np.count_nonzero(targets[2:, 0]) == 0
+    assert np.count_nonzero(targets[:, 0]) == 0
 
 
 def test_oracle_accounts_for_weight_drift_and_direction_permissions() -> None:
-    """A profitable entry is invalid when its drifted weight cannot be reduced later."""
+    """A blocked reduction is a no-fill hold, matching the real executor."""
 
     from dataclasses import replace
 
@@ -158,7 +158,8 @@ def test_oracle_accounts_for_weight_drift_and_direction_permissions() -> None:
         OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero()),
     )
 
-    np.testing.assert_array_equal(targets, np.zeros_like(targets))
+    assert targets[0, 0] > 0.0
+    assert np.all(targets[:, 0] >= 0.0)
 
 
 def test_oracle_one_bar_transition_matches_deterministic_executor() -> None:
@@ -231,3 +232,123 @@ def test_oracle_holds_profitable_position_when_rebalance_is_suppressed() -> None
     targets = oracle_target_path(market, (0, 5), config)
 
     assert np.all(targets[:, 0] > 0.0)
+
+
+def test_oracle_partial_fill_matches_executor_instead_of_invalidating_transition() -> (
+    None
+):
+    from dataclasses import replace
+
+    from trade_rl.learning.oracle_teacher import (
+        _open_state_matrix,
+        _transition_matrices,
+    )
+    from trade_rl.simulation.accounting import BookState
+    from trade_rl.simulation.execution import MarketExecutor
+
+    market = _market(np.array([100.0, 110.0, 110.0]))
+    constrained = replace(
+        market,
+        volume=np.full_like(market.volume, 10.0),
+        max_participation_rate=np.full_like(market.close, 0.01),
+        minimum_notional=np.zeros_like(market.close),
+    )
+    cost = ExecutionCostConfig(
+        fee_rate=0.0,
+        spread_rate=0.0,
+        impact_rate=0.0,
+        max_participation_rate=0.01,
+        maintenance_margin_rate=0.0,
+    )
+    config = OracleTeacherConfig(
+        execution_cost=cost,
+        reference_portfolio_value=1_000.0,
+    )
+    target = np.array([[0.45]], dtype=np.float64)
+    _, open_weights, open_equity, _ = _open_state_matrix(
+        constrained,
+        close_index=0,
+        prior_close_weights=np.zeros((1, 1), dtype=np.float64),
+        prior_scores=np.zeros(1, dtype=np.float64),
+        reference_portfolio_value=config.reference_portfolio_value,
+    )
+    valid, _, _, effective_targets = _transition_matrices(
+        constrained,
+        config,
+        close_index=0,
+        current_weights=open_weights,
+        open_equity=open_equity,
+        targets=target,
+    )
+    result = MarketExecutor(constrained, cost).execute_interval(
+        BookState.zero(
+            1,
+            config.reference_portfolio_value,
+            constrained.close[0],
+            contract_multipliers=constrained.resolved_array("contract_multipliers"),
+        ),
+        target[0],
+        start_index=0,
+        bars=1,
+    )
+
+    assert valid[0, 0]
+    expected_open_weight = (
+        result.filled_notional_by_symbol[0] / config.reference_portfolio_value
+    )
+    assert 0.0 < effective_targets[0, 0, 0] < target[0, 0]
+    assert effective_targets[0, 0, 0] == pytest.approx(expected_open_weight)
+
+
+def test_oracle_below_minimum_notional_is_an_executable_noop() -> None:
+    from dataclasses import replace
+
+    from trade_rl.learning.oracle_teacher import (
+        _open_state_matrix,
+        _transition_matrices,
+    )
+
+    market = _market(np.array([100.0, 101.0, 101.0]))
+    constrained = replace(
+        market,
+        minimum_notional=np.full_like(market.close, 500.0),
+    )
+    config = OracleTeacherConfig(
+        execution_cost=ExecutionCostConfig.zero(),
+        reference_portfolio_value=1_000.0,
+    )
+    _, open_weights, open_equity, _ = _open_state_matrix(
+        constrained,
+        close_index=0,
+        prior_close_weights=np.zeros((1, 1), dtype=np.float64),
+        prior_scores=np.zeros(1, dtype=np.float64),
+        reference_portfolio_value=config.reference_portfolio_value,
+    )
+    valid, _, _, effective_targets = _transition_matrices(
+        constrained,
+        config,
+        close_index=0,
+        current_weights=open_weights,
+        open_equity=open_equity,
+        targets=np.array([[0.45]], dtype=np.float64),
+    )
+
+    assert valid[0, 0]
+    np.testing.assert_array_equal(effective_targets[0, 0], open_weights[0])
+
+
+def test_delayed_oracle_returns_submitted_actions_and_discards_terminal_pending_action() -> (
+    None
+):
+    market = _market(100.0 * np.exp(np.arange(8) * 0.04))
+    config = OracleTeacherConfig(
+        execution_cost=ExecutionCostConfig.zero(),
+        signal_delay_decisions=1,
+    )
+
+    targets = oracle_target_path(market, (0, 8), config)
+
+    assert targets.shape == (7, 1)
+    assert np.any(targets[:-1, 0] > 0.0)
+    np.testing.assert_array_equal(targets[-1], np.zeros(1, dtype=np.float32))
+    assert "approximate" in config.schema_version

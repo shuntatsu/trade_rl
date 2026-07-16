@@ -1,4 +1,4 @@
-"""Train-range-only executable portfolio dynamic-programming oracle targets."""
+"""Train-range-only bounded approximate portfolio teacher targets."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.execution import ExecutionCostConfig
 
-ORACLE_TEACHER_SCHEMA: Final = "portfolio_dp_oracle_teacher_v2"
+ORACLE_TEACHER_SCHEMA: Final = "approximate_portfolio_teacher_v3"
 _EPSILON = 1e-12
 
 
 @dataclass(frozen=True, slots=True)
 class OracleTeacherConfig:
-    """Deterministic portfolio state, risk, and execution contract."""
+    """Deterministic bounded-state approximation of the execution contract."""
 
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
     positions: tuple[float, ...] = (-1.0, 0.0, 1.0)
@@ -30,6 +30,9 @@ class OracleTeacherConfig:
     no_trade_band: float = 0.05
     reference_portfolio_value: float = 1_000_000.0
     maximum_states: int = 512
+    signal_delay_decisions: int = 0
+    approximation_contract: str = "bounded_state_partial_fill_v1"
+    control_tie_break_penalty: float = 1e-9
     schema_version: str = ORACLE_TEACHER_SCHEMA
 
     def __post_init__(self) -> None:
@@ -73,6 +76,23 @@ class OracleTeacherConfig:
             or self.maximum_states <= 0
         ):
             raise ValueError("oracle maximum_states must be a positive integer")
+        if (
+            isinstance(self.signal_delay_decisions, bool)
+            or not isinstance(self.signal_delay_decisions, int)
+            or self.signal_delay_decisions not in {0, 1}
+        ):
+            raise ValueError(
+                "oracle signal_delay_decisions must be exactly zero or one"
+            )
+        if self.approximation_contract != "bounded_state_partial_fill_v1":
+            raise ValueError("unsupported oracle approximation contract")
+        if (
+            not math.isfinite(self.control_tie_break_penalty)
+            or self.control_tie_break_penalty <= 0.0
+        ):
+            raise ValueError(
+                "oracle control_tie_break_penalty must be finite and positive"
+            )
         cost = self.execution_cost
         if (
             cost.slippage_std != 0.0
@@ -250,32 +270,29 @@ def _transition_matrices(
     """Return feasibility, equity factors, close weights, and effective targets."""
 
     execution_index = close_index + 1
-    effective_targets = _effective_target_matrix(config, current_weights, targets)
-    delta = effective_targets - current_weights[:, None, :]
-    absolute_delta = np.abs(delta)
-    trade = absolute_delta > _EPSILON
-    valid = np.ones(delta.shape[:2], dtype=np.bool_)
+    requested_targets = _effective_target_matrix(config, current_weights, targets)
+    desired_delta = requested_targets - current_weights[:, None, :]
+    requested_trade = np.abs(desired_delta) > _EPSILON
+    valid_prior = np.isfinite(open_equity) & (open_equity > _EPSILON)
+    valid = np.broadcast_to(valid_prior[:, None], desired_delta.shape[:2]).copy()
 
     active = dataset.resolved_array("asset_active")[execution_index]
     tradable = dataset.tradable[execution_index]
     buy_allowed = dataset.resolved_array("buy_allowed")[execution_index]
     sell_allowed = dataset.resolved_array("sell_allowed")[execution_index]
     borrow_available = dataset.resolved_array("borrow_available")[execution_index]
-    tradable_direction = np.where(
-        delta > _EPSILON,
+    direction_allowed = np.where(
+        desired_delta > _EPSILON,
         buy_allowed[None, None, :],
-        np.where(delta < -_EPSILON, sell_allowed[None, None, :], True),
+        np.where(desired_delta < -_EPSILON, sell_allowed[None, None, :], True),
     )
-    valid &= np.all(
-        ~trade | (active[None, None, :] & tradable[None, None, :] & tradable_direction),
-        axis=2,
-    )
-    increasing_short = (delta < -_EPSILON) & (effective_targets < -_EPSILON)
-    valid &= np.all(~increasing_short | borrow_available[None, None, :], axis=2)
+    executable = active[None, None, :] & tradable[None, None, :] & direction_allowed
+    increasing_short = (desired_delta < -_EPSILON) & (requested_targets < -_EPSILON)
+    executable &= ~increasing_short | borrow_available[None, None, :]
     if not config.execution_cost.allow_short:
-        valid &= ~np.any(effective_targets < -_EPSILON, axis=2)
+        executable &= requested_targets >= -_EPSILON
 
-    requested = absolute_delta * open_equity[:, None, None]
+    requested = np.abs(desired_delta) * open_equity[:, None, None]
     prices = dataset.open[execution_index]
     market_notional = dataset.market_notional(
         execution_index,
@@ -291,19 +308,25 @@ def _transition_matrices(
         dataset.resolved_array("minimum_notional")[execution_index],
         config.execution_cost.minimum_notional,
     )
-    valid &= np.all(
-        ~trade | (requested >= minimum_notional[None, None, :] - 1e-9),
-        axis=2,
+    eligible = (
+        requested_trade
+        & executable
+        & (requested >= minimum_notional[None, None, :] - 1e-9)
     )
-    valid &= np.all(
-        ~trade | (requested <= capacity[None, None, :] + 1e-9),
-        axis=2,
+    filled_notional = np.where(
+        eligible,
+        np.minimum(requested, capacity[None, None, :]),
+        0.0,
     )
+    safe_equity = np.maximum(open_equity[:, None, None], _EPSILON)
+    filled_delta = np.sign(desired_delta) * filled_notional / safe_equity
+    effective_targets = current_weights[:, None, :] + filled_delta
+    absolute_delta = np.abs(filled_delta)
 
-    participation = np.zeros_like(requested)
+    participation = np.zeros_like(filled_notional)
     positive_liquidity = market_notional > _EPSILON
     participation[:, :, positive_liquidity] = (
-        requested[:, :, positive_liquidity]
+        filled_notional[:, :, positive_liquidity]
         / market_notional[None, None, positive_liquidity]
     )
     venue_fee = (
@@ -407,7 +430,7 @@ def oracle_target_path(
     train_range: tuple[int, int],
     config: OracleTeacherConfig,
 ) -> np.ndarray:
-    """Return fully executable portfolio-level target labels inside train range."""
+    """Return bounded approximate submitted target labels inside train range."""
 
     if config.execution_cost.margin_mode != "cross":
         raise ValueError("oracle currently supports cross margin only")
@@ -418,7 +441,6 @@ def oracle_target_path(
     scores = np.full((steps, state_count), -np.inf, dtype=np.float64)
     pointers = np.full((steps, state_count), -1, dtype=np.int64)
     close_weights = np.zeros((steps, state_count, dataset.n_symbols), dtype=np.float64)
-    selected_targets = np.zeros_like(close_weights)
     cash_index = int(np.flatnonzero(np.all(np.isclose(states, 0.0), axis=1))[0])
 
     for step in range(steps):
@@ -437,41 +459,99 @@ def oracle_target_path(
             prior_scores=prior_scores,
             reference_portfolio_value=config.reference_portfolio_value,
         )
-        (
-            transition_valid,
-            close_factor,
-            candidate_close_weights,
-            candidate_effective_targets,
-        ) = _transition_matrices(
-            dataset,
-            config,
-            close_index=close_index,
-            current_weights=open_weights,
-            open_equity=open_equity,
-            targets=states,
-        )
-        transition_valid &= valid_prior[:, None]
-        candidate_scores = (
-            prior_scores[:, None]
-            + np.log(np.where(valid_prior, gap_factor, 1.0))[:, None]
-            + np.log(np.where(transition_valid, close_factor, 1.0))
-        )
-        candidate_scores = np.where(transition_valid, candidate_scores, -np.inf)
-        best_prior = np.argmax(candidate_scores, axis=0)
-        best_scores = candidate_scores[best_prior, np.arange(state_count)]
-        scores[step] = best_scores
-        pointers[step] = np.where(np.isfinite(best_scores), best_prior, -1)
-        close_weights[step] = candidate_close_weights[
-            best_prior, np.arange(state_count)
-        ]
-        selected_targets[step] = candidate_effective_targets[
-            best_prior, np.arange(state_count)
-        ]
-        invalid = ~np.isfinite(best_scores)
-        close_weights[step, invalid] = 0.0
-        selected_targets[step, invalid] = 0.0
+        if config.signal_delay_decisions == 0:
+            (
+                transition_valid,
+                close_factor,
+                candidate_close_weights,
+                candidate_effective_targets,
+            ) = _transition_matrices(
+                dataset,
+                config,
+                close_index=close_index,
+                current_weights=open_weights,
+                open_equity=open_equity,
+                targets=states,
+            )
+            transition_valid &= valid_prior[:, None]
+            candidate_scores = (
+                prior_scores[:, None]
+                + np.log(np.where(valid_prior, gap_factor, 1.0))[:, None]
+                + np.log(np.where(transition_valid, close_factor, 1.0))
+            )
+            control_projection = np.abs(
+                states[None, :, :] - candidate_effective_targets
+            ).sum(axis=2)
+            candidate_scores -= config.control_tie_break_penalty * control_projection
+            candidate_scores = np.where(transition_valid, candidate_scores, -np.inf)
+            best_prior = np.argmax(candidate_scores, axis=0)
+            best_scores = candidate_scores[best_prior, np.arange(state_count)]
+            scores[step] = best_scores
+            pointers[step] = np.where(np.isfinite(best_scores), best_prior, -1)
+            close_weights[step] = candidate_close_weights[
+                best_prior, np.arange(state_count)
+            ]
+        elif step == 0:
+            hold = states[cash_index : cash_index + 1]
+            transition_valid, close_factor, candidate_close_weights, _ = (
+                _transition_matrices(
+                    dataset,
+                    config,
+                    close_index=close_index,
+                    current_weights=open_weights,
+                    open_equity=open_equity,
+                    targets=hold,
+                )
+            )
+            transition_valid &= valid_prior[:, None]
+            candidate_scores = (
+                prior_scores[:, None]
+                + np.log(np.where(valid_prior, gap_factor, 1.0))[:, None]
+                + np.log(np.where(transition_valid, close_factor, 1.0))
+            )
+            candidate_scores = np.where(transition_valid, candidate_scores, -np.inf)
+            best_prior = int(np.argmax(candidate_scores[:, 0]))
+            best_score = float(candidate_scores[best_prior, 0])
+            scores[step] = best_score
+            pointers[step] = best_prior
+            close_weights[step] = candidate_close_weights[best_prior, 0]
+        else:
+            transition_valid, close_factor, candidate_close_weights, _ = (
+                _transition_matrices(
+                    dataset,
+                    config,
+                    close_index=close_index,
+                    current_weights=open_weights,
+                    open_equity=open_equity,
+                    targets=states,
+                )
+            )
+            diagonal = np.arange(state_count)
+            diagonal_valid = transition_valid[diagonal, diagonal] & valid_prior
+            diagonal_scores = (
+                prior_scores
+                + np.log(np.where(valid_prior, gap_factor, 1.0))
+                + np.log(
+                    np.where(
+                        diagonal_valid,
+                        close_factor[diagonal, diagonal],
+                        1.0,
+                    )
+                )
+            )
+            diagonal_scores = np.where(diagonal_valid, diagonal_scores, -np.inf)
+            best_prior = int(np.argmax(diagonal_scores))
+            best_score = float(diagonal_scores[best_prior])
+            scores[step] = best_score
+            pointers[step] = best_prior
+            close_weights[step] = candidate_close_weights[best_prior, best_prior]
 
-    final_state = int(np.argmax(scores[-1]))
+        invalid = ~np.isfinite(scores[step])
+        close_weights[step, invalid] = 0.0
+
+    final_state = (
+        cash_index if config.signal_delay_decisions == 1 else int(np.argmax(scores[-1]))
+    )
     if not math.isfinite(float(scores[-1, final_state])):
         raise RuntimeError("oracle found no executable portfolio path")
     state_path = np.zeros(steps, dtype=np.int64)
@@ -481,7 +561,9 @@ def oracle_target_path(
         if prior < 0:
             raise RuntimeError("oracle portfolio backpointer is missing")
         state_path[step - 1] = prior
-    targets = selected_targets[np.arange(steps), state_path]
+    # Labels are bounded submitted targets. Realized partial/no-fill weights
+    # remain in the DP transition state and may drift outside the target grid.
+    targets = states[state_path]
     if not np.isfinite(targets).all():
         raise RuntimeError("oracle target path contains non-finite values")
     if np.any(np.abs(targets) > config.max_abs_weight + _EPSILON):

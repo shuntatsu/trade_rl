@@ -366,6 +366,9 @@ class StableBaselines3Backend:
                         exit_threshold=risk_config.exit_threshold,
                         no_trade_band=risk_config.no_trade_band,
                         reference_portfolio_value=unwrapped_teacher.initial_capital,
+                        signal_delay_decisions=(
+                            unwrapped_teacher.config.signal_delay_decisions
+                        ),
                     )
                     targets = self._oracle_targets(dataset, train_range, teacher_config)
                     teacher_dataset = collect_teacher_rollout(

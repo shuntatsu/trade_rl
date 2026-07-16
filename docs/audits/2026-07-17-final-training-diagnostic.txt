@@ -1,0 +1,26 @@
+final_training_diagnostic_v1
+run_id=29540534296
+branch_sha=244f9e0edb88be286d6e985c941a54433cf53b16
+install=success
+static=failure
+tests=success
+audit=success
+docker=success
+
+--- static_log_tail ---
+All checks passed!
+--- tests/workflows/test_market_walk_forward.py
++++ tests/workflows/test_market_walk_forward.py
+@@ -411,9 +411,7 @@
+                     "max_folds": 1,
+                 },
+                 "minimum_selection_uplift": 0.0,
+-                "candidates": [
+-                    {"name": "sequence-ppo", "run": run.digest_payload()}
+-                ],
++                "candidates": [{"name": "sequence-ppo", "run": run.digest_payload()}],
+             }
+         ),
+         encoding="utf-8",
+
+1 file would be reformatted, 275 files already formatted

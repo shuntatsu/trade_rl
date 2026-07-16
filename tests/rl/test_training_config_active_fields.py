@@ -11,9 +11,9 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "timesteps": 16,
         "gamma": 0.99,
         "seeds": (0,),
-        "n_steps": 8,
-        "batch_size": 8,
-        "n_epochs": 1,
+        "n_steps": 2_048,
+        "batch_size": 64,
+        "n_epochs": 10,
         "asset_set_encoder": False,
         "device": "cpu",
     }

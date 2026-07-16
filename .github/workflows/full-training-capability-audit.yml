@@ -1,0 +1,82 @@
+name: Full training capability audit
+
+on:
+  push:
+    branches:
+      - agent/full-training-functional-audit
+    paths:
+      - '.github/workflows/full-training-capability-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install complete audit dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export
+      - name: Run real training capability matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var
+          uv run python tools/run_training_capability_audit.py \
+            --output var/training-capability-audit \
+            2>&1 | tee var/training-capability-audit.log
+      - name: Run loophole and causality regression matrix
+        run: >-
+          uv run pytest -q
+          tests/rl/test_training_config_active_fields.py
+          tests/integrations/test_sb3_training_active_architecture.py
+          tests/rl/test_training_resume.py
+          tests/rl/test_policy_export.py
+          tests/rl/test_signal_artifact_environment.py
+          tests/rl/test_sequence_normalization.py
+          tests/rl/test_sequence_observations.py
+          tests/rl/test_sequence_policy_core.py
+          tests/workflows/test_fold_runner.py
+          tests/workflows/test_market_walk_forward.py
+          tests/workflows/test_training_run.py
+          tests/data/test_builder.py
+      - name: Verify audit result schema
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('var/training-capability-audit/audit-report.json')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          assert payload['schema_version'] == 'full_training_capability_audit_v1'
+          assert len(payload['digest']) == 64
+          for name, record in payload['algorithms'].items():
+              assert record['status'] == 'pass', (name, record)
+              assert record['actual_timesteps'] >= 16
+              assert record['checkpoint_count'] >= 1
+          for name in (
+              'behavior_cloning',
+              'exports',
+              'replay_resume',
+              'residual_controls',
+              'sequence',
+              'training_resume',
+          ):
+              assert payload[name]['status'] == 'pass', (name, payload[name])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-training-capability-audit
+          path: |
+            var/training-capability-audit
+            var/training-capability-audit.log
+          if-no-files-found: warn
+          retention-days: 14

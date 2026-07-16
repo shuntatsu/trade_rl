@@ -175,9 +175,6 @@ class StableBaselines3Backend:
                     "features_extractor_kwargs": {
                         **sequence_metadata,
                         "d_model": config.sequence_d_model,
-                        "actor_head": "shared_per_asset_v1",
-                        "actor_parameter_sharing": "one_head_all_assets",
-                        "actor_symbol_order": tuple(identity["action_names"]),
                         "attention_heads": config.sequence_attention_heads,
                         "attention_layers": config.sequence_attention_layers,
                         "dropout": config.sequence_dropout,
@@ -187,8 +184,20 @@ class StableBaselines3Backend:
                     "shared_actor_global_dim": 128,
                     "shared_actor_net_arch": tuple(config.policy_net_arch),
                 }
+            elif isinstance(algorithm_config, PPOConfig):
+                policy_kwargs = {
+                    "net_arch": {
+                        "pi": list(algorithm_config.policy_net_arch),
+                        "vf": list(algorithm_config.value_net_arch),
+                    }
+                }
             else:
-                policy_kwargs = {"net_arch": list(algorithm_config.policy_net_arch)}
+                policy_kwargs = {
+                    "net_arch": {
+                        "pi": list(algorithm_config.policy_net_arch),
+                        "qf": list(algorithm_config.value_net_arch),
+                    }
+                }
             if isinstance(algorithm_config, PPOConfig):
                 policy_kwargs["log_std_init"] = algorithm_config.log_std_init
             if config.asset_set_encoder:
@@ -394,6 +403,10 @@ class StableBaselines3Backend:
                     )
                 architecture_details.update(
                     {
+                        "actor_head": "shared_per_asset_v1",
+                        "actor_parameter_sharing": "one_head_all_assets",
+                        "actor_symbol_order": tuple(identity["action_names"]),
+                        "encoder": "MultiTimeframeTCNEncoder",
                         "feature_counts": dict(sequence_metadata["feature_counts"]),
                         "window_lengths": dict(sequence_metadata["window_lengths"]),
                         "d_model": config.sequence_d_model,

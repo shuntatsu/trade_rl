@@ -6,6 +6,9 @@ on:
       - agent/remediate-architecture-audit
     paths:
       - '.github/workflows/export-remediation-source.yml'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:

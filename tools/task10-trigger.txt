@@ -1,1 +1,1 @@
-trigger task10 terminal accounting related-suite verification
+trigger task10 terminal accounting with type narrowing

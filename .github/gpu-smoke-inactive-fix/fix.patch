@@ -1,0 +1,13 @@
+diff --git a/examples/binance-multitimeframe/run_gpu_training_smoke.py b/examples/binance-multitimeframe/run_gpu_training_smoke.py
+index 796ddfe..f621324 100644
+--- a/examples/binance-multitimeframe/run_gpu_training_smoke.py
++++ b/examples/binance-multitimeframe/run_gpu_training_smoke.py
+@@ -70,6 +70,8 @@ def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
+     training.update(
+         {
+             "asset_set_encoder": False,
++            "asset_embedding_dim": 64,
++            "global_embedding_dim": 64,
+             "batch_size": 32,
+             "device": "cuda",
+             "n_envs": 4,

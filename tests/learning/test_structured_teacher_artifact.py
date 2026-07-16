@@ -148,6 +148,9 @@ def test_structured_rollout_stores_compact_state_and_reconstructs_exact_sequence
         observations=supervised.observations,
     )
     rebuilt = provider.get(np.arange(4))
+    assert "decision_index" not in rebuilt
     for key, values in direct.items():
+        if key == "decision_index":
+            continue
         np.testing.assert_array_equal(rebuilt[key], np.stack(values, axis=0))
     assert provider.maximum_requested_batch == 4

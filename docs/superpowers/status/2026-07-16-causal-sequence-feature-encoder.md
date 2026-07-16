@@ -39,10 +39,11 @@ Local verification completed on the current source:
 - Import architecture: 5 contracts kept, 0 broken.
 - Vulture at 100% confidence: passed.
 - Full non-Docker suite on the current local Python environment: 747 passed, 1 skipped.
-- Python 3.12 branch coverage and critical-coverage ratchets are revalidated by pull-request CI after publication.
+- Python 3.12 patch verification passed with the full pytest, branch-coverage, critical-coverage and CLI gates before the product commit was published.
 - CLI smoke and Python compileall: passed.
 - `git diff --check`: passed.
 - Full native-window CPU Oracle BC→PPO smoke: passed with 226 features, approximately 7.10M parameters, compact teacher observations, and an 8-step PPO publish.
+- Temporary payloads, export workflows, verification workflows and generated coverage files were removed after publication. The temporary trigger pull request was closed without merge.
 
 The connected execution environment does not expose an NVIDIA GPU or Docker daemon, so a real CUDA allocation measurement cannot be honestly claimed here. The maintained CUDA smoke now exercises the same structured sequence policy, feature contract, Oracle BC path, and four-environment PPO path and must pass on the user's RTX/Docker host before a full retraining generation is accepted.
 

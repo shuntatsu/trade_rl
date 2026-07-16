@@ -17,9 +17,9 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
-      AUDIT_REVISION: '6'
+      AUDIT_REVISION: '7'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -36,7 +36,7 @@ jobs:
           uv run python tools/run_training_capability_audit.py \
             --output var/training-capability-audit \
             2>&1 | tee var/training-capability-audit.log
-      - name: Run loophole and causality regression matrix
+      - name: Run loophole, workflow, and serving regression matrix
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +53,7 @@ jobs:
             tests/workflows/test_market_walk_forward.py \
             tests/workflows/test_training_run.py \
             tests/data/test_market_builder.py \
+            tests/e2e/test_research_to_serving_v2.py \
             2>&1 | tee var/training-loophole-regression.log
       - name: Verify audit result schema
         shell: bash

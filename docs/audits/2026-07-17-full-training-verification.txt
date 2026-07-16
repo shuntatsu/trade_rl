@@ -1,0 +1,10 @@
+final_training_verification_v1
+branch_sha=ea7319ebb7a40ea604f3564630666473fa73929e
+tested_merge_sha=9b7067a326afdaecd2e54b73f179152ea4118486
+run_id=29540781696
+ubuntu_static=pass
+ubuntu_full_pytest_coverage=pass
+critical_branch_coverage=pass
+real_training_capability_audit=pass
+training_image_non_root_probe=pass
+windows_compatibility=pass

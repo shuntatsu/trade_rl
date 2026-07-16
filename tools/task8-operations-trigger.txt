@@ -1,1 +1,1 @@
-trigger task8 GPU operations and documentation runner
+trigger task8 operations diagnostic runner

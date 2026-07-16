@@ -44,26 +44,39 @@ jobs:
       - name: GREEN and diagnostics
         shell: bash
         run: |
-          set -uo pipefail
           set +e
-          {
-            python tools/apply_task8_operations.py implementation
-            uv run ruff format examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
-            uv run ruff check --fix examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
-            uv run pytest -q tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py tests/workflows/test_training_run_config.py tests/integrations/test_sb3_training.py tests/serving/test_sb3_loader.py
-            uv run ruff check examples/binance-multitimeframe/run_gpu_training_smoke.py
-            uv run mypy examples/binance-multitimeframe/run_gpu_training_smoke.py
-            python - <<'PY'
-            from pathlib import Path
-            import yaml
-            for path in (Path('.github/workflows/ci.yml'), Path('.github/workflows/gpu-nightly.yml')):
-                payload = yaml.safe_load(path.read_text(encoding='utf-8'))
-                assert isinstance(payload, dict)
-            PY
-          } > task8-operations-diagnostic.log 2>&1
-          status=$?
-          set -e
+          : > task8-operations-diagnostic.log
+          run_step() {
+            name="$1"
+            shift
+            echo "===== ${name} =====" >> task8-operations-diagnostic.log
+            "$@" >> task8-operations-diagnostic.log 2>&1
+            code=$?
+            echo "exit=${code}" >> task8-operations-diagnostic.log
+            return "$code"
+          }
+          status=0
+          run_step apply python tools/apply_task8_operations.py implementation || status=$?
+          if [ "$status" -eq 0 ]; then
+            run_step format uv run ruff format examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step lint-fix uv run ruff check --fix examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step focused-tests uv run pytest -q tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py tests/workflows/test_training_run_config.py tests/integrations/test_sb3_training.py tests/serving/test_sb3_loader.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step lint uv run ruff check examples/binance-multitimeframe/run_gpu_training_smoke.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step types uv run mypy examples/binance-multitimeframe/run_gpu_training_smoke.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step workflow-yaml python -c "from pathlib import Path; import yaml; paths=(Path('.github/workflows/ci.yml'),Path('.github/workflows/gpu-nightly.yml')); assert all(isinstance(yaml.safe_load(path.read_text(encoding='utf-8')),dict) for path in paths)" || status=$?
+          fi
           echo "$status" > task8-operations-status.txt
+          exit 0
       - name: Upload operations diagnostic
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,7 +91,7 @@ jobs:
           set -euo pipefail
           status=$(cat task8-operations-status.txt)
           if [ "$status" -ne 0 ]; then
-            tail -n 450 task8-operations-diagnostic.log
+            cat task8-operations-diagnostic.log
             exit "$status"
           fi
           rm -f tools/apply_task8_operations.py tools/task8-operations-trigger.txt task8-operations-diagnostic.log task8-operations-status.txt

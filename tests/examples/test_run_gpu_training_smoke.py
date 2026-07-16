@@ -43,6 +43,8 @@ def test_smoke_config_preserves_the_maintained_cuda_training_contract(
     )
     assert config.training.timesteps == 128
     assert config.training.behavior_cloning_epochs == 1
+    assert config.training.checkpoint_interval_steps == 64
+    assert config.training.max_checkpoints == 2
     assert config.action.mode == "target_weight"
     assert config.action.target_weight_count == 1
     assert config.git_commit == "a" * 40

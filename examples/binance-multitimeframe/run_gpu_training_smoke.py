@@ -11,6 +11,8 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+from copy import deepcopy
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
@@ -82,6 +84,8 @@ def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
             "sequence_dropout": 0.05,
             "max_policy_parameters": 12_000_000,
             "max_rollout_buffer_bytes": 268_435_456,
+            "checkpoint_interval_steps": max(1, timesteps // 2),
+            "max_checkpoints": 2,
             "seeds": [0],
             "timesteps": timesteps,
             "behavior_cloning_epochs": 1,
@@ -175,9 +179,30 @@ def build_smoke_config(timesteps: int) -> TrainingRunConfig:
     return TrainingRunConfig.from_mapping(_smoke_config_payload(timesteps))
 
 
+def _gpu_memory_mib() -> int:
+    completed = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-compute-apps=used_gpu_memory",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return 0
+    values: list[int] = []
+    for line in completed.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.isdigit():
+            values.append(int(stripped))
+    return sum(values)
+
+
 def _run_authoritative_training(
-    *, config: Path, dataset: Path, artifacts: Path
-) -> dict[str, Any]:
+    *, config: Path, dataset: Path, artifacts: Path, run_id: str
+) -> tuple[dict[str, Any], dict[str, float]]:
     command = [
         sys.executable,
         "-m",
@@ -191,30 +216,49 @@ def _run_authoritative_training(
         "--output",
         str(artifacts),
         "--run-id",
-        "gpu-training-smoke",
+        run_id,
     ]
     environment = dict(os.environ)
     environment.setdefault("OMP_NUM_THREADS", "2")
     environment.setdefault("MKL_NUM_THREADS", "2")
-    completed = subprocess.run(
+    started = time.perf_counter()
+    process = subprocess.Popen(
         command,
         cwd=ROOT,
         text=True,
-        capture_output=True,
-        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         env=environment,
     )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "authoritative training workflow failed: " + completed.stderr.strip()
-        )
-    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    peak_gpu_memory_mib = 0
+    while process.poll() is None:
+        peak_gpu_memory_mib = max(peak_gpu_memory_mib, _gpu_memory_mib())
+        time.sleep(0.2)
+    stdout, stderr = process.communicate()
+    duration_seconds = max(time.perf_counter() - started, 1e-9)
+    peak_gpu_memory_mib = max(peak_gpu_memory_mib, _gpu_memory_mib())
+    if process.returncode != 0:
+        raise RuntimeError("authoritative training workflow failed: " + stderr.strip())
+    lines = [line for line in stdout.splitlines() if line.strip()]
     if not lines:
         raise RuntimeError("authoritative training workflow returned no JSON")
     result = json.loads(lines[-1])
     if not isinstance(result, dict):
         raise RuntimeError("authoritative training result must be a JSON object")
-    return dict(result)
+    resolved = dict(result)
+    artifact_path = Path(str(resolved["artifact_path"]))
+    if not artifact_path.is_absolute():
+        artifact_path = ROOT / artifact_path
+    ensemble_payload = json.loads(
+        (artifact_path / "ensemble.json").read_text(encoding="utf-8")
+    )
+    actual_timesteps = int(ensemble_payload["actual_timesteps"])
+    resolved["actual_timesteps"] = actual_timesteps
+    return resolved, {
+        "duration_seconds": duration_seconds,
+        "peak_gpu_memory_mib": float(peak_gpu_memory_mib),
+        "throughput_steps_per_second": actual_timesteps / duration_seconds,
+    }
 
 
 def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, object]:
@@ -243,10 +287,11 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
         encoding="utf-8",
     )
     config = TrainingRunConfig.from_json(config_path)
-    result = _run_authoritative_training(
+    result, first_metrics = _run_authoritative_training(
         config=config_path,
         dataset=dataset_path,
         artifacts=work_root / "artifacts",
+        run_id="gpu-training-smoke",
     )
 
     artifact_path = Path(str(result["artifact_path"]))
@@ -256,15 +301,42 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
     serving_support = json.loads(
         (artifact_path / "serving-support.json").read_text(encoding="utf-8")
     )
-    if serving_support.get("status") != "unsupported":
-        raise RuntimeError("structured smoke must fail closed for flat serving")
-    checkpoint = artifact_path / "members" / "member-000" / "policy.zip"
+    if serving_support.get("status") != "supported":
+        raise RuntimeError("structured smoke must publish native serving support")
+    policy = artifact_path / "members" / "member-000" / "policy.zip"
+    checkpoint_manifests = sorted(
+        (artifact_path / "members" / "member-000" / "checkpoints").glob(
+            "step-*/checkpoint.json"
+        )
+    )
+    if not checkpoint_manifests:
+        raise RuntimeError("GPU smoke did not publish a resumable checkpoint")
+    resume_checkpoint = checkpoint_manifests[0].parent
+    resume_payload = deepcopy(config_payload)
+    resume_payload["resume_checkpoints"] = {"0": str(resume_checkpoint)}
+    resume_config_path = work_root / "training-resume.json"
+    resume_config_path.write_text(
+        json.dumps(resume_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    resumed, resume_metrics = _run_authoritative_training(
+        config=resume_config_path,
+        dataset=dataset_path,
+        artifacts=work_root / "artifacts-resumed",
+        run_id="gpu-training-smoke-resumed",
+    )
+    resumed_artifact = Path(str(resumed["artifact_path"]))
+    if not resumed_artifact.is_absolute():
+        resumed_artifact = ROOT / resumed_artifact
+    resume_evidence_path = resumed_artifact / "members" / "member-000" / "resume.json"
+    if not resume_evidence_path.is_file():
+        raise RuntimeError("GPU smoke resume evidence is missing")
     evidence: dict[str, object] = {
         "actual_timesteps": int(ensemble["actual_timesteps"]),
         "checkpoint": {
             "digest": ensemble["members"][0]["checkpoint_digest"],
-            "path": str(checkpoint),
-            "size_bytes": checkpoint.stat().st_size,
+            "path": str(policy),
+            "size_bytes": policy.stat().st_size,
         },
         "cuda_preflight": preflight,
         "n_envs": config.training.n_envs,
@@ -272,7 +344,14 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
         "serving_support": serving_support,
         "requested_timesteps": config.training.timesteps,
         "resolved_device": ensemble["resolved_device"],
-        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v4",
+        "performance": first_metrics,
+        "resume": {
+            "actual_timesteps": int(resumed["actual_timesteps"]),
+            "checkpoint": str(resume_checkpoint),
+            "evidence": json.loads(resume_evidence_path.read_text(encoding="utf-8")),
+            "performance": resume_metrics,
+        },
+        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v5",
     }
     evidence_path = work_root / "gpu-training-smoke.json"
     evidence_path.write_text(

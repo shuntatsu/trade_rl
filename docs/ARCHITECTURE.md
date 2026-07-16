@@ -84,3 +84,13 @@ Candidate bundle v4 binds action size/names/spec digest, observation schema/size
 `StableBaselines3PolicyLoader` lives in the integration layer. It verifies the bundle-declared `policy-loader.json`, loads every declared PPO, SAC, TD3 or TQC member and runs deterministic probe observations before the runtime swaps active state. Every member must return a finite dynamic action vector inside `[-1, 1]`; the ensemble is averaged only when all members succeed. The runtime loads the same normalizer contract used in training.
 
 Direct exchange connectivity, order routing, broker reconciliation and operational secrets/alerting are deliberately outside this repository's current capability boundary.
+
+## Final causal sequence hardening
+
+The maintained policy uses a shared per-asset actor over contextual asset tokens. The critic remains portfolio-level. PPO uses an index-backed rollout: persistent rollout state contains decision indices and current state, while overlapping native sequences are reconstructed from the immutable causal dataset only for sampled minibatches.
+
+The BC teacher is an approximate portfolio teacher rather than a globally optimal oracle. It uses a bounded beam and executor-compatible minimum-notional and partial-fill semantics. Model artifacts record the approximation contract.
+
+Structured sequence serving is native SB3 serving. The runtime restores the flat and sequence normalizers, validates symbols, ordered features, global features, cadence and sequence layout, rebuilds the Dict observation from a bounded rolling dataset, and leaves live order routing outside the policy artifact.
+
+Production remains NO-GO until the maintained GPU verification, 180 OOS days, a fresh confirmation interval and paper-trading reconciliation all pass.

@@ -136,26 +136,19 @@ layers, symbol embeddings, symbol-preserving actor tokens, separate actor and
 critic heads, and approximately 7.10 million parameters. Timeframe-specific
 dilation schedules cover every declared native window. Four PPO environments
 use `n_steps=128` and batch size 128. Sequence environments run in-process to
-avoid transferring 230,999-element Dict observations through worker pipes. A
-compact rollout buffer preserves float16 sequence/staleness and uint8 availability
-dtypes, reducing the maintained estimate from 473,122,816 bytes to about
-200,495,104 bytes; configurations above 768 MiB still fail closed. Structured
-Oracle teacher artifacts store compact decision indices and reconstruct only the
-requested normalized sequence mini-batch, avoiding duplication of overlapping
-60-day windows.
+avoid transferring 230,999-element Dict observations through worker pipes. An index-backed rollout stores decision indices and non-overlapping current
+state only. Native sequence tensors are reconstructed from the immutable dataset
+for each sampled PPO minibatch, reducing the maintained persistent rollout
+estimate from roughly 200.5 MiB to roughly 5.77 MiB. Configurations above the
+configured memory ceiling still fail closed. Approximate portfolio teacher
+artifacts likewise reconstruct only requested normalized sequence minibatches.
 
-The preset freezes two non-overlapping 360-hour outer
-windows covering `2026-06-01T00:00:00Z` through
-`2026-07-01T00:00:00Z`. Earlier outer windows were used during development and
-must not be described as sealed evidence. Within each fold, checkpoint data retains one predeclared finalist per seed.
-Configuration selection evaluates the full seed distribution and rejects a
-candidate when its median return is non-positive, its worst seed/dispersion is
-unstable, or turnover, cost fraction or drawdown exceeds the configured limit.
-The sealed outer window is opened only for the deterministic median
-representative. Final full-data training is blocked unless both folds agree on
-the same eligible recipe and representative seed. Each fold artifact records the
-full experiment-plan digest and sealed-access digest needed to audit that
-ordering.
+The maintained gate requires six sealed walk-forward folds covering at
+least 180 OOS days. It rejects a candidate when the circular block-bootstrap
+lower confidence bound on mean daily log growth is non-positive, or when drawdown,
+turnover, cost fraction, or selection stability violates configured limits. The
+final run preserves the predetermined three-seed ensemble. A separate fresh
+confirmation interval is opened only after the recipe and ensemble are frozen.
 
 ## Copy artifacts to the host
 
@@ -185,11 +178,11 @@ the container uses `--rm`, it is removed automatically after `cp` exits.
 
 ## Retry and recovery semantics
 
-The maintained full runner does not resume an interrupted PPO or walk-forward
-process. Each invocation requires a new generation name. Failed and interrupted
-evidence stays in its original generation, while the next invocation reuses the
-shared cache. The runner refuses an existing generation even if it is empty or
-contains only partial evidence.
+Each full invocation requires a new immutable generation name. Failed evidence
+stays in its original generation while the next generation reuses the shared
+market-data cache. A single-seed PPO member may continue through a validated
+`resume_checkpoints` mapping; walk-forward orchestration restarts rather than
+resuming in place.
 
 First stop and remove a detached trainer if it is still present:
 
@@ -208,8 +201,9 @@ The prior generation and `/workspace/var/cache/binance-vision` remain intact.
 If the new command reports that the generation already exists, choose another
 name instead of moving or deleting volume contents.
 
-The named volume survives container removal, but the new invocation is a fresh
-run rather than checkpoint resume. Do not describe a retried run as resumed.
+The named volume survives container removal. A new generation is a fresh
+workflow invocation; only members explicitly bound through `resume_checkpoints`
+continue prior policy state. Cache reuse alone is not checkpoint resume.
 
 An already built image can be stopped or inspected without re-exporting the Git
 provenance variables. A full `run` still requires
@@ -259,3 +253,11 @@ docker volume rm trade-rl-training-data
 
 Volume deletion is irreversible. If Docker reports that the volume is in use,
 remove the container named in the error and rerun the volume command.
+
+## GPU verification and checkpoint recovery
+
+Run the manually dispatched `GPU Structured Training Verification` workflow on a self-hosted NVIDIA runner before a full generation. It records peak GPU memory, throughput, structured serving support and a checkpoint-resume run in `gpu-training-smoke.json`.
+
+For interrupted single-seed work, add a `resume_checkpoints` object to the training JSON, mapping the seed string to the checkpoint step directory. The loader validates seed, algorithm, environment digest, training-config digest and observed timestep before continuing. Dataset-bound sequence reconstructors are never serialized into `policy.zip`; they are rebound from the current validated dataset after loading.
+
+A successful CUDA smoke is a systems gate, not profitability evidence. Production remains NO-GO until 180 OOS days, fresh confirmation and paper-trading reconciliation are complete.

@@ -100,6 +100,8 @@ jobs:
             cat task8-operations-diagnostic.log
             exit "$status"
           fi
+          git restore .github/workflows/ci.yml
+          rm -f .github/workflows/gpu-nightly.yml
           rm -f tools/apply_task8_operations.py tools/apply_task8_operations_followup.py tools/task8-operations-trigger.txt task8-operations-diagnostic.log task8-operations-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com

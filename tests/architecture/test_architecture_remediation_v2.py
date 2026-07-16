@@ -40,7 +40,9 @@ def _fold() -> WalkForwardFold:
     )
 
 
-def _evaluation(request: CandidateEvaluationRequest, *, score: float) -> CandidateEvaluation:
+def _evaluation(
+    request: CandidateEvaluationRequest, *, score: float
+) -> CandidateEvaluation:
     return CandidateEvaluation(
         score=score,
         returns=ReturnSeries(

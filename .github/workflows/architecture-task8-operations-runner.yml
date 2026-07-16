@@ -1,4 +1,4 @@
-name: Task 11 Portfolio Risk Inputs Runner
+name: Task 12 Ichimoku Alignment Runner
 
 on:
   pull_request:
@@ -10,11 +10,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: task11-portfolio-risk-inputs-runner
+  group: task12-ichimoku-alignment-runner
   cancel-in-progress: true
 
 jobs:
-  task11:
+  task12:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -31,108 +31,112 @@ jobs:
         shell: bash
         run: |
           set +e
-          : > task11-diagnostic.log
+          : > task12-diagnostic.log
           status=0
-          if [ ! -f tools/apply_task11_portfolio_risk_inputs.py ]; then
-            echo "Task 11 portfolio-risk inputs are already committed" >> task11-diagnostic.log
-            echo 0 > task11-status.txt
+          if [ ! -f tools/apply_task12_ichimoku_alignment.py ]; then
+            echo "Task 12 Ichimoku alignment is already committed" >> task12-diagnostic.log
+            echo 0 > task12-status.txt
             exit 0
           fi
           run_step() {
             name="$1"
             shift
-            echo "===== ${name} =====" >> task11-diagnostic.log
-            "$@" >> task11-diagnostic.log 2>&1
+            echo "===== ${name} =====" >> task12-diagnostic.log
+            "$@" >> task12-diagnostic.log 2>&1
             code=$?
-            echo "exit=${code}" >> task11-diagnostic.log
+            echo "exit=${code}" >> task12-diagnostic.log
             return "$code"
           }
           run_step sync uv sync --extra dev --extra train-sb3 || status=$?
           if [ "$status" -eq 0 ]; then
-            run_step add-tests python tools/apply_task11_portfolio_risk_inputs.py tests || status=$?
+            run_step add-tests python tools/apply_task12_ichimoku_alignment.py tests || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             uv run pytest -q \
-              tests/risk/test_portfolio_risk_inputs.py::test_rolling_portfolio_risk_inputs_are_causal_and_finite \
-              tests/risk/test_portfolio_risk_inputs.py::test_environment_wires_causal_inputs_into_advanced_portfolio_risk \
-              >> task11-diagnostic.log 2>&1
+              tests/data/test_indicator_features.py::test_feature_spec_identity_binds_unshifted_alignment \
+              tests/integrations/test_binance_multitimeframe.py::test_maintained_feature_preset_uses_role_specific_extended_features \
+              tests/workflows/test_training_run_config.py::test_training_dataset_reference_declares_unshifted_ichimoku_alignment \
+              >> task12-diagnostic.log 2>&1
             red_status=$?
-            echo "red_exit=${red_status}" >> task11-diagnostic.log
+            echo "red_exit=${red_status}" >> task12-diagnostic.log
             if [ "$red_status" -eq 0 ]; then
-              echo "Task 11 tests unexpectedly passed before implementation" >> task11-diagnostic.log
+              echo "Task 12 tests unexpectedly passed before implementation" >> task12-diagnostic.log
               status=1
             fi
           fi
           if [ "$status" -eq 0 ]; then
-            run_step implementation python tools/apply_task11_portfolio_risk_inputs.py implementation || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step followup python tools/apply_task11_followup.py || status=$?
+            run_step implementation python tools/apply_task12_ichimoku_alignment.py implementation || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             run_step format uv run ruff format \
-              trade_rl/risk/inputs.py \
-              trade_rl/risk/portfolio.py \
-              trade_rl/risk/__init__.py \
-              trade_rl/rl/environment.py \
-              tests/risk/test_portfolio_risk_inputs.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step lint uv run ruff check --fix \
-              trade_rl/risk/inputs.py \
-              trade_rl/risk/portfolio.py \
-              trade_rl/risk/__init__.py \
-              trade_rl/rl/environment.py \
-              tests/risk/test_portfolio_risk_inputs.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step tests uv run pytest -q \
-              tests/risk/test_portfolio_risk_inputs.py \
-              tests/risk/test_portfolio_risk.py \
-              tests/rl/test_environment_time_config.py \
-              tests/rl/test_target_weight_action.py \
-              tests/workflows/test_training_run.py \
+              trade_rl/data/contracts.py \
+              trade_rl/data/config.py \
+              trade_rl/integrations/binance.py \
+              trade_rl/workflows/training_run.py \
+              tests/data/test_indicator_features.py \
+              tests/integrations/test_binance_multitimeframe.py \
               tests/workflows/test_training_run_config.py || status=$?
           fi
           if [ "$status" -eq 0 ]; then
+            run_step lint uv run ruff check --fix \
+              trade_rl/data/contracts.py \
+              trade_rl/data/config.py \
+              trade_rl/integrations/binance.py \
+              trade_rl/workflows/training_run.py \
+              tests/data/test_indicator_features.py \
+              tests/integrations/test_binance_multitimeframe.py \
+              tests/workflows/test_training_run_config.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step tests uv run pytest -q \
+              tests/data/test_indicator_features.py \
+              tests/data/test_market_artifact.py \
+              tests/data/test_market_dataset_identity_v2.py \
+              tests/integrations/test_binance_multitimeframe.py \
+              tests/data/test_complete_96_feature_dataset.py \
+              tests/workflows/test_training_run.py \
+              tests/workflows/test_training_run_config.py \
+              tests/serving/test_sb3_loader.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
             run_step mypy uv run mypy \
-              trade_rl/risk/inputs.py \
-              trade_rl/risk/portfolio.py \
-              trade_rl/rl/environment.py || status=$?
+              trade_rl/data/contracts.py \
+              trade_rl/data/config.py \
+              trade_rl/integrations/binance.py \
+              trade_rl/workflows/training_run.py || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             run_step imports uv run lint-imports || status=$?
           fi
-          echo "$status" > task11-status.txt
+          echo "$status" > task12-status.txt
           exit 0
-      - name: Upload Task 11 diagnostic
+      - name: Upload Task 12 diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: task11-risk-inputs-diagnostic
+          name: task12-ichimoku-diagnostic
           path: |
-            task11-diagnostic.log
-            task11-status.txt
+            task12-diagnostic.log
+            task12-status.txt
       - name: Commit hardening branch
         shell: bash
         run: |
           set -euo pipefail
-          status=$(cat task11-status.txt)
+          status=$(cat task12-status.txt)
           if [ "$status" -ne 0 ]; then
-            cat task11-diagnostic.log
+            cat task12-diagnostic.log
             exit "$status"
           fi
           rm -f \
-            tools/apply_task11_portfolio_risk_inputs.py \
-            tools/apply_task11_followup.py \
-            task11-diagnostic.log \
-            task11-status.txt
+            tools/apply_task12_ichimoku_alignment.py \
+            task12-diagnostic.log \
+            task12-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A
           if git diff --cached --quiet; then
-            echo "Task 11 is already committed"
+            echo "Task 12 is already committed"
             exit 0
           fi
-          git commit -m "feat: wire causal inputs into advanced portfolio risk"
+          git commit -m "feat: bind unshifted decision-time Ichimoku alignment"
           git push origin HEAD:agent/complete-architecture-hardening

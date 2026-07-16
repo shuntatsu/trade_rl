@@ -12,7 +12,6 @@ concurrency:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   apply-and-verify:
@@ -23,12 +22,6 @@ jobs:
         with:
           ref: agent/causal-sequence-feature-encoder
           fetch-depth: 0
-      - name: Report run identity
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/issues/51/comments" \
-            -f body="Architecture hardening verification started: run ${GITHUB_RUN_ID}, source event ${GITHUB_SHA}."
       - name: Reconstruct and verify patch
         shell: bash
         run: |
@@ -70,18 +63,3 @@ jobs:
           git reset -- architecture-hardening.part-00 architecture-hardening.part-01 architecture-hardening.part-02 architecture-hardening.part-03 architecture-hardening.part-04 .github/workflows/apply-architecture-hardening-temporary.yml
           git commit -m "fix: harden sequence research architecture"
           git push origin HEAD:agent/causal-sequence-feature-encoder
-      - name: Report success
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PRODUCT_SHA="$(git rev-parse HEAD)"
-          gh api "repos/${GITHUB_REPOSITORY}/issues/51/comments" \
-            -f body="Architecture hardening verification passed: run ${GITHUB_RUN_ID}, product commit ${PRODUCT_SHA}."
-      - name: Report failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/issues/51/comments" \
-            -f body="Architecture hardening verification failed: run ${GITHUB_RUN_ID}, source event ${GITHUB_SHA}."

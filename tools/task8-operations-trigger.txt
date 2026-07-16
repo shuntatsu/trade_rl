@@ -1,1 +1,1 @@
-trigger finalized task8 operations verification
+trigger task8 operations with workflow parser

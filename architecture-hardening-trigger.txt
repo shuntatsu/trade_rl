@@ -1,0 +1,1 @@
+Trigger the PR-based architecture hardening workflow.

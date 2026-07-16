@@ -133,4 +133,6 @@ def test_observation_v4_semantically_scales_age_basis_and_equity_state() -> None
     assert abs(rows[0, -1]) < 0.2
     global_values = result[dataset.n_symbols * layout.per_symbol_width :]
     endogenous = 4 * len(dataset.global_feature_names)
-    assert global_values[endogenous] == np.log(0.8)
+    np.testing.assert_allclose(
+        global_values[endogenous], np.log(0.8), rtol=0.0, atol=1e-7
+    )

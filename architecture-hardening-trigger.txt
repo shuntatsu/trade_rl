@@ -1,1 +1,1 @@
-Trigger the PR-based architecture hardening workflow, verified part-03 reconstruction.
+Trigger the self-removing architecture cleanup workflow.

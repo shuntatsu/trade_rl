@@ -1,1 +1,1 @@
-trigger task8 operations with workflow parser
+trigger task8 non-workflow artifact publication

@@ -187,8 +187,20 @@ class StableBaselines3Backend:
                     "shared_actor_global_dim": 128,
                     "shared_actor_net_arch": tuple(config.policy_net_arch),
                 }
+            elif isinstance(algorithm_config, PPOConfig):
+                policy_kwargs = {
+                    "net_arch": {
+                        "pi": list(algorithm_config.policy_net_arch),
+                        "vf": list(algorithm_config.value_net_arch),
+                    }
+                }
             else:
-                policy_kwargs = {"net_arch": list(algorithm_config.policy_net_arch)}
+                policy_kwargs = {
+                    "net_arch": {
+                        "pi": list(algorithm_config.policy_net_arch),
+                        "qf": list(algorithm_config.value_net_arch),
+                    }
+                }
             if isinstance(algorithm_config, PPOConfig):
                 policy_kwargs["log_std_init"] = algorithm_config.log_std_init
             if config.asset_set_encoder:

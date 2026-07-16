@@ -18,6 +18,7 @@ class CommonAlgorithmConfig:
     policy: str
     device: str
     policy_net_arch: tuple[int, ...]
+    value_net_arch: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +80,7 @@ def build_algorithm_config(
             policy=source.policy,
             device=source.device,
             policy_net_arch=source.policy_net_arch,
+            value_net_arch=source.value_net_arch,
             n_steps=source.n_steps,
             n_epochs=source.n_epochs,
             gae_lambda=source.gae_lambda,
@@ -100,6 +102,7 @@ def build_algorithm_config(
         policy=source.policy,
         device=source.device,
         policy_net_arch=source.policy_net_arch,
+        value_net_arch=source.value_net_arch,
         buffer_size=source.buffer_size,
         learning_starts=source.learning_starts,
         train_freq=source.train_freq,
@@ -114,6 +117,7 @@ def build_algorithm_config(
             policy=source.policy,
             device=source.device,
             policy_net_arch=source.policy_net_arch,
+            value_net_arch=source.value_net_arch,
             buffer_size=source.buffer_size,
             learning_starts=source.learning_starts,
             train_freq=source.train_freq,
@@ -132,6 +136,7 @@ def build_algorithm_config(
             policy=source.policy,
             device=source.device,
             policy_net_arch=source.policy_net_arch,
+            value_net_arch=source.value_net_arch,
             buffer_size=source.buffer_size,
             learning_starts=source.learning_starts,
             train_freq=source.train_freq,

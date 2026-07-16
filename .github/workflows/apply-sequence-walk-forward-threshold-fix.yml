@@ -1,0 +1,34 @@
+name: Apply structured walk-forward test threshold
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event_name != 'pull_request' || github.head_ref == 'agent/full-training-functional-audit'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-training-functional-audit
+          fetch-depth: 0
+      - name: Verify and apply test threshold
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'd7bd30cf91809067c9f61923508901f9601b59a3cf4ba02bf186d0728c2d6a65  .github/sequence-walk-forward-threshold-fix/fix.patch' | sha256sum --check -
+          git apply --check .github/sequence-walk-forward-threshold-fix/fix.patch
+          git apply .github/sequence-walk-forward-threshold-fix/fix.patch
+          rm -rf .github/sequence-walk-forward-threshold-fix
+          rm -f .github/workflows/apply-sequence-walk-forward-threshold-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'test: force residual selection in sequence workflow regression'
+          git push origin HEAD:agent/full-training-functional-audit

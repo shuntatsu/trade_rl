@@ -1,0 +1,89 @@
+name: Architecture Task 8 Operations Runner
+
+on:
+  pull_request:
+    branches:
+      - agent/causal-sequence-feature-encoder
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-task8-operations-runner
+  cancel-in-progress: true
+
+jobs:
+  operations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/complete-architecture-hardening
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra export --extra train-sb3
+      - name: RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_task8_operations.py tests
+          set +e
+          uv run pytest -q tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Task 8 operations tests unexpectedly passed before implementation" >&2
+            exit 1
+          fi
+      - name: GREEN and diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_task8_operations.py implementation
+          set +e
+          {
+            uv run ruff format examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
+            uv run ruff check --fix examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
+            uv run pytest -q tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py tests/workflows/test_training_run_config.py tests/integrations/test_sb3_training.py tests/serving/test_sb3_loader.py
+            uv run ruff check examples/binance-multitimeframe/run_gpu_training_smoke.py
+            uv run mypy examples/binance-multitimeframe/run_gpu_training_smoke.py
+            python - <<'PY'
+            from pathlib import Path
+            import yaml
+            for path in (Path('.github/workflows/ci.yml'), Path('.github/workflows/gpu-nightly.yml')):
+                payload = yaml.safe_load(path.read_text(encoding='utf-8'))
+                assert isinstance(payload, dict)
+            PY
+          } > task8-operations-diagnostic.log 2>&1
+          status=$?
+          set -e
+          echo "$status" > task8-operations-status.txt
+      - name: Upload operations diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task8-operations-diagnostic
+          path: |
+            task8-operations-diagnostic.log
+            task8-operations-status.txt
+      - name: Commit hardening branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(cat task8-operations-status.txt)
+          if [ "$status" -ne 0 ]; then
+            tail -n 450 task8-operations-diagnostic.log
+            exit "$status"
+          fi
+          rm -f tools/apply_task8_operations.py tools/task8-operations-trigger.txt task8-operations-diagnostic.log task8-operations-status.txt
+          git config user.name architecture-hardening-bot
+          git config user.email actions@users.noreply.github.com
+          git add -A
+          git commit -m "ci: verify GPU metrics recovery and structured serving"
+          git push origin HEAD:agent/complete-architecture-hardening

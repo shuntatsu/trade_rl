@@ -1,4 +1,4 @@
-name: Walk-Forward Type Fix Runner
+name: Task 9 Squashed Policy Runner
 
 on:
   pull_request:
@@ -10,13 +10,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: walk-forward-type-fix-runner
+  group: task9-squashed-policy-runner
   cancel-in-progress: true
 
 jobs:
-  fix:
+  task9:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout hardening branch
         uses: actions/checkout@v4
@@ -27,31 +27,55 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Apply and verify type fix
+      - name: RED then GREEN
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f tools/fix_market_walk_forward_sample_count.py ]; then
-            echo "walk-forward sample-count type fix is already committed"
+          if [ ! -f tools/apply_task9_squashed_policy.py ]; then
+            echo "Task 9 squashed-policy fix is already committed"
             exit 0
           fi
           uv sync --extra dev --extra train-sb3
+          python tools/apply_task9_squashed_policy.py tests
           set +e
-          uv run mypy trade_rl/workflows/market_walk_forward.py
+          uv run pytest -q \
+            tests/rl/test_sequence_policy_core.py::test_shared_sequence_policy_uses_squashed_target_weight_distribution \
+            tests/learning/test_behavior_cloning.py::test_behavior_cloning_uses_deterministic_action_space_output \
+            tests/integrations/test_sb3_training.py::test_backend_builds_workers_after_probe_validation_and_metadata
           red_status=$?
           set -e
           if [ "$red_status" -eq 0 ]; then
-            echo "type regression unexpectedly passed before the fix" >&2
+            echo "Task 9 tests unexpectedly passed before implementation" >&2
             exit 1
           fi
-          python tools/fix_market_walk_forward_sample_count.py
-          uv run ruff format trade_rl/workflows/market_walk_forward.py
-          uv run ruff check trade_rl/workflows/market_walk_forward.py
-          uv run mypy trade_rl
-          uv run pytest -q tests/workflows/test_market_walk_forward.py tests/rl/test_sequence_normalization.py
-          rm -f tools/fix_market_walk_forward_sample_count.py
+          python tools/apply_task9_squashed_policy.py implementation
+          uv run ruff format \
+            trade_rl/rl/policies.py \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/integrations/test_sb3_training.py
+          uv run ruff check --fix \
+            trade_rl/rl/policies.py \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/integrations/test_sb3_training.py
+          uv run pytest -q \
+            tests/rl/test_sequence_policy_core.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/integrations/test_sb3_training.py \
+            tests/rl/test_checkpointing.py \
+            tests/serving/test_sb3_loader.py
+          uv run mypy \
+            trade_rl/rl/policies.py \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py
+          rm -f tools/apply_task9_squashed_policy.py
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A
-          git commit -m "fix: narrow sequence sample counts before serialization"
+          git commit -m "fix: squash target-weight PPO actions at the distribution"
           git push origin HEAD:agent/complete-architecture-hardening

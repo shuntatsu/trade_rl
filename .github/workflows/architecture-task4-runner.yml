@@ -34,6 +34,7 @@ jobs:
           set -euo pipefail
           python tools/apply_task4_semantic_normalization.py tests
           python tools/apply_task4_semantic_normalization.py implementation
+          python tools/apply_task4_followup.py
           set +e
           {
             uv run ruff format trade_rl/data/cross_asset_features.py trade_rl/rl/sequence_normalization.py trade_rl/rl/normalization.py trade_rl/rl/observations.py trade_rl/workflows/training_run.py trade_rl/workflows/market_walk_forward.py tests/data/test_cross_asset_features.py tests/rl/test_sequence_normalization.py tests/rl/test_normalization_semantics.py tests/rl/test_observation_v2.py
@@ -61,7 +62,7 @@ jobs:
             tail -n 200 task4-diagnostic.log
             exit "$status"
           fi
-          rm -f tools/apply_task4_semantic_normalization.py tools/task3-trigger-2.txt tools/task4-trigger.txt task4-diagnostic.log task4-status.txt
+          rm -f tools/apply_task4_semantic_normalization.py tools/apply_task4_followup.py tools/task3-trigger-2.txt tools/task4-trigger.txt task4-diagnostic.log task4-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A

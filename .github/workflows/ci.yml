@@ -8,6 +8,7 @@ on:
     branches:
       - main
       - agent/causal-training-hardening
+      - agent/causal-sequence-feature-encoder
 
 permissions:
   contents: read
@@ -40,7 +41,17 @@ jobs:
         run: uv run ruff format --check --diff .
 
       - name: Mypy
-        run: uv run mypy trade_rl
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy trade_rl 2>&1 | tee mypy.log
+
+      - name: Upload MyPy diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-diagnostics
+          path: mypy.log
 
       - name: Import architecture
         run: uv run lint-imports
@@ -48,8 +59,27 @@ jobs:
       - name: Dead-code report
         run: uv run vulture trade_rl tests --min-confidence 100
 
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+
       - name: Tests and coverage
-        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest.log
+            coverage.json
+          if-no-files-found: ignore
 
       - name: Critical branch coverage
         run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
@@ -72,3 +102,33 @@ jobs:
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
       - run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+
+  training-image:
+    name: Training image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build complete training image
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --file Dockerfile.training \
+            --tag trade-rl-training:ci \
+            .
+
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:ci -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '

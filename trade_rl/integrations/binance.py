@@ -23,6 +23,7 @@ import numpy as np
 
 from trade_rl.data.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
+    FeatureAlignment,
     FeatureKind,
     FeatureSpec,
     InstrumentContract,
@@ -1026,24 +1027,12 @@ def _optional_datetimes(
     return result
 
 
-def binance_multitimeframe_feature_specs(
-    *,
-    base_timeframe: str,
-    feature_timeframes: Sequence[str],
-) -> tuple[FeatureSpec, ...]:
-    """Return the maintained 24-indicator contract on every native clock."""
+def _extended_timeframe_feature_definitions(
+    timeframe: str,
+) -> tuple[tuple[str, FeatureKind, int, int], ...]:
+    """Return the ordered, role-specific feature contract for one native clock."""
 
-    _interval_ms(base_timeframe)
-    resolved = tuple(feature_timeframes)
-    if len(set(resolved)) != len(resolved):
-        raise ValueError("duplicate Binance feature timeframes are not allowed")
-    if base_timeframe in resolved:
-        raise ValueError("base timeframe must not be repeated as a feature timeframe")
-    for timeframe in resolved:
-        _interval_ms(timeframe)
-    ordered = tuple(sorted((*resolved, base_timeframe), key=_interval_ms))
-
-    definitions = (
+    common = (
         ("log_return_1bar", FeatureKind.LOG_RETURN, 1, 1),
         ("log_return_4bar", FeatureKind.LOG_RETURN, 4, 1),
         ("log_return_24bar", FeatureKind.LOG_RETURN, 24, 1),
@@ -1055,7 +1044,12 @@ def binance_multitimeframe_feature_specs(
         ("macd_line_12_26", FeatureKind.MACD_LINE, 26, 1),
         ("macd_signal_12_26_9", FeatureKind.MACD_SIGNAL, 35, 1),
         ("macd_histogram_12_26_9", FeatureKind.MACD_HISTOGRAM, 35, 1),
-        ("bollinger_position_20_2", FeatureKind.BOLLINGER_POSITION, 20, 1),
+        (
+            "bollinger_percent_b_centered_20_2",
+            FeatureKind.BOLLINGER_POSITION,
+            20,
+            1,
+        ),
         ("bollinger_bandwidth_20_2", FeatureKind.BOLLINGER_BANDWIDTH, 20, 1),
         ("atr_pct_14bar", FeatureKind.ATR_PCT, 14, 1),
         ("adx_14bar", FeatureKind.ADX, 14, 1),
@@ -1074,21 +1068,211 @@ def binance_multitimeframe_feature_specs(
             1,
         ),
     )
+    candle_by_timeframe = {
+        "15m": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("upper_wick_ratio", FeatureKind.UPPER_WICK_RATIO, 1, 1),
+            ("lower_wick_ratio", FeatureKind.LOWER_WICK_RATIO, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("gap_return", FeatureKind.GAP_RETURN, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+        "1h": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("upper_wick_ratio", FeatureKind.UPPER_WICK_RATIO, 1, 1),
+            ("lower_wick_ratio", FeatureKind.LOWER_WICK_RATIO, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("gap_return", FeatureKind.GAP_RETURN, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+        "4h": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("gap_return", FeatureKind.GAP_RETURN, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+        "1d": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+    }
+    role_window = {"15m": 32, "1h": 24, "4h": 18, "1d": 20}[timeframe]
+    volatility = (
+        (
+            f"parkinson_volatility_{role_window}bar",
+            FeatureKind.PARKINSON_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"garman_klass_volatility_{role_window}bar",
+            FeatureKind.GARMAN_KLASS_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"downside_volatility_{role_window}bar",
+            FeatureKind.DOWNSIDE_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"upside_volatility_{role_window}bar",
+            FeatureKind.UPSIDE_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"volatility_of_volatility_{role_window}bar",
+            FeatureKind.VOLATILITY_OF_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"range_expansion_{role_window}bar",
+            FeatureKind.RANGE_EXPANSION,
+            role_window,
+            1,
+        ),
+        ("atr_change_14bar", FeatureKind.ATR_CHANGE, 14, 1),
+    )
+    trend = (
+        ("plus_di_14bar", FeatureKind.PLUS_DI, 14, 1),
+        ("minus_di_14bar", FeatureKind.MINUS_DI, 14, 1),
+        ("di_spread_14bar", FeatureKind.DI_SPREAD, 14, 1),
+        ("ema_distance_13_26", FeatureKind.EMA_DISTANCE, 26, 1),
+        ("ema_slope_26", FeatureKind.EMA_SLOPE, 26, 1),
+        (
+            f"linear_regression_slope_{role_window}bar",
+            FeatureKind.LINEAR_REGRESSION_SLOPE,
+            role_window,
+            1,
+        ),
+        (f"trend_r2_{role_window}bar", FeatureKind.TREND_R2, role_window, 1),
+    )
+    full_flow = (
+        (f"mfi_{role_window}bar", FeatureKind.MFI, role_window, 1),
+        (f"cmf_{role_window}bar", FeatureKind.CMF, role_window, 1),
+        (f"vwap_distance_{role_window}bar", FeatureKind.VWAP_DISTANCE, role_window, 1),
+        (
+            f"price_volume_correlation_{role_window}bar",
+            FeatureKind.PRICE_VOLUME_CORRELATION,
+            role_window,
+            1,
+        ),
+        (f"obv_change_{role_window}bar", FeatureKind.OBV_CHANGE, role_window, 1),
+        (
+            f"obv_acceleration_{role_window}bar",
+            FeatureKind.OBV_ACCELERATION,
+            role_window,
+            1,
+        ),
+        (
+            f"relative_volume_{role_window}bar",
+            FeatureKind.RELATIVE_VOLUME,
+            role_window,
+            1,
+        ),
+    )
+    flow_count = {"15m": 7, "1h": 7, "4h": 5, "1d": 4}[timeframe]
+    flow = full_flow[:flow_count]
+    funding = (
+        ("funding_change_bps", FeatureKind.FUNDING_CHANGE, 2, 1),
+        ("funding_zscore_12events", FeatureKind.FUNDING_ZSCORE, 12, 4),
+    )
+    cross_asset = (
+        ("relative_return_to_btc_1bar", FeatureKind.RELATIVE_RETURN_TO_BTC, 1, 1),
+        (
+            "rolling_correlation_to_btc_24bar",
+            FeatureKind.ROLLING_CORRELATION_TO_BTC,
+            24,
+            8,
+        ),
+        ("rolling_beta_to_btc_24bar", FeatureKind.ROLLING_BETA_TO_BTC, 24, 8),
+        (
+            "cross_sectional_momentum_rank_24bar",
+            FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+            24,
+            8,
+        ),
+        ("cross_asset_dispersion_1bar", FeatureKind.CROSS_ASSET_DISPERSION, 1, 1),
+    )
+    return (
+        *common,
+        *candle_by_timeframe[timeframe],
+        *volatility,
+        *trend,
+        *flow,
+        *funding,
+        *cross_asset,
+    )
+
+
+def binance_multitimeframe_feature_specs(
+    *,
+    base_timeframe: str,
+    feature_timeframes: Sequence[str],
+) -> tuple[FeatureSpec, ...]:
+    """Return the maintained role-specific extended contract on every clock."""
+
+    _interval_ms(base_timeframe)
+    resolved = tuple(feature_timeframes)
+    if len(set(resolved)) != len(resolved):
+        raise ValueError("duplicate Binance feature timeframes are not allowed")
+    if base_timeframe in resolved:
+        raise ValueError("base timeframe must not be repeated as a feature timeframe")
+    for timeframe in resolved:
+        _interval_ms(timeframe)
+    ordered = tuple(sorted((*resolved, base_timeframe), key=_interval_ms))
+    maintained = {"15m", "1h", "4h", "1d"}
+    if not set(ordered).issubset(maintained):
+        raise ValueError(
+            "extended Binance feature preset supports only 15m, 1h, 4h, and 1d"
+        )
+
     features: list[FeatureSpec] = []
     for timeframe in ordered:
         native = None if timeframe == base_timeframe else timeframe
         native_hours = _interval_ms(timeframe) / 3_600_000.0
         staleness = max(native_hours * 2.0, 1.0 if native is None else native_hours)
-        for suffix, kind, lookback, min_periods in definitions:
+        for (
+            suffix,
+            kind,
+            lookback,
+            min_periods,
+        ) in _extended_timeframe_feature_definitions(timeframe):
             features.append(
                 FeatureSpec(
                     name=f"{timeframe}__{suffix}",
                     kind=kind,
                     timeframe=native,
+                    alignment=(
+                        FeatureAlignment.UNSHIFTED_DECISION_TIME
+                        if kind
+                        in {
+                            FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+                            FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
+                            FeatureKind.ICHIMOKU_CLOUD_POSITION,
+                            FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+                        }
+                        else None
+                    ),
                     lookback=lookback,
                     min_periods=min_periods,
                     max_staleness_hours=(
-                        8.0 if kind is FeatureKind.FUNDING_BPS else staleness
+                        8.0
+                        if kind
+                        in {
+                            FeatureKind.FUNDING_BPS,
+                            FeatureKind.FUNDING_CHANGE,
+                            FeatureKind.FUNDING_ZSCORE,
+                        }
+                        else staleness
                     ),
                 )
             )
@@ -1259,6 +1443,11 @@ def build_binance_market_dataset(
         MarketBuildConfig(
             base_timeframe=interval,
             features=resolved_features,
+            cross_asset_reference_symbol=(
+                "BTCUSDT"
+                if "BTCUSDT" in tuple(item.symbol for item in metadata)
+                else None
+            ),
         )
     ).build(source, tuple(item.to_contract() for item in metadata))
     sources = set(source.sources_used)

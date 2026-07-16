@@ -7,21 +7,25 @@ import io
 import json
 import os
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Final, Protocol, TypeAlias
 
 import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.sequence_observations import sequence_policy_values
 
-TEACHER_ARTIFACT_SCHEMA: Final = "supervised_policy_teacher_artifact_v1"
+TEACHER_ARTIFACT_SCHEMA: Final = "supervised_policy_teacher_artifact_v2"
 TEACHER_MANIFEST_NAME: Final = "manifest.json"
 TEACHER_ARRAYS_NAME: Final = "arrays.npz"
 _ALLOWED_FILES = frozenset({TEACHER_MANIFEST_NAME, TEACHER_ARRAYS_NAME})
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
+ObservationBatch: TypeAlias = np.ndarray | Mapping[str, np.ndarray]
+ObservationValue: TypeAlias = np.ndarray | Mapping[str, np.ndarray]
 
 
 def _sha256(payload: bytes) -> str:
@@ -40,10 +44,12 @@ def _array_digest(array: np.ndarray) -> str:
 
 def _deterministic_npz(arrays: dict[str, np.ndarray]) -> bytes:
     output = io.BytesIO()
-    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(
+        output, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+    ) as archive:
         for name in sorted(arrays):
             info = zipfile.ZipInfo(f"{name}.npy", date_time=_FIXED_ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_STORED
+            info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3
             info.external_attr = 0o100644 << 16
             archive.writestr(info, _npy_bytes(arrays[name]))
@@ -59,9 +65,77 @@ def _atomic_write(path: Path, payload: bytes) -> None:
     os.replace(temporary, path)
 
 
+def _normalize_observations(
+    observations: ObservationBatch,
+    *,
+    expected_count: int,
+) -> np.ndarray | dict[str, np.ndarray]:
+    if isinstance(observations, Mapping):
+        if not observations:
+            raise ValueError("structured teacher observations must not be empty")
+        normalized: dict[str, np.ndarray] = {}
+        for key in sorted(observations):
+            if not isinstance(key, str) or not key or "__" in key:
+                raise ValueError(
+                    "teacher observation keys must be non-empty strings without '__'"
+                )
+            value = np.asarray(observations[key]).copy(order="C")
+            if value.ndim < 2:
+                raise ValueError(
+                    "structured teacher observations must be sample-first arrays"
+                )
+            if len(value) != expected_count:
+                raise ValueError(
+                    "teacher observation sample count does not match training range"
+                )
+            if (
+                not np.issubdtype(value.dtype, np.number)
+                or not np.isfinite(value).all()
+            ):
+                raise ValueError("teacher observations must be finite numeric arrays")
+            value.setflags(write=False)
+            normalized[key] = value
+        return normalized
+    value = np.asarray(observations, dtype=np.float32).copy(order="C")
+    if value.ndim != 2:
+        raise ValueError("flat teacher observations must be rank-two")
+    if len(value) != expected_count:
+        raise ValueError(
+            "teacher observation sample count does not match training range"
+        )
+    if not np.isfinite(value).all():
+        raise ValueError("teacher observations must be finite")
+    value.setflags(write=False)
+    return value
+
+
+def _observation_arrays(observations: ObservationBatch) -> dict[str, np.ndarray]:
+    if isinstance(observations, Mapping):
+        return {key: np.asarray(observations[key]) for key in sorted(observations)}
+    return {"observations": np.asarray(observations)}
+
+
+def _observation_digest(observations: ObservationBatch) -> str:
+    arrays = _observation_arrays(observations)
+    return content_digest(
+        {
+            "keys": tuple(arrays),
+            "arrays": {
+                key: {
+                    "digest": _array_digest(array),
+                    "dtype": str(array.dtype),
+                    "shape": array.shape,
+                }
+                for key, array in arrays.items()
+            },
+            "schema_version": "teacher_observation_bundle_v1",
+        }
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class SupervisedPolicyDataset:
-    observations: np.ndarray
+    observations: ObservationBatch
     actions: np.ndarray
     dataset_id: str
     train_start: int
@@ -78,25 +152,46 @@ class SupervisedPolicyDataset:
             ("teacher_config_digest", self.teacher_config_digest),
         ):
             require_sha256(value, field=name)
-        observations = np.asarray(self.observations, dtype=np.float32).copy(order="C")
-        actions = np.asarray(self.actions, dtype=np.float32).copy(order="C")
-        if observations.ndim != 2 or actions.ndim != 2:
-            raise ValueError("teacher observations and actions must be rank-two")
-        if not np.isfinite(observations).all() or not np.isfinite(actions).all():
-            raise ValueError("teacher observations and actions must be finite")
         expected_count = self.train_stop - self.train_start - 1
-        if expected_count <= 0 or len(observations) != expected_count:
-            raise ValueError("teacher sample count must cover every training decision")
-        if len(actions) != expected_count:
+        if expected_count <= 0:
+            raise ValueError("teacher training range must contain decisions")
+        observations = _normalize_observations(
+            self.observations, expected_count=expected_count
+        )
+        actions = np.asarray(self.actions, dtype=np.float32).copy(order="C")
+        if actions.ndim != 2 or len(actions) != expected_count:
             raise ValueError("teacher action sample count does not match observations")
-        observations.setflags(write=False)
+        if not np.isfinite(actions).all():
+            raise ValueError("teacher actions must be finite")
         actions.setflags(write=False)
         object.__setattr__(self, "observations", observations)
         object.__setattr__(self, "actions", actions)
 
     @property
+    def sample_count(self) -> int:
+        return len(self.actions)
+
+    @property
+    def observation_keys(self) -> tuple[str, ...]:
+        return tuple(_observation_arrays(self.observations))
+
+    @property
+    def observation_shapes(self) -> dict[str, tuple[int, ...]]:
+        return {
+            key: tuple(int(width) for width in array.shape)
+            for key, array in _observation_arrays(self.observations).items()
+        }
+
+    @property
+    def observation_dtypes(self) -> dict[str, str]:
+        return {
+            key: str(array.dtype)
+            for key, array in _observation_arrays(self.observations).items()
+        }
+
+    @property
     def observation_digest(self) -> str:
-        return _array_digest(self.observations)
+        return _observation_digest(self.observations)
 
     @property
     def action_digest(self) -> str:
@@ -116,7 +211,9 @@ class TeacherArtifactManifest:
     action_spec_digest: str
     teacher_config_digest: str
     sample_count: int
-    observation_shape: tuple[int, int]
+    observation_keys: tuple[str, ...]
+    observation_shapes: dict[str, tuple[int, ...]]
+    observation_dtypes: dict[str, str]
     action_shape: tuple[int, int]
     schema_version: str = TEACHER_ARTIFACT_SCHEMA
 
@@ -134,7 +231,18 @@ class TeacherArtifactManifest:
             require_sha256(value, field=name)
         if self.sample_count <= 0:
             raise ValueError("teacher artifact sample_count must be positive")
-        if self.observation_shape[0] != self.sample_count:
+        if (
+            not self.observation_keys
+            or tuple(sorted(self.observation_keys)) != self.observation_keys
+        ):
+            raise ValueError("teacher observation keys must be non-empty and sorted")
+        if set(self.observation_shapes) != set(self.observation_keys):
+            raise ValueError("teacher observation shapes do not match keys")
+        if set(self.observation_dtypes) != set(self.observation_keys):
+            raise ValueError("teacher observation dtypes do not match keys")
+        if any(
+            shape[0] != self.sample_count for shape in self.observation_shapes.values()
+        ):
             raise ValueError("teacher observation shape does not match sample_count")
         if self.action_shape[0] != self.sample_count:
             raise ValueError("teacher action shape does not match sample_count")
@@ -151,7 +259,9 @@ class TeacherArtifactManifest:
             "dataset_id": self.dataset_id,
             "environment_digest": self.environment_digest,
             "observation_digest": self.observation_digest,
-            "observation_shape": self.observation_shape,
+            "observation_dtypes": self.observation_dtypes,
+            "observation_keys": self.observation_keys,
+            "observation_shapes": self.observation_shapes,
             "sample_count": self.sample_count,
             "schema_version": self.schema_version,
             "teacher_config_digest": self.teacher_config_digest,
@@ -160,17 +270,15 @@ class TeacherArtifactManifest:
         }
 
 
-def write_teacher_artifact(
-    root: str | Path,
-    dataset: SupervisedPolicyDataset,
-) -> str:
+def write_teacher_artifact(root: str | Path, dataset: SupervisedPolicyDataset) -> str:
     output = Path(root)
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"teacher artifact destination is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
-    arrays_payload = _deterministic_npz(
-        {"actions": dataset.actions, "observations": dataset.observations}
-    )
+    arrays = {"actions": dataset.actions}
+    for key, value in _observation_arrays(dataset.observations).items():
+        arrays[f"observation__{key}"] = value
+    arrays_payload = _deterministic_npz(arrays)
     arrays_digest = _sha256(arrays_payload)
     base = {
         "action_digest": dataset.action_digest,
@@ -181,8 +289,10 @@ def write_teacher_artifact(
         "dataset_id": dataset.dataset_id,
         "environment_digest": dataset.environment_digest,
         "observation_digest": dataset.observation_digest,
-        "observation_shape": dataset.observations.shape,
-        "sample_count": len(dataset.observations),
+        "observation_dtypes": dataset.observation_dtypes,
+        "observation_keys": dataset.observation_keys,
+        "observation_shapes": dataset.observation_shapes,
+        "sample_count": dataset.sample_count,
         "schema_version": TEACHER_ARTIFACT_SCHEMA,
         "teacher_config_digest": dataset.teacher_config_digest,
         "train_start": dataset.train_start,
@@ -199,8 +309,10 @@ def write_teacher_artifact(
         environment_digest=dataset.environment_digest,
         action_spec_digest=dataset.action_spec_digest,
         teacher_config_digest=dataset.teacher_config_digest,
-        sample_count=len(dataset.observations),
-        observation_shape=(dataset.observations.shape[0], dataset.observations.shape[1]),
+        sample_count=dataset.sample_count,
+        observation_keys=dataset.observation_keys,
+        observation_shapes=dataset.observation_shapes,
+        observation_dtypes=dataset.observation_dtypes,
         action_shape=(dataset.actions.shape[0], dataset.actions.shape[1]),
     )
     _atomic_write(output / TEACHER_ARRAYS_NAME, arrays_payload)
@@ -232,11 +344,18 @@ def _load_manifest(root: Path) -> TeacherArtifactManifest:
             action_spec_digest=str(raw["action_spec_digest"]),
             teacher_config_digest=str(raw["teacher_config_digest"]),
             sample_count=int(raw["sample_count"]),
-            observation_shape=tuple(int(value) for value in raw["observation_shape"]),  # type: ignore[arg-type]
+            observation_keys=tuple(str(value) for value in raw["observation_keys"]),
+            observation_shapes={
+                str(key): tuple(int(value) for value in shape)
+                for key, shape in raw["observation_shapes"].items()
+            },
+            observation_dtypes={
+                str(key): str(value) for key, value in raw["observation_dtypes"].items()
+            },
             action_shape=tuple(int(value) for value in raw["action_shape"]),  # type: ignore[arg-type]
             schema_version=str(raw["schema_version"]),
         )
-    except (KeyError, TypeError, ValueError) as error:
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
         raise ValueError("teacher artifact manifest is invalid") from error
     if content_digest(manifest.digest_payload()) != manifest.artifact_digest:
         raise ValueError("teacher manifest digest mismatch")
@@ -258,12 +377,22 @@ def load_teacher_artifact(
         raise ValueError("teacher arrays digest mismatch")
     try:
         with np.load(io.BytesIO(arrays_payload), allow_pickle=False) as archive:
-            if set(archive.files) != {"actions", "observations"}:
+            expected_names = {"actions"} | {
+                f"observation__{key}" for key in manifest.observation_keys
+            }
+            if set(archive.files) != expected_names:
                 raise ValueError("teacher arrays names do not match contract")
             actions = archive["actions"]
-            observations = archive["observations"]
+            loaded = {
+                key: archive[f"observation__{key}"] for key in manifest.observation_keys
+            }
     except (OSError, ValueError, zipfile.BadZipFile) as error:
         raise ValueError("teacher arrays are invalid") from error
+    observations: ObservationBatch
+    if manifest.observation_keys == ("observations",):
+        observations = loaded["observations"]
+    else:
+        observations = loaded
     dataset = SupervisedPolicyDataset(
         observations=observations,
         actions=actions,
@@ -276,6 +405,10 @@ def load_teacher_artifact(
     )
     if dataset.observation_digest != manifest.observation_digest:
         raise ValueError("teacher observation digest mismatch")
+    if dataset.observation_shapes != manifest.observation_shapes:
+        raise ValueError("teacher observation shape mismatch")
+    if dataset.observation_dtypes != manifest.observation_dtypes:
+        raise ValueError("teacher observation dtype mismatch")
     if dataset.action_digest != manifest.action_digest:
         raise ValueError("teacher action digest mismatch")
     if expected_dataset_id is not None and dataset.dataset_id != expected_dataset_id:
@@ -290,12 +423,98 @@ def load_teacher_artifact(
         and dataset.action_spec_digest != expected_action_spec_digest
     ):
         raise ValueError("teacher action specification identity mismatch")
-    if expected_train_range is not None and (
-        dataset.train_start,
-        dataset.train_stop,
-    ) != expected_train_range:
+    if (
+        expected_train_range is not None
+        and (dataset.train_start, dataset.train_stop) != expected_train_range
+    ):
         raise ValueError("teacher training range identity mismatch")
     return manifest, dataset
+
+
+class StructuredTeacherObservationProvider:
+    """Reconstruct overlapping sequence tensors only for the requested mini-batch."""
+
+    def __init__(
+        self,
+        *,
+        dataset: object,
+        sequence_builder: object,
+        observations: Mapping[str, np.ndarray],
+        sequence_normalizer: object | None = None,
+    ) -> None:
+        from trade_rl.data.market import MarketDataset
+        from trade_rl.rl.sequence_observations import SequenceObservationBuilder
+
+        if not isinstance(dataset, MarketDataset):
+            raise TypeError("structured teacher provider requires a MarketDataset")
+        if not isinstance(sequence_builder, SequenceObservationBuilder):
+            raise TypeError("structured teacher provider requires a sequence builder")
+        if "decision_index" not in observations:
+            raise ValueError("compact structured observations require decision_index")
+        self.dataset = dataset
+        self.sequence_builder = sequence_builder
+        if sequence_normalizer is not None and not callable(
+            getattr(sequence_normalizer, "transform", None)
+        ):
+            raise TypeError("structured teacher sequence normalizer is invalid")
+        self.sequence_normalizer = sequence_normalizer
+        self.observations = {
+            key: np.asarray(value) for key, value in observations.items()
+        }
+        self.sample_count = len(self.observations["decision_index"])
+        if any(len(value) != self.sample_count for value in self.observations.values()):
+            raise ValueError("compact structured observation sample counts differ")
+        self.maximum_requested_batch = 0
+
+    def get(self, indices: np.ndarray) -> dict[str, np.ndarray]:
+        requested = np.asarray(indices, dtype=np.int64).reshape(-1)
+        if (
+            requested.size == 0
+            or np.any(requested < 0)
+            or np.any(requested >= self.sample_count)
+        ):
+            raise ValueError("structured teacher batch indices are invalid")
+        self.maximum_requested_batch = max(
+            self.maximum_requested_batch, int(requested.size)
+        )
+        result = {
+            key: np.asarray(value[requested]).copy(order="C")
+            for key, value in self.observations.items()
+            if key != "decision_index"
+        }
+        decision_indices = self.observations["decision_index"][requested].reshape(-1)
+        per_timeframe_values: dict[str, list[np.ndarray]] = {}
+        per_timeframe_available: dict[str, list[np.ndarray]] = {}
+        per_timeframe_staleness: dict[str, list[np.ndarray]] = {}
+        for raw_index in decision_indices:
+            sequence = self.sequence_builder.build(self.dataset, index=int(raw_index))
+            for timeframe in sequence.values:
+                per_timeframe_values.setdefault(timeframe, []).append(
+                    sequence_policy_values(
+                        timeframe=timeframe,
+                        values=sequence.values[timeframe],
+                        available=sequence.available[timeframe],
+                        feature_names=sequence.feature_names[timeframe],
+                        sequence_normalizer=self.sequence_normalizer,  # type: ignore[arg-type]
+                    )
+                )
+                per_timeframe_available.setdefault(timeframe, []).append(
+                    sequence.available[timeframe].astype(np.uint8, copy=False)
+                )
+                per_timeframe_staleness.setdefault(timeframe, []).append(
+                    sequence.staleness[timeframe].astype(np.float16, copy=False)
+                )
+        for timeframe in per_timeframe_values:
+            result[f"sequence_{timeframe}_values"] = np.stack(
+                per_timeframe_values[timeframe], axis=0
+            ).astype(np.float16, copy=False)
+            result[f"sequence_{timeframe}_available"] = np.stack(
+                per_timeframe_available[timeframe], axis=0
+            ).astype(np.uint8, copy=False)
+            result[f"sequence_{timeframe}_staleness"] = np.stack(
+                per_timeframe_staleness[timeframe], axis=0
+            ).astype(np.float16, copy=False)
+        return result
 
 
 class TeacherRolloutEnvironment(Protocol):
@@ -311,12 +530,18 @@ class TeacherRolloutEnvironment(Protocol):
         self,
         *,
         options: dict[str, object],
-    ) -> tuple[np.ndarray, dict[str, object]]: ...
+    ) -> tuple[ObservationValue, dict[str, object]]: ...
 
     def step(
         self,
         action: np.ndarray,
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]: ...
+    ) -> tuple[ObservationValue, float, bool, bool, dict[str, object]]: ...
+
+
+def _copy_observation(value: ObservationValue) -> np.ndarray | dict[str, np.ndarray]:
+    if isinstance(value, Mapping):
+        return {key: np.asarray(value[key]).copy(order="C") for key in sorted(value)}
+    return np.asarray(value, dtype=np.float32).copy(order="C")
 
 
 def collect_teacher_rollout(
@@ -341,17 +566,65 @@ def collect_teacher_rollout(
             "initial_state_mode": "cash",
         }
     )
-    observations: list[np.ndarray] = []
+    flat_observations: list[np.ndarray] = []
+    structured_observations: dict[str, list[np.ndarray]] | None = None
+    expected_keys: tuple[str, ...] | None = None
+    expected_shapes: dict[str, tuple[int, ...]] = {}
+    compact_keys = ("active", "asset_state", "current_snapshot", "global_state")
     for offset, target in enumerate(action_array):
         expected_index = start + offset
         if environment.current_index != expected_index:
             raise ValueError("teacher environment did not advance one training bar")
-        observations.append(np.asarray(observation, dtype=np.float32).copy())
+        if isinstance(observation, Mapping):
+            keys = tuple(sorted(observation))
+            if expected_keys is None:
+                expected_keys = keys
+                missing = set(compact_keys) - set(keys)
+                if missing:
+                    raise ValueError(
+                        f"structured teacher observation is missing compact keys: {sorted(missing)}"
+                    )
+                structured_observations = {key: [] for key in compact_keys}
+                structured_observations["decision_index"] = []
+                expected_shapes = {
+                    key: np.asarray(observation[key]).shape for key in keys
+                }
+            if keys != expected_keys:
+                raise ValueError(
+                    "teacher structured observation keys changed during rollout"
+                )
+            assert structured_observations is not None
+            for key in keys:
+                if np.asarray(observation[key]).shape != expected_shapes[key]:
+                    raise ValueError(
+                        "teacher structured observation shape changed during rollout"
+                    )
+            for key in compact_keys:
+                structured_observations[key].append(
+                    np.asarray(observation[key]).copy(order="C")
+                )
+            structured_observations["decision_index"].append(
+                np.asarray([expected_index], dtype=np.int64)
+            )
+        elif expected_keys is not None:
+            raise ValueError("teacher observation kind changed during rollout")
+        else:
+            flat_observations.append(
+                np.asarray(observation, dtype=np.float32).copy(order="C")
+            )
         observation, _, terminated, truncated, _ = environment.step(target)
         if (terminated or truncated) != (offset == expected_count - 1):
             raise ValueError("teacher environment ended outside the training range")
+    observations: ObservationBatch
+    if structured_observations is not None:
+        observations = {
+            key: np.stack(values, axis=0)
+            for key, values in structured_observations.items()
+        }
+    else:
+        observations = np.asarray(flat_observations, dtype=np.float32)
     return SupervisedPolicyDataset(
-        observations=np.asarray(observations, dtype=np.float32),
+        observations=observations,
         actions=action_array,
         dataset_id=dataset_id,
         train_start=start,
@@ -366,6 +639,8 @@ __all__ = [
     "TEACHER_ARRAYS_NAME",
     "TEACHER_ARTIFACT_SCHEMA",
     "TEACHER_MANIFEST_NAME",
+    "ObservationBatch",
+    "StructuredTeacherObservationProvider",
     "SupervisedPolicyDataset",
     "TeacherArtifactManifest",
     "TeacherRolloutEnvironment",

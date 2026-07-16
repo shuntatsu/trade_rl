@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning import (
     BehaviorCloningConfig,
     OracleTeacherConfig,
+    StructuredTeacherObservationProvider,
     collect_teacher_rollout,
     oracle_target_path,
     pretrain_policy,
@@ -26,6 +29,10 @@ from trade_rl.rl.replay import (
     load_replay_buffer_artifact,
     write_replay_buffer_artifact,
 )
+from trade_rl.rl.rollout_memory import (
+    estimate_index_backed_ppo_rollout_buffer_bytes,
+    estimate_ppo_rollout_buffer_bytes,
+)
 from trade_rl.rl.training import (
     PolicyTrainingResult,
     ResidualTrainingConfig,
@@ -34,13 +41,22 @@ from trade_rl.rl.training import (
 )
 
 
-def _build_training_environment(factory: Callable[[], Any], n_envs: int) -> Any:
+def _build_training_environment(
+    factory: Callable[[], Any],
+    n_envs: int,
+    *,
+    subprocesses: bool = True,
+) -> Any:
     if n_envs == 1:
         return factory()
 
-    from stable_baselines3.common.vec_env import SubprocVecEnv
+    if subprocesses:
+        from stable_baselines3.common.vec_env import SubprocVecEnv
 
-    return SubprocVecEnv([factory for _ in range(n_envs)])
+        return SubprocVecEnv([factory for _ in range(n_envs)])
+    from stable_baselines3.common.vec_env import DummyVecEnv
+
+    return DummyVecEnv([factory for _ in range(n_envs)])
 
 
 class StableBaselines3Backend:
@@ -52,10 +68,35 @@ class StableBaselines3Backend:
         *,
         verbose: int = 0,
         resume_replay_artifact: Path | None = None,
+        resume_checkpoint_artifacts: Mapping[int, Path] | None = None,
     ) -> None:
         self.environment_factory = environment_factory
         self.verbose = verbose
         self.resume_replay_artifact = resume_replay_artifact
+        self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
+        self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
+
+    def _oracle_targets(
+        self,
+        dataset: Any,
+        train_range: tuple[int, int],
+        teacher_config: OracleTeacherConfig,
+    ) -> np.ndarray:
+        dataset_id = getattr(dataset, "dataset_id", None)
+        if not isinstance(dataset_id, str):
+            raise ValueError("oracle dataset must expose dataset_id")
+        start, stop = train_range
+        key = (dataset_id, int(start), int(stop), teacher_config.digest)
+        cached = self._oracle_target_cache.get(key)
+        if cached is not None:
+            return cached
+        targets = np.asarray(
+            oracle_target_path(dataset, train_range, teacher_config),
+            dtype=np.float32,
+        ).copy(order="C")
+        targets.setflags(write=False)
+        self._oracle_target_cache[key] = targets
+        return targets
 
     def train(
         self,
@@ -72,17 +113,90 @@ class StableBaselines3Backend:
             identity = _environment_identity(probe)
             _validate_training_environment(identity, config)
             algorithm_config = build_algorithm_config(config)
-            policy_kwargs: dict[str, Any] = {
-                "net_arch": list(algorithm_config.policy_net_arch)
-            }
+            rollout_buffer_bytes: int | None = None
+            if isinstance(algorithm_config, PPOConfig):
+                estimator = (
+                    estimate_index_backed_ppo_rollout_buffer_bytes
+                    if config.sequence_encoder
+                    else estimate_ppo_rollout_buffer_bytes
+                )
+                rollout_buffer_bytes = estimator(
+                    probe.observation_space,
+                    n_steps=algorithm_config.n_steps,
+                    n_envs=config.n_envs,
+                    action_dim=int(identity["action_size"]),
+                )
+                if rollout_buffer_bytes > config.max_rollout_buffer_bytes:
+                    raise ValueError(
+                        "estimated PPO rollout buffer exceeds max_rollout_buffer_bytes: "
+                        f"{rollout_buffer_bytes} > {config.max_rollout_buffer_bytes}"
+                    )
+            policy_kwargs: dict[str, Any]
+            sequence_metadata: dict[str, Any] | None = None
+            sequence_reconstructor: Any | None = None
+            if config.sequence_encoder:
+                from trade_rl.rl.policies import (
+                    SequenceAssetFeatureExtractor,
+                    SharedPerAssetActorCriticPolicy,
+                )
+
+                unwrapped: Any = getattr(probe, "unwrapped", probe)
+                metadata = getattr(unwrapped, "sequence_layout_metadata", None)
+                if not isinstance(metadata, dict):
+                    raise ValueError(
+                        "sequence training requires environment sequence metadata"
+                    )
+                sequence_metadata = dict(metadata)
+                from trade_rl.integrations.compact_rollout_buffer import (
+                    SequenceRolloutReconstructor,
+                )
+
+                dataset = getattr(unwrapped, "dataset", None)
+                sequence_builder = getattr(
+                    unwrapped, "sequence_observation_builder", None
+                )
+                if dataset is None or sequence_builder is None:
+                    raise ValueError(
+                        "sequence training requires dataset-bound reconstruction metadata"
+                    )
+                sequence_reconstructor = SequenceRolloutReconstructor(
+                    dataset=dataset,
+                    builder=sequence_builder,
+                    normalizer=getattr(unwrapped, "sequence_normalizer", None),
+                    expected_dataset_id=dataset.dataset_id,
+                    expected_layout_digest=sequence_builder.layout_digest(dataset),
+                )
+                policy_kwargs = {
+                    "net_arch": {
+                        "pi": list(config.policy_net_arch),
+                        "vf": list(config.value_net_arch),
+                    },
+                    "features_extractor_class": SequenceAssetFeatureExtractor,
+                    "features_extractor_kwargs": {
+                        **sequence_metadata,
+                        "d_model": config.sequence_d_model,
+                        "actor_head": "shared_per_asset_v1",
+                        "actor_parameter_sharing": "one_head_all_assets",
+                        "actor_symbol_order": tuple(identity["action_names"]),
+                        "attention_heads": config.sequence_attention_heads,
+                        "attention_layers": config.sequence_attention_layers,
+                        "dropout": config.sequence_dropout,
+                    },
+                    "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
+                    "shared_actor_d_model": config.sequence_d_model,
+                    "shared_actor_global_dim": 128,
+                    "shared_actor_net_arch": tuple(config.policy_net_arch),
+                }
+            else:
+                policy_kwargs = {"net_arch": list(algorithm_config.policy_net_arch)}
             if isinstance(algorithm_config, PPOConfig):
                 policy_kwargs["log_std_init"] = algorithm_config.log_std_init
             if config.asset_set_encoder:
                 from trade_rl.rl.policies import AssetSetFeatureExtractor
 
-                unwrapped: Any = getattr(probe, "unwrapped", probe)
-                layout = getattr(unwrapped, "layout", None)
-                active_column = getattr(unwrapped, "asset_active_column", None)
+                asset_unwrapped: Any = getattr(probe, "unwrapped", probe)
+                layout = getattr(asset_unwrapped, "layout", None)
+                active_column = getattr(asset_unwrapped, "asset_active_column", None)
                 if layout is None or not isinstance(active_column, int):
                     raise ValueError(
                         "asset-set training requires environment layout metadata"
@@ -108,8 +222,15 @@ class StableBaselines3Backend:
                 probe = None
                 probe_to_close.close()
                 environment = _build_training_environment(
-                    self.environment_factory, config.n_envs
+                    self.environment_factory,
+                    config.n_envs,
+                    subprocesses=not config.sequence_encoder,
                 )
+            policy_identifier: Any = (
+                SharedPerAssetActorCriticPolicy
+                if config.sequence_encoder
+                else config.policy
+            )
             common: dict[str, Any] = {
                 "learning_rate": algorithm_config.learning_rate,
                 "gamma": algorithm_config.gamma,
@@ -120,8 +241,24 @@ class StableBaselines3Backend:
             }
             model: Any
             if isinstance(algorithm_config, PPOConfig):
+                rollout_kwargs: dict[str, Any] = {}
+                if config.sequence_encoder:
+                    from trade_rl.integrations.compact_rollout_buffer import (
+                        IndexBackedDictRolloutBuffer,
+                    )
+
+                    if sequence_reconstructor is None:
+                        raise RuntimeError(
+                            "sequence rollout reconstructor was not resolved"
+                        )
+                    rollout_kwargs["rollout_buffer_class"] = (
+                        IndexBackedDictRolloutBuffer
+                    )
+                    rollout_kwargs["rollout_buffer_kwargs"] = {
+                        "sequence_reconstructor": sequence_reconstructor
+                    }
                 model = PPO(
-                    config.policy,
+                    policy_identifier,
                     environment,
                     n_steps=algorithm_config.n_steps,
                     batch_size=algorithm_config.batch_size,
@@ -135,6 +272,7 @@ class StableBaselines3Backend:
                     target_kl=algorithm_config.target_kl,
                     use_sde=algorithm_config.use_sde,
                     sde_sample_freq=algorithm_config.sde_sample_freq,
+                    **rollout_kwargs,
                     **common,
                 )
             else:
@@ -170,13 +308,152 @@ class StableBaselines3Backend:
                         sde_sample_freq=algorithm_config.sde_sample_freq,
                         **off_policy,
                     )
-            if config.behavior_cloning_epochs > 0:
+            resume_manifest = None
+            resume_root = self.resume_checkpoint_artifacts.get(seed)
+            if resume_root is not None:
+                from trade_rl.rl.checkpointing import load_checkpoint_manifest
+
+                manifest_path = Path(resume_root)
+                if manifest_path.is_dir():
+                    manifest_path = manifest_path / "checkpoint.json"
+                resume_manifest = load_checkpoint_manifest(manifest_path)
+                expected_training_digest = content_digest(config.digest_payload())
+                if resume_manifest.algorithm != config.algorithm:
+                    raise ValueError("checkpoint algorithm mismatch")
+                if resume_manifest.seed != seed:
+                    raise ValueError("checkpoint seed mismatch")
+                if resume_manifest.environment_digest != identity["environment_digest"]:
+                    raise ValueError("checkpoint environment identity mismatch")
+                if resume_manifest.training_config_digest != expected_training_digest:
+                    raise ValueError("checkpoint training configuration mismatch")
+                algorithm_class: Any
+                if config.algorithm == "ppo":
+                    algorithm_class = PPO
+                elif config.algorithm == "sac":
+                    algorithm_class = SAC
+                elif config.algorithm == "td3":
+                    algorithm_class = TD3
+                else:
+                    from sb3_contrib import TQC
+
+                    algorithm_class = TQC
+                model = algorithm_class.load(
+                    str(resume_manifest.policy_path),
+                    env=environment,
+                    device=config.device,
+                )
+                if int(model.num_timesteps) != resume_manifest.observed_timestep:
+                    raise ValueError("checkpoint timestep identity mismatch")
+                if config.sequence_encoder:
+                    if sequence_reconstructor is None:
+                        raise RuntimeError("sequence reconstructor was not resolved")
+                    rollout_buffer = getattr(model, "rollout_buffer", None)
+                    binder = getattr(
+                        rollout_buffer, "bind_sequence_reconstructor", None
+                    )
+                    if not callable(binder):
+                        raise ValueError(
+                            "checkpoint rollout buffer cannot bind sequences"
+                        )
+                    binder(sequence_reconstructor)
+                    model.rollout_buffer_kwargs = {
+                        "sequence_reconstructor": sequence_reconstructor
+                    }
+
+            parameter_count = sum(
+                int(parameter.numel()) for parameter in model.policy.parameters()
+            )
+            if parameter_count > config.max_policy_parameters:
+                raise ValueError(
+                    "policy parameter count exceeds max_policy_parameters: "
+                    f"{parameter_count} > {config.max_policy_parameters}"
+                )
+            declared_distribution = getattr(
+                model.policy, "action_distribution_name", None
+            )
+            action_distribution = (
+                declared_distribution
+                if isinstance(declared_distribution, str) and declared_distribution
+                else type(getattr(model.policy, "action_dist", None)).__name__
+            )
+            architecture_details: dict[str, object] = {
+                "action_distribution": action_distribution,
+                "actor_net_arch": config.policy_net_arch,
+                "critic_net_arch": config.value_net_arch,
+                "sequence_encoder": config.sequence_encoder,
+            }
+            if config.sequence_encoder:
+                if sequence_metadata is None:
+                    raise RuntimeError("sequence metadata was not resolved")
+                extractor = getattr(model.policy, "features_extractor", None)
+                asset_encoder = getattr(extractor, "asset_encoder", None)
+                timeframe_encoders = getattr(asset_encoder, "timeframe_encoders", None)
+                if timeframe_encoders is None:
+                    raise ValueError(
+                        "sequence policy does not expose its maintained timeframe encoders"
+                    )
+                architecture_details.update(
+                    {
+                        "feature_counts": dict(sequence_metadata["feature_counts"]),
+                        "window_lengths": dict(sequence_metadata["window_lengths"]),
+                        "d_model": config.sequence_d_model,
+                        "attention_heads": config.sequence_attention_heads,
+                        "attention_layers": config.sequence_attention_layers,
+                        "receptive_fields": {
+                            timeframe: int(
+                                timeframe_encoders[timeframe].receptive_field
+                            )
+                            for timeframe in ("15m", "1h", "4h", "1d")
+                        },
+                        "dilations": {
+                            timeframe: tuple(
+                                int(value)
+                                for value in timeframe_encoders[timeframe].dilations
+                            )
+                            for timeframe in ("15m", "1h", "4h", "1d")
+                        },
+                    }
+                )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            (output_path.parent / "model-architecture.json").write_bytes(
+                canonical_json_bytes(
+                    {
+                        "architecture": architecture_details,
+                        "environment_digest": identity["environment_digest"],
+                        "observation_contract_digest": identity[
+                            "observation_contract_digest"
+                        ],
+                        "observation_schema": identity["observation_schema"],
+                        "parameter_count": parameter_count,
+                        "policy": (
+                            policy_identifier.__name__
+                            if isinstance(policy_identifier, type)
+                            else policy_identifier
+                        ),
+                        "rollout_buffer_bytes": rollout_buffer_bytes,
+                        "rollout_buffer": (
+                            "index_backed_dict"
+                            if config.sequence_encoder
+                            else "default"
+                        ),
+                        "vector_environment": (
+                            "dummy" if config.sequence_encoder else "subprocess"
+                        ),
+                        "schema_version": "policy_architecture_v2",
+                        "training_config_digest": content_digest(
+                            config.digest_payload()
+                        ),
+                    }
+                )
+            )
+            if config.behavior_cloning_epochs > 0 and resume_manifest is None:
                 teacher_environment = self.environment_factory()
                 try:
                     teacher_identity = _environment_identity(teacher_environment)
-                    if teacher_identity["environment_digest"] != identity[
-                        "environment_digest"
-                    ]:
+                    if (
+                        teacher_identity["environment_digest"]
+                        != identity["environment_digest"]
+                    ):
                         raise ValueError("teacher environment identity mismatch")
                     unwrapped_teacher: Any = getattr(
                         teacher_environment, "unwrapped", teacher_environment
@@ -193,12 +470,21 @@ class StableBaselines3Backend:
                         int(unwrapped_teacher.minimum_start_index),
                         int(dataset.n_bars),
                     )
+                    risk_config = unwrapped_teacher.pre_trade_risk.config
                     teacher_config = OracleTeacherConfig(
                         execution_cost=unwrapped_teacher.config.execution_cost,
-                        max_gross=unwrapped_teacher.pre_trade_risk.config.max_gross,
+                        portfolio_risk=unwrapped_teacher.portfolio_risk.config,
+                        max_gross=risk_config.max_gross,
+                        max_abs_weight=risk_config.max_abs_weight,
+                        entry_threshold=risk_config.entry_threshold,
+                        exit_threshold=risk_config.exit_threshold,
+                        no_trade_band=risk_config.no_trade_band,
                         reference_portfolio_value=unwrapped_teacher.initial_capital,
+                        signal_delay_decisions=(
+                            unwrapped_teacher.config.signal_delay_decisions
+                        ),
                     )
-                    targets = oracle_target_path(dataset, train_range, teacher_config)
+                    targets = self._oracle_targets(dataset, train_range, teacher_config)
                     teacher_dataset = collect_teacher_rollout(
                         teacher_environment,
                         targets,
@@ -210,6 +496,23 @@ class StableBaselines3Backend:
                         output_path.parent / "teacher",
                         teacher_dataset,
                     )
+                    observation_provider = None
+                    if isinstance(teacher_dataset.observations, Mapping):
+                        sequence_builder = getattr(
+                            unwrapped_teacher, "sequence_observation_builder", None
+                        )
+                        if sequence_builder is None:
+                            raise ValueError(
+                                "structured teacher requires a sequence observation builder"
+                            )
+                        observation_provider = StructuredTeacherObservationProvider(
+                            dataset=dataset,
+                            sequence_builder=sequence_builder,
+                            observations=teacher_dataset.observations,
+                            sequence_normalizer=getattr(
+                                unwrapped_teacher, "sequence_normalizer", None
+                            ),
+                        )
                     cloning = pretrain_policy(
                         model.policy,
                         teacher_dataset,
@@ -217,8 +520,16 @@ class StableBaselines3Backend:
                             epochs=config.behavior_cloning_epochs,
                             learning_rate=config.behavior_cloning_learning_rate,
                             batch_size=config.behavior_cloning_batch_size,
+                            validation_fraction=(
+                                config.behavior_cloning_validation_fraction
+                            ),
+                            early_stopping_patience=config.behavior_cloning_patience,
+                            minimum_improvement=(
+                                config.behavior_cloning_minimum_improvement
+                            ),
                         ),
                         seed=seed,
+                        observation_provider=observation_provider,
                     )
                     cloning_payload = {
                         "artifact_digest": teacher_digest,
@@ -226,7 +537,10 @@ class StableBaselines3Backend:
                         "final_mse": cloning.final_mse,
                         "initial_mse": cloning.initial_mse,
                         "sample_count": cloning.sample_count,
-                        "schema_version": "oracle_behavior_cloning_run_v1",
+                        "validation_mse": cloning.validation_mse,
+                        "validation_sample_count": cloning.validation_sample_count,
+                        "best_epoch": cloning.best_epoch,
+                        "schema_version": "oracle_behavior_cloning_run_v2",
                     }
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     (output_path.parent / "behavior-cloning.json").write_bytes(
@@ -239,12 +553,12 @@ class StableBaselines3Backend:
             if self.resume_replay_artifact is not None:
                 if config.algorithm == "ppo":
                     raise ValueError("PPO cannot resume from a replay buffer")
-                resume_manifest, resume_path = load_replay_buffer_artifact(
+                replay_manifest, resume_path = load_replay_buffer_artifact(
                     self.resume_replay_artifact
                 )
-                if resume_manifest.algorithm != config.algorithm:
+                if replay_manifest.algorithm != config.algorithm:
                     raise ValueError("replay buffer algorithm mismatch")
-                if resume_manifest.environment_digest != identity["environment_digest"]:
+                if replay_manifest.environment_digest != identity["environment_digest"]:
                     raise ValueError("replay buffer environment identity mismatch")
                 model.load_replay_buffer(str(resume_path))
 
@@ -257,10 +571,37 @@ class StableBaselines3Backend:
                 environment_digest=str(identity["environment_digest"]),
                 training_config_digest=content_digest(config.digest_payload()),
             )
-            model.learn(total_timesteps=config.timesteps, callback=callback)
+            remaining_timesteps = config.timesteps
+            if resume_manifest is not None:
+                remaining_timesteps = max(
+                    0, config.timesteps - resume_manifest.observed_timestep
+                )
+            if remaining_timesteps > 0:
+                learn_kwargs: dict[str, object] = {
+                    "total_timesteps": remaining_timesteps,
+                    "callback": callback,
+                }
+                if resume_manifest is not None:
+                    learn_kwargs["reset_num_timesteps"] = False
+                model.learn(**learn_kwargs)
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            if resume_manifest is not None:
+                (output_path.parent / "resume.json").write_bytes(
+                    canonical_json_bytes(
+                        {
+                            "checkpoint_digest": resume_manifest.digest,
+                            "checkpoint_observed_timestep": (
+                                resume_manifest.observed_timestep
+                            ),
+                            "remaining_timesteps": remaining_timesteps,
+                            "schema_version": "training_resume_v1",
+                        }
+                    )
+                )
             save_target = output_path.with_suffix("")
-            model.save(str(save_target))
+            from trade_rl.rl.checkpointing import save_policy_without_runtime_state
+
+            save_policy_without_runtime_state(model, str(save_target))
             created = save_target.with_suffix(".zip")
             if created != output_path:
                 created.replace(output_path)
@@ -292,6 +633,10 @@ class StableBaselines3Backend:
                 action_names=tuple(identity["action_names"]),
                 action_spec_digest=str(identity["action_spec_digest"]),
                 observation_size=int(identity["observation_size"]),
+                observation_schema=str(identity["observation_schema"]),
+                observation_contract_digest=identity["observation_contract_digest"],
+                parameter_count=parameter_count,
+                rollout_buffer_bytes=rollout_buffer_bytes,
                 alpha_artifact_digest=identity["alpha_artifact_digest"],
                 factor_artifact_digest=identity["factor_artifact_digest"],
                 normalizer_digest=identity["normalizer_digest"],

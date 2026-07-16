@@ -15,9 +15,9 @@ def market() -> MarketDataset:
     features = np.ones((n_bars, 2, 1), dtype=np.float32)
     feature_available = np.ones_like(features, dtype=np.bool_)
     feature_available[5, 1, 0] = False
-    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(
-        n_bars
-    ) * np.timedelta64(1, "h")
+    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(n_bars) * np.timedelta64(
+        1, "h"
+    )
     return MarketDataset(
         dataset_id="a" * 64,
         symbols=("BTC", "ETH"),

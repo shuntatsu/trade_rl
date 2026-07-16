@@ -18,7 +18,9 @@ import numpy as np
 
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.evaluation.research_gate import (
+    ResearchEvidenceRequirements,
     ResearchReturnGate,
+    block_bootstrap_mean_lower_bound,
     evaluate_research_return_gate,
 )
 from trade_rl.integrations.binance import (
@@ -38,7 +40,7 @@ _FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
 _END = "2026-07-01T00:00:00Z"
 _EXPECTED_15M_BARS = 55_392
-_EXPECTED_POLICY_OBSERVATIONS = 1_241
+_EXPECTED_POLICY_OBSERVATIONS = 230_999
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
@@ -84,6 +86,15 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"JSON payload must be an object: {path}")
     return dict(payload)
+
+
+def _training_policy_digest(payload: object) -> str:
+    if not isinstance(payload, dict):
+        raise ValueError("training result must be a JSON object")
+    value = payload.get("policy_digest")
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValueError("training result policy_digest is missing or invalid")
+    return value
 
 
 def _packaged_git_provenance() -> tuple[str, bool]:
@@ -286,9 +297,9 @@ def _build_dataset(
             feature_timeframes=_FEATURE_TIMEFRAMES,
         )
     )
-    if len(expected_features) != 96:
+    if len(expected_features) != 226:
         raise RuntimeError(
-            f"complete feature contract must contain 96 features, got {len(expected_features)}"
+            f"extended feature contract must contain 226 features, got {len(expected_features)}"
         )
     if result.dataset.feature_names != expected_features:
         raise RuntimeError(
@@ -315,7 +326,18 @@ def _require_file(path: Path) -> None:
 def _verify_training(path: Path) -> None:
     for relative in ("run.json", "ensemble.json", "environment.json"):
         _require_file(path / relative)
-    for index in range(3):
+    ensemble = _load_json(path / "ensemble.json")
+    expected_members = ensemble.get("expected_members")
+    if (
+        isinstance(expected_members, bool)
+        or not isinstance(expected_members, int)
+        or expected_members <= 0
+    ):
+        raise RuntimeError("training ensemble expected_members is invalid")
+    members = ensemble.get("members")
+    if not isinstance(members, list) or len(members) != expected_members:
+        raise RuntimeError("training ensemble member evidence is incomplete")
+    for index in range(expected_members):
         member = path / f"members/member-{index:03d}"
         _require_file(member / "policy.zip")
         checkpoints = checkpoint_manifests(member / "checkpoints")
@@ -375,12 +397,162 @@ def _selected_fold_policy_digests(folds: object) -> object:
     return tuple(identities)
 
 
-def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
+def _maximum_fold_metric(folds: object, name: str) -> float | None:
+    if not isinstance(folds, list) or not folds:
+        return None
+    values: list[float] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return None
+        raw = fold.get(name)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        value = float(raw)
+        if not np.isfinite(value) or value < 0.0:
+            return None
+        values.append(value)
+    return max(values)
+
+
+def _selection_stability_passed(folds: object) -> bool:
+    if not isinstance(folds, list) or not folds:
+        return False
+    selected_configurations: list[str] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return False
+        selected = fold.get("selected_configuration")
+        aggregates = fold.get("candidate_aggregates")
+        if not isinstance(selected, str) or selected == "baseline":
+            return False
+        selected_configurations.append(selected)
+        if not isinstance(aggregates, (list, tuple)):
+            return False
+        matched = [
+            item
+            for item in aggregates
+            if isinstance(item, dict) and item.get("configuration") == selected
+        ]
+        if len(matched) != 1 or matched[0].get("eligible") is not True:
+            return False
+    return len(set(selected_configurations)) == 1
+
+
+def _selected_daily_returns(folds: object) -> tuple[float, ...] | None:
+    if not isinstance(folds, list) or not folds:
+        return None
+    periods_per_day = 96
+    daily: list[float] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return None
+        raw_returns = fold.get("selected_returns")
+        if not isinstance(raw_returns, (list, tuple)):
+            return None
+        values: list[float] = []
+        for raw in raw_returns:
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                return None
+            value = float(raw)
+            if not np.isfinite(value) or value < -1.0:
+                return None
+            values.append(value)
+        if len(values) % periods_per_day != 0:
+            return None
+        for offset in range(0, len(values), periods_per_day):
+            wealth = 1.0
+            for value in values[offset : offset + periods_per_day]:
+                wealth *= 1.0 + value
+            if not np.isfinite(wealth):
+                return None
+            daily.append(wealth - 1.0)
+    return tuple(daily)
+
+
+def _confirmation_evidence(
+    path: Path | None,
+    *,
+    expected_policy_digest: str | None,
+) -> tuple[bool, float]:
+    if path is None or not path.is_file():
+        return False, 0.0
+    try:
+        payload = _load_json(path)
+    except (OSError, ValueError):
+        return False, 0.0
+    days = payload.get("days")
+    total_return = payload.get("total_return")
+    maximum_drawdown = payload.get("maximum_drawdown")
+    policy_digest = payload.get("policy_digest")
+    if (
+        payload.get("schema_version") != "fresh_confirmation_evidence_v1"
+        or payload.get("sealed") is not True
+        or isinstance(days, bool)
+        or not isinstance(days, (int, float))
+        or isinstance(total_return, bool)
+        or not isinstance(total_return, (int, float))
+        or isinstance(maximum_drawdown, bool)
+        or not isinstance(maximum_drawdown, (int, float))
+        or not isinstance(policy_digest, str)
+        or len(policy_digest) != 64
+    ):
+        return False, 0.0
+    resolved_days = float(days)
+    passed = (
+        np.isfinite(resolved_days)
+        and resolved_days >= 0.0
+        and np.isfinite(float(total_return))
+        and float(total_return) > 0.0
+        and np.isfinite(float(maximum_drawdown))
+        and 0.0 <= float(maximum_drawdown) <= 0.20
+        and (expected_policy_digest is None or policy_digest == expected_policy_digest)
+    )
+    return passed, resolved_days
+
+
+def _evaluate_walk_forward_research_gate(
+    path: Path,
+    *,
+    strict: bool = False,
+    require_confirmation: bool = False,
+    confirmation_path: Path | None = None,
+    expected_policy_digest: str | None = None,
+) -> ResearchReturnGate:
     try:
         payload = _load_json(path / "walk-forward.json")
     except (OSError, ValueError):
         payload = {}
     folds = payload.get("folds")
+    requirements = None
+    fold_count = None
+    oos_days = None
+    bootstrap_lower_bound = None
+    confirmation_passed = None
+    confirmation_days = None
+    if strict:
+        requirements = ResearchEvidenceRequirements(
+            required_fold_count=6,
+            minimum_oos_days=180.0,
+            require_positive_bootstrap_lower_bound=True,
+            require_confirmation=require_confirmation,
+            minimum_confirmation_days=30.0,
+        )
+        fold_count = len(folds) if isinstance(folds, list) else None
+        daily_returns = _selected_daily_returns(folds)
+        if daily_returns is not None:
+            oos_days = float(len(daily_returns))
+            if len(daily_returns) >= 2:
+                bootstrap_lower_bound = block_bootstrap_mean_lower_bound(
+                    daily_returns,
+                    samples=2_000,
+                    block_size=5,
+                    seed=0,
+                )
+        if require_confirmation:
+            confirmation_passed, confirmation_days = _confirmation_evidence(
+                confirmation_path,
+                expected_policy_digest=expected_policy_digest,
+            )
     return evaluate_research_return_gate(
         selected_mean_return=_summary_mean(
             payload,
@@ -392,7 +564,76 @@ def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
         ),
         maximum_fold_drawdown=_independent_fold_maximum_drawdown(folds),
         selected_policy_digests=_selected_fold_policy_digests(folds),
+        maximum_turnover_per_day=_maximum_fold_metric(
+            folds, "selected_turnover_per_day"
+        ),
+        maximum_cost_fraction=_maximum_fold_metric(folds, "selected_cost_fraction"),
+        selection_stability_passed=_selection_stability_passed(folds),
+        sealed_fold_count=fold_count,
+        oos_days=oos_days,
+        bootstrap_lower_bound=bootstrap_lower_bound,
+        confirmation_passed=confirmation_passed,
+        confirmation_days=confirmation_days,
+        requirements=requirements,
     )
+
+
+def _selected_walk_forward_recipe(
+    walk_forward_path: Path,
+    walk_forward_config_path: Path,
+    output_path: Path,
+) -> tuple[str, tuple[int, ...], Path]:
+    evidence = _load_json(walk_forward_path / "walk-forward.json")
+    folds = evidence.get("folds")
+    if not isinstance(folds, list) or not folds:
+        raise RuntimeError("walk-forward evidence has no folds")
+    selected = tuple(
+        fold.get("selected_configuration") for fold in folds if isinstance(fold, dict)
+    )
+
+    if len(selected) != len(folds) or any(
+        not isinstance(name, str) or not name for name in selected
+    ):
+        raise RuntimeError("walk-forward selected configuration evidence is invalid")
+    if len(set(selected)) != 1:
+        raise RuntimeError(
+            "walk-forward folds did not agree on one final training recipe"
+        )
+    selected_name = str(selected[0])
+    if selected_name == "baseline":
+        raise RuntimeError(
+            "walk-forward selected baseline; final RL training is blocked"
+        )
+    config = _load_json(walk_forward_config_path)
+    candidates = config.get("candidates")
+    if not isinstance(candidates, list):
+        raise RuntimeError("walk-forward config candidates are invalid")
+    matches = [
+        item
+        for item in candidates
+        if isinstance(item, dict) and item.get("name") == selected_name
+    ]
+    if len(matches) != 1 or not isinstance(matches[0].get("run"), dict):
+        raise RuntimeError("selected walk-forward recipe is missing from config")
+    selected_run = dict(matches[0]["run"])
+    training = selected_run.get("training")
+    if not isinstance(training, dict):
+        raise RuntimeError("selected training recipe has no training object")
+    training = dict(training)
+    raw_seeds = training.get("seeds")
+    if (
+        not isinstance(raw_seeds, list)
+        or len(raw_seeds) < 2
+        or any(
+            isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+            for seed in raw_seeds
+        )
+    ):
+        raise RuntimeError("selected training recipe requires multiple fixed seeds")
+    seeds = tuple(int(seed) for seed in raw_seeds)
+    selected_run["training"] = training
+    _write_json(output_path, selected_run)
+    return selected_name, seeds, output_path
 
 
 def _finalize_research_run(
@@ -400,8 +641,19 @@ def _finalize_research_run(
     work_root: Path,
     walk_forward_path: Path,
     summary: dict[str, object],
+    strict: bool = False,
+    require_confirmation: bool = False,
+    expected_policy_digest: str | None = None,
 ) -> int:
-    gate = asdict(_evaluate_walk_forward_research_gate(walk_forward_path))
+    gate = asdict(
+        _evaluate_walk_forward_research_gate(
+            walk_forward_path,
+            strict=strict,
+            require_confirmation=require_confirmation,
+            confirmation_path=work_root / "confirmation-evidence.json",
+            expected_policy_digest=expected_policy_digest,
+        )
+    )
     summary["research_gate"] = gate
     _write_json(work_root / "research-gate.json", gate)
     _write_json(work_root / "summary.json", summary)
@@ -461,47 +713,43 @@ def main() -> int:
     from trade_rl.data import load_market_dataset_artifact
 
     dataset = load_market_dataset_artifact(dataset_a_path)
-    policy_observation_count = ObservationBuilder(
-        action_size=3,
-        n_factors=0,
-        finite_horizon=True,
-    ).layout(dataset).size
+    flat_observation_count = (
+        ObservationBuilder(
+            action_size=3,
+            n_factors=0,
+            finite_horizon=True,
+        )
+        .layout(dataset)
+        .size
+    )
+    from trade_rl.rl.sequence_observations import SequenceObservationBuilder
+
+    sequence_payload = SequenceObservationBuilder().schema_payload(dataset)
+    raw_sequence_windows = sequence_payload.get("windows")
+    if not isinstance(raw_sequence_windows, (tuple, list)):
+        raise RuntimeError("sequence schema windows must be ordered")
+    sequence_observation_count = 0
+    for window in raw_sequence_windows:
+        item = dict(window)
+        sequence_observation_count += (
+            dataset.n_symbols
+            * int(item["length"])
+            * len(tuple(item["feature_names"]))
+            * 3
+        )
+    policy_observation_count = flat_observation_count + sequence_observation_count
     if policy_observation_count != _EXPECTED_POLICY_OBSERVATIONS:
         raise RuntimeError(
             "expected "
             f"{_EXPECTED_POLICY_OBSERVATIONS:,} policy observations, observed "
             f"{policy_observation_count:,}"
         )
-    training_config_path = _write_run_config(
-        template_path=root / "examples/binance-multitimeframe/training-full.json",
-        output_path=work_root / "training-full.json",
-    )
     walk_forward_config_path = _write_run_config(
         template_path=root / "examples/binance-multitimeframe/walk-forward-full.json",
         output_path=work_root / "walk-forward-full.json",
     )
 
     artifact_root = work_root / "artifacts"
-    training = _run_cli(
-        [
-            *_TRAIN_RUN_COMMAND,
-            "--config",
-            str(training_config_path),
-            "--dataset",
-            str(dataset_a_path),
-            "--output",
-            str(artifact_root),
-            "--run-id",
-            "binance-multitimeframe-full-training",
-        ],
-        root=root,
-        log_path=work_root / "training.log",
-    )
-    training_path = Path(str(training["artifact_path"]))
-    if not training_path.is_absolute():
-        training_path = root / training_path
-    _verify_training(training_path)
-
     walk_forward = _run_cli(
         [
             *_WALK_FORWARD_RUN_COMMAND,
@@ -522,7 +770,7 @@ def main() -> int:
         walk_forward_path = root / walk_forward_path
     _require_file(walk_forward_path / "run.json")
 
-    summary = {
+    summary: dict[str, object] = {
         "dataset": dataset_a,
         "dataset_repeat": dataset_b,
         "end_time": _END,
@@ -531,17 +779,70 @@ def main() -> int:
         "native_timeframes": list(_NATIVE_TIMEFRAMES),
         "decision_hours": 0.25,
         "raw_feature_count": dataset.n_features,
+        "flat_observation_count": flat_observation_count,
+        "sequence_observation_count": sequence_observation_count,
         "policy_observation_count": policy_observation_count,
         "production_status": "NO-GO",
-        "schema": "binance_multitimeframe_complete_research_v2",
+        "schema": "binance_multitimeframe_complete_research_v4_seed_stable",
         "start_time": _START,
-        "training": training,
+        "training": None,
         "walk_forward": walk_forward,
     }
+    preliminary_gate = _evaluate_walk_forward_research_gate(
+        walk_forward_path,
+        strict=True,
+    )
+    if not preliminary_gate.passed:
+        exit_code = _finalize_research_run(
+            work_root=work_root,
+            walk_forward_path=walk_forward_path,
+            summary=summary,
+            strict=True,
+        )
+        print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+        return exit_code
+
+    (
+        selected_configuration,
+        selected_seeds,
+        training_config_path,
+    ) = _selected_walk_forward_recipe(
+        walk_forward_path,
+        walk_forward_config_path,
+        work_root / "training-selected.json",
+    )
+    training = _run_cli(
+        [
+            *_TRAIN_RUN_COMMAND,
+            "--config",
+            str(training_config_path),
+            "--dataset",
+            str(dataset_a_path),
+            "--output",
+            str(artifact_root),
+            "--run-id",
+            "binance-multitimeframe-selected-training",
+        ],
+        root=root,
+        log_path=work_root / "training.log",
+    )
+    training_path = Path(str(training["artifact_path"]))
+    if not training_path.is_absolute():
+        training_path = root / training_path
+    _verify_training(training_path)
+
+    summary["selected_training_configuration"] = selected_configuration
+    summary["selected_training_seeds"] = list(selected_seeds)
+    summary["confirmation_required_from"] = _END
+    summary["training"] = training
+    expected_policy_digest = _training_policy_digest(training)
     exit_code = _finalize_research_run(
         work_root=work_root,
         walk_forward_path=walk_forward_path,
         summary=summary,
+        strict=True,
+        require_confirmation=True,
+        expected_policy_digest=expected_policy_digest,
     )
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return exit_code

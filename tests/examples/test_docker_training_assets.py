@@ -173,3 +173,63 @@ def test_training_runbook_uses_unique_generations_and_shared_cache() -> None:
     assert "/workspace/var/cache/binance-vision" in runbook
     assert "never deletes or overwrites an existing generation" in normalized
     assert "reuses the shared cache" in normalized
+
+
+def test_ci_builds_and_probes_the_complete_training_image() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "training-image:" in workflow
+    assert "docker build" in workflow
+    assert "--build-arg TRADE_RL_GIT_COMMIT=" in workflow
+    assert "--build-arg TRADE_RL_GIT_DIRTY=false" in workflow
+    assert "docker run --rm --entrypoint sh" in workflow
+    assert 'test "$(id -u)" -ne 0' in workflow
+
+
+def test_gpu_nightly_contract_measures_vram_throughput_and_resume() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "gpu-nightly.yml").read_text(
+        encoding="utf-8"
+    )
+    smoke = (
+        ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.py"
+    ).read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "self-hosted" in workflow
+    assert "nvidia" in workflow.lower()
+    assert "run_gpu_training_smoke.py" in workflow
+    assert "gpu-training-smoke.json" in workflow
+    assert "peak_gpu_memory_mib" in smoke
+    assert "throughput_steps_per_second" in smoke
+    assert "resume_checkpoint" in smoke
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v5" in smoke
+
+
+def test_ci_explicitly_runs_recovery_and_structured_serving_smokes() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "Recovery and structured serving smoke" in workflow
+    assert "test_backend_resumes_ppo_checkpoint_to_requested_total" in workflow
+    assert "test_structured_sb3_loader_rebuilds_native_sequence_observation" in workflow
+    assert "agent/causal-sequence-feature-encoder" in workflow
+
+
+def test_architecture_docs_state_current_research_and_runtime_boundaries() -> None:
+    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    research = (ROOT / "docs" / "MULTITIMEFRAME_RESEARCH.md").read_text(
+        encoding="utf-8"
+    )
+    runbook = (ROOT / "docs" / "operations" / "docker-gpu-full-training.md").read_text(
+        encoding="utf-8"
+    )
+    combined = "\n".join((architecture, research, runbook))
+    for phrase in (
+        "approximate portfolio teacher",
+        "shared per-asset actor",
+        "index-backed rollout",
+        "180 OOS days",
+        "fresh confirmation",
+        "structured sequence serving",
+        "Production remains NO-GO",
+    ):
+        assert phrase in combined
+    assert "exact optimal Oracle" not in combined

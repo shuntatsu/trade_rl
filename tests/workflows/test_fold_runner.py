@@ -205,9 +205,11 @@ def test_fold_runner_selects_across_seed_local_checkpoint_finalists() -> None:
         evaluator=evaluator,
     ).run_fold(fold())
 
-    assert result.selection.selected_policy_digest == f"{8:064x}"
+    assert result.selection.selected_policy_digest == f"{7:064x}"
     assert tuple(item.seed for item in result.seed_finalists) == (0, 1)
     assert tuple(item.selection_score for item in result.seed_finalists) == (0.01, 0.04)
+    assert result.candidate_aggregates[0].median_score == 0.025
+    assert result.candidate_aggregates[0].seed_count == 2
     assert all(
         call.evaluation_range == fold().configuration_selection
         for call in evaluator.calls
@@ -276,3 +278,107 @@ def test_fold_runner_seals_outer_test_and_preserves_execution_evidence() -> None
 
     with pytest.raises(ValueError, match="already opened"):
         runner.run_fold(fold())
+
+
+def test_fold_runner_rejects_unstable_high_cost_seed_distribution() -> None:
+    from trade_rl.evaluation.evidence import ExecutionDiagnostics
+
+    @dataclass
+    class ThreeSeedTrainer:
+        def train(self, request: CandidateTrainingRequest) -> PolicyTrainingArtifact:
+            return PolicyTrainingArtifact(
+                configuration=request.configuration.name,
+                seed_finalists=tuple(
+                    SeedPolicyFinalist(
+                        seed=seed,
+                        policy_digest=f"{20 + seed:064x}",
+                        checkpoint_score=0.1,
+                        checkpoint_evaluation_digest=f"{40 + seed:064x}",
+                    )
+                    for seed in range(3)
+                ),
+            )
+
+    @dataclass
+    class UnstableEvaluator(FakeEvaluator):
+        def evaluate(self, request: CandidateEvaluationRequest) -> CandidateEvaluation:
+            if (
+                request.phase is EvaluationPhase.CONFIGURATION_SELECTION
+                and request.policy_digest
+            ):
+                self.calls.append(request)
+                seed = int(request.policy_digest, 16) - 20
+                score = (0.06, -0.04, 0.05)[seed]
+                return CandidateEvaluation(
+                    score=score,
+                    returns=ReturnSeries(
+                        values=tuple(
+                            0.001 for _ in range(request.evaluation_range.size)
+                        ),
+                        kind=ReturnKind.BASE_BAR,
+                        periods_per_year=8_760,
+                    ),
+                    evaluation_digest=f"{500 + len(self.calls):064x}",
+                    diagnostics=ExecutionDiagnostics(
+                        turnover_total=9.0 if seed == 0 else 1.0,
+                        total_cost=2_000.0 if seed == 0 else 100.0,
+                    ),
+                    turnover_per_day=1.5 if seed == 0 else 0.2,
+                    cost_fraction=0.04 if seed == 0 else 0.002,
+                    maximum_drawdown=0.25 if seed == 0 else 0.05,
+                )
+            return super().evaluate(request)
+
+    evaluator = UnstableEvaluator(
+        selection_scores={"baseline": 0.0, "candidate_a": 0.0}
+    )
+    strict = FoldExecutionConfig(
+        dataset_id=DATASET_ID,
+        signal_digest=SIGNAL_DIGEST,
+        candidates=(CandidateConfiguration(name="candidate_a"),),
+        minimum_selection_uplift=0.0,
+        minimum_seed_success_fraction=2.0 / 3.0,
+        minimum_worst_seed_uplift=-0.01,
+        maximum_seed_score_std=0.03,
+        maximum_selection_turnover_per_day=1.0,
+        maximum_selection_cost_fraction=0.03,
+        maximum_selection_drawdown=0.15,
+        selected_at=NOW,
+        experiment_plan_digest="e" * 64,
+    )
+
+    result = ConcreteFoldRunner(
+        config=strict, trainer=ThreeSeedTrainer(), evaluator=evaluator
+    ).run_fold(fold())
+
+    assert result.selection.selected_configuration == "baseline"
+    aggregate = result.candidate_aggregates[0]
+    assert not aggregate.eligible
+    assert "worst_seed_uplift_below_threshold" in aggregate.reasons
+    assert "seed_score_dispersion_above_limit" in aggregate.reasons
+    assert "selection_turnover_above_limit" in aggregate.reasons
+    assert "selection_cost_above_limit" in aggregate.reasons
+    assert "selection_drawdown_above_limit" in aggregate.reasons
+
+
+def test_fold_runner_rejects_negative_candidate_even_when_baseline_is_worse() -> None:
+    trainer = FakeTrainer()
+    evaluator = FakeEvaluator(
+        selection_scores={
+            "baseline": -0.10,
+            "candidate_a": -0.02,
+            "candidate_b": -0.01,
+        }
+    )
+    runner = ConcreteFoldRunner(
+        config=config(minimum_uplift=0.0), trainer=trainer, evaluator=evaluator
+    )
+
+    result = runner.run_fold(fold())
+
+    assert result.selection.selected_configuration == "baseline"
+    assert all(not aggregate.eligible for aggregate in result.candidate_aggregates)
+    assert all(
+        "median_seed_score_below_threshold" in aggregate.reasons
+        for aggregate in result.candidate_aggregates
+    )

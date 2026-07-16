@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import gymnasium as gym
 import numpy as np
@@ -17,6 +17,10 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
+from trade_rl.risk.inputs import (
+    PortfolioRiskInputsProvider,
+    RollingPortfolioRiskInputsProvider,
+)
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import (
@@ -54,6 +58,13 @@ from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
     RewardTracker,
 )
+from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
+from trade_rl.rl.sequence_observations import (
+    SEQUENCE_OBSERVATION_SCHEMA,
+    SequenceObservationBuilder,
+    SequenceWindowSpec,
+    build_structured_policy_observation,
+)
 from trade_rl.rl.transition import classify_economic_transition
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
@@ -82,7 +93,7 @@ class FactorBasisProvider(Protocol):
     def basis_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
 
 
-class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
+class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray]):
     """Dynamic residual-action environment with an independent shadow book."""
 
     metadata = {"render_modes": []}
@@ -109,7 +120,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         composer: BaselineResidualComposer | None = None,
         pre_trade_risk: PreTradeRisk | None = None,
         portfolio_risk: PortfolioRiskModel | None = None,
+        portfolio_risk_inputs_provider: PortfolioRiskInputsProvider | None = None,
         normalizer: ObservationNormalizer | None = None,
+        sequence_normalizer: SequenceFeatureNormalizer | None = None,
         config: ResidualMarketEnvConfig | None = None,
     ) -> None:
         super().__init__()
@@ -200,7 +213,29 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
+        resolved_risk_provider = portfolio_risk_inputs_provider
+        if (
+            self.portfolio_risk.requires_advanced_inputs
+            and resolved_risk_provider is None
+        ):
+            resolved_risk_provider = RollingPortfolioRiskInputsProvider()
+        self.portfolio_risk_inputs_provider = resolved_risk_provider
+        if resolved_risk_provider is not None:
+            require_sha256(
+                resolved_risk_provider.identity_digest,
+                field="portfolio_risk_inputs_provider.identity_digest",
+            )
+            minimum_index = resolved_risk_provider.minimum_index
+            if (
+                isinstance(minimum_index, bool)
+                or not isinstance(minimum_index, int)
+                or minimum_index < 0
+                or minimum_index >= dataset.n_bars
+            ):
+                raise ValueError("portfolio risk inputs minimum_index is invalid")
+            self._minimum_start_index = max(self._minimum_start_index, minimum_index)
         self.normalizer = normalizer
+        self.sequence_normalizer = sequence_normalizer
         self.config = config or ResidualMarketEnvConfig()
         self.emergency_risk_monitor = CausalEmergencyRiskMonitor(
             self.config.emergency_risk
@@ -334,12 +369,136 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 )
         self.layout = layout
         self.asset_active_column = 4 * dataset.n_features
-        self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(layout.size,),
-            dtype=np.float32,
-        )
+        self.sequence_observation_builder: SequenceObservationBuilder | None = None
+        self.sequence_layout_metadata: dict[str, object] | None = None
+        if self.config.structured_sequence_observation:
+            self.sequence_observation_builder = SequenceObservationBuilder(
+                windows=tuple(
+                    SequenceWindowSpec(timeframe, length)
+                    for timeframe, length in self.config.resolved_sequence_windows
+                )
+            )
+            if sequence_normalizer is not None:
+                if dataset.dataset_id not in {
+                    sequence_normalizer.dataset_id,
+                    sequence_normalizer.source_dataset_id,
+                }:
+                    raise ValueError(
+                        "sequence normalizer dataset identity does not match environment"
+                    )
+                if (
+                    sequence_normalizer.sequence_schema_digest
+                    != self.sequence_observation_builder.layout_digest(dataset)
+                ):
+                    raise ValueError(
+                        "sequence normalizer schema does not match environment"
+                    )
+            self._minimum_start_index = max(
+                self._minimum_start_index,
+                self.sequence_observation_builder.minimum_index(dataset),
+            )
+            sequence_payload = self.sequence_observation_builder.schema_payload(dataset)
+            sequence_spaces: dict[str, spaces.Space[np.ndarray]] = {
+                "decision_index": spaces.Box(
+                    low=0,
+                    high=dataset.n_bars - 1,
+                    shape=(1,),
+                    dtype=np.int64,
+                ),
+                "current_snapshot": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(dataset.n_symbols, 4 * dataset.n_features),
+                    dtype=np.float32,
+                ),
+                "asset_state": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(
+                        dataset.n_symbols,
+                        layout.per_symbol_width - 4 * dataset.n_features,
+                    ),
+                    dtype=np.float32,
+                ),
+                "global_state": spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(layout.global_width,),
+                    dtype=np.float32,
+                ),
+                "active": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(dataset.n_symbols,),
+                    dtype=np.float32,
+                ),
+            }
+            feature_counts: dict[str, int] = {}
+            window_lengths: dict[str, int] = {}
+            sequence_windows = cast(
+                tuple[dict[str, object], ...], sequence_payload["windows"]
+            )
+            for window in sequence_windows:
+                item = dict(window)
+                timeframe = str(item["timeframe"])
+                raw_length = item["length"]
+                if isinstance(raw_length, bool) or not isinstance(raw_length, int):
+                    raise ValueError("sequence window length must be an integer")
+                raw_feature_names = item["feature_names"]
+                if not isinstance(raw_feature_names, (tuple, list)):
+                    raise ValueError("sequence feature names must be ordered")
+                length = raw_length
+                feature_count = len(raw_feature_names)
+                feature_counts[timeframe] = feature_count
+                window_lengths[timeframe] = length
+                base_shape = (dataset.n_symbols, length, feature_count)
+                sequence_spaces[f"sequence_{timeframe}_values"] = spaces.Box(
+                    low=-np.inf, high=np.inf, shape=base_shape, dtype=np.float16
+                )
+                sequence_spaces[f"sequence_{timeframe}_available"] = spaces.Box(
+                    low=0, high=1, shape=base_shape, dtype=np.uint8
+                )
+                sequence_spaces[f"sequence_{timeframe}_staleness"] = spaces.Box(
+                    low=0.0, high=np.inf, shape=base_shape, dtype=np.float16
+                )
+            self.sequence_layout_metadata = {
+                "feature_counts": feature_counts,
+                "window_lengths": window_lengths,
+                "snapshot_width": 4 * dataset.n_features,
+                "asset_state_width": layout.per_symbol_width - 4 * dataset.n_features,
+                "global_width": layout.global_width,
+                "n_symbols": dataset.n_symbols,
+            }
+            self._observation_schema = SEQUENCE_OBSERVATION_SCHEMA
+            component_dtypes = {
+                key: str(np.dtype(space.dtype))
+                for key, space in sorted(sequence_spaces.items())
+            }
+            self._observation_contract_digest = content_digest(
+                {
+                    "component_dtypes": component_dtypes,
+                    "current_schema_digest": self.observation_builder.schema_digest(
+                        dataset
+                    ),
+                    "sequence_schema_digest": self.sequence_observation_builder.schema_digest(
+                        dataset
+                    ),
+                    "layout": self.sequence_layout_metadata,
+                    "schema_version": SEQUENCE_OBSERVATION_SCHEMA,
+                }
+            )
+            self.observation_space = spaces.Dict(sequence_spaces)
+        else:
+            self._observation_schema = OBSERVATION_SCHEMA
+            self._observation_contract_digest = self.observation_builder.schema_digest(
+                dataset
+            )
+            self.observation_space = spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(layout.size,),
+                dtype=np.float32,
+            )
         self.action_space = spaces.Box(
             low=-1.0,
             high=1.0,
@@ -364,6 +523,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self._episode_hours = self.config.episode_hours
         self._initial_state_mode = "cash"
         self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
+        self._pending_hybrid_target: np.ndarray | None = None
+        self._pending_shadow_target: np.ndarray | None = None
         self._position_age = np.zeros(dataset.n_symbols, dtype=np.float64)
         self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
         self._action_diagnostics = ActionDiagnosticsAccumulator()
@@ -446,12 +607,15 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 "accept_legacy_actions": self.config.accept_legacy_actions,
                 "decision_every": self.config.decision_every,
                 "decision_hours": self.config.decision_hours,
+                "signal_delay_decisions": self.config.signal_delay_decisions,
                 "resolved_decision_hours": self._resolved_decision_hours,
                 "episode_bars": self.config.episode_bars,
                 "episode_hour_choices": self.config.episode_hour_choices,
                 "episode_hours": self.config.episode_hours,
                 "execution_cost": asdict(self.config.execution_cost),
                 "finite_horizon_observation": self.config.finite_horizon_observation,
+                "structured_sequence_observation": self.config.structured_sequence_observation,
+                "sequence_windows": self.config.resolved_sequence_windows,
                 "require_full_reward_preroll": self.config.require_full_reward_preroll,
                 "initial_capital": self.config.initial_capital,
                 "initial_state_modes": self.config.initial_state_modes,
@@ -474,14 +638,33 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "normalizer_digest": (
                 None if self.normalizer is None else self.normalizer.digest
             ),
-            "observation_schema": OBSERVATION_SCHEMA,
+            "sequence_normalizer_digest": (
+                None
+                if self.sequence_normalizer is None
+                else self.sequence_normalizer.digest
+            ),
+            "observation_schema": self._observation_schema,
+            "observation_contract_digest": self._observation_contract_digest,
             "portfolio_risk": asdict(self.portfolio_risk.config),
+            "portfolio_risk_inputs_digest": (
+                None
+                if self.portfolio_risk_inputs_provider is None
+                else self.portfolio_risk_inputs_provider.identity_digest
+            ),
             "pre_trade_risk": asdict(self.pre_trade_risk.config),
             "reward": asdict(self.reward_tracker.config),
             "reward_schema": REWARD_SCHEMA,
             "schema_version": "residual_market_environment_v3",
             "trend": asdict(self.trend_strategy.config),
         }
+
+    @property
+    def observation_schema(self) -> str:
+        return self._observation_schema
+
+    @property
+    def observation_contract_digest(self) -> str:
+        return self._observation_contract_digest
 
     @property
     def dataset_id(self) -> str:
@@ -581,7 +764,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             )
         return trends, alpha, self._factor_basis_at(self.current_index)
 
-    def _observation(self) -> np.ndarray:
+    def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
         trends, alpha, factor_basis = self._market_inputs()
         raw = self.observation_builder.build(
             ObservationInput(
@@ -606,7 +789,21 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
                 finite_horizon=self.config.finite_horizon_observation,
             )
         )
-        return raw if self.normalizer is None else self.normalizer.transform(raw)
+        current = raw if self.normalizer is None else self.normalizer.transform(raw)
+        if self.sequence_observation_builder is None:
+            return current
+        sequence = self.sequence_observation_builder.build(
+            self.dataset, index=self.current_index
+        )
+        structured = build_structured_policy_observation(
+            sequence=sequence,
+            current_flat=current,
+            layout=self.layout,
+            n_features=self.dataset.n_features,
+            sequence_normalizer=self.sequence_normalizer,
+        )
+        structured["decision_index"] = np.asarray([self.current_index], dtype=np.int64)
+        return structured
 
     def _episode_end(self, start: int, *, hours: float, bars: int | None) -> int:
         if bars is not None:
@@ -848,9 +1045,17 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         executor = MarketExecutor(self.dataset, self.config.execution_cost)
         executor.reset_random_state(reward_start)
         cursor = history_start
+        pending_target: np.ndarray | None = None
         returns: list[float] = []
         while cursor < reward_start:
-            target = self.trend_strategy.targets(self.dataset, cursor).base
+            submitted_target = self.trend_strategy.targets(self.dataset, cursor).base
+            if self.config.signal_delay_decisions == 0:
+                target = submitted_target
+            else:
+                target = (
+                    book.weights.copy() if pending_target is None else pending_target
+                )
+                pending_target = submitted_target.copy()
             constrained = self.pre_trade_risk.constrain(
                 target,
                 current=book.weights,
@@ -877,8 +1082,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self,
         *,
         seed: int | None = None,
-        options: dict[str, object] | None = None,
-    ) -> tuple[np.ndarray, dict[str, object]]:
+        options: dict[str, Any] | None = None,
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict[str, Any]]:
         resolved_seed = (
             self.config.execution_cost.random_seed
             if seed is None and not self._has_reset
@@ -949,6 +1154,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self._episode_hours = resolved_hours
         self._initial_state_mode = mode
         self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
+        self._pending_hybrid_target = None
+        self._pending_shadow_target = None
         self._position_age = np.zeros(self.dataset.n_symbols, dtype=np.float64)
         if mode == "partial_fill":
             raw_requested = self.trend_strategy.targets(self.dataset, start).base
@@ -1041,10 +1248,21 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             drawdown=self._drawdown(book),
             emergency_flatten_mask=assessment.flatten_mask,
         )
+        risk_inputs = None
+        if self.portfolio_risk.requires_advanced_inputs:
+            provider = self.portfolio_risk_inputs_provider
+            if provider is None:
+                raise RuntimeError(
+                    "advanced portfolio risk requires a causal input provider"
+                )
+            risk_inputs = provider.inputs(self.dataset, index=self.current_index)
         portfolio = self.portfolio_risk.constrain(
             pretrade.weights,
             portfolio_value=max(book.portfolio_value, 1e-12),
             market_notional=self._market_notional(self.current_index),
+            covariance=None if risk_inputs is None else risk_inputs.covariance,
+            beta=None if risk_inputs is None else risk_inputs.beta,
+            stress_losses=None if risk_inputs is None else risk_inputs.stress_losses,
         )
         final_weights = np.asarray(portfolio.weights, dtype=np.float64)
         constrained_turnover = float(np.abs(final_weights - book.weights).sum())
@@ -1208,7 +1426,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
     def step(
         self,
         action: np.ndarray,
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
         if self.current_index >= self.end_index:
             raise RuntimeError("step called after the episode ended")
         trends, alpha, factor_basis = self._market_inputs()
@@ -1223,8 +1441,30 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             factor_basis=factor_basis,
             max_gross=self.pre_trade_risk.config.max_gross,
         )
-        hybrid_risk = self._constrain_target(composition.proposal, self.hybrid)
-        shadow_risk = self._constrain_target(trends.base, self.shadow)
+        submitted_hybrid_target = np.asarray(
+            composition.proposal, dtype=np.float64
+        ).copy()
+        submitted_shadow_target = np.asarray(trends.base, dtype=np.float64).copy()
+        execution_delay_warmup = False
+        if self.config.signal_delay_decisions == 0:
+            executed_hybrid_target = submitted_hybrid_target
+            executed_shadow_target = submitted_shadow_target
+        else:
+            execution_delay_warmup = self._pending_hybrid_target is None
+            executed_hybrid_target = (
+                self.hybrid.weights.copy()
+                if self._pending_hybrid_target is None
+                else self._pending_hybrid_target.copy()
+            )
+            executed_shadow_target = (
+                self.shadow.weights.copy()
+                if self._pending_shadow_target is None
+                else self._pending_shadow_target.copy()
+            )
+            self._pending_hybrid_target = submitted_hybrid_target
+            self._pending_shadow_target = submitted_shadow_target
+        hybrid_risk = self._constrain_target(executed_hybrid_target, self.hybrid)
+        shadow_risk = self._constrain_target(executed_shadow_target, self.shadow)
         bars = self._decision_bar_count()
         previous_hybrid_weights = self.hybrid.weights.copy()
         hybrid_execution = self.hybrid_executor.execute_interval(
@@ -1247,6 +1487,20 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
         self.current_index = hybrid_execution.next_index
         self._decision_step_index += 1
         time_limit_reached = self.current_index >= self.end_index
+        pending_hybrid_target = self._pending_hybrid_target
+        pending_target_discarded = bool(
+            time_limit_reached
+            and self.config.signal_delay_decisions == 1
+            and pending_hybrid_target is not None
+        )
+        discarded_pending_target = (
+            pending_hybrid_target.copy()
+            if pending_target_discarded and pending_hybrid_target is not None
+            else None
+        )
+        if time_limit_reached:
+            self._pending_hybrid_target = None
+            self._pending_shadow_target = None
         hybrid_log_return = hybrid_execution.interval_log_return
         shadow_log_return = shadow_execution.interval_log_return
         hybrid_liquidation: ExecutionResult | None = None
@@ -1345,6 +1599,18 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             turnover_overridden=hybrid_risk.turnover_overridden,
         )
         termination_reason = economic_transition.reason
+        terminal_accounting_mode = (
+            "liquidate_at_close"
+            if liquidation_terminal
+            else "mark_to_market"
+            if time_limit_reached
+            else "economic_termination"
+        )
+        terminal_liquidation_cost = (
+            float(hybrid_liquidation.interval_cost)
+            if liquidation_terminal and hybrid_liquidation is not None
+            else 0.0
+        )
         info: dict[str, object] = {
             "action_delta_l1": action_delta_l1,
             "action_raw_max_abs": raw_max_abs,
@@ -1354,6 +1620,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "decision_step_index": self._decision_step_index,
             "excess_log_return": hybrid_log_return - shadow_log_return,
             "emergency_deleverage": emergency_deleverage,
+            "execution_delay_warmup": execution_delay_warmup,
+            "submitted_target": submitted_hybrid_target.copy(),
+            "executed_target": executed_hybrid_target.copy(),
             "drawdown_after": self._drawdown(self.hybrid),
             "portfolio_value_after": self.hybrid.portfolio_value,
             "reward_growth_raw": reward_breakdown.absolute_log_growth,
@@ -1395,7 +1664,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray, np.ndarray]):
             "shadow_risk": shadow_risk,
             "shadow_terminated": shadow_terminated,
             "termination_reason": termination_reason,
+            "terminal_accounting_mode": terminal_accounting_mode,
+            "terminal_liquidation_cost": terminal_liquidation_cost,
+            "pending_target_discarded": pending_target_discarded,
         }
+        if discarded_pending_target is not None:
+            info["discarded_pending_target"] = discarded_pending_target
         if hybrid_liquidation is not None:
             info["hybrid_liquidation"] = hybrid_liquidation
         if shadow_liquidation is not None:

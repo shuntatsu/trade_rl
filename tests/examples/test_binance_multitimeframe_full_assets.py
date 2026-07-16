@@ -22,20 +22,21 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert (
         config.training.device,
         config.training.n_envs,
+        config.training.policy,
         config.training.policy_net_arch,
-        config.training.asset_embedding_dim,
-        config.training.global_embedding_dim,
-    ) == ("cuda", 4, (256, 256), 128, 128)
+        config.training.value_net_arch,
+        config.training.sequence_encoder,
+    ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert config.training.seeds == (0, 1, 2)
-    assert config.training.timesteps >= 262_144
-    assert config.training.n_steps == 2_048
-    assert config.training.batch_size == 64
+    assert config.training.timesteps >= 524_288
+    assert config.training.n_steps == 128
+    assert config.training.batch_size == 128
     assert config.training.n_epochs == 10
     assert config.training.gamma == pytest.approx(0.998969062762624)
     assert config.training.decision_hours == 0.25
     assert config.environment.decision_hours == 0.25
     assert config.training.behavior_cloning_epochs == 15
-    assert config.risk.max_turnover == 0.02
+    assert config.risk.max_turnover is None
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
     assert config.action.mode.value == "target_weight"
@@ -54,42 +55,72 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.portfolio_risk.max_abs_weight <= 0.5
 
 
-def test_full_walk_forward_config_has_two_material_folds() -> None:
+def test_full_walk_forward_config_has_six_material_folds() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / "walk-forward-full.json",
         n_bars=55_392,
     )
 
     folds = config.workflow.build_folds()
-    assert len(folds) == 2
-    assert config.checkpoint_finalists_per_seed == 3
-    assert (folds[0].test.start, folds[0].test.stop) == (52_512, 53_952)
-    assert (folds[1].test.start, folds[1].test.stop) == (53_952, 55_392)
+    assert len(folds) == 6
+    assert config.checkpoint_finalists_per_seed == 1
+    assert all(fold.test.size == 2_880 for fold in folds)
+    assert sum(fold.test.size for fold in folds) == 17_280
+    assert (folds[0].test.start, folds[0].test.stop) == (26_336, 29_216)
+    assert (folds[-1].test.start, folds[-1].test.stop) == (40_736, 43_616)
     assert [candidate.name for candidate in config.candidates] == [
+        "snapshot-ppo-15m-target",
         "ppo-15m-target",
         "oracle-bc-ppo-15m-target",
     ]
-    candidate = config.candidates[0].run
+    candidate = next(
+        item.run for item in config.candidates if item.name == "ppo-15m-target"
+    )
     assert (
         candidate.training.device,
         candidate.training.n_envs,
+        candidate.training.policy,
         candidate.training.policy_net_arch,
-        candidate.training.asset_embedding_dim,
-        candidate.training.global_embedding_dim,
-    ) == ("cuda", 4, (256, 256), 128, 128)
+        candidate.training.value_net_arch,
+        candidate.training.sequence_encoder,
+    ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert candidate.training.seeds == (0, 1, 2)
-    assert candidate.training.timesteps >= 65_536
+    assert candidate.training.timesteps >= 524_288
     assert candidate.training.gamma == pytest.approx(0.998969062762624)
     assert candidate.training.decision_hours == 0.25
     assert candidate.environment.decision_hours == 0.25
-    assert candidate.risk.max_turnover == 0.02
+    assert candidate.environment.structured_sequence_observation
+    assert candidate.environment.resolved_sequence_windows == (
+        ("15m", 96),
+        ("1h", 168),
+        ("4h", 120),
+        ("1d", 60),
+    )
+    assert candidate.risk.max_turnover is None
     assert not candidate.action.risk_tilt_enabled
     assert candidate.action.mode.value == "target_weight"
     assert candidate.action.target_weight_count == 3
     assert candidate.action.n_factors == 0
     assert candidate.factor_artifact is None
     assert candidate.training.behavior_cloning_epochs == 0
-    assert config.candidates[1].run.training.behavior_cloning_epochs == 15
+    snapshot = next(
+        item.run for item in config.candidates if item.name == "snapshot-ppo-15m-target"
+    )
+    assert not snapshot.training.sequence_encoder
+    assert not snapshot.environment.structured_sequence_observation
+    oracle = next(
+        item.run
+        for item in config.candidates
+        if item.name == "oracle-bc-ppo-15m-target"
+    )
+    assert oracle.training.behavior_cloning_epochs == 15
+    assert config.minimum_seed_success_fraction == pytest.approx(2.0 / 3.0)
+    assert config.minimum_worst_seed_uplift == pytest.approx(-0.02)
+    assert config.maximum_seed_score_std == pytest.approx(0.05)
+    assert config.maximum_selection_turnover_per_day == pytest.approx(1.0)
+    assert config.maximum_selection_cost_fraction == pytest.approx(0.03)
+    assert config.minimum_selection_score == pytest.approx(0.0)
+    assert config.maximum_selection_drawdown == pytest.approx(0.15)
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
@@ -107,10 +138,19 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "binance_multitimeframe_feature_specs" in content
     assert "raw_feature_count" in content
     assert "policy_observation_count" in content
-    assert "1_241" in content
-    assert "96" in content
+    assert "230_999" in content
+    assert "226" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
+
+
+def test_full_runner_selects_walk_forward_recipe_before_final_training() -> None:
+    content = (EXAMPLE_ROOT / "run_full_research.py").read_text(encoding="utf-8")
+
+    walk_forward_call = content.index("walk_forward = _run_cli")
+    selected_recipe = content.index("_selected_walk_forward_recipe(", walk_forward_call)
+    final_training = content.index("training = _run_cli", walk_forward_call)
+    assert walk_forward_call < selected_recipe < final_training
 
 
 def _runner_namespace() -> dict[str, Any]:
@@ -223,8 +263,17 @@ class _CheckpointPolicy:
 
 def test_full_runner_accepts_canonical_nested_checkpoints(tmp_path: Path) -> None:
     verify_training = _runner_namespace()["_verify_training"]
-    for name in ("run.json", "ensemble.json", "environment.json"):
-        (tmp_path / name).write_text("{}\n", encoding="utf-8")
+    (tmp_path / "run.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "environment.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "ensemble.json").write_text(
+        json.dumps(
+            {
+                "expected_members": 3,
+                "members": [{"seed": index} for index in range(3)],
+            }
+        ),
+        encoding="utf-8",
+    )
     for index in range(3):
         member = tmp_path / "members" / f"member-{index:03d}"
         member.mkdir(parents=True)
@@ -254,8 +303,18 @@ def _write_walk_forward(
     returns_by_fold = ([0.10, -0.20], [-0.05, 0.02])
     folds = [
         {
+            "selected_configuration": "oracle-bc-ppo-15m-target",
             "selected_policy_digest": digest,
+            "selected_seed": 1,
             "selected_returns": returns_by_fold[index % len(returns_by_fold)],
+            "selected_turnover_per_day": 0.5,
+            "selected_cost_fraction": 0.01,
+            "candidate_aggregates": [
+                {
+                    "configuration": "oracle-bc-ppo-15m-target",
+                    "eligible": True,
+                }
+            ],
         }
         for index, digest in enumerate(selected_policy_digests)
     ]
@@ -579,12 +638,32 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
                 "baseline_independent_summary": {"mean_fold_return": 0.01},
                 "folds": [
                     {
+                        "selected_configuration": "ppo-15m-target",
                         "selected_policy_digest": "a" * 64,
+                        "selected_seed": 1,
                         "selected_returns": [-1.0],
+                        "selected_turnover_per_day": 0.5,
+                        "selected_cost_fraction": 0.01,
+                        "candidate_aggregates": [
+                            {
+                                "configuration": "ppo-15m-target",
+                                "eligible": True,
+                            }
+                        ],
                     },
                     {
+                        "selected_configuration": "ppo-15m-target",
                         "selected_policy_digest": "b" * 64,
+                        "selected_seed": 1,
                         "selected_returns": [0.0],
+                        "selected_turnover_per_day": 0.5,
+                        "selected_cost_fraction": 0.01,
+                        "candidate_aggregates": [
+                            {
+                                "configuration": "ppo-15m-target",
+                                "eligible": True,
+                            }
+                        ],
                     },
                 ],
             }
@@ -604,3 +683,104 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
     assert gate["conditions"]["evidence_valid"] is True
     assert gate["observed"]["maximum_independently_reset_fold_drawdown"] == 1.0
     assert (tmp_path / "summary.json").is_file()
+
+
+def test_full_runner_treats_seed_as_nuisance_not_selected_hyperparameter(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    stability = namespace["_selection_stability_passed"]
+    folds = [
+        {
+            "selected_configuration": "ppo-15m-target",
+            "selected_seed": seed,
+            "candidate_aggregates": [
+                {"configuration": "ppo-15m-target", "eligible": True}
+            ],
+        }
+        for seed in (0, 1)
+    ]
+
+    assert stability(folds) is True
+
+
+def test_selected_walk_forward_recipe_preserves_seed_ensemble(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    select_recipe = namespace["_selected_walk_forward_recipe"]
+    walk_forward_path = tmp_path / "walk-forward"
+    walk_forward_path.mkdir()
+    (walk_forward_path / "walk-forward.json").write_text(
+        json.dumps(
+            {
+                "folds": [
+                    {
+                        "selected_configuration": "ppo-15m-target",
+                        "selected_seed": 2,
+                    },
+                    {
+                        "selected_configuration": "ppo-15m-target",
+                        "selected_seed": 2,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "walk-forward-config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "name": "ppo-15m-target",
+                        "run": {"training": {"seeds": [0, 1, 2]}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "selected.json"
+
+    name, seeds, path = select_recipe(walk_forward_path, config_path, output)
+
+    assert name == "ppo-15m-target"
+    assert seeds == (0, 1, 2)
+    assert path == output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["training"]["seeds"] == [0, 1, 2]
+
+
+def test_full_runner_preserves_all_selected_recipe_seeds(tmp_path: Path) -> None:
+    namespace = _runner_namespace()
+    select_recipe = namespace["_selected_walk_forward_recipe"]
+    walk_forward_path = tmp_path / "wf"
+    _write_walk_forward(walk_forward_path, selected=0.04, baseline=0.01)
+    selected_name, seeds, output = select_recipe(
+        walk_forward_path,
+        EXAMPLE_ROOT / "walk-forward-full.json",
+        tmp_path / "selected.json",
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert selected_name == "oracle-bc-ppo-15m-target"
+    assert seeds == (0, 1, 2)
+    assert payload["training"]["seeds"] == [0, 1, 2]
+
+
+def test_full_runner_strict_gate_rejects_two_short_folds(tmp_path: Path) -> None:
+    namespace = _runner_namespace()
+    finalize = namespace["_finalize_research_run"]
+    walk_forward_path = tmp_path / "wf"
+    _write_walk_forward(walk_forward_path, selected=0.04, baseline=0.01)
+    exit_code = finalize(
+        work_root=tmp_path,
+        walk_forward_path=walk_forward_path,
+        summary={"production_status": "NO-GO"},
+        strict=True,
+    )
+    gate = json.loads((tmp_path / "research-gate.json").read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert gate["conditions"]["minimum_fold_count_met"] is False
+    assert gate["conditions"]["minimum_oos_days_met"] is False

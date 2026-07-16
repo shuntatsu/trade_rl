@@ -11,11 +11,17 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+from copy import deepcopy
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
 
-from trade_rl.data import write_market_dataset_files
+import numpy as np
+
+from trade_rl.data import MarketDataset, write_market_dataset_files
+from trade_rl.integrations.binance import binance_multitimeframe_feature_specs
+from trade_rl.rl.training import gamma_from_half_life
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,19 +69,50 @@ def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
         raise ValueError("quickstart training template has no training object")
     training.update(
         {
-            "asset_embedding_dim": 128,
+            "asset_set_encoder": False,
             "batch_size": 32,
             "device": "cuda",
-            "global_embedding_dim": 128,
             "n_envs": 4,
             "n_steps": 8,
-            "policy_net_arch": [256, 256],
+            "policy": "MultiInputPolicy",
+            "policy_net_arch": [384, 256, 128],
+            "value_net_arch": [512, 384, 256],
+            "sequence_encoder": True,
+            "sequence_d_model": 336,
+            "sequence_attention_heads": 8,
+            "sequence_attention_layers": 2,
+            "sequence_dropout": 0.05,
+            "max_policy_parameters": 12_000_000,
+            "max_rollout_buffer_bytes": 268_435_456,
+            "checkpoint_interval_steps": max(1, timesteps // 2),
+            "max_checkpoints": 2,
             "seeds": [0],
             "timesteps": timesteps,
             "behavior_cloning_epochs": 1,
-            "behavior_cloning_batch_size": 64,
+            "behavior_cloning_batch_size": 32,
+            "behavior_cloning_validation_fraction": 0.1,
+            "decision_hours": 0.25,
+            "discount_half_life_hours": 168.0,
+            "gamma": gamma_from_half_life(decision_hours=0.25, half_life_hours=168.0),
         }
     )
+    payload["environment"] = {
+        "episode_hours": 1.0,
+        "decision_hours": 0.25,
+        "initial_capital": 100_000.0,
+        "finite_horizon_observation": True,
+        "initial_state_modes": ["cash"],
+        "structured_sequence_observation": True,
+        "sequence_windows": [["15m", 96], ["1h", 168], ["4h", 120], ["1d", 60]],
+    }
+    payload["trend"] = {
+        "fast_hours": 4.0,
+        "base_hours": 12.0,
+        "slow_hours": 24.0,
+        "mode": "time_series",
+        "signal_scale": 0.05,
+    }
+    payload["risk"]["max_turnover"] = None
     payload["action"] = {
         "mode": "target_weight",
         "alpha_enabled": False,
@@ -87,15 +124,85 @@ def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
     return payload
 
 
+def _build_sequence_smoke_dataset(n_bars: int = 5_680) -> MarketDataset:
+    if n_bars < 5_680:
+        raise ValueError("sequence smoke dataset needs at least 5680 bars")
+    specs = binance_multitimeframe_feature_specs(
+        base_timeframe="15m", feature_timeframes=("1h", "4h", "1d")
+    )
+    phase = np.arange(n_bars, dtype=np.float64)
+    returns = 0.00005 + 0.0004 * np.sin(phase / 47.0)
+    close = 30_000.0 * np.exp(np.cumsum(returns))
+    open_price = np.concatenate(([close[0]], close[:-1]))
+    spread = 0.001 + 0.0002 * np.cos(phase / 19.0)
+    features = np.stack(
+        tuple(
+            np.sin(phase / float(11 + index % 97))
+            + 0.1 * np.cos(phase / float(7 + index % 43))
+            for index in range(len(specs))
+        ),
+        axis=1,
+    ).astype(np.float32)[:, None, :]
+    timestamps = np.datetime64("2025-01-01T00:15:00", "ns") + np.arange(
+        n_bars
+    ) * np.timedelta64(15, "m")
+    dataset = MarketDataset(
+        dataset_id="0" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=timestamps,
+        features=features,
+        global_features=np.stack(
+            (np.sin(phase / 97.0), np.cos(phase / 193.0)), axis=1
+        ).astype(np.float32),
+        open=open_price[:, None],
+        high=(np.maximum(open_price, close) * (1.0 + spread))[:, None],
+        low=(np.minimum(open_price, close) * (1.0 - spread))[:, None],
+        close=close[:, None],
+        volume=(1_000.0 + 100.0 * np.sin(phase / 13.0))[:, None],
+        funding_rate=np.zeros((n_bars, 1), dtype=np.float64),
+        tradable=np.ones((n_bars, 1), dtype=np.bool_),
+        feature_available=np.ones(features.shape, dtype=np.bool_),
+        feature_names=tuple(spec.name for spec in specs),
+        global_feature_names=("market_cycle", "risk_cycle"),
+        periods_per_year=35_040,
+        fee_rate=np.full((n_bars, 1), 0.0005, dtype=np.float64),
+        spread_rate=np.full((n_bars, 1), 0.0002, dtype=np.float64),
+        max_participation_rate=np.full((n_bars, 1), 0.05, dtype=np.float64),
+        borrow_available=np.ones((n_bars, 1), dtype=np.bool_),
+    )
+    return dataset.with_content_identity({"source": "sequence-gpu-smoke-v1"})
+
+
 def build_smoke_config(timesteps: int) -> TrainingRunConfig:
     """Build the tiny run while retaining maintained CUDA/model dimensions."""
 
     return TrainingRunConfig.from_mapping(_smoke_config_payload(timesteps))
 
 
+def _gpu_memory_mib() -> int:
+    completed = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-compute-apps=used_gpu_memory",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return 0
+    values: list[int] = []
+    for line in completed.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.isdigit():
+            values.append(int(stripped))
+    return sum(values)
+
+
 def _run_authoritative_training(
-    *, config: Path, dataset: Path, artifacts: Path
-) -> dict[str, Any]:
+    *, config: Path, dataset: Path, artifacts: Path, run_id: str
+) -> tuple[dict[str, Any], dict[str, float]]:
     command = [
         sys.executable,
         "-m",
@@ -109,26 +216,49 @@ def _run_authoritative_training(
         "--output",
         str(artifacts),
         "--run-id",
-        "gpu-training-smoke",
+        run_id,
     ]
-    completed = subprocess.run(
+    environment = dict(os.environ)
+    environment.setdefault("OMP_NUM_THREADS", "2")
+    environment.setdefault("MKL_NUM_THREADS", "2")
+    started = time.perf_counter()
+    process = subprocess.Popen(
         command,
         cwd=ROOT,
         text=True,
-        capture_output=True,
-        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
     )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "authoritative training workflow failed: " + completed.stderr.strip()
-        )
-    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    peak_gpu_memory_mib = 0
+    while process.poll() is None:
+        peak_gpu_memory_mib = max(peak_gpu_memory_mib, _gpu_memory_mib())
+        time.sleep(0.2)
+    stdout, stderr = process.communicate()
+    duration_seconds = max(time.perf_counter() - started, 1e-9)
+    peak_gpu_memory_mib = max(peak_gpu_memory_mib, _gpu_memory_mib())
+    if process.returncode != 0:
+        raise RuntimeError("authoritative training workflow failed: " + stderr.strip())
+    lines = [line for line in stdout.splitlines() if line.strip()]
     if not lines:
         raise RuntimeError("authoritative training workflow returned no JSON")
     result = json.loads(lines[-1])
     if not isinstance(result, dict):
         raise RuntimeError("authoritative training result must be a JSON object")
-    return dict(result)
+    resolved = dict(result)
+    artifact_path = Path(str(resolved["artifact_path"]))
+    if not artifact_path.is_absolute():
+        artifact_path = ROOT / artifact_path
+    ensemble_payload = json.loads(
+        (artifact_path / "ensemble.json").read_text(encoding="utf-8")
+    )
+    actual_timesteps = int(ensemble_payload["actual_timesteps"])
+    resolved["actual_timesteps"] = actual_timesteps
+    return resolved, {
+        "duration_seconds": duration_seconds,
+        "peak_gpu_memory_mib": float(peak_gpu_memory_mib),
+        "throughput_steps_per_second": actual_timesteps / duration_seconds,
+    }
 
 
 def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, object]:
@@ -143,20 +273,13 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
     write_cuda_preflight_evidence: Callable[[Path, Any], dict[str, object]] = getattr(
         preflight_module, "write_cuda_preflight_evidence"
     )
-    dataset_module = _load_module(
-        "quickstart_dataset_builder",
-        ROOT / "examples" / "quickstart" / "create_demo_dataset.py",
-    )
-    build_demo_dataset: Callable[[], Any] = getattr(
-        dataset_module, "build_demo_dataset"
-    )
     if work_root.exists():
         shutil.rmtree(work_root)
     work_root.mkdir(parents=True)
     preflight = write_cuda_preflight_evidence(work_root / "cuda-preflight.json", torch)
 
     dataset_path = work_root / "dataset"
-    write_market_dataset_files(dataset_path, build_demo_dataset())
+    write_market_dataset_files(dataset_path, _build_sequence_smoke_dataset())
     config_payload = _smoke_config_payload(timesteps)
     config_path = work_root / "training.json"
     config_path.write_text(
@@ -164,34 +287,71 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
         encoding="utf-8",
     )
     config = TrainingRunConfig.from_json(config_path)
-    result = _run_authoritative_training(
+    result, first_metrics = _run_authoritative_training(
         config=config_path,
         dataset=dataset_path,
         artifacts=work_root / "artifacts",
+        run_id="gpu-training-smoke",
     )
 
     artifact_path = Path(str(result["artifact_path"]))
     if not artifact_path.is_absolute():
         artifact_path = ROOT / artifact_path
     ensemble = json.loads((artifact_path / "ensemble.json").read_text(encoding="utf-8"))
-    policy = json.loads(
-        (artifact_path / "policy-loader.json").read_text(encoding="utf-8")
+    serving_support = json.loads(
+        (artifact_path / "serving-support.json").read_text(encoding="utf-8")
     )
-    checkpoint = artifact_path / str(policy["members"][0])
+    if serving_support.get("status") != "supported":
+        raise RuntimeError("structured smoke must publish native serving support")
+    policy = artifact_path / "members" / "member-000" / "policy.zip"
+    checkpoint_manifests = sorted(
+        (artifact_path / "members" / "member-000" / "checkpoints").glob(
+            "step-*/checkpoint.json"
+        )
+    )
+    if not checkpoint_manifests:
+        raise RuntimeError("GPU smoke did not publish a resumable checkpoint")
+    resume_checkpoint = checkpoint_manifests[0].parent
+    resume_payload = deepcopy(config_payload)
+    resume_payload["resume_checkpoints"] = {"0": str(resume_checkpoint)}
+    resume_config_path = work_root / "training-resume.json"
+    resume_config_path.write_text(
+        json.dumps(resume_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    resumed, resume_metrics = _run_authoritative_training(
+        config=resume_config_path,
+        dataset=dataset_path,
+        artifacts=work_root / "artifacts-resumed",
+        run_id="gpu-training-smoke-resumed",
+    )
+    resumed_artifact = Path(str(resumed["artifact_path"]))
+    if not resumed_artifact.is_absolute():
+        resumed_artifact = ROOT / resumed_artifact
+    resume_evidence_path = resumed_artifact / "members" / "member-000" / "resume.json"
+    if not resume_evidence_path.is_file():
+        raise RuntimeError("GPU smoke resume evidence is missing")
     evidence: dict[str, object] = {
         "actual_timesteps": int(ensemble["actual_timesteps"]),
         "checkpoint": {
             "digest": ensemble["members"][0]["checkpoint_digest"],
-            "path": str(checkpoint),
-            "size_bytes": checkpoint.stat().st_size,
+            "path": str(policy),
+            "size_bytes": policy.stat().st_size,
         },
         "cuda_preflight": preflight,
         "n_envs": config.training.n_envs,
         "behavior_cloning_epochs": config.training.behavior_cloning_epochs,
-        "policy": policy,
+        "serving_support": serving_support,
         "requested_timesteps": config.training.timesteps,
         "resolved_device": ensemble["resolved_device"],
-        "schema": "gpu_target_oracle_bc_training_smoke_v2",
+        "performance": first_metrics,
+        "resume": {
+            "actual_timesteps": int(resumed["actual_timesteps"]),
+            "checkpoint": str(resume_checkpoint),
+            "evidence": json.loads(resume_evidence_path.read_text(encoding="utf-8")),
+            "performance": resume_metrics,
+        },
+        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v5",
     }
     evidence_path = work_root / "gpu-training-smoke.json"
     evidence_path.write_text(

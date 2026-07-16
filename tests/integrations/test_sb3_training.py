@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ from trade_rl.integrations.sb3_training import (
     StableBaselines3Backend,
     _build_training_environment,
 )
+from trade_rl.learning import OracleTeacherConfig
 from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import ObservationLayout
@@ -143,6 +146,18 @@ def test_build_training_environment_uses_two_subprocess_workers() -> None:
         environment.close()
 
 
+def test_build_training_environment_uses_in_process_workers_for_sequences() -> None:
+    factory: Callable[[], TinyEnvironment] = _tiny_environment_factory
+    environment = _build_training_environment(factory, 2, subprocesses=False)
+    try:
+        from stable_baselines3.common.vec_env import DummyVecEnv
+
+        assert isinstance(environment, DummyVecEnv)
+        assert environment.num_envs == 2
+    finally:
+        environment.close()
+
+
 def test_backend_closes_a_failing_probe_exactly_once(tmp_path: Path) -> None:
     probe = RaisingCloseProbe([])
     backend = StableBaselines3Backend(lambda: probe)
@@ -172,9 +187,12 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
         factory_calls += 1
         return probe
 
-    def build_workers(worker_factory: Callable[[], Any], n_envs: int) -> Any:
+    def build_workers(
+        worker_factory: Callable[[], Any], n_envs: int, *, subprocesses: bool = True
+    ) -> Any:
         assert worker_factory is factory
         assert n_envs == 2
+        assert subprocesses is True
         assert events == ["metadata", "validated", "metadata", "probe-close"]
         events.append("workers-build")
         return vector_environment
@@ -185,12 +203,23 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
         validate_environment(identity, config)
         events.append("validated")
 
+    class FakeParameter:
+        def numel(self) -> int:
+            return 2
+
+    class FakePolicy:
+        action_distribution_name = "squashed_diag_gaussian"
+
+        def parameters(self) -> tuple[FakeParameter, ...]:
+            return (FakeParameter(),)
+
     class FakePPO:
         device = "cpu"
         num_timesteps = 0
 
         def __init__(self, policy: str, environment: Any, **kwargs: Any) -> None:
             assert environment is vector_environment
+            self.policy = FakePolicy()
             model_arguments.update({"policy": policy, **kwargs})
 
         def learn(self, *, total_timesteps: int, callback: Any) -> None:
@@ -223,6 +252,12 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
         "global_embedding_dim": 64,
     }
     assert result.actual_timesteps == 2
+    architecture = json.loads(
+        (tmp_path / "model-architecture.json").read_text(encoding="utf-8")
+    )
+    assert architecture["architecture"].get("action_distribution") == (
+        "squashed_diag_gaussian"
+    )
     assert factory_calls == 1
     assert probe.close_calls == 1
     assert vector_environment.close_calls == 1
@@ -297,3 +332,134 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
     assert result.actual_timesteps == 2
     assert (tmp_path / "member" / "teacher" / "manifest.json").is_file()
     assert (tmp_path / "member" / "behavior-cloning.json").is_file()
+
+
+def test_backend_caches_oracle_targets_across_seed_members(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = type("Dataset", (), {"dataset_id": "d" * 64})()
+    config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    calls = 0
+
+    def calculate(*args: Any, **kwargs: Any) -> np.ndarray:
+        nonlocal calls
+        calls += 1
+        return np.asarray([[0.0], [0.25]], dtype=np.float32)
+
+    monkeypatch.setattr(sb3_training, "oracle_target_path", calculate)
+    backend = StableBaselines3Backend(_tiny_environment_factory)
+
+    first = backend._oracle_targets(dataset, (3, 6), config)
+    second = backend._oracle_targets(dataset, (3, 6), config)
+
+    assert calls == 1
+    assert first is second
+    assert first.flags.writeable is False
+
+
+def test_backend_rejects_ppo_rollout_before_worker_or_model_allocation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    probe = TrainingProbe([])
+    model_created = False
+
+    class ForbiddenPPO:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            nonlocal model_created
+            model_created = True
+
+    monkeypatch.setattr("stable_baselines3.PPO", ForbiddenPPO)
+    config = replace(_training_config(), max_rollout_buffer_bytes=1)
+    with pytest.raises(ValueError, match="rollout buffer"):
+        StableBaselines3Backend(lambda: probe).train(
+            seed=0,
+            config=config,
+            output_path=tmp_path / "policy.zip",
+        )
+    assert model_created is False
+    assert probe.close_calls == 1
+
+
+def test_backend_resumes_ppo_checkpoint_to_requested_total(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from trade_rl.rl.checkpointing import publish_checkpoint
+
+    config = ResidualTrainingConfig(
+        timesteps=2,
+        gamma=0.99,
+        seeds=(0,),
+        n_steps=1,
+        n_envs=1,
+        batch_size=1,
+        n_epochs=1,
+        asset_set_encoder=False,
+        device="cpu",
+    )
+
+    class CheckpointSource:
+        def save(self, target: str) -> None:
+            Path(target).with_suffix(".zip").write_bytes(b"resume-policy")
+
+    manifest = publish_checkpoint(
+        model=CheckpointSource(),
+        checkpoint_root=tmp_path / "resume",
+        algorithm="ppo",
+        seed=0,
+        requested_timestep=1,
+        observed_timestep=1,
+        environment_digest=ENVIRONMENT_DIGEST,
+        training_config_digest=content_digest(config.digest_payload()),
+    )
+    events: list[object] = []
+
+    class FakeParameter:
+        def numel(self) -> int:
+            return 2
+
+    class FakePolicy:
+        def parameters(self):
+            return (FakeParameter(),)
+
+    class FakeResumePPO:
+        device = "cpu"
+
+        def __init__(self, policy, environment, **kwargs):
+            self.policy = FakePolicy()
+            self.num_timesteps = 0
+            self.rollout_buffer_kwargs = {}
+
+        @classmethod
+        def load(cls, path, env=None, device=None):
+            events.append(("load", Path(path), device, env is not None))
+            model = cls("MlpPolicy", env)
+            model.num_timesteps = 1
+            return model
+
+        def learn(self, *, total_timesteps, callback, reset_num_timesteps=True):
+            events.append(("learn", total_timesteps, reset_num_timesteps))
+            self.num_timesteps += total_timesteps
+            return self
+
+        def save(self, target: str) -> None:
+            Path(target).with_suffix(".zip").write_bytes(b"resumed-policy")
+
+    monkeypatch.setattr("stable_baselines3.PPO", FakeResumePPO)
+    monkeypatch.setattr(
+        "trade_rl.rl.checkpointing.build_checkpoint_callback",
+        lambda **kwargs: object(),
+    )
+    result = StableBaselines3Backend(
+        lambda: TrainingProbe([]),
+        resume_checkpoint_artifacts={0: manifest.policy_path.parent},
+    ).train(
+        seed=0,
+        config=config,
+        output_path=tmp_path / "output" / "policy.zip",
+    )
+    assert result.actual_timesteps == 2
+    assert events[0][0] == "load"
+    assert ("learn", 1, False) in events
+    resume_payload = (tmp_path / "output" / "resume.json").read_text(encoding="utf-8")
+    assert manifest.digest in resume_payload

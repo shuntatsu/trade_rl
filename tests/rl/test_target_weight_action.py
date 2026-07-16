@@ -111,7 +111,9 @@ def market() -> MarketDataset:
     )
 
 
-def environment(spec: ActionSpec) -> ResidualMarketEnv:
+def environment(
+    spec: ActionSpec, *, signal_delay_decisions: int = 0
+) -> ResidualMarketEnv:
     return ResidualMarketEnv(
         market(),
         trend_strategy=TrendStrategy(
@@ -122,6 +124,7 @@ def environment(spec: ActionSpec) -> ResidualMarketEnv:
             initial_capital=100_000.0,
             episode_bars=8,
             decision_every=1,
+            signal_delay_decisions=signal_delay_decisions,
             reward=AbsoluteGrowthRewardConfig(),
             execution_cost=ExecutionCostConfig.zero(),
         ),
@@ -140,3 +143,32 @@ def test_environment_binds_target_actions_to_dataset_symbols() -> None:
     assert direct.environment_digest != residual.environment_digest
     with pytest.raises(ValueError, match="target weight count"):
         environment(target_spec(count=3))
+
+
+def test_delayed_target_executes_on_the_following_decision() -> None:
+    env = environment(target_spec(count=2), signal_delay_decisions=1)
+    env.reset(options={"start_idx": 10, "initial_state_mode": "cash"})
+
+    _, _, _, _, first = env.step(np.array([0.40, 0.0], dtype=np.float32))
+    np.testing.assert_allclose(env.hybrid.weights, np.zeros(2), atol=1e-12)
+    assert first["execution_delay_warmup"] is True
+    np.testing.assert_allclose(first["submitted_target"], np.array([0.40, 0.0]))
+    np.testing.assert_allclose(first["executed_target"], np.zeros(2))
+
+    _, _, _, _, second = env.step(np.zeros(2, dtype=np.float32))
+    assert env.hybrid.weights[0] > 0.30
+    assert second["execution_delay_warmup"] is False
+    np.testing.assert_allclose(second["executed_target"], np.array([0.40, 0.0]))
+
+
+def test_reset_clears_delayed_target_queue() -> None:
+    env = environment(target_spec(count=2), signal_delay_decisions=1)
+    env.reset(options={"start_idx": 10, "initial_state_mode": "cash"})
+    env.step(np.array([0.40, 0.0], dtype=np.float32))
+
+    env.reset(options={"start_idx": 10, "initial_state_mode": "cash"})
+    _, _, _, _, info = env.step(np.zeros(2, dtype=np.float32))
+
+    np.testing.assert_allclose(env.hybrid.weights, np.zeros(2), atol=1e-12)
+    assert info["execution_delay_warmup"] is True
+    np.testing.assert_allclose(info["executed_target"], np.zeros(2))

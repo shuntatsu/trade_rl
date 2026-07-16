@@ -23,6 +23,7 @@ from trade_rl.data.artifacts import MarketDatasetView
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.checkpoints import PolicyCheckpoint, PolicyCheckpointLoader
 from trade_rl.domain.datasets import DatasetManifest
+from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.integrations.checkpoints import StableBaselines3CheckpointLoader
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
@@ -32,6 +33,11 @@ from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import observation_passthrough_indices
+from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
+from trade_rl.rl.sequence_observations import (
+    SequenceObservationBuilder,
+    SequenceWindowSpec,
+)
 from trade_rl.rl.training import train_residual_ensemble
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.fold_runner import (
@@ -91,6 +97,7 @@ class _PolicyRecord:
     path: Path
     algorithm: str
     normalizer: ObservationNormalizer
+    sequence_normalizer: SequenceFeatureNormalizer | None
     run: TrainingRunConfig
 
 
@@ -113,15 +120,50 @@ def _experiment_plan_digest(
     )
 
 
+def _sequence_history_bars(
+    dataset: MarketDataset,
+    run: TrainingRunConfig,
+) -> int:
+    if not run.environment.structured_sequence_observation:
+        return 0
+    builder = SequenceObservationBuilder(
+        windows=tuple(
+            SequenceWindowSpec(timeframe, length)
+            for timeframe, length in run.environment.resolved_sequence_windows
+        )
+    )
+    return builder.minimum_index(dataset)
+
+
 def _training_view_bounds(
     dataset: MarketDataset,
     train_range: IndexRange,
     run: TrainingRunConfig,
 ) -> tuple[int, int]:
-    trend = TrendStrategy(run.trend)
-    history = trend.minimum_history_for(dataset)
-    history_start = max(0, train_range.start - history)
-    return history_start, train_range.stop
+    signal_minimum = TrendStrategy(run.trend).minimum_history_for(dataset)
+    reward_minimum = signal_minimum
+    if run.reward.baseline_underperformance_weight > 0.0:
+        from trade_rl.rl.episode import minimum_reward_start_index
+
+        reward_minimum = minimum_reward_start_index(
+            dataset,
+            signal_minimum=signal_minimum,
+            window_hours=run.reward.baseline_window_hours,
+        )
+    required_history = max(
+        reward_minimum,
+        _sequence_history_bars(dataset, run),
+    )
+    if train_range.start == 0:
+        # The first fold cannot borrow history from before the sealed dataset.
+        # Its causal warm-up is excluded from fitted observations and recorded
+        # as the effective absolute training start below.
+        return 0, train_range.stop
+    if train_range.start < required_history:
+        raise ValueError(
+            "training range lacks causal signal, reward, or sequence history"
+        )
+    return train_range.start - required_history, train_range.stop
 
 
 def _training_view(
@@ -157,10 +199,23 @@ def _fit_normalizer(
     episode_bars = training_dataset.n_bars - 1 - start
     if episode_bars <= 0:
         raise ValueError("training range is too short to fit an observation normalizer")
+    normalizer_run = (
+        replace(
+            run,
+            environment=replace(
+                run.environment,
+                structured_sequence_observation=False,
+                sequence_windows=(),
+            ),
+        )
+        if run.environment.structured_sequence_observation
+        else run
+    )
     env = build_market_environment(
         training_dataset,
-        run,
+        normalizer_run,
         normalizer=None,
+        sequence_normalizer=None,
         episode_bars=episode_bars,
         liquidate_on_end=False,
         alpha_provider=alpha_provider,
@@ -199,7 +254,7 @@ def _fit_normalizer(
         passthrough_indices=passthrough,
         dataset_id=training_dataset.dataset_id,
         source_dataset_id=dataset.dataset_id,
-        absolute_train_start=train_range.start,
+        absolute_train_start=view_start + start,
         absolute_train_end=train_range.stop,
         observation_schema_digest=env.observation_builder.schema_digest(
             training_dataset
@@ -215,6 +270,66 @@ def _fit_normalizer(
     )
 
 
+def _fit_sequence_normalizer(
+    dataset: MarketDataset,
+    train_range: IndexRange,
+    run: TrainingRunConfig,
+) -> SequenceFeatureNormalizer | None:
+    if not run.environment.structured_sequence_observation:
+        return None
+    training_dataset = _training_view(dataset, train_range, run)
+    view_start, _ = _training_view_bounds(dataset, train_range, run)
+    builder = SequenceObservationBuilder(
+        windows=tuple(
+            SequenceWindowSpec(timeframe, length)
+            for timeframe, length in run.environment.resolved_sequence_windows
+        )
+    )
+    effective_start = max(
+        builder.minimum_index(training_dataset),
+        train_range.start - view_start,
+    )
+    effective_end = train_range.stop - view_start
+    return SequenceFeatureNormalizer.fit(
+        training_dataset,
+        builder,
+        train_start=effective_start,
+        train_end=effective_end,
+        source_dataset_id=dataset.dataset_id,
+    )
+
+
+def _sequence_normalizer_payload(
+    normalizer: SequenceFeatureNormalizer,
+) -> dict[str, object]:
+    sample_count = normalizer.sample_count
+    if sample_count is None:
+        raise RuntimeError("sequence normalizer sample counts are unavailable")
+    return {
+        "center": {
+            key: tuple(float(value) for value in normalizer.center[key])
+            for key in normalizer.feature_names
+        },
+        "clip": normalizer.clip,
+        "dataset_id": normalizer.dataset_id,
+        "digest": normalizer.digest,
+        "feature_names": dict(normalizer.feature_names),
+        "scale": {
+            key: tuple(float(value) for value in normalizer.scale[key])
+            for key in normalizer.feature_names
+        },
+        "sample_count": {
+            key: tuple(int(value) for value in sample_count[key])
+            for key in normalizer.feature_names
+        },
+        "minimum_samples_per_channel": normalizer.minimum_samples_per_channel,
+        "schema_version": normalizer.schema_version,
+        "sequence_schema_digest": normalizer.sequence_schema_digest,
+        "source_dataset_id": normalizer.source_dataset_id,
+        "train_range": [normalizer.train_start, normalizer.train_end],
+    }
+
+
 def _normalizer_payload(
     normalizer: ObservationNormalizer,
     *,
@@ -222,7 +337,10 @@ def _normalizer_payload(
     train_range: IndexRange,
 ) -> dict[str, object]:
     return {
-        "absolute_train_range": [train_range.start, train_range.stop],
+        "absolute_train_range": [
+            normalizer.absolute_train_start,
+            normalizer.absolute_train_end,
+        ],
         "clip": normalizer.clip,
         "dataset_id": dataset_id,
         "digest": normalizer.digest,
@@ -257,6 +375,9 @@ class MarketCandidateTrainer(CandidateTrainer):
         self.checkpoint_finalists_per_seed = checkpoint_finalists_per_seed
         self.checkpoint_loader = checkpoint_loader or StableBaselines3CheckpointLoader()
         self._normalizers: dict[tuple[int, str], ObservationNormalizer] = {}
+        self._sequence_normalizers: dict[
+            tuple[int, str], SequenceFeatureNormalizer | None
+        ] = {}
 
     def _normalizer(
         self,
@@ -279,11 +400,31 @@ class MarketCandidateTrainer(CandidateTrainer):
         )
         return normalizer
 
+    def _sequence_normalizer(
+        self,
+        request: CandidateTrainingRequest,
+        run: TrainingRunConfig,
+    ) -> SequenceFeatureNormalizer | None:
+        key = (request.fold_index, request.configuration.name)
+        if key in self._sequence_normalizers:
+            return self._sequence_normalizers[key]
+        normalizer = _fit_sequence_normalizer(self.dataset, request.train, run)
+        self._sequence_normalizers[key] = normalizer
+        if normalizer is not None:
+            _write_json(
+                self.root
+                / f"fold-{request.fold_index:03d}"
+                / f"sequence-normalizer-{request.configuration.name}.json",
+                _sequence_normalizer_payload(normalizer),
+            )
+        return normalizer
+
     def train(self, request: CandidateTrainingRequest) -> PolicyTrainingArtifact:
         if request.dataset_id != self.dataset.dataset_id:
             raise ValueError("candidate training dataset identity mismatch")
         run = self.candidates[request.configuration.name]
         normalizer = self._normalizer(request, run)
+        sequence_normalizer = self._sequence_normalizer(request, run)
         training_dataset = _training_view(self.dataset, request.train, run)
         view_start, view_stop = _training_view_bounds(self.dataset, request.train, run)
         alpha_provider, factor_provider = bind_signal_providers_to_view(
@@ -334,6 +475,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                 pre_trade_risk=PreTradeRisk(run.risk),
                 portfolio_risk=PortfolioRiskModel(run.portfolio_risk),
                 normalizer=normalizer,
+                sequence_normalizer=sequence_normalizer,
                 config=training_environment,
             )
 
@@ -378,6 +520,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                     path=path,
                     algorithm=run.training.algorithm,
                     normalizer=normalizer,
+                    sequence_normalizer=sequence_normalizer,
                     run=run,
                 )
                 self.registry[policy_digest] = record
@@ -389,6 +532,7 @@ class MarketCandidateTrainer(CandidateTrainer):
                     evaluation_range=request.checkpoint_validation,
                     run=run,
                     normalizer=normalizer,
+                    sequence_normalizer=sequence_normalizer,
                     model=model,
                     baseline=False,
                 )
@@ -485,6 +629,7 @@ class MarketCandidateEvaluator:
         if baseline:
             run = self.baseline_run
             normalizer = None
+            sequence_normalizer = None
             model = None
         else:
             if request.policy_digest is None:
@@ -494,6 +639,7 @@ class MarketCandidateEvaluator:
                 raise ValueError("candidate evaluation policy is not registered")
             run = record.run
             normalizer = record.normalizer
+            sequence_normalizer = record.sequence_normalizer
             model = self._model_cache.get(request.policy_digest)
             if model is None:
                 model = self.checkpoint_loader.load(
@@ -505,6 +651,7 @@ class MarketCandidateEvaluator:
             evaluation_range=request.evaluation_range,
             run=run,
             normalizer=normalizer,
+            sequence_normalizer=sequence_normalizer,
             model=model,
             baseline=baseline,
         )
@@ -513,6 +660,15 @@ class MarketCandidateEvaluator:
                 self.outer_test_counts.get(request.fold_index, 0) + 1
             )
         score = sum(math.log1p(value) for value in evidence.returns.values)
+        duration_days = max(
+            request.evaluation_range.size * self.dataset.bar_hours / 24.0,
+            1e-12,
+        )
+        turnover_per_day = evidence.diagnostics.turnover_total / duration_days
+        cost_fraction = (
+            evidence.diagnostics.total_cost / run.environment.initial_capital
+        )
+        maximum_drawdown = evaluate_performance(evidence.returns).max_drawdown
         digest = content_digest(
             {
                 "configuration": request.configuration,
@@ -527,7 +683,10 @@ class MarketCandidateEvaluator:
                 "diagnostics": evidence.diagnostics.digest_payload(),
                 "returns": evidence.returns.values,
                 "score": score,
-                "schema_version": "market_candidate_evaluation_v2",
+                "turnover_per_day": turnover_per_day,
+                "cost_fraction": cost_fraction,
+                "maximum_drawdown": maximum_drawdown,
+                "schema_version": "market_candidate_evaluation_v3",
             }
         )
         return CandidateEvaluation(
@@ -535,7 +694,27 @@ class MarketCandidateEvaluator:
             returns=evidence.returns,
             evaluation_digest=digest,
             diagnostics=evidence.diagnostics,
+            turnover_per_day=turnover_per_day,
+            cost_fraction=cost_fraction,
+            maximum_drawdown=maximum_drawdown,
         )
+
+
+def _selected_seed(result: Any) -> int | None:
+    """Resolve the exact seed represented by the selected single-policy digest."""
+
+    selected_digest = result.selection.selected_policy_digest
+    if selected_digest is None:
+        return None
+    matches = [
+        item.seed
+        for item in result.seed_finalists
+        if item.configuration == result.selection.selected_configuration
+        and item.policy_digest == selected_digest
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("selected policy digest does not identify one seed finalist")
+    return int(matches[0])
 
 
 def _fold_payload(
@@ -543,10 +722,13 @@ def _fold_payload(
     result: Any,
     *,
     sealed_test_evaluations: int,
+    initial_capital: float,
+    bar_hours: float,
 ) -> dict[str, object]:
     access = result.sealed_test_access
     if access is None:
         raise RuntimeError("sealed test access evidence is missing")
+    selected_seed = _selected_seed(result)
     return {
         "baseline_diagnostics": result.baseline_oos.diagnostics.digest_payload(),
         "baseline_returns": result.baseline_oos.returns.values,
@@ -555,7 +737,7 @@ def _fold_payload(
             fold.checkpoint_validation.stop,
         ],
         "fold_index": fold.fold_index,
-        "schema_version": "market_walk_forward_fold_v2_seed_aware",
+        "schema_version": "market_walk_forward_fold_v3_seed_stable",
         "sealed_test_access": {
             "access_digest": access.access_digest,
             "dataset_id": access.dataset_id,
@@ -569,8 +751,19 @@ def _fold_payload(
         "sealed_test_evaluations": sealed_test_evaluations,
         "selected_configuration": result.selection.selected_configuration,
         "selected_policy_digest": result.selection.selected_policy_digest,
+        "selected_seed": selected_seed,
         "selected_diagnostics": result.selected_oos.diagnostics.digest_payload(),
+        "selected_cost_fraction": (
+            result.selected_oos.diagnostics.total_cost / initial_capital
+        ),
+        "selected_turnover_per_day": (
+            result.selected_oos.diagnostics.turnover_total
+            / max(fold.test.size * bar_hours / 24.0, 1e-12)
+        ),
         "selected_returns": result.selected_oos.returns.values,
+        "candidate_aggregates": tuple(
+            item.digest_payload() for item in result.candidate_aggregates
+        ),
         "seed_finalists": tuple(
             {
                 "checkpoint_evaluation_digest": item.checkpoint_evaluation_digest,
@@ -655,6 +848,17 @@ def execute_market_walk_forward(
                     CandidateConfiguration(item.name) for item in config.candidates
                 ),
                 minimum_selection_uplift=config.minimum_selection_uplift,
+                minimum_selection_score=config.minimum_selection_score,
+                minimum_seed_success_fraction=(config.minimum_seed_success_fraction),
+                minimum_worst_seed_uplift=config.minimum_worst_seed_uplift,
+                maximum_seed_score_std=config.maximum_seed_score_std,
+                maximum_selection_turnover_per_day=(
+                    config.maximum_selection_turnover_per_day
+                ),
+                maximum_selection_cost_fraction=(
+                    config.maximum_selection_cost_fraction
+                ),
+                maximum_selection_drawdown=config.maximum_selection_drawdown,
                 selected_at=resolved_created_at,
                 experiment_plan_digest=experiment_plan_digest,
             ),
@@ -684,6 +888,8 @@ def execute_market_walk_forward(
                 fold,
                 fold_result,
                 sealed_test_evaluations=sealed_count,
+                initial_capital=config.candidates[0].run.environment.initial_capital,
+                bar_hours=dataset.bar_hours,
             )
             folds_payload.append(payload)
             _write_json(
@@ -706,7 +912,7 @@ def execute_market_walk_forward(
             "experiment_plan_digest": experiment_plan_digest,
             "folds": tuple(folds_payload),
             "production_status": "NO-GO",
-            "schema_version": "market_walk_forward_run_v3_seed_aware",
+            "schema_version": "market_walk_forward_run_v4_seed_stable",
             "selected_metrics": (
                 None
                 if result.selected_metrics is None
@@ -726,7 +932,8 @@ def execute_market_walk_forward(
             {
                 "artifact_path": str(dataset_path),
                 "dataset_id": dataset.dataset_id,
-                "schema_version": "dataset_reference_v1",
+                "feature_config_digest": dataset.feature_config_digest,
+                "schema_version": "dataset_reference_v2",
             },
         )
         policy_digest = content_digest(

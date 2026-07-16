@@ -58,6 +58,14 @@ class ResidualTrainingConfig:
     use_sde: bool = False
     sde_sample_freq: int = -1
     policy_net_arch: tuple[int, ...] = (128, 128)
+    value_net_arch: tuple[int, ...] = (128, 128)
+    sequence_encoder: bool = False
+    sequence_d_model: int = 320
+    sequence_attention_heads: int = 8
+    sequence_attention_layers: int = 2
+    sequence_dropout: float = 0.05
+    max_policy_parameters: int = 12_000_000
+    max_rollout_buffer_bytes: int = 805_306_368
     asset_set_encoder: bool = True
     asset_embedding_dim: int = 64
     global_embedding_dim: int = 64
@@ -72,6 +80,9 @@ class ResidualTrainingConfig:
     behavior_cloning_epochs: int = 0
     behavior_cloning_learning_rate: float = 1e-3
     behavior_cloning_batch_size: int = 256
+    behavior_cloning_validation_fraction: float = 0.0
+    behavior_cloning_patience: int = 3
+    behavior_cloning_minimum_improvement: float = 0.0
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (
@@ -84,6 +95,7 @@ class ResidualTrainingConfig:
             ("train_freq", self.train_freq),
             ("gradient_steps", self.gradient_steps),
             ("behavior_cloning_batch_size", self.behavior_cloning_batch_size),
+            ("behavior_cloning_patience", self.behavior_cloning_patience),
         ):
             if (
                 isinstance(integer_value, bool)
@@ -102,6 +114,20 @@ class ResidualTrainingConfig:
             or self.behavior_cloning_learning_rate <= 0.0
         ):
             raise ValueError("behavior_cloning_learning_rate must be positive")
+        if (
+            not math.isfinite(self.behavior_cloning_validation_fraction)
+            or not 0.0 <= self.behavior_cloning_validation_fraction < 0.5
+        ):
+            raise ValueError(
+                "behavior_cloning_validation_fraction must be within [0, 0.5)"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_minimum_improvement)
+            or self.behavior_cloning_minimum_improvement < 0.0
+        ):
+            raise ValueError(
+                "behavior_cloning_minimum_improvement must be non-negative"
+            )
         if self.checkpoint_interval_steps is not None and (
             isinstance(self.checkpoint_interval_steps, bool)
             or not isinstance(self.checkpoint_interval_steps, int)
@@ -197,11 +223,48 @@ class ResidualTrainingConfig:
             or self.sde_sample_freq < -1
         ):
             raise ValueError("sde_sample_freq must be -1 or a positive integer")
-        if not self.policy_net_arch or any(
-            isinstance(width, bool) or not isinstance(width, int) or width <= 0
-            for width in self.policy_net_arch
+        for field_name, architecture in (
+            ("policy_net_arch", self.policy_net_arch),
+            ("value_net_arch", self.value_net_arch),
         ):
-            raise ValueError("policy_net_arch must contain positive integers")
+            if not architecture or any(
+                isinstance(width, bool) or not isinstance(width, int) or width <= 0
+                for width in architecture
+            ):
+                raise ValueError(f"{field_name} must contain positive integers")
+        if not isinstance(self.sequence_encoder, bool):
+            raise ValueError("sequence_encoder must be a boolean")
+        if self.sequence_encoder and self.policy != "MultiInputPolicy":
+            raise ValueError("sequence_encoder requires MultiInputPolicy")
+        if self.sequence_encoder and self.algorithm != "ppo":
+            raise ValueError("sequence_encoder currently requires PPO")
+        for field_name, value in (
+            ("sequence_d_model", self.sequence_d_model),
+            ("sequence_attention_heads", self.sequence_attention_heads),
+            ("sequence_attention_layers", self.sequence_attention_layers),
+            ("max_policy_parameters", self.max_policy_parameters),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
+        if self.sequence_d_model % self.sequence_attention_heads != 0:
+            raise ValueError(
+                "sequence_d_model must divide evenly across attention heads"
+            )
+        if (
+            not math.isfinite(self.sequence_dropout)
+            or not 0.0 <= self.sequence_dropout <= 0.05
+        ):
+            raise ValueError("sequence_dropout must be within [0, 0.05]")
+        if self.sequence_encoder and self.asset_set_encoder:
+            raise ValueError(
+                "sequence_encoder and asset_set_encoder are mutually exclusive"
+            )
+        if (
+            isinstance(self.max_rollout_buffer_bytes, bool)
+            or not isinstance(self.max_rollout_buffer_bytes, int)
+            or self.max_rollout_buffer_bytes <= 0
+        ):
+            raise ValueError("max_rollout_buffer_bytes must be a positive integer")
         if not isinstance(self.asset_set_encoder, bool):
             raise ValueError("asset_set_encoder must be a boolean")
         for field_name, value in (
@@ -233,6 +296,9 @@ class ResidualTrainingConfig:
             "behavior_cloning_batch_size": self.behavior_cloning_batch_size,
             "behavior_cloning_epochs": self.behavior_cloning_epochs,
             "behavior_cloning_learning_rate": self.behavior_cloning_learning_rate,
+            "behavior_cloning_validation_fraction": self.behavior_cloning_validation_fraction,
+            "behavior_cloning_patience": self.behavior_cloning_patience,
+            "behavior_cloning_minimum_improvement": self.behavior_cloning_minimum_improvement,
             "buffer_size": self.buffer_size,
             "global_embedding_dim": self.global_embedding_dim,
             "checkpoint_interval_steps": self.checkpoint_interval_steps,
@@ -255,6 +321,14 @@ class ResidualTrainingConfig:
             "normalize_advantage": self.normalize_advantage,
             "policy": self.policy,
             "policy_net_arch": self.policy_net_arch,
+            "value_net_arch": self.value_net_arch,
+            "sequence_encoder": self.sequence_encoder,
+            "sequence_d_model": self.sequence_d_model,
+            "sequence_attention_heads": self.sequence_attention_heads,
+            "sequence_attention_layers": self.sequence_attention_layers,
+            "sequence_dropout": self.sequence_dropout,
+            "max_policy_parameters": self.max_policy_parameters,
+            "max_rollout_buffer_bytes": self.max_rollout_buffer_bytes,
             "sde_sample_freq": self.sde_sample_freq,
             "seeds": self.seeds,
             "target_kl": self.target_kl,
@@ -278,6 +352,10 @@ class PolicyTrainingResult:
     action_names: tuple[str, ...] = ()
     action_spec_digest: str | None = None
     observation_size: int | None = None
+    observation_schema: str = OBSERVATION_SCHEMA
+    observation_contract_digest: str | None = None
+    parameter_count: int | None = None
+    rollout_buffer_bytes: int | None = None
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
@@ -306,6 +384,23 @@ class PolicyTrainingResult:
         if self.action_spec_digest is None:
             raise ValueError("action_spec_digest is required")
         require_sha256(self.action_spec_digest, field="action_spec_digest")
+        require_non_empty(self.observation_schema, field="observation_schema")
+        if self.observation_contract_digest is not None:
+            require_sha256(
+                self.observation_contract_digest, field="observation_contract_digest"
+            )
+        if self.parameter_count is not None and (
+            isinstance(self.parameter_count, bool)
+            or not isinstance(self.parameter_count, int)
+            or self.parameter_count <= 0
+        ):
+            raise ValueError("parameter_count must be a positive integer")
+        if self.rollout_buffer_bytes is not None and (
+            isinstance(self.rollout_buffer_bytes, bool)
+            or not isinstance(self.rollout_buffer_bytes, int)
+            or self.rollout_buffer_bytes <= 0
+        ):
+            raise ValueError("rollout_buffer_bytes must be a positive integer")
         if self.observation_size is not None and (
             isinstance(self.observation_size, bool)
             or not isinstance(self.observation_size, int)
@@ -350,6 +445,26 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _combined_normalizer_digest(unwrapped: Any) -> str | None:
+    flat = getattr(getattr(unwrapped, "normalizer", None), "digest", None)
+    sequence = getattr(getattr(unwrapped, "sequence_normalizer", None), "digest", None)
+    if flat is None and sequence is None:
+        return None
+    if sequence is None:
+        return str(flat)
+    if flat is None:
+        return str(sequence)
+    require_sha256(str(flat), field="normalizer_digest")
+    require_sha256(str(sequence), field="sequence_normalizer_digest")
+    return content_digest(
+        {
+            "flat": flat,
+            "schema_version": "policy_normalizer_bundle_v1",
+            "sequence": sequence,
+        }
+    )
+
+
 def _environment_identity(environment: Any) -> dict[str, Any]:
     unwrapped: Any = getattr(environment, "unwrapped", environment)
     environment_digest = getattr(unwrapped, "environment_digest", None)
@@ -370,27 +485,44 @@ def _environment_identity(environment: Any) -> dict[str, Any]:
     observation_shape = getattr(observation_space, "shape", None)
     if not action_shape or len(action_shape) != 1 or action_shape[0] <= 0:
         raise ValueError("training environment must expose a flat action space")
-    if (
-        not observation_shape
-        or len(observation_shape) != 1
-        or observation_shape[0] <= 0
-    ):
-        raise ValueError("training environment must expose a flat observation space")
+    if observation_shape and len(observation_shape) == 1 and observation_shape[0] > 0:
+        observation_size = int(observation_shape[0])
+    else:
+        component_spaces = getattr(observation_space, "spaces", None)
+        if not isinstance(component_spaces, dict) or not component_spaces:
+            raise ValueError(
+                "training environment must expose a flat or structured observation space"
+            )
+        observation_size = 0
+        for component in component_spaces.values():
+            shape = getattr(component, "shape", None)
+            if not shape or any(int(width) <= 0 for width in shape):
+                raise ValueError("structured observation component has invalid shape")
+            component_size = 1
+            for width in shape:
+                component_size *= int(width)
+            observation_size += component_size
+    observation_schema = getattr(unwrapped, "observation_schema", OBSERVATION_SCHEMA)
+    observation_contract_digest = getattr(
+        unwrapped, "observation_contract_digest", None
+    )
+    if not isinstance(observation_schema, str) or not observation_schema:
+        raise ValueError("training environment must expose observation_schema")
+    if observation_contract_digest is not None:
+        require_sha256(observation_contract_digest, field="observation_contract_digest")
     return {
         "environment_digest": environment_digest,
         "initial_capital": float(initial_capital),
         "action_size": int(action_shape[0]),
         "action_names": tuple(getattr(unwrapped, "action_names", ())),
         "action_spec_digest": getattr(unwrapped, "action_spec_digest", None),
-        "observation_size": int(observation_shape[0]),
+        "observation_size": observation_size,
+        "observation_schema": observation_schema,
+        "observation_contract_digest": observation_contract_digest,
         "decision_hours": getattr(unwrapped, "decision_hours", None),
         "alpha_artifact_digest": getattr(unwrapped, "alpha_artifact_digest", None),
         "factor_artifact_digest": getattr(unwrapped, "factor_artifact_digest", None),
-        "normalizer_digest": (
-            None
-            if getattr(unwrapped, "normalizer", None) is None
-            else getattr(unwrapped.normalizer, "digest", None)
-        ),
+        "normalizer_digest": _combined_normalizer_digest(unwrapped),
     }
 
 
@@ -456,6 +588,7 @@ def train_residual_ensemble(
         "action_names",
         "action_spec_digest",
         "observation_size",
+        "observation_schema",
         "alpha_artifact_digest",
         "factor_artifact_digest",
         "normalizer_digest",
@@ -485,7 +618,7 @@ def train_residual_ensemble(
             for member in members
         ),
         "normalizer_digest": values["normalizer_digest"],
-        "observation_schema": OBSERVATION_SCHEMA,
+        "observation_schema": values["observation_schema"],
         "observation_size": values["observation_size"],
         "requested_timesteps": config.timesteps,
         "resolved_device": values["resolved_device"],
@@ -496,7 +629,7 @@ def train_residual_ensemble(
         digest=content_digest(digest_payload),
         dataset_id=dataset.dataset_id,
         action_schema=ACTION_SCHEMA,
-        observation_schema=OBSERVATION_SCHEMA,
+        observation_schema=str(values["observation_schema"]),
         training_config_digest=training_config_digest,
         environment_digest=str(values["environment_digest"]),
         initial_capital=float(values["initial_capital"]),

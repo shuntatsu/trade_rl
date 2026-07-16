@@ -80,6 +80,25 @@ class CheckpointManifest:
         }
 
 
+def save_policy_without_runtime_state(model: SavablePolicy, target: str) -> None:
+    """Save without serializing dataset-bound rollout reconstruction objects."""
+
+    missing = object()
+    original = getattr(model, "rollout_buffer_kwargs", missing)
+    if isinstance(original, dict) and "sequence_reconstructor" in original:
+        sanitized = {
+            key: value
+            for key, value in original.items()
+            if key != "sequence_reconstructor"
+        }
+        setattr(model, "rollout_buffer_kwargs", sanitized)
+    try:
+        model.save(target)
+    finally:
+        if original is not missing:
+            setattr(model, "rollout_buffer_kwargs", original)
+
+
 def publish_checkpoint(
     *,
     model: SavablePolicy,
@@ -101,7 +120,7 @@ def publish_checkpoint(
     staging = Path(tempfile.mkdtemp(prefix=".checkpoint-staging-", dir=checkpoint_root))
     try:
         save_target = staging / "policy"
-        model.save(str(save_target))
+        save_policy_without_runtime_state(model, str(save_target))
         policy_path = save_target.with_suffix(".zip")
         if not policy_path.is_file():
             raise FileNotFoundError("checkpoint model save did not create policy.zip")
@@ -249,4 +268,5 @@ __all__ = [
     "checkpoint_manifests",
     "load_checkpoint_manifest",
     "publish_checkpoint",
+    "save_policy_without_runtime_state",
 ]

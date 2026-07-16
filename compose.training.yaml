@@ -9,6 +9,8 @@ services:
     gpus: all
     environment:
       TRADE_RL_RUN_GENERATION: ${TRADE_RL_RUN_GENERATION:-}
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     volumes:
       - trade-rl-training-data:/workspace/var
     command: >-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -49,6 +50,13 @@ class FoldExecutionConfig:
     minimum_selection_uplift: float
     selected_at: datetime
     experiment_plan_digest: str
+    minimum_selection_score: float = 0.0
+    minimum_seed_success_fraction: float = 0.0
+    minimum_worst_seed_uplift: float | None = None
+    maximum_seed_score_std: float | None = None
+    maximum_selection_turnover_per_day: float | None = None
+    maximum_selection_cost_fraction: float | None = None
+    maximum_selection_drawdown: float | None = None
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
@@ -67,6 +75,31 @@ class FoldExecutionConfig:
             or self.minimum_selection_uplift < 0.0
         ):
             raise ValueError("minimum_selection_uplift must be finite and non-negative")
+        if not math.isfinite(self.minimum_selection_score):
+            raise ValueError("minimum_selection_score must be finite")
+        if (
+            not math.isfinite(self.minimum_seed_success_fraction)
+            or not 0.0 <= self.minimum_seed_success_fraction <= 1.0
+        ):
+            raise ValueError("minimum_seed_success_fraction must be within [0, 1]")
+        if self.minimum_worst_seed_uplift is not None and not math.isfinite(
+            self.minimum_worst_seed_uplift
+        ):
+            raise ValueError("minimum_worst_seed_uplift must be finite")
+        for field_name, value in (
+            ("maximum_seed_score_std", self.maximum_seed_score_std),
+            (
+                "maximum_selection_turnover_per_day",
+                self.maximum_selection_turnover_per_day,
+            ),
+            (
+                "maximum_selection_cost_fraction",
+                self.maximum_selection_cost_fraction,
+            ),
+            ("maximum_selection_drawdown", self.maximum_selection_drawdown),
+        ):
+            if value is not None and (not math.isfinite(value) or value < 0.0):
+                raise ValueError(f"{field_name} must be finite and non-negative")
         require_aware_datetime(self.selected_at, field="selected_at")
 
 
@@ -246,10 +279,22 @@ class CandidateEvaluation:
     returns: ReturnSeries
     evaluation_digest: str
     diagnostics: ExecutionDiagnostics = field(default_factory=ExecutionDiagnostics)
+    turnover_per_day: float = 0.0
+    cost_fraction: float = 0.0
+    maximum_drawdown: float = 0.0
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.score):
             raise ValueError("evaluation score must be finite")
+        for field_name, value in (
+            ("turnover_per_day", self.turnover_per_day),
+            ("cost_fraction", self.cost_fraction),
+            ("maximum_drawdown", self.maximum_drawdown),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"evaluation {field_name} must be non-negative")
+        if self.maximum_drawdown > 1.0:
+            raise ValueError("evaluation maximum_drawdown cannot exceed one")
         require_sha256(self.evaluation_digest, field="evaluation_digest")
 
 
@@ -259,6 +304,68 @@ class CandidateTrainer(Protocol):
 
 class CandidateEvaluator(Protocol):
     def evaluate(self, request: CandidateEvaluationRequest) -> CandidateEvaluation: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSelectionAggregate:
+    """Seed-distribution and execution evidence used for candidate eligibility."""
+
+    configuration: str
+    eligible: bool
+    median_score: float
+    worst_score: float
+    score_std: float
+    success_fraction: float
+    maximum_turnover_per_day: float
+    maximum_cost_fraction: float
+    maximum_drawdown: float
+    seed_count: int
+    reasons: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        require_non_empty(self.configuration, field="aggregate.configuration")
+        for name, value in (
+            ("median_score", self.median_score),
+            ("worst_score", self.worst_score),
+            ("score_std", self.score_std),
+            ("success_fraction", self.success_fraction),
+            ("maximum_turnover_per_day", self.maximum_turnover_per_day),
+            ("maximum_cost_fraction", self.maximum_cost_fraction),
+            ("maximum_drawdown", self.maximum_drawdown),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"aggregate {name} must be finite")
+        if self.score_std < 0.0 or not 0.0 <= self.success_fraction <= 1.0:
+            raise ValueError("aggregate dispersion or success fraction is invalid")
+        if (
+            self.maximum_turnover_per_day < 0.0
+            or self.maximum_cost_fraction < 0.0
+            or not 0.0 <= self.maximum_drawdown <= 1.0
+        ):
+            raise ValueError("aggregate execution diagnostics must be non-negative")
+        if (
+            isinstance(self.seed_count, bool)
+            or not isinstance(self.seed_count, int)
+            or self.seed_count <= 0
+        ):
+            raise ValueError("aggregate seed_count must be positive")
+        if self.eligible != (not self.reasons):
+            raise ValueError("aggregate eligibility must match rejection reasons")
+
+    def digest_payload(self) -> dict[str, object]:
+        return {
+            "configuration": self.configuration,
+            "eligible": self.eligible,
+            "maximum_cost_fraction": self.maximum_cost_fraction,
+            "maximum_drawdown": self.maximum_drawdown,
+            "maximum_turnover_per_day": self.maximum_turnover_per_day,
+            "median_score": self.median_score,
+            "reasons": self.reasons,
+            "score_std": self.score_std,
+            "seed_count": self.seed_count,
+            "success_fraction": self.success_fraction,
+            "worst_score": self.worst_score,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +380,7 @@ class FoldExecutionResult:
     selected_oos: FoldOOSResult
     baseline_oos: FoldOOSResult
     seed_finalists: tuple[SeedFinalistSelection, ...] = ()
+    candidate_aggregates: tuple[CandidateSelectionAggregate, ...] = ()
     sealed_test_access: SealedTestAccessRecord | None = None
 
     def __post_init__(self) -> None:
@@ -298,6 +406,11 @@ class FoldExecutionResult:
         baseline_range = (self.baseline_oos.start, self.baseline_oos.stop)
         if selected_range != baseline_range:
             raise ValueError("selected and baseline OOS ranges must match")
+        aggregate_names = tuple(
+            item.configuration for item in self.candidate_aggregates
+        )
+        if len(set(aggregate_names)) != len(aggregate_names):
+            raise ValueError("candidate aggregate configurations must be unique")
 
 
 class ConcreteFoldRunner:
@@ -383,7 +496,12 @@ class ConcreteFoldRunner:
         )
         candidate_selection: dict[str, CandidateEvaluation] = {}
         candidate_winners: dict[str, SeedFinalistSelection] = {}
+        candidate_aggregates: dict[str, CandidateSelectionAggregate] = {}
         seed_finalists: list[SeedFinalistSelection] = []
+        threshold = max(
+            baseline_selection.score + self.config.minimum_selection_uplift,
+            self.config.minimum_selection_score,
+        )
         for candidate in self.config.candidates:
             artifact = artifacts[candidate.name]
             evaluated_finalists: list[
@@ -410,16 +528,80 @@ class ConcreteFoldRunner:
                 )
                 evaluated_finalists.append((evidence, evaluation))
                 seed_finalists.append(evidence)
-            winner, winner_evaluation = min(
+            if not evaluated_finalists:
+                raise ValueError("candidate produced no seed finalists")
+            scores = [item[0].selection_score for item in evaluated_finalists]
+            median_score = float(statistics.median(scores))
+            score_std = float(statistics.pstdev(scores)) if len(scores) > 1 else 0.0
+            worst_score = min(scores)
+            success_fraction = sum(score > threshold for score in scores) / len(scores)
+            maximum_turnover_per_day = max(
+                item[1].turnover_per_day for item in evaluated_finalists
+            )
+            maximum_cost_fraction = max(
+                item[1].cost_fraction for item in evaluated_finalists
+            )
+            maximum_drawdown = max(
+                item[1].maximum_drawdown for item in evaluated_finalists
+            )
+            ordered_finalists = sorted(
                 evaluated_finalists,
                 key=lambda item: (
-                    -item[0].selection_score,
+                    item[0].selection_score,
                     item[0].seed,
                     item[0].policy_digest,
                 ),
             )
-            candidate_winners[candidate.name] = winner
-            candidate_selection[candidate.name] = winner_evaluation
+            representative, representative_evaluation = ordered_finalists[
+                (len(ordered_finalists) - 1) // 2
+            ]
+            reasons: list[str] = []
+            if median_score <= threshold:
+                reasons.append("median_seed_score_below_threshold")
+            if success_fraction + 1e-12 < self.config.minimum_seed_success_fraction:
+                reasons.append("seed_success_fraction_below_threshold")
+            if (
+                self.config.minimum_worst_seed_uplift is not None
+                and worst_score - baseline_selection.score
+                < self.config.minimum_worst_seed_uplift
+            ):
+                reasons.append("worst_seed_uplift_below_threshold")
+            if (
+                self.config.maximum_seed_score_std is not None
+                and score_std > self.config.maximum_seed_score_std
+            ):
+                reasons.append("seed_score_dispersion_above_limit")
+            if (
+                self.config.maximum_selection_turnover_per_day is not None
+                and maximum_turnover_per_day
+                > self.config.maximum_selection_turnover_per_day
+            ):
+                reasons.append("selection_turnover_above_limit")
+            if (
+                self.config.maximum_selection_cost_fraction is not None
+                and maximum_cost_fraction > self.config.maximum_selection_cost_fraction
+            ):
+                reasons.append("selection_cost_above_limit")
+            if (
+                self.config.maximum_selection_drawdown is not None
+                and maximum_drawdown > self.config.maximum_selection_drawdown
+            ):
+                reasons.append("selection_drawdown_above_limit")
+            candidate_winners[candidate.name] = representative
+            candidate_selection[candidate.name] = representative_evaluation
+            candidate_aggregates[candidate.name] = CandidateSelectionAggregate(
+                configuration=candidate.name,
+                eligible=not reasons,
+                maximum_cost_fraction=maximum_cost_fraction,
+                maximum_drawdown=maximum_drawdown,
+                maximum_turnover_per_day=maximum_turnover_per_day,
+                median_score=median_score,
+                reasons=tuple(reasons),
+                score_std=score_std,
+                seed_count=len(scores),
+                success_fraction=success_fraction,
+                worst_score=worst_score,
+            )
 
         selection_evaluation_digest = content_digest(
             {
@@ -432,7 +614,8 @@ class ConcreteFoldRunner:
                         "configuration": name,
                         "digest": evaluation.evaluation_digest,
                         "policy_digest": candidate_winners[name].policy_digest,
-                        "score": evaluation.score,
+                        "representative_score": evaluation.score,
+                        "aggregate": candidate_aggregates[name].digest_payload(),
                     }
                     for name, evaluation in sorted(candidate_selection.items())
                 ),
@@ -461,23 +644,26 @@ class ConcreteFoldRunner:
                 ),
             }
         )
-        threshold = baseline_selection.score + self.config.minimum_selection_uplift
         eligible = tuple(
-            (name, evaluation)
-            for name, evaluation in candidate_selection.items()
-            if evaluation.score > threshold
+            (name, candidate_aggregates[name])
+            for name in candidate_selection
+            if candidate_aggregates[name].eligible
         )
         selected_candidate = (
-            min(eligible, key=lambda item: (-item[1].score, item[0]))
+            min(
+                eligible,
+                key=lambda item: (-item[1].median_score, item[0]),
+            )
             if eligible
             else None
         )
 
+        selection_reasons: tuple[str, ...]
         if selected_candidate is None:
             mode = PolicyMode.BASELINE_ONLY
             selected_configuration = BASELINE_CONFIGURATION
             selected_policy_digest = None
-            reasons = (
+            selection_reasons = (
                 "no residual candidate exceeded the baseline selection threshold",
             )
         else:
@@ -486,7 +672,7 @@ class ConcreteFoldRunner:
                 selected_configuration
             ].policy_digest
             mode = PolicyMode.RESIDUAL_POLICY
-            reasons = (
+            selection_reasons = (
                 "selected residual candidate exceeded the baseline selection threshold",
             )
 
@@ -498,7 +684,7 @@ class ConcreteFoldRunner:
             signal_digest=self.config.signal_digest,
             evaluation_digest=selection_evaluation_digest,
             selected_at=self.config.selected_at,
-            reasons=reasons,
+            reasons=selection_reasons,
         )
 
         sealed_test_access = self._sealed_test_ledger.authorize_once(
@@ -554,6 +740,9 @@ class ConcreteFoldRunner:
             baseline_oos=baseline_oos,
             seed_finalists=tuple(
                 sorted(seed_finalists, key=lambda item: (item.configuration, item.seed))
+            ),
+            candidate_aggregates=tuple(
+                candidate_aggregates[name] for name in sorted(candidate_aggregates)
             ),
             sealed_test_access=sealed_test_access,
         )

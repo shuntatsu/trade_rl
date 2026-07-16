@@ -57,3 +57,20 @@ def test_market_matrix_fits_only_exogenous_observation_fields() -> None:
         index not in passthrough and normalizer.scale[index] != 1.0
         for index in range(normalizer.size)
     )
+
+
+def test_all_endogenous_state_fields_use_semantic_passthrough_scaling() -> None:
+    from trade_rl.rl.observations import observation_layout
+
+    dataset = _dataset()
+    layout = observation_layout(dataset, action_size=3, n_factors=2)
+    passthrough = set(
+        observation_passthrough_indices(dataset, action_size=3, n_factors=2)
+    )
+    asset_state_start = 4 * dataset.n_features
+    assert set(range(asset_state_start, layout.per_symbol_width)).issubset(passthrough)
+    global_base = dataset.n_symbols * layout.per_symbol_width
+    endogenous_global_start = global_base + 4 * len(dataset.global_feature_names)
+    assert set(
+        range(endogenous_global_start, global_base + layout.global_width)
+    ).issubset(passthrough)

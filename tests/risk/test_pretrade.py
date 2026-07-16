@@ -51,12 +51,8 @@ def test_target_hysteresis_requires_stronger_entry_than_exit() -> None:
         )
     )
 
-    no_entry = risk.constrain(
-        np.array([0.08]), current=np.array([0.0]), drawdown=0.0
-    )
-    hold = risk.constrain(
-        np.array([0.04]), current=np.array([0.20]), drawdown=0.0
-    )
+    no_entry = risk.constrain(np.array([0.08]), current=np.array([0.0]), drawdown=0.0)
+    hold = risk.constrain(np.array([0.04]), current=np.array([0.20]), drawdown=0.0)
     exit_position = risk.constrain(
         np.array([0.02]), current=np.array([0.20]), drawdown=0.0
     )
@@ -102,9 +98,7 @@ def test_hysteresis_flattens_weak_reversal_until_new_entry_is_confirmed() -> Non
         )
     )
 
-    result = risk.constrain(
-        np.array([-0.08]), current=np.array([0.20]), drawdown=0.0
-    )
+    result = risk.constrain(np.array([-0.08]), current=np.array([0.20]), drawdown=0.0)
 
     np.testing.assert_array_equal(result.weights, np.array([0.0]))
     assert "reversal_hysteresis" in result.reasons
@@ -131,3 +125,23 @@ def test_emergency_flatten_bypasses_turnover_and_no_trade_limits() -> None:
     np.testing.assert_array_equal(result.weights, np.array([0.0, 0.20]))
     assert result.turnover_overridden is True
     assert "emergency_flatten" in result.reasons
+
+
+def test_disabled_turnover_throttle_does_not_slice_direct_target() -> None:
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=0.6,
+            max_turnover=None,
+            entry_threshold=0.0,
+            exit_threshold=0.0,
+            no_trade_band=0.0,
+        )
+    )
+    result = risk.constrain(
+        np.array([0.4, -0.4]),
+        current=np.zeros(2),
+        drawdown=0.0,
+    )
+    np.testing.assert_allclose(result.weights, [0.4, -0.4])
+    assert "max_turnover" not in result.reasons

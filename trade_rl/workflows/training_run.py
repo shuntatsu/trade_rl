@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.provenance import capture_runtime_provenance
@@ -36,8 +38,16 @@ from trade_rl.risk.portfolio import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract
+from trade_rl.rl.checkpointing import load_checkpoint_manifest
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.normalization import ObservationNormalizer
+from trade_rl.rl.observations import observation_passthrough_indices
 from trade_rl.rl.rewards import RewardConfig
+from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
+from trade_rl.rl.sequence_observations import (
+    SequenceObservationBuilder,
+    SequenceWindowSpec,
+)
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
@@ -86,6 +96,7 @@ class TrainingRunConfig:
     portfolio_risk: PortfolioRiskConfig = field(default_factory=PortfolioRiskConfig)
     alpha_artifact: Path | None = None
     factor_artifact: Path | None = None
+    resume_checkpoints: tuple[tuple[int, Path], ...] = ()
     export_onnx: bool = False
     export_torchscript: bool = False
     export_tolerance: float = 1e-5
@@ -102,6 +113,11 @@ class TrainingRunConfig:
             )
         if self.environment.resolved_reward_config() != self.reward:
             raise ValueError("environment reward configuration differs from run reward")
+        resume_seeds = tuple(seed for seed, _ in self.resume_checkpoints)
+        if len(set(resume_seeds)) != len(resume_seeds):
+            raise ValueError("resume checkpoint seeds must be unique")
+        if any(seed not in self.training.seeds for seed in resume_seeds):
+            raise ValueError("resume checkpoint seed is outside training seeds")
         if self.action.alpha_enabled != (self.alpha_artifact is not None):
             raise ValueError("alpha action requires exactly one alpha artifact")
         if (self.action.n_factors > 0) != (self.factor_artifact is not None):
@@ -112,6 +128,12 @@ class TrainingRunConfig:
             raise ValueError("export flags must be booleans")
         if not math.isfinite(self.export_tolerance) or self.export_tolerance <= 0.0:
             raise ValueError("export_tolerance must be finite and positive")
+        if self.training.sequence_encoder and (
+            self.export_onnx or self.export_torchscript
+        ):
+            raise ValueError(
+                "structured sequence policies do not support flat ONNX/TorchScript export"
+            )
         if self.git_commit is not None and not self.git_commit:
             raise ValueError("git_commit must be non-empty when provided")
         if self.git_dirty is not None and not isinstance(self.git_dirty, bool):
@@ -126,6 +148,7 @@ class TrainingRunConfig:
             _mapping(payload.get("training"), field="training"),
             "seeds",
             "policy_net_arch",
+            "value_net_arch",
         )
         reward = RewardConfig(**_mapping(payload.get("reward"), field="reward"))
         execution = ExecutionCostConfig(
@@ -135,6 +158,7 @@ class TrainingRunConfig:
             _mapping(payload.get("environment"), field="environment"),
             "episode_hour_choices",
             "initial_state_modes",
+            "sequence_windows",
         )
         environment_data.pop("reward_config", None)
         environment_data.pop("execution_cost", None)
@@ -156,6 +180,16 @@ class TrainingRunConfig:
             raise ValueError("schema_version must be a string")
         raw_alpha_artifact = payload.get("alpha_artifact")
         raw_factor_artifact = payload.get("factor_artifact")
+        raw_resume_checkpoints = payload.get("resume_checkpoints", {})
+        if not isinstance(raw_resume_checkpoints, dict):
+            raise ValueError("resume_checkpoints must be a JSON object")
+        resume_checkpoints: list[tuple[int, Path]] = []
+        for raw_seed, raw_path in raw_resume_checkpoints.items():
+            if not isinstance(raw_seed, str) or not raw_seed.isdigit():
+                raise ValueError("resume checkpoint seed keys must be integers")
+            if not isinstance(raw_path, str) or not raw_path:
+                raise ValueError("resume checkpoint paths must be non-empty strings")
+            resume_checkpoints.append((int(raw_seed), Path(raw_path)))
         if raw_alpha_artifact is not None and not isinstance(raw_alpha_artifact, str):
             raise ValueError("alpha_artifact must be a path string or null")
         if raw_factor_artifact is not None and not isinstance(raw_factor_artifact, str):
@@ -184,6 +218,7 @@ class TrainingRunConfig:
             factor_artifact=(
                 None if raw_factor_artifact is None else Path(raw_factor_artifact)
             ),
+            resume_checkpoints=tuple(sorted(resume_checkpoints)),
             export_onnx=_boolean(
                 exports.get("onnx"), field="exports.onnx", default=False
             ),
@@ -210,6 +245,9 @@ class TrainingRunConfig:
             self,
             alpha_artifact=resolved(self.alpha_artifact),
             factor_artifact=resolved(self.factor_artifact),
+            resume_checkpoints=tuple(
+                (seed, resolved(path) or path) for seed, path in self.resume_checkpoints
+            ),
         )
 
     @classmethod
@@ -236,6 +274,12 @@ class TrainingRunConfig:
             "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "reward": asdict(self.reward),
+            "resume_checkpoint_digests": {
+                str(seed): load_checkpoint_manifest(
+                    path / "checkpoint.json" if path.is_dir() else path
+                ).digest
+                for seed, path in self.resume_checkpoints
+            },
             "schema_version": self.schema_version,
             "training": self.training.digest_payload(),
             "trend": asdict(self.trend),
@@ -276,6 +320,9 @@ def _dataset_manifest(
 def _environment_factory(
     dataset: MarketDataset,
     config: TrainingRunConfig,
+    *,
+    normalizer: ObservationNormalizer | None = None,
+    sequence_normalizer: SequenceFeatureNormalizer | None = None,
 ) -> Callable[[], ResidualMarketEnv]:
     alpha_provider = (
         None
@@ -317,6 +364,8 @@ def _environment_factory(
             action_spec=config.action,
             pre_trade_risk=PreTradeRisk(config.risk),
             portfolio_risk=PortfolioRiskModel(config.portfolio_risk),
+            normalizer=normalizer,
+            sequence_normalizer=sequence_normalizer,
             config=config.environment,
         )
 
@@ -342,19 +391,179 @@ def _ensemble_payload(manifest: PolicyEnsembleManifest) -> dict[str, object]:
     return asdict(manifest)
 
 
+def _feature_alignment_payload(
+    feature_names: tuple[str, ...],
+) -> dict[str, str]:
+    return {
+        name: "unshifted_decision_time"
+        for name in feature_names
+        if "__ichimoku_" in name or name.startswith("ichimoku_")
+    }
+
+
 def _policy_loader_payload(
     ensemble: PolicyEnsembleManifest,
     *,
     algorithm: str,
+    structured_sequence: bool = False,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "algorithm": algorithm,
         "members": tuple(
             f"members/member-{index:03d}/policy.zip"
             for index in range(ensemble.expected_members)
         ),
-        "schema_version": "sb3_policy_loader_v1",
+        "schema_version": (
+            "sb3_policy_loader_v2" if structured_sequence else "sb3_policy_loader_v1"
+        ),
     }
+    if structured_sequence:
+        payload.update(
+            {
+                "dataset_reference": "dataset-reference.json",
+                "environment": "environment.json",
+                "normalizer": "normalizer.json",
+                "observation_mode": "structured_sequence",
+                "sequence_normalizer": "sequence-normalizer.json",
+            }
+        )
+    return payload
+
+
+def _serving_support_payload(config: TrainingRunConfig) -> dict[str, object]:
+    if config.training.sequence_encoder:
+        return {
+            "loader_schema": "sb3_policy_loader_v2",
+            "observation_mode": "structured_sequence",
+            "runtime": "native_sb3_structured_sequence_v1",
+            "schema_version": "serving_support_v2",
+            "status": "supported",
+        }
+    return {
+        "loader_schema": "sb3_policy_loader_v1",
+        "observation_mode": "flat",
+        "runtime": "flat_vector_v1",
+        "schema_version": "serving_support_v2",
+        "status": "supported",
+    }
+
+
+def _normalizer_payload(normalizer: ObservationNormalizer) -> dict[str, object]:
+    """Return the canonical serving-compatible normalizer sidecar."""
+
+    return {"digest": normalizer.digest, **normalizer.digest_payload()}
+
+
+def _sequence_normalizer_payload(
+    normalizer: SequenceFeatureNormalizer,
+) -> dict[str, object]:
+    sample_count = normalizer.sample_count
+    if sample_count is None:
+        raise RuntimeError("sequence normalizer sample counts are unavailable")
+    return {
+        "center": {
+            key: tuple(float(value) for value in normalizer.center[key])
+            for key in normalizer.feature_names
+        },
+        "clip": normalizer.clip,
+        "dataset_id": normalizer.dataset_id,
+        "digest": normalizer.digest,
+        "feature_names": dict(normalizer.feature_names),
+        "scale": {
+            key: tuple(float(value) for value in normalizer.scale[key])
+            for key in normalizer.feature_names
+        },
+        "sample_count": {
+            key: tuple(int(value) for value in sample_count[key])
+            for key in normalizer.feature_names
+        },
+        "minimum_samples_per_channel": normalizer.minimum_samples_per_channel,
+        "schema_version": normalizer.schema_version,
+        "sequence_schema_digest": normalizer.sequence_schema_digest,
+        "source_dataset_id": normalizer.source_dataset_id,
+        "train_range": [normalizer.train_start, normalizer.train_end],
+    }
+
+
+def _fit_full_normalizers(
+    dataset: MarketDataset,
+    config: TrainingRunConfig,
+) -> tuple[ObservationNormalizer, SequenceFeatureNormalizer | None]:
+    flat_config = (
+        replace(
+            config,
+            environment=replace(
+                config.environment,
+                structured_sequence_observation=False,
+                sequence_windows=(),
+            ),
+        )
+        if config.environment.structured_sequence_observation
+        else config
+    )
+    env = _environment_factory(dataset, flat_config)()
+    observations: list[np.ndarray] = []
+    try:
+        start = env.minimum_start_index
+        episode_bars = dataset.n_bars - 1 - start
+        if episode_bars <= 0:
+            raise ValueError("dataset is too short to fit the full-run normalizer")
+        observation, _ = env.reset(
+            seed=0,
+            options={
+                "episode_bars": episode_bars,
+                "initial_state_mode": "cash",
+                "start_idx": start,
+            },
+        )
+        terminated = False
+        truncated = False
+        while not terminated and not truncated:
+            observations.append(np.asarray(observation, dtype=np.float32).copy())
+            observation, _, terminated, truncated, _ = env.step(
+                np.zeros(config.action.size, dtype=np.float32)
+            )
+        matrix = np.stack(observations, axis=0)
+        passthrough = observation_passthrough_indices(
+            dataset,
+            action_size=config.action.size,
+            n_factors=config.action.n_factors,
+            finite_horizon=config.environment.finite_horizon_observation,
+        )
+        normalizer = ObservationNormalizer.fit(
+            matrix,
+            train_start=0,
+            train_end=matrix.shape[0],
+            passthrough_indices=passthrough,
+            dataset_id=dataset.dataset_id,
+            source_dataset_id=dataset.dataset_id,
+            absolute_train_start=start,
+            absolute_train_end=dataset.n_bars,
+            observation_schema_digest=env.observation_builder.schema_digest(dataset),
+            action_spec_digest=env.action_spec_digest,
+            alpha_artifact_digest=env.alpha_artifact_digest,
+            factor_artifact_digest=env.factor_artifact_digest,
+            candidate_config_digest=content_digest(config.digest_payload()),
+        )
+    finally:
+        env.close()
+
+    if not config.environment.structured_sequence_observation:
+        return normalizer, None
+    builder = SequenceObservationBuilder(
+        windows=tuple(
+            SequenceWindowSpec(timeframe, length)
+            for timeframe, length in config.environment.resolved_sequence_windows
+        )
+    )
+    sequence_normalizer = SequenceFeatureNormalizer.fit(
+        dataset,
+        builder,
+        train_start=max(start, builder.minimum_index(dataset)),
+        train_end=dataset.n_bars,
+        source_dataset_id=dataset.dataset_id,
+    )
+    return normalizer, sequence_normalizer
 
 
 def _dataset_artifact_digest(root: Path) -> str:
@@ -380,6 +589,7 @@ def execute_training_run(
     resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%SZ")
     config = TrainingRunConfig.from_json(config_path)
     dataset = load_market_dataset_artifact(dataset_path)
+    normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
     try:
@@ -402,12 +612,24 @@ def execute_training_run(
                 "artifact_digest": dataset_artifact_digest,
                 "bar_hours": dataset.bar_hours,
                 "dataset_id": dataset.dataset_id,
+                "feature_config_digest": dataset.feature_config_digest,
                 "feature_names": dataset.feature_names,
+                "feature_alignments": _feature_alignment_payload(dataset.feature_names),
                 "global_feature_names": dataset.global_feature_names,
-                "schema_version": "dataset_reference_v2",
+                "schema_version": "dataset_reference_v4",
                 "symbols": dataset.symbols,
             },
         )
+        _write_json(
+            stage / "normalizer.json",
+            _normalizer_payload(normalizer),
+        )
+        if sequence_normalizer is not None:
+            _write_json(
+                stage / "sequence-normalizer.json",
+                _sequence_normalizer_payload(sequence_normalizer),
+            )
+        _write_json(stage / "serving-support.json", _serving_support_payload(config))
         _write_json(
             stage / "environment.json",
             {
@@ -423,6 +645,7 @@ def execute_training_run(
                 "risk": asdict(config.risk),
                 "reward": asdict(config.reward),
                 "schema_version": "training_environment_v2",
+                "terminal_accounting_mode": config.environment.terminal_accounting_mode,
                 "trend": asdict(config.trend),
             },
         )
@@ -430,14 +653,26 @@ def execute_training_run(
             dataset=_dataset_manifest(dataset, created_at=resolved_created_at),
             environment_dataset_id=dataset.dataset_id,
             config=config.training,
-            backend=StableBaselines3Backend(_environment_factory(dataset, config)),
+            backend=StableBaselines3Backend(
+                _environment_factory(
+                    dataset,
+                    config,
+                    normalizer=normalizer,
+                    sequence_normalizer=sequence_normalizer,
+                ),
+                resume_checkpoint_artifacts=dict(config.resume_checkpoints),
+            ),
             output_dir=stage / "members",
             created_at=resolved_created_at,
         )
         _write_json(stage / "ensemble.json", _ensemble_payload(ensemble))
         _write_json(
             stage / "policy-loader.json",
-            _policy_loader_payload(ensemble, algorithm=config.training.algorithm),
+            _policy_loader_payload(
+                ensemble,
+                algorithm=config.training.algorithm,
+                structured_sequence=config.training.sequence_encoder,
+            ),
         )
 
         if config.export_onnx or config.export_torchscript:

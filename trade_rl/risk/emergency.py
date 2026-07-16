@@ -87,10 +87,14 @@ class CausalEmergencyRiskMonitor:
         if self.config.stop_loss_return > 0.0:
             window = max(1, dataset.bars_for_hours(self.config.stop_loss_hours))
             if index >= window:
-                horizon_return = dataset.close[index] / dataset.close[index - window] - 1.0
+                horizon_return = (
+                    dataset.close[index] / dataset.close[index - window] - 1.0
+                )
                 signed_return = np.sign(position) * horizon_return
                 triggered = signed_return <= -self.config.stop_loss_return
-                for symbol_index in np.flatnonzero(triggered & (np.abs(position) > 0.0)):
+                for symbol_index in np.flatnonzero(
+                    triggered & (np.abs(position) > 0.0)
+                ):
                     mask[symbol_index] = True
                     reasons.append(f"stop_loss:{dataset.symbols[symbol_index]}")
 
@@ -103,7 +107,9 @@ class CausalEmergencyRiskMonitor:
 
         if self.config.volatility_ratio > 0.0:
             short = max(2, dataset.bars_for_hours(self.config.volatility_short_hours))
-            long = max(short + 1, dataset.bars_for_hours(self.config.volatility_long_hours))
+            long = max(
+                short + 1, dataset.bars_for_hours(self.config.volatility_long_hours)
+            )
             if index >= long:
                 log_prices = np.log(dataset.close[index - long : index + 1])
                 returns = np.diff(log_prices, axis=0)

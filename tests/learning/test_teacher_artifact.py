@@ -137,9 +137,7 @@ class _RolloutEnvironment:
 
 def test_collect_teacher_rollout_covers_exact_training_decisions() -> None:
     environment = _RolloutEnvironment()
-    targets = np.array(
-        [[0.5, -0.5], [0.0, 0.0], [-0.5, 0.5]], dtype=np.float64
-    )
+    targets = np.array([[0.5, -0.5], [0.0, 0.0], [-0.5, 0.5]], dtype=np.float64)
 
     supervised = collect_teacher_rollout(
         environment,

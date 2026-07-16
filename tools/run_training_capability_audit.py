@@ -48,12 +48,12 @@ class AuditEnv(gym.Env[np.ndarray, np.ndarray]):
         action_size=1,
         n_factors=0,
         per_symbol_width=2,
-        global_width=0,
+        global_width=1,
     )
 
     def __init__(self) -> None:
         super().__init__()
-        self.observation_space = spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32)
+        self.observation_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
         self._step = 0
 
@@ -66,7 +66,7 @@ class AuditEnv(gym.Env[np.ndarray, np.ndarray]):
         del options
         super().reset(seed=seed)
         self._step = 0
-        return np.zeros(2, dtype=np.float32), {}
+        return np.asarray((0.0, 1.0, 0.0), dtype=np.float32), {}
 
     def step(
         self,
@@ -255,7 +255,7 @@ def _export_ppo(root: Path) -> dict[str, object]:
         checkpoint_path=checkpoint,
         output_dir=root / "ppo-exports",
         algorithm="ppo",
-        observation_size=2,
+        observation_size=3,
         action_size=1,
         action_spec_digest=_ACTION_SPEC_DIGEST,
         normalizer_digest=None,

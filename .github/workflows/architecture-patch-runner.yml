@@ -26,7 +26,7 @@ jobs:
       - run: uv sync --extra dev --extra train-sb3
       - name: RED
         run: |
-          python tools/apply_task2_oracle_fix.py tests
+          python tools/apply_task2_oracle_v3.py tests
           set +e
           uv run pytest -q tests/learning/test_oracle_teacher.py
           status=$?
@@ -40,7 +40,7 @@ jobs:
           set +e
           set -o pipefail
           {
-            python tools/apply_task2_oracle_fix.py implementation &&
+            python tools/apply_task2_oracle_v3.py implementation &&
             uv run ruff format trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py &&
             uv run pytest -q tests/learning/test_oracle_teacher.py tests/learning/test_behavior_cloning.py tests/learning/test_structured_teacher_artifact.py tests/integrations/test_sb3_training.py &&
             uv run ruff check trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py &&
@@ -60,7 +60,7 @@ jobs:
           if-no-files-found: warn
       - name: Commit hardening branch
         run: |
-          rm -f tools/apply_task2_oracle.py tools/apply_task2_oracle_fix.py task2-green.log task2-green-status.txt
+          rm -f tools/apply_task2_oracle.py tools/apply_task2_oracle_fix.py tools/apply_task2_oracle_v3.py task2-green.log task2-green-status.txt
           git config user.name 'architecture-hardening-bot'
           git config user.email 'actions@users.noreply.github.com'
           git add -A

@@ -6,6 +6,9 @@ on:
       - agent/full-training-functional-audit
     paths:
       - '.github/workflows/apply-sequence-constructor-fix.yml'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -13,9 +16,10 @@ permissions:
 
 jobs:
   apply:
+    if: github.event_name != 'pull_request' || github.head_ref == 'agent/full-training-functional-audit'
     runs-on: ubuntu-latest
     env:
-      APPLY_REVISION: '2'
+      APPLY_REVISION: '3'
     steps:
       - uses: actions/checkout@v4
         with:

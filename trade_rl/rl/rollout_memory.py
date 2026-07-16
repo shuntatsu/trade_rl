@@ -43,14 +43,14 @@ def estimate_ppo_rollout_buffer_bytes(
     return elements * n_steps * n_envs * _FLOAT32_BYTES
 
 
-def estimate_compact_ppo_rollout_buffer_bytes(
+def estimate_index_backed_ppo_rollout_buffer_bytes(
     observation_space: spaces.Space,
     *,
     n_steps: int,
     n_envs: int,
     action_dim: int,
 ) -> int:
-    """Estimate persistent bytes when Dict components keep declared dtypes."""
+    """Estimate persistent bytes after overlapping sequence arrays are removed."""
 
     for name, value in (
         ("n_steps", n_steps),
@@ -66,8 +66,12 @@ def estimate_compact_ppo_rollout_buffer_bytes(
             n_envs=n_envs,
             action_dim=action_dim,
         )
+    if "decision_index" not in observation_space.spaces:
+        raise ValueError("index-backed rollout requires decision_index observation")
     observation_bytes = 0
-    for component in observation_space.spaces.values():
+    for key, component in observation_space.spaces.items():
+        if key.startswith("sequence_"):
+            continue
         shape = component.shape
         if shape is None:
             raise ValueError("observation component must declare a finite shape")
@@ -83,7 +87,12 @@ def estimate_compact_ppo_rollout_buffer_bytes(
     return per_transition * n_steps * n_envs
 
 
+estimate_compact_ppo_rollout_buffer_bytes = (
+    estimate_index_backed_ppo_rollout_buffer_bytes
+)
+
 __all__ = [
     "estimate_compact_ppo_rollout_buffer_bytes",
+    "estimate_index_backed_ppo_rollout_buffer_bytes",
     "estimate_ppo_rollout_buffer_bytes",
 ]

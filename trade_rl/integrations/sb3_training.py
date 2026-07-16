@@ -30,7 +30,7 @@ from trade_rl.rl.replay import (
     write_replay_buffer_artifact,
 )
 from trade_rl.rl.rollout_memory import (
-    estimate_compact_ppo_rollout_buffer_bytes,
+    estimate_index_backed_ppo_rollout_buffer_bytes,
     estimate_ppo_rollout_buffer_bytes,
 )
 from trade_rl.rl.training import (
@@ -114,7 +114,7 @@ class StableBaselines3Backend:
             rollout_buffer_bytes: int | None = None
             if isinstance(algorithm_config, PPOConfig):
                 estimator = (
-                    estimate_compact_ppo_rollout_buffer_bytes
+                    estimate_index_backed_ppo_rollout_buffer_bytes
                     if config.sequence_encoder
                     else estimate_ppo_rollout_buffer_bytes
                 )
@@ -131,6 +131,7 @@ class StableBaselines3Backend:
                     )
             policy_kwargs: dict[str, Any]
             sequence_metadata: dict[str, Any] | None = None
+            sequence_reconstructor: Any | None = None
             if config.sequence_encoder:
                 from trade_rl.rl.policies import (
                     SequenceAssetFeatureExtractor,
@@ -144,6 +145,25 @@ class StableBaselines3Backend:
                         "sequence training requires environment sequence metadata"
                     )
                 sequence_metadata = dict(metadata)
+                from trade_rl.integrations.compact_rollout_buffer import (
+                    SequenceRolloutReconstructor,
+                )
+
+                dataset = getattr(unwrapped, "dataset", None)
+                sequence_builder = getattr(
+                    unwrapped, "sequence_observation_builder", None
+                )
+                if dataset is None or sequence_builder is None:
+                    raise ValueError(
+                        "sequence training requires dataset-bound reconstruction metadata"
+                    )
+                sequence_reconstructor = SequenceRolloutReconstructor(
+                    dataset=dataset,
+                    builder=sequence_builder,
+                    normalizer=getattr(unwrapped, "sequence_normalizer", None),
+                    expected_dataset_id=dataset.dataset_id,
+                    expected_layout_digest=sequence_builder.layout_digest(dataset),
+                )
                 policy_kwargs = {
                     "net_arch": {
                         "pi": list(config.policy_net_arch),
@@ -222,10 +242,19 @@ class StableBaselines3Backend:
                 rollout_kwargs: dict[str, Any] = {}
                 if config.sequence_encoder:
                     from trade_rl.integrations.compact_rollout_buffer import (
-                        CompactDictRolloutBuffer,
+                        IndexBackedDictRolloutBuffer,
                     )
 
-                    rollout_kwargs["rollout_buffer_class"] = CompactDictRolloutBuffer
+                    if sequence_reconstructor is None:
+                        raise RuntimeError(
+                            "sequence rollout reconstructor was not resolved"
+                        )
+                    rollout_kwargs["rollout_buffer_class"] = (
+                        IndexBackedDictRolloutBuffer
+                    )
+                    rollout_kwargs["rollout_buffer_kwargs"] = {
+                        "sequence_reconstructor": sequence_reconstructor
+                    }
                 model = PPO(
                     policy_identifier,
                     environment,
@@ -340,7 +369,9 @@ class StableBaselines3Backend:
                         ),
                         "rollout_buffer_bytes": rollout_buffer_bytes,
                         "rollout_buffer": (
-                            "compact_dict" if config.sequence_encoder else "default"
+                            "index_backed_dict"
+                            if config.sequence_encoder
+                            else "default"
                         ),
                         "vector_environment": (
                             "dummy" if config.sequence_encoder else "subprocess"

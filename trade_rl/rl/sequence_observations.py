@@ -14,7 +14,7 @@ from trade_rl.data.contracts import timeframe_hours
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.observations import ObservationLayout
 
-SEQUENCE_OBSERVATION_SCHEMA = "native_timeframe_sequence_observation_v1"
+SEQUENCE_OBSERVATION_SCHEMA = "native_timeframe_sequence_observation_v2"
 _FLOAT16_MAX = float(np.finfo(np.float16).max)
 
 

@@ -373,6 +373,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
             sequence_payload = self.sequence_observation_builder.schema_payload(dataset)
             sequence_spaces: dict[str, spaces.Space[np.ndarray]] = {
+                "decision_index": spaces.Box(
+                    low=0,
+                    high=dataset.n_bars - 1,
+                    shape=(1,),
+                    dtype=np.int64,
+                ),
                 "current_snapshot": spaces.Box(
                     low=-np.inf,
                     high=np.inf,
@@ -758,13 +764,15 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         sequence = self.sequence_observation_builder.build(
             self.dataset, index=self.current_index
         )
-        return build_structured_policy_observation(
+        structured = build_structured_policy_observation(
             sequence=sequence,
             current_flat=current,
             layout=self.layout,
             n_features=self.dataset.n_features,
             sequence_normalizer=self.sequence_normalizer,
         )
+        structured["decision_index"] = np.asarray([self.current_index], dtype=np.int64)
+        return structured
 
     def _episode_end(self, start: int, *, hours: float, bars: int | None) -> int:
         if bars is not None:

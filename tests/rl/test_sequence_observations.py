@@ -170,3 +170,9 @@ def test_structured_policy_observation_splits_current_state_and_sequences() -> N
     assert structured["sequence_1h_values"].shape == (dataset.n_symbols, 3, 2)
     assert structured["sequence_1h_available"].dtype == np.uint8
     assert structured["sequence_1h_staleness"].dtype == np.float16
+
+
+def test_sequence_observation_schema_is_index_backed() -> None:
+    from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
+
+    assert SEQUENCE_OBSERVATION_SCHEMA == "native_timeframe_sequence_observation_v2"

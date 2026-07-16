@@ -118,3 +118,62 @@ def test_off_policy_backend_passes_distinct_actor_and_critic_architectures(
         "pi": [16, 8],
         "qf": [32, 24],
     }
+
+
+def test_flat_ppo_backend_passes_distinct_actor_and_value_architectures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model_arguments: dict[str, Any] = {}
+
+    class FakeParameter:
+        def numel(self) -> int:
+            return 2
+
+    class FakePolicy:
+        def parameters(self) -> tuple[FakeParameter, ...]:
+            return (FakeParameter(),)
+
+    class FakePPO:
+        device = "cpu"
+        num_timesteps = 0
+
+        def __init__(self, policy: str, environment: Any, **kwargs: Any) -> None:
+            self.policy = FakePolicy()
+            model_arguments.update({"policy": policy, **kwargs})
+
+        def learn(self, **kwargs: Any) -> FakePPO:
+            self.num_timesteps += int(kwargs["total_timesteps"])
+            return self
+
+        def save(self, target: str) -> None:
+            Path(target).with_suffix(".zip").write_bytes(b"policy")
+
+    monkeypatch.setattr("stable_baselines3.PPO", FakePPO)
+    monkeypatch.setattr(
+        "trade_rl.rl.checkpointing.build_checkpoint_callback",
+        lambda **kwargs: object(),
+    )
+
+    config = ResidualTrainingConfig(
+        timesteps=2,
+        gamma=0.99,
+        seeds=(0,),
+        n_steps=2,
+        batch_size=2,
+        n_epochs=1,
+        policy_net_arch=(16, 8),
+        value_net_arch=(32, 24),
+        asset_set_encoder=False,
+        device="cpu",
+    )
+    StableBaselines3Backend(TrainingProbe).train(
+        seed=0,
+        config=config,
+        output_path=tmp_path / "policy.zip",
+    )
+
+    assert model_arguments["policy_kwargs"]["net_arch"] == {
+        "pi": [16, 8],
+        "vf": [32, 24],
+    }

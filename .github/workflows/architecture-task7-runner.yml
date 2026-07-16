@@ -1,0 +1,81 @@
+name: Architecture Task 7 Runner
+
+on:
+  pull_request:
+    branches:
+      - agent/causal-sequence-feature-encoder
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-task7-runner
+  cancel-in-progress: true
+
+jobs:
+  task7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/complete-architecture-hardening
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_task7_structured_serving.py tests
+          set +e
+          uv run pytest -q tests/workflows/test_training_run_config.py tests/serving/test_sb3_loader.py
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Task 7 regression tests unexpectedly passed before implementation" >&2
+            exit 1
+          fi
+      - name: GREEN and diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_task7_structured_serving.py implementation
+          set +e
+          {
+            uv run ruff format trade_rl/serving/sequence_normalizer.py trade_rl/integrations/sb3_serving.py trade_rl/serving/runtime.py trade_rl/workflows/training_run.py tests/workflows/test_training_run_config.py tests/serving/test_sb3_loader.py
+            uv run pytest -q tests/workflows/test_training_run_config.py tests/workflows/test_training_run.py tests/serving/test_sb3_loader.py tests/serving/test_registry_runtime_critical_coverage.py tests/e2e/test_research_to_serving_v2.py
+            uv run ruff check trade_rl/serving/sequence_normalizer.py trade_rl/integrations/sb3_serving.py trade_rl/serving/runtime.py trade_rl/workflows/training_run.py
+            uv run mypy trade_rl/serving/sequence_normalizer.py trade_rl/integrations/sb3_serving.py trade_rl/serving/runtime.py trade_rl/workflows/training_run.py
+          } > task7-diagnostic.log 2>&1
+          status=$?
+          set -e
+          echo "$status" > task7-status.txt
+      - name: Upload Task 7 diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task7-diagnostic
+          path: |
+            task7-diagnostic.log
+            task7-status.txt
+      - name: Commit hardening branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(cat task7-status.txt)
+          if [ "$status" -ne 0 ]; then
+            tail -n 350 task7-diagnostic.log
+            exit "$status"
+          fi
+          rm -f tools/apply_task7_structured_serving.py tools/task7-trigger.txt task7-diagnostic.log task7-status.txt
+          git config user.name architecture-hardening-bot
+          git config user.email actions@users.noreply.github.com
+          git add -A
+          git commit -m "feat: serve structured sequence policies from rolling state"
+          git push origin HEAD:agent/complete-architecture-hardening

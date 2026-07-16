@@ -1445,6 +1445,20 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.current_index = hybrid_execution.next_index
         self._decision_step_index += 1
         time_limit_reached = self.current_index >= self.end_index
+        pending_hybrid_target = self._pending_hybrid_target
+        pending_target_discarded = bool(
+            time_limit_reached
+            and self.config.signal_delay_decisions == 1
+            and pending_hybrid_target is not None
+        )
+        discarded_pending_target = (
+            None
+            if not pending_target_discarded or pending_hybrid_target is None
+            else pending_hybrid_target.copy()
+        )
+        if time_limit_reached:
+            self._pending_hybrid_target = None
+            self._pending_shadow_target = None
         hybrid_log_return = hybrid_execution.interval_log_return
         shadow_log_return = shadow_execution.interval_log_return
         hybrid_liquidation: ExecutionResult | None = None
@@ -1543,6 +1557,18 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             turnover_overridden=hybrid_risk.turnover_overridden,
         )
         termination_reason = economic_transition.reason
+        terminal_accounting_mode = (
+            "liquidate_at_close"
+            if liquidation_terminal
+            else "mark_to_market"
+            if time_limit_reached
+            else "economic_termination"
+        )
+        terminal_liquidation_cost = (
+            float(hybrid_liquidation.interval_cost)
+            if liquidation_terminal and hybrid_liquidation is not None
+            else 0.0
+        )
         info: dict[str, object] = {
             "action_delta_l1": action_delta_l1,
             "action_raw_max_abs": raw_max_abs,
@@ -1596,7 +1622,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             "shadow_risk": shadow_risk,
             "shadow_terminated": shadow_terminated,
             "termination_reason": termination_reason,
+            "terminal_accounting_mode": terminal_accounting_mode,
+            "terminal_liquidation_cost": terminal_liquidation_cost,
+            "pending_target_discarded": pending_target_discarded,
         }
+        if discarded_pending_target is not None:
+            info["discarded_pending_target"] = discarded_pending_target
         if hybrid_liquidation is not None:
             info["hybrid_liquidation"] = hybrid_liquidation
         if shadow_liquidation is not None:

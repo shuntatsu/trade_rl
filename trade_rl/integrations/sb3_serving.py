@@ -166,6 +166,20 @@ class _SB3StructuredSequenceEnsemblePolicy:
             field="global_feature_names",
         )
         expected_bar_hours = self.dataset_reference.get("bar_hours")
+        expected_feature_config_digest = self.dataset_reference.get(
+            "feature_config_digest"
+        )
+        if (
+            not isinstance(expected_feature_config_digest, str)
+            or len(expected_feature_config_digest) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in expected_feature_config_digest
+            )
+        ):
+            raise ValueError(
+                "dataset reference feature_config_digest is missing or invalid"
+            )
         if dataset.symbols != expected_symbols:
             raise ValueError("serving rolling dataset symbols do not match training")
         if dataset.feature_names != expected_features:
@@ -175,6 +189,10 @@ class _SB3StructuredSequenceEnsemblePolicy:
         if dataset.global_feature_names != expected_globals:
             raise ValueError(
                 "serving rolling dataset global feature order does not match training"
+            )
+        if dataset.feature_config_digest != expected_feature_config_digest:
+            raise ValueError(
+                "serving rolling dataset feature recipe does not match training"
             )
         if (
             isinstance(expected_bar_hours, bool)

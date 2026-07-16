@@ -188,6 +188,10 @@ class ResidualMarketEnvConfig:
             raise ValueError("emergency_risk must be an EmergencyRiskConfig")
 
     @property
+    def terminal_accounting_mode(self) -> str:
+        return "liquidate_at_close" if self.liquidate_on_end else "mark_to_market"
+
+    @property
     def resolved_sequence_windows(self) -> tuple[tuple[str, int], ...]:
         if not self.structured_sequence_observation:
             return ()

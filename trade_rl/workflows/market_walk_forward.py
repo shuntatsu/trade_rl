@@ -932,7 +932,8 @@ def execute_market_walk_forward(
             {
                 "artifact_path": str(dataset_path),
                 "dataset_id": dataset.dataset_id,
-                "schema_version": "dataset_reference_v1",
+                "feature_config_digest": dataset.feature_config_digest,
+                "schema_version": "dataset_reference_v2",
             },
         )
         policy_digest = content_digest(

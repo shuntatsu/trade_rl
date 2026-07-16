@@ -602,6 +602,7 @@ def execute_training_run(
                 "artifact_digest": dataset_artifact_digest,
                 "bar_hours": dataset.bar_hours,
                 "dataset_id": dataset.dataset_id,
+                "feature_config_digest": dataset.feature_config_digest,
                 "feature_names": dataset.feature_names,
                 "global_feature_names": dataset.global_feature_names,
                 "schema_version": "dataset_reference_v3",
@@ -633,6 +634,7 @@ def execute_training_run(
                 "risk": asdict(config.risk),
                 "reward": asdict(config.reward),
                 "schema_version": "training_environment_v2",
+                "terminal_accounting_mode": config.environment.terminal_accounting_mode,
                 "trend": asdict(config.trend),
             },
         )

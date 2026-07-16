@@ -1,4 +1,4 @@
-name: Task 9 Squashed Policy Runner
+name: Task 10 Terminal Accounting Runner
 
 on:
   pull_request:
@@ -10,11 +10,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: task9-squashed-policy-runner
+  group: task10-terminal-accounting-runner
   cancel-in-progress: true
 
 jobs:
-  task9:
+  task10:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -31,51 +31,51 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f tools/apply_task9_squashed_policy.py ]; then
-            echo "Task 9 squashed-policy fix is already committed"
+          if [ ! -f tools/apply_task10_terminal_accounting.py ]; then
+            echo "Task 10 terminal-accounting fix is already committed"
             exit 0
           fi
           uv sync --extra dev --extra train-sb3
-          python tools/apply_task9_squashed_policy.py tests
+          python tools/apply_task10_terminal_accounting.py tests
           set +e
           uv run pytest -q \
-            tests/rl/test_sequence_policy_core.py::test_shared_sequence_policy_uses_squashed_target_weight_distribution \
-            tests/learning/test_behavior_cloning.py::test_behavior_cloning_uses_deterministic_action_space_output \
-            tests/integrations/test_sb3_training.py::test_backend_builds_workers_after_probe_validation_and_metadata
+            tests/rl/test_environment_time_config.py::test_end_of_episode_liquidation_charges_cost_and_is_terminal \
+            tests/rl/test_environment_time_config.py::test_end_of_episode_mark_to_market_truncates_without_closing_positions \
+            tests/rl/test_environment_time_config.py::test_final_delayed_target_is_reported_and_discarded_at_horizon \
+            tests/workflows/test_training_run.py::test_execute_training_run_trains_serializes_and_publishes
           red_status=$?
           set -e
           if [ "$red_status" -eq 0 ]; then
-            echo "Task 9 tests unexpectedly passed before implementation" >&2
+            echo "Task 10 tests unexpectedly passed before implementation" >&2
             exit 1
           fi
-          python tools/apply_task9_squashed_policy.py implementation
+          python tools/apply_task10_terminal_accounting.py implementation
           uv run ruff format \
-            trade_rl/rl/policies.py \
-            trade_rl/learning/behavior_cloning.py \
-            trade_rl/integrations/sb3_training.py \
-            tests/rl/test_sequence_policy_core.py \
-            tests/learning/test_behavior_cloning.py \
-            tests/integrations/test_sb3_training.py
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_config.py \
+            trade_rl/workflows/training_run.py \
+            tests/rl/test_environment_time_config.py \
+            tests/workflows/test_training_run.py
           uv run ruff check --fix \
-            trade_rl/rl/policies.py \
-            trade_rl/learning/behavior_cloning.py \
-            trade_rl/integrations/sb3_training.py \
-            tests/rl/test_sequence_policy_core.py \
-            tests/learning/test_behavior_cloning.py \
-            tests/integrations/test_sb3_training.py
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_config.py \
+            trade_rl/workflows/training_run.py \
+            tests/rl/test_environment_time_config.py \
+            tests/workflows/test_training_run.py
           uv run pytest -q \
-            tests/rl/test_sequence_policy_core.py \
-            tests/learning/test_behavior_cloning.py \
-            tests/integrations/test_sb3_training.py \
-            tests/rl/test_checkpointing.py \
-            tests/serving/test_sb3_loader.py
+            tests/rl/test_environment.py \
+            tests/rl/test_environment_time_config.py \
+            tests/rl/test_sequence_environment_config.py \
+            tests/rl/test_rewards.py \
+            tests/workflows/test_training_run.py \
+            tests/workflows/test_training_run_config.py
           uv run mypy \
-            trade_rl/rl/policies.py \
-            trade_rl/learning/behavior_cloning.py \
-            trade_rl/integrations/sb3_training.py
-          rm -f tools/apply_task9_squashed_policy.py
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_config.py \
+            trade_rl/workflows/training_run.py
+          rm -f tools/apply_task10_terminal_accounting.py tools/task9-trigger.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A
-          git commit -m "fix: squash target-weight PPO actions at the distribution"
+          git commit -m "feat: make terminal accounting and delayed-target disposal explicit"
           git push origin HEAD:agent/complete-architecture-hardening

@@ -7,6 +7,7 @@ TARGET = ROOT / "trade_rl/workflows/market_walk_forward.py"
 
 
 def main() -> None:
+    """Apply the verified Optional sample-count narrowing."""
     text = TARGET.read_text(encoding="utf-8")
     old = '''def _sequence_normalizer_payload(
     normalizer: SequenceFeatureNormalizer,

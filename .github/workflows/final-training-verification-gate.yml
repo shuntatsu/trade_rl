@@ -101,23 +101,30 @@ jobs:
   record-verification:
     needs: [ubuntu-verification, windows-verification]
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.head_ref == 'agent/full-training-functional-audit'
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' || github.head_ref == 'agent/full-training-functional-audit')
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/full-training-functional-audit
           fetch-depth: 0
-      - name: Record verified source and remove temporary workflows
+      - name: Record final verification result and remove temporary workflows
         shell: bash
         env:
+          RUN_ID: ${{ github.run_id }}
           TESTED_MERGE_SHA: ${{ github.sha }}
+          UBUNTU_RESULT: ${{ needs.ubuntu-verification.result }}
+          WINDOWS_RESULT: ${{ needs.windows-verification.result }}
         run: |
           set -euo pipefail
           branch_sha="$(git rev-parse HEAD)"
-          cat > docs/audits/2026-07-17-full-training-verification.txt <<EOF
+          if [ "$UBUNTU_RESULT" = success ] && [ "$WINDOWS_RESULT" = success ]; then
+            cat > docs/audits/2026-07-17-full-training-verification.txt <<EOF
           final_training_verification_v1
           branch_sha=$branch_sha
           tested_merge_sha=$TESTED_MERGE_SHA
+          run_id=$RUN_ID
           ubuntu_static=pass
           ubuntu_full_pytest_coverage=pass
           critical_branch_coverage=pass
@@ -125,7 +132,8 @@ jobs:
           training_image_non_root_probe=pass
           windows_compatibility=pass
           EOF
-          python - <<'PY'
+            rm -f docs/audits/2026-07-17-full-training-verification-failure.txt
+            python - <<'PY'
           from pathlib import Path
 
           path = Path('.github/workflows/full-training-capability-audit.yml')
@@ -135,10 +143,21 @@ jobs:
           text = text[:start] + 'on:\n  workflow_dispatch:\n' + text[end:]
           path.write_text(text, encoding='utf-8')
           PY
-          rm -f .github/workflows/export-training-audit-source.yml
+            rm -f .github/workflows/export-training-audit-source.yml
+          else
+            cat > docs/audits/2026-07-17-full-training-verification-failure.txt <<EOF
+          final_training_verification_failure_v1
+          branch_sha=$branch_sha
+          tested_merge_sha=$TESTED_MERGE_SHA
+          run_id=$RUN_ID
+          ubuntu_result=$UBUNTU_RESULT
+          windows_result=$WINDOWS_RESULT
+          EOF
+          fi
           rm -f .github/workflows/final-training-verification-gate.yml
+          rm -f .github/workflows/final-training-verification-status-bridge.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git commit -m 'chore: record final training verification'
+          git commit -m 'chore: record final training verification result'
           git push origin HEAD:agent/full-training-functional-audit

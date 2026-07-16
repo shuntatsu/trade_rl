@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -15,11 +16,14 @@ from trade_rl.domain.selection import PolicyMode
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
+from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
+
+PolicyObservation = np.ndarray | Mapping[str, np.ndarray]
 
 
 class LoadedPolicy(Protocol):
-    def predict(self, observation: np.ndarray) -> np.ndarray: ...
+    def predict(self, observation: PolicyObservation) -> np.ndarray: ...
 
 
 class PolicyLoader(Protocol):
@@ -30,7 +34,7 @@ class _BaselineIdentityPolicy:
     def __init__(self, action_size: int) -> None:
         self.action_size = action_size
 
-    def predict(self, observation: np.ndarray) -> np.ndarray:
+    def predict(self, observation: PolicyObservation) -> np.ndarray:
         del observation
         return np.zeros(self.action_size, dtype=np.float32)
 
@@ -220,15 +224,28 @@ class ServingRuntime:
         policy: LoadedPolicy,
         snapshot: RuntimeSnapshot,
         normalizer: ObservationNormalizer | None,
-        observation: np.ndarray,
+        observation: PolicyObservation,
     ) -> np.ndarray:
-        vector = np.asarray(observation, dtype=np.float32).reshape(-1)
-        if (
-            vector.shape != (snapshot.observation_size,)
-            or not np.isfinite(vector).all()
-        ):
-            raise ValueError("observation violates the active observation schema")
-        policy_input = vector if normalizer is None else normalizer.transform(vector)
+        if isinstance(observation, Mapping):
+            if snapshot.observation_schema != SEQUENCE_OBSERVATION_SCHEMA:
+                raise ValueError("structured observation violates the active schema")
+            if not observation or any(
+                np.asarray(value).size == 0 or not np.isfinite(np.asarray(value)).all()
+                for value in observation.values()
+            ):
+                raise ValueError("structured observation violates the active schema")
+            policy_input: Any = dict(observation)
+        else:
+            vector = np.asarray(observation, dtype=np.float32).reshape(-1)
+            if (
+                snapshot.observation_schema != OBSERVATION_SCHEMA
+                or vector.shape != (snapshot.observation_size,)
+                or not np.isfinite(vector).all()
+            ):
+                raise ValueError("observation violates the active observation schema")
+            policy_input = (
+                vector if normalizer is None else normalizer.transform(vector)
+            )
         raw_action = np.asarray(
             policy.predict(policy_input),
             dtype=np.float32,
@@ -251,7 +268,10 @@ class ServingRuntime:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"
             )
-        if manifest.observation_schema != OBSERVATION_SCHEMA:
+        if manifest.observation_schema not in {
+            OBSERVATION_SCHEMA,
+            SEQUENCE_OBSERVATION_SCHEMA,
+        }:
             raise ValueError(
                 "serving bundle observation schema does not match runtime schema"
             )
@@ -277,11 +297,17 @@ class ServingRuntime:
             candidate_normalizer, ObservationNormalizer
         ):
             raise ValueError("serving bundle normalizer type is invalid")
+        smoke_factory = getattr(candidate_policy, "smoke_observation", None)
+        smoke = (
+            smoke_factory()
+            if callable(smoke_factory)
+            else np.zeros(candidate_snapshot.observation_size, dtype=np.float32)
+        )
         self._predict_action(
             candidate_policy,
             candidate_snapshot,
             candidate_normalizer,
-            np.zeros(candidate_snapshot.observation_size, dtype=np.float32),
+            smoke,
         )
         with self._lock:
             self._policy = candidate_policy
@@ -296,14 +322,46 @@ class ServingRuntime:
             raise RuntimeError("serving runtime has no active snapshot")
         return snapshot
 
-    def predict(self, observation: np.ndarray) -> np.ndarray:
-        vector = np.asarray(observation, dtype=np.float32).reshape(-1)
-        if vector.size == 0 or not np.isfinite(vector).all():
-            raise ValueError("observation must be a non-empty finite vector")
+    def predict(self, observation: PolicyObservation) -> np.ndarray:
+        if not isinstance(observation, Mapping):
+            vector = np.asarray(observation, dtype=np.float32).reshape(-1)
+            if vector.size == 0 or not np.isfinite(vector).all():
+                raise ValueError("observation must be a non-empty finite vector")
+            observation = vector
         with self._lock:
             policy = self._policy
             snapshot = self._snapshot
             normalizer = self._normalizer
         if policy is None or snapshot is None:
             raise RuntimeError("serving runtime has no active policy")
-        return self._predict_action(policy, snapshot, normalizer, vector)
+        return self._predict_action(policy, snapshot, normalizer, observation)
+
+    def predict_from_dataset(
+        self,
+        dataset: Any,
+        *,
+        index: int,
+        current_flat: np.ndarray,
+    ) -> np.ndarray:
+        with self._lock:
+            policy = self._policy
+            snapshot = self._snapshot
+        if policy is None or snapshot is None:
+            raise RuntimeError("serving runtime has no active policy")
+        predictor = getattr(policy, "predict_from_dataset", None)
+        if not callable(predictor):
+            raise RuntimeError(
+                "active policy does not support structured dataset serving"
+            )
+        raw = np.asarray(
+            predictor(dataset, index=index, current_flat=current_flat),
+            dtype=np.float32,
+        ).reshape(-1)
+        if (
+            raw.shape != (snapshot.action_size,)
+            or not np.isfinite(raw).all()
+            or np.any(raw < -1.0)
+            or np.any(raw > 1.0)
+        ):
+            raise ValueError("policy output violates the residual action schema")
+        return raw.copy()

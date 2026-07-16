@@ -368,30 +368,45 @@ def _policy_loader_payload(
     ensemble: PolicyEnsembleManifest,
     *,
     algorithm: str,
+    structured_sequence: bool = False,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "algorithm": algorithm,
         "members": tuple(
             f"members/member-{index:03d}/policy.zip"
             for index in range(ensemble.expected_members)
         ),
-        "schema_version": "sb3_policy_loader_v1",
+        "schema_version": (
+            "sb3_policy_loader_v2" if structured_sequence else "sb3_policy_loader_v1"
+        ),
     }
+    if structured_sequence:
+        payload.update(
+            {
+                "dataset_reference": "dataset-reference.json",
+                "environment": "environment.json",
+                "normalizer": "normalizer.json",
+                "observation_mode": "structured_sequence",
+                "sequence_normalizer": "sequence-normalizer.json",
+            }
+        )
+    return payload
 
 
 def _serving_support_payload(config: TrainingRunConfig) -> dict[str, object]:
     if config.training.sequence_encoder:
         return {
-            "reason": (
-                "structured sequence observations require a runtime-native dataset "
-                "and sequence builder; the flat serving/export path is disabled"
-            ),
-            "schema_version": "serving_support_v1",
-            "status": "unsupported",
+            "loader_schema": "sb3_policy_loader_v2",
+            "observation_mode": "structured_sequence",
+            "runtime": "native_sb3_structured_sequence_v1",
+            "schema_version": "serving_support_v2",
+            "status": "supported",
         }
     return {
         "loader_schema": "sb3_policy_loader_v1",
-        "schema_version": "serving_support_v1",
+        "observation_mode": "flat",
+        "runtime": "flat_vector_v1",
+        "schema_version": "serving_support_v2",
         "status": "supported",
     }
 
@@ -405,6 +420,9 @@ def _normalizer_payload(normalizer: ObservationNormalizer) -> dict[str, object]:
 def _sequence_normalizer_payload(
     normalizer: SequenceFeatureNormalizer,
 ) -> dict[str, object]:
+    sample_count = normalizer.sample_count
+    if sample_count is None:
+        raise RuntimeError("sequence normalizer sample counts are unavailable")
     return {
         "center": {
             key: tuple(float(value) for value in normalizer.center[key])
@@ -419,7 +437,7 @@ def _sequence_normalizer_payload(
             for key in normalizer.feature_names
         },
         "sample_count": {
-            key: tuple(int(value) for value in normalizer.sample_count[key])
+            key: tuple(int(value) for value in sample_count[key])
             for key in normalizer.feature_names
         },
         "minimum_samples_per_channel": normalizer.minimum_samples_per_channel,
@@ -559,7 +577,7 @@ def execute_training_run(
                 "dataset_id": dataset.dataset_id,
                 "feature_names": dataset.feature_names,
                 "global_feature_names": dataset.global_feature_names,
-                "schema_version": "dataset_reference_v2",
+                "schema_version": "dataset_reference_v3",
                 "symbols": dataset.symbols,
             },
         )
@@ -607,11 +625,14 @@ def execute_training_run(
             created_at=resolved_created_at,
         )
         _write_json(stage / "ensemble.json", _ensemble_payload(ensemble))
-        if not config.training.sequence_encoder:
-            _write_json(
-                stage / "policy-loader.json",
-                _policy_loader_payload(ensemble, algorithm=config.training.algorithm),
-            )
+        _write_json(
+            stage / "policy-loader.json",
+            _policy_loader_payload(
+                ensemble,
+                algorithm=config.training.algorithm,
+                structured_sequence=config.training.sequence_encoder,
+            ),
+        )
 
         if config.export_onnx or config.export_torchscript:
             from trade_rl.rl.export import export_ensemble_members

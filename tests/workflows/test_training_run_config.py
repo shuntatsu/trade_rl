@@ -200,7 +200,7 @@ def test_normalizer_fit_begins_after_complete_reward_preroll() -> None:
     assert normalizer.train_end > normalizer.train_start
 
 
-def test_sequence_training_rejects_flat_export_and_declares_serving_unsupported() -> (
+def test_sequence_training_rejects_flat_export_and_declares_native_serving_supported() -> (
     None
 ):
     from trade_rl.workflows.training_run import _serving_support_payload
@@ -226,5 +226,10 @@ def test_sequence_training_rejects_flat_export_and_declares_serving_unsupported(
     raw["exports"] = {"onnx": False, "torchscript": False}
     config = TrainingRunConfig.from_mapping(raw)
     support = _serving_support_payload(config)
-    assert support["status"] == "unsupported"
-    assert "sequence" in str(support["reason"])
+    assert support == {
+        "loader_schema": "sb3_policy_loader_v2",
+        "observation_mode": "structured_sequence",
+        "runtime": "native_sb3_structured_sequence_v1",
+        "schema_version": "serving_support_v2",
+        "status": "supported",
+    }

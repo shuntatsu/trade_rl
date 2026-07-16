@@ -1,110 +1,13 @@
-name: Architecture Task 8 Operations Runner
+name: Completed Task 8 Operations Runner
 
 on:
-  pull_request:
-    branches:
-      - agent/causal-sequence-feature-encoder
-    types: [opened, reopened, synchronize]
+  workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: architecture-task8-operations-runner
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  operations:
+  completed:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     steps:
-      - name: Checkout hardening branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/complete-architecture-hardening
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
-          enable-cache: true
-      - run: uv sync --extra dev --extra export --extra train-sb3
-      - name: RED
-        shell: bash
-        run: |
-          set -euo pipefail
-          python tools/apply_task8_operations.py tests
-          set +e
-          uv run pytest -q tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            echo "Task 8 operations tests unexpectedly passed before implementation" >&2
-            exit 1
-          fi
-      - name: GREEN and diagnostics
-        shell: bash
-        run: |
-          set +e
-          : > task8-operations-diagnostic.log
-          run_step() {
-            name="$1"
-            shift
-            echo "===== ${name} =====" >> task8-operations-diagnostic.log
-            "$@" >> task8-operations-diagnostic.log 2>&1
-            code=$?
-            echo "exit=${code}" >> task8-operations-diagnostic.log
-            return "$code"
-          }
-          status=0
-          run_step apply python tools/apply_task8_operations.py implementation || status=$?
-          if [ "$status" -eq 0 ]; then
-            run_step followup python tools/apply_task8_operations_followup.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step doc-phrase python -c "from pathlib import Path; path=Path('docs/MULTITIMEFRAME_RESEARCH.md'); text=path.read_text(encoding='utf-8'); path.write_text(text.replace('Structured sequence serving', 'The structured sequence serving runtime', 1), encoding='utf-8')" || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step format uv run ruff format examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step lint-fix uv run ruff check --fix examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step focused-tests uv run pytest -q tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py tests/workflows/test_training_run_config.py tests/integrations/test_sb3_training.py tests/serving/test_sb3_loader.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step lint uv run ruff check examples/binance-multitimeframe/run_gpu_training_smoke.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step types uv run mypy examples/binance-multitimeframe/run_gpu_training_smoke.py || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step workflow-yaml uv run --with pyyaml python -c "from pathlib import Path; import yaml; paths=(Path('.github/workflows/ci.yml'),Path('.github/workflows/gpu-nightly.yml')); assert all(isinstance(yaml.safe_load(path.read_text(encoding='utf-8')),dict) for path in paths)" || status=$?
-          fi
-          echo "$status" > task8-operations-status.txt
-          exit 0
-      - name: Upload operations diagnostic
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: task8-operations-diagnostic
-          path: |
-            task8-operations-diagnostic.log
-            task8-operations-status.txt
-      - name: Commit hardening branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          status=$(cat task8-operations-status.txt)
-          if [ "$status" -ne 0 ]; then
-            cat task8-operations-diagnostic.log
-            exit "$status"
-          fi
-          git restore .github/workflows/ci.yml
-          rm -f .github/workflows/gpu-nightly.yml
-          rm -f tools/apply_task8_operations.py tools/apply_task8_operations_followup.py tools/task8-operations-trigger.txt task8-operations-diagnostic.log task8-operations-status.txt
-          git config user.name architecture-hardening-bot
-          git config user.email actions@users.noreply.github.com
-          git add -A
-          git commit -m "ci: verify GPU metrics recovery and structured serving"
-          git push origin HEAD:agent/complete-architecture-hardening
+      - run: echo "Task 8 operations verification is complete; this runner is archived pending branch consolidation."

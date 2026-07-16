@@ -37,15 +37,30 @@ jobs:
           fi
       - name: GREEN
         run: |
-          python tools/apply_task2_oracle_fix.py implementation
-          uv run ruff format trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py
+          set +e
           set -o pipefail
-          uv run pytest -q tests/learning/test_oracle_teacher.py tests/learning/test_behavior_cloning.py tests/learning/test_structured_teacher_artifact.py tests/integrations/test_sb3_training.py 2>&1 | tee /tmp/task2-green.log
-          uv run ruff check trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py
-          uv run mypy trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py
+          {
+            python tools/apply_task2_oracle_fix.py implementation &&
+            uv run ruff format trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py &&
+            uv run pytest -q tests/learning/test_oracle_teacher.py tests/learning/test_behavior_cloning.py tests/learning/test_structured_teacher_artifact.py tests/integrations/test_sb3_training.py &&
+            uv run ruff check trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py &&
+            uv run mypy trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py
+          } 2>&1 | tee task2-green.log
+          status=${PIPESTATUS[0]}
+          echo "$status" > task2-green-status.txt
+          exit "$status"
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task2-oracle-diagnostics
+          path: |
+            task2-green.log
+            task2-green-status.txt
+          if-no-files-found: warn
       - name: Commit hardening branch
         run: |
-          rm -f tools/apply_task2_oracle.py tools/apply_task2_oracle_fix.py
+          rm -f tools/apply_task2_oracle.py tools/apply_task2_oracle_fix.py task2-green.log task2-green-status.txt
           git config user.name 'architecture-hardening-bot'
           git config user.email 'actions@users.noreply.github.com'
           git add -A

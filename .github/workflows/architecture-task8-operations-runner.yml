@@ -67,6 +67,9 @@ jobs:
             run_step implementation python tools/apply_task11_portfolio_risk_inputs.py implementation || status=$?
           fi
           if [ "$status" -eq 0 ]; then
+            run_step followup python tools/apply_task11_followup.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
             run_step format uv run ruff format \
               trade_rl/risk/inputs.py \
               trade_rl/risk/portfolio.py \
@@ -121,6 +124,7 @@ jobs:
           fi
           rm -f \
             tools/apply_task11_portfolio_risk_inputs.py \
+            tools/apply_task11_followup.py \
             task11-diagnostic.log \
             task11-status.txt
           git config user.name architecture-hardening-bot

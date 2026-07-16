@@ -28,33 +28,40 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
-      - name: RED
+      - name: Apply and diagnose GREEN
         shell: bash
         run: |
           set -euo pipefail
           python tools/apply_task4_semantic_normalization.py tests
+          python tools/apply_task4_semantic_normalization.py implementation
           set +e
-          uv run pytest -q tests/data/test_cross_asset_features.py tests/rl/test_sequence_normalization.py tests/rl/test_normalization_semantics.py tests/rl/test_observation_v2.py
+          {
+            uv run ruff format trade_rl/data/cross_asset_features.py trade_rl/rl/sequence_normalization.py trade_rl/rl/normalization.py trade_rl/rl/observations.py trade_rl/workflows/training_run.py trade_rl/workflows/market_walk_forward.py tests/data/test_cross_asset_features.py tests/rl/test_sequence_normalization.py tests/rl/test_normalization_semantics.py tests/rl/test_observation_v2.py
+            uv run pytest -q tests/data/test_cross_asset_features.py tests/rl/test_sequence_normalization.py tests/rl/test_normalization_semantics.py tests/rl/test_observation_v2.py tests/workflows/test_market_walk_forward.py tests/workflows/test_training_run.py
+            uv run ruff check trade_rl/data/cross_asset_features.py trade_rl/rl/sequence_normalization.py trade_rl/rl/normalization.py trade_rl/rl/observations.py trade_rl/workflows/training_run.py trade_rl/workflows/market_walk_forward.py
+            uv run mypy trade_rl/data/cross_asset_features.py trade_rl/rl/sequence_normalization.py trade_rl/rl/normalization.py trade_rl/rl/observations.py
+          } > task4-diagnostic.log 2>&1
           status=$?
           set -e
-          if [ "$status" -eq 0 ]; then
-            echo "Task 4 regression tests unexpectedly passed before implementation" >&2
-            exit 1
-          fi
-      - name: GREEN
-        shell: bash
-        run: |
-          set -euo pipefail
-          python tools/apply_task4_semantic_normalization.py implementation
-          uv run ruff format trade_rl/data/cross_asset_features.py trade_rl/rl/sequence_normalization.py trade_rl/rl/normalization.py trade_rl/rl/observations.py trade_rl/workflows/training_run.py trade_rl/workflows/market_walk_forward.py tests/data/test_cross_asset_features.py tests/rl/test_sequence_normalization.py tests/rl/test_normalization_semantics.py tests/rl/test_observation_v2.py
-          uv run pytest -q tests/data/test_cross_asset_features.py tests/rl/test_sequence_normalization.py tests/rl/test_normalization_semantics.py tests/rl/test_observation_v2.py tests/workflows/test_market_walk_forward.py tests/workflows/test_training_run.py
-          uv run ruff check trade_rl/data/cross_asset_features.py trade_rl/rl/sequence_normalization.py trade_rl/rl/normalization.py trade_rl/rl/observations.py trade_rl/workflows/training_run.py trade_rl/workflows/market_walk_forward.py
-          uv run mypy trade_rl/data/cross_asset_features.py trade_rl/rl/sequence_normalization.py trade_rl/rl/normalization.py trade_rl/rl/observations.py
+          echo "$status" > task4-status.txt
+      - name: Upload Task 4 diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task4-diagnostic
+          path: |
+            task4-diagnostic.log
+            task4-status.txt
       - name: Commit hardening branch
         shell: bash
         run: |
           set -euo pipefail
-          rm -f tools/apply_task4_semantic_normalization.py tools/task3-trigger-2.txt
+          status=$(cat task4-status.txt)
+          if [ "$status" -ne 0 ]; then
+            tail -n 200 task4-diagnostic.log
+            exit "$status"
+          fi
+          rm -f tools/apply_task4_semantic_normalization.py tools/task3-trigger-2.txt tools/task4-trigger.txt task4-diagnostic.log task4-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A

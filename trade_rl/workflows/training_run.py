@@ -633,6 +633,7 @@ def execute_training_run(
                 "risk": asdict(config.risk),
                 "reward": asdict(config.reward),
                 "schema_version": "training_environment_v2",
+                "terminal_accounting_mode": config.environment.terminal_accounting_mode,
                 "trend": asdict(config.trend),
             },
         )

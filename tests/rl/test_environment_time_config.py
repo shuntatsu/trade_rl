@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
@@ -111,3 +112,78 @@ def test_end_of_episode_liquidation_charges_cost_and_is_terminal() -> None:
     assert env.hybrid.total_cost > 0.0
     assert env.shadow.total_cost == pytest.approx(env.hybrid.total_cost)
     assert info["hybrid_liquidation"].fill_count == 2
+    assert info["terminal_accounting_mode"] == "liquidate_at_close"
+    assert info["terminal_liquidation_cost"] > 0.0
+    assert info["pending_target_discarded"] is False
+
+
+def test_end_of_episode_mark_to_market_truncates_without_closing_positions() -> None:
+    dataset = market()
+    env = ResidualMarketEnv(
+        dataset,
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=4,
+            decision_every=4,
+            initial_capital=1_000.0,
+            liquidate_on_end=False,
+            execution_cost=ExecutionCostConfig(
+                fee_rate=0.001,
+                spread_rate=0.0,
+                impact_rate=0.0,
+                max_participation_rate=1.0,
+            ),
+        ),
+    )
+    env.reset(options={"start_idx": 24})
+
+    _, _, terminated, truncated, info = env.step(np.zeros(2))
+
+    assert terminated is False
+    assert truncated is True
+    assert np.any(np.abs(env.hybrid.quantities) > 1e-12)
+    assert "hybrid_liquidation" not in info
+    assert info["terminal_accounting_mode"] == "mark_to_market"
+    assert info["terminal_liquidation_cost"] == 0.0
+    assert info["pending_target_discarded"] is False
+    assert env.config.terminal_accounting_mode == "mark_to_market"
+
+
+def test_final_delayed_target_is_reported_and_discarded_at_horizon() -> None:
+    dataset = market()
+    env = ResidualMarketEnv(
+        dataset,
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        action_spec=ActionSpec(
+            mode="target_weight",
+            alpha_enabled=False,
+            risk_tilt_enabled=False,
+            target_weight_count=2,
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=2,
+            decision_every=1,
+            signal_delay_decisions=1,
+            initial_capital=1_000.0,
+            liquidate_on_end=False,
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+    env.reset(options={"start_idx": 24})
+    first = np.array([0.4, -0.2], dtype=np.float32)
+    final = np.array([-0.3, 0.1], dtype=np.float32)
+    env.step(first)
+
+    _, _, terminated, truncated, info = env.step(final)
+
+    assert terminated is False
+    assert truncated is True
+    assert info["pending_target_discarded"] is True
+    np.testing.assert_allclose(info["discarded_pending_target"], final)
+    np.testing.assert_allclose(info["executed_target"], first)
+    assert env._pending_hybrid_target is None
+    assert env._pending_shadow_target is None

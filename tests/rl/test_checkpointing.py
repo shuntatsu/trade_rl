@@ -94,3 +94,36 @@ def test_load_checkpoint_manifest_rejects_policy_digest_mismatch(
 
     with pytest.raises(ValueError, match="policy digest"):
         load_checkpoint_manifest(manifest.policy_path.parent / "checkpoint.json")
+
+
+class RuntimeStateModel(FakeModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reconstructor = object()
+        self.rollout_buffer_kwargs = {
+            "sequence_reconstructor": self.reconstructor,
+            "retained": "value",
+        }
+        self.saved_kwargs = None
+
+    def save(self, target: str) -> None:
+        self.saved_kwargs = dict(self.rollout_buffer_kwargs)
+        super().save(target)
+
+
+def test_checkpoint_save_excludes_runtime_sequence_reconstructor(
+    tmp_path: Path,
+) -> None:
+    model = RuntimeStateModel()
+    publish_checkpoint(
+        model=model,
+        checkpoint_root=tmp_path / "checkpoints",
+        algorithm="ppo",
+        seed=0,
+        requested_timestep=1,
+        observed_timestep=1,
+        environment_digest="e" * 64,
+        training_config_digest="a" * 64,
+    )
+    assert model.saved_kwargs == {"retained": "value"}
+    assert model.rollout_buffer_kwargs["sequence_reconstructor"] is model.reconstructor

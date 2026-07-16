@@ -38,6 +38,7 @@ from trade_rl.risk.portfolio import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract
+from trade_rl.rl.checkpointing import load_checkpoint_manifest
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import observation_passthrough_indices
@@ -95,6 +96,7 @@ class TrainingRunConfig:
     portfolio_risk: PortfolioRiskConfig = field(default_factory=PortfolioRiskConfig)
     alpha_artifact: Path | None = None
     factor_artifact: Path | None = None
+    resume_checkpoints: tuple[tuple[int, Path], ...] = ()
     export_onnx: bool = False
     export_torchscript: bool = False
     export_tolerance: float = 1e-5
@@ -111,6 +113,11 @@ class TrainingRunConfig:
             )
         if self.environment.resolved_reward_config() != self.reward:
             raise ValueError("environment reward configuration differs from run reward")
+        resume_seeds = tuple(seed for seed, _ in self.resume_checkpoints)
+        if len(set(resume_seeds)) != len(resume_seeds):
+            raise ValueError("resume checkpoint seeds must be unique")
+        if any(seed not in self.training.seeds for seed in resume_seeds):
+            raise ValueError("resume checkpoint seed is outside training seeds")
         if self.action.alpha_enabled != (self.alpha_artifact is not None):
             raise ValueError("alpha action requires exactly one alpha artifact")
         if (self.action.n_factors > 0) != (self.factor_artifact is not None):
@@ -173,6 +180,16 @@ class TrainingRunConfig:
             raise ValueError("schema_version must be a string")
         raw_alpha_artifact = payload.get("alpha_artifact")
         raw_factor_artifact = payload.get("factor_artifact")
+        raw_resume_checkpoints = payload.get("resume_checkpoints", {})
+        if not isinstance(raw_resume_checkpoints, dict):
+            raise ValueError("resume_checkpoints must be a JSON object")
+        resume_checkpoints: list[tuple[int, Path]] = []
+        for raw_seed, raw_path in raw_resume_checkpoints.items():
+            if not isinstance(raw_seed, str) or not raw_seed.isdigit():
+                raise ValueError("resume checkpoint seed keys must be integers")
+            if not isinstance(raw_path, str) or not raw_path:
+                raise ValueError("resume checkpoint paths must be non-empty strings")
+            resume_checkpoints.append((int(raw_seed), Path(raw_path)))
         if raw_alpha_artifact is not None and not isinstance(raw_alpha_artifact, str):
             raise ValueError("alpha_artifact must be a path string or null")
         if raw_factor_artifact is not None and not isinstance(raw_factor_artifact, str):
@@ -201,6 +218,7 @@ class TrainingRunConfig:
             factor_artifact=(
                 None if raw_factor_artifact is None else Path(raw_factor_artifact)
             ),
+            resume_checkpoints=tuple(sorted(resume_checkpoints)),
             export_onnx=_boolean(
                 exports.get("onnx"), field="exports.onnx", default=False
             ),
@@ -227,6 +245,9 @@ class TrainingRunConfig:
             self,
             alpha_artifact=resolved(self.alpha_artifact),
             factor_artifact=resolved(self.factor_artifact),
+            resume_checkpoints=tuple(
+                (seed, resolved(path) or path) for seed, path in self.resume_checkpoints
+            ),
         )
 
     @classmethod
@@ -253,6 +274,12 @@ class TrainingRunConfig:
             "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "reward": asdict(self.reward),
+            "resume_checkpoint_digests": {
+                str(seed): load_checkpoint_manifest(
+                    path / "checkpoint.json" if path.is_dir() else path
+                ).digest
+                for seed, path in self.resume_checkpoints
+            },
             "schema_version": self.schema_version,
             "training": self.training.digest_payload(),
             "trend": asdict(self.trend),
@@ -619,7 +646,8 @@ def execute_training_run(
                     config,
                     normalizer=normalizer,
                     sequence_normalizer=sequence_normalizer,
-                )
+                ),
+                resume_checkpoint_artifacts=dict(config.resume_checkpoints),
             ),
             output_dir=stage / "members",
             created_at=resolved_created_at,

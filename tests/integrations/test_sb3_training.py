@@ -369,3 +369,88 @@ def test_backend_rejects_ppo_rollout_before_worker_or_model_allocation(
         )
     assert model_created is False
     assert probe.close_calls == 1
+
+
+def test_backend_resumes_ppo_checkpoint_to_requested_total(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from trade_rl.rl.checkpointing import publish_checkpoint
+
+    config = ResidualTrainingConfig(
+        timesteps=2,
+        gamma=0.99,
+        seeds=(0,),
+        n_steps=1,
+        n_envs=1,
+        batch_size=1,
+        n_epochs=1,
+        asset_set_encoder=False,
+        device="cpu",
+    )
+
+    class CheckpointSource:
+        def save(self, target: str) -> None:
+            Path(target).with_suffix(".zip").write_bytes(b"resume-policy")
+
+    manifest = publish_checkpoint(
+        model=CheckpointSource(),
+        checkpoint_root=tmp_path / "resume",
+        algorithm="ppo",
+        seed=0,
+        requested_timestep=1,
+        observed_timestep=1,
+        environment_digest=ENVIRONMENT_DIGEST,
+        training_config_digest=content_digest(config.digest_payload()),
+    )
+    events: list[object] = []
+
+    class FakeParameter:
+        def numel(self) -> int:
+            return 2
+
+    class FakePolicy:
+        def parameters(self):
+            return (FakeParameter(),)
+
+    class FakeResumePPO:
+        device = "cpu"
+
+        def __init__(self, policy, environment, **kwargs):
+            self.policy = FakePolicy()
+            self.num_timesteps = 0
+            self.rollout_buffer_kwargs = {}
+
+        @classmethod
+        def load(cls, path, env=None, device=None):
+            events.append(("load", Path(path), device, env is not None))
+            model = cls("MlpPolicy", env)
+            model.num_timesteps = 1
+            return model
+
+        def learn(self, *, total_timesteps, callback, reset_num_timesteps=True):
+            events.append(("learn", total_timesteps, reset_num_timesteps))
+            self.num_timesteps += total_timesteps
+            return self
+
+        def save(self, target: str) -> None:
+            Path(target).with_suffix(".zip").write_bytes(b"resumed-policy")
+
+    monkeypatch.setattr("stable_baselines3.PPO", FakeResumePPO)
+    monkeypatch.setattr(
+        "trade_rl.rl.checkpointing.build_checkpoint_callback",
+        lambda **kwargs: object(),
+    )
+    result = StableBaselines3Backend(
+        lambda: TrainingProbe([]),
+        resume_checkpoint_artifacts={0: manifest.policy_path.parent},
+    ).train(
+        seed=0,
+        config=config,
+        output_path=tmp_path / "output" / "policy.zip",
+    )
+    assert result.actual_timesteps == 2
+    assert events[0][0] == "load"
+    assert ("learn", 1, False) in events
+    resume_payload = (tmp_path / "output" / "resume.json").read_text(encoding="utf-8")
+    assert manifest.digest in resume_payload

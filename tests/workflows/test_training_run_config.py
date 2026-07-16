@@ -233,3 +233,19 @@ def test_sequence_training_rejects_flat_export_and_declares_native_serving_suppo
         "schema_version": "serving_support_v2",
         "status": "supported",
     }
+
+
+def test_training_config_parses_seed_checkpoint_resume_mapping(tmp_path) -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["resume_checkpoints"] = {"0": "resume/step-1"}
+    config = TrainingRunConfig.from_mapping(raw).resolve_artifact_paths(tmp_path)
+    assert config.resume_checkpoints == ((0, tmp_path / "resume/step-1"),)
+
+
+def test_training_config_rejects_resume_seed_outside_ensemble() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["resume_checkpoints"] = {"7": "resume/step-1"}
+    with pytest.raises(ValueError, match="resume checkpoint seed"):
+        TrainingRunConfig.from_mapping(raw)

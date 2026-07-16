@@ -68,10 +68,12 @@ class StableBaselines3Backend:
         *,
         verbose: int = 0,
         resume_replay_artifact: Path | None = None,
+        resume_checkpoint_artifacts: Mapping[int, Path] | None = None,
     ) -> None:
         self.environment_factory = environment_factory
         self.verbose = verbose
         self.resume_replay_artifact = resume_replay_artifact
+        self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
         self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
 
     def _oracle_targets(
@@ -306,6 +308,58 @@ class StableBaselines3Backend:
                         sde_sample_freq=algorithm_config.sde_sample_freq,
                         **off_policy,
                     )
+            resume_manifest = None
+            resume_root = self.resume_checkpoint_artifacts.get(seed)
+            if resume_root is not None:
+                from trade_rl.rl.checkpointing import load_checkpoint_manifest
+
+                manifest_path = Path(resume_root)
+                if manifest_path.is_dir():
+                    manifest_path = manifest_path / "checkpoint.json"
+                resume_manifest = load_checkpoint_manifest(manifest_path)
+                expected_training_digest = content_digest(config.digest_payload())
+                if resume_manifest.algorithm != config.algorithm:
+                    raise ValueError("checkpoint algorithm mismatch")
+                if resume_manifest.seed != seed:
+                    raise ValueError("checkpoint seed mismatch")
+                if resume_manifest.environment_digest != identity["environment_digest"]:
+                    raise ValueError("checkpoint environment identity mismatch")
+                if resume_manifest.training_config_digest != expected_training_digest:
+                    raise ValueError("checkpoint training configuration mismatch")
+                algorithm_class: Any
+                if config.algorithm == "ppo":
+                    algorithm_class = PPO
+                elif config.algorithm == "sac":
+                    algorithm_class = SAC
+                elif config.algorithm == "td3":
+                    algorithm_class = TD3
+                else:
+                    from sb3_contrib import TQC
+
+                    algorithm_class = TQC
+                model = algorithm_class.load(
+                    str(resume_manifest.policy_path),
+                    env=environment,
+                    device=config.device,
+                )
+                if int(model.num_timesteps) != resume_manifest.observed_timestep:
+                    raise ValueError("checkpoint timestep identity mismatch")
+                if config.sequence_encoder:
+                    if sequence_reconstructor is None:
+                        raise RuntimeError("sequence reconstructor was not resolved")
+                    rollout_buffer = getattr(model, "rollout_buffer", None)
+                    binder = getattr(
+                        rollout_buffer, "bind_sequence_reconstructor", None
+                    )
+                    if not callable(binder):
+                        raise ValueError(
+                            "checkpoint rollout buffer cannot bind sequences"
+                        )
+                    binder(sequence_reconstructor)
+                    model.rollout_buffer_kwargs = {
+                        "sequence_reconstructor": sequence_reconstructor
+                    }
+
             parameter_count = sum(
                 int(parameter.numel()) for parameter in model.policy.parameters()
             )
@@ -383,7 +437,7 @@ class StableBaselines3Backend:
                     }
                 )
             )
-            if config.behavior_cloning_epochs > 0:
+            if config.behavior_cloning_epochs > 0 and resume_manifest is None:
                 teacher_environment = self.environment_factory()
                 try:
                     teacher_identity = _environment_identity(teacher_environment)
@@ -489,12 +543,12 @@ class StableBaselines3Backend:
             if self.resume_replay_artifact is not None:
                 if config.algorithm == "ppo":
                     raise ValueError("PPO cannot resume from a replay buffer")
-                resume_manifest, resume_path = load_replay_buffer_artifact(
+                replay_manifest, resume_path = load_replay_buffer_artifact(
                     self.resume_replay_artifact
                 )
-                if resume_manifest.algorithm != config.algorithm:
+                if replay_manifest.algorithm != config.algorithm:
                     raise ValueError("replay buffer algorithm mismatch")
-                if resume_manifest.environment_digest != identity["environment_digest"]:
+                if replay_manifest.environment_digest != identity["environment_digest"]:
                     raise ValueError("replay buffer environment identity mismatch")
                 model.load_replay_buffer(str(resume_path))
 
@@ -507,10 +561,37 @@ class StableBaselines3Backend:
                 environment_digest=str(identity["environment_digest"]),
                 training_config_digest=content_digest(config.digest_payload()),
             )
-            model.learn(total_timesteps=config.timesteps, callback=callback)
+            remaining_timesteps = config.timesteps
+            if resume_manifest is not None:
+                remaining_timesteps = max(
+                    0, config.timesteps - resume_manifest.observed_timestep
+                )
+            if remaining_timesteps > 0:
+                learn_kwargs: dict[str, object] = {
+                    "total_timesteps": remaining_timesteps,
+                    "callback": callback,
+                }
+                if resume_manifest is not None:
+                    learn_kwargs["reset_num_timesteps"] = False
+                model.learn(**learn_kwargs)
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            if resume_manifest is not None:
+                (output_path.parent / "resume.json").write_bytes(
+                    canonical_json_bytes(
+                        {
+                            "checkpoint_digest": resume_manifest.digest,
+                            "checkpoint_observed_timestep": (
+                                resume_manifest.observed_timestep
+                            ),
+                            "remaining_timesteps": remaining_timesteps,
+                            "schema_version": "training_resume_v1",
+                        }
+                    )
+                )
             save_target = output_path.with_suffix("")
-            model.save(str(save_target))
+            from trade_rl.rl.checkpointing import save_policy_without_runtime_state
+
+            save_policy_without_runtime_state(model, str(save_target))
             created = save_target.with_suffix(".zip")
             if created != output_path:
                 created.replace(output_path)

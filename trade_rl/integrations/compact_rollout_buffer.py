@@ -88,7 +88,7 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         gamma: float = 0.99,
         n_envs: int = 1,
         *,
-        sequence_reconstructor: SequenceRolloutReconstructor,
+        sequence_reconstructor: SequenceRolloutReconstructor | None = None,
     ) -> None:
         if _DECISION_INDEX_KEY not in observation_space.spaces:
             raise ValueError("index-backed rollout requires decision_index observation")
@@ -110,6 +110,13 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             gamma=gamma,
             n_envs=n_envs,
         )
+
+    def bind_sequence_reconstructor(
+        self, reconstructor: SequenceRolloutReconstructor
+    ) -> None:
+        if not isinstance(reconstructor, SequenceRolloutReconstructor):
+            raise TypeError("sequence reconstructor has an invalid type")
+        self.sequence_reconstructor = reconstructor
 
     def reset(self) -> None:
         self.observations = {
@@ -171,7 +178,10 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             for key, values in self.observations.items()
             if key != _DECISION_INDEX_KEY
         }
-        observations.update(self.sequence_reconstructor.reconstruct(decision_indices))
+        reconstructor = self.sequence_reconstructor
+        if reconstructor is None:
+            raise RuntimeError("sequence rollout reconstructor is not bound")
+        observations.update(reconstructor.reconstruct(decision_indices))
         return DictRolloutBufferSamples(
             observations={
                 key: self.to_torch(value) for key, value in observations.items()

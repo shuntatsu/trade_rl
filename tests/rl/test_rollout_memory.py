@@ -253,3 +253,22 @@ def _sequence_observation_space() -> spaces.Dict:
             0, np.inf, shape=shape, dtype=np.float16
         )
     return spaces.Dict(result)
+
+
+def test_index_backed_buffer_requires_runtime_reconstructor_only_when_sampling() -> (
+    None
+):
+    from trade_rl.integrations.compact_rollout_buffer import (
+        IndexBackedDictRolloutBuffer,
+    )
+
+    buffer = IndexBackedDictRolloutBuffer(
+        2,
+        _sequence_observation_space(),
+        spaces.Box(-1, 1, shape=(2,), dtype=np.float32),
+        device="cpu",
+        n_envs=1,
+    )
+    assert buffer.sequence_reconstructor is None
+    with pytest.raises(RuntimeError, match="reconstructor"):
+        buffer._get_samples(np.array([0], dtype=np.int64))

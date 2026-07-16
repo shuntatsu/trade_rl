@@ -27,53 +27,103 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: RED then GREEN
+      - name: RED then GREEN with diagnostics
+        shell: bash
+        run: |
+          set +e
+          : > task10-diagnostic.log
+          status=0
+          if [ ! -f tools/apply_task10_terminal_accounting.py ]; then
+            echo "Task 10 terminal-accounting fix is already committed" >> task10-diagnostic.log
+            echo 0 > task10-status.txt
+            exit 0
+          fi
+          run_step() {
+            name="$1"
+            shift
+            echo "===== ${name} =====" >> task10-diagnostic.log
+            "$@" >> task10-diagnostic.log 2>&1
+            code=$?
+            echo "exit=${code}" >> task10-diagnostic.log
+            return "$code"
+          }
+          run_step sync uv sync --extra dev --extra train-sb3 || status=$?
+          if [ "$status" -eq 0 ]; then
+            run_step add-tests python tools/apply_task10_terminal_accounting.py tests || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            uv run pytest -q \
+              tests/rl/test_environment_time_config.py::test_end_of_episode_liquidation_charges_cost_and_is_terminal \
+              tests/rl/test_environment_time_config.py::test_end_of_episode_mark_to_market_truncates_without_closing_positions \
+              tests/rl/test_environment_time_config.py::test_final_delayed_target_is_reported_and_discarded_at_horizon \
+              tests/workflows/test_training_run.py::test_execute_training_run_trains_serializes_and_publishes \
+              >> task10-diagnostic.log 2>&1
+            red_status=$?
+            echo "red_exit=${red_status}" >> task10-diagnostic.log
+            if [ "$red_status" -eq 0 ]; then
+              echo "Task 10 tests unexpectedly passed before implementation" >> task10-diagnostic.log
+              status=1
+            fi
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step implementation python tools/apply_task10_terminal_accounting.py implementation || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step format uv run ruff format \
+              trade_rl/rl/environment.py \
+              trade_rl/rl/environment_config.py \
+              trade_rl/workflows/training_run.py \
+              tests/rl/test_environment_time_config.py \
+              tests/workflows/test_training_run.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step lint uv run ruff check --fix \
+              trade_rl/rl/environment.py \
+              trade_rl/rl/environment_config.py \
+              trade_rl/workflows/training_run.py \
+              tests/rl/test_environment_time_config.py \
+              tests/workflows/test_training_run.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step tests uv run pytest -q \
+              tests/rl/test_environment.py \
+              tests/rl/test_environment_time_config.py \
+              tests/rl/test_sequence_environment_config.py \
+              tests/rl/test_rewards.py \
+              tests/workflows/test_training_run.py \
+              tests/workflows/test_training_run_config.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step mypy uv run mypy \
+              trade_rl/rl/environment.py \
+              trade_rl/rl/environment_config.py \
+              trade_rl/workflows/training_run.py || status=$?
+          fi
+          echo "$status" > task10-status.txt
+          exit 0
+      - name: Upload Task 10 diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task10-terminal-diagnostic
+          path: |
+            task10-diagnostic.log
+            task10-status.txt
+      - name: Commit hardening branch
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f tools/apply_task10_terminal_accounting.py ]; then
-            echo "Task 10 terminal-accounting fix is already committed"
-            exit 0
+          status=$(cat task10-status.txt)
+          if [ "$status" -ne 0 ]; then
+            cat task10-diagnostic.log
+            exit "$status"
           fi
-          uv sync --extra dev --extra train-sb3
-          python tools/apply_task10_terminal_accounting.py tests
-          set +e
-          uv run pytest -q \
-            tests/rl/test_environment_time_config.py::test_end_of_episode_liquidation_charges_cost_and_is_terminal \
-            tests/rl/test_environment_time_config.py::test_end_of_episode_mark_to_market_truncates_without_closing_positions \
-            tests/rl/test_environment_time_config.py::test_final_delayed_target_is_reported_and_discarded_at_horizon \
-            tests/workflows/test_training_run.py::test_execute_training_run_trains_serializes_and_publishes
-          red_status=$?
-          set -e
-          if [ "$red_status" -eq 0 ]; then
-            echo "Task 10 tests unexpectedly passed before implementation" >&2
-            exit 1
-          fi
-          python tools/apply_task10_terminal_accounting.py implementation
-          uv run ruff format \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_config.py \
-            trade_rl/workflows/training_run.py \
-            tests/rl/test_environment_time_config.py \
-            tests/workflows/test_training_run.py
-          uv run ruff check --fix \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_config.py \
-            trade_rl/workflows/training_run.py \
-            tests/rl/test_environment_time_config.py \
-            tests/workflows/test_training_run.py
-          uv run pytest -q \
-            tests/rl/test_environment.py \
-            tests/rl/test_environment_time_config.py \
-            tests/rl/test_sequence_environment_config.py \
-            tests/rl/test_rewards.py \
-            tests/workflows/test_training_run.py \
-            tests/workflows/test_training_run_config.py
-          uv run mypy \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_config.py \
-            trade_rl/workflows/training_run.py
-          rm -f tools/apply_task10_terminal_accounting.py tools/task9-trigger.txt
+          rm -f \
+            tools/apply_task10_terminal_accounting.py \
+            tools/task9-trigger.txt \
+            tools/task10-trigger.txt \
+            task10-diagnostic.log \
+            task10-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A

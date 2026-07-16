@@ -79,7 +79,7 @@ jobs:
             run_step types uv run mypy examples/binance-multitimeframe/run_gpu_training_smoke.py || status=$?
           fi
           if [ "$status" -eq 0 ]; then
-            run_step workflow-yaml python -c "from pathlib import Path; import yaml; paths=(Path('.github/workflows/ci.yml'),Path('.github/workflows/gpu-nightly.yml')); assert all(isinstance(yaml.safe_load(path.read_text(encoding='utf-8')),dict) for path in paths)" || status=$?
+            run_step workflow-yaml uv run --with pyyaml python -c "from pathlib import Path; import yaml; paths=(Path('.github/workflows/ci.yml'),Path('.github/workflows/gpu-nightly.yml')); assert all(isinstance(yaml.safe_load(path.read_text(encoding='utf-8')),dict) for path in paths)" || status=$?
           fi
           echo "$status" > task8-operations-status.txt
           exit 0

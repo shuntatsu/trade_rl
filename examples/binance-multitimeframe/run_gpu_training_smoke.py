@@ -70,6 +70,8 @@ def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
     training.update(
         {
             "asset_set_encoder": False,
+            "asset_embedding_dim": 64,
+            "global_embedding_dim": 64,
             "batch_size": 32,
             "device": "cuda",
             "n_envs": 4,

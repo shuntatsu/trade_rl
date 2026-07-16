@@ -1,1 +1,1 @@
-trigger deterministic task8 operations diagnostics
+trigger corrected task8 GPU operations runner

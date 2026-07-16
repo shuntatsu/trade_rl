@@ -351,12 +351,18 @@ class MarketDatasetBuilder:
                     "one-bar log return channel"
                 )
             return_index = return_candidates[0]
+            reference_symbol = self.config.cross_asset_reference_symbol
+            if reference_symbol is None:
+                raise ValueError(
+                    "cross-asset features require cross_asset_reference_symbol"
+                )
             events = calculate_cross_asset_feature_events(
                 spec,
                 aligned_returns=features[:, :, return_index],
                 return_available=feature_available[:, :, return_index],
                 return_age_hours=feature_age_hours[:, :, return_index],
                 symbols=symbols,
+                reference_symbol=reference_symbol,
             )
             for symbol_index in range(n_symbols):
                 values, available, age_hours, staleness = _carry_aged_feature(

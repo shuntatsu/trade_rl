@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.provenance import capture_runtime_provenance
@@ -37,7 +39,14 @@ from trade_rl.risk.portfolio import (
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec, AlphaContract
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.normalization import ObservationNormalizer
+from trade_rl.rl.observations import observation_passthrough_indices
 from trade_rl.rl.rewards import RewardConfig
+from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
+from trade_rl.rl.sequence_observations import (
+    SequenceObservationBuilder,
+    SequenceWindowSpec,
+)
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
@@ -112,6 +121,12 @@ class TrainingRunConfig:
             raise ValueError("export flags must be booleans")
         if not math.isfinite(self.export_tolerance) or self.export_tolerance <= 0.0:
             raise ValueError("export_tolerance must be finite and positive")
+        if self.training.sequence_encoder and (
+            self.export_onnx or self.export_torchscript
+        ):
+            raise ValueError(
+                "structured sequence policies do not support flat ONNX/TorchScript export"
+            )
         if self.git_commit is not None and not self.git_commit:
             raise ValueError("git_commit must be non-empty when provided")
         if self.git_dirty is not None and not isinstance(self.git_dirty, bool):
@@ -278,6 +293,9 @@ def _dataset_manifest(
 def _environment_factory(
     dataset: MarketDataset,
     config: TrainingRunConfig,
+    *,
+    normalizer: ObservationNormalizer | None = None,
+    sequence_normalizer: SequenceFeatureNormalizer | None = None,
 ) -> Callable[[], ResidualMarketEnv]:
     alpha_provider = (
         None
@@ -319,6 +337,8 @@ def _environment_factory(
             action_spec=config.action,
             pre_trade_risk=PreTradeRisk(config.risk),
             portfolio_risk=PortfolioRiskModel(config.portfolio_risk),
+            normalizer=normalizer,
+            sequence_normalizer=sequence_normalizer,
             config=config.environment,
         )
 
@@ -359,6 +379,133 @@ def _policy_loader_payload(
     }
 
 
+def _serving_support_payload(config: TrainingRunConfig) -> dict[str, object]:
+    if config.training.sequence_encoder:
+        return {
+            "reason": (
+                "structured sequence observations require a runtime-native dataset "
+                "and sequence builder; the flat serving/export path is disabled"
+            ),
+            "schema_version": "serving_support_v1",
+            "status": "unsupported",
+        }
+    return {
+        "loader_schema": "sb3_policy_loader_v1",
+        "schema_version": "serving_support_v1",
+        "status": "supported",
+    }
+
+
+def _normalizer_payload(normalizer: ObservationNormalizer) -> dict[str, object]:
+    """Return the canonical serving-compatible normalizer sidecar."""
+
+    return {"digest": normalizer.digest, **normalizer.digest_payload()}
+
+
+def _sequence_normalizer_payload(
+    normalizer: SequenceFeatureNormalizer,
+) -> dict[str, object]:
+    return {
+        "center": {
+            key: tuple(float(value) for value in normalizer.center[key])
+            for key in normalizer.feature_names
+        },
+        "clip": normalizer.clip,
+        "dataset_id": normalizer.dataset_id,
+        "digest": normalizer.digest,
+        "feature_names": dict(normalizer.feature_names),
+        "scale": {
+            key: tuple(float(value) for value in normalizer.scale[key])
+            for key in normalizer.feature_names
+        },
+        "schema_version": normalizer.schema_version,
+        "sequence_schema_digest": normalizer.sequence_schema_digest,
+        "source_dataset_id": normalizer.source_dataset_id,
+        "train_range": [normalizer.train_start, normalizer.train_end],
+    }
+
+
+def _fit_full_normalizers(
+    dataset: MarketDataset,
+    config: TrainingRunConfig,
+) -> tuple[ObservationNormalizer, SequenceFeatureNormalizer | None]:
+    flat_config = (
+        replace(
+            config,
+            environment=replace(
+                config.environment,
+                structured_sequence_observation=False,
+                sequence_windows=(),
+            ),
+        )
+        if config.environment.structured_sequence_observation
+        else config
+    )
+    env = _environment_factory(dataset, flat_config)()
+    observations: list[np.ndarray] = []
+    try:
+        start = env.minimum_start_index
+        episode_bars = dataset.n_bars - 1 - start
+        if episode_bars <= 0:
+            raise ValueError("dataset is too short to fit the full-run normalizer")
+        observation, _ = env.reset(
+            seed=0,
+            options={
+                "episode_bars": episode_bars,
+                "initial_state_mode": "cash",
+                "start_idx": start,
+            },
+        )
+        terminated = False
+        truncated = False
+        while not terminated and not truncated:
+            observations.append(np.asarray(observation, dtype=np.float32).copy())
+            observation, _, terminated, truncated, _ = env.step(
+                np.zeros(config.action.size, dtype=np.float32)
+            )
+        matrix = np.stack(observations, axis=0)
+        passthrough = observation_passthrough_indices(
+            dataset,
+            action_size=config.action.size,
+            n_factors=config.action.n_factors,
+            finite_horizon=config.environment.finite_horizon_observation,
+        )
+        normalizer = ObservationNormalizer.fit(
+            matrix,
+            train_start=0,
+            train_end=matrix.shape[0],
+            passthrough_indices=passthrough,
+            dataset_id=dataset.dataset_id,
+            source_dataset_id=dataset.dataset_id,
+            absolute_train_start=start,
+            absolute_train_end=dataset.n_bars,
+            observation_schema_digest=env.observation_builder.schema_digest(dataset),
+            action_spec_digest=env.action_spec_digest,
+            alpha_artifact_digest=env.alpha_artifact_digest,
+            factor_artifact_digest=env.factor_artifact_digest,
+            candidate_config_digest=content_digest(config.digest_payload()),
+        )
+    finally:
+        env.close()
+
+    if not config.environment.structured_sequence_observation:
+        return normalizer, None
+    builder = SequenceObservationBuilder(
+        windows=tuple(
+            SequenceWindowSpec(timeframe, length)
+            for timeframe, length in config.environment.resolved_sequence_windows
+        )
+    )
+    sequence_normalizer = SequenceFeatureNormalizer.fit(
+        dataset,
+        builder,
+        train_start=max(start, builder.minimum_index(dataset)),
+        train_end=dataset.n_bars,
+        source_dataset_id=dataset.dataset_id,
+    )
+    return normalizer, sequence_normalizer
+
+
 def _dataset_artifact_digest(root: Path) -> str:
     manifest_path = root / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -382,6 +529,7 @@ def execute_training_run(
     resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%SZ")
     config = TrainingRunConfig.from_json(config_path)
     dataset = load_market_dataset_artifact(dataset_path)
+    normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
     try:
@@ -411,6 +559,16 @@ def execute_training_run(
             },
         )
         _write_json(
+            stage / "normalizer.json",
+            _normalizer_payload(normalizer),
+        )
+        if sequence_normalizer is not None:
+            _write_json(
+                stage / "sequence-normalizer.json",
+                _sequence_normalizer_payload(sequence_normalizer),
+            )
+        _write_json(stage / "serving-support.json", _serving_support_payload(config))
+        _write_json(
             stage / "environment.json",
             {
                 "action": asdict(config.action),
@@ -432,15 +590,23 @@ def execute_training_run(
             dataset=_dataset_manifest(dataset, created_at=resolved_created_at),
             environment_dataset_id=dataset.dataset_id,
             config=config.training,
-            backend=StableBaselines3Backend(_environment_factory(dataset, config)),
+            backend=StableBaselines3Backend(
+                _environment_factory(
+                    dataset,
+                    config,
+                    normalizer=normalizer,
+                    sequence_normalizer=sequence_normalizer,
+                )
+            ),
             output_dir=stage / "members",
             created_at=resolved_created_at,
         )
         _write_json(stage / "ensemble.json", _ensemble_payload(ensemble))
-        _write_json(
-            stage / "policy-loader.json",
-            _policy_loader_payload(ensemble, algorithm=config.training.algorithm),
-        )
+        if not config.training.sequence_encoder:
+            _write_json(
+                stage / "policy-loader.json",
+                _policy_loader_payload(ensemble, algorithm=config.training.algorithm),
+            )
 
         if config.export_onnx or config.export_torchscript:
             from trade_rl.rl.export import export_ensemble_members

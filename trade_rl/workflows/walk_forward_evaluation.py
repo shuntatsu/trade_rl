@@ -25,6 +25,7 @@ from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.episode import minimum_reward_start_index
 from trade_rl.rl.normalization import ObservationNormalizer
+from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
 from trade_rl.rl.sequence_observations import (
     SequenceObservationBuilder,
     SequenceWindowSpec,
@@ -185,6 +186,7 @@ def build_market_environment(
     run: TrainingRunConfig,
     *,
     normalizer: ObservationNormalizer | None,
+    sequence_normalizer: SequenceFeatureNormalizer | None,
     episode_bars: int,
     liquidate_on_end: bool,
     alpha_provider: LoadedAlphaArtifact | None = None,
@@ -216,6 +218,7 @@ def build_market_environment(
         pre_trade_risk=PreTradeRisk(run.risk),
         portfolio_risk=PortfolioRiskModel(run.portfolio_risk),
         normalizer=normalizer,
+        sequence_normalizer=sequence_normalizer,
         config=environment_config,
     )
 
@@ -232,6 +235,7 @@ def evaluate_range_evidence(
     evaluation_range: IndexRange,
     run: TrainingRunConfig,
     normalizer: ObservationNormalizer | None,
+    sequence_normalizer: SequenceFeatureNormalizer | None,
     model: Any | None,
     baseline: bool,
 ) -> RangeEvaluation:
@@ -248,6 +252,7 @@ def evaluate_range_evidence(
         dataset,
         run,
         normalizer=normalizer,
+        sequence_normalizer=sequence_normalizer,
         episode_bars=evaluation_range.size,
         liquidate_on_end=True,
         alpha_provider=alpha_provider,
@@ -313,6 +318,7 @@ def evaluate_range(
     evaluation_range: IndexRange,
     run: TrainingRunConfig,
     normalizer: ObservationNormalizer | None,
+    sequence_normalizer: SequenceFeatureNormalizer | None,
     model: Any | None,
     baseline: bool,
 ) -> ReturnSeries:
@@ -323,6 +329,7 @@ def evaluate_range(
         evaluation_range=evaluation_range,
         run=run,
         normalizer=normalizer,
+        sequence_normalizer=sequence_normalizer,
         model=model,
         baseline=baseline,
     ).returns

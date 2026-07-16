@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, Protocol
 
 import numpy as np
 
@@ -15,6 +15,18 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.rl.observations import ObservationLayout
 
 SEQUENCE_OBSERVATION_SCHEMA = "native_timeframe_sequence_observation_v1"
+_FLOAT16_MAX = float(np.finfo(np.float16).max)
+
+
+class SequenceNormalizerProtocol(Protocol):
+    def transform(
+        self,
+        timeframe: str,
+        values: np.ndarray,
+        available: np.ndarray,
+        *,
+        feature_names: tuple[str, ...],
+    ) -> np.ndarray: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,11 +117,12 @@ class SequenceObservationBuilder:
             for item in self.windows
         )
 
-    def schema_payload(self, dataset: MarketDataset) -> dict[str, object]:
+    def layout_payload(self, dataset: MarketDataset) -> dict[str, object]:
+        """Return the reusable ordered tensor contract without dataset identity."""
+
         indices = self._feature_indices(dataset)
         return {
             "schema_version": SEQUENCE_OBSERVATION_SCHEMA,
-            "dataset_id": dataset.dataset_id,
             "symbols": dataset.symbols,
             "base_bar_hours": dataset.bar_hours,
             "windows": tuple(
@@ -127,6 +140,15 @@ class SequenceObservationBuilder:
             "value_dtype": "float32",
             "availability_dtype": "bool",
             "staleness_dtype": "float32",
+        }
+
+    def layout_digest(self, dataset: MarketDataset) -> str:
+        return content_digest(self.layout_payload(dataset))
+
+    def schema_payload(self, dataset: MarketDataset) -> dict[str, object]:
+        return {
+            **self.layout_payload(dataset),
+            "dataset_id": dataset.dataset_id,
         }
 
     def schema_digest(self, dataset: MarketDataset) -> str:
@@ -186,12 +208,48 @@ class SequenceObservationBuilder:
         )
 
 
+def sequence_policy_values(
+    *,
+    timeframe: str,
+    values: np.ndarray,
+    available: np.ndarray,
+    feature_names: tuple[str, ...],
+    sequence_normalizer: SequenceNormalizerProtocol | None = None,
+) -> np.ndarray:
+    """Return the exact finite float16 sequence tensor consumed by the policy."""
+
+    raw_values = np.asarray(values, dtype=np.float32)
+    mask = np.asarray(available, dtype=np.bool_)
+    if raw_values.shape != mask.shape:
+        raise ValueError("sequence values and availability shapes differ")
+    if sequence_normalizer is None:
+        normalized = np.where(mask, raw_values, 0.0).astype(np.float32, copy=False)
+    else:
+        normalized = sequence_normalizer.transform(
+            timeframe,
+            raw_values,
+            mask,
+            feature_names=feature_names,
+        )
+    finite = np.nan_to_num(
+        np.asarray(normalized, dtype=np.float32),
+        nan=0.0,
+        posinf=_FLOAT16_MAX,
+        neginf=-_FLOAT16_MAX,
+    )
+    return np.asarray(
+        np.clip(finite, -_FLOAT16_MAX, _FLOAT16_MAX),
+        dtype=np.float16,
+    )
+
+
 def build_structured_policy_observation(
     *,
     sequence: SequenceObservation,
     current_flat: np.ndarray,
     layout: ObservationLayout,
     n_features: int,
+    sequence_normalizer: SequenceNormalizerProtocol | None = None,
 ) -> dict[str, np.ndarray]:
     """Split the current flat state and append compact native-clock histories."""
 
@@ -210,14 +268,19 @@ def build_structured_policy_observation(
         "active": np.asarray(per_asset[:, snapshot_width], dtype=np.float32),
     }
     for timeframe in sequence.values:
-        result[f"sequence_{timeframe}_values"] = np.asarray(
-            sequence.values[timeframe], dtype=np.float32
+        result[f"sequence_{timeframe}_values"] = sequence_policy_values(
+            timeframe=timeframe,
+            values=sequence.values[timeframe],
+            available=sequence.available[timeframe],
+            feature_names=sequence.feature_names[timeframe],
+            sequence_normalizer=sequence_normalizer,
         )
         result[f"sequence_{timeframe}_available"] = np.asarray(
             sequence.available[timeframe], dtype=np.uint8
         )
+        finite_staleness = np.clip(sequence.staleness[timeframe], 0.0, _FLOAT16_MAX)
         result[f"sequence_{timeframe}_staleness"] = np.asarray(
-            sequence.staleness[timeframe], dtype=np.float16
+            finite_staleness, dtype=np.float16
         )
     return result
 
@@ -225,8 +288,10 @@ def build_structured_policy_observation(
 __all__ = [
     "DEFAULT_SEQUENCE_WINDOWS",
     "SEQUENCE_OBSERVATION_SCHEMA",
+    "SequenceNormalizerProtocol",
     "SequenceObservation",
     "SequenceObservationBuilder",
     "SequenceWindowSpec",
     "build_structured_policy_observation",
+    "sequence_policy_values",
 ]

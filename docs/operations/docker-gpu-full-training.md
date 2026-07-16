@@ -132,22 +132,30 @@ inputs remain a structured Dict observation and are not flattened into the old
 1,241-value snapshot MLP contract.
 
 The maintained policy uses `d_model=336`, two eight-head cross-asset attention
-layers, separate actor and critic heads, and approximately 6.08 million
-parameters. Four PPO environments use `n_steps=128` and batch size 128. Before
-workers or the model are allocated, training estimates the exact SB3 Dict
-rollout-buffer payload and rejects configurations above 768 MiB. The maintained
-configuration estimates 473,122,816 bytes. Structured Oracle teacher artifacts
-store compact decision indices and reconstruct only the requested sequence
-mini-batch, avoiding duplication of overlapping 60-day windows.
+layers, symbol embeddings, symbol-preserving actor tokens, separate actor and
+critic heads, and approximately 7.10 million parameters. Timeframe-specific
+dilation schedules cover every declared native window. Four PPO environments
+use `n_steps=128` and batch size 128. Sequence environments run in-process to
+avoid transferring 230,999-element Dict observations through worker pipes. A
+compact rollout buffer preserves float16 sequence/staleness and uint8 availability
+dtypes, reducing the maintained estimate from 473,122,816 bytes to about
+200,495,104 bytes; configurations above 768 MiB still fail closed. Structured
+Oracle teacher artifacts store compact decision indices and reconstruct only the
+requested normalized sequence mini-batch, avoiding duplication of overlapping
+60-day windows.
 
 The preset freezes two non-overlapping 360-hour outer
 windows covering `2026-06-01T00:00:00Z` through
 `2026-07-01T00:00:00Z`. Earlier outer windows were used during development and
-must not be described as sealed evidence. Within each fold, checkpoint data
-retains the top three policies per seed; configuration-selection data chooses
-among those finalists before the outer window is opened. Each fold artifact
-records the full experiment-plan digest and sealed-access digest needed to
-audit that ordering.
+must not be described as sealed evidence. Within each fold, checkpoint data retains one predeclared finalist per seed.
+Configuration selection evaluates the full seed distribution and rejects a
+candidate when its median return is non-positive, its worst seed/dispersion is
+unstable, or turnover, cost fraction or drawdown exceeds the configured limit.
+The sealed outer window is opened only for the deterministic median
+representative. Final full-data training is blocked unless both folds agree on
+the same eligible recipe and representative seed. Each fold artifact records the
+full experiment-plan digest and sealed-access digest needed to audit that
+ordering.
 
 ## Copy artifacts to the host
 

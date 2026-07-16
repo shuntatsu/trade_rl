@@ -30,6 +30,8 @@ def test_research_return_gate_passes_profitable_cost_adjusted_evidence() -> None
         "selected_mean_return_exclusive_minimum": 0.0,
         "baseline_uplift_minimum": 0.0,
         "maximum_independently_reset_fold_drawdown": 0.20,
+        "maximum_turnover_per_day": 1.0,
+        "maximum_cost_fraction": 0.03,
     }
     assert result.observed == {
         "selected_mean_return": 0.08,
@@ -37,12 +39,18 @@ def test_research_return_gate_passes_profitable_cost_adjusted_evidence() -> None
         "baseline_uplift": pytest.approx(0.05),
         "maximum_independently_reset_fold_drawdown": 0.12,
         "selected_policy_digests": RL_POLICY_DIGESTS,
+        "maximum_turnover_per_day": 0.0,
+        "maximum_cost_fraction": 0.0,
+        "selection_stability_passed": True,
     }
     assert result.conditions == {
         "selected_mean_return_positive": True,
         "baseline_uplift_nonnegative": True,
         "maximum_fold_drawdown_within_limit": True,
         "rl_policy_selected_all_folds": True,
+        "turnover_within_limit": True,
+        "cost_fraction_within_limit": True,
+        "selection_stability_passed": True,
         "evidence_valid": True,
     }
     assert result.passed is True
@@ -332,3 +340,19 @@ def test_research_return_gate_accepts_drawdown_domain_boundaries_as_evidence(
 
     assert result.conditions["evidence_valid"] is True
     assert result.evidence_errors == ()
+
+
+def test_research_gate_rejects_excess_turnover_cost_or_unstable_selection() -> None:
+    result = evaluate_research_return_gate(
+        selected_mean_return=0.08,
+        baseline_mean_return=0.03,
+        maximum_fold_drawdown=0.12,
+        maximum_turnover_per_day=1.01,
+        maximum_cost_fraction=0.031,
+        selection_stability_passed=False,
+    )
+
+    assert not result.conditions["turnover_within_limit"]
+    assert not result.conditions["cost_fraction_within_limit"]
+    assert not result.conditions["selection_stability_passed"]
+    assert not result.passed

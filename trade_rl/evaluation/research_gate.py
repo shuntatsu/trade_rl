@@ -17,6 +17,8 @@ _THRESHOLDS = {
     "selected_mean_return_exclusive_minimum": 0.0,
     "baseline_uplift_minimum": 0.0,
     "maximum_independently_reset_fold_drawdown": 0.20,
+    "maximum_turnover_per_day": 1.0,
+    "maximum_cost_fraction": 0.03,
 }
 
 
@@ -99,6 +101,9 @@ def evaluate_research_return_gate(
     baseline_mean_return: object,
     maximum_fold_drawdown: object,
     selected_policy_digests: object,
+    maximum_turnover_per_day: object = 0.0,
+    maximum_cost_fraction: object = 0.0,
+    selection_stability_passed: object = True,
 ) -> ResearchReturnGate:
     """Evaluate the final research return thresholds without raising on evidence."""
 
@@ -125,6 +130,23 @@ def evaluate_research_return_gate(
     policy_identities, policy_identity_errors = _selected_policy_identities(
         selected_policy_digests
     )
+    turnover, turnover_error = _finite_number(
+        maximum_turnover_per_day, field_name="maximum_turnover_per_day"
+    )
+    if turnover is not None and turnover < 0.0:
+        turnover = None
+        turnover_error = "maximum_turnover_per_day must be non-negative"
+    cost_fraction, cost_error = _finite_number(
+        maximum_cost_fraction, field_name="maximum_cost_fraction"
+    )
+    if cost_fraction is not None and cost_fraction < 0.0:
+        cost_fraction = None
+        cost_error = "maximum_cost_fraction must be non-negative"
+    stability_error = (
+        None
+        if isinstance(selection_stability_passed, bool)
+        else "selection_stability_passed must be a boolean"
+    )
     errors = (
         tuple(
             error
@@ -133,6 +155,9 @@ def evaluate_research_return_gate(
                 baseline_error,
                 drawdown_error,
                 uplift_error,
+                turnover_error,
+                cost_error,
+                stability_error,
             )
             if error is not None
         )
@@ -149,11 +174,22 @@ def evaluate_research_return_gate(
     rl_policy_selected_all_folds = (
         policy_identities is not None and not policy_identity_errors
     )
+    turnover_within_limit = (
+        turnover is not None and turnover <= _THRESHOLDS["maximum_turnover_per_day"]
+    )
+    cost_within_limit = (
+        cost_fraction is not None
+        and cost_fraction <= _THRESHOLDS["maximum_cost_fraction"]
+    )
+    stability_ok = selection_stability_passed is True
     conditions = {
         "selected_mean_return_positive": selected_positive,
         "baseline_uplift_nonnegative": uplift_nonnegative,
         "maximum_fold_drawdown_within_limit": drawdown_within_limit,
         "rl_policy_selected_all_folds": rl_policy_selected_all_folds,
+        "turnover_within_limit": turnover_within_limit,
+        "cost_fraction_within_limit": cost_within_limit,
+        "selection_stability_passed": stability_ok,
         "evidence_valid": evidence_valid,
     }
     return ResearchReturnGate(
@@ -164,6 +200,13 @@ def evaluate_research_return_gate(
             "baseline_uplift": uplift,
             "maximum_independently_reset_fold_drawdown": drawdown,
             "selected_policy_digests": policy_identities,
+            "maximum_turnover_per_day": turnover,
+            "maximum_cost_fraction": cost_fraction,
+            "selection_stability_passed": (
+                selection_stability_passed
+                if isinstance(selection_stability_passed, bool)
+                else None
+            ),
         },
         conditions=conditions,
         passed=all(conditions.values()),

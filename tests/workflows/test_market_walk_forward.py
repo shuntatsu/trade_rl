@@ -179,7 +179,7 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     published = tmp_path / "artifacts" / "runs" / "wf-001"
     payload = json.loads((published / "walk-forward.json").read_text(encoding="utf-8"))
     assert payload["dataset_id"] == _dataset().dataset_id
-    assert payload["schema_version"] == "market_walk_forward_run_v3_seed_aware"
+    assert payload["schema_version"] == "market_walk_forward_run_v4_seed_stable"
     assert len(payload["experiment_plan_digest"]) == 64
     assert len(payload["folds"]) == 1
     assert payload["folds"][0]["test_range"] == [45, 51]
@@ -189,8 +189,9 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     assert len(sealed_access["access_digest"]) == 64
     assert sealed_access["test_range"] == [45, 51]
     assert payload["folds"][0]["schema_version"] == (
-        "market_walk_forward_fold_v2_seed_aware"
+        "market_walk_forward_fold_v3_seed_stable"
     )
+    assert payload["folds"][0]["selected_seed"] == 0
     assert len(payload["folds"][0]["seed_finalists"]) == 1
     finalist = payload["folds"][0]["seed_finalists"][0]
     assert finalist["seed"] == 0
@@ -356,3 +357,25 @@ def test_structured_walk_forward_fits_flat_snapshot_normalizer_train_only() -> N
     assert normalizer.size == expected.size
     assert normalizer.absolute_train_start == train_range.start
     assert normalizer.absolute_train_end == train_range.stop
+
+
+def test_structured_walk_forward_fits_sequence_normalizer_on_exact_train_range() -> (
+    None
+):
+    from trade_rl.evaluation.walk_forward.folds import IndexRange
+    from trade_rl.workflows.market_walk_forward import (
+        _fit_sequence_normalizer,
+        _training_view_bounds,
+    )
+
+    dataset = _sequence_dataset()
+    run = _sequence_candidate_config()
+    train_range = IndexRange(150, 220)
+    view_start, _ = _training_view_bounds(dataset, train_range, run)
+
+    normalizer = _fit_sequence_normalizer(dataset, train_range, run)
+
+    assert normalizer is not None
+    assert normalizer.train_start == train_range.start - view_start
+    assert normalizer.train_end == train_range.stop - view_start
+    assert normalizer.source_dataset_id == dataset.dataset_id

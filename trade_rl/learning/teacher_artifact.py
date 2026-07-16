@@ -17,6 +17,7 @@ import numpy as np
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.sequence_observations import sequence_policy_values
 
 TEACHER_ARTIFACT_SCHEMA: Final = "supervised_policy_teacher_artifact_v2"
 TEACHER_MANIFEST_NAME: Final = "manifest.json"
@@ -439,6 +440,7 @@ class StructuredTeacherObservationProvider:
         dataset: object,
         sequence_builder: object,
         observations: Mapping[str, np.ndarray],
+        sequence_normalizer: object | None = None,
     ) -> None:
         from trade_rl.data.market import MarketDataset
         from trade_rl.rl.sequence_observations import SequenceObservationBuilder
@@ -451,6 +453,11 @@ class StructuredTeacherObservationProvider:
             raise ValueError("compact structured observations require decision_index")
         self.dataset = dataset
         self.sequence_builder = sequence_builder
+        if sequence_normalizer is not None and not callable(
+            getattr(sequence_normalizer, "transform", None)
+        ):
+            raise TypeError("structured teacher sequence normalizer is invalid")
+        self.sequence_normalizer = sequence_normalizer
         self.observations = {
             key: np.asarray(value) for key, value in observations.items()
         }
@@ -483,7 +490,13 @@ class StructuredTeacherObservationProvider:
             sequence = self.sequence_builder.build(self.dataset, index=int(raw_index))
             for timeframe in sequence.values:
                 per_timeframe_values.setdefault(timeframe, []).append(
-                    sequence.values[timeframe]
+                    sequence_policy_values(
+                        timeframe=timeframe,
+                        values=sequence.values[timeframe],
+                        available=sequence.available[timeframe],
+                        feature_names=sequence.feature_names[timeframe],
+                        sequence_normalizer=self.sequence_normalizer,  # type: ignore[arg-type]
+                    )
                 )
                 per_timeframe_available.setdefault(timeframe, []).append(
                     sequence.available[timeframe].astype(np.uint8, copy=False)
@@ -494,7 +507,7 @@ class StructuredTeacherObservationProvider:
         for timeframe in per_timeframe_values:
             result[f"sequence_{timeframe}_values"] = np.stack(
                 per_timeframe_values[timeframe], axis=0
-            ).astype(np.float32, copy=False)
+            ).astype(np.float16, copy=False)
             result[f"sequence_{timeframe}_available"] = np.stack(
                 per_timeframe_available[timeframe], axis=0
             ).astype(np.uint8, copy=False)

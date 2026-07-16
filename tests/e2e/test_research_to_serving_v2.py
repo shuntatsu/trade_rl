@@ -135,6 +135,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         bundle_root / "members/member-000/policy.zip",
     )
     shutil.copyfile(run_root / "policy-loader.json", bundle_root / "policy-loader.json")
+    shutil.copyfile(run_root / "normalizer.json", bundle_root / "normalizer.json")
 
     manifest = ServingBundleManifest.build(
         root=bundle_root,
@@ -149,7 +150,11 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         signal_digest="1" * 64,
         selection_digest="2" * 64,
         release_digest=None,
-        artifact_paths=("members/member-000/policy.zip", "policy-loader.json"),
+        artifact_paths=(
+            "members/member-000/policy.zip",
+            "normalizer.json",
+            "policy-loader.json",
+        ),
         created_at=datetime(2026, 7, 14, tzinfo=UTC),
         action_size=ensemble["action_size"],
         action_names=tuple(ensemble["action_names"]),

@@ -228,6 +228,7 @@ class MarketBuildConfig:
     features: tuple[FeatureSpec, ...]
     calendar_kind: str = "continuous_24_7"
     session_periods_per_year: int | None = None
+    cross_asset_reference_symbol: str | None = None
     schema_version: str = "market_build_v2"
 
     def __post_init__(self) -> None:
@@ -252,6 +253,10 @@ class MarketBuildConfig:
         elif self.session_periods_per_year is not None:
             raise ValueError(
                 "session_periods_per_year is valid only for session calendar data"
+            )
+        if self.cross_asset_reference_symbol is not None:
+            require_non_empty(
+                self.cross_asset_reference_symbol, field="cross_asset_reference_symbol"
             )
         if not self.features:
             raise ValueError("features must not be empty")
@@ -292,6 +297,7 @@ class MarketBuildConfig:
             "bar_hours": self.bar_hours,
             "calendar_kind": self.calendar_kind,
             "session_periods_per_year": self.session_periods_per_year,
+            "cross_asset_reference_symbol": self.cross_asset_reference_symbol,
             "features": tuple(spec.canonical_payload() for spec in self.features),
             "global_feature_names": self.global_feature_names,
             "schema_version": self.schema_version,

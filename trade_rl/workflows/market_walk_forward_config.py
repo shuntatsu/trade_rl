@@ -20,6 +20,13 @@ def _mapping(value: object, *, field: str) -> dict[str, Any]:
     return dict(value)
 
 
+def _environment_dynamics_payload(run: TrainingRunConfig) -> dict[str, object]:
+    payload = asdict(run.environment)
+    payload.pop("structured_sequence_observation", None)
+    payload.pop("sequence_windows", None)
+    return payload
+
+
 @dataclass(frozen=True, slots=True)
 class NamedCandidateRun:
     name: str
@@ -35,6 +42,13 @@ class MarketWalkForwardConfig:
     workflow: WalkForwardWorkflowConfig
     candidates: tuple[NamedCandidateRun, ...]
     minimum_selection_uplift: float = 0.0
+    minimum_selection_score: float = 0.0
+    minimum_seed_success_fraction: float = 0.0
+    minimum_worst_seed_uplift: float | None = None
+    maximum_seed_score_std: float | None = None
+    maximum_selection_turnover_per_day: float | None = None
+    maximum_selection_cost_fraction: float | None = None
+    maximum_selection_drawdown: float | None = None
     checkpoint_finalists_per_seed: int = 1
     signal_digest: str = ""
     schema_version: str = "market_walk_forward_config_v1"
@@ -50,6 +64,34 @@ class MarketWalkForwardConfig:
             or self.minimum_selection_uplift < 0.0
         ):
             raise ValueError("minimum_selection_uplift must be non-negative")
+        if not math.isfinite(self.minimum_selection_score):
+            raise ValueError("minimum_selection_score must be finite")
+        if (
+            not math.isfinite(self.minimum_seed_success_fraction)
+            or not 0.0 <= self.minimum_seed_success_fraction <= 1.0
+        ):
+            raise ValueError("minimum_seed_success_fraction must be within [0, 1]")
+        for field_name, value in (
+            ("minimum_worst_seed_uplift", self.minimum_worst_seed_uplift),
+            ("maximum_seed_score_std", self.maximum_seed_score_std),
+            (
+                "maximum_selection_turnover_per_day",
+                self.maximum_selection_turnover_per_day,
+            ),
+            (
+                "maximum_selection_cost_fraction",
+                self.maximum_selection_cost_fraction,
+            ),
+            ("maximum_selection_drawdown", self.maximum_selection_drawdown),
+        ):
+            if value is not None and not math.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+            if (
+                value is not None
+                and field_name != "minimum_worst_seed_uplift"
+                and value < 0.0
+            ):
+                raise ValueError(f"{field_name} must be non-negative")
         if (
             isinstance(self.checkpoint_finalists_per_seed, bool)
             or not isinstance(self.checkpoint_finalists_per_seed, int)
@@ -74,7 +116,7 @@ class MarketWalkForwardConfig:
                 {
                     "action": asdict(item.run.action),
                     "alpha_contract": asdict(item.run.alpha_contract),
-                    "environment": asdict(item.run.environment),
+                    "environment_dynamics": _environment_dynamics_payload(item.run),
                     "portfolio_risk": asdict(item.run.portfolio_risk),
                     "risk": asdict(item.run.risk),
                     "reward": asdict(item.run.reward),
@@ -85,8 +127,8 @@ class MarketWalkForwardConfig:
         }
         if len(common) != 1:
             raise ValueError(
-                "walk-forward candidates must share environment, action, risk, reward, "
-                "and trend contracts"
+                "walk-forward candidates must share environment dynamics, action, risk, "
+                "reward, and trend contracts"
             )
         if self.schema_version != "market_walk_forward_config_v1":
             raise ValueError("unsupported market walk-forward configuration schema")
@@ -140,6 +182,35 @@ class MarketWalkForwardConfig:
             minimum_selection_uplift=float(
                 payload.get("minimum_selection_uplift", 0.0)
             ),
+            minimum_selection_score=float(payload.get("minimum_selection_score", 0.0)),
+            minimum_seed_success_fraction=float(
+                payload.get("minimum_seed_success_fraction", 0.0)
+            ),
+            minimum_worst_seed_uplift=(
+                None
+                if payload.get("minimum_worst_seed_uplift") is None
+                else float(payload["minimum_worst_seed_uplift"])
+            ),
+            maximum_seed_score_std=(
+                None
+                if payload.get("maximum_seed_score_std") is None
+                else float(payload["maximum_seed_score_std"])
+            ),
+            maximum_selection_turnover_per_day=(
+                None
+                if payload.get("maximum_selection_turnover_per_day") is None
+                else float(payload["maximum_selection_turnover_per_day"])
+            ),
+            maximum_selection_cost_fraction=(
+                None
+                if payload.get("maximum_selection_cost_fraction") is None
+                else float(payload["maximum_selection_cost_fraction"])
+            ),
+            maximum_selection_drawdown=(
+                None
+                if payload.get("maximum_selection_drawdown") is None
+                else float(payload["maximum_selection_drawdown"])
+            ),
             checkpoint_finalists_per_seed=finalists_per_seed,
             signal_digest=signal,
             schema_version=str(
@@ -155,6 +226,15 @@ class MarketWalkForwardConfig:
             ),
             "checkpoint_finalists_per_seed": self.checkpoint_finalists_per_seed,
             "minimum_selection_uplift": self.minimum_selection_uplift,
+            "minimum_selection_score": self.minimum_selection_score,
+            "minimum_seed_success_fraction": self.minimum_seed_success_fraction,
+            "minimum_worst_seed_uplift": self.minimum_worst_seed_uplift,
+            "maximum_seed_score_std": self.maximum_seed_score_std,
+            "maximum_selection_turnover_per_day": (
+                self.maximum_selection_turnover_per_day
+            ),
+            "maximum_selection_cost_fraction": (self.maximum_selection_cost_fraction),
+            "maximum_selection_drawdown": self.maximum_selection_drawdown,
             "schema_version": self.schema_version,
             "signal_digest": self.signal_digest,
             "workflow": asdict(self.workflow),

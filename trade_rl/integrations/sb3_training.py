@@ -6,6 +6,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning import (
@@ -27,7 +29,10 @@ from trade_rl.rl.replay import (
     load_replay_buffer_artifact,
     write_replay_buffer_artifact,
 )
-from trade_rl.rl.rollout_memory import estimate_ppo_rollout_buffer_bytes
+from trade_rl.rl.rollout_memory import (
+    estimate_compact_ppo_rollout_buffer_bytes,
+    estimate_ppo_rollout_buffer_bytes,
+)
 from trade_rl.rl.training import (
     PolicyTrainingResult,
     ResidualTrainingConfig,
@@ -36,13 +41,22 @@ from trade_rl.rl.training import (
 )
 
 
-def _build_training_environment(factory: Callable[[], Any], n_envs: int) -> Any:
+def _build_training_environment(
+    factory: Callable[[], Any],
+    n_envs: int,
+    *,
+    subprocesses: bool = True,
+) -> Any:
     if n_envs == 1:
         return factory()
 
-    from stable_baselines3.common.vec_env import SubprocVecEnv
+    if subprocesses:
+        from stable_baselines3.common.vec_env import SubprocVecEnv
 
-    return SubprocVecEnv([factory for _ in range(n_envs)])
+        return SubprocVecEnv([factory for _ in range(n_envs)])
+    from stable_baselines3.common.vec_env import DummyVecEnv
+
+    return DummyVecEnv([factory for _ in range(n_envs)])
 
 
 class StableBaselines3Backend:
@@ -58,6 +72,29 @@ class StableBaselines3Backend:
         self.environment_factory = environment_factory
         self.verbose = verbose
         self.resume_replay_artifact = resume_replay_artifact
+        self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
+
+    def _oracle_targets(
+        self,
+        dataset: Any,
+        train_range: tuple[int, int],
+        teacher_config: OracleTeacherConfig,
+    ) -> np.ndarray:
+        dataset_id = getattr(dataset, "dataset_id", None)
+        if not isinstance(dataset_id, str):
+            raise ValueError("oracle dataset must expose dataset_id")
+        start, stop = train_range
+        key = (dataset_id, int(start), int(stop), teacher_config.digest)
+        cached = self._oracle_target_cache.get(key)
+        if cached is not None:
+            return cached
+        targets = np.asarray(
+            oracle_target_path(dataset, train_range, teacher_config),
+            dtype=np.float32,
+        ).copy(order="C")
+        targets.setflags(write=False)
+        self._oracle_target_cache[key] = targets
+        return targets
 
     def train(
         self,
@@ -76,7 +113,12 @@ class StableBaselines3Backend:
             algorithm_config = build_algorithm_config(config)
             rollout_buffer_bytes: int | None = None
             if isinstance(algorithm_config, PPOConfig):
-                rollout_buffer_bytes = estimate_ppo_rollout_buffer_bytes(
+                estimator = (
+                    estimate_compact_ppo_rollout_buffer_bytes
+                    if config.sequence_encoder
+                    else estimate_ppo_rollout_buffer_bytes
+                )
+                rollout_buffer_bytes = estimator(
                     probe.observation_space,
                     n_steps=algorithm_config.n_steps,
                     n_envs=config.n_envs,
@@ -88,6 +130,7 @@ class StableBaselines3Backend:
                         f"{rollout_buffer_bytes} > {config.max_rollout_buffer_bytes}"
                     )
             policy_kwargs: dict[str, Any]
+            sequence_metadata: dict[str, Any] | None = None
             if config.sequence_encoder:
                 from trade_rl.rl.policies import SequenceAssetFeatureExtractor
 
@@ -97,6 +140,7 @@ class StableBaselines3Backend:
                     raise ValueError(
                         "sequence training requires environment sequence metadata"
                     )
+                sequence_metadata = dict(metadata)
                 policy_kwargs = {
                     "net_arch": {
                         "pi": list(config.policy_net_arch),
@@ -104,7 +148,7 @@ class StableBaselines3Backend:
                     },
                     "features_extractor_class": SequenceAssetFeatureExtractor,
                     "features_extractor_kwargs": {
-                        **metadata,
+                        **sequence_metadata,
                         "d_model": config.sequence_d_model,
                         "attention_heads": config.sequence_attention_heads,
                         "attention_layers": config.sequence_attention_layers,
@@ -146,7 +190,9 @@ class StableBaselines3Backend:
                 probe = None
                 probe_to_close.close()
                 environment = _build_training_environment(
-                    self.environment_factory, config.n_envs
+                    self.environment_factory,
+                    config.n_envs,
+                    subprocesses=not config.sequence_encoder,
                 )
             common: dict[str, Any] = {
                 "learning_rate": algorithm_config.learning_rate,
@@ -158,6 +204,13 @@ class StableBaselines3Backend:
             }
             model: Any
             if isinstance(algorithm_config, PPOConfig):
+                rollout_kwargs: dict[str, Any] = {}
+                if config.sequence_encoder:
+                    from trade_rl.integrations.compact_rollout_buffer import (
+                        CompactDictRolloutBuffer,
+                    )
+
+                    rollout_kwargs["rollout_buffer_class"] = CompactDictRolloutBuffer
                 model = PPO(
                     config.policy,
                     environment,
@@ -173,6 +226,7 @@ class StableBaselines3Backend:
                     target_kl=algorithm_config.target_kl,
                     use_sde=algorithm_config.use_sde,
                     sde_sample_freq=algorithm_config.sde_sample_freq,
+                    **rollout_kwargs,
                     **common,
                 )
             else:
@@ -216,10 +270,48 @@ class StableBaselines3Backend:
                     "policy parameter count exceeds max_policy_parameters: "
                     f"{parameter_count} > {config.max_policy_parameters}"
                 )
+            architecture_details: dict[str, object] = {
+                "actor_net_arch": config.policy_net_arch,
+                "critic_net_arch": config.value_net_arch,
+                "sequence_encoder": config.sequence_encoder,
+            }
+            if config.sequence_encoder:
+                if sequence_metadata is None:
+                    raise RuntimeError("sequence metadata was not resolved")
+                extractor = getattr(model.policy, "features_extractor", None)
+                asset_encoder = getattr(extractor, "asset_encoder", None)
+                timeframe_encoders = getattr(asset_encoder, "timeframe_encoders", None)
+                if timeframe_encoders is None:
+                    raise ValueError(
+                        "sequence policy does not expose its maintained timeframe encoders"
+                    )
+                architecture_details.update(
+                    {
+                        "feature_counts": dict(sequence_metadata["feature_counts"]),
+                        "window_lengths": dict(sequence_metadata["window_lengths"]),
+                        "d_model": config.sequence_d_model,
+                        "attention_heads": config.sequence_attention_heads,
+                        "attention_layers": config.sequence_attention_layers,
+                        "receptive_fields": {
+                            timeframe: int(
+                                timeframe_encoders[timeframe].receptive_field
+                            )
+                            for timeframe in ("15m", "1h", "4h", "1d")
+                        },
+                        "dilations": {
+                            timeframe: tuple(
+                                int(value)
+                                for value in timeframe_encoders[timeframe].dilations
+                            )
+                            for timeframe in ("15m", "1h", "4h", "1d")
+                        },
+                    }
+                )
             output_path.parent.mkdir(parents=True, exist_ok=True)
             (output_path.parent / "model-architecture.json").write_bytes(
                 canonical_json_bytes(
                     {
+                        "architecture": architecture_details,
                         "environment_digest": identity["environment_digest"],
                         "observation_contract_digest": identity[
                             "observation_contract_digest"
@@ -228,7 +320,13 @@ class StableBaselines3Backend:
                         "parameter_count": parameter_count,
                         "policy": config.policy,
                         "rollout_buffer_bytes": rollout_buffer_bytes,
-                        "schema_version": "policy_architecture_v1",
+                        "rollout_buffer": (
+                            "compact_dict" if config.sequence_encoder else "default"
+                        ),
+                        "vector_environment": (
+                            "dummy" if config.sequence_encoder else "subprocess"
+                        ),
+                        "schema_version": "policy_architecture_v2",
                         "training_config_digest": content_digest(
                             config.digest_payload()
                         ),
@@ -259,12 +357,17 @@ class StableBaselines3Backend:
                         int(unwrapped_teacher.minimum_start_index),
                         int(dataset.n_bars),
                     )
+                    risk_config = unwrapped_teacher.pre_trade_risk.config
                     teacher_config = OracleTeacherConfig(
                         execution_cost=unwrapped_teacher.config.execution_cost,
-                        max_gross=unwrapped_teacher.pre_trade_risk.config.max_gross,
+                        max_gross=risk_config.max_gross,
+                        max_abs_weight=risk_config.max_abs_weight,
+                        entry_threshold=risk_config.entry_threshold,
+                        exit_threshold=risk_config.exit_threshold,
+                        no_trade_band=risk_config.no_trade_band,
                         reference_portfolio_value=unwrapped_teacher.initial_capital,
                     )
-                    targets = oracle_target_path(dataset, train_range, teacher_config)
+                    targets = self._oracle_targets(dataset, train_range, teacher_config)
                     teacher_dataset = collect_teacher_rollout(
                         teacher_environment,
                         targets,
@@ -289,6 +392,9 @@ class StableBaselines3Backend:
                             dataset=dataset,
                             sequence_builder=sequence_builder,
                             observations=teacher_dataset.observations,
+                            sequence_normalizer=getattr(
+                                unwrapped_teacher, "sequence_normalizer", None
+                            ),
                         )
                     cloning = pretrain_policy(
                         model.policy,

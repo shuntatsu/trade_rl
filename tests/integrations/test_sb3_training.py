@@ -17,6 +17,7 @@ from trade_rl.integrations.sb3_training import (
     StableBaselines3Backend,
     _build_training_environment,
 )
+from trade_rl.learning import OracleTeacherConfig
 from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import ObservationLayout
@@ -144,6 +145,18 @@ def test_build_training_environment_uses_two_subprocess_workers() -> None:
         environment.close()
 
 
+def test_build_training_environment_uses_in_process_workers_for_sequences() -> None:
+    factory: Callable[[], TinyEnvironment] = _tiny_environment_factory
+    environment = _build_training_environment(factory, 2, subprocesses=False)
+    try:
+        from stable_baselines3.common.vec_env import DummyVecEnv
+
+        assert isinstance(environment, DummyVecEnv)
+        assert environment.num_envs == 2
+    finally:
+        environment.close()
+
+
 def test_backend_closes_a_failing_probe_exactly_once(tmp_path: Path) -> None:
     probe = RaisingCloseProbe([])
     backend = StableBaselines3Backend(lambda: probe)
@@ -173,9 +186,12 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
         factory_calls += 1
         return probe
 
-    def build_workers(worker_factory: Callable[[], Any], n_envs: int) -> Any:
+    def build_workers(
+        worker_factory: Callable[[], Any], n_envs: int, *, subprocesses: bool = True
+    ) -> Any:
         assert worker_factory is factory
         assert n_envs == 2
+        assert subprocesses is True
         assert events == ["metadata", "validated", "metadata", "probe-close"]
         events.append("workers-build")
         return vector_environment
@@ -307,6 +323,29 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
     assert result.actual_timesteps == 2
     assert (tmp_path / "member" / "teacher" / "manifest.json").is_file()
     assert (tmp_path / "member" / "behavior-cloning.json").is_file()
+
+
+def test_backend_caches_oracle_targets_across_seed_members(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = type("Dataset", (), {"dataset_id": "d" * 64})()
+    config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    calls = 0
+
+    def calculate(*args: Any, **kwargs: Any) -> np.ndarray:
+        nonlocal calls
+        calls += 1
+        return np.asarray([[0.0], [0.25]], dtype=np.float32)
+
+    monkeypatch.setattr(sb3_training, "oracle_target_path", calculate)
+    backend = StableBaselines3Backend(_tiny_environment_factory)
+
+    first = backend._oracle_targets(dataset, (3, 6), config)
+    second = backend._oracle_targets(dataset, (3, 6), config)
+
+    assert calls == 1
+    assert first is second
+    assert first.flags.writeable is False
 
 
 def test_backend_rejects_ppo_rollout_before_worker_or_model_allocation(

@@ -54,6 +54,7 @@ from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
     RewardTracker,
 )
+from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
 from trade_rl.rl.sequence_observations import (
     SEQUENCE_OBSERVATION_SCHEMA,
     SequenceObservationBuilder,
@@ -116,6 +117,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         pre_trade_risk: PreTradeRisk | None = None,
         portfolio_risk: PortfolioRiskModel | None = None,
         normalizer: ObservationNormalizer | None = None,
+        sequence_normalizer: SequenceFeatureNormalizer | None = None,
         config: ResidualMarketEnvConfig | None = None,
     ) -> None:
         super().__init__()
@@ -207,6 +209,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
         self.normalizer = normalizer
+        self.sequence_normalizer = sequence_normalizer
         self.config = config or ResidualMarketEnvConfig()
         self.emergency_risk_monitor = CausalEmergencyRiskMonitor(
             self.config.emergency_risk
@@ -349,6 +352,21 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                     for timeframe, length in self.config.resolved_sequence_windows
                 )
             )
+            if sequence_normalizer is not None:
+                if dataset.dataset_id not in {
+                    sequence_normalizer.dataset_id,
+                    sequence_normalizer.source_dataset_id,
+                }:
+                    raise ValueError(
+                        "sequence normalizer dataset identity does not match environment"
+                    )
+                if (
+                    sequence_normalizer.sequence_schema_digest
+                    != self.sequence_observation_builder.layout_digest(dataset)
+                ):
+                    raise ValueError(
+                        "sequence normalizer schema does not match environment"
+                    )
             self._minimum_start_index = max(
                 self._minimum_start_index,
                 self.sequence_observation_builder.minimum_index(dataset),
@@ -403,7 +421,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 window_lengths[timeframe] = length
                 base_shape = (dataset.n_symbols, length, feature_count)
                 sequence_spaces[f"sequence_{timeframe}_values"] = spaces.Box(
-                    low=-np.inf, high=np.inf, shape=base_shape, dtype=np.float32
+                    low=-np.inf, high=np.inf, shape=base_shape, dtype=np.float16
                 )
                 sequence_spaces[f"sequence_{timeframe}_available"] = spaces.Box(
                     low=0, high=1, shape=base_shape, dtype=np.uint8
@@ -420,8 +438,13 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 "n_symbols": dataset.n_symbols,
             }
             self._observation_schema = SEQUENCE_OBSERVATION_SCHEMA
+            component_dtypes = {
+                key: str(np.dtype(space.dtype))
+                for key, space in sorted(sequence_spaces.items())
+            }
             self._observation_contract_digest = content_digest(
                 {
+                    "component_dtypes": component_dtypes,
                     "current_schema_digest": self.observation_builder.schema_digest(
                         dataset
                     ),
@@ -580,6 +603,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             "normalizer_digest": (
                 None if self.normalizer is None else self.normalizer.digest
             ),
+            "sequence_normalizer_digest": (
+                None
+                if self.sequence_normalizer is None
+                else self.sequence_normalizer.digest
+            ),
             "observation_schema": self._observation_schema,
             "observation_contract_digest": self._observation_contract_digest,
             "portfolio_risk": asdict(self.portfolio_risk.config),
@@ -732,6 +760,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             current_flat=current,
             layout=self.layout,
             n_features=self.dataset.n_features,
+            sequence_normalizer=self.sequence_normalizer,
         )
 
     def _episode_end(self, start: int, *, hours: float, bars: int | None) -> int:

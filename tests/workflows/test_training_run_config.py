@@ -173,6 +173,7 @@ def test_walk_forward_environment_requires_complete_reward_preroll() -> None:
         _workflow_dataset(),
         config,
         normalizer=None,
+        sequence_normalizer=None,
         episode_bars=4,
         liquidate_on_end=False,
     )
@@ -197,3 +198,33 @@ def test_normalizer_fit_begins_after_complete_reward_preroll() -> None:
     )
 
     assert normalizer.train_end > normalizer.train_start
+
+
+def test_sequence_training_rejects_flat_export_and_declares_serving_unsupported() -> (
+    None
+):
+    from trade_rl.workflows.training_run import _serving_support_payload
+
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["training"] = {
+        **raw["training"],  # type: ignore[arg-type]
+        "policy": "MultiInputPolicy",
+        "sequence_encoder": True,
+        "asset_set_encoder": False,
+    }
+    raw["environment"] = {
+        **raw["environment"],  # type: ignore[arg-type]
+        "structured_sequence_observation": True,
+        "sequence_windows": [["15m", 1], ["1h", 1], ["4h", 1], ["1d", 1]],
+    }
+    raw["exports"] = {"onnx": True, "torchscript": False}
+
+    with pytest.raises(ValueError, match="structured sequence policies"):
+        TrainingRunConfig.from_mapping(raw)
+
+    raw["exports"] = {"onnx": False, "torchscript": False}
+    config = TrainingRunConfig.from_mapping(raw)
+    support = _serving_support_payload(config)
+    assert support["status"] == "unsupported"
+    assert "sequence" in str(support["reason"])

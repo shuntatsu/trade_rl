@@ -63,14 +63,17 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
 
     folds = config.workflow.build_folds()
     assert len(folds) == 2
-    assert config.checkpoint_finalists_per_seed == 3
+    assert config.checkpoint_finalists_per_seed == 1
     assert (folds[0].test.start, folds[0].test.stop) == (52_512, 53_952)
     assert (folds[1].test.start, folds[1].test.stop) == (53_952, 55_392)
     assert [candidate.name for candidate in config.candidates] == [
+        "snapshot-ppo-15m-target",
         "ppo-15m-target",
         "oracle-bc-ppo-15m-target",
     ]
-    candidate = config.candidates[0].run
+    candidate = next(
+        item.run for item in config.candidates if item.name == "ppo-15m-target"
+    )
     assert (
         candidate.training.device,
         candidate.training.n_envs,
@@ -80,7 +83,7 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
         candidate.training.sequence_encoder,
     ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert candidate.training.seeds == (0, 1, 2)
-    assert candidate.training.timesteps >= 131_072
+    assert candidate.training.timesteps >= 524_288
     assert candidate.training.gamma == pytest.approx(0.998969062762624)
     assert candidate.training.decision_hours == 0.25
     assert candidate.environment.decision_hours == 0.25
@@ -98,7 +101,24 @@ def test_full_walk_forward_config_has_two_material_folds() -> None:
     assert candidate.action.n_factors == 0
     assert candidate.factor_artifact is None
     assert candidate.training.behavior_cloning_epochs == 0
-    assert config.candidates[1].run.training.behavior_cloning_epochs == 15
+    snapshot = next(
+        item.run for item in config.candidates if item.name == "snapshot-ppo-15m-target"
+    )
+    assert not snapshot.training.sequence_encoder
+    assert not snapshot.environment.structured_sequence_observation
+    oracle = next(
+        item.run
+        for item in config.candidates
+        if item.name == "oracle-bc-ppo-15m-target"
+    )
+    assert oracle.training.behavior_cloning_epochs == 15
+    assert config.minimum_seed_success_fraction == pytest.approx(2.0 / 3.0)
+    assert config.minimum_worst_seed_uplift == pytest.approx(-0.02)
+    assert config.maximum_seed_score_std == pytest.approx(0.05)
+    assert config.maximum_selection_turnover_per_day == pytest.approx(1.0)
+    assert config.maximum_selection_cost_fraction == pytest.approx(0.03)
+    assert config.minimum_selection_score == pytest.approx(0.0)
+    assert config.maximum_selection_drawdown == pytest.approx(0.15)
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
@@ -116,10 +136,19 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "binance_multitimeframe_feature_specs" in content
     assert "raw_feature_count" in content
     assert "policy_observation_count" in content
-    assert "210_785" in content
+    assert "230_999" in content
     assert "226" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
+
+
+def test_full_runner_selects_walk_forward_recipe_before_final_training() -> None:
+    content = (EXAMPLE_ROOT / "run_full_research.py").read_text(encoding="utf-8")
+
+    walk_forward_call = content.index("walk_forward = _run_cli")
+    selected_recipe = content.index("_selected_walk_forward_recipe(", walk_forward_call)
+    final_training = content.index("training = _run_cli", walk_forward_call)
+    assert walk_forward_call < selected_recipe < final_training
 
 
 def _runner_namespace() -> dict[str, Any]:
@@ -232,8 +261,17 @@ class _CheckpointPolicy:
 
 def test_full_runner_accepts_canonical_nested_checkpoints(tmp_path: Path) -> None:
     verify_training = _runner_namespace()["_verify_training"]
-    for name in ("run.json", "ensemble.json", "environment.json"):
-        (tmp_path / name).write_text("{}\n", encoding="utf-8")
+    (tmp_path / "run.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "environment.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "ensemble.json").write_text(
+        json.dumps(
+            {
+                "expected_members": 3,
+                "members": [{"seed": index} for index in range(3)],
+            }
+        ),
+        encoding="utf-8",
+    )
     for index in range(3):
         member = tmp_path / "members" / f"member-{index:03d}"
         member.mkdir(parents=True)
@@ -263,8 +301,18 @@ def _write_walk_forward(
     returns_by_fold = ([0.10, -0.20], [-0.05, 0.02])
     folds = [
         {
+            "selected_configuration": "oracle-bc-ppo-15m-target",
             "selected_policy_digest": digest,
+            "selected_seed": 1,
             "selected_returns": returns_by_fold[index % len(returns_by_fold)],
+            "selected_turnover_per_day": 0.5,
+            "selected_cost_fraction": 0.01,
+            "candidate_aggregates": [
+                {
+                    "configuration": "oracle-bc-ppo-15m-target",
+                    "eligible": True,
+                }
+            ],
         }
         for index, digest in enumerate(selected_policy_digests)
     ]
@@ -588,12 +636,32 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
                 "baseline_independent_summary": {"mean_fold_return": 0.01},
                 "folds": [
                     {
+                        "selected_configuration": "ppo-15m-target",
                         "selected_policy_digest": "a" * 64,
+                        "selected_seed": 1,
                         "selected_returns": [-1.0],
+                        "selected_turnover_per_day": 0.5,
+                        "selected_cost_fraction": 0.01,
+                        "candidate_aggregates": [
+                            {
+                                "configuration": "ppo-15m-target",
+                                "eligible": True,
+                            }
+                        ],
                     },
                     {
+                        "selected_configuration": "ppo-15m-target",
                         "selected_policy_digest": "b" * 64,
+                        "selected_seed": 1,
                         "selected_returns": [0.0],
+                        "selected_turnover_per_day": 0.5,
+                        "selected_cost_fraction": 0.01,
+                        "candidate_aggregates": [
+                            {
+                                "configuration": "ppo-15m-target",
+                                "eligible": True,
+                            }
+                        ],
                     },
                 ],
             }
@@ -613,3 +681,71 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
     assert gate["conditions"]["evidence_valid"] is True
     assert gate["observed"]["maximum_independently_reset_fold_drawdown"] == 1.0
     assert (tmp_path / "summary.json").is_file()
+
+
+def test_full_runner_requires_same_representative_seed_across_folds(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    stability = namespace["_selection_stability_passed"]
+    folds = [
+        {
+            "selected_configuration": "ppo-15m-target",
+            "selected_seed": seed,
+            "candidate_aggregates": [
+                {"configuration": "ppo-15m-target", "eligible": True}
+            ],
+        }
+        for seed in (0, 1)
+    ]
+
+    assert stability(folds) is False
+
+
+def test_selected_walk_forward_recipe_freezes_representative_seed(
+    tmp_path: Path,
+) -> None:
+    namespace = _runner_namespace()
+    select_recipe = namespace["_selected_walk_forward_recipe"]
+    walk_forward_path = tmp_path / "walk-forward"
+    walk_forward_path.mkdir()
+    (walk_forward_path / "walk-forward.json").write_text(
+        json.dumps(
+            {
+                "folds": [
+                    {
+                        "selected_configuration": "ppo-15m-target",
+                        "selected_seed": 2,
+                    },
+                    {
+                        "selected_configuration": "ppo-15m-target",
+                        "selected_seed": 2,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "walk-forward-config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "name": "ppo-15m-target",
+                        "run": {"training": {"seeds": [0, 1, 2]}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "selected.json"
+
+    name, seed, path = select_recipe(walk_forward_path, config_path, output)
+
+    assert name == "ppo-15m-target"
+    assert seed == 2
+    assert path == output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["training"]["seeds"] == [2]

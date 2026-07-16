@@ -126,15 +126,20 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
                 raise ValueError(f"sequence observation space is missing {key}")
             if observation_space.spaces[key].shape != expected_shape:
                 raise ValueError(f"sequence observation shape mismatch for {key}")
-        super().__init__(observation_space, features_dim=d_model + 128)
+        super().__init__(
+            observation_space,
+            features_dim=n_symbols * d_model + d_model + 128,
+        )
         self.timeframes = timeframes
         architecture = SequencePolicyArchitecture(
             input_channels={
                 timeframe: 3 * feature_counts[timeframe] for timeframe in timeframes
             },
+            window_lengths=window_lengths,
             latent_dims={"15m": 192, "1h": 192, "4h": 160, "1d": 128},
             asset_state_width=asset_state_width,
             snapshot_width=snapshot_width,
+            n_symbols=n_symbols,
             d_model=d_model,
             attention_heads=attention_heads,
             attention_layers=attention_layers,
@@ -162,7 +167,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
                 dim=-1,
             )
             available[timeframe] = availability > 0.5
-        assets = self.asset_encoder(
+        asset_tokens, pooled_assets = self.asset_encoder(
             sequences=sequences,
             available=available,
             snapshot=observations["current_snapshot"].float(),
@@ -170,7 +175,8 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             active=observations["active"].float(),
         )
         globals_ = self.global_encoder(observations["global_state"].float())
-        return torch.cat((assets, globals_), dim=-1)
+        ordered_assets = asset_tokens.reshape(asset_tokens.shape[0], -1)
+        return torch.cat((ordered_assets, pooled_assets, globals_), dim=-1)
 
 
 __all__ = ["AssetSetFeatureExtractor", "SequenceAssetFeatureExtractor"]

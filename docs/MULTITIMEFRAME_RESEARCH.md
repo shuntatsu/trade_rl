@@ -45,9 +45,9 @@ uv run python examples/binance-multitimeframe/run_full_research.py \
   --work-root var/binance-multitimeframe-full
 ```
 
-The runner downloads or reuses immutable Binance Vision archives, records the exchange metadata source, builds the dataset twice, rejects any identity mismatch, requires the exact 96-feature contract, writes the net-zero relative factor artifact, trains all three PPO seeds, and runs the two-fold nested walk-forward evaluation.
+The runner downloads or reuses immutable Binance Vision archives, records the exchange metadata source, builds the dataset twice, rejects any identity mismatch, and requires the exact 226-feature contract: 59 channels on 15m, 59 on 1h, 55 on 4h and 53 on 1d. It runs the two-fold nested walk-forward comparison first across the snapshot PPO, sequence PPO and Oracle-BC-to-PPO recipes. Only when both folds select the same eligible RL recipe and representative seed does it freeze that recipe and launch the final full-data training run.
 
-The complete dataset must be rebuilt after a feature-contract change. An older 10-feature artifact is rejected and must not be silently reused.
+The complete dataset must be rebuilt after a feature-contract change. Older 10-feature and 96-feature artifacts are rejected and must not be silently reused.
 
 Binance Vision historical archives are cached by immutable URL. Current `exchangeInfo` is requested separately and is never loaded from the historical archive cache. When the REST endpoint is blocked, the runner records the error and uses the explicit checked-in metadata fallback.
 

@@ -8,12 +8,30 @@ from typing import Mapping
 import torch
 from torch import nn
 
+_TIMEFRAMES = ("15m", "1h", "4h", "1d")
+_DEFAULT_WIDTHS: dict[str, tuple[int, ...]] = {
+    "15m": (64, 96, 128, 160, 192, 192),
+    "1h": (64, 96, 128, 160, 192, 192, 192),
+    "4h": (48, 80, 112, 144, 160, 160, 160),
+    "1d": (32, 64, 96, 112, 128),
+}
 
-def _group_count(channels: int) -> int:
-    for candidate in (16, 8, 4, 2):
-        if channels % candidate == 0:
-            return candidate
-    return 1
+
+def _required_dilations(window_length: int, *, kernel_size: int = 3) -> tuple[int, ...]:
+    """Return power-of-two dilations whose receptive field covers the window."""
+
+    if window_length <= 0 or kernel_size <= 1:
+        raise ValueError(
+            "window_length must be positive and kernel_size must exceed one"
+        )
+    dilations: list[int] = []
+    receptive_field = 1
+    dilation = 1
+    while receptive_field < window_length:
+        dilations.append(dilation)
+        receptive_field += (kernel_size - 1) * dilation
+        dilation *= 2
+    return tuple(dilations)
 
 
 class CausalTemporalBlock(nn.Module):
@@ -63,14 +81,28 @@ class CausalTemporalBlock(nn.Module):
 class CausalTimeframeEncoder(nn.Module):
     """Encode one native clock and pool its last available causal state."""
 
-    def __init__(self, input_channels: int, latent_dim: int, *, dropout: float) -> None:
+    def __init__(
+        self,
+        input_channels: int,
+        latent_dim: int,
+        *,
+        window_length: int,
+        widths: tuple[int, ...],
+        dropout: float,
+    ) -> None:
         super().__init__()
-        if input_channels <= 0 or latent_dim <= 0:
+        if input_channels <= 0 or latent_dim <= 0 or window_length <= 0:
             raise ValueError("timeframe encoder dimensions must be positive")
-        widths = (64, 96, 128, 160, 192)
+        dilations = _required_dilations(window_length)
+        if not widths:
+            raise ValueError("timeframe encoder widths must not be empty")
+        if len(widths) < len(dilations):
+            widths = widths + (widths[-1],) * (len(dilations) - len(widths))
+        elif len(widths) > len(dilations):
+            widths = widths[: len(dilations)]
         blocks: list[nn.Module] = []
         current = input_channels
-        for width, dilation in zip(widths, (1, 2, 4, 8, 16), strict=True):
+        for width, dilation in zip(widths, dilations, strict=True):
             blocks.append(
                 CausalTemporalBlock(
                     in_channels=current,
@@ -82,11 +114,19 @@ class CausalTimeframeEncoder(nn.Module):
             )
             current = width
         self.blocks = nn.Sequential(*blocks)
+        self.window_length = window_length
+        self.dilations = dilations
+        self.receptive_field = 1 + 2 * sum(dilations)
+        if self.receptive_field < window_length:
+            raise RuntimeError(
+                "timeframe encoder receptive field does not cover window"
+            )
+        hidden = max(latent_dim, current)
         self.projection = nn.Sequential(
-            nn.Linear(current, max(latent_dim, 192)),
-            nn.LayerNorm(max(latent_dim, 192)),
+            nn.Linear(current, hidden),
+            nn.LayerNorm(hidden),
             nn.SiLU(),
-            nn.Linear(max(latent_dim, 192), latent_dim),
+            nn.Linear(hidden, latent_dim),
             nn.LayerNorm(latent_dim),
             nn.SiLU(),
         )
@@ -94,6 +134,8 @@ class CausalTimeframeEncoder(nn.Module):
     def forward_sequence(self, value: torch.Tensor) -> torch.Tensor:
         if value.ndim != 3:
             raise ValueError("timeframe input must be [batch, time, channels]")
+        if value.shape[1] != self.window_length:
+            raise ValueError("timeframe input length does not match architecture")
         encoded = self.blocks(value.transpose(1, 2)).transpose(1, 2)
         return self.projection(encoded)
 
@@ -118,28 +160,41 @@ class CausalTimeframeEncoder(nn.Module):
 @dataclass(frozen=True, slots=True)
 class SequencePolicyArchitecture:
     input_channels: Mapping[str, int]
+    window_lengths: Mapping[str, int]
     latent_dims: Mapping[str, int]
     asset_state_width: int
     snapshot_width: int
+    n_symbols: int
     d_model: int = 320
     attention_heads: int = 8
     attention_layers: int = 2
     dropout: float = 0.05
+    encoder_widths: Mapping[str, tuple[int, ...]] | None = None
 
     def __post_init__(self) -> None:
-        expected = ("15m", "1h", "4h", "1d")
         if (
-            tuple(self.input_channels) != expected
-            or tuple(self.latent_dims) != expected
+            tuple(self.input_channels) != _TIMEFRAMES
+            or tuple(self.window_lengths) != _TIMEFRAMES
+            or tuple(self.latent_dims) != _TIMEFRAMES
         ):
             raise ValueError(
                 "sequence architecture requires ordered 15m/1h/4h/1d clocks"
             )
         if any(value <= 0 for value in self.input_channels.values()):
             raise ValueError("sequence input channels must be positive")
+        if any(value <= 0 for value in self.window_lengths.values()):
+            raise ValueError("sequence window lengths must be positive")
         if any(value <= 0 for value in self.latent_dims.values()):
             raise ValueError("sequence latent dimensions must be positive")
-        if min(self.asset_state_width, self.snapshot_width, self.d_model) <= 0:
+        if (
+            min(
+                self.asset_state_width,
+                self.snapshot_width,
+                self.n_symbols,
+                self.d_model,
+            )
+            <= 0
+        ):
             raise ValueError("sequence architecture widths must be positive")
         if self.d_model % self.attention_heads != 0:
             raise ValueError("d_model must be divisible by attention_heads")
@@ -147,20 +202,31 @@ class SequencePolicyArchitecture:
             raise ValueError("attention_layers must be positive")
         if not 0.0 <= self.dropout <= 0.05:
             raise ValueError("sequence dropout must be within [0, 0.05]")
+        widths = self.encoder_widths or _DEFAULT_WIDTHS
+        if tuple(widths) != _TIMEFRAMES:
+            raise ValueError("encoder widths must use ordered maintained clocks")
+        if any(
+            not value or any(item <= 0 for item in value) for value in widths.values()
+        ):
+            raise ValueError("encoder widths must contain positive integers")
+        object.__setattr__(self, "encoder_widths", dict(widths))
 
 
 class MultiTimeframeAssetEncoder(nn.Module):
-    """Fuse native-clock histories, current state, and cross-asset context."""
+    """Fuse native-clock histories while retaining one token per asset."""
 
     def __init__(self, architecture: SequencePolicyArchitecture) -> None:
         super().__init__()
         self.architecture = architecture
         self.timeframes = tuple(architecture.input_channels)
+        assert architecture.encoder_widths is not None
         self.timeframe_encoders = nn.ModuleDict(
             {
                 timeframe: CausalTimeframeEncoder(
                     architecture.input_channels[timeframe],
                     architecture.latent_dims[timeframe],
+                    window_length=architecture.window_lengths[timeframe],
+                    widths=architecture.encoder_widths[timeframe],
                     dropout=architecture.dropout,
                 )
                 for timeframe in self.timeframes
@@ -194,6 +260,9 @@ class MultiTimeframeAssetEncoder(nn.Module):
             nn.LayerNorm(architecture.d_model),
             nn.SiLU(),
         )
+        self.symbol_embedding = nn.Embedding(
+            architecture.n_symbols, architecture.d_model
+        )
         layer = nn.TransformerEncoderLayer(
             d_model=architecture.d_model,
             nhead=architecture.attention_heads,
@@ -215,10 +284,12 @@ class MultiTimeframeAssetEncoder(nn.Module):
         snapshot: torch.Tensor,
         asset_state: torch.Tensor,
         active: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if snapshot.ndim != 3 or asset_state.ndim != 3 or active.ndim != 2:
             raise ValueError("asset encoder expects batched asset tensors")
         batch, assets, _ = snapshot.shape
+        if assets != self.architecture.n_symbols:
+            raise ValueError("asset count does not match architecture")
         if asset_state.shape[:2] != (batch, assets) or active.shape != (batch, assets):
             raise ValueError("asset tensors disagree on batch or asset dimensions")
         parts: list[torch.Tensor] = []
@@ -229,6 +300,8 @@ class MultiTimeframeAssetEncoder(nn.Module):
                 raise ValueError(
                     "sequence tensor has invalid batch or asset dimensions"
                 )
+            if sequence.shape[2] != self.architecture.window_lengths[timeframe]:
+                raise ValueError("sequence length does not match architecture")
             if sequence.shape[-1] != self.architecture.input_channels[timeframe]:
                 raise ValueError("sequence channel count does not match architecture")
             if mask.ndim == 4:
@@ -244,6 +317,8 @@ class MultiTimeframeAssetEncoder(nn.Module):
         parts.append(self.snapshot_encoder(snapshot))
         parts.append(self.asset_state_encoder(asset_state))
         fused = self.asset_fusion(torch.cat(parts, dim=-1))
+        identities = torch.arange(assets, device=fused.device)
+        fused = fused + self.symbol_embedding(identities).unsqueeze(0)
 
         active_mask = active.to(dtype=torch.bool)
         has_active = active_mask.any(dim=1)
@@ -253,9 +328,13 @@ class MultiTimeframeAssetEncoder(nn.Module):
             fused = fused.clone()
             fused[~has_active, 0] = 0.0
         contextual = self.cross_asset(fused, src_key_padding_mask=~safe_mask)
+        contextual = torch.where(
+            active_mask.unsqueeze(-1), contextual, torch.zeros_like(contextual)
+        )
         weights = active_mask.to(dtype=contextual.dtype).unsqueeze(-1)
         pooled = (contextual * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1.0)
-        return torch.where(has_active.unsqueeze(1), pooled, torch.zeros_like(pooled))
+        pooled = torch.where(has_active.unsqueeze(1), pooled, torch.zeros_like(pooled))
+        return contextual, pooled
 
 
 __all__ = [

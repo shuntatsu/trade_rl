@@ -1431,6 +1431,11 @@ def build_binance_market_dataset(
         MarketBuildConfig(
             base_timeframe=interval,
             features=resolved_features,
+            cross_asset_reference_symbol=(
+                "BTCUSDT"
+                if "BTCUSDT" in tuple(item.symbol for item in metadata)
+                else None
+            ),
         )
     ).build(source, tuple(item.to_contract() for item in metadata))
     sources = set(source.sources_used)

@@ -253,10 +253,12 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
     if not artifact_path.is_absolute():
         artifact_path = ROOT / artifact_path
     ensemble = json.loads((artifact_path / "ensemble.json").read_text(encoding="utf-8"))
-    policy = json.loads(
-        (artifact_path / "policy-loader.json").read_text(encoding="utf-8")
+    serving_support = json.loads(
+        (artifact_path / "serving-support.json").read_text(encoding="utf-8")
     )
-    checkpoint = artifact_path / str(policy["members"][0])
+    if serving_support.get("status") != "unsupported":
+        raise RuntimeError("structured smoke must fail closed for flat serving")
+    checkpoint = artifact_path / "members" / "member-000" / "policy.zip"
     evidence: dict[str, object] = {
         "actual_timesteps": int(ensemble["actual_timesteps"]),
         "checkpoint": {
@@ -267,10 +269,10 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
         "cuda_preflight": preflight,
         "n_envs": config.training.n_envs,
         "behavior_cloning_epochs": config.training.behavior_cloning_epochs,
-        "policy": policy,
+        "serving_support": serving_support,
         "requested_timesteps": config.training.timesteps,
         "resolved_device": ensemble["resolved_device"],
-        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v3",
+        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v4",
     }
     evidence_path = work_root / "gpu-training-smoke.json"
     evidence_path.write_text(

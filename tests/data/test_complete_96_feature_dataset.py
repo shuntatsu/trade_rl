@@ -55,7 +55,11 @@ def test_complete_preset_builds_226_role_specific_causal_features() -> None:
         feature_timeframes=("15m", "4h", "1d"),
     )
     dataset = MarketDatasetBuilder(
-        MarketBuildConfig(base_timeframe="1h", features=specs)
+        MarketBuildConfig(
+            base_timeframe="1h",
+            features=specs,
+            cross_asset_reference_symbol="BTCUSDT",
+        )
     ).build(
         CompleteSource(),
         (

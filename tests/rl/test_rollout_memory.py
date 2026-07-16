@@ -4,7 +4,10 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
-from trade_rl.rl.rollout_memory import estimate_ppo_rollout_buffer_bytes
+from trade_rl.rl.rollout_memory import (
+    estimate_compact_ppo_rollout_buffer_bytes,
+    estimate_ppo_rollout_buffer_bytes,
+)
 from trade_rl.rl.training import ResidualTrainingConfig
 
 
@@ -54,7 +57,7 @@ def test_production_sequence_rollout_fits_configured_memory_cap() -> None:
     for timeframe, count in counts.items():
         shape = (3, lengths[timeframe], count)
         observation_spaces[f"sequence_{timeframe}_values"] = spaces.Box(
-            -np.inf, np.inf, shape=shape, dtype=np.float32
+            -np.inf, np.inf, shape=shape, dtype=np.float16
         )
         observation_spaces[f"sequence_{timeframe}_available"] = spaces.Box(
             0, 1, shape=shape, dtype=np.uint8
@@ -62,8 +65,37 @@ def test_production_sequence_rollout_fits_configured_memory_cap() -> None:
         observation_spaces[f"sequence_{timeframe}_staleness"] = spaces.Box(
             0.0, 1.0, shape=shape, dtype=np.float16
         )
-    estimated = estimate_ppo_rollout_buffer_bytes(
-        spaces.Dict(observation_spaces), n_steps=128, n_envs=4, action_dim=3
+    space = spaces.Dict(observation_spaces)
+    default_estimated = estimate_ppo_rollout_buffer_bytes(
+        space, n_steps=128, n_envs=4, action_dim=3
     )
-    assert estimated == 473_122_816
-    assert estimated < 805_306_368
+    compact_estimated = estimate_compact_ppo_rollout_buffer_bytes(
+        space, n_steps=128, n_envs=4, action_dim=3
+    )
+    assert default_estimated == 473_122_816
+    assert compact_estimated == 200_495_104
+    assert compact_estimated < default_estimated / 2
+    assert compact_estimated < 805_306_368
+
+
+def test_compact_dict_rollout_buffer_preserves_declared_component_dtypes() -> None:
+    from trade_rl.integrations.compact_rollout_buffer import CompactDictRolloutBuffer
+
+    observation_space = spaces.Dict(
+        {
+            "values": spaces.Box(-10, 10, shape=(2, 3), dtype=np.float16),
+            "available": spaces.Box(0, 1, shape=(2, 3), dtype=np.uint8),
+            "current": spaces.Box(-10, 10, shape=(4,), dtype=np.float32),
+        }
+    )
+    buffer = CompactDictRolloutBuffer(
+        4,
+        observation_space,
+        spaces.Box(-1, 1, shape=(2,), dtype=np.float32),
+        device="cpu",
+        n_envs=2,
+    )
+
+    assert buffer.observations["values"].dtype == np.float16
+    assert buffer.observations["available"].dtype == np.uint8
+    assert buffer.observations["current"].dtype == np.float32

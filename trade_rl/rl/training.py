@@ -445,6 +445,26 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _combined_normalizer_digest(unwrapped: Any) -> str | None:
+    flat = getattr(getattr(unwrapped, "normalizer", None), "digest", None)
+    sequence = getattr(getattr(unwrapped, "sequence_normalizer", None), "digest", None)
+    if flat is None and sequence is None:
+        return None
+    if sequence is None:
+        return str(flat)
+    if flat is None:
+        return str(sequence)
+    require_sha256(str(flat), field="normalizer_digest")
+    require_sha256(str(sequence), field="sequence_normalizer_digest")
+    return content_digest(
+        {
+            "flat": flat,
+            "schema_version": "policy_normalizer_bundle_v1",
+            "sequence": sequence,
+        }
+    )
+
+
 def _environment_identity(environment: Any) -> dict[str, Any]:
     unwrapped: Any = getattr(environment, "unwrapped", environment)
     environment_digest = getattr(unwrapped, "environment_digest", None)
@@ -502,11 +522,7 @@ def _environment_identity(environment: Any) -> dict[str, Any]:
         "decision_hours": getattr(unwrapped, "decision_hours", None),
         "alpha_artifact_digest": getattr(unwrapped, "alpha_artifact_digest", None),
         "factor_artifact_digest": getattr(unwrapped, "factor_artifact_digest", None),
-        "normalizer_digest": (
-            None
-            if getattr(unwrapped, "normalizer", None) is None
-            else getattr(unwrapped.normalizer, "digest", None)
-        ),
+        "normalizer_digest": _combined_normalizer_digest(unwrapped),
     }
 
 

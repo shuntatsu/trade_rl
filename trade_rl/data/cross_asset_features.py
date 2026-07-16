@@ -64,6 +64,7 @@ def calculate_cross_asset_feature_events(
     return_available: np.ndarray,
     return_age_hours: np.ndarray,
     symbols: tuple[str, ...],
+    reference_symbol: str,
 ) -> CrossAssetFeatureEvents:
     """Calculate one feature using only native return events available by each row."""
 
@@ -76,16 +77,16 @@ def calculate_cross_asset_feature_events(
         raise ValueError("aligned cross-asset inputs must share a shape")
     if returns.ndim != 2 or returns.shape[1] != len(symbols):
         raise ValueError("aligned cross-asset inputs must be [time, symbol]")
-    btc_matches = [
-        index
-        for index, symbol in enumerate(symbols)
-        if symbol.upper().startswith("BTC")
+    if not reference_symbol:
+        raise ValueError("cross-asset reference symbol must be explicit")
+    reference_matches = [
+        index for index, symbol in enumerate(symbols) if symbol == reference_symbol
     ]
-    if len(btc_matches) != 1:
+    if len(reference_matches) != 1:
         raise ValueError(
-            "cross-asset features require exactly one BTC reference symbol"
+            "cross-asset reference symbol must occur exactly once in the universe"
         )
-    btc_index = btc_matches[0]
+    btc_index = reference_matches[0]
     event_mask = _new_event_mask(available, ages)
     n_bars, n_symbols = returns.shape
     values = np.zeros((n_bars, n_symbols), dtype=np.float64)

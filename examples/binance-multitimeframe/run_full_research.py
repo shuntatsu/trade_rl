@@ -38,7 +38,7 @@ _FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
 _END = "2026-07-01T00:00:00Z"
 _EXPECTED_15M_BARS = 55_392
-_EXPECTED_POLICY_OBSERVATIONS = 210_785
+_EXPECTED_POLICY_OBSERVATIONS = 230_999
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
@@ -315,7 +315,18 @@ def _require_file(path: Path) -> None:
 def _verify_training(path: Path) -> None:
     for relative in ("run.json", "ensemble.json", "environment.json"):
         _require_file(path / relative)
-    for index in range(3):
+    ensemble = _load_json(path / "ensemble.json")
+    expected_members = ensemble.get("expected_members")
+    if (
+        isinstance(expected_members, bool)
+        or not isinstance(expected_members, int)
+        or expected_members <= 0
+    ):
+        raise RuntimeError("training ensemble expected_members is invalid")
+    members = ensemble.get("members")
+    if not isinstance(members, list) or len(members) != expected_members:
+        raise RuntimeError("training ensemble member evidence is incomplete")
+    for index in range(expected_members):
         member = path / f"members/member-{index:03d}"
         _require_file(member / "policy.zip")
         checkpoints = checkpoint_manifests(member / "checkpoints")
@@ -375,6 +386,56 @@ def _selected_fold_policy_digests(folds: object) -> object:
     return tuple(identities)
 
 
+def _maximum_fold_metric(folds: object, name: str) -> float | None:
+    if not isinstance(folds, list) or not folds:
+        return None
+    values: list[float] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return None
+        raw = fold.get(name)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        value = float(raw)
+        if not np.isfinite(value) or value < 0.0:
+            return None
+        values.append(value)
+    return max(values)
+
+
+def _selection_stability_passed(folds: object) -> bool:
+    if not isinstance(folds, list) or not folds:
+        return False
+    selected_configurations: list[str] = []
+    selected_seeds: list[int] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            return False
+        selected = fold.get("selected_configuration")
+        selected_seed = fold.get("selected_seed")
+        aggregates = fold.get("candidate_aggregates")
+        if (
+            not isinstance(selected, str)
+            or selected == "baseline"
+            or isinstance(selected_seed, bool)
+            or not isinstance(selected_seed, int)
+            or selected_seed < 0
+        ):
+            return False
+        selected_configurations.append(selected)
+        selected_seeds.append(selected_seed)
+        if not isinstance(aggregates, (list, tuple)):
+            return False
+        matched = [
+            item
+            for item in aggregates
+            if isinstance(item, dict) and item.get("configuration") == selected
+        ]
+        if len(matched) != 1 or matched[0].get("eligible") is not True:
+            return False
+    return len(set(selected_configurations)) == 1 and len(set(selected_seeds)) == 1
+
+
 def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
     try:
         payload = _load_json(path / "walk-forward.json")
@@ -392,7 +453,70 @@ def _evaluate_walk_forward_research_gate(path: Path) -> ResearchReturnGate:
         ),
         maximum_fold_drawdown=_independent_fold_maximum_drawdown(folds),
         selected_policy_digests=_selected_fold_policy_digests(folds),
+        maximum_turnover_per_day=_maximum_fold_metric(
+            folds, "selected_turnover_per_day"
+        ),
+        maximum_cost_fraction=_maximum_fold_metric(folds, "selected_cost_fraction"),
+        selection_stability_passed=_selection_stability_passed(folds),
     )
+
+
+def _selected_walk_forward_recipe(
+    walk_forward_path: Path,
+    walk_forward_config_path: Path,
+    output_path: Path,
+) -> tuple[str, int, Path]:
+    evidence = _load_json(walk_forward_path / "walk-forward.json")
+    folds = evidence.get("folds")
+    if not isinstance(folds, list) or not folds:
+        raise RuntimeError("walk-forward evidence has no folds")
+    selected = tuple(
+        fold.get("selected_configuration") for fold in folds if isinstance(fold, dict)
+    )
+    selected_seeds = tuple(
+        fold.get("selected_seed") for fold in folds if isinstance(fold, dict)
+    )
+    if len(selected) != len(folds) or any(
+        not isinstance(name, str) or not name for name in selected
+    ):
+        raise RuntimeError("walk-forward selected configuration evidence is invalid")
+    if len(set(selected)) != 1:
+        raise RuntimeError(
+            "walk-forward folds did not agree on one final training recipe"
+        )
+    if len(selected_seeds) != len(folds) or any(
+        isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+        for seed in selected_seeds
+    ):
+        raise RuntimeError("walk-forward selected seed evidence is invalid")
+    if len(set(selected_seeds)) != 1:
+        raise RuntimeError("walk-forward folds did not agree on one final seed")
+    selected_name = str(selected[0])
+    selected_seed = int(selected_seeds[0])
+    if selected_name == "baseline":
+        raise RuntimeError(
+            "walk-forward selected baseline; final RL training is blocked"
+        )
+    config = _load_json(walk_forward_config_path)
+    candidates = config.get("candidates")
+    if not isinstance(candidates, list):
+        raise RuntimeError("walk-forward config candidates are invalid")
+    matches = [
+        item
+        for item in candidates
+        if isinstance(item, dict) and item.get("name") == selected_name
+    ]
+    if len(matches) != 1 or not isinstance(matches[0].get("run"), dict):
+        raise RuntimeError("selected walk-forward recipe is missing from config")
+    selected_run = dict(matches[0]["run"])
+    training = selected_run.get("training")
+    if not isinstance(training, dict):
+        raise RuntimeError("selected training recipe has no training object")
+    training = dict(training)
+    training["seeds"] = [selected_seed]
+    selected_run["training"] = training
+    _write_json(output_path, selected_run)
+    return selected_name, selected_seed, output_path
 
 
 def _finalize_research_run(
@@ -489,36 +613,12 @@ def main() -> int:
             f"{_EXPECTED_POLICY_OBSERVATIONS:,} policy observations, observed "
             f"{policy_observation_count:,}"
         )
-    training_config_path = _write_run_config(
-        template_path=root / "examples/binance-multitimeframe/training-full.json",
-        output_path=work_root / "training-full.json",
-    )
     walk_forward_config_path = _write_run_config(
         template_path=root / "examples/binance-multitimeframe/walk-forward-full.json",
         output_path=work_root / "walk-forward-full.json",
     )
 
     artifact_root = work_root / "artifacts"
-    training = _run_cli(
-        [
-            *_TRAIN_RUN_COMMAND,
-            "--config",
-            str(training_config_path),
-            "--dataset",
-            str(dataset_a_path),
-            "--output",
-            str(artifact_root),
-            "--run-id",
-            "binance-multitimeframe-full-training",
-        ],
-        root=root,
-        log_path=work_root / "training.log",
-    )
-    training_path = Path(str(training["artifact_path"]))
-    if not training_path.is_absolute():
-        training_path = root / training_path
-    _verify_training(training_path)
-
     walk_forward = _run_cli(
         [
             *_WALK_FORWARD_RUN_COMMAND,
@@ -539,7 +639,7 @@ def main() -> int:
         walk_forward_path = root / walk_forward_path
     _require_file(walk_forward_path / "run.json")
 
-    summary = {
+    summary: dict[str, object] = {
         "dataset": dataset_a,
         "dataset_repeat": dataset_b,
         "end_time": _END,
@@ -552,11 +652,53 @@ def main() -> int:
         "sequence_observation_count": sequence_observation_count,
         "policy_observation_count": policy_observation_count,
         "production_status": "NO-GO",
-        "schema": "binance_multitimeframe_complete_research_v2",
+        "schema": "binance_multitimeframe_complete_research_v4_seed_stable",
         "start_time": _START,
-        "training": training,
+        "training": None,
         "walk_forward": walk_forward,
     }
+    preliminary_gate = _evaluate_walk_forward_research_gate(walk_forward_path)
+    if not preliminary_gate.passed:
+        exit_code = _finalize_research_run(
+            work_root=work_root,
+            walk_forward_path=walk_forward_path,
+            summary=summary,
+        )
+        print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+        return exit_code
+
+    (
+        selected_configuration,
+        selected_seed,
+        training_config_path,
+    ) = _selected_walk_forward_recipe(
+        walk_forward_path,
+        walk_forward_config_path,
+        work_root / "training-selected.json",
+    )
+    training = _run_cli(
+        [
+            *_TRAIN_RUN_COMMAND,
+            "--config",
+            str(training_config_path),
+            "--dataset",
+            str(dataset_a_path),
+            "--output",
+            str(artifact_root),
+            "--run-id",
+            "binance-multitimeframe-selected-training",
+        ],
+        root=root,
+        log_path=work_root / "training.log",
+    )
+    training_path = Path(str(training["artifact_path"]))
+    if not training_path.is_absolute():
+        training_path = root / training_path
+    _verify_training(training_path)
+
+    summary["selected_training_configuration"] = selected_configuration
+    summary["selected_training_seed"] = selected_seed
+    summary["training"] = training
     exit_code = _finalize_research_run(
         work_root=work_root,
         walk_forward_path=walk_forward_path,

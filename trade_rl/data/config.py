@@ -234,6 +234,10 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
                     default=0,
                 )
             ),
+            cross_asset_reference_symbol=_optional_string(
+                root.get("cross_asset_reference_symbol"),
+                field="cross_asset_reference_symbol",
+            ),
         ),
         instruments=instruments,
     )

@@ -37,6 +37,7 @@ def test_cross_asset_features_are_numerically_causal() -> None:
         return_available=available,
         return_age_hours=age,
         symbols=symbols,
+        reference_symbol="BTCUSDT",
     )
     np.testing.assert_allclose(relative.values[:, 0], 0.0)
     np.testing.assert_allclose(relative.values[:, 1], returns[:, 1] - returns[:, 0])
@@ -48,6 +49,7 @@ def test_cross_asset_features_are_numerically_causal() -> None:
         return_available=available,
         return_age_hours=age,
         symbols=symbols,
+        reference_symbol="BTCUSDT",
     )
     assert correlation.valid[-1, 1]
     assert correlation.values[-1, 1] == pytest.approx(1.0)
@@ -58,6 +60,7 @@ def test_cross_asset_features_are_numerically_causal() -> None:
         return_available=available,
         return_age_hours=age,
         symbols=symbols,
+        reference_symbol="BTCUSDT",
     )
     assert beta.values[-1, 1] == pytest.approx(2.0)
 
@@ -67,6 +70,7 @@ def test_cross_asset_features_are_numerically_causal() -> None:
         return_available=available,
         return_age_hours=age,
         symbols=symbols,
+        reference_symbol="BTCUSDT",
     )
     assert dispersion.values[-1, 0] == pytest.approx(np.std(returns[-1]))
 
@@ -93,6 +97,7 @@ def test_cross_asset_prefix_is_unchanged_by_future_mutation() -> None:
             return_available=available,
             return_age_hours=age,
             symbols=symbols,
+            reference_symbol="BTCUSDT",
         )
         changed = returns.copy()
         changed[split:] += rng.normal(5.0, 1.0, size=changed[split:].shape)
@@ -102,20 +107,22 @@ def test_cross_asset_prefix_is_unchanged_by_future_mutation() -> None:
             return_available=available,
             return_age_hours=age,
             symbols=symbols,
+            reference_symbol="BTCUSDT",
         )
         np.testing.assert_array_equal(original.valid[:split], mutated.valid[:split])
         np.testing.assert_allclose(original.values[:split], mutated.values[:split])
 
 
-def test_cross_asset_features_require_one_btc_reference() -> None:
+def test_cross_asset_features_require_explicit_reference_symbol() -> None:
     values = np.zeros((8, 2), dtype=np.float64)
-    with pytest.raises(ValueError, match="exactly one BTC"):
+    with pytest.raises(ValueError, match="occur exactly once"):
         calculate_cross_asset_feature_events(
             _spec(FeatureKind.RELATIVE_RETURN_TO_BTC, lookback=1, min_periods=1),
             aligned_returns=values,
             return_available=np.ones_like(values, dtype=np.bool_),
             return_age_hours=np.zeros_like(values),
             symbols=("ETHUSDT", "BNBUSDT"),
+            reference_symbol="BTCUSDT",
         )
 
 
@@ -148,6 +155,7 @@ def test_cross_asset_features_preserve_delayed_source_age() -> None:
         return_available=available,
         return_age_hours=age,
         symbols=("BTCUSDT", "ETHUSDT"),
+        reference_symbol="BTCUSDT",
     )
 
     assert result.valid[1, 1]

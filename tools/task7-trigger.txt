@@ -1,1 +1,1 @@
-trigger task7 structured sequence serving
+trigger task7 corrected structured serving

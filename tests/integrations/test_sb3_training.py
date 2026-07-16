@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -207,6 +208,8 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
             return 2
 
     class FakePolicy:
+        action_distribution_name = "squashed_diag_gaussian"
+
         def parameters(self) -> tuple[FakeParameter, ...]:
             return (FakeParameter(),)
 
@@ -249,6 +252,12 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
         "global_embedding_dim": 64,
     }
     assert result.actual_timesteps == 2
+    architecture = json.loads(
+        (tmp_path / "model-architecture.json").read_text(encoding="utf-8")
+    )
+    assert architecture["architecture"].get("action_distribution") == (
+        "squashed_diag_gaussian"
+    )
     assert factory_calls == 1
     assert probe.close_calls == 1
     assert vector_environment.close_calls == 1

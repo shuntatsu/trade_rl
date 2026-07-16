@@ -368,7 +368,16 @@ class StableBaselines3Backend:
                     "policy parameter count exceeds max_policy_parameters: "
                     f"{parameter_count} > {config.max_policy_parameters}"
                 )
+            declared_distribution = getattr(
+                model.policy, "action_distribution_name", None
+            )
+            action_distribution = (
+                declared_distribution
+                if isinstance(declared_distribution, str) and declared_distribution
+                else type(getattr(model.policy, "action_dist", None)).__name__
+            )
             architecture_details: dict[str, object] = {
+                "action_distribution": action_distribution,
                 "actor_net_arch": config.policy_net_arch,
                 "critic_net_arch": config.value_net_arch,
                 "sequence_encoder": config.sequence_encoder,

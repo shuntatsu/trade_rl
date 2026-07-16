@@ -343,3 +343,92 @@ def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:
 
     assert output.shape == (1, 160)
     assert bool(captured["mask"][0, -1])
+
+
+def test_shared_sequence_policy_uses_squashed_target_weight_distribution() -> None:
+    import numpy as np
+    from gymnasium import spaces
+    from stable_baselines3.common.distributions import (
+        SquashedDiagGaussianDistribution,
+    )
+
+    from trade_rl.rl.policies import (
+        SequenceAssetFeatureExtractor,
+        SharedPerAssetActorCriticPolicy,
+    )
+
+    n_symbols = 2
+    timeframes = ("15m", "1h", "4h", "1d")
+    feature_counts = {timeframe: 2 for timeframe in timeframes}
+    window_lengths = {timeframe: 3 for timeframe in timeframes}
+    components: dict[str, spaces.Space] = {
+        "current_snapshot": spaces.Box(
+            -10.0, 10.0, shape=(n_symbols, 8), dtype=np.float32
+        ),
+        "asset_state": spaces.Box(-10.0, 10.0, shape=(n_symbols, 4), dtype=np.float32),
+        "global_state": spaces.Box(-10.0, 10.0, shape=(3,), dtype=np.float32),
+        "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+    }
+    for timeframe in timeframes:
+        shape = (n_symbols, 3, 2)
+        components[f"sequence_{timeframe}_values"] = spaces.Box(
+            -10.0, 10.0, shape=shape, dtype=np.float16
+        )
+        components[f"sequence_{timeframe}_available"] = spaces.Box(
+            0, 1, shape=shape, dtype=np.uint8
+        )
+        components[f"sequence_{timeframe}_staleness"] = spaces.Box(
+            0.0, 100.0, shape=shape, dtype=np.float16
+        )
+    observation_space = spaces.Dict(components)
+    policy = SharedPerAssetActorCriticPolicy(
+        observation_space,
+        spaces.Box(-1.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+        lambda _: 1e-3,
+        net_arch={"pi": [11], "vf": [13]},
+        features_extractor_class=SequenceAssetFeatureExtractor,
+        features_extractor_kwargs={
+            "feature_counts": feature_counts,
+            "window_lengths": window_lengths,
+            "snapshot_width": 8,
+            "asset_state_width": 4,
+            "global_width": 3,
+            "n_symbols": n_symbols,
+            "d_model": 16,
+            "attention_heads": 4,
+            "attention_layers": 1,
+            "dropout": 0.0,
+        },
+        shared_actor_n_symbols=n_symbols,
+        shared_actor_d_model=16,
+        shared_actor_global_dim=128,
+        shared_actor_net_arch=(11,),
+        log_std_init=-0.5,
+    )
+    assert isinstance(policy.action_dist, SquashedDiagGaussianDistribution)
+    assert policy.action_distribution_name == "squashed_diag_gaussian"
+
+    batch = 4
+    observations: dict[str, torch.Tensor] = {}
+    for key, space in observation_space.spaces.items():
+        array = np.zeros((batch, *space.shape), dtype=space.dtype)
+        if key == "active" or key.endswith("_available"):
+            array.fill(1)
+        observations[key] = torch.as_tensor(array)
+
+    distribution = policy.get_distribution(observations)
+    stochastic = distribution.get_actions(deterministic=False)
+    deterministic = distribution.get_actions(deterministic=True)
+    assert torch.all(stochastic <= 1.0)
+    assert torch.all(stochastic >= -1.0)
+    assert torch.all(deterministic <= 1.0)
+    assert torch.all(deterministic >= -1.0)
+
+    boundary = torch.tensor(
+        [[0.999, -0.999], [-0.999, 0.999], [0.5, -0.5], [0.0, 0.0]],
+        dtype=torch.float32,
+    )
+    values, log_prob, entropy = policy.evaluate_actions(observations, boundary)
+    assert torch.isfinite(values).all()
+    assert torch.isfinite(log_prob).all()
+    assert entropy is None

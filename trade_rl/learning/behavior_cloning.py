@@ -87,10 +87,12 @@ class BehaviorCloningResult:
 
 def _actor_mean(policy: Any, observations: Any) -> Any:
     distribution = policy.get_distribution(observations)
-    mean = getattr(distribution.distribution, "mean", None)
-    if mean is None:
-        raise ValueError("policy distribution does not expose a continuous mean")
-    return mean
+    action = distribution.get_actions(deterministic=True)
+    if action is None or not hasattr(action, "shape"):
+        raise ValueError(
+            "policy distribution does not expose deterministic action-space output"
+        )
+    return action
 
 
 def _tensor_observations(observations: object, *, device: Any) -> Any:

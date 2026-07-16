@@ -15,6 +15,10 @@ class _Distribution:
         self.distribution = self
         self.mean = mean
 
+    def get_actions(self, *, deterministic: bool = False) -> torch.Tensor:
+        assert deterministic is True
+        return self.mean
+
 
 class _LinearPolicy(torch.nn.Module):
     def __init__(self) -> None:
@@ -155,3 +159,34 @@ def test_behavior_cloning_never_materializes_more_than_one_configured_batch() ->
         observation_provider=provider,
     )
     assert provider.maximum_requested_batch <= config.batch_size
+
+
+class _SquashedDistribution:
+    def __init__(self, raw_mean: torch.Tensor) -> None:
+        self.distribution = type("Gaussian", (), {"mean": raw_mean})()
+        self.action_mode = torch.tanh(raw_mean)
+
+    def get_actions(self, *, deterministic: bool = False) -> torch.Tensor:
+        assert deterministic is True
+        return self.action_mode
+
+
+class _SquashedPolicy(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.raw = torch.nn.Parameter(torch.tensor([[2.0]], dtype=torch.float32))
+        self.device = torch.device("cpu")
+
+    def get_distribution(self, observations: torch.Tensor) -> _SquashedDistribution:
+        return _SquashedDistribution(self.raw.expand(len(observations), -1))
+
+
+def test_behavior_cloning_uses_deterministic_action_space_output() -> None:
+    from trade_rl.learning.behavior_cloning import _actor_mean
+
+    observations = torch.zeros((3, 1), dtype=torch.float32)
+    policy = _SquashedPolicy()
+    action = _actor_mean(policy, observations)
+
+    torch.testing.assert_close(action, torch.tanh(policy.raw).expand(3, -1))
+    assert not torch.allclose(action, policy.raw.expand(3, -1))

@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 from gymnasium import spaces
+from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
 from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch import nn
@@ -280,7 +281,9 @@ class SharedPerAssetActionHead(nn.Module):
 
 
 class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
-    """SB3 PPO policy with a truly shared actor head and portfolio-level critic."""
+    """SB3 PPO policy with bounded shared target-weight actions."""
+
+    action_distribution_name = "squashed_diag_gaussian"
 
     def __init__(
         self,
@@ -325,6 +328,7 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         ).to(self.device)
 
     def _build(self, lr_schedule: Any) -> None:
+        self.action_dist = SquashedDiagGaussianDistribution(self.shared_actor_n_symbols)
         super()._build(lr_schedule)
         context_dim = 2 * self.shared_actor_d_model + self.shared_actor_global_dim
         self.action_net = SharedPerAssetActionHead(

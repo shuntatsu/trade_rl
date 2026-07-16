@@ -1,14 +1,6 @@
 name: Full training capability audit
 
 on:
-  push:
-    branches:
-      - agent/full-training-functional-audit
-    paths:
-      - '.github/workflows/full-training-capability-audit.yml'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:

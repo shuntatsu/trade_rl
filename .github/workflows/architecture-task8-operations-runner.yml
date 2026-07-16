@@ -44,10 +44,10 @@ jobs:
       - name: GREEN and diagnostics
         shell: bash
         run: |
-          set -euo pipefail
-          python tools/apply_task8_operations.py implementation
+          set -uo pipefail
           set +e
           {
+            python tools/apply_task8_operations.py implementation
             uv run ruff format examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
             uv run ruff check --fix examples/binance-multitimeframe/run_gpu_training_smoke.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
             uv run pytest -q tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py tests/workflows/test_training_run_config.py tests/integrations/test_sb3_training.py tests/serving/test_sb3_loader.py

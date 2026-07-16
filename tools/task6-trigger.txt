@@ -1,1 +1,1 @@
-trigger task6 material research protocol
+trigger task6 ensemble protocol verification

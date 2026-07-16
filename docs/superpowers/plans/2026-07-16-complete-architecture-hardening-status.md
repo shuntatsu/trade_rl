@@ -10,6 +10,8 @@ Task 9 was verified red-green: structured PPO now samples target weights through
 
 Task 10 was verified red-green across the related environment and training suites. Time-limit mark-to-market truncation, optional close liquidation cost, and final delayed-target disposal are now emitted as machine-readable terminal evidence. The configured terminal accounting mode is also written into the training environment artifact.
 
-Task 11 was verified red-green with 33 related tests, MyPy, and import contracts. Advanced volatility, beta, and stress constraints now receive rolling inputs computed only from completed returns through the decision index, and the provider identity is bound into the environment digest.
+Task 11 was verified red-green with 33 related tests, MyPy, import contracts, and a fully green repository CI. Advanced volatility, beta, and stress constraints now receive rolling inputs computed only from completed returns through the decision index, and the provider identity is bound into the environment digest.
+
+Task 12 verification is staged to bind the four causal Ichimoku channels to an explicit `unshifted_decision_time` contract without renaming the ordered features.
 
 Production remains NO-GO until the manually dispatched CUDA verification, fresh sealed confirmation data, and paper-trading reconciliation are complete.

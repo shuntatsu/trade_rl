@@ -7,7 +7,10 @@ from typing import Any
 
 import torch
 from gymnasium import spaces
-from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
+from stable_baselines3.common.distributions import (
+    SquashedDiagGaussianDistribution,
+    TanhBijector,
+)
 from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch import nn
@@ -133,7 +136,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
                 raise ValueError(f"sequence observation shape mismatch for {key}")
         super().__init__(
             observation_space,
-            features_dim=n_symbols * d_model + d_model + 128,
+            features_dim=n_symbols * d_model + d_model + 128 + n_symbols,
         )
         self.timeframes = timeframes
         architecture = SequencePolicyArchitecture(
@@ -181,7 +184,8 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         )
         globals_ = self.global_encoder(observations["global_state"].float())
         ordered_assets = asset_tokens.reshape(asset_tokens.shape[0], -1)
-        return torch.cat((ordered_assets, pooled_assets, globals_), dim=-1)
+        active = observations["active"].float()
+        return torch.cat((ordered_assets, pooled_assets, globals_, active), dim=-1)
 
 
 class SharedAssetActorCriticExtractor(nn.Module):
@@ -200,7 +204,7 @@ class SharedAssetActorCriticExtractor(nn.Module):
         super().__init__()
         if n_symbols <= 0 or token_dim <= 0 or global_dim <= 0:
             raise ValueError("shared actor dimensions must be positive")
-        expected = n_symbols * token_dim + token_dim + global_dim
+        expected = n_symbols * token_dim + token_dim + global_dim + n_symbols
         if features_dim != expected:
             raise ValueError(
                 "feature extractor output does not match shared actor layout"
@@ -210,7 +214,7 @@ class SharedAssetActorCriticExtractor(nn.Module):
         self.n_symbols = n_symbols
         self.token_dim = token_dim
         self.global_dim = global_dim
-        self.actor_context_dim = 2 * token_dim + global_dim
+        self.actor_context_dim = 2 * token_dim + global_dim + 1
         self.latent_dim_pi = n_symbols * self.actor_context_dim
         layers: list[nn.Module] = []
         width = token_dim + global_dim
@@ -222,22 +226,29 @@ class SharedAssetActorCriticExtractor(nn.Module):
 
     def _parts(
         self, features: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         asset_width = self.n_symbols * self.token_dim
+        pooled_start = asset_width
+        global_start = pooled_start + self.token_dim
+        active_start = global_start + self.global_dim
         tokens = features[:, :asset_width].reshape(-1, self.n_symbols, self.token_dim)
-        pooled = features[:, asset_width : asset_width + self.token_dim]
-        globals_ = features[:, asset_width + self.token_dim :]
-        return tokens, pooled, globals_
+        pooled = features[:, pooled_start:global_start]
+        globals_ = features[:, global_start:active_start]
+        active = features[:, active_start:]
+        return tokens, pooled, globals_, active
 
     def forward_actor(self, features: torch.Tensor) -> torch.Tensor:
-        tokens, pooled, globals_ = self._parts(features)
+        tokens, pooled, globals_, active = self._parts(features)
         pooled_per_asset = pooled[:, None, :].expand(-1, self.n_symbols, -1)
         global_per_asset = globals_[:, None, :].expand(-1, self.n_symbols, -1)
-        contexts = torch.cat((tokens, pooled_per_asset, global_per_asset), dim=-1)
+        contexts = torch.cat(
+            (tokens, pooled_per_asset, global_per_asset, active.unsqueeze(-1)),
+            dim=-1,
+        )
         return contexts.reshape(features.shape[0], -1)
 
     def forward_critic(self, features: torch.Tensor) -> torch.Tensor:
-        _, pooled, globals_ = self._parts(features)
+        _, pooled, globals_, _ = self._parts(features)
         return self.critic_net(torch.cat((pooled, globals_), dim=-1))
 
     def forward(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -272,18 +283,64 @@ class SharedPerAssetActionHead(nn.Module):
         layers.append(nn.Linear(width, 1))
         self.shared_head = nn.Sequential(*layers)
 
+    def active_mask(self, actor_latent: torch.Tensor) -> torch.Tensor:
+        contexts = actor_latent.reshape(-1, self.n_symbols, self.context_dim)
+        return contexts[:, :, -1] > 0.5
+
     def forward(self, actor_latent: torch.Tensor) -> torch.Tensor:
         contexts = actor_latent.reshape(-1, self.n_symbols, self.context_dim)
-        token = contexts[:, :, : self.token_dim]
-        active = token.abs().sum(dim=-1) > 0.0
+        active = self.active_mask(actor_latent)
         means = self.shared_head(contexts).squeeze(-1)
         return means * active.to(dtype=means.dtype)
+
+
+class MaskedSharedSquashedDiagGaussianDistribution(SquashedDiagGaussianDistribution):
+    """One shared exploration scale with inactive dimensions excluded."""
+
+    def __init__(self, action_dim: int) -> None:
+        super().__init__(action_dim)
+        self.active_mask: torch.Tensor | None = None
+
+    def set_active_mask(self, active_mask: torch.Tensor) -> None:
+        mask = active_mask.to(dtype=torch.bool)
+        if mask.ndim != 2 or mask.shape[1] != self.action_dim:
+            raise ValueError("active action mask does not match action dimensions")
+        self.active_mask = mask
+
+    def _masked(self, actions: torch.Tensor) -> torch.Tensor:
+        if self.active_mask is None:
+            raise RuntimeError("active action mask is not configured")
+        return actions * self.active_mask.to(dtype=actions.dtype)
+
+    def sample(self) -> torch.Tensor:
+        return self._masked(super().sample())
+
+    def mode(self) -> torch.Tensor:
+        return self._masked(super().mode())
+
+    def log_prob(
+        self,
+        actions: torch.Tensor,
+        gaussian_actions: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if self.active_mask is None:
+            raise RuntimeError("active action mask is not configured")
+        if gaussian_actions is None:
+            gaussian_actions = TanhBijector.inverse(actions)
+        distribution = self.distribution
+        if distribution is None:
+            raise RuntimeError("masked action distribution is not initialized")
+        per_dimension = distribution.log_prob(gaussian_actions)
+        per_dimension -= torch.log(1 - actions**2 + self.epsilon)
+        return (per_dimension * self.active_mask.to(dtype=per_dimension.dtype)).sum(
+            dim=1
+        )
 
 
 class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
     """SB3 PPO policy with bounded shared target-weight actions."""
 
-    action_distribution_name = "squashed_diag_gaussian"
+    action_distribution_name = "masked_shared_squashed_diag_gaussian"
 
     def __init__(
         self,
@@ -328,9 +385,11 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         ).to(self.device)
 
     def _build(self, lr_schedule: Any) -> None:
-        self.action_dist = SquashedDiagGaussianDistribution(self.shared_actor_n_symbols)
+        self.action_dist = MaskedSharedSquashedDiagGaussianDistribution(
+            self.shared_actor_n_symbols
+        )
         super()._build(lr_schedule)
-        context_dim = 2 * self.shared_actor_d_model + self.shared_actor_global_dim
+        context_dim = 2 * self.shared_actor_d_model + self.shared_actor_global_dim + 1
         self.action_net = SharedPerAssetActionHead(
             n_symbols=self.shared_actor_n_symbols,
             token_dim=self.shared_actor_d_model,
@@ -340,11 +399,23 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         ).to(self.device)
         if self.ortho_init:
             self.action_net.apply(partial(self.init_weights, gain=0.01))
+        self.log_std = nn.Parameter(
+            torch.full((1,), float(self.log_std_init), device=self.device)
+        )
         self.optimizer = self.optimizer_class(  # type: ignore[call-arg]
             self.parameters(),
             lr=lr_schedule(1),
             **self.optimizer_kwargs,
         )
+
+    def _get_action_dist_from_latent(self, latent_pi: torch.Tensor) -> Any:
+        if not isinstance(
+            self.action_dist, MaskedSharedSquashedDiagGaussianDistribution
+        ):
+            raise RuntimeError("shared policy action distribution is invalid")
+        self.action_dist.set_active_mask(self.action_net.active_mask(latent_pi))
+        mean_actions = self.action_net(latent_pi)
+        return self.action_dist.proba_distribution(mean_actions, self.log_std)
 
     def _get_constructor_parameters(self) -> dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -359,6 +430,7 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
 
 __all__ = [
     "AssetSetFeatureExtractor",
+    "MaskedSharedSquashedDiagGaussianDistribution",
     "SequenceAssetFeatureExtractor",
     "SharedAssetActorCriticExtractor",
     "SharedPerAssetActionHead",

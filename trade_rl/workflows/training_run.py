@@ -612,6 +612,7 @@ def execute_training_run(
                 "artifact_digest": dataset_artifact_digest,
                 "bar_hours": dataset.bar_hours,
                 "dataset_id": dataset.dataset_id,
+                "feature_config_digest": dataset.feature_config_digest,
                 "feature_names": dataset.feature_names,
                 "feature_alignments": _feature_alignment_payload(dataset.feature_names),
                 "global_feature_names": dataset.global_feature_names,

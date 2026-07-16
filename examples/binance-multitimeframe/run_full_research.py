@@ -88,6 +88,15 @@ def _load_json(path: Path) -> dict[str, Any]:
     return dict(payload)
 
 
+def _training_policy_digest(payload: object) -> str:
+    if not isinstance(payload, dict):
+        raise ValueError("training result must be a JSON object")
+    value = payload.get("policy_digest")
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValueError("training result policy_digest is missing or invalid")
+    return value
+
+
 def _packaged_git_provenance() -> tuple[str, bool]:
     commit = os.environ.get("TRADE_RL_GIT_COMMIT", "")
     if not _GIT_COMMIT_PATTERN.fullmatch(commit):
@@ -826,18 +835,14 @@ def main() -> int:
     summary["selected_training_seeds"] = list(selected_seeds)
     summary["confirmation_required_from"] = _END
     summary["training"] = training
-    expected_policy_digest = training.get("artifact_digest")
+    expected_policy_digest = _training_policy_digest(training)
     exit_code = _finalize_research_run(
         work_root=work_root,
         walk_forward_path=walk_forward_path,
         summary=summary,
         strict=True,
         require_confirmation=True,
-        expected_policy_digest=(
-            str(expected_policy_digest)
-            if isinstance(expected_policy_digest, str)
-            else None
-        ),
+        expected_policy_digest=expected_policy_digest,
     )
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return exit_code

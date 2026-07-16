@@ -236,6 +236,7 @@ def _structured_bundle(root: Path):
             {
                 "bar_hours": dataset.bar_hours,
                 "dataset_id": dataset.dataset_id,
+                "feature_config_digest": dataset.feature_config_digest,
                 "feature_names": list(dataset.feature_names),
                 "global_feature_names": list(dataset.global_feature_names),
                 "schema_version": "dataset_reference_v3",

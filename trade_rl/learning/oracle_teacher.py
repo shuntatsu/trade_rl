@@ -11,6 +11,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
+from trade_rl.risk.portfolio import PortfolioRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 ORACLE_TEACHER_SCHEMA: Final = "approximate_portfolio_teacher_v3"
@@ -22,6 +23,7 @@ class OracleTeacherConfig:
     """Deterministic bounded-state approximation of the execution contract."""
 
     execution_cost: ExecutionCostConfig = field(default_factory=ExecutionCostConfig)
+    portfolio_risk: PortfolioRiskConfig = field(default_factory=PortfolioRiskConfig)
     positions: tuple[float, ...] = (-1.0, 0.0, 1.0)
     max_gross: float = 1.0
     max_abs_weight: float = 0.45
@@ -92,6 +94,19 @@ class OracleTeacherConfig:
         ):
             raise ValueError(
                 "oracle control_tie_break_penalty must be finite and positive"
+            )
+        if not isinstance(self.portfolio_risk, PortfolioRiskConfig):
+            raise ValueError("oracle portfolio_risk must be PortfolioRiskConfig")
+        if any(
+            value is not None
+            for value in (
+                self.portfolio_risk.volatility_target,
+                self.portfolio_risk.max_abs_beta,
+                self.portfolio_risk.max_stress_loss,
+            )
+        ):
+            raise ValueError(
+                "oracle portfolio risk does not support covariance, beta, or stress inputs"
             )
         cost = self.execution_cost
         if (
@@ -258,6 +273,51 @@ def _open_state_matrix(
     return gap_factor, open_weights, open_equity, valid
 
 
+def project_portfolio_targets(
+    targets: np.ndarray,
+    *,
+    portfolio_value: np.ndarray,
+    market_notional: np.ndarray,
+    config: PortfolioRiskConfig,
+) -> np.ndarray:
+    """Vectorized maintained portfolio projection for oracle transitions."""
+
+    weights = np.asarray(targets, dtype=np.float64).copy()
+    values = np.asarray(portfolio_value, dtype=np.float64).reshape(-1)
+    liquidity = np.asarray(market_notional, dtype=np.float64).reshape(-1)
+    if weights.ndim != 3 or weights.shape[0] != values.size:
+        raise ValueError(
+            "oracle portfolio target batch does not match portfolio values"
+        )
+    if weights.shape[2] != liquidity.size:
+        raise ValueError("oracle portfolio target batch does not match liquidity")
+    if (
+        not np.isfinite(weights).all()
+        or not np.isfinite(values).all()
+        or not np.isfinite(liquidity).all()
+        or np.any(values <= 0.0)
+        or np.any(liquidity < 0.0)
+    ):
+        raise ValueError("oracle portfolio projection inputs are invalid")
+    if config.max_abs_weight is not None:
+        weights = np.clip(weights, -config.max_abs_weight, config.max_abs_weight)
+    if config.max_position_to_market_notional is not None:
+        caps = (
+            liquidity[None, None, :]
+            * config.max_position_to_market_notional
+            / values[:, None, None]
+        )
+        weights = np.clip(weights, -caps, caps)
+    if config.max_net_exposure is not None:
+        net = np.abs(weights.sum(axis=2, keepdims=True))
+        scale = np.minimum(
+            1.0,
+            config.max_net_exposure / np.maximum(net, _EPSILON),
+        )
+        weights *= scale
+    return weights
+
+
 def _transition_matrices(
     dataset: MarketDataset,
     config: OracleTeacherConfig,
@@ -271,6 +331,18 @@ def _transition_matrices(
 
     execution_index = close_index + 1
     requested_targets = _effective_target_matrix(config, current_weights, targets)
+    prices = dataset.open[execution_index]
+    market_notional = dataset.market_notional(
+        execution_index,
+        prices,
+        volume=dataset.volume[close_index],
+    )
+    requested_targets = project_portfolio_targets(
+        requested_targets,
+        portfolio_value=np.maximum(open_equity, _EPSILON),
+        market_notional=market_notional,
+        config=config.portfolio_risk,
+    )
     desired_delta = requested_targets - current_weights[:, None, :]
     requested_trade = np.abs(desired_delta) > _EPSILON
     valid_prior = np.isfinite(open_equity) & (open_equity > _EPSILON)
@@ -293,12 +365,6 @@ def _transition_matrices(
         executable &= requested_targets >= -_EPSILON
 
     requested = np.abs(desired_delta) * open_equity[:, None, None]
-    prices = dataset.open[execution_index]
-    market_notional = dataset.market_notional(
-        execution_index,
-        prices,
-        volume=dataset.volume[close_index],
-    )
     participation_limit = np.minimum(
         dataset.resolved_array("max_participation_rate")[execution_index],
         config.execution_cost.max_participation_rate,
@@ -579,4 +645,5 @@ __all__ = [
     "ORACLE_TEACHER_SCHEMA",
     "OracleTeacherConfig",
     "oracle_target_path",
+    "project_portfolio_targets",
 ]

@@ -181,6 +181,7 @@ def test_shared_per_asset_action_head_reuses_parameters_and_is_equivariant() -> 
         parameter.numel() for parameter in shared.parameters()
     )
     contexts = torch.randn(2, 3, 9)
+    contexts[:, :, -1] = 1.0
     permutation = torch.tensor([2, 0, 1])
     with torch.no_grad():
         original = shared(contexts.reshape(2, -1))
@@ -189,7 +190,7 @@ def test_shared_per_asset_action_head_reuses_parameters_and_is_equivariant() -> 
     torch.testing.assert_close(permuted, original[:, permutation])
 
 
-def test_shared_actor_masks_inactive_zero_tokens() -> None:
+def test_shared_actor_masks_explicitly_inactive_assets() -> None:
     from trade_rl.rl.policies import SharedPerAssetActionHead
 
     head = SharedPerAssetActionHead(
@@ -199,7 +200,8 @@ def test_shared_actor_masks_inactive_zero_tokens() -> None:
         hidden_dims=(5,),
     ).eval()
     contexts = torch.randn(1, 2, 7)
-    contexts[:, 1, :3] = 0.0
+    contexts[:, :, -1] = 1.0
+    contexts[:, 1, -1] = 0.0
 
     with torch.no_grad():
         actions = head(contexts.reshape(1, -1))
@@ -341,7 +343,7 @@ def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:
     with torch.no_grad():
         output = extractor(observation)
 
-    assert output.shape == (1, 160)
+    assert output.shape == (1, 161)
     assert bool(captured["mask"][0, -1])
 
 
@@ -406,7 +408,7 @@ def test_shared_sequence_policy_uses_squashed_target_weight_distribution() -> No
         log_std_init=-0.5,
     )
     assert isinstance(policy.action_dist, SquashedDiagGaussianDistribution)
-    assert policy.action_distribution_name == "squashed_diag_gaussian"
+    assert policy.action_distribution_name == "masked_shared_squashed_diag_gaussian"
 
     batch = 4
     observations: dict[str, torch.Tensor] = {}

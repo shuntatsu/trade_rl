@@ -473,6 +473,7 @@ class StableBaselines3Backend:
                     risk_config = unwrapped_teacher.pre_trade_risk.config
                     teacher_config = OracleTeacherConfig(
                         execution_cost=unwrapped_teacher.config.execution_cost,
+                        portfolio_risk=unwrapped_teacher.portfolio_risk.config,
                         max_gross=risk_config.max_gross,
                         max_abs_weight=risk_config.max_abs_weight,
                         entry_threshold=risk_config.entry_threshold,

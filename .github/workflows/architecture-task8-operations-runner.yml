@@ -69,6 +69,9 @@ jobs:
             run_step implementation python tools/apply_task10_terminal_accounting.py implementation || status=$?
           fi
           if [ "$status" -eq 0 ]; then
+            run_step followup python tools/apply_task10_followup.py || status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
             run_step format uv run ruff format \
               trade_rl/rl/environment.py \
               trade_rl/rl/environment_config.py \
@@ -119,6 +122,7 @@ jobs:
           fi
           rm -f \
             tools/apply_task10_terminal_accounting.py \
+            tools/apply_task10_followup.py \
             tools/task9-trigger.txt \
             tools/task10-trigger.txt \
             task10-diagnostic.log \

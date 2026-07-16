@@ -1,0 +1,43 @@
+name: Final training verification status bridge
+
+on:
+  workflow_run:
+    workflows:
+      - Final training verification gate
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  record-failure:
+    if: >-
+      github.event.workflow_run.head_branch == 'agent/full-training-functional-audit' &&
+      github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-training-functional-audit
+          fetch-depth: 0
+      - name: Record failed verification run
+        shell: bash
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          TESTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          cat > docs/audits/2026-07-17-full-training-verification-failure.txt <<EOF
+          final_training_verification_failure_v1
+          conclusion=$CONCLUSION
+          run_id=$RUN_ID
+          tested_head_sha=$TESTED_HEAD_SHA
+          EOF
+          rm -f .github/workflows/final-training-verification-status-bridge.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'ci: record failed final training verification'
+          git push origin HEAD:agent/full-training-functional-audit

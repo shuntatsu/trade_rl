@@ -1,1 +1,1 @@
-trigger task10 terminal accounting verification
+trigger task10 terminal accounting diagnostic verification

@@ -50,6 +50,17 @@ class PortfolioRiskResult:
 class PortfolioRiskModel:
     """Apply deterministic concentration, liquidity and scenario constraints."""
 
+    @property
+    def requires_advanced_inputs(self) -> bool:
+        return any(
+            value is not None
+            for value in (
+                self.config.volatility_target,
+                self.config.max_abs_beta,
+                self.config.max_stress_loss,
+            )
+        )
+
     implementation_digest = content_digest(
         {"schema_version": "portfolio-risk-model-v1"}
     )

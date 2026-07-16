@@ -8,6 +8,7 @@ on:
     branches:
       - main
       - agent/causal-training-hardening
+      - agent/causal-sequence-feature-encoder
 
 permissions:
   contents: read
@@ -47,6 +48,12 @@ jobs:
 
       - name: Dead-code report
         run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
 
       - name: Tests and coverage
         run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json

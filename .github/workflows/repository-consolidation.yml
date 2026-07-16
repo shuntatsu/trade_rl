@@ -1,0 +1,172 @@
+name: Repository Consolidation
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.head_ref == 'agent/complete-architecture-hardening'
+    name: Audit all repository branches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout integration head
+        uses: actions/checkout@v4
+        with:
+          ref: agent/complete-architecture-hardening
+          fetch-depth: 0
+
+      - name: Fetch every remote branch
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+      - name: Prove every branch is integrated
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          report="$RUNNER_TEMP/branch-inventory.txt"
+          : > "$report"
+          blockers=0
+          while IFS= read -r ref; do
+            branch="${ref#refs/remotes/origin/}"
+            [ "$branch" = "HEAD" ] && continue
+            sha="$(git rev-parse "$ref")"
+            ahead="$(git rev-list --count "$head_sha..$ref")"
+            behind="$(git rev-list --count "$ref..$head_sha")"
+            if git merge-base --is-ancestor "$ref" "$head_sha"; then
+              contained=yes
+            else
+              contained=no
+              blockers=1
+            fi
+            printf '%s\t%s\tcontained=%s\tahead=%s\tbehind=%s\n' \
+              "$branch" "$sha" "$contained" "$ahead" "$behind" >> "$report"
+            if [ "$contained" = no ]; then
+              echo "--- commits unique to $branch ---" >> "$report"
+              git log --oneline --no-merges -n 50 "$head_sha..$ref" >> "$report" || true
+              echo "--- diffstat against integration head ---" >> "$report"
+              git diff --stat "$head_sha...$ref" >> "$report" || true
+            fi
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin | sort)
+          cat "$report"
+          cp "$report" branch-inventory.txt
+          if [ "$blockers" -ne 0 ]; then
+            echo "At least one branch contains commits not present in the integration head."
+            exit 1
+          fi
+
+      - name: Upload branch inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository-branch-inventory-${{ github.run_id }}
+          path: branch-inventory.txt
+          if-no-files-found: error
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3
+
+      - name: Static verification
+        run: |
+          uv run ruff check .
+          uv run ruff format --check --diff .
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Full tests and branch coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest --cov=trade_rl --cov-branch \
+            --cov-report=term-missing --cov-report=json:coverage.json \
+            2>&1 | tee pytest.log
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+
+      - name: CLI and training image smoke
+        shell: bash
+        run: |
+          uv run trade-rl --version
+          commit="$(git rev-parse HEAD)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --file Dockerfile.training \
+            --tag trade-rl-training:consolidation \
+            .
+          docker run --rm --entrypoint sh trade-rl-training:consolidation -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '
+
+  cleanup:
+    if: github.event_name == 'push' && github.ref_name == 'main'
+    name: Delete integrated branches
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch every remote branch
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+      - name: Refuse deletion unless every branch is integrated
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_sha="$(git rev-parse HEAD)"
+          blockers=0
+          while IFS= read -r ref; do
+            branch="${ref#refs/remotes/origin/}"
+            [ "$branch" = "HEAD" ] && continue
+            [ "$branch" = "main" ] && continue
+            if ! git merge-base --is-ancestor "$ref" "$main_sha"; then
+              echo "NOT INTEGRATED: $branch $(git rev-parse "$ref")"
+              blockers=1
+            fi
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin | sort)
+          if [ "$blockers" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Delete every non-main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r ref; do
+            branch="${ref#refs/remotes/origin/}"
+            [ "$branch" = "HEAD" ] && continue
+            [ "$branch" = "main" ] && continue
+            git push origin --delete "$branch"
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin | sort)
+
+      - name: Remove temporary consolidation workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/repository-consolidation.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'chore: finish repository consolidation'
+          git push origin HEAD:main

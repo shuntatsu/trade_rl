@@ -1,0 +1,64 @@
+name: Architecture Patch Runner
+
+on:
+  pull_request:
+    branches:
+      - agent/causal-sequence-feature-encoder
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  task2:
+    if: ${{ github.event.pull_request.head.ref == 'agent/complete-architecture-hardening' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/complete-architecture-hardening
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: RED
+        run: |
+          python tools/apply_task2_oracle.py tests
+          set +e
+          uv run pytest -q tests/learning/test_oracle_teacher.py
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo 'Oracle regression tests unexpectedly passed before implementation.' >&2
+            exit 1
+          fi
+      - name: GREEN
+        run: |
+          python tools/apply_task2_oracle.py implementation
+          uv run ruff format trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py
+          uv run pytest -q tests/learning/test_oracle_teacher.py tests/learning/test_behavior_cloning.py tests/learning/test_structured_teacher_artifact.py tests/integrations/test_sb3_training.py
+          uv run ruff check trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py tests/learning/test_oracle_teacher.py
+          uv run mypy trade_rl/learning/oracle_teacher.py trade_rl/integrations/sb3_training.py
+      - name: Commit hardening branch
+        run: |
+          rm -f tools/apply_task2_oracle.py
+          git config user.name 'architecture-hardening-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: align approximate teacher with executor semantics'
+          git push origin HEAD:agent/complete-architecture-hardening
+      - name: Remove temporary runner from base branch
+        run: |
+          git fetch origin agent/causal-sequence-feature-encoder
+          git worktree add /tmp/patch-runner-cleanup origin/agent/causal-sequence-feature-encoder
+          cd /tmp/patch-runner-cleanup
+          git checkout -B agent/causal-sequence-feature-encoder origin/agent/causal-sequence-feature-encoder
+          rm .github/workflows/architecture-patch-runner.yml
+          git config user.name 'architecture-hardening-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'chore: remove temporary architecture patch runner'
+          git push origin HEAD:agent/causal-sequence-feature-encoder

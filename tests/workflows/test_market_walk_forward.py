@@ -410,11 +410,7 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
                     "purge_bars": 4,
                     "max_folds": 1,
                 },
-                # This regression verifies workflow wiring, not profitability.
-                # Keep the production defaults unchanged and force the trained
-                # ensemble through the sealed outer-test path only in this test.
-                "minimum_selection_uplift": -100.0,
-                "minimum_selection_score": -100.0,
+                "minimum_selection_uplift": 0.0,
                 "candidates": [
                     {"name": "sequence-ppo", "run": run.digest_payload()}
                 ],
@@ -434,9 +430,21 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
     published = result.path
     payload = json.loads((published / "walk-forward.json").read_text(encoding="utf-8"))
     fold = payload["folds"][0]
-    assert fold["selected_member_seeds"] == [0, 1, 2]
-    assert len(fold["selected_member_policy_digests"]) == 3
-    assert fold["sealed_test_evaluations"] == 2
+    finalists = fold["seed_finalists"]
+    assert [item["seed"] for item in finalists] == [0, 1, 2]
+    assert all(len(item["policy_digest"]) == 64 for item in finalists)
+    aggregate = fold["candidate_aggregates"][0]
+    assert aggregate["configuration"] == "sequence-ppo"
+    assert aggregate["seed_count"] == 3
+    if fold["selected_configuration"] == "sequence-ppo":
+        assert fold["selected_member_seeds"] == [0, 1, 2]
+        assert len(fold["selected_member_policy_digests"]) == 3
+        assert fold["sealed_test_evaluations"] == 2
+    else:
+        assert fold["selected_configuration"] == "baseline"
+        assert fold["selected_member_seeds"] == []
+        assert fold["selected_member_policy_digests"] == []
+        assert fold["sealed_test_evaluations"] == 1
     assert (published / "fold-000" / "sequence-normalizer-sequence-ppo.json").is_file()
     checkpoint_selection = json.loads(
         (

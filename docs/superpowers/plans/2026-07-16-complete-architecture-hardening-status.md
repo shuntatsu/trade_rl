@@ -10,4 +10,6 @@ Task 9 was verified red-green: structured PPO now samples target weights through
 
 Task 10 was verified red-green across the related environment and training suites. Time-limit mark-to-market truncation, optional close liquidation cost, and final delayed-target disposal are now emitted as machine-readable terminal evidence. The configured terminal accounting mode is also written into the training environment artifact.
 
+Task 11 verification is staged: advanced volatility, beta, and stress constraints will receive causal rolling inputs whose provider identity is bound into the environment digest.
+
 Production remains NO-GO until the manually dispatched CUDA verification, fresh sealed confirmation data, and paper-trading reconciliation are complete.

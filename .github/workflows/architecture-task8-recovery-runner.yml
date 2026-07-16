@@ -46,6 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           python tools/apply_task8_recovery.py implementation
+          python tools/apply_task8_recovery_followup.py
           set +e
           {
             uv run ruff format trade_rl/integrations/compact_rollout_buffer.py trade_rl/rl/checkpointing.py trade_rl/integrations/sb3_training.py trade_rl/workflows/training_run.py tests/rl/test_checkpointing.py tests/rl/test_rollout_memory.py tests/workflows/test_training_run_config.py tests/integrations/test_sb3_training.py
@@ -74,7 +75,7 @@ jobs:
             tail -n 400 task8-recovery-diagnostic.log
             exit "$status"
           fi
-          rm -f tools/apply_task8_recovery.py tools/task8-recovery-trigger.txt task8-recovery-diagnostic.log task8-recovery-status.txt
+          rm -f tools/apply_task8_recovery.py tools/apply_task8_recovery_followup.py tools/task8-recovery-trigger.txt task8-recovery-diagnostic.log task8-recovery-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A

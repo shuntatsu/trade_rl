@@ -19,7 +19,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.head_ref == 'agent/full-training-functional-audit'
     runs-on: ubuntu-latest
     env:
-      APPLY_REVISION: '3'
+      APPLY_REVISION: '4'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           base64 -d .github/sequence-constructor-fix/part-00 | gzip -d > /tmp/sequence-constructor-fix.patch
-          echo '3a824d9cc4858fef51f83c5b4c4782f882844a9086930e39b85521628ac9ff90  /tmp/sequence-constructor-fix.patch' | sha256sum --check -
+          echo '5bb9fe8b016685066077a5669415a635963e0a21405d3468695a8965b022aacc  /tmp/sequence-constructor-fix.patch' | sha256sum --check -
           git apply --check /tmp/sequence-constructor-fix.patch
           git apply /tmp/sequence-constructor-fix.patch
           rm -rf .github/sequence-constructor-fix

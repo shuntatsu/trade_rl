@@ -46,9 +46,11 @@ jobs:
         run: |
           set -euo pipefail
           python tools/apply_task7_structured_serving.py implementation
+          python tools/apply_task7_followup.py
           set +e
           {
             uv run ruff format trade_rl/serving/sequence_normalizer.py trade_rl/integrations/sb3_serving.py trade_rl/serving/runtime.py trade_rl/workflows/training_run.py tests/workflows/test_training_run_config.py tests/serving/test_sb3_loader.py
+            uv run ruff check --fix trade_rl/serving/sequence_normalizer.py trade_rl/integrations/sb3_serving.py trade_rl/serving/runtime.py trade_rl/workflows/training_run.py
             uv run pytest -q tests/workflows/test_training_run_config.py tests/workflows/test_training_run.py tests/serving/test_sb3_loader.py tests/serving/test_registry_runtime_critical_coverage.py tests/e2e/test_research_to_serving_v2.py
             uv run ruff check trade_rl/serving/sequence_normalizer.py trade_rl/integrations/sb3_serving.py trade_rl/serving/runtime.py trade_rl/workflows/training_run.py
             uv run mypy trade_rl/serving/sequence_normalizer.py trade_rl/integrations/sb3_serving.py trade_rl/serving/runtime.py trade_rl/workflows/training_run.py
@@ -73,7 +75,7 @@ jobs:
             tail -n 350 task7-diagnostic.log
             exit "$status"
           fi
-          rm -f tools/apply_task7_structured_serving.py tools/task7-trigger.txt task7-diagnostic.log task7-status.txt
+          rm -f tools/apply_task7_structured_serving.py tools/apply_task7_followup.py tools/task7-trigger.txt task7-diagnostic.log task7-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A

@@ -1,0 +1,81 @@
+name: Architecture Task 6 Runner
+
+on:
+  pull_request:
+    branches:
+      - agent/causal-sequence-feature-encoder
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-task6-runner
+  cancel-in-progress: true
+
+jobs:
+  task6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/complete-architecture-hardening
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_task6_research_protocol.py tests
+          set +e
+          uv run pytest -q tests/evaluation/test_research_gate.py tests/examples/test_binance_multitimeframe_full_assets.py
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Task 6 regression tests unexpectedly passed before implementation" >&2
+            exit 1
+          fi
+      - name: GREEN and diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_task6_research_protocol.py implementation
+          set +e
+          {
+            uv run ruff format trade_rl/evaluation/research_gate.py examples/binance-multitimeframe/run_full_research.py tests/evaluation/test_research_gate.py tests/examples/test_binance_multitimeframe_full_assets.py
+            uv run pytest -q tests/evaluation/test_research_gate.py tests/examples/test_binance_multitimeframe_full_assets.py tests/workflows/test_market_walk_forward.py tests/examples/test_run_gpu_training_smoke.py
+            uv run ruff check trade_rl/evaluation/research_gate.py examples/binance-multitimeframe/run_full_research.py
+            uv run mypy trade_rl/evaluation/research_gate.py examples/binance-multitimeframe/run_full_research.py
+          } > task6-diagnostic.log 2>&1
+          status=$?
+          set -e
+          echo "$status" > task6-status.txt
+      - name: Upload Task 6 diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task6-diagnostic
+          path: |
+            task6-diagnostic.log
+            task6-status.txt
+      - name: Commit hardening branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(cat task6-status.txt)
+          if [ "$status" -ne 0 ]; then
+            tail -n 300 task6-diagnostic.log
+            exit "$status"
+          fi
+          rm -f tools/apply_task6_research_protocol.py tools/task6-trigger.txt task6-diagnostic.log task6-status.txt
+          git config user.name architecture-hardening-bot
+          git config user.email actions@users.noreply.github.com
+          git add -A
+          git commit -m "fix: require material OOS and fresh confirmation evidence"
+          git push origin HEAD:agent/complete-architecture-hardening

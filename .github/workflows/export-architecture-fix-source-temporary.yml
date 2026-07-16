@@ -18,13 +18,17 @@ jobs:
         with:
           ref: agent/causal-sequence-feature-encoder
           fetch-depth: 0
-      - name: Package source into temporary branch file
+      - name: Package source into temporary chunk files
         run: |
           set -euo pipefail
+          rm -f architecture-fix-source.b64 architecture-fix-source.part-*
           git archive --format=tar.gz --prefix=trade_rl/ HEAD > trade_rl-source.tar.gz
-          base64 -w 0 trade_rl-source.tar.gz > architecture-fix-source.b64
+          sha256sum trade_rl-source.tar.gz | awk '{print $1}' > architecture-fix-source.sha256
+          base64 -w 0 trade_rl-source.tar.gz > source.b64
+          split -b 90000 -d -a 3 source.b64 architecture-fix-source.part-
+          rm source.b64 trade_rl-source.tar.gz
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add architecture-fix-source.b64
-          git commit -m "chore: stage architecture fix source export"
+          git add -A architecture-fix-source.b64 architecture-fix-source.sha256 architecture-fix-source.part-*
+          git commit -m "chore: split architecture fix source export"
           git push origin HEAD:agent/causal-sequence-feature-encoder

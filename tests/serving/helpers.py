@@ -8,10 +8,21 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.releases import ReleaseManifest
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.release.attestation import (
+    ReleaseAttestation,
+    default_attestation_path,
+)
+from trade_rl.release.attestation import (
+    write_release_attestation as write_external_release_attestation,
+)
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
-from trade_rl.serving.bundle import ServingBundleManifest, write_serving_bundle_manifest
+from trade_rl.serving.bundle import (
+    ServingBundleManifest,
+    load_serving_bundle,
+    write_serving_bundle_manifest,
+)
 from trade_rl.serving.normalizer import write_observation_normalizer
 from trade_rl.serving.release import write_release_attestation
 from trade_rl.serving.runtime import RuntimeIdentityContract
@@ -20,6 +31,9 @@ OBSERVATION_SIZE = 5
 ACTION_NAMES = ("fast_tilt", "slow_tilt", "risk_tilt")
 ACTION_SPEC_DIGEST = content_digest({"names": ACTION_NAMES})
 INITIAL_CAPITAL = 250_000.0
+TEST_ATTESTATION_KEY_ID = "test-attestation-key"
+TEST_ATTESTATION_SIGNING_KEY = b"test-attestation-signing-key"
+TEST_TRUSTED_ATTESTATION_KEYS = {TEST_ATTESTATION_KEY_ID: TEST_ATTESTATION_SIGNING_KEY}
 _CREATED_AT = datetime(2026, 7, 13, tzinfo=UTC)
 
 
@@ -118,6 +132,34 @@ def create_bundle(
         write_release_attestation(root, release)
     write_serving_bundle_manifest(root, manifest)
     return root
+
+
+def create_authenticated_bundle(
+    root: Path,
+    **kwargs: object,
+) -> Path:
+    """Create a candidate plus a trusted external authenticated attestation."""
+
+    if "release_digest" in kwargs:
+        raise ValueError("authenticated bundle controls release_digest internally")
+    created = create_bundle(root, release_digest=None, **kwargs)
+    manifest = load_serving_bundle(created).manifest
+    attestation = ReleaseAttestation.create(
+        bundle_digest=manifest.bundle_digest,
+        dataset_id=manifest.dataset_id,
+        selection_evaluation_digest=manifest.selection_digest,
+        gate_evaluation_digest="1" * 64,
+        gate_evidence_digest="2" * 64,
+        selected_policy_digest=manifest.policy_digest,
+        git_commit="3" * 40,
+        dependency_digest="4" * 64,
+        approver="serving-test",
+        approved_at=_CREATED_AT,
+        key_id=TEST_ATTESTATION_KEY_ID,
+        signing_key=TEST_ATTESTATION_SIGNING_KEY,
+    )
+    write_external_release_attestation(default_attestation_path(created), attestation)
+    return created
 
 
 def runtime_identity_contract(

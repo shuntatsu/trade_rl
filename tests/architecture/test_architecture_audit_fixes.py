@@ -46,16 +46,34 @@ def test_confirmation_recheck_loads_existing_generation_context(tmp_path: Path) 
     load_context = namespace["_load_existing_context"]
     work_root = tmp_path / "generation"
     walk_forward = tmp_path / "artifacts" / "walk-forward"
+    training_path = tmp_path / "artifacts" / "training"
     work_root.mkdir()
     walk_forward.mkdir(parents=True)
+    training_path.mkdir(parents=True)
+    (training_path / "ensemble.json").write_text(
+        json.dumps({"environment_digest": "d" * 64}),
+        encoding="utf-8",
+    )
     summary = {
         "production_status": "NO-GO",
-        "training": {"policy_digest": "b" * 64},
+        "training": {
+            "policy_digest": "b" * 64,
+            "dataset_id": "c" * 64,
+            "run_digest": "e" * 64,
+            "artifact_path": str(training_path),
+        },
         "walk_forward": {"artifact_path": str(walk_forward)},
     }
     (work_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
 
-    loaded_summary, loaded_walk_forward, digest = load_context(
+    (
+        loaded_summary,
+        loaded_walk_forward,
+        digest,
+        dataset_id,
+        environment_digest,
+        training_run_digest,
+    ) = load_context(
         work_root,
         repository_root=ROOT,
     )
@@ -63,6 +81,9 @@ def test_confirmation_recheck_loads_existing_generation_context(tmp_path: Path) 
     assert loaded_summary == summary
     assert loaded_walk_forward == walk_forward
     assert digest == "b" * 64
+    assert dataset_id == "c" * 64
+    assert environment_digest == "d" * 64
+    assert training_run_digest == "e" * 64
 
 
 def _sequence_policy() -> SharedPerAssetActorCriticPolicy:

@@ -115,12 +115,12 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     )
     assert oracle.training.behavior_cloning_epochs == 15
     assert config.minimum_seed_success_fraction == pytest.approx(2.0 / 3.0)
-    assert config.minimum_worst_seed_uplift == pytest.approx(-0.02)
-    assert config.maximum_seed_score_std == pytest.approx(0.05)
+    assert config.minimum_worst_seed_uplift == pytest.approx(0.0)
+    assert config.maximum_seed_score_std == pytest.approx(0.10)
     assert config.maximum_selection_turnover_per_day == pytest.approx(1.0)
     assert config.maximum_selection_cost_fraction == pytest.approx(0.03)
     assert config.minimum_selection_score == pytest.approx(0.0)
-    assert config.maximum_selection_drawdown == pytest.approx(0.15)
+    assert config.maximum_selection_drawdown == pytest.approx(0.20)
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
@@ -305,7 +305,12 @@ def _write_walk_forward(
         {
             "selected_configuration": "oracle-bc-ppo-15m-target",
             "selected_policy_digest": digest,
-            "selected_seed": 1,
+            "selected_member_seeds": [0, 1, 2],
+            "selected_member_policy_digests": [
+                f"{index + 1:064x}",
+                f"{index + 11:064x}",
+                f"{index + 21:064x}",
+            ],
             "selected_returns": returns_by_fold[index % len(returns_by_fold)],
             "selected_turnover_per_day": 0.5,
             "selected_cost_fraction": 0.01,
@@ -640,7 +645,12 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
                     {
                         "selected_configuration": "ppo-15m-target",
                         "selected_policy_digest": "a" * 64,
-                        "selected_seed": 1,
+                        "selected_member_seeds": [0, 1, 2],
+                        "selected_member_policy_digests": [
+                            "1" * 64,
+                            "2" * 64,
+                            "3" * 64,
+                        ],
                         "selected_returns": [-1.0],
                         "selected_turnover_per_day": 0.5,
                         "selected_cost_fraction": 0.01,
@@ -654,7 +664,12 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
                     {
                         "selected_configuration": "ppo-15m-target",
                         "selected_policy_digest": "b" * 64,
-                        "selected_seed": 1,
+                        "selected_member_seeds": [0, 1, 2],
+                        "selected_member_policy_digests": [
+                            "4" * 64,
+                            "5" * 64,
+                            "6" * 64,
+                        ],
                         "selected_returns": [0.0],
                         "selected_turnover_per_day": 0.5,
                         "selected_cost_fraction": 0.01,
@@ -685,23 +700,26 @@ def test_full_runner_accepts_total_loss_fold_return_as_valid_evidence(
     assert (tmp_path / "summary.json").is_file()
 
 
-def test_full_runner_treats_seed_as_nuisance_not_selected_hyperparameter(
+def test_full_runner_requires_one_stable_seed_ensemble_recipe(
     tmp_path: Path,
 ) -> None:
     namespace = _runner_namespace()
     stability = namespace["_selection_stability_passed"]
-    folds = [
+    stable = [
         {
             "selected_configuration": "ppo-15m-target",
-            "selected_seed": seed,
+            "selected_member_seeds": [0, 1, 2],
             "candidate_aggregates": [
                 {"configuration": "ppo-15m-target", "eligible": True}
             ],
         }
-        for seed in (0, 1)
+        for _ in range(2)
     ]
+    changed = [dict(stable[0]), dict(stable[1])]
+    changed[1]["selected_member_seeds"] = [0, 2, 3]
 
-    assert stability(folds) is True
+    assert stability(stable) is True
+    assert stability(changed) is False
 
 
 def test_selected_walk_forward_recipe_preserves_seed_ensemble(
@@ -717,11 +735,11 @@ def test_selected_walk_forward_recipe_preserves_seed_ensemble(
                 "folds": [
                     {
                         "selected_configuration": "ppo-15m-target",
-                        "selected_seed": 2,
+                        "selected_member_seeds": [0, 1, 2],
                     },
                     {
                         "selected_configuration": "ppo-15m-target",
-                        "selected_seed": 2,
+                        "selected_member_seeds": [0, 1, 2],
                     },
                 ]
             }
@@ -751,6 +769,20 @@ def test_selected_walk_forward_recipe_preserves_seed_ensemble(
     assert path == output
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["training"]["seeds"] == [0, 1, 2]
+
+    evidence = json.loads(
+        (walk_forward_path / "walk-forward.json").read_text(encoding="utf-8")
+    )
+    evidence["folds"][1]["selected_member_seeds"] = [0, 2, 3]
+    (walk_forward_path / "walk-forward.json").write_text(
+        json.dumps(evidence), encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="seed ensemble"):
+        select_recipe(
+            walk_forward_path,
+            config_path,
+            tmp_path / "invalid-selected.json",
+        )
 
 
 def test_full_runner_preserves_all_selected_recipe_seeds(tmp_path: Path) -> None:
@@ -784,3 +816,60 @@ def test_full_runner_strict_gate_rejects_two_short_folds(tmp_path: Path) -> None
     assert exit_code != 0
     assert gate["conditions"]["minimum_fold_count_met"] is False
     assert gate["conditions"]["minimum_oos_days_met"] is False
+
+
+def test_signed_rule_history_is_authoritative_and_reproducible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import asdict
+
+    from trade_rl.release.signing import sign_payload
+
+    namespace = _runner_namespace()
+    load_history = namespace["_load_rule_history"]
+    payload = {
+        "schema_version": "binance_instrument_rule_history_v2",
+        "symbols": {
+            symbol: {
+                "listed_at": "2020-01-01T00:00:00+00:00",
+                "rules": [
+                    {
+                        "effective_at": "2024-01-01T00:00:00+00:00",
+                        "tick_size": 0.1,
+                        "lot_size": 0.001,
+                        "minimum_notional": 5.0,
+                    },
+                    {
+                        "effective_at": "2026-01-01T00:00:00+00:00",
+                        "tick_size": 0.01,
+                        "lot_size": 0.0001,
+                        "minimum_notional": 10.0,
+                    },
+                ],
+            }
+            for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT")
+        },
+    }
+    envelope = sign_payload(
+        payload,
+        key_id="metadata-key",
+        signing_key=b"metadata-signing-key",
+    )
+    path = tmp_path / "metadata-history.json"
+    path.write_text(
+        json.dumps({"payload": payload, "envelope": asdict(envelope)}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TRADE_RL_BINANCE_RULE_HISTORY", str(path))
+    monkeypatch.setenv(
+        "TRADE_RL_METADATA_KEYS",
+        json.dumps({"metadata-key": "metadata-signing-key"}),
+    )
+
+    metadata, histories, evidence_digest = load_history()
+
+    assert len(evidence_digest) == 64
+    assert metadata["BTCUSDT"]["listed_at"].startswith("2020-01-01")
+    assert metadata["BTCUSDT"]["tick_size"] == pytest.approx(0.01)
+    assert len(histories["BTCUSDT"]) == 2

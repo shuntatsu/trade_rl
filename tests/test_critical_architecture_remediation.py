@@ -124,7 +124,7 @@ def _write_external_attestation(source: Path) -> ReleaseAttestation:
     attestation = ReleaseAttestation.create(
         bundle_digest=manifest.bundle_digest,
         dataset_id=manifest.dataset_id,
-        selection_evaluation_digest="1" * 64,
+        selection_evaluation_digest=manifest.selection_digest,
         gate_evaluation_digest="2" * 64,
         gate_evidence_digest="3" * 64,
         selected_policy_digest=manifest.policy_digest,
@@ -132,6 +132,8 @@ def _write_external_attestation(source: Path) -> ReleaseAttestation:
         dependency_digest="4" * 64,
         approver="architecture-audit",
         approved_at=datetime(2026, 7, 14, tzinfo=UTC),
+        key_id="test-release-key",
+        signing_key=b"test-release-signing-key",
     )
     write_release_attestation(default_attestation_path(source), attestation)
     return attestation
@@ -140,7 +142,10 @@ def _write_external_attestation(source: Path) -> ReleaseAttestation:
 def test_registry_installs_external_release_attestation(tmp_path: Path) -> None:
     source = create_bundle(tmp_path / "source", release_digest=None)
     expected = _write_external_attestation(source)
-    registry = ServingRegistry(tmp_path / "registry")
+    registry = ServingRegistry(
+        tmp_path / "registry",
+        trusted_attestation_keys={"test-release-key": b"test-release-signing-key"},
+    )
 
     active = registry.activate(source)
     reloaded = registry.active_bundle()

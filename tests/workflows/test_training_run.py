@@ -111,7 +111,7 @@ def test_execute_training_run_trains_serializes_and_publishes(tmp_path: Path) ->
     environment = json.loads(
         (published / "environment.json").read_text(encoding="utf-8")
     )
-    assert environment["terminal_accounting_mode"] == "mark_to_market"
+    assert environment["terminal_accounting_mode"] == "liquidate_at_close"
     loader = json.loads((published / "policy-loader.json").read_text(encoding="utf-8"))
     assert loader == {
         "algorithm": "ppo",

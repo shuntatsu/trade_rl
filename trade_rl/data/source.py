@@ -36,6 +36,7 @@ class RawMarketSeries:
     tradable: np.ndarray
     funding_available: np.ndarray | None = None
     available_at: np.ndarray | None = None
+    funding_event_count: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         timestamps = _readonly(self.timestamps)
@@ -70,6 +71,11 @@ class RawMarketSeries:
             if self.funding_available is None
             else self.funding_available
         )
+        funding_event_count = (
+            np.asarray(funding_available, dtype=np.int32)
+            if self.funding_event_count is None
+            else self.funding_event_count
+        )
         arrays = {
             "open": _readonly(self.open, dtype=np.dtype(np.float64)),
             "high": _readonly(self.high, dtype=np.dtype(np.float64)),
@@ -79,6 +85,9 @@ class RawMarketSeries:
             "funding_rate": _readonly(self.funding_rate, dtype=np.dtype(np.float64)),
             "tradable": _readonly(self.tradable, dtype=np.dtype(np.bool_)),
             "funding_available": _readonly(funding_available, dtype=np.dtype(np.bool_)),
+            "funding_event_count": _readonly(
+                funding_event_count, dtype=np.dtype(np.int32)
+            ),
         }
         expected = timestamps.shape
         for field_name, array in arrays.items():
@@ -93,6 +102,12 @@ class RawMarketSeries:
             raise ValueError("OHLC prices must be strictly positive")
         if np.any(arrays["volume"] < 0.0):
             raise ValueError("volume must be non-negative")
+        if np.any(arrays["funding_event_count"] < 0):
+            raise ValueError("funding_event_count must be non-negative")
+        if np.any(arrays["funding_available"] != (arrays["funding_event_count"] > 0)):
+            raise ValueError(
+                "funding_available must match positive funding_event_count"
+            )
         if (
             np.any(arrays["low"] > arrays["high"])
             or np.any(arrays["low"] > arrays["open"])
@@ -233,4 +248,5 @@ class CsvMarketDataSource:
             funding_rate=np.asarray(funding, dtype=np.float64),
             tradable=np.asarray(tradable, dtype=np.bool_),
             funding_available=np.asarray(funding_available, dtype=np.bool_),
+            funding_event_count=np.asarray(funding_available, dtype=np.int32),
         )

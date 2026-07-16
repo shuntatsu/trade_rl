@@ -179,7 +179,7 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     published = tmp_path / "artifacts" / "runs" / "wf-001"
     payload = json.loads((published / "walk-forward.json").read_text(encoding="utf-8"))
     assert payload["dataset_id"] == _dataset().dataset_id
-    assert payload["schema_version"] == "market_walk_forward_run_v4_seed_stable"
+    assert payload["schema_version"] == "market_walk_forward_run_v5_deployable_ensemble"
     assert len(payload["experiment_plan_digest"]) == 64
     assert len(payload["folds"]) == 1
     assert payload["folds"][0]["test_range"] == [45, 51]
@@ -189,9 +189,10 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     assert len(sealed_access["access_digest"]) == 64
     assert sealed_access["test_range"] == [45, 51]
     assert payload["folds"][0]["schema_version"] == (
-        "market_walk_forward_fold_v3_seed_stable"
+        "market_walk_forward_fold_v4_deployable_ensemble"
     )
-    assert payload["folds"][0]["selected_seed"] == 0
+    assert payload["folds"][0]["selected_member_seeds"] == [0]
+    assert len(payload["folds"][0]["selected_member_policy_digests"]) == 1
     assert len(payload["folds"][0]["seed_finalists"]) == 1
     finalist = payload["folds"][0]["seed_finalists"][0]
     assert finalist["seed"] == 0

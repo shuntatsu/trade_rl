@@ -35,7 +35,7 @@ uv run trade-rl data binance \
   --output var/binance/dataset
 ```
 
-The command publishes canonical `manifest.json` and `arrays.npz` files and prints one JSON result. Timestamps are exact bar-close boundaries, incomplete bars are excluded, kline quote-asset volume is stored as `quote_notional`, and funding remains a sparse event series.
+The command publishes canonical `manifest.json` and `arrays.npz` files and prints one JSON result. Timestamps are exact bar-close boundaries, incomplete bars are excluded, kline quote-asset volume is stored as `quote_notional`, and every funding event is aggregated into its containing completed native bar with an explicit event count.
 
 `--transport` accepts:
 
@@ -43,7 +43,7 @@ The command publishes canonical `manifest.json` and `arrays.npz` files and print
 - `vision`: official Binance Vision ZIP archives only;
 - `auto`: REST first, with Vision fallback for historical bars and funding.
 
-Binance Vision does not publish complete exchange metadata. A Vision-only run must therefore provide `--tick-size`, `--lot-size`, `--minimum-notional`, and `--listed-at` once per symbol. These values participate in the dataset identity.
+Binance Vision does not publish complete exchange metadata. A general Vision-only dataset may therefore provide `--tick-size`, `--lot-size`, `--minimum-notional`, and `--listed-at` once per symbol; those static values participate in the dataset identity. The maintained strict multi-timeframe research workflow is stronger: it requires an authenticated effective-dated rule history and materializes tick size, lot size, and minimum notional per bar. It refuses to treat current `exchangeInfo` as historical metadata.
 
 ## Run the verified end-to-end smoke
 
@@ -87,3 +87,9 @@ Metadata cardinality, duplicate symbols, irregular timestamps, missing daily arc
 ## Live-smoke automation
 
 `.github/workflows/binance-live-smoke.yml` is manual and weekly. It uses the fixed historical range so upstream data changes, parser regressions, and training-path regressions are detectable without making current market state part of the test identity. External-network availability is not a required pull-request check.
+
+## Point-in-time execution-rule history
+
+The strict full-research runner reads `TRADE_RL_BINANCE_RULE_HISTORY`. The file contains a `payload` object and an `envelope` created with `trade_rl.release.signing.sign_payload`. The payload schema is `binance_instrument_rule_history_v2` and contains each symbol’s authoritative `listed_at` timestamp plus one ordered effective-dated rule history. The first rule must be effective no later than the requested dataset start, and the history must cover the complete requested research interval. `TRADE_RL_METADATA_KEYS` supplies the trusted key-ID map at runtime. Unknown keys, altered payloads, missing symbols, duplicate effective times and uncovered research timestamps fail before dataset publication. Live `exchangeInfo` is not part of the strict dataset identity and is never projected backward as historical truth.
+
+Funding alignment follows the same point-in-time rule: events are assigned to `[bar_open, bar_close]` completed native bars, all events in the interval are summed, and the count is bound into dataset identity v6. This prevents daily features from discarding the non-midnight funding events that occur inside a day.

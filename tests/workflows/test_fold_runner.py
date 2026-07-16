@@ -173,7 +173,9 @@ def test_fold_runner_selects_across_seed_local_checkpoint_finalists() -> None:
                 and request.policy_digest is not None
             ):
                 self.calls.append(request)
-                score = {f"{7:064x}": 0.01, f"{8:064x}": 0.04}[request.policy_digest]
+                score = {f"{7:064x}": 0.01, f"{8:064x}": 0.04}.get(
+                    request.policy_digest, 0.025
+                )
                 return CandidateEvaluation(
                     score=score,
                     returns=ReturnSeries(
@@ -205,7 +207,22 @@ def test_fold_runner_selects_across_seed_local_checkpoint_finalists() -> None:
         evaluator=evaluator,
     ).run_fold(fold())
 
-    assert result.selection.selected_policy_digest == f"{7:064x}"
+    expected_ensemble = (
+        MultiSeedTrainer()
+        .train(
+            CandidateTrainingRequest(
+                dataset_id=DATASET_ID,
+                fold_index=fold().fold_index,
+                configuration=CandidateConfiguration("candidate_a"),
+                train=fold().train,
+                checkpoint_validation=fold().checkpoint_validation,
+            )
+        )
+        .ensemble_policy_digest
+    )
+    assert result.selection.selected_policy_digest == expected_ensemble
+    assert result.selected_member_policy_digests == (f"{7:064x}", f"{8:064x}")
+    assert result.selected_member_seeds == (0, 1)
     assert tuple(item.seed for item in result.seed_finalists) == (0, 1)
     assert tuple(item.selection_score for item in result.seed_finalists) == (0.01, 0.04)
     assert result.candidate_aggregates[0].median_score == 0.025
@@ -302,11 +319,13 @@ def test_fold_runner_rejects_unstable_high_cost_seed_distribution() -> None:
     @dataclass
     class UnstableEvaluator(FakeEvaluator):
         def evaluate(self, request: CandidateEvaluationRequest) -> CandidateEvaluation:
+            member_digests = {f"{20 + seed:064x}" for seed in range(3)}
             if (
                 request.phase is EvaluationPhase.CONFIGURATION_SELECTION
-                and request.policy_digest
+                and request.policy_digest in member_digests
             ):
                 self.calls.append(request)
+                assert request.policy_digest is not None
                 seed = int(request.policy_digest, 16) - 20
                 score = (0.06, -0.04, 0.05)[seed]
                 return CandidateEvaluation(

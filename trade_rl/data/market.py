@@ -84,6 +84,7 @@ class MarketDataset:
     periods_per_year: int
     calendar_kind: MarketCalendarKind | str = MarketCalendarKind.CONTINUOUS
     nominal_bar_hours: float | None = None
+    funding_event_count: np.ndarray | None = None
     feature_staleness_hours: np.ndarray | None = None
     feature_missing_reason: np.ndarray | None = None
     global_feature_available: np.ndarray | None = None
@@ -226,6 +227,17 @@ class MarketDataset:
                 raise ValueError(f"{field_name} shape does not match bars and symbols")
         if tradable.shape != price_shape:
             raise ValueError("tradable shape does not match bars and symbols")
+        funding_event_count = _optional_array(
+            self.funding_event_count,
+            shape=price_shape,
+            dtype=np.dtype(np.int32),
+            default=0,
+            field_name="funding_event_count",
+        )
+        if np.any(funding_event_count < 0):
+            raise ValueError("funding_event_count must be non-negative")
+        if np.any((funding_event_count > 0) & ~np.isfinite(funding)):
+            raise ValueError("funding events require finite funding rates")
         if feature_available.shape != features.shape:
             raise ValueError("feature_available shape does not match features")
 
@@ -596,6 +608,7 @@ class MarketDataset:
         object.__setattr__(self, "close", close)
         object.__setattr__(self, "volume", volume)
         object.__setattr__(self, "funding_rate", funding)
+        object.__setattr__(self, "funding_event_count", funding_event_count)
         object.__setattr__(self, "tradable", tradable)
         object.__setattr__(self, "feature_available", feature_available)
         object.__setattr__(self, "feature_staleness_hours", staleness)
@@ -714,6 +727,7 @@ class MarketDataset:
             "close": self.close,
             "volume": self.volume,
             "funding_rate": self.funding_rate,
+            "funding_event_count": self.resolved_array("funding_event_count"),
             "tradable": self.tradable,
             "symbol_active": self.resolved_array("symbol_active"),
             "fee_rate": self.resolved_array("fee_rate"),
@@ -743,7 +757,7 @@ class MarketDataset:
         provenance: Mapping[str, object] | None = None,
     ) -> MarketDataset:
         payload = dict(provenance or {})
-        payload["schema"] = "market_dataset_identity_v5"
+        payload["schema"] = "market_dataset_identity_v6"
         payload["dataset_contract"] = self.identity_contract_payload()
         dataset_id = compute_market_dataset_id(payload, self.identity_arrays())
         return replace(

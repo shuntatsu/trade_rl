@@ -28,11 +28,11 @@ The maintained environment now provides:
 
 ## Identity and serving
 
-Dataset identity v5 is recomputed from every observation, eligibility, execution and accounting field, including fees, spread, participation, quantity increments, borrow/funding schedules, mark/index prices, corporate actions, cash rates, volume-unit semantics, contract multipliers and feature availability/age. Published dataset artifacts reject arbitrary identities, symlinks, root escapes and undeclared files.
+Dataset identity v6 is recomputed from every observation, eligibility, execution and accounting field, including effective-dated tick/lot/minimum-notional rules, aggregated funding-event counts, fees, spread, participation, borrow/funding schedules, mark/index prices, corporate actions, cash rates, volume-unit semantics, contract multipliers and feature availability/age. Published dataset artifacts reject arbitrary identities, symlinks, root escapes and undeclared files.
 
 Environment identity includes the verified dataset, calendar, action specification, content-addressed fold-local alpha/factor artifacts, semantic normalizer, episode curriculum, trend, reward, portfolio risk, execution and AUM. Signal filesystem paths are diagnostics only and never change experiment identity.
 
-Serving candidate bundle v4 contains no release identifier. A separate `ReleaseAttestation` binds the immutable bundle digest to dataset, selection, evaluation, gate evidence, selected policy, source commit, dependency provenance, approver and approval time. Registry and runtime activation verify this external attestation, load the shared observation/normalization pipeline and run deterministic probe observations through every ensemble member before live state is swapped. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
+Serving candidate bundle v4 contains no release identifier. A separate HMAC-SHA256-authenticated `ReleaseAttestation` binds the immutable bundle digest to dataset, selection, evaluation, gate evidence, selected policy, source commit, dependency provenance, approver and approval time. Registry and runtime activation require an explicitly trusted key ID, verify the signature, load the shared observation/normalization pipeline and run deterministic probe observations through every ensemble member before live state is swapped. Structured prediction additionally requires a monotonic identity-bound account-state snapshot in released mode. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
 
 The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3 and TQC ensemble bundles. Stable-Baselines3 and PyTorch are installed only with the `train-sb3` extra.
 
@@ -42,7 +42,7 @@ A market dataset artifact is a validated directory containing canonical `manifes
 
 A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one authoritative `policy.zip` per seed, content-addressed intermediate checkpoints selected only on checkpoint-validation data, a `policy-loader.json`, optional verified ONNX/TorchScript actors and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format. ONNX is an optional required export when requested; TorchScript is best-effort and records an explicit unsupported reason when conversion is unsafe.
 
-Nested walk-forward execution builds fold-local causal signals, fits only exogenous normalization statistics on each train capability, records one-shot sealed-test access, and evaluates each selected policy on the outer test range only after selection. Independent folds retain full execution evidence and are reported as a distribution; continuous return and drawdown are produced only with verified contiguous account-state handoff.
+Nested walk-forward execution builds fold-local causal signals, fits only exogenous normalization statistics on each train capability, records one-shot sealed-test access, and evaluates the exact deterministic mean seed ensemble used by serving on the outer test range only after selection. Training, behavior cloning, checkpoint selection and sealed evaluation all use liquidation-at-close terminal accounting. Independent folds retain full execution evidence and are reported as a distribution; continuous return and drawdown are produced only with verified contiguous account-state handoff.
 
 ## Commands
 
@@ -93,7 +93,7 @@ uv run trade-rl data binance \
 
 Spot and USDⓈ-M are supported linear products. COIN-M inverse futures fail closed because the current accounting model is linear and must not publish misleading inverse-contract PnL. See [docs/BINANCE.md](docs/BINANCE.md) for the fixed-range end-to-end smoke.
 
-Both execution commands print one machine-readable JSON result. Research runs remain non-production artifacts; a paper-serving activation additionally requires a verified external release attestation. Direct exchange connectivity is not implemented.
+Both execution commands print one machine-readable JSON result. Research runs remain non-production artifacts; a paper-serving activation additionally requires a signed external release attestation from an explicitly configured trusted key. Fresh confirmation evidence is likewise signed and recomputes return/drawdown from its immutable return series rather than trusting summary fields. Direct exchange connectivity is not implemented.
 
 ## Docker GPU full research run
 
@@ -109,6 +109,8 @@ docker compose -f compose.training.yaml run --rm trainer
 The second command exits nonzero when CUDA preflight, training, evaluation, or
 the research gate fails. A successful process is research evidence only: it is
 not a profitability guarantee and production status remains `NO-GO`.
+
+The strict Binance workflow also requires an authenticated point-in-time execution-rule history. Set `TRADE_RL_BINANCE_RULE_HISTORY` to the in-container JSON path and `TRADE_RL_METADATA_KEYS` to a JSON map of trusted key IDs to secrets. Current `exchangeInfo` values are never silently projected backward across the research period.
 
 See [Docker GPU full-training operations](docs/operations/docker-gpu-full-training.md)
 for exact detached start, status, logs, volume inspection, artifact extraction,

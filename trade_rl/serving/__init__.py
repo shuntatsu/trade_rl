@@ -15,6 +15,11 @@ from trade_rl.serving.runtime import (
     RuntimeSnapshot,
     ServingRuntime,
 )
+from trade_rl.serving.state import (
+    SERVING_STATE_SCHEMA,
+    ServingStateGuard,
+    ServingStateSnapshot,
+)
 
 __all__ = [
     "BundleFile",
@@ -22,10 +27,13 @@ __all__ = [
     "PolicyLoader",
     "RuntimeIdentityContract",
     "RuntimeSnapshot",
+    "SERVING_STATE_SCHEMA",
     "ServingBundle",
     "ServingBundleManifest",
     "ServingRegistry",
     "ServingRuntime",
+    "ServingStateGuard",
+    "ServingStateSnapshot",
     "load_serving_bundle",
     "write_serving_bundle_manifest",
 ]

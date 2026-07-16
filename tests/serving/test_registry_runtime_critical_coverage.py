@@ -59,7 +59,7 @@ def test_registry_platform_reuse_and_stale_stage_paths(
     monkeypatch.undo()
 
     source = create_bundle(tmp_path / "source")
-    registry = ServingRegistry(tmp_path / "registry")
+    registry = ServingRegistry(tmp_path / "registry", allow_unreleased=True)
     first = registry.activate(source)
     second = registry.activate(source)
     assert first.manifest.bundle_digest == second.manifest.bundle_digest
@@ -85,14 +85,14 @@ def test_registry_detects_copy_and_installed_identity_changes(
     )
     calls = iter((real, fake))
     monkeypatch.setattr(registry_module, "load_serving_bundle", lambda _: next(calls))
-    registry = ServingRegistry(tmp_path / "registry")
+    registry = ServingRegistry(tmp_path / "registry", allow_unreleased=True)
     with pytest.raises(ValueError, match="changed during registry copy"):
         registry.activate(source)
 
     monkeypatch.setattr(registry_module, "load_serving_bundle", load_serving_bundle)
     other = create_bundle(tmp_path / "other")
     other_real = load_serving_bundle(other)
-    registry = ServingRegistry(tmp_path / "registry-existing")
+    registry = ServingRegistry(tmp_path / "registry-existing", allow_unreleased=True)
     (registry.versions_root / other_real.manifest.bundle_digest).mkdir()
     calls = iter((other_real, fake))
     monkeypatch.setattr(registry_module, "load_serving_bundle", lambda _: next(calls))
@@ -148,7 +148,7 @@ def test_active_registry_pointer_rejects_malformed_and_mismatched_values(
             registry.active_bundle()
 
     source = create_bundle(tmp_path / "source")
-    released = ServingRegistry(tmp_path / "released")
+    released = ServingRegistry(tmp_path / "released", allow_unreleased=True)
     released.activate(source)
     payload = json.loads(released.active_pointer.read_text(encoding="utf-8"))
     payload["bundle_digest"] = "f" * 64
@@ -288,14 +288,18 @@ def test_runtime_activation_rejects_release_schemas_loader_and_normalizer(
         tmp_path / "residual", policy_mode=PolicyMode.RESIDUAL_POLICY
     )
     with pytest.raises(RuntimeError, match="policy loader"):
-        ServingRuntime(identity_contract=contract).activate(residual)
+        ServingRuntime(identity_contract=contract, allow_unreleased=True).activate(
+            residual
+        )
 
     root = create_bundle(tmp_path / "bundle")
     assert (
-        ServingRuntime(allow_unbound_identity=True).activate(root).action_names
+        ServingRuntime(allow_unbound_identity=True, allow_unreleased=True)
+        .activate(root)
+        .action_names
         == ACTION_NAMES
     )
-    forced = ServingRuntime(allow_unbound_identity=True)
+    forced = ServingRuntime(allow_unbound_identity=True, allow_unreleased=True)
     forced.allow_unbound_identity = False
     with pytest.raises(RuntimeError, match="identity contract"):
         forced.activate(root)
@@ -309,11 +313,13 @@ def test_runtime_activation_rejects_release_schemas_loader_and_normalizer(
     )
     monkeypatch.setattr(runtime_module, "load_serving_bundle", lambda _: fake)
     with pytest.raises(ValueError, match="normalizer type"):
-        ServingRuntime(identity_contract=contract).activate(root)
+        ServingRuntime(identity_contract=contract, allow_unreleased=True).activate(root)
 
 
 def test_runtime_predict_action_rejects_bad_inputs_and_outputs(tmp_path: Path) -> None:
-    runtime = ServingRuntime(identity_contract=runtime_identity_contract())
+    runtime = ServingRuntime(
+        identity_contract=runtime_identity_contract(), allow_unreleased=True
+    )
     snapshot = runtime.activate(create_bundle(tmp_path / "baseline"))
     policy = ConstantPolicy(np.zeros(len(ACTION_NAMES), dtype=np.float32))
 
@@ -330,3 +336,11 @@ def test_runtime_predict_action_rejects_bad_inputs_and_outputs(tmp_path: Path) -
             runtime._predict_action(
                 ConstantPolicy(action), snapshot, None, np.zeros(OBSERVATION_SIZE)
             )
+
+
+def test_production_activation_rejects_unsigned_legacy_release(tmp_path: Path) -> None:
+    source = create_bundle(tmp_path / "legacy-release")
+    with pytest.raises(ValueError, match="authenticated|legacy|signed"):
+        ServingRegistry(tmp_path / "registry").activate(source)
+    with pytest.raises(ValueError, match="authenticated|legacy|signed"):
+        ServingRuntime(identity_contract=runtime_identity_contract()).activate(source)

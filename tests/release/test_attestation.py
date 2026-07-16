@@ -19,6 +19,8 @@ def test_release_attestation_binds_existing_bundle_without_circular_hash() -> No
         dependency_digest="1" * 64,
         approver="risk-committee",
         approved_at=datetime(2026, 7, 14, tzinfo=UTC),
+        key_id="release-test-key",
+        signing_key=b"release-test-signing-key",
     )
     assert attestation.bundle_digest == "a" * 64
     assert attestation.attestation_digest != attestation.bundle_digest
@@ -38,4 +40,6 @@ def test_attestation_rejects_digest_tampering() -> None:
             dependency_digest="1" * 64,
             approver="risk-committee",
             approved_at=datetime(2026, 7, 14, tzinfo=UTC),
+            key_id="release-test-key",
+            signature="0" * 64,
         )

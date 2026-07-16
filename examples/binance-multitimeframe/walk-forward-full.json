@@ -10,7 +10,7 @@
     "max_folds": 6,
     "expanding_train": true
   },
-  "minimum_selection_uplift": 0.0,
+  "minimum_selection_uplift": 0.001,
   "minimum_selection_score": 0.0,
   "checkpoint_finalists_per_seed": 1,
   "candidates": [
@@ -453,9 +453,9 @@
     }
   ],
   "minimum_seed_success_fraction": 0.6666666666666666,
-  "minimum_worst_seed_uplift": -0.02,
-  "maximum_seed_score_std": 0.05,
+  "minimum_worst_seed_uplift": 0.0,
+  "maximum_seed_score_std": 0.1,
   "maximum_selection_turnover_per_day": 1.0,
   "maximum_selection_cost_fraction": 0.03,
-  "maximum_selection_drawdown": 0.15
+  "maximum_selection_drawdown": 0.2
 }

@@ -165,7 +165,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     attestation = ReleaseAttestation.create(
         bundle_digest=manifest.bundle_digest,
         dataset_id=manifest.dataset_id,
-        selection_evaluation_digest="3" * 64,
+        selection_evaluation_digest=manifest.selection_digest,
         gate_evaluation_digest="4" * 64,
         gate_evidence_digest="5" * 64,
         selected_policy_digest=manifest.policy_digest,
@@ -173,11 +173,14 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         dependency_digest=provenance["digest"],
         approver="e2e-test",
         approved_at=datetime(2026, 7, 14, tzinfo=UTC),
+        key_id="e2e-release-key",
+        signing_key=b"e2e-release-signing-key",
     )
     write_release_attestation(default_attestation_path(bundle_root), attestation)
 
     runtime = ServingRuntime(
         StableBaselines3PolicyLoader(),
+        trusted_attestation_keys={"e2e-release-key": b"e2e-release-signing-key"},
         identity_contract=RuntimeIdentityContract(
             environment_digest=manifest.environment_digest,
             action_names=manifest.action_names,

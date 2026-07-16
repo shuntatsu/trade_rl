@@ -7,6 +7,8 @@ import pytest
 
 from tests.serving.helpers import (
     OBSERVATION_SIZE,
+    TEST_TRUSTED_ATTESTATION_KEYS,
+    create_authenticated_bundle,
     create_bundle,
     runtime_identity_contract,
 )
@@ -40,9 +42,10 @@ def test_runtime_applies_bundle_normalizer_before_policy(tmp_path: Path) -> None
         identity_contract=runtime_identity_contract(
             normalizer_mean=2.0, normalizer_scale=4.0
         ),
+        trusted_attestation_keys=TEST_TRUSTED_ATTESTATION_KEYS,
     )
     runtime.activate(
-        create_bundle(
+        create_authenticated_bundle(
             tmp_path / "normalized",
             policy_mode=PolicyMode.RESIDUAL_POLICY,
             normalizer_mean=2.0,
@@ -59,14 +62,17 @@ def test_runtime_applies_bundle_normalizer_before_policy(tmp_path: Path) -> None
 
 
 def test_activation_probes_policy_before_replacing_live_state(tmp_path: Path) -> None:
-    runtime = ServingRuntime(identity_contract=runtime_identity_contract())
-    original = runtime.activate(create_bundle(tmp_path / "baseline"))
+    runtime = ServingRuntime(
+        identity_contract=runtime_identity_contract(),
+        trusted_attestation_keys=TEST_TRUSTED_ATTESTATION_KEYS,
+    )
+    original = runtime.activate(create_authenticated_bundle(tmp_path / "baseline"))
     bad_policy = RecordingPolicy(np.array([0.0, np.nan, 0.0], dtype=np.float32))
     runtime.policy_loader = Loader(bad_policy)
 
     with pytest.raises(ValueError, match="action schema"):
         runtime.activate(
-            create_bundle(
+            create_authenticated_bundle(
                 tmp_path / "bad",
                 policy_mode=PolicyMode.RESIDUAL_POLICY,
             )

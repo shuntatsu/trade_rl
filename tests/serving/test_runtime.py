@@ -8,7 +8,8 @@ import pytest
 from tests.serving.helpers import (
     ACTION_NAMES,
     OBSERVATION_SIZE,
-    create_bundle,
+    TEST_TRUSTED_ATTESTATION_KEYS,
+    create_authenticated_bundle,
     runtime_identity_contract,
 )
 from trade_rl.domain.selection import PolicyMode
@@ -40,8 +41,11 @@ def test_runtime_requires_bound_identity_by_default() -> None:
 def test_baseline_bundle_returns_dynamic_zero_identity_action(
     tmp_path: Path,
 ) -> None:
-    runtime = ServingRuntime(identity_contract=runtime_identity_contract())
-    snapshot = runtime.activate(create_bundle(tmp_path / "baseline"))
+    runtime = ServingRuntime(
+        identity_contract=runtime_identity_contract(),
+        trusted_attestation_keys=TEST_TRUSTED_ATTESTATION_KEYS,
+    )
+    snapshot = runtime.activate(create_authenticated_bundle(tmp_path / "baseline"))
     action = runtime.predict(np.zeros(OBSERVATION_SIZE, dtype=np.float32))
     assert snapshot.action_names == ACTION_NAMES
     np.testing.assert_array_equal(
@@ -52,10 +56,11 @@ def test_baseline_bundle_returns_dynamic_zero_identity_action(
 
 def test_runtime_fails_closed_on_identity_mismatch(tmp_path: Path) -> None:
     runtime = ServingRuntime(
-        identity_contract=runtime_identity_contract(environment_digest="f" * 64)
+        identity_contract=runtime_identity_contract(environment_digest="f" * 64),
+        trusted_attestation_keys=TEST_TRUSTED_ATTESTATION_KEYS,
     )
     with pytest.raises(ValueError, match="environment identity"):
-        runtime.activate(create_bundle(tmp_path / "bundle"))
+        runtime.activate(create_authenticated_bundle(tmp_path / "bundle"))
 
 
 def test_runtime_rejects_wrong_shape_nonfinite_and_out_of_bounds_actions(
@@ -69,10 +74,11 @@ def test_runtime_rejects_wrong_shape_nonfinite_and_out_of_bounds_actions(
         runtime = ServingRuntime(
             policy_loader=Loader(value),
             identity_contract=runtime_identity_contract(),
+            trusted_attestation_keys=TEST_TRUSTED_ATTESTATION_KEYS,
         )
         with pytest.raises(ValueError, match="action schema"):
             runtime.activate(
-                create_bundle(
+                create_authenticated_bundle(
                     tmp_path / name,
                     policy_mode=PolicyMode.RESIDUAL_POLICY,
                 )

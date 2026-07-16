@@ -17,20 +17,22 @@ from typing import Any
 import numpy as np
 
 from trade_rl.data import publish_market_dataset_artifact
+from trade_rl.data.contracts import InstrumentExecutionRule
+from trade_rl.evaluation.confirmation import load_confirmation_evidence
 from trade_rl.evaluation.research_gate import (
     ResearchEvidenceRequirements,
     ResearchReturnGate,
-    block_bootstrap_mean_lower_bound,
     evaluate_research_return_gate,
+    paired_block_bootstrap_excess_lower_bound,
 )
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinancePublicTransport,
-    BinanceTransportError,
     BinanceTransportMode,
     binance_multitimeframe_feature_specs,
     build_binance_market_dataset,
 )
+from trade_rl.release.signing import AuthenticatedEnvelope, verify_payload
 from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.observations import ObservationBuilder
 
@@ -44,26 +46,6 @@ _EXPECTED_POLICY_OBSERVATIONS = 230_999
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
-_FALLBACK_METADATA: dict[str, dict[str, str | float]] = {
-    "BTCUSDT": {
-        "listed_at": "2019-09-08T00:00:00Z",
-        "tick_size": 0.1,
-        "lot_size": 0.001,
-        "minimum_notional": 5.0,
-    },
-    "ETHUSDT": {
-        "listed_at": "2019-11-27T00:00:00Z",
-        "tick_size": 0.01,
-        "lot_size": 0.001,
-        "minimum_notional": 5.0,
-    },
-    "BNBUSDT": {
-        "listed_at": "2020-02-10T00:00:00Z",
-        "tick_size": 0.01,
-        "lot_size": 0.01,
-        "minimum_notional": 5.0,
-    },
-}
 
 
 def _parse_utc(value: str) -> datetime:
@@ -187,75 +169,84 @@ def _run_cli(arguments: list[str], *, root: Path, log_path: Path) -> dict[str, A
     return dict(payload)
 
 
-def _filter_number(filters: list[dict[str, object]], kind: str, *names: str) -> float:
-    for item in filters:
-        if item.get("filterType") != kind:
-            continue
-        for name in names:
-            value = item.get(name)
-            if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-                return float(value)
-    raise ValueError(f"exchangeInfo is missing {kind} {names}")
+def _load_rule_history() -> tuple[
+    dict[str, dict[str, str | float]],
+    dict[str, tuple[InstrumentExecutionRule, ...]],
+    str,
+]:
+    """Load the authenticated, deterministic instrument metadata history."""
 
-
-def _metadata_from_exchange_info(payload: object) -> dict[str, dict[str, str | float]]:
-    if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
-        raise ValueError("exchangeInfo payload is invalid")
-    by_symbol = {
-        item.get("symbol"): item
-        for item in payload["symbols"]
-        if isinstance(item, dict) and isinstance(item.get("symbol"), str)
+    raw_path = os.environ.get("TRADE_RL_BINANCE_RULE_HISTORY", "")
+    if not raw_path:
+        raise RuntimeError(
+            "TRADE_RL_BINANCE_RULE_HISTORY is required for strict point-in-time research"
+        )
+    path = Path(raw_path)
+    payload = _load_json(path)
+    signed = payload.get("payload")
+    envelope_raw = payload.get("envelope")
+    if not isinstance(signed, dict) or not isinstance(envelope_raw, dict):
+        raise ValueError(
+            "Binance rule history must contain payload and envelope objects"
+        )
+    envelope = AuthenticatedEnvelope(
+        key_id=str(envelope_raw.get("key_id", "")),
+        payload_digest=str(envelope_raw.get("payload_digest", "")),
+        signature=str(envelope_raw.get("signature", "")),
+        schema_version=str(envelope_raw.get("schema_version", "")),
+    )
+    keys_raw = os.environ.get("TRADE_RL_METADATA_KEYS", "")
+    keys_payload = json.loads(keys_raw) if keys_raw else {}
+    if not isinstance(keys_payload, dict):
+        raise ValueError("TRADE_RL_METADATA_KEYS must be a JSON object")
+    trusted_keys = {
+        str(key): str(value).encode("utf-8") for key, value in keys_payload.items()
     }
-    result: dict[str, dict[str, str | float]] = {}
+    verify_payload(signed, envelope, trusted_keys=trusted_keys)
+    if signed.get("schema_version") != "binance_instrument_rule_history_v2":
+        raise ValueError("unsupported Binance execution rule history schema")
+    raw_symbols = signed.get("symbols")
+    if not isinstance(raw_symbols, dict):
+        raise ValueError("Binance execution rule history symbols are missing")
+    metadata: dict[str, dict[str, str | float]] = {}
+    histories: dict[str, tuple[InstrumentExecutionRule, ...]] = {}
     for symbol in _SYMBOLS:
-        item = by_symbol.get(symbol)
-        if not isinstance(item, dict) or not isinstance(item.get("filters"), list):
-            raise ValueError(f"exchangeInfo has no active metadata for {symbol}")
-        filters = [value for value in item["filters"] if isinstance(value, dict)]
-        onboard = item.get("onboardDate")
-        if not isinstance(onboard, (int, float)) or isinstance(onboard, bool):
-            raise ValueError(f"exchangeInfo has no onboardDate for {symbol}")
-        result[symbol] = {
-            "listed_at": datetime.fromtimestamp(
-                float(onboard) / 1000.0, tz=UTC
-            ).isoformat(),
-            "tick_size": _filter_number(filters, "PRICE_FILTER", "tickSize"),
-            "lot_size": _filter_number(filters, "LOT_SIZE", "stepSize"),
-            "minimum_notional": _filter_number(
-                filters,
-                "MIN_NOTIONAL",
-                "notional",
-                "minNotional",
-            ),
+        raw_entry = raw_symbols.get(symbol)
+        if not isinstance(raw_entry, dict):
+            raise ValueError(f"Binance execution rule history is missing {symbol}")
+        listed_at = _parse_utc(str(raw_entry.get("listed_at", "")))
+        raw_rules = raw_entry.get("rules")
+        if not isinstance(raw_rules, list) or not raw_rules:
+            raise ValueError(
+                f"Binance execution rule history is missing {symbol} rules"
+            )
+        rules = tuple(
+            InstrumentExecutionRule(
+                effective_at=_parse_utc(str(item["effective_at"])),
+                tick_size=float(item["tick_size"]),
+                lot_size=float(item["lot_size"]),
+                minimum_notional=float(item["minimum_notional"]),
+            )
+            for item in raw_rules
+            if isinstance(item, dict)
+        )
+        if len(rules) != len(raw_rules):
+            raise ValueError(f"Binance execution rule history for {symbol} is invalid")
+        ordered = tuple(sorted(rules, key=lambda item: item.effective_at))
+        latest = ordered[-1]
+        histories[symbol] = ordered
+        metadata[symbol] = {
+            "listed_at": listed_at.isoformat(),
+            "tick_size": latest.tick_size,
+            "lot_size": latest.lot_size,
+            "minimum_notional": latest.minimum_notional,
         }
-    return result
-
-
-def _resolve_metadata(
-    transport: BinancePublicTransport,
-    *,
-    snapshot_path: Path,
-) -> tuple[dict[str, dict[str, str | float]], str, str | None]:
-    try:
-        payload, source = transport.load_exchange_information(
-            market=BinanceMarket.USDS_M
+    unknown = set(raw_symbols) - set(_SYMBOLS)
+    if unknown:
+        raise ValueError(
+            f"Binance execution rule history contains unknown symbols: {sorted(unknown)}"
         )
-        metadata = _metadata_from_exchange_info(payload)
-        _write_json(
-            snapshot_path,
-            {"metadata": metadata, "payload": payload, "source": source},
-        )
-        return metadata, str(source), None
-    except (BinanceTransportError, ValueError) as error:
-        _write_json(
-            snapshot_path,
-            {
-                "error": str(error),
-                "metadata": _FALLBACK_METADATA,
-                "source": "checked-in-fallback",
-            },
-        )
-        return _FALLBACK_METADATA, "checked-in-fallback", str(error)
+    return metadata, histories, envelope.payload_digest
 
 
 def _build_dataset(
@@ -263,6 +254,7 @@ def _build_dataset(
     output: Path,
     transport: BinancePublicTransport,
     metadata: dict[str, dict[str, str | float]],
+    execution_rule_histories: dict[str, tuple[InstrumentExecutionRule, ...]],
 ) -> dict[str, object]:
     result = build_binance_market_dataset(
         market=BinanceMarket.USDS_M,
@@ -281,6 +273,7 @@ def _build_dataset(
         listed_ats=tuple(
             _parse_utc(str(metadata[symbol]["listed_at"])) for symbol in _SYMBOLS
         ),
+        execution_rule_histories=execution_rule_histories,
     )
     published = publish_market_dataset_artifact(output, result.dataset)
     if result.dataset.n_bars != _EXPECTED_15M_BARS:
@@ -418,14 +411,27 @@ def _selection_stability_passed(folds: object) -> bool:
     if not isinstance(folds, list) or not folds:
         return False
     selected_configurations: list[str] = []
+    selected_seed_recipes: list[tuple[int, ...]] = []
     for fold in folds:
         if not isinstance(fold, dict):
             return False
         selected = fold.get("selected_configuration")
         aggregates = fold.get("candidate_aggregates")
+        raw_member_seeds = fold.get("selected_member_seeds")
         if not isinstance(selected, str) or selected == "baseline":
             return False
+        if (
+            not isinstance(raw_member_seeds, (list, tuple))
+            or len(raw_member_seeds) < 2
+            or any(
+                isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+                for seed in raw_member_seeds
+            )
+            or len(set(raw_member_seeds)) != len(raw_member_seeds)
+        ):
+            return False
         selected_configurations.append(selected)
+        selected_seed_recipes.append(tuple(int(seed) for seed in raw_member_seeds))
         if not isinstance(aggregates, (list, tuple)):
             return False
         matched = [
@@ -435,10 +441,16 @@ def _selection_stability_passed(folds: object) -> bool:
         ]
         if len(matched) != 1 or matched[0].get("eligible") is not True:
             return False
-    return len(set(selected_configurations)) == 1
+    return (
+        len(set(selected_configurations)) == 1 and len(set(selected_seed_recipes)) == 1
+    )
 
 
-def _selected_daily_returns(folds: object) -> tuple[float, ...] | None:
+def _fold_daily_returns(
+    folds: object,
+    *,
+    field: str,
+) -> tuple[float, ...] | None:
     if not isinstance(folds, list) or not folds:
         return None
     periods_per_day = 96
@@ -446,7 +458,7 @@ def _selected_daily_returns(folds: object) -> tuple[float, ...] | None:
     for fold in folds:
         if not isinstance(fold, dict):
             return None
-        raw_returns = fold.get("selected_returns")
+        raw_returns = fold.get(field)
         if not isinstance(raw_returns, (list, tuple)):
             return None
         values: list[float] = []
@@ -469,45 +481,54 @@ def _selected_daily_returns(folds: object) -> tuple[float, ...] | None:
     return tuple(daily)
 
 
+def _trusted_confirmation_keys() -> dict[str, bytes]:
+    raw = os.environ.get("TRADE_RL_CONFIRMATION_KEYS", "")
+    if not raw:
+        return {}
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("TRADE_RL_CONFIRMATION_KEYS must be a JSON object")
+    result: dict[str, bytes] = {}
+    for key_id, value in payload.items():
+        if not isinstance(key_id, str) or not isinstance(value, str):
+            raise ValueError("confirmation key IDs and values must be strings")
+        result[key_id] = value.encode("utf-8")
+    return result
+
+
 def _confirmation_evidence(
     path: Path | None,
     *,
     expected_policy_digest: str | None,
+    expected_dataset_id: str | None,
+    expected_environment_digest: str | None,
+    expected_training_run_digest: str | None,
 ) -> tuple[bool, float]:
     if path is None or not path.is_file():
         return False, 0.0
     try:
-        payload = _load_json(path)
+        evidence = load_confirmation_evidence(path)
+        evidence.verify(_trusted_confirmation_keys())
     except (OSError, ValueError):
         return False, 0.0
-    days = payload.get("days")
-    total_return = payload.get("total_return")
-    maximum_drawdown = payload.get("maximum_drawdown")
-    policy_digest = payload.get("policy_digest")
-    if (
-        payload.get("schema_version") != "fresh_confirmation_evidence_v1"
-        or payload.get("sealed") is not True
-        or isinstance(days, bool)
-        or not isinstance(days, (int, float))
-        or isinstance(total_return, bool)
-        or not isinstance(total_return, (int, float))
-        or isinstance(maximum_drawdown, bool)
-        or not isinstance(maximum_drawdown, (int, float))
-        or not isinstance(policy_digest, str)
-        or len(policy_digest) != 64
-    ):
-        return False, 0.0
-    resolved_days = float(days)
     passed = (
-        np.isfinite(resolved_days)
-        and resolved_days >= 0.0
-        and np.isfinite(float(total_return))
-        and float(total_return) > 0.0
-        and np.isfinite(float(maximum_drawdown))
-        and 0.0 <= float(maximum_drawdown) <= 0.20
-        and (expected_policy_digest is None or policy_digest == expected_policy_digest)
+        evidence.total_return > 0.0
+        and 0.0 <= evidence.maximum_drawdown <= 0.20
+        and (
+            expected_policy_digest is None
+            or evidence.policy_digest == expected_policy_digest
+        )
+        and (expected_dataset_id is None or evidence.dataset_id == expected_dataset_id)
+        and (
+            expected_environment_digest is None
+            or evidence.environment_digest == expected_environment_digest
+        )
+        and (
+            expected_training_run_digest is None
+            or evidence.training_run_digest == expected_training_run_digest
+        )
     )
-    return passed, resolved_days
+    return passed, evidence.days
 
 
 def _evaluate_walk_forward_research_gate(
@@ -517,6 +538,9 @@ def _evaluate_walk_forward_research_gate(
     require_confirmation: bool = False,
     confirmation_path: Path | None = None,
     expected_policy_digest: str | None = None,
+    expected_dataset_id: str | None = None,
+    expected_environment_digest: str | None = None,
+    expected_training_run_digest: str | None = None,
 ) -> ResearchReturnGate:
     try:
         payload = _load_json(path / "walk-forward.json")
@@ -536,22 +560,32 @@ def _evaluate_walk_forward_research_gate(
             require_positive_bootstrap_lower_bound=True,
             require_confirmation=require_confirmation,
             minimum_confirmation_days=30.0,
+            minimum_baseline_uplift=0.005,
         )
         fold_count = len(folds) if isinstance(folds, list) else None
-        daily_returns = _selected_daily_returns(folds)
-        if daily_returns is not None:
-            oos_days = float(len(daily_returns))
-            if len(daily_returns) >= 2:
-                bootstrap_lower_bound = block_bootstrap_mean_lower_bound(
-                    daily_returns,
-                    samples=2_000,
-                    block_size=5,
-                    seed=0,
-                )
+        selected_daily_returns = _fold_daily_returns(folds, field="selected_returns")
+        baseline_daily_returns = _fold_daily_returns(folds, field="baseline_returns")
+        if selected_daily_returns is not None:
+            oos_days = float(len(selected_daily_returns))
+        if (
+            selected_daily_returns is not None
+            and baseline_daily_returns is not None
+            and len(selected_daily_returns) >= 2
+        ):
+            bootstrap_lower_bound = paired_block_bootstrap_excess_lower_bound(
+                selected_daily_returns,
+                baseline_daily_returns,
+                samples=2_000,
+                block_size=5,
+                seed=0,
+            )
         if require_confirmation:
             confirmation_passed, confirmation_days = _confirmation_evidence(
                 confirmation_path,
                 expected_policy_digest=expected_policy_digest,
+                expected_dataset_id=expected_dataset_id,
+                expected_environment_digest=expected_environment_digest,
+                expected_training_run_digest=expected_training_run_digest,
             )
     return evaluate_research_return_gate(
         selected_mean_return=_summary_mean(
@@ -631,6 +665,21 @@ def _selected_walk_forward_recipe(
     ):
         raise RuntimeError("selected training recipe requires multiple fixed seeds")
     seeds = tuple(int(seed) for seed in raw_seeds)
+    selected_seed_recipes: list[tuple[int, ...]] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            raise RuntimeError("walk-forward fold evidence is invalid")
+        raw_members = fold.get("selected_member_seeds")
+        if not isinstance(raw_members, (list, tuple)) or any(
+            isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+            for seed in raw_members
+        ):
+            raise RuntimeError("walk-forward seed ensemble evidence is invalid")
+        selected_seed_recipes.append(tuple(int(seed) for seed in raw_members))
+    if len(set(selected_seed_recipes)) != 1 or selected_seed_recipes[0] != seeds:
+        raise RuntimeError(
+            "walk-forward folds did not agree on the configured seed ensemble"
+        )
     selected_run["training"] = training
     _write_json(output_path, selected_run)
     return selected_name, seeds, output_path
@@ -644,6 +693,9 @@ def _finalize_research_run(
     strict: bool = False,
     require_confirmation: bool = False,
     expected_policy_digest: str | None = None,
+    expected_dataset_id: str | None = None,
+    expected_environment_digest: str | None = None,
+    expected_training_run_digest: str | None = None,
 ) -> int:
     gate = asdict(
         _evaluate_walk_forward_research_gate(
@@ -652,6 +704,9 @@ def _finalize_research_run(
             require_confirmation=require_confirmation,
             confirmation_path=work_root / "confirmation-evidence.json",
             expected_policy_digest=expected_policy_digest,
+            expected_dataset_id=expected_dataset_id,
+            expected_environment_digest=expected_environment_digest,
+            expected_training_run_digest=expected_training_run_digest,
         )
     )
     summary["research_gate"] = gate
@@ -685,9 +740,20 @@ def main() -> int:
         retry_backoff_seconds=0.5,
         cache_root=cache_root,
     )
-    metadata, metadata_source, metadata_error = _resolve_metadata(
-        transport,
-        snapshot_path=work_root / "exchange-info.json",
+    (
+        metadata,
+        execution_rule_histories,
+        metadata_evidence_digest,
+    ) = _load_rule_history()
+    metadata_source = "authenticated-rule-history"
+    metadata_error = None
+    _write_json(
+        work_root / "exchange-info.json",
+        {
+            "evidence_digest": metadata_evidence_digest,
+            "metadata": metadata,
+            "source": metadata_source,
+        },
     )
 
     dataset_a_path = work_root / "dataset-a"
@@ -696,11 +762,13 @@ def main() -> int:
         output=dataset_a_path,
         transport=transport,
         metadata=metadata,
+        execution_rule_histories=execution_rule_histories,
     )
     dataset_b = _build_dataset(
         output=dataset_b_path,
         transport=transport,
         metadata=metadata,
+        execution_rule_histories=execution_rule_histories,
     )
     if dataset_a["dataset_id"] != dataset_b["dataset_id"]:
         raise RuntimeError(
@@ -836,6 +904,17 @@ def main() -> int:
     summary["confirmation_required_from"] = _END
     summary["training"] = training
     expected_policy_digest = _training_policy_digest(training)
+    training_ensemble = _load_json(training_path / "ensemble.json")
+    expected_environment_digest = training_ensemble.get("environment_digest")
+    expected_dataset_id = training.get("dataset_id")
+    expected_training_run_digest = training.get("run_digest")
+    for name, value in (
+        ("environment_digest", expected_environment_digest),
+        ("dataset_id", expected_dataset_id),
+        ("run_digest", expected_training_run_digest),
+    ):
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError(f"training {name} is missing or invalid")
     exit_code = _finalize_research_run(
         work_root=work_root,
         walk_forward_path=walk_forward_path,
@@ -843,6 +922,9 @@ def main() -> int:
         strict=True,
         require_confirmation=True,
         expected_policy_digest=expected_policy_digest,
+        expected_dataset_id=expected_dataset_id,
+        expected_environment_digest=expected_environment_digest,
+        expected_training_run_digest=expected_training_run_digest,
     )
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return exit_code

@@ -99,6 +99,40 @@ class _PolicyRecord:
     normalizer: ObservationNormalizer
     sequence_normalizer: SequenceFeatureNormalizer | None
     run: TrainingRunConfig
+    members: tuple[tuple[str, Path], ...] = ()
+
+
+class _DeterministicMeanPolicy:
+    """Evaluate the exact deterministic mean ensemble used by serving."""
+
+    def __init__(self, models: tuple[Any, ...]) -> None:
+        if not models:
+            raise ValueError("deployable ensemble requires at least one model")
+        self.models = models
+
+    def predict(
+        self, observation: object, deterministic: bool = True
+    ) -> tuple[np.ndarray, None]:
+        if deterministic is not True:
+            raise ValueError("deployable ensemble evaluation must be deterministic")
+        actions: list[np.ndarray] = []
+        for index, model in enumerate(self.models):
+            raw, _ = model.predict(observation, deterministic=True)
+            action = np.asarray(raw, dtype=np.float32).reshape(-1)
+            if not np.isfinite(action).all():
+                raise ValueError(
+                    f"ensemble member {index} returned a non-finite action"
+                )
+            if np.any(action < -1.0) or np.any(action > 1.0):
+                raise ValueError(
+                    f"ensemble member {index} returned an out-of-range action"
+                )
+            actions.append(action)
+        shapes = {item.shape for item in actions}
+        if len(shapes) != 1:
+            raise ValueError("ensemble member action shapes disagree")
+        mean = np.mean(np.stack(actions, axis=0), axis=0, dtype=np.float64)
+        return np.asarray(mean, dtype=np.float32), None
 
 
 def _experiment_plan_digest(
@@ -217,7 +251,7 @@ def _fit_normalizer(
         normalizer=None,
         sequence_normalizer=None,
         episode_bars=episode_bars,
-        liquidate_on_end=False,
+        liquidate_on_end=True,
         alpha_provider=alpha_provider,
         factor_provider=factor_provider,
     )
@@ -353,6 +387,22 @@ def _normalizer_payload(
     }
 
 
+def _maintained_training_environment(
+    config: Any,
+    *,
+    episode_bars: int,
+) -> Any:
+    """Resolve training to the same economic terminal accounting used in OOS."""
+
+    return replace(
+        config,
+        episode_bars=episode_bars,
+        episode_hour_choices=(),
+        liquidate_on_end=True,
+        require_full_reward_preroll=True,
+    )
+
+
 class MarketCandidateTrainer(CandidateTrainer):
     """Train only on one fold's train view and select a seed on checkpoint data."""
 
@@ -448,12 +498,9 @@ class MarketCandidateTrainer(CandidateTrainer):
             training_dataset
         )
         episode_bars = min(configured_episode, maximum_episode)
-        training_environment = replace(
+        training_environment = _maintained_training_environment(
             run.environment,
             episode_bars=episode_bars,
-            episode_hour_choices=(),
-            liquidate_on_end=False,
-            require_full_reward_preroll=True,
         )
 
         def factory() -> ResidualMarketEnv:
@@ -598,10 +645,32 @@ class MarketCandidateTrainer(CandidateTrainer):
                 ),
             },
         )
-        return PolicyTrainingArtifact(
+        artifact = PolicyTrainingArtifact(
             configuration=request.configuration.name,
             seed_finalists=finalists,
         )
+        if artifact.ensemble_policy_digest not in self.registry:
+            member_records = tuple(
+                self.registry[item.policy_digest]
+                for item in artifact.deployment_members
+            )
+            first = member_records[0]
+            self.registry[artifact.ensemble_policy_digest] = _PolicyRecord(
+                path=first.path,
+                algorithm=first.algorithm,
+                normalizer=first.normalizer,
+                sequence_normalizer=first.sequence_normalizer,
+                run=first.run,
+                members=tuple(
+                    (item.policy_digest, record.path)
+                    for item, record in zip(
+                        artifact.deployment_members,
+                        member_records,
+                        strict=True,
+                    )
+                ),
+            )
+        return artifact
 
 
 class MarketCandidateEvaluator:
@@ -642,9 +711,18 @@ class MarketCandidateEvaluator:
             sequence_normalizer = record.sequence_normalizer
             model = self._model_cache.get(request.policy_digest)
             if model is None:
-                model = self.checkpoint_loader.load(
-                    PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
-                )
+                if record.members:
+                    models = tuple(
+                        self.checkpoint_loader.load(
+                            PolicyCheckpoint(path=path, algorithm=record.algorithm)
+                        )
+                        for _, path in record.members
+                    )
+                    model = _DeterministicMeanPolicy(models)
+                else:
+                    model = self.checkpoint_loader.load(
+                        PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
+                    )
                 self._model_cache[request.policy_digest] = model
         evidence = evaluate_range_evidence(
             dataset=self.dataset,
@@ -700,23 +778,6 @@ class MarketCandidateEvaluator:
         )
 
 
-def _selected_seed(result: Any) -> int | None:
-    """Resolve the exact seed represented by the selected single-policy digest."""
-
-    selected_digest = result.selection.selected_policy_digest
-    if selected_digest is None:
-        return None
-    matches = [
-        item.seed
-        for item in result.seed_finalists
-        if item.configuration == result.selection.selected_configuration
-        and item.policy_digest == selected_digest
-    ]
-    if len(matches) != 1:
-        raise RuntimeError("selected policy digest does not identify one seed finalist")
-    return int(matches[0])
-
-
 def _fold_payload(
     fold: WalkForwardFold,
     result: Any,
@@ -728,7 +789,6 @@ def _fold_payload(
     access = result.sealed_test_access
     if access is None:
         raise RuntimeError("sealed test access evidence is missing")
-    selected_seed = _selected_seed(result)
     return {
         "baseline_diagnostics": result.baseline_oos.diagnostics.digest_payload(),
         "baseline_returns": result.baseline_oos.returns.values,
@@ -737,7 +797,7 @@ def _fold_payload(
             fold.checkpoint_validation.stop,
         ],
         "fold_index": fold.fold_index,
-        "schema_version": "market_walk_forward_fold_v3_seed_stable",
+        "schema_version": "market_walk_forward_fold_v4_deployable_ensemble",
         "sealed_test_access": {
             "access_digest": access.access_digest,
             "dataset_id": access.dataset_id,
@@ -751,7 +811,8 @@ def _fold_payload(
         "sealed_test_evaluations": sealed_test_evaluations,
         "selected_configuration": result.selection.selected_configuration,
         "selected_policy_digest": result.selection.selected_policy_digest,
-        "selected_seed": selected_seed,
+        "selected_member_policy_digests": result.selected_member_policy_digests,
+        "selected_member_seeds": result.selected_member_seeds,
         "selected_diagnostics": result.selected_oos.diagnostics.digest_payload(),
         "selected_cost_fraction": (
             result.selected_oos.diagnostics.total_cost / initial_capital
@@ -912,7 +973,7 @@ def execute_market_walk_forward(
             "experiment_plan_digest": experiment_plan_digest,
             "folds": tuple(folds_payload),
             "production_status": "NO-GO",
-            "schema_version": "market_walk_forward_run_v4_seed_stable",
+            "schema_version": "market_walk_forward_run_v5_deployable_ensemble",
             "selected_metrics": (
                 None
                 if result.selected_metrics is None

@@ -4,7 +4,12 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract
+from trade_rl.data.contracts import (
+    FeatureAlignment,
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+)
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.source import RawMarketSeries
 
@@ -133,3 +138,75 @@ def test_feature_spec_identity_binds_indicator_kind() -> None:
     atr = FeatureSpec(name="x", kind=FeatureKind.ATR_PCT, lookback=14)
     assert rsi.canonical_payload() != atr.canonical_payload()
     assert InstrumentContract(symbol="BTCUSDT").symbol == "BTCUSDT"
+
+
+def test_all_ichimoku_features_are_invariant_to_mutated_future_bars() -> None:
+    raw = _trend_series(120)
+    index = 80
+    future = slice(index + 1, None)
+    mutated_high = raw.high.copy()
+    mutated_low = raw.low.copy()
+    mutated_close = raw.close.copy()
+    mutated_high[future] *= 4.0
+    mutated_low[future] *= 0.25
+    mutated_close[future] *= 2.0
+
+    for kind, lookback in (
+        (FeatureKind.ICHIMOKU_TENKAN_DISTANCE, 9),
+        (FeatureKind.ICHIMOKU_KIJUN_DISTANCE, 26),
+        (FeatureKind.ICHIMOKU_CLOUD_POSITION, 52),
+        (FeatureKind.ICHIMOKU_CLOUD_THICKNESS, 52),
+    ):
+        spec = FeatureSpec(
+            name=kind.value,
+            kind=kind,
+            lookback=lookback,
+            alignment=FeatureAlignment.UNSHIFTED_DECISION_TIME,
+        )
+        baseline = calculate_feature_events(
+            spec,
+            open_price=raw.open,
+            high=raw.high,
+            low=raw.low,
+            close=raw.close,
+            volume=raw.volume,
+            funding_rate=raw.funding_rate,
+            funding_available=raw.funding_available,
+            row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
+            active=np.ones(raw.timestamps.shape, dtype=np.bool_),
+        )
+        changed = calculate_feature_events(
+            spec,
+            open_price=raw.open,
+            high=mutated_high,
+            low=mutated_low,
+            close=mutated_close,
+            volume=raw.volume,
+            funding_rate=raw.funding_rate,
+            funding_available=raw.funding_available,
+            row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
+            active=np.ones(raw.timestamps.shape, dtype=np.bool_),
+        )
+        assert baseline[1][index]
+        assert changed[1][index]
+        np.testing.assert_allclose(
+            baseline[0][index], changed[0][index], rtol=0.0, atol=0.0
+        )
+        assert baseline[2][index] == changed[2][index]
+
+
+def test_feature_spec_identity_binds_unshifted_alignment() -> None:
+    unbound = FeatureSpec(
+        name="ichimoku",
+        kind=FeatureKind.ICHIMOKU_CLOUD_POSITION,
+        lookback=52,
+    )
+    aligned = FeatureSpec(
+        name="ichimoku",
+        kind=FeatureKind.ICHIMOKU_CLOUD_POSITION,
+        lookback=52,
+        alignment=FeatureAlignment.UNSHIFTED_DECISION_TIME,
+    )
+    assert aligned.alignment is FeatureAlignment.UNSHIFTED_DECISION_TIME
+    assert aligned.canonical_payload()["alignment"] == "unshifted_decision_time"
+    assert aligned.canonical_payload() != unbound.canonical_payload()

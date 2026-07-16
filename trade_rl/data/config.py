@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from trade_rl.data.contracts import (
+    FeatureAlignment,
     FeatureKind,
     FeatureSpec,
     InstrumentContract,
@@ -101,6 +102,7 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
             "min_periods",
             "max_staleness_hours",
             "timeframe",
+            "alignment",
         },
         field=field,
     )
@@ -113,6 +115,10 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
             )
             or NormalizationMode.NONE.value
         )
+        raw_alignment = _optional_string(
+            item.get("alignment"), field=f"{field}.alignment"
+        )
+        alignment = None if raw_alignment is None else FeatureAlignment(raw_alignment)
     except ValueError as exc:
         raise ValueError(f"{field} contains an unsupported enum value") from exc
     return FeatureSpec(
@@ -136,6 +142,7 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
             default=24.0,
         ),
         timeframe=_optional_string(item.get("timeframe"), field=f"{field}.timeframe"),
+        alignment=alignment,
     )
 
 

@@ -315,6 +315,11 @@ def _sequence_normalizer_payload(
             key: tuple(float(value) for value in normalizer.scale[key])
             for key in normalizer.feature_names
         },
+        "sample_count": {
+            key: tuple(int(value) for value in normalizer.sample_count[key])
+            for key in normalizer.feature_names
+        },
+        "minimum_samples_per_channel": normalizer.minimum_samples_per_channel,
         "schema_version": normalizer.schema_version,
         "sequence_schema_digest": normalizer.sequence_schema_digest,
         "source_dataset_id": normalizer.source_dataset_id,

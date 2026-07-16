@@ -94,3 +94,43 @@ def test_normalizer_is_fitted_only_on_train_range_and_preserves_masks() -> None:
     np.testing.assert_array_equal(
         transformed[list(passthrough)], one[list(passthrough)]
     )
+
+
+def test_observation_v4_semantically_scales_age_basis_and_equity_state() -> None:
+    from trade_rl.rl.observations import ObservationExecutionState
+
+    dataset = market()
+    book = BookState.zero(2, 1_000.0, dataset.close[2])
+    book.peak_value = 1_250.0
+    result = build_observation(
+        dataset=dataset,
+        index=2,
+        trends=TrendTargets(fast=np.zeros(2), base=np.zeros(2), slow=np.zeros(2)),
+        alpha=np.zeros(2),
+        hybrid=book,
+        shadow=book.clone(),
+        start_index=0,
+        end_index=5,
+        hybrid_risk_scale=1.0,
+        shadow_risk_scale=1.0,
+        execution_state=ObservationExecutionState(
+            requested_weights=np.zeros(2),
+            fill_ratio=np.ones(2),
+            unfilled_turnover=np.zeros(2),
+            participation=np.zeros(2),
+            execution_cost=np.zeros(2),
+            position_age=np.array([24.0, 48.0]),
+        ),
+        previous_action=np.zeros(2),
+        action_size=2,
+    )
+    layout = observation_layout(dataset, action_size=2)
+    rows = result[: dataset.n_symbols * layout.per_symbol_width].reshape(
+        dataset.n_symbols, layout.per_symbol_width
+    )
+    offset = 4 * dataset.n_features
+    np.testing.assert_allclose(rows[0, offset + 14], np.log1p(1.0), rtol=0.0, atol=1e-7)
+    assert abs(rows[0, -1]) < 0.2
+    global_values = result[dataset.n_symbols * layout.per_symbol_width :]
+    endogenous = 4 * len(dataset.global_feature_names)
+    assert global_values[endogenous] == np.log(0.8)

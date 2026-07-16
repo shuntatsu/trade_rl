@@ -119,3 +119,41 @@ def test_sequence_normalizer_layout_contract_survives_dataset_view_identity() ->
     assert builder.schema_digest(view) != builder.schema_digest(dataset)
     assert builder.layout_digest(view) == builder.layout_digest(dataset)
     assert normalizer.sequence_schema_digest == builder.layout_digest(dataset)
+
+
+def test_sequence_normalizer_records_channel_sample_counts() -> None:
+    normalizer = SequenceFeatureNormalizer.fit(
+        _dataset(), _builder(), train_start=96, train_end=120
+    )
+
+    assert normalizer.minimum_samples_per_channel == 1
+    for timeframe, counts in normalizer.sample_count.items():
+        assert counts.shape == normalizer.center[timeframe].shape
+        assert np.all(counts > 0)
+        assert np.issubdtype(counts.dtype, np.integer)
+    assert "sample_count" in normalizer.digest_payload()
+
+
+def test_sequence_normalizer_fails_closed_when_a_required_channel_has_no_events() -> (
+    None
+):
+    dataset = _dataset()
+    available = dataset.feature_available.copy()
+    available[:, :, 3] = False
+    staleness = dataset.feature_staleness.copy()
+    staleness[:, :, 3] = 1.0
+    missing = replace(
+        dataset,
+        feature_available=available,
+        feature_staleness=staleness,
+        dataset_id="e" * 64,
+    )
+
+    with np.testing.assert_raises_regex(ValueError, "1d.*15m__|1d.*sample|1d"):
+        SequenceFeatureNormalizer.fit(
+            missing,
+            _builder(),
+            train_start=96,
+            train_end=120,
+            minimum_samples_per_channel=1,
+        )

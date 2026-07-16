@@ -160,3 +160,23 @@ def test_cross_asset_features_preserve_delayed_source_age() -> None:
 
     assert result.valid[1, 1]
     assert result.source_age_hours[1, 1] == pytest.approx(0.75)
+
+
+def test_degenerate_cross_asset_statistics_are_unavailable() -> None:
+    returns = np.full((8, 2), 0.01, dtype=np.float64)
+    available = np.ones_like(returns, dtype=np.bool_)
+    ages = np.zeros_like(returns)
+    for kind in (
+        FeatureKind.ROLLING_CORRELATION_TO_BTC,
+        FeatureKind.ROLLING_BETA_TO_BTC,
+    ):
+        result = calculate_cross_asset_feature_events(
+            _spec(kind, lookback=4, min_periods=2),
+            aligned_returns=returns,
+            return_available=available,
+            return_age_hours=ages,
+            symbols=("BTCUSDT", "ETHUSDT"),
+            reference_symbol="BTCUSDT",
+        )
+        assert not result.valid.any()
+        np.testing.assert_array_equal(result.values, np.zeros_like(result.values))

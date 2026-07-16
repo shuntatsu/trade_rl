@@ -14,7 +14,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.rl.sequence_observations import SequenceObservationBuilder
 
-SEQUENCE_NORMALIZER_SCHEMA = "sequence_feature_normalizer_v1"
+SEQUENCE_NORMALIZER_SCHEMA = "sequence_feature_normalizer_v2"
 _EPSILON = 1e-12
 
 
@@ -22,6 +22,14 @@ def _readonly_vector(value: np.ndarray, *, field: str) -> np.ndarray:
     result = np.asarray(value, dtype=np.float64).reshape(-1).copy(order="C")
     if result.size == 0 or not np.isfinite(result).all():
         raise ValueError(f"{field} must be a non-empty finite vector")
+    result.setflags(write=False)
+    return result
+
+
+def _readonly_count_vector(value: np.ndarray, *, field: str) -> np.ndarray:
+    result = np.asarray(value, dtype=np.int64).reshape(-1).copy(order="C")
+    if result.size == 0 or np.any(result < 0):
+        raise ValueError(f"{field} must be a non-empty non-negative count vector")
     result.setflags(write=False)
     return result
 
@@ -38,6 +46,8 @@ class SequenceFeatureNormalizer:
     dataset_id: str
     source_dataset_id: str
     sequence_schema_digest: str
+    sample_count: Mapping[str, np.ndarray] | None = None
+    minimum_samples_per_channel: int = 1
     clip: float = 10.0
     epsilon: float = 1e-8
     schema_version: str = SEQUENCE_NORMALIZER_SCHEMA
@@ -49,9 +59,22 @@ class SequenceFeatureNormalizer:
             raise ValueError("sequence normalizer requires ordered maintained clocks")
         if tuple(self.center) != clocks or tuple(self.scale) != clocks:
             raise ValueError("sequence normalizer statistics must match feature clocks")
+        if (
+            isinstance(self.minimum_samples_per_channel, bool)
+            or not isinstance(self.minimum_samples_per_channel, int)
+            or self.minimum_samples_per_channel <= 0
+        ):
+            raise ValueError("minimum_samples_per_channel must be positive")
+        raw_counts = self.sample_count or {
+            timeframe: np.ones(len(self.feature_names[timeframe]), dtype=np.int64)
+            for timeframe in clocks
+        }
+        if tuple(raw_counts) != clocks:
+            raise ValueError("sequence sample counts must match feature clocks")
         resolved_center: dict[str, np.ndarray] = {}
         resolved_scale: dict[str, np.ndarray] = {}
         resolved_names: dict[str, tuple[str, ...]] = {}
+        resolved_counts: dict[str, np.ndarray] = {}
         for timeframe in clocks:
             names = tuple(self.feature_names[timeframe])
             if (
@@ -68,7 +91,17 @@ class SequenceFeatureNormalizer:
                 raise ValueError("sequence normalizer channel statistics mismatch")
             if np.any(scale <= 0.0):
                 raise ValueError("sequence normalizer scale must be positive")
+            counts = _readonly_count_vector(
+                raw_counts[timeframe], field=f"{timeframe}.sample_count"
+            )
+            if counts.shape != center.shape:
+                raise ValueError("sequence sample counts do not match channels")
+            if np.any(counts < self.minimum_samples_per_channel):
+                raise ValueError(
+                    "sequence normalizer channel sample count is insufficient"
+                )
             resolved_names[timeframe] = names
+            resolved_counts[timeframe] = counts
             resolved_center[timeframe] = center
             resolved_scale[timeframe] = scale
         if (
@@ -97,12 +130,16 @@ class SequenceFeatureNormalizer:
         object.__setattr__(self, "feature_names", MappingProxyType(resolved_names))
         object.__setattr__(self, "center", MappingProxyType(resolved_center))
         object.__setattr__(self, "scale", MappingProxyType(resolved_scale))
+        object.__setattr__(self, "sample_count", MappingProxyType(resolved_counts))
         expected = content_digest(self.digest_payload())
         if self.digest and self.digest != expected:
             raise ValueError("sequence normalizer digest mismatch")
         object.__setattr__(self, "digest", expected)
 
     def digest_payload(self) -> dict[str, object]:
+        sample_count = self.sample_count
+        if sample_count is None:
+            raise RuntimeError("sequence sample counts were not initialized")
         return {
             "center": {
                 key: tuple(float(value) for value in self.center[key])
@@ -116,6 +153,11 @@ class SequenceFeatureNormalizer:
                 key: tuple(float(value) for value in self.scale[key])
                 for key in self.feature_names
             },
+            "sample_count": {
+                key: tuple(int(value) for value in sample_count[key])
+                for key in self.feature_names
+            },
+            "minimum_samples_per_channel": self.minimum_samples_per_channel,
             "schema_version": self.schema_version,
             "sequence_schema_digest": self.sequence_schema_digest,
             "source_dataset_id": self.source_dataset_id,
@@ -134,6 +176,7 @@ class SequenceFeatureNormalizer:
         source_dataset_id: str | None = None,
         clip: float = 10.0,
         epsilon: float = 1e-8,
+        minimum_samples_per_channel: int = 1,
     ) -> SequenceFeatureNormalizer:
         if (
             isinstance(train_start, bool)
@@ -148,6 +191,7 @@ class SequenceFeatureNormalizer:
         feature_names: dict[str, tuple[str, ...]] = {}
         centers: dict[str, np.ndarray] = {}
         scales: dict[str, np.ndarray] = {}
+        sample_counts: dict[str, np.ndarray] = {}
         ages = dataset.resolved_array("feature_staleness_hours")
         for raw_window in windows:
             window = dict(raw_window)
@@ -179,14 +223,19 @@ class SequenceFeatureNormalizer:
             )
             center = np.zeros(len(names), dtype=np.float64)
             scale = np.ones(len(names), dtype=np.float64)
+            counts = np.zeros(len(names), dtype=np.int64)
             for feature_index in range(len(names)):
                 sample = np.asarray(
                     values[:, :, feature_index][new_event[:, :, feature_index]],
                     dtype=np.float64,
                 )
                 sample = sample[np.isfinite(sample)]
-                if sample.size == 0:
-                    continue
+                counts[feature_index] = int(sample.size)
+                if sample.size < minimum_samples_per_channel:
+                    raise ValueError(
+                        f"{timeframe} channel {names[feature_index]} has insufficient "
+                        f"train samples: {sample.size} < {minimum_samples_per_channel}"
+                    )
                 median = float(np.median(sample))
                 q25, q75 = np.quantile(sample, (0.25, 0.75))
                 robust_scale = float((q75 - q25) / 1.349)
@@ -197,6 +246,7 @@ class SequenceFeatureNormalizer:
             feature_names[timeframe] = names
             centers[timeframe] = center
             scales[timeframe] = scale
+            sample_counts[timeframe] = counts
         return cls(
             feature_names=feature_names,
             center=centers,
@@ -206,6 +256,8 @@ class SequenceFeatureNormalizer:
             dataset_id=dataset.dataset_id,
             source_dataset_id=source_dataset_id or dataset.dataset_id,
             sequence_schema_digest=builder.layout_digest(dataset),
+            sample_count=sample_counts,
+            minimum_samples_per_channel=minimum_samples_per_channel,
             clip=clip,
             epsilon=epsilon,
         )

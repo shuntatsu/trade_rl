@@ -11,7 +11,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.trend import TrendTargets
 
-OBSERVATION_SCHEMA = "baseline_residual_observation_v3"
+OBSERVATION_SCHEMA = "baseline_residual_observation_v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,13 +246,14 @@ def observation_passthrough_indices(
         base = symbol_index * layout.per_symbol_width
         indices.extend(range(base + n_features, base + 2 * n_features))
         indices.extend(range(base + 3 * n_features, base + 4 * n_features))
-        indices.append(base + 4 * n_features)  # asset_active
-        indices.append(base + 4 * n_features + 1)  # tradable
-        indices.append(base + 4 * n_features + n_factors + 15)  # borrow available
+        state_start = base + 4 * n_features
+        indices.extend(range(state_start, base + layout.per_symbol_width))
     global_base = dataset.n_symbols * layout.per_symbol_width
     n_global = len(dataset.global_feature_names)
     indices.extend(range(global_base + n_global, global_base + 2 * n_global))
     indices.extend(range(global_base + 3 * n_global, global_base + 4 * n_global))
+    endogenous_start = global_base + 4 * n_global
+    indices.extend(range(endogenous_start, global_base + layout.global_width))
     return tuple(sorted(set(indices)))
 
 
@@ -439,14 +440,19 @@ def build_observation(
             state.unfilled_turnover,
             state.participation,
             state.execution_cost,
-            state.position_age,
+            np.log1p(state.position_age * dataset.bar_hours / 24.0),
             dataset.resolved_array("borrow_available")[index].astype(
                 np.float64, copy=False
             ),
-            dataset.resolved_array("borrow_rate")[index],
-            dataset.resolved_array("mark_price")[index]
-            / dataset.resolved_array("index_price")[index]
-            - 1.0,
+            np.tanh(dataset.resolved_array("borrow_rate")[index]),
+            np.tanh(
+                100.0
+                * (
+                    dataset.resolved_array("mark_price")[index]
+                    / dataset.resolved_array("index_price")[index]
+                    - 1.0
+                )
+            ),
         )
     )
 
@@ -457,8 +463,8 @@ def build_observation(
     hybrid_net = hybrid.net_exposure
     shadow_net = shadow.net_exposure
     book_values = [
-        math_log_value(hybrid_value),
-        math_log_value(shadow_value),
+        math_log_value(hybrid_value / max(hybrid.peak_value, hybrid_value, 1e-12)),
+        math_log_value(shadow_value / max(shadow.peak_value, shadow_value, 1e-12)),
         _drawdown(hybrid),
         _drawdown(shadow),
         math_log_value(hybrid_value / shadow_value),

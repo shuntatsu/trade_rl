@@ -143,20 +143,18 @@ def calculate_cross_asset_feature_events(
                 btc_sample = sample[:, 1]
                 btc_variance = float(np.var(btc_sample))
                 if spec.kind is FeatureKind.ROLLING_BETA_TO_BTC:
+                    if btc_variance <= _EPSILON:
+                        continue
                     value = (
-                        0.0
-                        if btc_variance <= _EPSILON
-                        else float(np.cov(asset_sample, btc_sample, ddof=0)[0, 1])
+                        float(np.cov(asset_sample, btc_sample, ddof=0)[0, 1])
                         / btc_variance
                     )
                 else:
                     asset_std = float(np.std(asset_sample))
                     btc_std = float(np.std(btc_sample))
-                    value = (
-                        0.0
-                        if asset_std <= _EPSILON or btc_std <= _EPSILON
-                        else float(np.corrcoef(asset_sample, btc_sample)[0, 1])
-                    )
+                    if asset_std <= _EPSILON or btc_std <= _EPSILON:
+                        continue
+                    value = float(np.corrcoef(asset_sample, btc_sample)[0, 1])
                     value = float(np.clip(value, -1.0, 1.0))
                 values[index, symbol_index] = value
                 valid[index, symbol_index] = True

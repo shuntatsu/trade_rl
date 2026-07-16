@@ -1,13 +1,57 @@
-name: Completed Task 8 Operations Runner
+name: Walk-Forward Type Fix Runner
 
 on:
-  workflow_dispatch:
+  pull_request:
+    branches:
+      - agent/causal-sequence-feature-encoder
+    types: [opened, reopened, synchronize]
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: walk-forward-type-fix-runner
+  cancel-in-progress: true
 
 jobs:
-  completed:
+  fix:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - run: echo "Task 8 operations verification is complete; this runner is archived pending branch consolidation."
+      - name: Checkout hardening branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/complete-architecture-hardening
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply and verify type fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f tools/fix_market_walk_forward_sample_count.py ]; then
+            echo "walk-forward sample-count type fix is already committed"
+            exit 0
+          fi
+          uv sync --extra dev --extra train-sb3
+          set +e
+          uv run mypy trade_rl/workflows/market_walk_forward.py
+          red_status=$?
+          set -e
+          if [ "$red_status" -eq 0 ]; then
+            echo "type regression unexpectedly passed before the fix" >&2
+            exit 1
+          fi
+          python tools/fix_market_walk_forward_sample_count.py
+          uv run ruff format trade_rl/workflows/market_walk_forward.py
+          uv run ruff check trade_rl/workflows/market_walk_forward.py
+          uv run mypy trade_rl
+          uv run pytest -q tests/workflows/test_market_walk_forward.py tests/rl/test_sequence_normalization.py
+          rm -f tools/fix_market_walk_forward_sample_count.py
+          git config user.name architecture-hardening-bot
+          git config user.email actions@users.noreply.github.com
+          git add -A
+          git commit -m "fix: narrow sequence sample counts before serialization"
+          git push origin HEAD:agent/complete-architecture-hardening

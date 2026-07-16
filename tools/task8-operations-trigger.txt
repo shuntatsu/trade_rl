@@ -1,1 +1,1 @@
-trigger task8 operations diagnostic runner
+trigger deterministic task8 operations diagnostics

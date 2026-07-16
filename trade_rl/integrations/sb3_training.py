@@ -175,9 +175,6 @@ class StableBaselines3Backend:
                     "features_extractor_kwargs": {
                         **sequence_metadata,
                         "d_model": config.sequence_d_model,
-                        "actor_head": "shared_per_asset_v1",
-                        "actor_parameter_sharing": "one_head_all_assets",
-                        "actor_symbol_order": tuple(identity["action_names"]),
                         "attention_heads": config.sequence_attention_heads,
                         "attention_layers": config.sequence_attention_layers,
                         "dropout": config.sequence_dropout,
@@ -406,6 +403,10 @@ class StableBaselines3Backend:
                     )
                 architecture_details.update(
                     {
+                        "actor_head": "shared_per_asset_v1",
+                        "actor_parameter_sharing": "one_head_all_assets",
+                        "actor_symbol_order": tuple(identity["action_names"]),
+                        "encoder": "MultiTimeframeTCNEncoder",
                         "feature_counts": dict(sequence_metadata["feature_counts"]),
                         "window_lengths": dict(sequence_metadata["window_lengths"]),
                         "d_model": config.sequence_d_model,

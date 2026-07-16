@@ -46,6 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           python tools/apply_task6_research_protocol.py implementation
+          python tools/apply_task6_followup.py
           set +e
           {
             uv run ruff format trade_rl/evaluation/research_gate.py examples/binance-multitimeframe/run_full_research.py tests/evaluation/test_research_gate.py tests/examples/test_binance_multitimeframe_full_assets.py
@@ -73,7 +74,7 @@ jobs:
             tail -n 300 task6-diagnostic.log
             exit "$status"
           fi
-          rm -f tools/apply_task6_research_protocol.py tools/task6-trigger.txt task6-diagnostic.log task6-status.txt
+          rm -f tools/apply_task6_research_protocol.py tools/apply_task6_followup.py tools/task6-trigger.txt task6-diagnostic.log task6-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A

@@ -1,0 +1,63 @@
+name: GPU Structured Training Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      timesteps:
+        description: PPO timesteps for the CUDA smoke
+        required: false
+        default: "4096"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-structured-training-verification
+  cancel-in-progress: false
+
+jobs:
+  cuda-structured-resume:
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    timeout-minutes: 180
+    env:
+      TRADE_RL_GIT_COMMIT: ${{ github.sha }}
+      TRADE_RL_GIT_DIRTY: "false"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: CUDA device evidence
+        run: nvidia-smi
+      - name: Structured BC PPO checkpoint resume smoke
+        run: >-
+          uv run python examples/binance-multitimeframe/run_gpu_training_smoke.py
+          --work-root var/gpu-nightly
+          --timesteps ${{ inputs.timesteps }}
+      - name: Verify measured evidence
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path("var/gpu-nightly/gpu-training-smoke.json").read_text()
+          )
+          assert evidence["schema"] == "gpu_sequence_target_oracle_bc_training_smoke_v5"
+          assert evidence["resolved_device"] == "cuda"
+          assert evidence["serving_support"]["status"] == "supported"
+          assert evidence["performance"]["peak_gpu_memory_mib"] > 0
+          assert evidence["performance"]["throughput_steps_per_second"] > 0
+          assert evidence["resume"]["actual_timesteps"] == evidence["actual_timesteps"]
+          assert evidence["resume"]["evidence"]["schema_version"] == "training_resume_v1"
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpu-structured-training-evidence
+          path: var/gpu-nightly

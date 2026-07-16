@@ -380,3 +380,71 @@ def test_structured_walk_forward_fits_sequence_normalizer_on_exact_train_range()
     assert normalizer.train_start == train_range.start - view_start
     assert normalizer.train_end == train_range.stop - view_start
     assert normalizer.source_dataset_id == dataset.dataset_id
+
+
+def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "sequence-dataset"
+    dataset = _sequence_dataset()
+    write_market_dataset_files(dataset_root, dataset)
+    run = _sequence_candidate_config()
+    run = replace(
+        run,
+        training=replace(
+            run.training,
+            seeds=(0, 1, 2),
+            checkpoint_interval_steps=4,
+            max_checkpoints=2,
+        ),
+    )
+    config_path = tmp_path / "sequence-walk-forward.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "workflow": {
+                    "train_bars": 220,
+                    "checkpoint_bars": 20,
+                    "selection_bars": 20,
+                    "test_bars": 20,
+                    "purge_bars": 4,
+                    "max_folds": 1,
+                },
+                "minimum_selection_uplift": 0.0,
+                "candidates": [
+                    {"name": "sequence-ppo", "run": run.digest_payload()}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = execute_market_walk_forward(
+        config_path=config_path,
+        dataset_path=dataset_root,
+        store_root=tmp_path / "sequence-artifacts",
+        run_id="wf-sequence-001",
+    )
+
+    assert result.status == "published"
+    published = result.path
+    payload = json.loads((published / "walk-forward.json").read_text(encoding="utf-8"))
+    fold = payload["folds"][0]
+    assert fold["selected_member_seeds"] == [0, 1, 2]
+    assert len(fold["selected_member_policy_digests"]) == 3
+    assert fold["sealed_test_evaluations"] == 2
+    assert (published / "fold-000" / "sequence-normalizer-sequence-ppo.json").is_file()
+    checkpoint_selection = json.loads(
+        (
+            published
+            / "fold-000"
+            / "candidates"
+            / "sequence-ppo"
+            / "checkpoint-selection.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert [item["seed"] for item in checkpoint_selection["seed_finalists"]] == [
+        0,
+        1,
+        2,
+    ]

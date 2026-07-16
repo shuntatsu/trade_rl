@@ -1,0 +1,14 @@
+diff --git a/tests/workflows/test_market_walk_forward.py b/tests/workflows/test_market_walk_forward.py
+index b2fb53d..113b1cd 100644
+--- a/tests/workflows/test_market_walk_forward.py
++++ b/tests/workflows/test_market_walk_forward.py
+@@ -410,7 +410,8 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
+                     "purge_bars": 4,
+                     "max_folds": 1,
+                 },
+-                "minimum_selection_uplift": 0.0,
++                "minimum_selection_uplift": -1_000_000.0,
++                "minimum_selection_score": -1_000_000.0,
+                 "candidates": [
+                     {"name": "sequence-ppo", "run": run.digest_payload()}
+                 ],

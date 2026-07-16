@@ -60,7 +60,7 @@ jobs:
           if-no-files-found: warn
       - name: Commit hardening branch
         run: |
-          rm -f tools/apply_task3_shared_actor.py task3-green.log task3-green-status.txt
+          rm -f tools/apply_task3_shared_actor.py tools/task3-trigger.txt task3-green.log task3-green-status.txt
           git config user.name 'architecture-hardening-bot'
           git config user.email 'actions@users.noreply.github.com'
           git add -A

@@ -74,7 +74,9 @@ class AuditEnv(gym.Env[np.ndarray, np.ndarray]):
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
         self._step += 1
         phase = self._step / 8.0
-        observation = np.asarray((math.sin(phase), math.cos(phase)), dtype=np.float32)
+        observation = np.asarray(
+            (math.sin(phase), 1.0, math.cos(phase)), dtype=np.float32
+        )
         target = math.sin(phase * 0.5)
         reward = -float(np.square(action - target).sum())
         return observation, reward, self._step >= 8, False, {}

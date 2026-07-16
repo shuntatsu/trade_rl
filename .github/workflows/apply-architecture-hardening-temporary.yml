@@ -1,0 +1,61 @@
+name: Apply architecture hardening temporary
+
+on:
+  push:
+    branches:
+      - agent/causal-sequence-feature-encoder
+    paths:
+      - .github/workflows/apply-architecture-hardening-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat architecture-hardening.part-00 architecture-hardening.part-01 architecture-hardening.part-02 architecture-hardening.part-03 architecture-hardening.part-04 | base64 --decode > /tmp/architecture-hardening.patch.gz
+          echo "2ea8a00fd629afc321d9e4c69c71830d8c00b4502a47ae7d0c0a8e7232ed6944  /tmp/architecture-hardening.patch.gz" | sha256sum --check -
+          gzip -dc /tmp/architecture-hardening.patch.gz > /tmp/architecture-hardening.patch
+          git apply --check /tmp/architecture-hardening.patch
+          git apply /tmp/architecture-hardening.patch
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Static quality gates
+        run: |
+          uv run ruff check .
+          uv run ruff format --check --diff .
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+          git diff --check
+      - name: Full tests and branch coverage
+        env:
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: |
+          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+          uv run trade-rl --version
+      - name: Commit verified product changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git reset -- architecture-hardening.part-00 architecture-hardening.part-01 architecture-hardening.part-02 architecture-hardening.part-03 architecture-hardening.part-04 .github/workflows/apply-architecture-hardening-temporary.yml
+          git commit -m "fix: harden sequence research architecture"
+          git push origin HEAD:agent/causal-sequence-feature-encoder

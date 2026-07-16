@@ -159,6 +159,121 @@ def test_asset_tokens_retain_symbol_specific_context() -> None:
     assert not torch.allclose(tokens[:, 1], tokens[:, 2])
 
 
+def test_shared_per_asset_action_head_reuses_parameters_and_is_equivariant() -> None:
+    from trade_rl.rl.policies import SharedPerAssetActionHead
+
+    torch.manual_seed(29)
+    single = SharedPerAssetActionHead(
+        n_symbols=1,
+        token_dim=4,
+        context_dim=9,
+        hidden_dims=(7, 5),
+    ).eval()
+    shared = SharedPerAssetActionHead(
+        n_symbols=3,
+        token_dim=4,
+        context_dim=9,
+        hidden_dims=(7, 5),
+    ).eval()
+    shared.shared_head.load_state_dict(single.shared_head.state_dict())
+
+    assert sum(parameter.numel() for parameter in single.parameters()) == sum(
+        parameter.numel() for parameter in shared.parameters()
+    )
+    contexts = torch.randn(2, 3, 9)
+    permutation = torch.tensor([2, 0, 1])
+    with torch.no_grad():
+        original = shared(contexts.reshape(2, -1))
+        permuted = shared(contexts[:, permutation].reshape(2, -1))
+
+    torch.testing.assert_close(permuted, original[:, permutation])
+
+
+def test_shared_actor_masks_inactive_zero_tokens() -> None:
+    from trade_rl.rl.policies import SharedPerAssetActionHead
+
+    head = SharedPerAssetActionHead(
+        n_symbols=2,
+        token_dim=3,
+        context_dim=7,
+        hidden_dims=(5,),
+    ).eval()
+    contexts = torch.randn(1, 2, 7)
+    contexts[:, 1, :3] = 0.0
+
+    with torch.no_grad():
+        actions = head(contexts.reshape(1, -1))
+
+    assert actions.shape == (1, 2)
+    assert actions[0, 1].item() == 0.0
+
+
+def test_shared_sequence_policy_installs_shared_actor_and_portfolio_critic() -> None:
+    import numpy as np
+    from gymnasium import spaces
+
+    from trade_rl.rl.policies import (
+        SequenceAssetFeatureExtractor,
+        SharedPerAssetActionHead,
+        SharedPerAssetActorCriticPolicy,
+    )
+
+    n_symbols = 2
+    timeframes = ("15m", "1h", "4h", "1d")
+    feature_counts = {timeframe: 2 for timeframe in timeframes}
+    window_lengths = {timeframe: 3 for timeframe in timeframes}
+    observation_spaces: dict[str, spaces.Space] = {
+        "current_snapshot": spaces.Box(
+            -1.0, 1.0, shape=(n_symbols, 8), dtype=np.float32
+        ),
+        "asset_state": spaces.Box(-1.0, 1.0, shape=(n_symbols, 4), dtype=np.float32),
+        "global_state": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
+        "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+    }
+    for timeframe in timeframes:
+        shape = (n_symbols, 3, 2)
+        observation_spaces[f"sequence_{timeframe}_values"] = spaces.Box(
+            -1.0, 1.0, shape=shape, dtype=np.float16
+        )
+        observation_spaces[f"sequence_{timeframe}_available"] = spaces.Box(
+            0, 1, shape=shape, dtype=np.uint8
+        )
+        observation_spaces[f"sequence_{timeframe}_staleness"] = spaces.Box(
+            0.0, 10.0, shape=shape, dtype=np.float16
+        )
+    observation_space = spaces.Dict(observation_spaces)
+    policy = SharedPerAssetActorCriticPolicy(
+        observation_space,
+        spaces.Box(-1.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+        lambda _: 1e-3,
+        net_arch={"pi": [11], "vf": [13]},
+        features_extractor_class=SequenceAssetFeatureExtractor,
+        features_extractor_kwargs={
+            "feature_counts": feature_counts,
+            "window_lengths": window_lengths,
+            "snapshot_width": 8,
+            "asset_state_width": 4,
+            "global_width": 3,
+            "n_symbols": n_symbols,
+            "d_model": 16,
+            "attention_heads": 4,
+            "attention_layers": 1,
+            "dropout": 0.0,
+        },
+        shared_actor_n_symbols=n_symbols,
+        shared_actor_d_model=16,
+        shared_actor_global_dim=128,
+        shared_actor_net_arch=(11,),
+    )
+
+    assert isinstance(policy.action_net, SharedPerAssetActionHead)
+    assert policy.mlp_extractor.latent_dim_vf == 13
+    assert policy.action_net.n_symbols == n_symbols
+    constructor = policy._get_constructor_parameters()
+    assert constructor["shared_actor_n_symbols"] == n_symbols
+    assert constructor["shared_actor_net_arch"] == (11,)
+
+
 def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:
     from gymnasium import spaces
 

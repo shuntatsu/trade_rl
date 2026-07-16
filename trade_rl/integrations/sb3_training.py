@@ -132,7 +132,10 @@ class StableBaselines3Backend:
             policy_kwargs: dict[str, Any]
             sequence_metadata: dict[str, Any] | None = None
             if config.sequence_encoder:
-                from trade_rl.rl.policies import SequenceAssetFeatureExtractor
+                from trade_rl.rl.policies import (
+                    SequenceAssetFeatureExtractor,
+                    SharedPerAssetActorCriticPolicy,
+                )
 
                 unwrapped: Any = getattr(probe, "unwrapped", probe)
                 metadata = getattr(unwrapped, "sequence_layout_metadata", None)
@@ -150,10 +153,17 @@ class StableBaselines3Backend:
                     "features_extractor_kwargs": {
                         **sequence_metadata,
                         "d_model": config.sequence_d_model,
+                        "actor_head": "shared_per_asset_v1",
+                        "actor_parameter_sharing": "one_head_all_assets",
+                        "actor_symbol_order": tuple(identity["action_names"]),
                         "attention_heads": config.sequence_attention_heads,
                         "attention_layers": config.sequence_attention_layers,
                         "dropout": config.sequence_dropout,
                     },
+                    "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
+                    "shared_actor_d_model": config.sequence_d_model,
+                    "shared_actor_global_dim": 128,
+                    "shared_actor_net_arch": tuple(config.policy_net_arch),
                 }
             else:
                 policy_kwargs = {"net_arch": list(algorithm_config.policy_net_arch)}
@@ -194,6 +204,11 @@ class StableBaselines3Backend:
                     config.n_envs,
                     subprocesses=not config.sequence_encoder,
                 )
+            policy_identifier: Any = (
+                SharedPerAssetActorCriticPolicy
+                if config.sequence_encoder
+                else config.policy
+            )
             common: dict[str, Any] = {
                 "learning_rate": algorithm_config.learning_rate,
                 "gamma": algorithm_config.gamma,
@@ -212,7 +227,7 @@ class StableBaselines3Backend:
 
                     rollout_kwargs["rollout_buffer_class"] = CompactDictRolloutBuffer
                 model = PPO(
-                    config.policy,
+                    policy_identifier,
                     environment,
                     n_steps=algorithm_config.n_steps,
                     batch_size=algorithm_config.batch_size,
@@ -318,7 +333,11 @@ class StableBaselines3Backend:
                         ],
                         "observation_schema": identity["observation_schema"],
                         "parameter_count": parameter_count,
-                        "policy": config.policy,
+                        "policy": (
+                            policy_identifier.__name__
+                            if isinstance(policy_identifier, type)
+                            else policy_identifier
+                        ),
                         "rollout_buffer_bytes": rollout_buffer_bytes,
                         "rollout_buffer": (
                             "compact_dict" if config.sequence_encoder else "default"

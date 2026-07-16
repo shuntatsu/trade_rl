@@ -1,4 +1,4 @@
-name: Task 10 Terminal Accounting Runner
+name: Task 11 Portfolio Risk Inputs Runner
 
 on:
   pull_request:
@@ -10,11 +10,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: task10-terminal-accounting-runner
+  group: task11-portfolio-risk-inputs-runner
   cancel-in-progress: true
 
 jobs:
-  task10:
+  task11:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -31,104 +31,104 @@ jobs:
         shell: bash
         run: |
           set +e
-          : > task10-diagnostic.log
+          : > task11-diagnostic.log
           status=0
-          if [ ! -f tools/apply_task10_terminal_accounting.py ]; then
-            echo "Task 10 terminal-accounting fix is already committed" >> task10-diagnostic.log
-            echo 0 > task10-status.txt
+          if [ ! -f tools/apply_task11_portfolio_risk_inputs.py ]; then
+            echo "Task 11 portfolio-risk inputs are already committed" >> task11-diagnostic.log
+            echo 0 > task11-status.txt
             exit 0
           fi
           run_step() {
             name="$1"
             shift
-            echo "===== ${name} =====" >> task10-diagnostic.log
-            "$@" >> task10-diagnostic.log 2>&1
+            echo "===== ${name} =====" >> task11-diagnostic.log
+            "$@" >> task11-diagnostic.log 2>&1
             code=$?
-            echo "exit=${code}" >> task10-diagnostic.log
+            echo "exit=${code}" >> task11-diagnostic.log
             return "$code"
           }
           run_step sync uv sync --extra dev --extra train-sb3 || status=$?
           if [ "$status" -eq 0 ]; then
-            run_step add-tests python tools/apply_task10_terminal_accounting.py tests || status=$?
+            run_step add-tests python tools/apply_task11_portfolio_risk_inputs.py tests || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             uv run pytest -q \
-              tests/rl/test_environment_time_config.py::test_end_of_episode_liquidation_charges_cost_and_is_terminal \
-              tests/rl/test_environment_time_config.py::test_end_of_episode_mark_to_market_truncates_without_closing_positions \
-              tests/rl/test_environment_time_config.py::test_final_delayed_target_is_reported_and_discarded_at_horizon \
-              tests/workflows/test_training_run.py::test_execute_training_run_trains_serializes_and_publishes \
-              >> task10-diagnostic.log 2>&1
+              tests/risk/test_portfolio_risk_inputs.py::test_rolling_portfolio_risk_inputs_are_causal_and_finite \
+              tests/risk/test_portfolio_risk_inputs.py::test_environment_wires_causal_inputs_into_advanced_portfolio_risk \
+              >> task11-diagnostic.log 2>&1
             red_status=$?
-            echo "red_exit=${red_status}" >> task10-diagnostic.log
+            echo "red_exit=${red_status}" >> task11-diagnostic.log
             if [ "$red_status" -eq 0 ]; then
-              echo "Task 10 tests unexpectedly passed before implementation" >> task10-diagnostic.log
+              echo "Task 11 tests unexpectedly passed before implementation" >> task11-diagnostic.log
               status=1
             fi
           fi
           if [ "$status" -eq 0 ]; then
-            run_step implementation python tools/apply_task10_terminal_accounting.py implementation || status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            run_step followup python tools/apply_task10_followup.py || status=$?
+            run_step implementation python tools/apply_task11_portfolio_risk_inputs.py implementation || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             run_step format uv run ruff format \
+              trade_rl/risk/inputs.py \
+              trade_rl/risk/portfolio.py \
+              trade_rl/risk/__init__.py \
               trade_rl/rl/environment.py \
-              trade_rl/rl/environment_config.py \
-              trade_rl/workflows/training_run.py \
-              tests/rl/test_environment_time_config.py \
-              tests/workflows/test_training_run.py || status=$?
+              tests/risk/test_portfolio_risk_inputs.py || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             run_step lint uv run ruff check --fix \
+              trade_rl/risk/inputs.py \
+              trade_rl/risk/portfolio.py \
+              trade_rl/risk/__init__.py \
               trade_rl/rl/environment.py \
-              trade_rl/rl/environment_config.py \
-              trade_rl/workflows/training_run.py \
-              tests/rl/test_environment_time_config.py \
-              tests/workflows/test_training_run.py || status=$?
+              tests/risk/test_portfolio_risk_inputs.py || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             run_step tests uv run pytest -q \
+              tests/risk/test_portfolio_risk_inputs.py \
+              tests/risk/test_portfolio_risk.py \
               tests/rl/test_environment_time_config.py \
-              tests/rl/test_sequence_environment_config.py \
               tests/rl/test_target_weight_action.py \
               tests/workflows/test_training_run.py \
               tests/workflows/test_training_run_config.py || status=$?
           fi
           if [ "$status" -eq 0 ]; then
             run_step mypy uv run mypy \
-              trade_rl/rl/environment.py \
-              trade_rl/rl/environment_config.py \
-              trade_rl/workflows/training_run.py || status=$?
+              trade_rl/risk/inputs.py \
+              trade_rl/risk/portfolio.py \
+              trade_rl/rl/environment.py || status=$?
           fi
-          echo "$status" > task10-status.txt
+          if [ "$status" -eq 0 ]; then
+            run_step imports uv run lint-imports || status=$?
+          fi
+          echo "$status" > task11-status.txt
           exit 0
-      - name: Upload Task 10 diagnostic
+      - name: Upload Task 11 diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: task10-terminal-diagnostic
+          name: task11-risk-inputs-diagnostic
           path: |
-            task10-diagnostic.log
-            task10-status.txt
+            task11-diagnostic.log
+            task11-status.txt
       - name: Commit hardening branch
         shell: bash
         run: |
           set -euo pipefail
-          status=$(cat task10-status.txt)
+          status=$(cat task11-status.txt)
           if [ "$status" -ne 0 ]; then
-            cat task10-diagnostic.log
+            cat task11-diagnostic.log
             exit "$status"
           fi
           rm -f \
-            tools/apply_task10_terminal_accounting.py \
-            tools/apply_task10_followup.py \
-            tools/task9-trigger.txt \
-            tools/task10-trigger.txt \
-            task10-diagnostic.log \
-            task10-status.txt
+            tools/apply_task11_portfolio_risk_inputs.py \
+            task11-diagnostic.log \
+            task11-status.txt
           git config user.name architecture-hardening-bot
           git config user.email actions@users.noreply.github.com
           git add -A
-          git commit -m "feat: make terminal accounting and delayed-target disposal explicit"
+          if git diff --cached --quiet; then
+            echo "Task 11 is already committed"
+            exit 0
+          fi
+          git commit -m "feat: wire causal inputs into advanced portfolio risk"
           git push origin HEAD:agent/complete-architecture-hardening

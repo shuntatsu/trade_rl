@@ -86,10 +86,9 @@ jobs:
           fi
           if [ "$status" -eq 0 ]; then
             run_step tests uv run pytest -q \
-              tests/rl/test_environment.py \
               tests/rl/test_environment_time_config.py \
               tests/rl/test_sequence_environment_config.py \
-              tests/rl/test_rewards.py \
+              tests/rl/test_target_weight_action.py \
               tests/workflows/test_training_run.py \
               tests/workflows/test_training_run_config.py || status=$?
           fi

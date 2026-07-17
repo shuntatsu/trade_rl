@@ -1,0 +1,61 @@
+name: Apply complete remediation
+
+on:
+  push:
+    branches:
+      - fix/architecture-hardening-20260717
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-complete-remediation
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Verify immutable checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+      - name: Apply verified remediation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          bzcat .github/remediation-patch/remediation.patch.bz2 > /tmp/remediation.patch
+          git apply --check /tmp/remediation.patch
+          git apply /tmp/remediation.patch
+          rm -rf .github/remediation-patch
+          rm -f .github/workflows/export-remediation-workspace.yml
+          rm -f .github/workflows/apply-complete-remediation.yml
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Lock and normalize source
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format .
+          uv run ruff check . --fix || true
+          uv run python -m compileall -q trade_rl examples tests
+      - name: Commit completed remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: complete trust-boundary remediation"
+          git push origin HEAD:fix/architecture-hardening-20260717

@@ -32,17 +32,20 @@ jobs:
           rm .github/workflows/trigger-binance-metadata-task3.yml
       - name: Install locked dependencies
         run: uv sync --extra dev --extra train-sb3
-      - name: Format and verify
-        run: |
-          uv run ruff format .
-          uv run ruff check .
-          uv run mypy trade_rl
-          uv run pytest -q \
-            tests/data/test_market_builder.py \
-            tests/integrations/test_binance.py \
-            tests/workflows/test_binance_metadata_modes.py \
-            tests/examples/test_binance_metadata_mode_runner.py \
-            tests/examples/test_docker_training_assets.py
+      - name: Ruff format
+        run: uv run ruff format .
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: MyPy
+        run: uv run mypy trade_rl
+      - name: Focused pytest
+        run: >-
+          uv run pytest -q
+          tests/data/test_market_builder.py
+          tests/integrations/test_binance.py
+          tests/workflows/test_binance_metadata_modes.py
+          tests/examples/test_binance_metadata_mode_runner.py
+          tests/examples/test_docker_training_assets.py
       - name: Commit verified implementation
         shell: bash
         run: |

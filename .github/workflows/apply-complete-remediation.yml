@@ -30,7 +30,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bzcat .github/remediation-patch/remediation.patch.bz2 > /tmp/remediation.patch
+          bzip2 -tv .github/remediation-patch/full-remediation.patch.bz2
+          bzcat .github/remediation-patch/full-remediation.patch.bz2 > /tmp/remediation.patch
           git apply --check /tmp/remediation.patch
           git apply /tmp/remediation.patch
           rm -rf .github/remediation-patch
@@ -47,7 +48,7 @@ jobs:
           uv lock
           uv sync --extra dev --extra train-sb3
           uv run ruff format .
-          uv run ruff check . --fix || true
+          uv run ruff check . --fix
           uv run python -m compileall -q trade_rl examples tests
       - name: Commit completed remediation
         shell: bash

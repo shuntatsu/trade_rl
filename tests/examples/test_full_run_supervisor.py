@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "examples" / "binance-multitimeframe" / "full_run_supervisor.py"
 
@@ -29,7 +28,9 @@ class _Runner:
         return self.responses.pop(0)
 
 
-def _completed(stdout: str = "", *, returncode: int = 0) -> subprocess.CompletedProcess[str]:
+def _completed(
+    stdout: str = "", *, returncode: int = 0
+) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess((), returncode, stdout=stdout, stderr="")
 
 

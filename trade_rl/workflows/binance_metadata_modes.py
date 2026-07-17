@@ -483,15 +483,23 @@ def _signed_histories(
     end_time: datetime,
 ) -> dict[str, tuple[InstrumentExecutionRule, ...]]:
     if tuple(histories) != symbols:
-        raise ValueError("signed history execution-rule symbol order does not match scope")
+        raise ValueError(
+            "signed history execution-rule symbol order does not match scope"
+        )
     result: dict[str, tuple[InstrumentExecutionRule, ...]] = {}
     for symbol in symbols:
         rules = tuple(histories[symbol])
         if not rules:
             raise ValueError(f"historical execution-rule history is empty for {symbol}")
-        effective = tuple(_utc(rule.effective_at, field="effective_at") for rule in rules)
-        if effective != tuple(sorted(effective)) or len(set(effective)) != len(effective):
-            raise ValueError(f"historical execution-rule history is not ordered for {symbol}")
+        effective = tuple(
+            _utc(rule.effective_at, field="effective_at") for rule in rules
+        )
+        if effective != tuple(sorted(effective)) or len(set(effective)) != len(
+            effective
+        ):
+            raise ValueError(
+                f"historical execution-rule history is not ordered for {symbol}"
+            )
         if effective[0] > start_time:
             raise ValueError(
                 f"historical execution-rule history does not cover start for {symbol}"
@@ -504,9 +512,7 @@ def _signed_histories(
             _strictly_positive(
                 rule.tick_size, field=f"{symbol}.rules[{index}].tick_size"
             )
-            _strictly_positive(
-                rule.lot_size, field=f"{symbol}.rules[{index}].lot_size"
-            )
+            _strictly_positive(rule.lot_size, field=f"{symbol}.rules[{index}].lot_size")
             _strictly_positive(
                 rule.minimum_notional,
                 field=f"{symbol}.rules[{index}].minimum_notional",
@@ -527,7 +533,10 @@ def resolution_from_historical_signed(
 
     requested_start = _utc(start_time, field="start_time")
     requested_end = _utc(end_time, field="end_time")
-    if signed_scope.coverage_start != requested_start or signed_scope.coverage_end != requested_end:
+    if (
+        signed_scope.coverage_start != requested_start
+        or signed_scope.coverage_end != requested_end
+    ):
         raise ValueError("signed history coverage does not match the research interval")
     symbols = signed_scope.symbols
     resolved_metadata = _signed_metadata(metadata, symbols=symbols)

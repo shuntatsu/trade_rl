@@ -16,12 +16,7 @@ from trade_rl.workflows.binance_metadata_modes import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER = (
-    ROOT
-    / "examples"
-    / "binance-multitimeframe"
-    / "run_full_research_hardened.py"
-)
+RUNNER = ROOT / "examples" / "binance-multitimeframe" / "run_full_research_hardened.py"
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 
 

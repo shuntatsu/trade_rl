@@ -24,7 +24,9 @@ def _authorization() -> SelectionAuthorization:
 
 def test_selection_authorization_round_trips_and_verifies(tmp_path: Path) -> None:
     authorization = _authorization()
-    path = write_selection_authorization(tmp_path / "selection-authorization.json", authorization)
+    path = write_selection_authorization(
+        tmp_path / "selection-authorization.json", authorization
+    )
     loaded = load_selection_authorization(path)
 
     assert loaded == authorization

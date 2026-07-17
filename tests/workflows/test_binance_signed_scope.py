@@ -10,7 +10,6 @@ from trade_rl.workflows.binance_metadata_modes import (
     resolution_from_historical_signed,
 )
 
-
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 START = datetime(2024, 12, 1, tzinfo=UTC)
 END = datetime(2026, 7, 1, tzinfo=UTC)
@@ -43,7 +42,9 @@ def _metadata() -> dict[str, dict[str, str | float]]:
     }
 
 
-def _histories(*, tick_size: float = 0.1) -> dict[str, tuple[InstrumentExecutionRule, ...]]:
+def _histories(
+    *, tick_size: float = 0.1
+) -> dict[str, tuple[InstrumentExecutionRule, ...]]:
     return {
         symbol: (
             InstrumentExecutionRule(

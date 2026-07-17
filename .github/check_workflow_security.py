@@ -4,7 +4,6 @@ import re
 import sys
 from pathlib import Path
 
-
 _ACTION_REFERENCE = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)\s*$", re.MULTILINE)
 _IMMUTABLE_ACTION = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 
@@ -29,13 +28,19 @@ def _privileged_errors(path: Path, content: str) -> list[str]:
     if "pull_request" in content or "pull_request_target" in content:
         errors.append(f"{relative}: pull_request cannot target a self-hosted runner")
     if "environment: gpu-full-training" not in content:
-        errors.append(f"{relative}: self-hosted workflow requires gpu-full-training environment")
+        errors.append(
+            f"{relative}: self-hosted workflow requires gpu-full-training environment"
+        )
     if "github.actor == github.repository_owner" not in content:
-        errors.append(f"{relative}: self-hosted workflow must restrict github.actor to repository_owner")
+        errors.append(
+            f"{relative}: self-hosted workflow must restrict github.actor to repository_owner"
+        )
     if "github.ref == 'refs/heads/main'" not in content and (
         'github.ref == "refs/heads/main"' not in content
     ):
-        errors.append(f"{relative}: self-hosted workflow must restrict dispatch to refs/heads/main")
+        errors.append(
+            f"{relative}: self-hosted workflow must restrict dispatch to refs/heads/main"
+        )
     if "contents: write" in content:
         errors.append(f"{relative}: privileged workflow cannot grant contents: write")
     for reference in _ACTION_REFERENCE.findall(content):

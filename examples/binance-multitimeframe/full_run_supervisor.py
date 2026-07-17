@@ -13,7 +13,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 _GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 CommandRunner = Callable[[tuple[str, ...]], subprocess.CompletedProcess[str]]
@@ -35,7 +34,9 @@ def _require_success(
 ) -> str:
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
-        raise RuntimeError(f"command failed ({completed.returncode}): {command!r}: {detail}")
+        raise RuntimeError(
+            f"command failed ({completed.returncode}): {command!r}: {detail}"
+        )
     return completed.stdout.strip()
 
 
@@ -57,7 +58,11 @@ def _inspect(name: str, runner: CommandRunner) -> dict[str, Any]:
     command = ("docker", "inspect", name)
     output = _require_success(runner(command), command=command)
     payload = json.loads(output)
-    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 1
+        or not isinstance(payload[0], dict)
+    ):
         raise RuntimeError("docker inspect returned an invalid payload")
     item = dict(payload[0])
     state = item.get("State")
@@ -172,7 +177,9 @@ def supervised_run_status(
             "supervised": False,
         }
     if len(names) != 1:
-        raise RuntimeError("multiple supervised full trainers exist: " + ", ".join(names))
+        raise RuntimeError(
+            "multiple supervised full trainers exist: " + ", ".join(names)
+        )
     return _inspect(names[0], runner)
 
 
@@ -187,7 +194,9 @@ def stop_supervised_run(
     if not names:
         return supervised_run_status(runner=runner)
     if len(names) != 1:
-        raise RuntimeError("multiple supervised full trainers exist: " + ", ".join(names))
+        raise RuntimeError(
+            "multiple supervised full trainers exist: " + ", ".join(names)
+        )
     name = names[0]
     inspect_before = _inspect(name, runner)
     if inspect_before["state"] == "running":
@@ -218,14 +227,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--container-name")
     parser.add_argument("--git-commit")
     parser.add_argument("--metadata-mode", default="frozen_snapshot")
-    parser.add_argument("--compose-file", type=Path, default=Path("compose.training.yaml"))
+    parser.add_argument(
+        "--compose-file", type=Path, default=Path("compose.training.yaml")
+    )
     parser.add_argument("--evidence-path", type=Path)
     parser.add_argument("--remove", action="store_true")
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
 
     if args.operation == "start":
         if not args.generation or not args.container_name or not args.git_commit:
-            parser.error("start requires --generation, --container-name, and --git-commit")
+            parser.error(
+                "start requires --generation, --container-name, and --git-commit"
+            )
         payload = start_supervised_run(
             generation=args.generation,
             container_name=args.container_name,

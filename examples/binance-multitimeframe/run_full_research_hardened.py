@@ -97,7 +97,9 @@ def _load_signed_history() -> tuple[
     signed = document.get("payload")
     envelope_raw = document.get("envelope")
     if not isinstance(signed, dict) or not isinstance(envelope_raw, dict):
-        raise ValueError("Binance rule history must contain payload and envelope objects")
+        raise ValueError(
+            "Binance rule history must contain payload and envelope objects"
+        )
     envelope = AuthenticatedEnvelope(
         key_id=str(envelope_raw.get("key_id", "")),
         payload_digest=str(envelope_raw.get("payload_digest", "")),
@@ -139,7 +141,9 @@ def _load_signed_history() -> tuple[
         listed_at = _PARSE_UTC(str(raw_entry.get("listed_at", "")))
         raw_rules = raw_entry.get("rules")
         if not isinstance(raw_rules, list) or not raw_rules:
-            raise ValueError(f"Binance execution rule history is missing {symbol} rules")
+            raise ValueError(
+                f"Binance execution rule history is missing {symbol} rules"
+            )
         rules = tuple(
             InstrumentExecutionRule(
                 effective_at=_PARSE_UTC(str(item["effective_at"])),
@@ -305,7 +309,9 @@ def main() -> int:
         metadata_evidence_digest=resolution.evidence_digest,
     )
     if dataset_a["dataset_id"] != dataset_b["dataset_id"]:
-        raise RuntimeError("repeated multi-timeframe builds produced different dataset IDs")
+        raise RuntimeError(
+            "repeated multi-timeframe builds produced different dataset IDs"
+        )
     if dataset_a["artifact_digest"] != dataset_b["artifact_digest"]:
         raise RuntimeError(
             "repeated multi-timeframe builds produced different artifact digests"

@@ -27,6 +27,13 @@ def _artifact_run_parser(prog: str) -> argparse.ArgumentParser:
     return parser
 
 
+def _training_run_parser() -> argparse.ArgumentParser:
+    parser = _artifact_run_parser("trade-rl train run")
+    parser.add_argument("--selection-authorization", type=Path)
+    parser.add_argument("--require-selection-authorization", action="store_true")
+    return parser
+
+
 def _error(
     stderr: TextIO,
     error: Exception,
@@ -52,13 +59,15 @@ def _run_training(
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
-    args = _artifact_run_parser("trade-rl train run").parse_args(list(argv))
+    args = _training_run_parser().parse_args(list(argv))
     try:
         result = execute_training_run(
             config_path=args.config,
             dataset_path=args.dataset,
             store_root=args.output,
             run_id=args.run_id,
+            selection_authorization_path=args.selection_authorization,
+            require_selection_authorization=args.require_selection_authorization,
         )
     except Exception as error:
         return _error(stderr, error, schema="training_run_error_v1")
@@ -71,7 +80,9 @@ def _run_training(
             "production_status": result.production_status,
             "run_digest": result.run_digest,
             "run_id": result.run_id,
+            "run_kind": result.run_kind,
             "schema": "training_run_result_v1",
+            "selection_authorization_digest": result.selection_authorization_digest,
             "status": result.status,
         },
     )

@@ -17,7 +17,10 @@ def _seeds(value: tuple[int, ...]) -> tuple[int, ...]:
     seeds = tuple(value)
     if (
         len(seeds) < 2
-        or any(isinstance(seed, bool) or not isinstance(seed, int) or seed < 0 for seed in seeds)
+        or any(
+            isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+            for seed in seeds
+        )
         or len(set(seeds)) != len(seeds)
     ):
         raise ValueError("selection authorization requires unique non-negative seeds")
@@ -73,16 +76,25 @@ class SelectionAuthorization:
         candidate_config_digest: str,
         seeds: tuple[int, ...],
     ) -> SelectionAuthorization:
+        resolved_seeds = _seeds(seeds)
         payload = {
             "candidate_config_digest": candidate_config_digest,
             "dataset_id": dataset_id,
             "gate_evidence_digest": gate_evidence_digest,
             "schema_version": SELECTION_AUTHORIZATION_SCHEMA,
-            "seeds": _seeds(seeds),
+            "seeds": resolved_seeds,
             "selected_configuration": selected_configuration,
             "walk_forward_run_digest": walk_forward_run_digest,
         }
-        return cls(authorization_digest=content_digest(payload), **payload)
+        return cls(
+            authorization_digest=content_digest(payload),
+            walk_forward_run_digest=walk_forward_run_digest,
+            gate_evidence_digest=gate_evidence_digest,
+            dataset_id=dataset_id,
+            selected_configuration=selected_configuration,
+            candidate_config_digest=candidate_config_digest,
+            seeds=resolved_seeds,
+        )
 
     def verify(
         self,
@@ -119,6 +131,7 @@ def load_selection_authorization(path: str | Path) -> SelectionAuthorization:
         raw_seeds = raw["seeds"]
         if not isinstance(raw_seeds, list):
             raise ValueError("selection authorization seeds must be a list")
+        seeds = tuple(int(seed) for seed in raw_seeds)
         return SelectionAuthorization(
             authorization_digest=str(raw["authorization_digest"]),
             walk_forward_run_digest=str(raw["walk_forward_run_digest"]),
@@ -126,7 +139,7 @@ def load_selection_authorization(path: str | Path) -> SelectionAuthorization:
             dataset_id=str(raw["dataset_id"]),
             selected_configuration=str(raw["selected_configuration"]),
             candidate_config_digest=str(raw["candidate_config_digest"]),
-            seeds=tuple(raw_seeds),
+            seeds=seeds,
             schema_version=str(raw["schema_version"]),
         )
     except (KeyError, TypeError, ValueError) as error:

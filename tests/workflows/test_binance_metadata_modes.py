@@ -13,6 +13,7 @@ from trade_rl.integrations.binance import (
     BinanceMarket,
 )
 from trade_rl.workflows.binance_metadata_modes import (
+    BinanceHistoricalSignedScope,
     BinanceMetadataMode,
     BinanceMetadataResolutionProvider,
     resolution_from_historical_signed,
@@ -203,12 +204,20 @@ def test_historical_signed_resolution_preserves_effective_history() -> None:
         for symbol in SYMBOLS
     }
     histories = {symbol: (rule,) for symbol in SYMBOLS}
+    scope = BinanceHistoricalSignedScope(
+        market=BinanceMarket.USDS_M.value,
+        symbols=SYMBOLS,
+        coverage_start=START,
+        coverage_end=END,
+        issued_at=RETRIEVED,
+        source_uri="operator://signed-binance-rules",
+        payload_digest="a" * 64,
+    )
 
     resolution = resolution_from_historical_signed(
         metadata=metadata,
         execution_rule_histories=histories,
-        evidence_digest="a" * 64,
-        source_uri="/workspace/var/metadata/binance-rule-history.json",
+        signed_scope=scope,
         start_time=START,
         end_time=END,
     )
@@ -218,6 +227,7 @@ def test_historical_signed_resolution_preserves_effective_history() -> None:
     assert resolution.identity_evidence["authentication"] == "hmac-sha256"
     assert resolution.identity_evidence["point_in_time"] is True
     assert resolution.identity_evidence["limitations"] == ()
+    assert resolution.identity_evidence["source_uri"] == scope.source_uri
 
 
 def test_conservative_static_requires_versioned_payload_and_positive_stress(

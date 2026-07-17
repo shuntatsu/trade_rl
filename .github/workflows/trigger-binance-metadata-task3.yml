@@ -30,10 +30,13 @@ jobs:
           git apply /tmp/task3.patch
           rm .github/workflows/apply-binance-metadata-task3.yml
           rm .github/workflows/trigger-binance-metadata-task3.yml
+          rm -f .github/workflows/diagnose-binance-metadata-task3.yml
       - name: Install locked dependencies
         run: uv sync --extra dev --extra train-sb3
-      - name: Ruff format
-        run: uv run ruff format .
+      - name: Ruff fix and format
+        run: |
+          uv run ruff check --fix .
+          uv run ruff format .
       - name: Ruff lint
         run: uv run ruff check .
       - name: MyPy

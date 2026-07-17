@@ -41,7 +41,9 @@ def _market(**overrides: object) -> MarketDataset:
     return MarketDataset(**values)
 
 
-def test_execution_rule_stress_multiplies_point_in_time_rules_without_mutation() -> None:
+def test_execution_rule_stress_multiplies_point_in_time_rules_without_mutation() -> (
+    None
+):
     dataset = _market()
     stress = ExecutionRuleStress(
         name="joint_2x",

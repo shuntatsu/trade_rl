@@ -6,7 +6,7 @@ import math
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 
@@ -39,6 +39,7 @@ from trade_rl.rl.sequence_observations import (
     SequenceWindowSpec,
 )
 from trade_rl.rl.training import train_residual_ensemble
+from trade_rl.simulation.execution import ExecutionRuleStress, MarketExecutor
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.fold_runner import (
     BASELINE_CONFIGURATION,
@@ -55,6 +56,9 @@ from trade_rl.workflows.fold_runner import (
     select_seed_checkpoint_finalists,
 )
 from trade_rl.workflows.market_walk_forward_config import (
+    ExecutionSensitivityConfig,
+)
+from trade_rl.workflows.market_walk_forward_config import (
     MarketWalkForwardConfig as MarketWalkForwardConfig,
 )
 from trade_rl.workflows.market_walk_forward_config import (
@@ -66,6 +70,7 @@ from trade_rl.workflows.walk_forward import (
     execute_walk_forward,
 )
 from trade_rl.workflows.walk_forward_evaluation import (
+    RangeEvaluation,
     bind_signal_providers_to_view,
     build_market_environment,
     evaluate_range_evidence,
@@ -691,39 +696,87 @@ class MarketCandidateEvaluator:
         self._model_cache: dict[str, Any] = {}
         self.outer_test_counts: dict[int, int] = {}
 
+    def _evaluation_inputs(
+        self,
+        *,
+        configuration: str,
+        policy_digest: str | None,
+    ) -> tuple[
+        TrainingRunConfig,
+        ObservationNormalizer | None,
+        SequenceFeatureNormalizer | None,
+        Any | None,
+        bool,
+    ]:
+        baseline = configuration == BASELINE_CONFIGURATION
+        if baseline:
+            return self.baseline_run, None, None, None, True
+        if policy_digest is None:
+            raise ValueError("residual evaluation requires a policy digest")
+        record = self.registry.get(policy_digest)
+        if record is None:
+            raise ValueError("candidate evaluation policy is not registered")
+        model = self._model_cache.get(policy_digest)
+        if model is None:
+            if record.members:
+                models = tuple(
+                    self.checkpoint_loader.load(
+                        PolicyCheckpoint(path=path, algorithm=record.algorithm)
+                    )
+                    for _, path in record.members
+                )
+                model = _DeterministicMeanPolicy(models)
+            else:
+                model = self.checkpoint_loader.load(
+                    PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
+                )
+            self._model_cache[policy_digest] = model
+        return (
+            record.run,
+            record.normalizer,
+            record.sequence_normalizer,
+            model,
+            False,
+        )
+
+    def evaluate_sensitivity(
+        self,
+        *,
+        configuration: str,
+        policy_digest: str | None,
+        evaluation_range: IndexRange,
+        rule_stress: ExecutionRuleStress,
+    ) -> RangeEvaluation:
+        """Replay a frozen selection without changing selection counters."""
+
+        run, normalizer, sequence_normalizer, model, baseline = self._evaluation_inputs(
+            configuration=configuration,
+            policy_digest=policy_digest,
+        )
+        return evaluate_range_evidence(
+            dataset=self.dataset,
+            evaluation_range=evaluation_range,
+            run=run,
+            normalizer=normalizer,
+            sequence_normalizer=sequence_normalizer,
+            model=model,
+            baseline=baseline,
+            execution_rule_stress=rule_stress,
+        )
+
     def evaluate(self, request: CandidateEvaluationRequest) -> CandidateEvaluation:
         if request.dataset_id != self.dataset.dataset_id:
             raise ValueError("candidate evaluation dataset identity mismatch")
-        baseline = request.configuration == BASELINE_CONFIGURATION
-        if baseline:
-            run = self.baseline_run
-            normalizer = None
-            sequence_normalizer = None
-            model = None
-        else:
-            if request.policy_digest is None:
-                raise ValueError("residual evaluation requires a policy digest")
-            record = self.registry.get(request.policy_digest)
-            if record is None:
-                raise ValueError("candidate evaluation policy is not registered")
-            run = record.run
-            normalizer = record.normalizer
-            sequence_normalizer = record.sequence_normalizer
-            model = self._model_cache.get(request.policy_digest)
-            if model is None:
-                if record.members:
-                    models = tuple(
-                        self.checkpoint_loader.load(
-                            PolicyCheckpoint(path=path, algorithm=record.algorithm)
-                        )
-                        for _, path in record.members
-                    )
-                    model = _DeterministicMeanPolicy(models)
-                else:
-                    model = self.checkpoint_loader.load(
-                        PolicyCheckpoint(path=record.path, algorithm=record.algorithm)
-                    )
-                self._model_cache[request.policy_digest] = model
+        (
+            run,
+            normalizer,
+            sequence_normalizer,
+            model,
+            baseline,
+        ) = self._evaluation_inputs(
+            configuration=request.configuration,
+            policy_digest=request.policy_digest,
+        )
         evidence = evaluate_range_evidence(
             dataset=self.dataset,
             evaluation_range=request.evaluation_range,
@@ -776,6 +829,181 @@ class MarketCandidateEvaluator:
             cost_fraction=cost_fraction,
             maximum_drawdown=maximum_drawdown,
         )
+
+
+def _total_return(values: tuple[float, ...]) -> float:
+    wealth = 1.0
+    for value in values:
+        wealth *= 1.0 + float(value)
+    return wealth - 1.0
+
+
+class _SensitivityMetrics(TypedDict):
+    cost_fraction: float
+    diagnostics: dict[str, object]
+    maximum_drawdown: float
+    n_trades: int
+    returns: tuple[float, ...]
+    rule_burden_percentiles: dict[str, object] | None
+    total_return: float
+    turnover_per_day: float
+
+
+def _sensitivity_metrics(
+    evidence: RangeEvaluation,
+    *,
+    initial_capital: float,
+    duration_days: float,
+) -> _SensitivityMetrics:
+    values = tuple(float(value) for value in evidence.returns.values)
+    return {
+        "cost_fraction": evidence.diagnostics.total_cost / initial_capital,
+        "diagnostics": evidence.diagnostics.digest_payload(),
+        "maximum_drawdown": evaluate_performance(evidence.returns).max_drawdown,
+        "n_trades": evidence.diagnostics.n_trades,
+        "returns": values,
+        "rule_burden_percentiles": evidence.execution_rule_burden,
+        "total_return": _total_return(values),
+        "turnover_per_day": evidence.diagnostics.turnover_total
+        / max(duration_days, 1e-12),
+    }
+
+
+def _evaluate_execution_sensitivity(
+    *,
+    config: ExecutionSensitivityConfig,
+    dataset: MarketDataset,
+    result: WalkForwardExecutionResult,
+    evaluator: MarketCandidateEvaluator,
+    experiment_plan_digest: str,
+) -> dict[str, Any] | None:
+    if not config.enabled:
+        return None
+    scenario_pack_digest = content_digest(config.digest_payload())
+    folds_payload: list[dict[str, Any]] = []
+    required_selected_returns: list[float] = []
+    required_baseline_returns: list[float] = []
+    required_fold_drawdowns: list[float] = []
+    for fold, fold_result in zip(result.folds, result.fold_results, strict=True):
+        access = fold_result.sealed_test_access
+        if access is None:
+            raise RuntimeError("sealed test access evidence is missing for sensitivity")
+        selected_configuration = fold_result.selection.selected_configuration
+        selected_policy_digest = fold_result.selection.selected_policy_digest
+        duration_days = max(fold.test.size * dataset.bar_hours / 24.0, 1e-12)
+        scenario_payloads: list[dict[str, Any]] = []
+        for scenario in config.scenarios:
+            stress = scenario.stress()
+            if scenario.name == "nominal":
+                nominal_burden = MarketExecutor(
+                    dataset,
+                    evaluator.baseline_run.environment.execution_cost,
+                    rule_stress=stress,
+                ).rule_burden_percentiles(
+                    start=fold.test.start,
+                    stop=fold.test.stop,
+                )
+                selected_evidence = RangeEvaluation(
+                    returns=fold_result.selected_oos.returns,
+                    diagnostics=fold_result.selected_oos.diagnostics,
+                    execution_rule_burden=nominal_burden,
+                )
+                baseline_evidence = RangeEvaluation(
+                    returns=fold_result.baseline_oos.returns,
+                    diagnostics=fold_result.baseline_oos.diagnostics,
+                    execution_rule_burden=nominal_burden,
+                )
+            else:
+                selected_evidence = evaluator.evaluate_sensitivity(
+                    configuration=selected_configuration,
+                    policy_digest=selected_policy_digest,
+                    evaluation_range=fold.test,
+                    rule_stress=stress,
+                )
+                baseline_evidence = evaluator.evaluate_sensitivity(
+                    configuration=BASELINE_CONFIGURATION,
+                    policy_digest=None,
+                    evaluation_range=fold.test,
+                    rule_stress=stress,
+                )
+            selected_metrics = _sensitivity_metrics(
+                selected_evidence,
+                initial_capital=evaluator.baseline_run.environment.initial_capital,
+                duration_days=duration_days,
+            )
+            baseline_metrics = _sensitivity_metrics(
+                baseline_evidence,
+                initial_capital=evaluator.baseline_run.environment.initial_capital,
+                duration_days=duration_days,
+            )
+            uplift = float(selected_metrics["total_return"]) - float(
+                baseline_metrics["total_return"]
+            )
+            scenario_result = {
+                "baseline": baseline_metrics,
+                "baseline_uplift": uplift,
+                "report_only": scenario.report_only,
+                "scenario": scenario.digest_payload(),
+                "selected": selected_metrics,
+            }
+            scenario_result["scenario_result_digest"] = content_digest(scenario_result)
+            scenario_payloads.append(scenario_result)
+            if scenario.name == config.required_scenario:
+                required_selected_returns.extend(selected_evidence.returns.values)
+                required_baseline_returns.extend(baseline_evidence.returns.values)
+                required_fold_drawdowns.append(
+                    float(selected_metrics["maximum_drawdown"])
+                )
+        access_payload = {
+            "base_access_digest": access.access_digest,
+            "dataset_id": access.dataset_id,
+            "experiment_plan_digest": experiment_plan_digest,
+            "fold_index": fold.fold_index,
+            "purpose": "post_selection_execution_sensitivity",
+            "scenario_pack_digest": scenario_pack_digest,
+            "selected_configuration": selected_configuration,
+            "selected_policy_digest": selected_policy_digest,
+            "test_range": [fold.test.start, fold.test.stop],
+        }
+        access_payload["access_digest"] = content_digest(access_payload)
+        folds_payload.append(
+            {
+                "access": access_payload,
+                "fold_index": fold.fold_index,
+                "scenarios": tuple(scenario_payloads),
+            }
+        )
+    selected_values = tuple(float(value) for value in required_selected_returns)
+    baseline_values = tuple(float(value) for value in required_baseline_returns)
+    selected_total = _total_return(selected_values)
+    baseline_total = _total_return(baseline_values)
+    required_drawdown = max(required_fold_drawdowns, default=1.0)
+    gate = {
+        "baseline_total_return": baseline_total,
+        "baseline_uplift": selected_total - baseline_total,
+        "maximum_fold_drawdown": required_drawdown,
+        "maximum_drawdown_threshold": config.maximum_drawdown,
+        "minimum_baseline_uplift": config.minimum_baseline_uplift,
+        "minimum_selected_return": config.minimum_selected_return,
+        "required_scenario": config.required_scenario,
+        "selected_total_return": selected_total,
+    }
+    gate["passed"] = (
+        selected_total > config.minimum_selected_return
+        and selected_total - baseline_total >= config.minimum_baseline_uplift
+        and required_drawdown <= config.maximum_drawdown
+    )
+    payload: dict[str, Any] = {
+        "dataset_id": dataset.dataset_id,
+        "experiment_plan_digest": experiment_plan_digest,
+        "folds": tuple(folds_payload),
+        "gate": gate,
+        "production_status": "NO-GO",
+        "scenario_pack_digest": scenario_pack_digest,
+        "schema_version": "execution_sensitivity_v1",
+    }
+    payload["artifact_digest"] = content_digest(payload)
+    return payload
 
 
 def _fold_payload(
@@ -931,6 +1159,21 @@ def execute_market_walk_forward(
             dataset_id=dataset.dataset_id,
             runner=fold_runner,
         )
+        sensitivity_payload = _evaluate_execution_sensitivity(
+            config=config.execution_sensitivity,
+            dataset=dataset,
+            result=result,
+            evaluator=evaluator,
+            experiment_plan_digest=experiment_plan_digest,
+        )
+        sensitivity_by_fold: dict[int, dict[str, Any]] = {}
+        if sensitivity_payload is not None:
+            _write_json(stage / "execution-sensitivity.json", sensitivity_payload)
+            sensitivity_by_fold = {
+                int(item["fold_index"]): item
+                for item in sensitivity_payload["folds"]
+                if isinstance(item, dict)
+            }
         folds_payload: list[dict[str, object]] = []
         for fold, fold_result in zip(
             result.folds,
@@ -952,6 +1195,15 @@ def execute_market_walk_forward(
                 initial_capital=config.candidates[0].run.environment.initial_capital,
                 bar_hours=dataset.bar_hours,
             )
+            sensitivity_fold = sensitivity_by_fold.get(fold.fold_index)
+            if sensitivity_fold is not None:
+                access_payload = sensitivity_fold.get("access")
+                payload["execution_sensitivity_access"] = access_payload
+                payload["execution_sensitivity_scenario_digests"] = tuple(
+                    item.get("scenario_result_digest")
+                    for item in sensitivity_fold.get("scenarios", ())
+                    if isinstance(item, dict)
+                )
             folds_payload.append(payload)
             _write_json(
                 stage / f"fold-{fold.fold_index:03d}" / "result.json",
@@ -970,6 +1222,14 @@ def execute_market_walk_forward(
             ),
             "dataset_id": dataset.dataset_id,
             "evaluation_digest": result.evaluation_digest,
+            "execution_sensitivity_digest": (
+                None
+                if sensitivity_payload is None
+                else sensitivity_payload["artifact_digest"]
+            ),
+            "execution_sensitivity_gate": (
+                None if sensitivity_payload is None else sensitivity_payload["gate"]
+            ),
             "experiment_plan_digest": experiment_plan_digest,
             "folds": tuple(folds_payload),
             "production_status": "NO-GO",

@@ -18,6 +18,49 @@ _TOLERANCE = 1e-12
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionRuleStress:
+    """Evaluation-only multiplicative overlay for execution-rule sensitivity."""
+
+    name: str = "nominal"
+    tick_size_factor: float = 1.0
+    lot_size_factor: float = 1.0
+    minimum_notional_factor: float = 1.0
+    adverse_tick_rounding: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("execution-rule stress name must be non-empty")
+        for field_name, value in (
+            ("tick_size_factor", self.tick_size_factor),
+            ("lot_size_factor", self.lot_size_factor),
+            ("minimum_notional_factor", self.minimum_notional_factor),
+        ):
+            if not math.isfinite(value) or value < 1.0:
+                raise ValueError(f"{field_name} must be finite and at least 1.0")
+        if not isinstance(self.adverse_tick_rounding, bool):
+            raise ValueError("adverse_tick_rounding must be a boolean")
+
+    @property
+    def enabled(self) -> bool:
+        return (
+            self.tick_size_factor > 1.0
+            or self.lot_size_factor > 1.0
+            or self.minimum_notional_factor > 1.0
+            or self.adverse_tick_rounding
+        )
+
+    def digest_payload(self) -> dict[str, object]:
+        return {
+            "adverse_tick_rounding": self.adverse_tick_rounding,
+            "lot_size_factor": self.lot_size_factor,
+            "minimum_notional_factor": self.minimum_notional_factor,
+            "name": self.name,
+            "schema_version": "execution_rule_stress_v1",
+            "tick_size_factor": self.tick_size_factor,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionCostConfig:
     fee_rate: float = 0.0005
     maker_fee_rate: float = 0.0
@@ -217,10 +260,94 @@ class MarketExecutor:
         self,
         dataset: MarketDataset,
         cost: ExecutionCostConfig | None = None,
+        *,
+        rule_stress: ExecutionRuleStress | None = None,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        self.rule_stress = rule_stress or ExecutionRuleStress()
+        self._validate_rule_stress()
         self._rng = np.random.default_rng(self.cost.random_seed)
+
+    def _base_rule_array(self, field_name: str, *, floor: float) -> np.ndarray:
+        return np.maximum(self.dataset.resolved_array(field_name), floor)
+
+    def _validate_rule_stress(self) -> None:
+        requirements = (
+            (
+                "tick_size",
+                self.cost.tick_size,
+                self.rule_stress.tick_size_factor > 1.0
+                or self.rule_stress.adverse_tick_rounding,
+            ),
+            (
+                "lot_size",
+                self.cost.lot_size,
+                self.rule_stress.lot_size_factor > 1.0,
+            ),
+            (
+                "minimum_notional",
+                self.cost.minimum_notional,
+                self.rule_stress.minimum_notional_factor > 1.0,
+            ),
+        )
+        for field_name, floor, required in requirements:
+            if required and np.any(
+                self._base_rule_array(field_name, floor=floor) <= 0.0
+            ):
+                raise ValueError(
+                    f"{field_name} must be positive for execution-rule sensitivity"
+                )
+
+    def effective_rule_arrays(
+        self, *, index: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if not 0 <= index < self.dataset.n_bars:
+            raise IndexError("execution-rule index is outside the dataset")
+        tick = (
+            self._base_rule_array("tick_size", floor=self.cost.tick_size)[index]
+            * self.rule_stress.tick_size_factor
+        )
+        lot = (
+            self._base_rule_array("lot_size", floor=self.cost.lot_size)[index]
+            * self.rule_stress.lot_size_factor
+        )
+        minimum = (
+            self._base_rule_array("minimum_notional", floor=self.cost.minimum_notional)[
+                index
+            ]
+            * self.rule_stress.minimum_notional_factor
+        )
+        return tick, lot, minimum
+
+    @staticmethod
+    def _percentiles(values: np.ndarray) -> dict[str, float]:
+        vector = np.asarray(values, dtype=np.float64).reshape(-1)
+        if vector.size == 0 or not np.isfinite(vector).all():
+            raise ValueError("rule burden values must be finite and non-empty")
+        return {
+            "p50": float(np.percentile(vector, 50.0)),
+            "p95": float(np.percentile(vector, 95.0)),
+            "max": float(np.max(vector)),
+        }
+
+    def rule_burden_percentiles(self, *, start: int, stop: int) -> dict[str, object]:
+        if not 0 <= start < stop <= self.dataset.n_bars:
+            raise ValueError("rule burden range is outside the dataset")
+        shape = self.dataset.resolved_array("tick_size")[start:stop].shape
+        return {
+            "adverse_tick_rounding": self.rule_stress.adverse_tick_rounding,
+            "lot_size_ratio": self._percentiles(
+                np.full(shape, self.rule_stress.lot_size_factor)
+            ),
+            "minimum_notional_ratio": self._percentiles(
+                np.full(shape, self.rule_stress.minimum_notional_factor)
+            ),
+            "schema_version": "execution_rule_burden_v1",
+            "tick_size_ratio": self._percentiles(
+                np.full(shape, self.rule_stress.tick_size_factor)
+            ),
+        }
 
     def reset_random_state(self, seed: int | None = None) -> None:
         resolved = self.cost.random_seed if seed is None else seed
@@ -237,22 +364,37 @@ class MarketExecutor:
             rates[tails] *= self.cost.tail_slippage_multiplier
         return rates
 
-    def _round_prices(self, prices: np.ndarray, *, index: int) -> np.ndarray:
-        tick = np.maximum(
-            self.dataset.resolved_array("tick_size")[index], self.cost.tick_size
-        )
+    def _round_prices(
+        self,
+        prices: np.ndarray,
+        *,
+        index: int,
+        directions: np.ndarray | None = None,
+    ) -> np.ndarray:
+        tick, _, _ = self.effective_rule_arrays(index=index)
         rounded = prices.copy()
         mask = tick > 0.0
-        rounded[mask] = np.round(rounded[mask] / tick[mask]) * tick[mask]
+        scaled = np.zeros_like(rounded)
+        scaled[mask] = rounded[mask] / tick[mask]
+        if self.rule_stress.adverse_tick_rounding and directions is not None:
+            direction = np.asarray(directions, dtype=np.float64).reshape(-1)
+            if direction.shape != rounded.shape:
+                raise ValueError("price-rounding directions do not match symbols")
+            buy = mask & (direction > 0.0)
+            sell = mask & (direction < 0.0)
+            neutral = mask & ~(buy | sell)
+            rounded[buy] = np.ceil(scaled[buy]) * tick[buy]
+            rounded[sell] = np.floor(scaled[sell]) * tick[sell]
+            rounded[neutral] = np.round(scaled[neutral]) * tick[neutral]
+        else:
+            rounded[mask] = np.round(scaled[mask]) * tick[mask]
         rounded[mask] = np.maximum(rounded[mask], tick[mask])
         if np.any(rounded <= 0.0) or not np.isfinite(rounded).all():
             raise ValueError("rounded execution prices must remain finite and positive")
         return rounded
 
     def _round_quantities(self, quantities: np.ndarray, *, index: int) -> np.ndarray:
-        lot = np.maximum(
-            self.dataset.resolved_array("lot_size")[index], self.cost.lot_size
-        )
+        _, lot, _ = self.effective_rule_arrays(index=index)
         rounded = quantities.copy()
         mask = lot > 0.0
         rounded[mask] = np.trunc(rounded[mask] / lot[mask]) * lot[mask]
@@ -351,7 +493,6 @@ class MarketExecutor:
         force_market: bool = False,
     ) -> _FillResult:
         reference_prices = np.asarray(prices, dtype=np.float64).reshape(-1)
-        price_vector = self._round_prices(reference_prices, index=market_index)
         capacity_volume_vector = np.asarray(
             capacity_volume,
             dtype=np.float64,
@@ -365,7 +506,7 @@ class MarketExecutor:
         if any(
             vector.shape != expected_shape
             for vector in (
-                price_vector,
+                reference_prices,
                 capacity_volume_vector,
                 trade_mask,
                 desired,
@@ -374,7 +515,7 @@ class MarketExecutor:
             raise ValueError("execution market vectors do not match symbols")
         if not np.isfinite(desired).all():
             raise ValueError("desired quantities must be finite")
-        if np.any(price_vector <= 0.0) or np.any(capacity_volume_vector < 0.0):
+        if np.any(reference_prices <= 0.0) or np.any(capacity_volume_vector < 0.0):
             raise ValueError("execution prices and capacity volume are invalid")
         if not math.isfinite(turnover_denominator) or turnover_denominator <= 0.0:
             raise ValueError("turnover denominator must be finite and positive")
@@ -386,6 +527,11 @@ class MarketExecutor:
         )
         desired = self._round_quantities(desired, index=market_index)
         requested_delta = desired - book.quantities
+        price_vector = self._round_prices(
+            reference_prices,
+            index=market_index,
+            directions=requested_delta,
+        )
         if self.cost.order_type == "limit" and not force_market:
             buy = requested_delta > 0.0
             sell = requested_delta < 0.0
@@ -394,7 +540,11 @@ class MarketExecutor:
                 reference_prices * (1.0 - self.cost.limit_offset_rate),
                 reference_prices * (1.0 + self.cost.limit_offset_rate),
             )
-            limit_prices = self._round_prices(limit_prices, index=market_index)
+            limit_prices = self._round_prices(
+                limit_prices,
+                index=market_index,
+                directions=requested_delta,
+            )
             open_prices = self.dataset.open[market_index]
             touched = np.where(
                 buy,
@@ -414,7 +564,11 @@ class MarketExecutor:
                     price_vector,
                 ),
             )
-            price_vector = self._round_prices(price_vector, index=market_index)
+            price_vector = self._round_prices(
+                price_vector,
+                index=market_index,
+                directions=requested_delta,
+            )
             trade_mask = trade_mask & touched
         requested_notional_vector = self.dataset.quantity_notional(
             market_index,
@@ -427,10 +581,7 @@ class MarketExecutor:
             self.dataset.resolved_array("sell_allowed")[market_index],
         )
         trade_mask = trade_mask & direction_allowed
-        minimum_notional = np.maximum(
-            self.dataset.resolved_array("minimum_notional")[market_index],
-            self.cost.minimum_notional,
-        )
+        _, _, minimum_notional = self.effective_rule_arrays(index=market_index)
         requested_notional_vector = np.where(
             np.abs(requested_notional_vector) >= minimum_notional,
             requested_notional_vector,

@@ -148,3 +148,108 @@ def test_runner_source_binds_metadata_evidence_and_exposes_cli() -> None:
     assert "resolution.write_artifacts(work_root)" in content
     assert '"metadata_mode": resolution.mode.value' in content
     assert '"metadata_evidence_digest": resolution.evidence_digest' in content
+
+
+def test_runner_requires_identity_verified_execution_sensitivity_gate(
+    tmp_path: Path,
+) -> None:
+    namespace = _namespace()
+    load_gate = namespace["_execution_sensitivity_gate"]
+    payload = {
+        "dataset_id": "a" * 64,
+        "experiment_plan_digest": "b" * 64,
+        "folds": [],
+        "gate": {
+            "passed": True,
+            "required_scenario": "joint_2x",
+            "selected_total_return": 0.01,
+            "baseline_uplift": 0.001,
+            "maximum_fold_drawdown": 0.1,
+        },
+        "production_status": "NO-GO",
+        "scenario_pack_digest": "c" * 64,
+        "schema_version": "execution_sensitivity_v1",
+    }
+    payload["artifact_digest"] = namespace["content_digest"](payload)
+    (tmp_path / "execution-sensitivity.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    (tmp_path / "walk-forward.json").write_text(
+        json.dumps(
+            {
+                "dataset_id": payload["dataset_id"],
+                "experiment_plan_digest": payload["experiment_plan_digest"],
+                "execution_sensitivity_digest": payload["artifact_digest"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    passed, gate = load_gate(tmp_path)
+
+    assert passed is True
+    assert gate["required_scenario"] == "joint_2x"
+
+    payload["gate"]["selected_total_return"] = -0.1
+    (tmp_path / "execution-sensitivity.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    passed, gate = load_gate(tmp_path)
+    assert passed is False
+    assert "digest" in gate["reason"]
+
+
+def test_runner_skips_execution_sensitivity_when_not_configured(
+    tmp_path: Path,
+) -> None:
+    load_gate = _namespace()["_execution_sensitivity_gate"]
+    (tmp_path / "walk-forward.json").write_text(
+        json.dumps(
+            {
+                "dataset_id": "a" * 64,
+                "experiment_plan_digest": "b" * 64,
+                "execution_sensitivity_digest": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    passed, gate = load_gate(tmp_path)
+
+    assert passed is True
+    assert gate["required"] is False
+
+
+def test_runner_rejects_execution_sensitivity_identity_mismatch(
+    tmp_path: Path,
+) -> None:
+    namespace = _namespace()
+    load_gate = namespace["_execution_sensitivity_gate"]
+    payload = {
+        "dataset_id": "a" * 64,
+        "experiment_plan_digest": "b" * 64,
+        "folds": [],
+        "gate": {"passed": True},
+        "production_status": "NO-GO",
+        "scenario_pack_digest": "c" * 64,
+        "schema_version": "execution_sensitivity_v1",
+    }
+    payload["artifact_digest"] = namespace["content_digest"](payload)
+    (tmp_path / "execution-sensitivity.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    (tmp_path / "walk-forward.json").write_text(
+        json.dumps(
+            {
+                "dataset_id": "d" * 64,
+                "experiment_plan_digest": payload["experiment_plan_digest"],
+                "execution_sensitivity_digest": payload["artifact_digest"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    passed, gate = load_gate(tmp_path)
+
+    assert passed is False
+    assert "dataset_id" in gate["reason"]

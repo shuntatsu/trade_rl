@@ -38,6 +38,9 @@ def _dataset() -> MarketDataset:
         feature_names=("feature",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
+        tick_size=np.full((n_bars, 1), 0.1),
+        lot_size=np.full((n_bars, 1), 0.01),
+        minimum_notional=np.full((n_bars, 1), 5.0),
     ).with_content_identity()
 
 
@@ -458,3 +461,231 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
         1,
         2,
     ]
+
+
+def test_execution_sensitivity_pack_is_bound_into_experiment_plan(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "walk-forward-sensitivity.json"
+    payload = {
+        "workflow": {
+            "train_bars": 30,
+            "checkpoint_bars": 6,
+            "selection_bars": 6,
+            "test_bars": 6,
+            "purge_bars": 1,
+            "max_folds": 1,
+        },
+        "candidates": [{"name": "ppo", "run": _candidate_run()}],
+        "execution_sensitivity": {
+            "schema_version": "execution_sensitivity_config_v1",
+            "required_scenario": "joint_2x",
+            "maximum_drawdown": 0.2,
+            "scenarios": [
+                {"name": "nominal"},
+                {"name": "tick_2x", "tick_size_factor": 2.0},
+                {"name": "lot_2x", "lot_size_factor": 2.0},
+                {
+                    "name": "minimum_notional_2x",
+                    "minimum_notional_factor": 2.0,
+                },
+                {
+                    "name": "joint_2x",
+                    "tick_size_factor": 2.0,
+                    "lot_size_factor": 2.0,
+                    "minimum_notional_factor": 2.0,
+                },
+                {
+                    "name": "joint_5x",
+                    "tick_size_factor": 5.0,
+                    "lot_size_factor": 5.0,
+                    "minimum_notional_factor": 5.0,
+                    "report_only": True,
+                },
+            ],
+        },
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    config = MarketWalkForwardConfig.from_json(path, n_bars=64)
+    original = _experiment_plan_digest(config, dataset_id="a" * 64)
+    payload["execution_sensitivity"]["maximum_drawdown"] = 0.15
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    changed = MarketWalkForwardConfig.from_json(path, n_bars=64)
+
+    assert config.execution_sensitivity.enabled is True
+    assert config.execution_sensitivity.required_scenario == "joint_2x"
+    assert _experiment_plan_digest(changed, dataset_id="a" * 64) != original
+
+
+def test_execution_sensitivity_config_rejects_missing_required_pack(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "walk-forward-invalid-sensitivity.json"
+    path.write_text(
+        json.dumps(
+            {
+                "workflow": {
+                    "train_bars": 30,
+                    "checkpoint_bars": 6,
+                    "selection_bars": 6,
+                    "test_bars": 6,
+                    "purge_bars": 1,
+                    "max_folds": 1,
+                },
+                "candidates": [{"name": "ppo", "run": _candidate_run()}],
+                "execution_sensitivity": {
+                    "schema_version": "execution_sensitivity_config_v1",
+                    "required_scenario": "joint_2x",
+                    "scenarios": [{"name": "nominal"}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="scenario pack"):
+        MarketWalkForwardConfig.from_json(path, n_bars=64)
+
+
+def _standard_sensitivity_config() -> dict[str, object]:
+    return {
+        "schema_version": "execution_sensitivity_config_v1",
+        "required_scenario": "joint_2x",
+        "minimum_selected_return": -1.0,
+        "minimum_baseline_uplift": -1.0,
+        "maximum_drawdown": 1.0,
+        "scenarios": [
+            {"name": "nominal", "adverse_tick_rounding": False},
+            {
+                "name": "tick_2x",
+                "tick_size_factor": 2.0,
+                "adverse_tick_rounding": True,
+            },
+            {
+                "name": "lot_2x",
+                "lot_size_factor": 2.0,
+                "adverse_tick_rounding": True,
+            },
+            {
+                "name": "minimum_notional_2x",
+                "minimum_notional_factor": 2.0,
+                "adverse_tick_rounding": True,
+            },
+            {
+                "name": "joint_2x",
+                "tick_size_factor": 2.0,
+                "lot_size_factor": 2.0,
+                "minimum_notional_factor": 2.0,
+                "adverse_tick_rounding": True,
+            },
+            {
+                "name": "joint_5x",
+                "tick_size_factor": 5.0,
+                "lot_size_factor": 5.0,
+                "minimum_notional_factor": 5.0,
+                "adverse_tick_rounding": True,
+                "report_only": True,
+            },
+        ],
+    }
+
+
+def test_market_walk_forward_publishes_closed_loop_execution_sensitivity(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "dataset-sensitivity"
+    dataset = _dataset()
+    write_market_dataset_files(dataset_root, dataset)
+    config_path = tmp_path / "walk-forward-sensitivity-run.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "workflow": {
+                    "train_bars": 30,
+                    "checkpoint_bars": 6,
+                    "selection_bars": 6,
+                    "test_bars": 6,
+                    "purge_bars": 1,
+                    "max_folds": 1,
+                },
+                "minimum_selection_uplift": 0.0,
+                "candidates": [{"name": "ppo", "run": _candidate_run()}],
+                "execution_sensitivity": _standard_sensitivity_config(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = execute_market_walk_forward(
+        config_path=config_path,
+        dataset_path=dataset_root,
+        store_root=tmp_path / "artifacts-sensitivity",
+        run_id="wf-sensitivity-001",
+    )
+
+    published = result.path
+    walk_forward = json.loads(
+        (published / "walk-forward.json").read_text(encoding="utf-8")
+    )
+    sensitivity = json.loads(
+        (published / "execution-sensitivity.json").read_text(encoding="utf-8")
+    )
+    assert sensitivity["schema_version"] == "execution_sensitivity_v1"
+    assert sensitivity["dataset_id"] == walk_forward["dataset_id"]
+    assert (
+        sensitivity["experiment_plan_digest"] == walk_forward["experiment_plan_digest"]
+    )
+    assert (
+        sensitivity["artifact_digest"] == walk_forward["execution_sensitivity_digest"]
+    )
+    assert sensitivity["gate"]["required_scenario"] == "joint_2x"
+    assert sensitivity["gate"]["passed"] is True
+    fold = sensitivity["folds"][0]
+    published_fold = walk_forward["folds"][0]
+    assert (
+        fold["access"]["base_access_digest"]
+        == published_fold["sealed_test_access"]["access_digest"]
+    )
+    assert (
+        fold["access"]["experiment_plan_digest"]
+        == walk_forward["experiment_plan_digest"]
+    )
+    assert [item["scenario"]["name"] for item in fold["scenarios"]] == [
+        "nominal",
+        "tick_2x",
+        "lot_2x",
+        "minimum_notional_2x",
+        "joint_2x",
+        "joint_5x",
+    ]
+    assert all(len(item["selected"]["returns"]) == 6 for item in fold["scenarios"])
+    assert all(len(item["baseline"]["returns"]) == 6 for item in fold["scenarios"])
+    assert published_fold["sealed_test_evaluations"] in (1, 2)
+    assert len(published_fold["execution_sensitivity_scenario_digests"]) == 6
+
+
+def test_execution_sensitivity_config_rejects_string_booleans(
+    tmp_path: Path,
+) -> None:
+    payload = {
+        "workflow": {
+            "train_bars": 30,
+            "checkpoint_bars": 6,
+            "selection_bars": 6,
+            "test_bars": 6,
+            "purge_bars": 1,
+            "max_folds": 1,
+        },
+        "candidates": [{"name": "ppo", "run": _candidate_run()}],
+        "execution_sensitivity": _standard_sensitivity_config(),
+    }
+    payload["execution_sensitivity"]["scenarios"][1]["adverse_tick_rounding"] = "true"
+    path = tmp_path / "walk-forward-string-boolean.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="must be a boolean"):
+        MarketWalkForwardConfig.from_json(path, n_bars=64)

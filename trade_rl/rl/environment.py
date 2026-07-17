@@ -69,6 +69,7 @@ from trade_rl.rl.transition import classify_economic_transition
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
     ExecutionResult,
+    ExecutionRuleStress,
     MarketExecutor,
 )
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
@@ -123,6 +124,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         portfolio_risk_inputs_provider: PortfolioRiskInputsProvider | None = None,
         normalizer: ObservationNormalizer | None = None,
         sequence_normalizer: SequenceFeatureNormalizer | None = None,
+        execution_rule_stress: ExecutionRuleStress | None = None,
         config: ResidualMarketEnvConfig | None = None,
     ) -> None:
         super().__init__()
@@ -236,6 +238,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             self._minimum_start_index = max(self._minimum_start_index, minimum_index)
         self.normalizer = normalizer
         self.sequence_normalizer = sequence_normalizer
+        self.execution_rule_stress = execution_rule_stress
         self.config = config or ResidualMarketEnvConfig()
         self.emergency_risk_monitor = CausalEmergencyRiskMonitor(
             self.config.emergency_risk
@@ -297,8 +300,16 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 signal_minimum=self._minimum_start_index,
                 window_hours=reward_config.baseline_window_hours,
             )
-        self.hybrid_executor = MarketExecutor(dataset, self.config.execution_cost)
-        self.shadow_executor = MarketExecutor(dataset, self.config.execution_cost)
+        self.hybrid_executor = MarketExecutor(
+            dataset,
+            self.config.execution_cost,
+            rule_stress=self.execution_rule_stress,
+        )
+        self.shadow_executor = MarketExecutor(
+            dataset,
+            self.config.execution_cost,
+            rule_stress=self.execution_rule_stress,
+        )
         self.executor = self.hybrid_executor
         self._reward_history_cache: dict[int, tuple[float, ...]] = {}
 
@@ -1042,7 +1053,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             peak=self.config.initial_capital,
             start=history_start,
         )
-        executor = MarketExecutor(self.dataset, self.config.execution_cost)
+        executor = MarketExecutor(
+            self.dataset,
+            self.config.execution_cost,
+            rule_stress=self.execution_rule_stress,
+        )
         executor.reset_random_state(reward_start)
         cursor = history_start
         pending_target: np.ndarray | None = None

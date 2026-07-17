@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.data.contracts import InstrumentExecutionRule
 from trade_rl.evaluation.confirmation import load_confirmation_evidence
@@ -668,6 +669,73 @@ def _evaluate_walk_forward_research_gate(
     )
 
 
+def _execution_sensitivity_gate(path: Path) -> tuple[bool, dict[str, object]]:
+    try:
+        walk_forward = _load_json(path / "walk-forward.json")
+    except (OSError, ValueError):
+        return False, {
+            "passed": False,
+            "reason": "walk-forward evidence is missing or invalid",
+        }
+    declared_digest = walk_forward.get("execution_sensitivity_digest")
+    if declared_digest is None:
+        return True, {
+            "passed": True,
+            "required": False,
+            "reason": "execution sensitivity is not configured",
+        }
+    if not isinstance(declared_digest, str):
+        return False, {
+            "passed": False,
+            "reason": "walk-forward sensitivity digest is invalid",
+        }
+    try:
+        payload = _load_json(path / "execution-sensitivity.json")
+    except (OSError, ValueError):
+        return False, {
+            "passed": False,
+            "reason": "execution sensitivity artifact is missing or invalid",
+        }
+    artifact_digest = payload.get("artifact_digest")
+    if not isinstance(artifact_digest, str):
+        return False, {
+            "passed": False,
+            "reason": "execution sensitivity artifact digest is missing",
+        }
+    digest_payload = dict(payload)
+    digest_payload.pop("artifact_digest", None)
+    if content_digest(digest_payload) != artifact_digest:
+        return False, {
+            "passed": False,
+            "reason": "execution sensitivity artifact digest mismatch",
+        }
+    if artifact_digest != declared_digest:
+        return False, {
+            "passed": False,
+            "reason": "walk-forward sensitivity digest binding mismatch",
+        }
+    for field in ("dataset_id", "experiment_plan_digest"):
+        expected = walk_forward.get(field)
+        observed = payload.get(field)
+        if not isinstance(expected, str) or observed != expected:
+            return False, {
+                "passed": False,
+                "reason": f"execution sensitivity {field} binding mismatch",
+            }
+    if payload.get("schema_version") != "execution_sensitivity_v1":
+        return False, {
+            "passed": False,
+            "reason": "execution sensitivity schema is invalid",
+        }
+    gate = payload.get("gate")
+    if not isinstance(gate, dict) or not isinstance(gate.get("passed"), bool):
+        return False, {
+            "passed": False,
+            "reason": "execution sensitivity gate is missing",
+        }
+    return bool(gate["passed"]), {**dict(gate), "required": True}
+
+
 def _selected_walk_forward_recipe(
     walk_forward_path: Path,
     walk_forward_config_path: Path,
@@ -765,6 +833,12 @@ def _finalize_research_run(
             expected_training_run_digest=expected_training_run_digest,
         )
     )
+    sensitivity_passed, sensitivity_gate = _execution_sensitivity_gate(
+        walk_forward_path
+    )
+    gate["execution_sensitivity"] = sensitivity_gate
+    gate["passed"] = bool(gate["passed"]) and sensitivity_passed
+    summary["execution_sensitivity"] = sensitivity_gate
     summary["research_gate"] = gate
     _write_json(work_root / "research-gate.json", gate)
     _write_json(work_root / "summary.json", summary)
@@ -936,7 +1010,11 @@ def main() -> int:
         walk_forward_path,
         strict=True,
     )
-    if not preliminary_gate.passed:
+    preliminary_sensitivity_passed, preliminary_sensitivity_gate = (
+        _execution_sensitivity_gate(walk_forward_path)
+    )
+    summary["execution_sensitivity"] = preliminary_sensitivity_gate
+    if not preliminary_gate.passed or not preliminary_sensitivity_passed:
         exit_code = _finalize_research_run(
             work_root=work_root,
             walk_forward_path=walk_forward_path,

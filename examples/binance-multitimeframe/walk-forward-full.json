@@ -457,5 +457,48 @@
   "maximum_seed_score_std": 0.1,
   "maximum_selection_turnover_per_day": 1.0,
   "maximum_selection_cost_fraction": 0.03,
-  "maximum_selection_drawdown": 0.2
+  "maximum_selection_drawdown": 0.2,
+  "execution_sensitivity": {
+    "schema_version": "execution_sensitivity_config_v1",
+    "required_scenario": "joint_2x",
+    "minimum_selected_return": 0.0,
+    "minimum_baseline_uplift": 0.0,
+    "maximum_drawdown": 0.2,
+    "scenarios": [
+      {
+        "name": "nominal",
+        "adverse_tick_rounding": false
+      },
+      {
+        "name": "tick_2x",
+        "tick_size_factor": 2.0,
+        "adverse_tick_rounding": true
+      },
+      {
+        "name": "lot_2x",
+        "lot_size_factor": 2.0,
+        "adverse_tick_rounding": true
+      },
+      {
+        "name": "minimum_notional_2x",
+        "minimum_notional_factor": 2.0,
+        "adverse_tick_rounding": true
+      },
+      {
+        "name": "joint_2x",
+        "tick_size_factor": 2.0,
+        "lot_size_factor": 2.0,
+        "minimum_notional_factor": 2.0,
+        "adverse_tick_rounding": true
+      },
+      {
+        "name": "joint_5x",
+        "tick_size_factor": 5.0,
+        "lot_size_factor": 5.0,
+        "minimum_notional_factor": 5.0,
+        "adverse_tick_rounding": true,
+        "report_only": true
+      }
+    ]
+  }
 }

@@ -30,6 +30,7 @@ from trade_rl.rl.sequence_observations import (
     SequenceObservationBuilder,
     SequenceWindowSpec,
 )
+from trade_rl.simulation.execution import ExecutionRuleStress, MarketExecutor
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.training_run import TrainingRunConfig
 
@@ -191,6 +192,7 @@ def build_market_environment(
     liquidate_on_end: bool,
     alpha_provider: LoadedAlphaArtifact | None = None,
     factor_provider: LoadedFactorArtifact | None = None,
+    execution_rule_stress: ExecutionRuleStress | None = None,
 ) -> ResidualMarketEnv:
     environment_config = replace(
         run.environment,
@@ -219,6 +221,7 @@ def build_market_environment(
         portfolio_risk=PortfolioRiskModel(run.portfolio_risk),
         normalizer=normalizer,
         sequence_normalizer=sequence_normalizer,
+        execution_rule_stress=execution_rule_stress,
         config=environment_config,
     )
 
@@ -227,6 +230,7 @@ def build_market_environment(
 class RangeEvaluation:
     returns: ReturnSeries
     diagnostics: ExecutionDiagnostics
+    execution_rule_burden: dict[str, object] | None = None
 
 
 def evaluate_range_evidence(
@@ -238,6 +242,7 @@ def evaluate_range_evidence(
     sequence_normalizer: SequenceFeatureNormalizer | None,
     model: Any | None,
     baseline: bool,
+    execution_rule_stress: ExecutionRuleStress | None = None,
 ) -> RangeEvaluation:
     """Evaluate one range and retain execution and economic evidence."""
 
@@ -257,6 +262,7 @@ def evaluate_range_evidence(
         liquidate_on_end=True,
         alpha_provider=alpha_provider,
         factor_provider=factor_provider,
+        execution_rule_stress=execution_rule_stress,
     )
     try:
         observation, _ = env.reset(
@@ -302,6 +308,16 @@ def evaluate_range_evidence(
         raise ValueError(
             "range-restricted environment produced an unexpected return length"
         )
+    burden = None
+    if execution_rule_stress is not None:
+        burden = MarketExecutor(
+            dataset,
+            run.environment.execution_cost,
+            rule_stress=execution_rule_stress,
+        ).rule_burden_percentiles(
+            start=evaluation_range.start,
+            stop=evaluation_range.stop,
+        )
     return RangeEvaluation(
         returns=ReturnSeries(
             values=values,
@@ -309,6 +325,7 @@ def evaluate_range_evidence(
             periods_per_year=dataset.periods_per_year,
         ),
         diagnostics=diagnostics,
+        execution_rule_burden=burden,
     )
 
 

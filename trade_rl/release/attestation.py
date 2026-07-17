@@ -24,6 +24,7 @@ from trade_rl.release.signing import (
 )
 
 RELEASE_ATTESTATION_SCHEMA = "release_attestation_v2"
+TrustedVerificationKey = VerificationKey | bytes | bytearray | memoryview
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +94,7 @@ class ReleaseAttestation:
             signature=self.signature,
         )
 
-    def verify(self, trusted_keys: Mapping[str, VerificationKey]) -> None:
+    def verify(self, trusted_keys: Mapping[str, TrustedVerificationKey]) -> None:
         """Verify released-mode evidence with release-purpose key material only."""
 
         verify_payload(
@@ -103,7 +104,10 @@ class ReleaseAttestation:
             required_purpose="release-verification",
         )
 
-    def verify_for_release(self, trusted_keys: Mapping[str, VerificationKey]) -> None:
+    def verify_for_release(
+        self,
+        trusted_keys: Mapping[str, TrustedVerificationKey],
+    ) -> None:
         self.verify(trusted_keys)
 
     @classmethod

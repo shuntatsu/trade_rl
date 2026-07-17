@@ -38,10 +38,16 @@ jobs:
         run: uv run python .github/check_workflow_security.py .
 
       - name: Ruff
-        run: uv run ruff check .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check . 2>&1 | tee ruff.log
 
       - name: Format
-        run: uv run ruff format --check --diff .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff format --check --diff . 2>&1 | tee format.log
 
       - name: Mypy
         shell: bash
@@ -49,12 +55,16 @@ jobs:
           set -o pipefail
           uv run mypy trade_rl 2>&1 | tee mypy.log
 
-      - name: Upload MyPy diagnostics
+      - name: Upload static diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: mypy-diagnostics
-          path: mypy.log
+          name: static-diagnostics
+          path: |
+            ruff.log
+            format.log
+            mypy.log
+          if-no-files-found: ignore
 
       - name: Import architecture
         run: uv run lint-imports
@@ -104,7 +114,18 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compatibility-${{ matrix.os }}
+          path: compatibility.log
+          if-no-files-found: error
 
   training-image:
     name: Training image

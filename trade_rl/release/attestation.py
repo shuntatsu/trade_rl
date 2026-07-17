@@ -93,25 +93,7 @@ class ReleaseAttestation:
             signature=self.signature,
         )
 
-    def verify(
-        self,
-        trusted_keys: Mapping[
-            str,
-            VerificationKey | bytes | bytearray | memoryview,
-        ],
-    ) -> None:
-        """Compatibility verification for research-only callers."""
-
-        verify_payload(
-            self.digest_payload(),
-            self.envelope(),
-            trusted_keys=trusted_keys,
-        )
-
-    def verify_for_release(
-        self,
-        trusted_keys: Mapping[str, VerificationKey],
-    ) -> None:
+    def verify(self, trusted_keys: Mapping[str, VerificationKey]) -> None:
         """Verify released-mode evidence with release-purpose key material only."""
 
         verify_payload(
@@ -120,6 +102,9 @@ class ReleaseAttestation:
             trusted_keys=trusted_keys,
             required_purpose="release-verification",
         )
+
+    def verify_for_release(self, trusted_keys: Mapping[str, VerificationKey]) -> None:
+        self.verify(trusted_keys)
 
     @classmethod
     def create(

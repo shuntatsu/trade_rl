@@ -1,0 +1,105 @@
+name: Launch Binance frozen 226 full generation
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/launch-binance-frozen-226.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binance-frozen-226-full-generation
+  cancel-in-progress: false
+
+jobs:
+  launch:
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 744861c69eadb8d4d81d46d28d7d544a2a4d66d2
+          fetch-depth: 0
+      - name: Resolve immutable launch identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          generation="frozen-226-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          container="trade-rl-full-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "TRADE_RL_RUN_GENERATION=$generation" >> "$GITHUB_ENV"
+          echo "TRADE_RL_CONTAINER_NAME=$container" >> "$GITHUB_ENV"
+          echo "TRADE_RL_GIT_COMMIT=744861c69eadb8d4d81d46d28d7d544a2a4d66d2" >> "$GITHUB_ENV"
+          echo "TRADE_RL_GIT_DIRTY=false" >> "$GITHUB_ENV"
+          echo "TRADE_RL_METADATA_MODE=frozen_snapshot" >> "$GITHUB_ENV"
+      - name: Refuse concurrent full trainer
+        shell: bash
+        run: |
+          set -euo pipefail
+          active="$(docker ps --filter 'name=^/trade-rl-full-' --format '{{.Names}}')"
+          if [ -n "$active" ]; then
+            echo "A full trainer is already running against the shared volume:"
+            echo "$active"
+            exit 1
+          fi
+      - name: CUDA and Docker evidence
+        run: |
+          nvidia-smi
+          docker version
+          docker compose version
+      - name: Build clean-provenance training image
+        run: docker compose -f compose.training.yaml build trainer
+      - name: Run CUDA preflight
+        run: >-
+          docker compose -f compose.training.yaml run --rm --entrypoint python trainer
+          examples/binance-multitimeframe/training_cuda_preflight.py
+          --output /workspace/var/cuda-preflight-${{ github.run_id }}.json
+      - name: Start detached frozen snapshot generation
+        id: launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id="$(docker compose -f compose.training.yaml run --detach --name "$TRADE_RL_CONTAINER_NAME" trainer)"
+          echo "container_id=$container_id" >> "$GITHUB_OUTPUT"
+          sleep 8
+          state="$(docker inspect --format '{{.State.Status}}' "$TRADE_RL_CONTAINER_NAME")"
+          if [ "$state" != "running" ]; then
+            docker logs "$TRADE_RL_CONTAINER_NAME" || true
+            exit 1
+          fi
+          docker logs --tail 80 "$TRADE_RL_CONTAINER_NAME" || true
+      - name: Publish launch evidence
+        shell: bash
+        env:
+          CONTAINER_ID: ${{ steps.launch.outputs.container_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          payload = {
+              "cache_root": "/workspace/var/cache/binance-vision",
+              "container_id": os.environ["CONTAINER_ID"],
+              "container_name": os.environ["TRADE_RL_CONTAINER_NAME"],
+              "feature_count": 226,
+              "generation": os.environ["TRADE_RL_RUN_GENERATION"],
+              "git_commit": os.environ["TRADE_RL_GIT_COMMIT"],
+              "git_dirty": False,
+              "launched_at": datetime.now(UTC).isoformat(),
+              "metadata_mode": "frozen_snapshot",
+              "n_envs": 4,
+              "production_status": "NO-GO",
+              "schema": "binance_frozen_226_full_launch_v1",
+              "volume": "trade-rl-training-data",
+          }
+          Path("gpu-full-launch.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binance-frozen-226-launch
+          path: gpu-full-launch.json

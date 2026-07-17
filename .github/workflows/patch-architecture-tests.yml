@@ -1,0 +1,109 @@
+name: Patch architecture contract tests
+
+on:
+  push:
+    branches:
+      - fix/architecture-hardening-20260717
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/architecture-hardening-20260717
+      - name: Update legacy expectations
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              content = target.read_text(encoding="utf-8")
+              if old not in content:
+                  raise SystemExit(f"expected text is missing from {path}: {old!r}")
+              target.write_text(content.replace(old, new), encoding="utf-8")
+
+          replace(
+              "tests/architecture/test_architecture_remediation_v2.py",
+              "from trade_rl.release.attestation import ReleaseAttestation\n",
+              "from trade_rl.release.attestation import ReleaseAttestation\n"
+              "from trade_rl.release.signing import VerificationKey\n",
+          )
+          replace(
+              "tests/architecture/test_architecture_remediation_v2.py",
+              "    attestation.verify({\"ci-release-key\": b\"release-secret-key\"})\n"
+              "    with pytest.raises(ValueError, match=\"signature|trusted\"):\n"
+              "        attestation.verify({\"ci-release-key\": b\"wrong-secret-key!\"})\n",
+              "    attestation.verify(\n"
+              "        {\n"
+              "            \"ci-release-key\": VerificationKey(\n"
+              "                key_id=\"ci-release-key\",\n"
+              "                key=b\"release-secret-key\",\n"
+              "                purpose=\"release-verification\",\n"
+              "            )\n"
+              "        }\n"
+              "    )\n"
+              "    with pytest.raises(ValueError, match=\"signature|trusted\"):\n"
+              "        attestation.verify(\n"
+              "            {\n"
+              "                \"ci-release-key\": VerificationKey(\n"
+              "                    key_id=\"ci-release-key\",\n"
+              "                    key=b\"wrong-secret-key!\",\n"
+              "                    purpose=\"release-verification\",\n"
+              "                )\n"
+              "            }\n"
+              "        )\n",
+          )
+          replace(
+              "tests/cli/test_train_run.py",
+              "            \"run_id\": \"run-001\",\n",
+              "            \"run_id\": \"run-001\",\n"
+              "            \"selection_authorization_path\": None,\n"
+              "            \"require_selection_authorization\": False,\n",
+          )
+          replace(
+              "tests/cli/test_train_run.py",
+              "        \"run_id\": \"run-001\",\n"
+              "        \"schema\": \"training_run_result_v1\",\n",
+              "        \"run_id\": \"run-001\",\n"
+              "        \"run_kind\": \"research_exploratory\",\n"
+              "        \"schema\": \"training_run_result_v1\",\n"
+              "        \"selection_authorization_digest\": None,\n",
+          )
+          replace(
+              "tests/examples/test_docker_training_assets.py",
+              "examples/binance-multitimeframe/run_full_research.py",
+              "examples/binance-multitimeframe/run_full_research_hardened.py",
+          )
+          replace(
+              "tests/release/test_verification_keys.py",
+              "            key=b\"0123456789abcdef\",\n"
+              "            algorithm=\"sha256\",\n",
+              "            key=b\"0123456789abcdef\",\n"
+              "            purpose=\"release-verification\",\n"
+              "            algorithm=\"sha256\",\n",
+          )
+          PY
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - run: |
+          uv run ruff check --fix .
+          uv run ruff format .
+      - name: Commit test migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          git commit -m "test: migrate architecture hardening expectations"
+          git push origin HEAD:fix/architecture-hardening-20260717

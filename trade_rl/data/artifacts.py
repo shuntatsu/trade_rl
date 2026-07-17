@@ -1,8 +1,7 @@
-"""Canonical market-dataset artifacts and range-scoped immutable views."""
+"""Canonical market-dataset loading and range-scoped immutable views."""
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Final
@@ -15,22 +14,10 @@ from trade_rl.data.artifact_codec import (
     DATASET_ARTIFACT_SCHEMA,
     DATASET_MANIFEST_NAME,
     load_dataset_files,
-    write_market_dataset_files,
 )
 from trade_rl.data.market import MarketDataset
 
 DATASET_VIEW_SCHEMA: Final = "market_dataset_view_v1"
-
-
-def write_market_dataset_artifact(root: Path, dataset: MarketDataset) -> Path:
-    """Deprecated compatibility wrapper returning the manifest path."""
-
-    warnings.warn(
-        "write_market_dataset_artifact is deprecated; use write_market_dataset_files",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return write_market_dataset_files(Path(root), dataset).manifest_path
 
 
 def load_market_dataset_artifact(root: Path) -> MarketDataset:
@@ -100,5 +87,4 @@ __all__ = [
     "DATASET_VIEW_SCHEMA",
     "MarketDatasetView",
     "load_market_dataset_artifact",
-    "write_market_dataset_artifact",
 ]

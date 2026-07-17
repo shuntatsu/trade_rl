@@ -23,7 +23,7 @@ def test_training_container_runs_preflight_then_maintained_full_runner() -> None
     assert "FROM python:3.12" in dockerfile
     assert "USER trainer" in dockerfile
     assert "examples/binance-multitimeframe/training_cuda_preflight.py" in compose
-    assert "examples/binance-multitimeframe/run_full_research.py" in compose
+    assert "examples/binance-multitimeframe/run_full_research_hardened.py" in compose
     assert "--work-root /workspace/var/runs/$${TRADE_RL_RUN_GENERATION}" in compose
     assert "--cache-root /workspace/var/cache/binance-vision" in compose
     assert "TRADE_RL_RUN_GENERATION:?" in compose

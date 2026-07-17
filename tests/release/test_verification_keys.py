@@ -21,6 +21,7 @@ def test_verification_key_rejects_wrong_purpose_and_algorithm() -> None:
         VerificationKey(
             key_id="release-key",
             key=b"0123456789abcdef",
+            purpose="release-verification",
             algorithm="sha256",
         )
 

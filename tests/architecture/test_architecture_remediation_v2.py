@@ -11,6 +11,7 @@ from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.integrations import binance as binance_module
 from trade_rl.release.attestation import ReleaseAttestation
+from trade_rl.release.signing import VerificationKey
 from trade_rl.workflows import market_walk_forward as market_walk_forward_module
 from trade_rl.workflows.fold_runner import (
     CandidateConfiguration,
@@ -167,9 +168,25 @@ def test_release_attestation_requires_authenticated_signature() -> None:
         key_id="ci-release-key",
         signing_key=b"release-secret-key",
     )
-    attestation.verify({"ci-release-key": b"release-secret-key"})
+    attestation.verify(
+        {
+            "ci-release-key": VerificationKey(
+                key_id="ci-release-key",
+                key=b"release-secret-key",
+                purpose="release-verification",
+            )
+        }
+    )
     with pytest.raises(ValueError, match="signature|trusted"):
-        attestation.verify({"ci-release-key": b"wrong-secret-key!"})
+        attestation.verify(
+            {
+                "ci-release-key": VerificationKey(
+                    key_id="ci-release-key",
+                    key=b"wrong-secret-key!",
+                    purpose="release-verification",
+                )
+            }
+        )
 
 
 def test_confirmation_evidence_recomputes_metrics_and_rejects_tampering() -> None:

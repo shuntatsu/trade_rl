@@ -25,11 +25,11 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
       - name: Archive workspace
         shell: bash
-        run: tar --exclude=.git -czf remediation-workspace.tar.gz .
+        run: tar --exclude=.git -czf /tmp/remediation-workspace.tar.gz .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: remediation-workspace-${{ github.event.pull_request.head.sha }}
-          path: remediation-workspace.tar.gz
+          path: /tmp/remediation-workspace.tar.gz
           if-no-files-found: error
           retention-days: 1
       - name: Report export run

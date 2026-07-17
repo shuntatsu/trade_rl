@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   apply:
-    if: github.actor == github.repository_owner
+    if: github.ref == 'refs/heads/fix/architecture-hardening-20260717'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -23,9 +23,12 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: true
-      - name: Verify immutable checkout
+      - name: Verify immutable checkout and payload identity
         shell: bash
-        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git hash-object .github/remediation-patch/full-remediation.patch.bz2)" = "9618437fdb36b0aeca6ade977b426a04d1785986"
       - name: Apply verified remediation patch
         shell: bash
         run: |

@@ -23,43 +23,54 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: true
-      - name: Verify immutable checkout and payload identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          test "$(git hash-object .github/remediation-patch/full-remediation.patch.bz2)" = "9618437fdb36b0aeca6ade977b426a04d1785986"
-      - name: Apply verified remediation patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          bzip2 -tv .github/remediation-patch/full-remediation.patch.bz2
-          bzcat .github/remediation-patch/full-remediation.patch.bz2 > /tmp/remediation.patch
-          git apply --check /tmp/remediation.patch
-          git apply /tmp/remediation.patch
-          rm -rf .github/remediation-patch
-          rm -f .github/workflows/export-remediation-workspace.yml
-          rm -f .github/workflows/apply-complete-remediation.yml
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Lock and normalize source
+      - name: Apply, normalize, and publish remediation
         shell: bash
         run: |
-          set -euo pipefail
-          uv lock
-          uv sync --extra dev --extra train-sb3
-          uv run ruff format .
-          uv run ruff check . --fix
-          uv run python -m compileall -q trade_rl examples tests
-      - name: Commit completed remediation
-        shell: bash
-        run: |
-          set -euo pipefail
+          set -uo pipefail
+          log=/tmp/remediation-apply.log
+          status=0
+          {
+            test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+            test "$(git hash-object .github/remediation-patch/full-remediation.patch.bz2)" = "9618437fdb36b0aeca6ade977b426a04d1785986"
+            bzip2 -tv .github/remediation-patch/full-remediation.patch.bz2
+            bzcat .github/remediation-patch/full-remediation.patch.bz2 > /tmp/remediation.patch
+            git apply --check /tmp/remediation.patch
+            git apply /tmp/remediation.patch
+            uv lock
+            uv sync --extra dev --extra train-sb3
+            uv run ruff format .
+            uv run ruff check . --fix
+            uv run python -m compileall -q trade_rl examples tests
+          } >"$log" 2>&1 || status=$?
+
+          rm -rf .github/remediation-patch
+          rm -f .github/workflows/export-remediation-workspace.yml
+          rm -f .github/workflows/apply-complete-remediation.yml
+
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "schema_version=remediation_apply_failure_v1"
+              echo "source_commit=${GITHUB_SHA}"
+              echo "exit_code=${status}"
+              echo "--- log tail ---"
+              tail -n 240 "$log"
+            } > .github/remediation-apply-failure.log
+          else
+            rm -f .github/remediation-apply-failure.log
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --check
-          git commit -m "fix: complete trust-boundary remediation"
+          if [ "$status" -eq 0 ]; then
+            git commit -m "fix: complete trust-boundary remediation"
+          else
+            git commit -m "ci: record remediation apply failure"
+          fi
           git push origin HEAD:fix/architecture-hardening-20260717
+          exit "$status"

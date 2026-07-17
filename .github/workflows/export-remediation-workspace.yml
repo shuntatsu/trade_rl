@@ -1,0 +1,32 @@
+name: Export remediation workspace
+
+on:
+  push:
+    branches:
+      - fix/architecture-hardening-20260717
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify immutable checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+      - name: Archive workspace
+        shell: bash
+        run: tar --exclude=.git -czf remediation-workspace.tar.gz .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: remediation-workspace-${{ github.sha }}
+          path: remediation-workspace.tar.gz
+          if-no-files-found: error
+          retention-days: 1

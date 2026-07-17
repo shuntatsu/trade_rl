@@ -26,6 +26,7 @@ from trade_rl.release.attestation import (
     default_attestation_path,
     write_release_attestation,
 )
+from trade_rl.release.signing import VerificationKey
 from trade_rl.serving.bundle import ServingBundleManifest, write_serving_bundle_manifest
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
 from trade_rl.workflows.training_run import execute_training_run
@@ -180,7 +181,13 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
 
     runtime = ServingRuntime(
         StableBaselines3PolicyLoader(),
-        trusted_attestation_keys={"e2e-release-key": b"e2e-release-signing-key"},
+        trusted_attestation_keys={
+            "e2e-release-key": VerificationKey(
+                key_id="e2e-release-key",
+                key=b"e2e-release-signing-key",
+                purpose="release-verification",
+            )
+        },
         identity_contract=RuntimeIdentityContract(
             environment_digest=manifest.environment_digest,
             action_names=manifest.action_names,

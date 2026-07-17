@@ -24,7 +24,7 @@ trade_rl/
   cli/           single authoritative configuration and execution entry point
 ```
 
-The enforced dependency order is `cli -> workflows -> integrations -> serving -> release -> rl -> learning -> risk -> simulation -> strategies -> data -> evaluation -> artifacts -> domain`. Integrations own external model-framework adapters. Release verification cannot import serving, integrations or workflows. Learning contracts cannot depend on Stable-Baselines3 or sb3-contrib. Core training and serving modules do not import Stable-Baselines3 directly.
+The enforced dependency order is `cli -> workflows -> integrations -> serving -> learning -> rl -> risk -> simulation -> strategies -> data -> evaluation -> release -> artifacts -> domain`. Integrations own external model-framework adapters. Release verification cannot import serving, integrations or workflows. Learning contracts cannot depend on Stable-Baselines3 or sb3-contrib. Core training and serving modules do not import Stable-Baselines3 directly.
 
 ## Privileged GPU boundary
 

@@ -6,13 +6,21 @@ on:
       - ci/prune-obsolete-branches-20260717
     paths:
       - '.github/workflows/prune-obsolete-branches.yml'
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
   pull-requests: read
 
+concurrency:
+  group: prune-obsolete-branches-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   prune:
+    if: github.event_name != 'pull_request' || github.head_ref == 'ci/prune-obsolete-branches-20260717'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,8 +31,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          OWNER: ${{ github.repository_owner }}
-          CLEANUP_BRANCH: ci/prune-obsolete-branches-20260717
         run: |
           set -euo pipefail
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune

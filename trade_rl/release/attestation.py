@@ -16,7 +16,12 @@ from trade_rl.domain.common import (
     require_non_empty,
     require_sha256,
 )
-from trade_rl.release.signing import AuthenticatedEnvelope, sign_payload, verify_payload
+from trade_rl.release.signing import (
+    AuthenticatedEnvelope,
+    VerificationKey,
+    sign_payload,
+    verify_payload,
+)
 
 RELEASE_ATTESTATION_SCHEMA = "release_attestation_v2"
 
@@ -90,12 +95,30 @@ class ReleaseAttestation:
 
     def verify(
         self,
-        trusted_keys: Mapping[str, bytes | bytearray | memoryview],
+        trusted_keys: Mapping[
+            str,
+            VerificationKey | bytes | bytearray | memoryview,
+        ],
     ) -> None:
+        """Compatibility verification for research-only callers."""
+
         verify_payload(
             self.digest_payload(),
             self.envelope(),
             trusted_keys=trusted_keys,
+        )
+
+    def verify_for_release(
+        self,
+        trusted_keys: Mapping[str, VerificationKey],
+    ) -> None:
+        """Verify released-mode evidence with release-purpose key material only."""
+
+        verify_payload(
+            self.digest_payload(),
+            self.envelope(),
+            trusted_keys=trusted_keys,
+            required_purpose="release-verification",
         )
 
     @classmethod

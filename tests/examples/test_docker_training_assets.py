@@ -33,8 +33,33 @@ def test_training_container_runs_preflight_then_maintained_full_runner() -> None
 def test_training_docker_context_excludes_local_state() -> None:
     ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
 
-    for entry in (".git", ".venv", ".worktrees", "var", "__pycache__"):
+    for entry in (
+        ".git",
+        ".venv",
+        ".worktrees",
+        "var",
+        "data",
+        "data_past",
+        "output",
+        "__pycache__",
+    ):
         assert entry in ignored
+
+
+def test_optional_training_commands_use_installed_python_as_non_root() -> None:
+    runbook = (ROOT / "docs/operations/docker-gpu-full-training.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--entrypoint uv trainer run python" not in runbook
+    assert (
+        "--entrypoint python trainer "
+        "examples/binance-multitimeframe/training_cuda_preflight.py"
+    ) in runbook
+    assert (
+        "--entrypoint python trainer "
+        "examples/binance-multitimeframe/run_gpu_training_smoke.py"
+    ) in runbook
 
 
 def test_training_image_requires_and_exports_packaged_git_provenance() -> None:

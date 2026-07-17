@@ -219,13 +219,13 @@ provenance variables. A full `run` still requires
 Run only the maintained CUDA preflight:
 
 ```bash
-docker compose -f compose.training.yaml run --rm --entrypoint uv trainer run python examples/binance-multitimeframe/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json
+docker compose -f compose.training.yaml run --rm --entrypoint python trainer examples/binance-multitimeframe/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json
 ```
 
 Run the maintained bounded smoke with four rollout environments:
 
 ```bash
-docker compose -f compose.training.yaml run --rm --entrypoint uv trainer run python examples/binance-multitimeframe/run_gpu_training_smoke.py --work-root /workspace/var/gpu-smoke --timesteps 8192
+docker compose -f compose.training.yaml run --rm --entrypoint python trainer examples/binance-multitimeframe/run_gpu_training_smoke.py --work-root /workspace/var/gpu-smoke --timesteps 8192
 ```
 
 The smoke configuration itself fixes `n_envs` at `4`; the CLI accepts the work

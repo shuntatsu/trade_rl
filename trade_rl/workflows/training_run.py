@@ -255,7 +255,9 @@ class TrainingRunConfig:
         config = cls.from_mapping(json.loads(path.read_text(encoding="utf-8")))
         return config.resolve_artifact_paths(path.parent)
 
-    def digest_payload(self) -> dict[str, object]:
+    def _identity_payload(
+        self, *, resume_checkpoint_digests: dict[str, str]
+    ) -> dict[str, object]:
         return {
             "action": asdict(self.action),
             "alpha_contract": asdict(self.alpha_contract),
@@ -274,16 +276,26 @@ class TrainingRunConfig:
             "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "reward": asdict(self.reward),
-            "resume_checkpoint_digests": {
-                str(seed): load_checkpoint_manifest(
-                    path / "checkpoint.json" if path.is_dir() else path
-                ).digest
-                for seed, path in self.resume_checkpoints
-            },
+            "resume_checkpoint_digests": resume_checkpoint_digests,
             "schema_version": self.schema_version,
             "training": self.training.digest_payload(),
             "trend": asdict(self.trend),
         }
+
+    def candidate_digest_payload(self) -> dict[str, object]:
+        """Return the stable learning recipe identity, excluding resume transport."""
+
+        return self._identity_payload(resume_checkpoint_digests={})
+
+    def digest_payload(self) -> dict[str, object]:
+        return self._identity_payload(
+            resume_checkpoint_digests={
+                str(seed): load_checkpoint_manifest(
+                    path / "checkpoint.json" if path.is_dir() else path
+                ).digest
+                for seed, path in self.resume_checkpoints
+            }
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,7 +555,7 @@ def _fit_full_normalizers(
             action_spec_digest=env.action_spec_digest,
             alpha_artifact_digest=env.alpha_artifact_digest,
             factor_artifact_digest=env.factor_artifact_digest,
-            candidate_config_digest=content_digest(config.digest_payload()),
+            candidate_config_digest=content_digest(config.candidate_digest_payload()),
         )
     finally:
         env.close()

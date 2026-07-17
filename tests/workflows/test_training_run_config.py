@@ -243,6 +243,20 @@ def test_training_config_parses_seed_checkpoint_resume_mapping(tmp_path) -> None
     assert config.resume_checkpoints == ((0, tmp_path / "resume/step-1"),)
 
 
+def test_resume_checkpoint_does_not_change_candidate_recipe_identity() -> None:
+    from trade_rl.artifacts.hashing import content_digest
+
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    uninterrupted = TrainingRunConfig.from_mapping(raw)
+    raw["resume_checkpoints"] = {"0": "resume/step-1"}
+    resumed = TrainingRunConfig.from_mapping(raw)
+
+    assert content_digest(uninterrupted.candidate_digest_payload()) == content_digest(
+        resumed.candidate_digest_payload()
+    )
+
+
 def test_training_config_rejects_resume_seed_outside_ensemble() -> None:
     raw = _mapping()
     raw["action"] = {"alpha_enabled": False, "n_factors": 0}

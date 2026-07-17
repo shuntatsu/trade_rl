@@ -7,3 +7,6 @@
 __pycache__
 *.py[cod]
 var
+data
+data_past
+output

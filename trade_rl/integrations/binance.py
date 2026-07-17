@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -129,6 +129,15 @@ class BinanceInstrumentMetadata:
             minimum_notional=self.minimum_notional,
             execution_rules=self.execution_rules,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class BinanceExchangeInfoSnapshot:
+    payload: dict[str, object]
+    raw_payload: bytes
+    source_uri: str
+    retrieved_at: datetime
+    raw_payload_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -736,6 +745,19 @@ class BinancePublicTransport:
         market: BinanceMarket | str,
         mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
     ) -> tuple[dict[str, object], str]:
+        snapshot = self.load_exchange_information_snapshot(
+            market=market,
+            mode=mode,
+        )
+        return snapshot.payload, "rest"
+
+    def load_exchange_information_snapshot(
+        self,
+        *,
+        market: BinanceMarket | str,
+        mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> BinanceExchangeInfoSnapshot:
         resolved_market = _market(market)
         resolved_mode = _mode(mode)
         if resolved_mode is BinanceTransportMode.VISION:
@@ -746,12 +768,24 @@ class BinancePublicTransport:
             f"{_REST_BASE[resolved_market.value]}"
             f"{_REST_EXCHANGE_INFO[resolved_market.value]}"
         )
-        payload = self._request_json(url)
+        raw_payload = self._request_bytes(url)
+        try:
+            payload = json.loads(raw_payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise BinanceTransportError(
+                f"Binance returned invalid JSON for {url}"
+            ) from error
         if not isinstance(payload, dict):
             raise BinanceTransportError(
                 "Binance exchange information must be an object"
             )
-        return dict(payload), "rest"
+        return BinanceExchangeInfoSnapshot(
+            payload=dict(payload),
+            raw_payload=raw_payload,
+            source_uri=url,
+            retrieved_at=_aware_utc(clock(), field="retrieved_at"),
+            raw_payload_sha256=hashlib.sha256(raw_payload).hexdigest(),
+        )
 
 
 def _parse_kline_rows(
@@ -1513,6 +1547,7 @@ def build_binance_market_dataset(
 
 __all__ = [
     "BinanceDatasetBuildResult",
+    "BinanceExchangeInfoSnapshot",
     "BinanceInstrumentMetadata",
     "InstrumentExecutionRule",
     "BinanceMarket",

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import hashlib
+import urllib.request
+from dataclasses import FrozenInstanceError
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
@@ -8,6 +11,7 @@ import pytest
 
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.integrations.binance import (
+    BinanceExchangeInfoSnapshot,
     BinanceInstrumentMetadata,
     BinanceMarket,
     BinanceMarketDataSource,
@@ -87,6 +91,120 @@ class FakeTransport:
                 }
             ]
         }, "fixture:exchange-info"
+
+
+class _ExactBytesResponse:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def __enter__(self) -> _ExactBytesResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self.payload
+
+
+def test_exchange_information_snapshot_preserves_exact_rest_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_payload = b'{"serverTime": 123, "symbols": []}\n'
+    requested_urls: list[str] = []
+
+    def urlopen(
+        request: urllib.request.Request,
+        *,
+        timeout: float,
+    ) -> _ExactBytesResponse:
+        assert timeout == 30.0
+        requested_urls.append(request.full_url)
+        return _ExactBytesResponse(raw_payload)
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    captured_at = datetime(2026, 7, 17, 15, 30, tzinfo=timezone(timedelta(hours=9)))
+    transport = BinancePublicTransport(max_attempts=1)
+
+    snapshot = transport.load_exchange_information_snapshot(
+        market=BinanceMarket.USDS_M,
+        clock=lambda: captured_at,
+    )
+
+    assert requested_urls == ["https://fapi.binance.com/fapi/v1/exchangeInfo"]
+    assert snapshot == BinanceExchangeInfoSnapshot(
+        payload={"serverTime": 123, "symbols": []},
+        raw_payload=raw_payload,
+        source_uri="https://fapi.binance.com/fapi/v1/exchangeInfo",
+        retrieved_at=datetime(2026, 7, 17, 6, 30, tzinfo=UTC),
+        raw_payload_sha256=hashlib.sha256(raw_payload).hexdigest(),
+    )
+    assert snapshot.retrieved_at.tzinfo is UTC
+    with pytest.raises(FrozenInstanceError):
+        snapshot.source_uri = "changed"  # type: ignore[misc]
+
+
+def test_exchange_information_snapshot_rejects_vision_without_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1)
+    monkeypatch.setattr(
+        transport,
+        "_request_bytes",
+        lambda _: pytest.fail("Vision mode must not issue a REST request"),
+    )
+
+    with pytest.raises(BinanceTransportError, match="Vision"):
+        transport.load_exchange_information_snapshot(
+            market=BinanceMarket.SPOT,
+            mode=BinanceTransportMode.VISION,
+        )
+
+
+@pytest.mark.parametrize("raw_payload", [b"[]", b"not-json"])
+def test_exchange_information_snapshot_rejects_invalid_object_json(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_payload: bytes,
+) -> None:
+    transport = BinancePublicTransport(max_attempts=1)
+    monkeypatch.setattr(transport, "_request_bytes", lambda _: raw_payload)
+
+    with pytest.raises(BinanceTransportError, match="invalid JSON|must be an object"):
+        transport.load_exchange_information_snapshot(market=BinanceMarket.SPOT)
+
+
+def test_load_exchange_information_delegates_to_snapshot_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = BinancePublicTransport()
+    snapshot = BinanceExchangeInfoSnapshot(
+        payload={"symbols": []},
+        raw_payload=b'{"symbols": []}',
+        source_uri="https://api.binance.com/api/v3/exchangeInfo",
+        retrieved_at=datetime(2026, 7, 17, tzinfo=UTC),
+        raw_payload_sha256="digest",
+    )
+    calls: list[dict[str, object]] = []
+
+    def load_snapshot(**kwargs: object) -> BinanceExchangeInfoSnapshot:
+        calls.append(kwargs)
+        return snapshot
+
+    monkeypatch.setattr(
+        transport,
+        "load_exchange_information_snapshot",
+        load_snapshot,
+    )
+
+    result = transport.load_exchange_information(
+        market=BinanceMarket.SPOT,
+        mode=BinanceTransportMode.REST,
+    )
+
+    assert result == ({"symbols": []}, "rest")
+    assert calls == [
+        {"market": BinanceMarket.SPOT, "mode": BinanceTransportMode.REST}
+    ]
 
 
 def test_usds_m_source_uses_close_boundaries_quote_volume_and_sparse_funding() -> None:

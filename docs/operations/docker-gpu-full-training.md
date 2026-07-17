@@ -35,14 +35,32 @@ Build the locked Python 3.12 training image:
 docker compose -f compose.training.yaml build trainer
 ```
 
-Before starting strict research, place an authenticated point-in-time Binance execution-rule history inside the named volume (for example `/workspace/var/metadata/binance-rule-history.json`) and configure the in-container path plus trusted key map:
+Choose the execution-metadata evidence mode before starting. The Docker workflow defaults to the transparent current snapshot mode:
 
 ```powershell
+$env:TRADE_RL_METADATA_MODE = "frozen_snapshot"
+```
+
+`frozen_snapshot` requests the official USDⓈ-M `exchangeInfo` payload once, stores the exact response bytes and SHA-256, and applies the captured rules statically across the research interval. Reports mark it unauthenticated and non-point-in-time; it is not represented as official historical evidence. No Binance account or API key is used.
+
+For the highest-integrity mode, place an authenticated point-in-time rule history inside the named volume and explicitly opt in:
+
+```powershell
+$env:TRADE_RL_METADATA_MODE = "historical_signed"
 $env:TRADE_RL_BINANCE_RULE_HISTORY = "/workspace/var/metadata/binance-rule-history.json"
 $env:TRADE_RL_METADATA_KEYS = '{"binance-metadata-2026":"replace-with-secret-from-your-secret-store"}'
 ```
 
-The `binance_instrument_rule_history_v2` payload must contain the authoritative listing time and an ordered execution-rule history for every selected symbol. Its first rule must be effective no later than the requested dataset start, and the history must cover the full research interval. The runner verifies its HMAC-SHA256 envelope and fails closed when the file, trusted key, signature, symbol history, or coverage is missing. Strict research does not use current `exchangeInfo` as historical evidence. Do not commit signing keys.
+The `binance_instrument_rule_history_v2` payload must contain authoritative listing time and ordered execution-rule history for every selected symbol. The runner verifies its HMAC-SHA256 envelope and complete requested-period coverage. Missing files, unknown keys, altered signatures, missing symbols or coverage gaps fail before dataset publication. Do not commit signing keys.
+
+`conservative_static` is available only with an explicit versioned payload and must also be selected explicitly:
+
+```powershell
+$env:TRADE_RL_METADATA_MODE = "conservative_static"
+$env:TRADE_RL_CONSERVATIVE_STATIC_PATH = "/workspace/var/metadata/binance-conservative-static.json"
+```
+
+This mode remains a declared approximation. It never sets authenticated or point-in-time status and never relabels internally maintained static values as Binance history.
 
 Choose a unique run generation before every full invocation. A UTC timestamp
 is a convenient default; add a suffix if another run could start in the same
@@ -120,8 +138,11 @@ are:
 
 - `/workspace/var/cuda-preflight.json`
 - `/workspace/var/cache/binance-vision/`
+- `/workspace/var/runs/full-20260715-120000/exchange-info.json`
+- `/workspace/var/runs/full-20260715-120000/exchange-info.raw.json` in `frozen_snapshot` mode
 - `/workspace/var/runs/full-20260715-120000/training.log`
 - `/workspace/var/runs/full-20260715-120000/walk-forward.log`
+- `/workspace/var/runs/full-20260715-120000/execution-sensitivity.json`
 - `/workspace/var/runs/full-20260715-120000/research-gate.json`
 - `/workspace/var/runs/full-20260715-120000/summary.json`
 - `/workspace/var/runs/full-20260715-120000/artifacts/`
@@ -152,7 +173,9 @@ estimate from roughly 200.5 MiB to roughly 5.77 MiB. Configurations above the
 configured memory ceiling still fail closed. Approximate portfolio teacher
 artifacts likewise reconstruct only requested normalized sequence minibatches.
 
-The maintained gate requires six sealed walk-forward folds covering at least 180 OOS days. It rejects a candidate when the paired circular block-bootstrap lower confidence bound on daily log-return excess over the shadow baseline is non-positive, material mean uplift is below the configured threshold, or drawdown, turnover, cost fraction, seed stability or selection stability violates configured limits. Every fold evaluates the exact deterministic mean action across the fixed seed members used by serving. A separate signed fresh-confirmation interval is opened only after the recipe and ensemble are frozen; confirmation metrics are recomputed from the authenticated return series and identity-bound reconciliation evidence.
+The maintained gate requires six sealed walk-forward folds covering at least 180 OOS days. It rejects a candidate when the paired circular block-bootstrap lower confidence bound on daily log-return excess over the shadow baseline is non-positive, material mean uplift is below the configured threshold, or drawdown, turnover, cost fraction, seed stability or selection stability violates configured limits. Every fold evaluates the exact deterministic mean action across the fixed seed members used by serving.
+
+After selection, the same frozen policy and baseline are replayed under the identity-bound execution-sensitivity pack. Joint 2x is required to retain positive selected return, nonnegative baseline uplift and maximum independently reset fold drawdown at or below 20%; joint 5x is report-only. Scenario replay is closed-loop and cannot influence candidate or checkpoint selection. The resulting `execution-sensitivity.json` digest is verified again by the full runner before its result is combined with the research gate. A separate signed fresh-confirmation interval is opened only after the recipe and ensemble are frozen; confirmation metrics are recomputed from the authenticated return series and identity-bound reconciliation evidence.
 
 ## Copy artifacts to the host
 

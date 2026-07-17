@@ -42,7 +42,7 @@ A market dataset artifact is a validated directory containing canonical `manifes
 
 A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one authoritative `policy.zip` per seed, content-addressed intermediate checkpoints selected only on checkpoint-validation data, a `policy-loader.json`, optional verified ONNX/TorchScript actors and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format. ONNX is an optional required export when requested; TorchScript is best-effort and records an explicit unsupported reason when conversion is unsafe.
 
-Nested walk-forward execution builds fold-local causal signals, fits only exogenous normalization statistics on each train capability, records one-shot sealed-test access, and evaluates the exact deterministic mean seed ensemble used by serving on the outer test range only after selection. Training, behavior cloning, checkpoint selection and sealed evaluation all use liquidation-at-close terminal accounting. Independent folds retain full execution evidence and are reported as a distribution; continuous return and drawdown are produced only with verified contiguous account-state handoff.
+Nested walk-forward execution builds fold-local causal signals, fits only exogenous normalization statistics on each train capability, records one-shot sealed-test access, and evaluates the exact deterministic mean seed ensemble used by serving on the outer test range only after selection. Training, behavior cloning, checkpoint selection and sealed evaluation all use liquidation-at-close terminal accounting. Independent folds retain full execution evidence and are reported as a distribution; continuous return and drawdown are produced only with verified contiguous account-state handoff. An optional identity-bound post-selection execution-sensitivity pack replays the selected ensemble and baseline closed-loop under nominal, individual 2x, joint 2x and report-only joint 5x rule stresses without participating in selection.
 
 ## Commands
 
@@ -110,7 +110,7 @@ The second command exits nonzero when CUDA preflight, training, evaluation, or
 the research gate fails. A successful process is research evidence only: it is
 not a profitability guarantee and production status remains `NO-GO`.
 
-The strict Binance workflow also requires an authenticated point-in-time execution-rule history. Set `TRADE_RL_BINANCE_RULE_HISTORY` to the in-container JSON path and `TRADE_RL_METADATA_KEYS` to a JSON map of trusted key IDs to secrets. Current `exchangeInfo` values are never silently projected backward across the research period.
+The Docker workflow defaults to `TRADE_RL_METADATA_MODE=frozen_snapshot`: one official current `exchangeInfo` payload is preserved byte-for-byte, identity-bound and disclosed as unauthenticated, non-point-in-time evidence. `historical_signed` remains the highest-integrity explicit opt-in and requires `TRADE_RL_BINANCE_RULE_HISTORY` plus `TRADE_RL_METADATA_KEYS`; `conservative_static` requires a versioned payload path. No mode silently projects current values backward as historical truth. The full preset also publishes identity-bound closed-loop execution sensitivity and requires the joint-2x research gate while keeping joint 5x report-only.
 
 See [Docker GPU full-training operations](docs/operations/docker-gpu-full-training.md)
 for exact detached start, status, logs, volume inspection, artifact extraction,

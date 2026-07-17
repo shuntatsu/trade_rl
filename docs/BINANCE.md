@@ -43,7 +43,23 @@ The command publishes canonical `manifest.json` and `arrays.npz` files and print
 - `vision`: official Binance Vision ZIP archives only;
 - `auto`: REST first, with Vision fallback for historical bars and funding.
 
-Binance Vision does not publish complete exchange metadata. A general Vision-only dataset may therefore provide `--tick-size`, `--lot-size`, `--minimum-notional`, and `--listed-at` once per symbol; those static values participate in the dataset identity. The maintained strict multi-timeframe research workflow is stronger: it requires an authenticated effective-dated rule history and materializes tick size, lot size, and minimum notional per bar. It refuses to treat current `exchangeInfo` as historical metadata.
+Binance Vision does not publish complete exchange metadata. A general Vision-only dataset may therefore provide `--tick-size`, `--lot-size`, `--minimum-notional`, and `--listed-at` once per symbol; those static values participate in the dataset identity. The maintained multi-timeframe runner never silently upgrades static values into historical facts. It resolves one explicit execution-metadata mode before either repeated dataset build and binds the canonical evidence payload into `dataset_id`.
+
+## Execution-metadata modes
+
+The full runner accepts `--metadata-mode` and the equivalent `TRADE_RL_METADATA_MODE` environment variable. The modes are deliberately not interchangeable:
+
+- `historical_signed` is the highest-integrity mode. It verifies the existing HMAC envelope, requires complete effective-dated rule coverage for every selected symbol, and reports authenticated point-in-time evidence.
+- `frozen_snapshot` is the maintained Docker default. It fetches the official USDⓈ-M `exchangeInfo` response exactly once, preserves the received bytes, source URI, aware UTC retrieval time and raw SHA-256, then applies those current rules statically across the research interval. It is explicitly unauthenticated and non-point-in-time.
+- `conservative_static` requires an explicit versioned JSON payload supplied with `--conservative-static-path` or `TRADE_RL_CONSERVATIVE_STATIC_PATH`. It is a declared approximation and is never described as Binance historical evidence.
+
+`frozen_snapshot` writes `exchange-info.raw.json` byte-for-byte and every mode writes canonical `exchange-info.json`. Mode, source, evidence digest, as-of time, coverage, authentication state, point-in-time state, policy version and limitations are repeated in the dataset result and final summary. Dataset A and B reuse the same in-memory resolution, so a live metadata change cannot occur between the reproducibility builds.
+
+## Conservative closed-loop execution sensitivity
+
+When the walk-forward configuration declares execution sensitivity, replay occurs only after model and seed-ensemble selection. The selected policy and the shadow baseline are rerun on the same sealed OOS folds with unchanged normalizers under nominal, each-rule 2x, joint 2x and joint 5x conditions. This is a closed-loop replay: changed tick, lot and minimum-notional constraints affect fills, positions and later observations; returns are not adjusted after evaluation.
+
+The immutable `execution-sensitivity.json` artifact is bound to the dataset identity, experiment-plan digest, scenario-pack digest and base sealed-test access evidence. Joint 2x must retain positive selected return, nonnegative uplift over baseline and maximum independently reset fold drawdown no greater than 20%. Joint 5x is report-only until calibrated. Sensitivity never participates in recipe selection, and all results remain research-only with production status `NO-GO`.
 
 ## Run the verified end-to-end smoke
 

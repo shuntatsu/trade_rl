@@ -1,0 +1,35 @@
+name: Diagnose Task 4 MyPy
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/diagnose-binance-metadata-task4-mypy.yml']
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/binance-metadata-modes-task4
+      - uses: astral-sh/setup-uv@v5
+      - run: |
+          base64 -d .github/task4.patch.gz.b64 | gzip -d > /tmp/task4.patch
+          git apply /tmp/task4.patch
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('examples/binance-multitimeframe/run_full_research.py')
+          content = path.read_text()
+          anchor = 'from trade_rl.data import publish_market_dataset_artifact\n'
+          import_line = 'from trade_rl.artifacts.hashing import content_digest\n'
+          if import_line not in content:
+              path.write_text(content.replace(anchor, import_line + anchor, 1))
+          PY
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format .
+          uv run ruff check --fix . || true
+          uv run mypy trade_rl > task4-mypy.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: task4-mypy-diagnostics
+          path: task4-mypy.log

@@ -72,19 +72,24 @@ def test_signed_history_requires_exact_scope() -> None:
     assert result.identity_evidence["point_in_time"] is True
 
 
+def test_signed_scope_rejects_non_usdm_market() -> None:
+    with pytest.raises(ValueError, match="market"):
+        _scope(market="spot")
+
+
 @pytest.mark.parametrize(
-    "scope,match",
+    "overrides,match",
     [
-        (_scope(market="spot"), "market"),
-        (_scope(symbols=tuple(reversed(SYMBOLS))), "symbol"),
-        (_scope(coverage_start=datetime(2024, 12, 2, tzinfo=UTC)), "coverage"),
-        (_scope(coverage_end=datetime(2026, 6, 30, tzinfo=UTC)), "coverage"),
+        ({"symbols": tuple(reversed(SYMBOLS))}, "symbol"),
+        ({"coverage_start": datetime(2024, 12, 2, tzinfo=UTC)}, "coverage"),
+        ({"coverage_end": datetime(2026, 6, 30, tzinfo=UTC)}, "coverage"),
     ],
 )
 def test_signed_history_rejects_scope_mismatch(
-    scope: BinanceHistoricalSignedScope,
+    overrides: dict[str, object],
     match: str,
 ) -> None:
+    scope = _scope(**overrides)
     with pytest.raises(ValueError, match=match):
         resolution_from_historical_signed(
             metadata=_metadata(),

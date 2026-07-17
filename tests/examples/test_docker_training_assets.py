@@ -258,3 +258,15 @@ def test_architecture_docs_state_current_research_and_runtime_boundaries() -> No
     ):
         assert phrase in combined
     assert "exact optimal Oracle" not in combined
+
+
+def test_training_docker_defaults_to_disclosed_frozen_metadata_mode() -> None:
+    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
+    compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
+
+    assert "TRADE_RL_METADATA_MODE=frozen_snapshot" in dockerfile
+    assert (
+        "TRADE_RL_METADATA_MODE: ${TRADE_RL_METADATA_MODE:-frozen_snapshot}" in compose
+    )
+    assert "--metadata-mode $${TRADE_RL_METADATA_MODE}" in compose
+    assert "TRADE_RL_CONSERVATIVE_STATIC_PATH" in compose

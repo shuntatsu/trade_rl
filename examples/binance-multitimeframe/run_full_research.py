@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +36,13 @@ from trade_rl.integrations.binance import (
 from trade_rl.release.signing import AuthenticatedEnvelope, verify_payload
 from trade_rl.rl.checkpointing import checkpoint_manifests
 from trade_rl.rl.observations import ObservationBuilder
+from trade_rl.workflows.binance_metadata_modes import (
+    BinanceMetadataMode,
+    BinanceMetadataResolution,
+    resolution_from_historical_signed,
+    resolve_conservative_static,
+    resolve_frozen_snapshot,
+)
 
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
@@ -249,12 +257,57 @@ def _load_rule_history() -> tuple[
     return metadata, histories, envelope.payload_digest
 
 
+def _resolve_metadata(
+    *,
+    mode: BinanceMetadataMode,
+    transport: BinancePublicTransport,
+    conservative_static_path: Path | None,
+) -> BinanceMetadataResolution:
+    start_time = _parse_utc(_START)
+    end_time = _parse_utc(_END)
+    if mode is BinanceMetadataMode.HISTORICAL_SIGNED:
+        metadata, histories, evidence_digest = _load_rule_history()
+        source_uri = os.environ.get(
+            "TRADE_RL_BINANCE_RULE_HISTORY",
+            "authenticated-rule-history",
+        )
+        return resolution_from_historical_signed(
+            metadata=metadata,
+            execution_rule_histories=histories,
+            evidence_digest=evidence_digest,
+            source_uri=source_uri,
+            start_time=start_time,
+            end_time=end_time,
+        )
+    if mode is BinanceMetadataMode.FROZEN_SNAPSHOT:
+        return resolve_frozen_snapshot(
+            transport=transport,
+            market=BinanceMarket.USDS_M,
+            symbols=_SYMBOLS,
+            start_time=start_time,
+            end_time=end_time,
+        )
+    if conservative_static_path is None:
+        raise ValueError(
+            "--conservative-static-path is required for conservative_static mode"
+        )
+    return resolve_conservative_static(
+        path=conservative_static_path,
+        symbols=_SYMBOLS,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+
 def _build_dataset(
     *,
     output: Path,
     transport: BinancePublicTransport,
-    metadata: dict[str, dict[str, str | float]],
-    execution_rule_histories: dict[str, tuple[InstrumentExecutionRule, ...]],
+    metadata: Mapping[str, Mapping[str, str | float]],
+    execution_rule_histories: Mapping[str, tuple[InstrumentExecutionRule, ...]] | None,
+    metadata_evidence: Mapping[str, object],
+    metadata_mode: BinanceMetadataMode,
+    metadata_evidence_digest: str,
 ) -> dict[str, object]:
     result = build_binance_market_dataset(
         market=BinanceMarket.USDS_M,
@@ -274,6 +327,7 @@ def _build_dataset(
             _parse_utc(str(metadata[symbol]["listed_at"])) for symbol in _SYMBOLS
         ),
         execution_rule_histories=execution_rule_histories,
+        metadata_evidence=metadata_evidence,
     )
     published = publish_market_dataset_artifact(output, result.dataset)
     if result.dataset.n_bars != _EXPECTED_15M_BARS:
@@ -302,6 +356,8 @@ def _build_dataset(
         "artifact_digest": published.artifact_digest,
         "dataset_id": result.dataset.dataset_id,
         "feature_names": list(result.dataset.feature_names),
+        "metadata_mode": metadata_mode.value,
+        "metadata_evidence_digest": metadata_evidence_digest,
         "feature_timeframes": list(result.feature_timeframes),
         "n_bars": result.dataset.n_bars,
         "n_features": result.dataset.n_features,
@@ -721,6 +777,23 @@ def main() -> int:
     parser.add_argument(
         "--cache-root", type=Path, default=Path("var/cache/binance-vision")
     )
+    parser.add_argument(
+        "--metadata-mode",
+        choices=tuple(mode.value for mode in BinanceMetadataMode),
+        default=os.environ.get(
+            "TRADE_RL_METADATA_MODE",
+            BinanceMetadataMode.FROZEN_SNAPSHOT.value,
+        ),
+    )
+    parser.add_argument(
+        "--conservative-static-path",
+        type=Path,
+        default=(
+            Path(os.environ["TRADE_RL_CONSERVATIVE_STATIC_PATH"])
+            if os.environ.get("TRADE_RL_CONSERVATIVE_STATIC_PATH")
+            else None
+        ),
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
@@ -740,35 +813,35 @@ def main() -> int:
         retry_backoff_seconds=0.5,
         cache_root=cache_root,
     )
-    (
-        metadata,
-        execution_rule_histories,
-        metadata_evidence_digest,
-    ) = _load_rule_history()
-    metadata_source = "authenticated-rule-history"
-    metadata_error = None
-    _write_json(
-        work_root / "exchange-info.json",
-        {
-            "evidence_digest": metadata_evidence_digest,
-            "metadata": metadata,
-            "source": metadata_source,
-        },
+    resolution = _resolve_metadata(
+        mode=BinanceMetadataMode(args.metadata_mode),
+        transport=transport,
+        conservative_static_path=args.conservative_static_path,
     )
+    resolution.write_artifacts(work_root)
+    metadata_report = _load_json(work_root / "exchange-info.json")
+    metadata_error = None
+    metadata_source = resolution.source_uri
 
     dataset_a_path = work_root / "dataset-a"
     dataset_b_path = work_root / "dataset-b"
     dataset_a = _build_dataset(
         output=dataset_a_path,
         transport=transport,
-        metadata=metadata,
-        execution_rule_histories=execution_rule_histories,
+        metadata=resolution.metadata,
+        execution_rule_histories=resolution.execution_rule_histories,
+        metadata_evidence=resolution.identity_evidence,
+        metadata_mode=resolution.mode,
+        metadata_evidence_digest=resolution.evidence_digest,
     )
     dataset_b = _build_dataset(
         output=dataset_b_path,
         transport=transport,
-        metadata=metadata,
-        execution_rule_histories=execution_rule_histories,
+        metadata=resolution.metadata,
+        execution_rule_histories=resolution.execution_rule_histories,
+        metadata_evidence=resolution.identity_evidence,
+        metadata_mode=resolution.mode,
+        metadata_evidence_digest=resolution.evidence_digest,
     )
     if dataset_a["dataset_id"] != dataset_b["dataset_id"]:
         raise RuntimeError(
@@ -842,8 +915,11 @@ def main() -> int:
         "dataset": dataset_a,
         "dataset_repeat": dataset_b,
         "end_time": _END,
+        "metadata": metadata_report,
         "metadata_error": metadata_error,
         "metadata_source": metadata_source,
+        "metadata_mode": resolution.mode.value,
+        "metadata_evidence_digest": resolution.evidence_digest,
         "native_timeframes": list(_NATIVE_TIMEFRAMES),
         "decision_hours": 0.25,
         "raw_feature_count": dataset.n_features,

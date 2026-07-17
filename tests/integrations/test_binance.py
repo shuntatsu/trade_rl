@@ -203,9 +203,7 @@ def test_load_exchange_information_delegates_to_snapshot_api(
     )
 
     assert result == ({"symbols": []}, "rest")
-    assert calls == [
-        {"market": BinanceMarket.SPOT, "mode": BinanceTransportMode.REST}
-    ]
+    assert calls == [{"market": BinanceMarket.SPOT, "mode": BinanceTransportMode.REST}]
 
 
 def test_exchange_information_snapshot_deeply_freezes_nested_payload(

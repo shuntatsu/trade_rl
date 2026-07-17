@@ -11,6 +11,7 @@ FROM python:3.12-slim AS training-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    TRADE_RL_METADATA_MODE=frozen_snapshot \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/trade-rl-venv \
     PATH="/opt/trade-rl-venv/bin:${PATH}"
@@ -44,4 +45,4 @@ RUN test "$(id -u)" -ne 0 \
     && test "$(cat /provenance.valid)" \
         = "${TRADE_RL_GIT_COMMIT}:${TRADE_RL_GIT_DIRTY}"
 
-CMD ["sh", "-c", ": \"${TRADE_RL_RUN_GENERATION:?Set TRADE_RL_RUN_GENERATION to a unique generation name}\" && python examples/binance-multitimeframe/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json && python examples/binance-multitimeframe/run_full_research.py --work-root /workspace/var/runs/${TRADE_RL_RUN_GENERATION} --cache-root /workspace/var/cache/binance-vision"]
+CMD ["sh", "-c", ": \"${TRADE_RL_RUN_GENERATION:?Set TRADE_RL_RUN_GENERATION to a unique generation name}\" && python examples/binance-multitimeframe/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json && python examples/binance-multitimeframe/run_full_research.py --work-root /workspace/var/runs/${TRADE_RL_RUN_GENERATION} --cache-root /workspace/var/cache/binance-vision --metadata-mode ${TRADE_RL_METADATA_MODE}"]

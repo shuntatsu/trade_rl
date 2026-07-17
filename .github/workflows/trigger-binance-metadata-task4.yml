@@ -1,0 +1,44 @@
+name: Trigger Binance metadata task 4
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/trigger-binance-metadata-task4.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/binance-metadata-modes-task4
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - name: Apply patch
+        run: |
+          base64 -d .github/task4.patch.gz.b64 | gzip -d > /tmp/task4.patch
+          git apply --check /tmp/task4.patch
+          git apply /tmp/task4.patch
+          rm .github/task4.patch.gz.b64 .github/workflows/trigger-binance-metadata-task4.yml
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format
+        run: |
+          uv run ruff check --fix .
+          uv run ruff format .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy trade_rl
+      - name: Test
+        run: uv run pytest -q tests/simulation/test_execution_v2.py tests/simulation/test_execution_slippage_coverage.py tests/simulation/test_execution_sensitivity.py tests/rl/test_environment_identity.py tests/rl/test_environment_reward_v2.py tests/rl/test_environment_time_config.py tests/rl/test_environment_timing.py tests/rl/test_sequence_environment_config.py tests/rl/test_signal_artifact_environment.py tests/workflows/test_market_walk_forward.py tests/workflows/test_walk_forward_execution.py tests/examples/test_binance_metadata_mode_runner.py tests/examples/test_binance_multitimeframe_full_assets.py
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'feat: add closed-loop execution sensitivity'
+          git push origin HEAD:agent/binance-metadata-modes-task4

@@ -11,6 +11,7 @@ from pathlib import Path
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
 from trade_rl.release.attestation import ReleaseAttestation, default_attestation_path
+from trade_rl.release.signing import VerificationKey
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
 
@@ -42,8 +43,7 @@ class ServingRegistry:
         root: Path,
         *,
         allow_unreleased: bool = False,
-        trusted_attestation_keys: Mapping[str, bytes | bytearray | memoryview]
-        | None = None,
+        trusted_attestation_keys: Mapping[str, VerificationKey] | None = None,
     ) -> None:
         self.root = root
         self.allow_unreleased = allow_unreleased

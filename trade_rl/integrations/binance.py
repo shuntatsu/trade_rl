@@ -1346,6 +1346,7 @@ def build_binance_market_dataset(
     feature_timeframes: Sequence[str] | None = None,
     execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
     | None = None,
+    metadata_evidence: Mapping[str, object] | None = None,
 ) -> BinanceDatasetBuildResult:
     """Build one deterministic linear-product dataset from public Binance data."""
 
@@ -1489,7 +1490,11 @@ def build_binance_market_dataset(
                 else None
             ),
         )
-    ).build(source, tuple(item.to_contract() for item in metadata))
+    ).build(
+        source,
+        tuple(item.to_contract() for item in metadata),
+        identity_provenance=metadata_evidence,
+    )
     sources = set(source.sources_used)
     if metadata_source is not None:
         sources.add(metadata_source)

@@ -176,6 +176,32 @@ def test_dataset_identity_binds_order_config_and_contracts() -> None:
     assert len(identities) == 4
 
 
+def test_dataset_identity_binds_canonical_identity_provenance() -> None:
+    source = InMemoryMarketDataSource(
+        {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
+    )
+    builder = MarketDatasetBuilder(config())
+
+    rest = builder.build(
+        source,
+        instruments(),
+        identity_provenance={"mode": "rest", "digest": "sha256:rest"},
+    )
+    vision = builder.build(
+        source,
+        instruments(),
+        identity_provenance={"mode": "vision", "digest": "sha256:vision"},
+    )
+    reordered = builder.build(
+        source,
+        instruments(),
+        identity_provenance={"digest": "sha256:rest", "mode": "rest"},
+    )
+
+    assert rest.dataset_id != vision.dataset_id
+    assert rest.dataset_id == reordered.dataset_id
+
+
 def test_csv_source_builds_market_dataset(tmp_path: Path) -> None:
     for symbol, scale in (("BTCUSDT", 1.0), ("ETHUSDT", 2.0)):
         rows = ["timestamp,open,high,low,close,volume,funding_rate,tradable"]

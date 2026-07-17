@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from datetime import datetime, timezone
 
 import numpy as np
@@ -222,6 +223,8 @@ class MarketDatasetBuilder:
         self,
         source: MarketDataSource,
         instruments: tuple[InstrumentContract, ...],
+        *,
+        identity_provenance: Mapping[str, object] | None = None,
     ) -> MarketDataset:
         if not instruments:
             raise ValueError("instruments must not be empty")
@@ -455,6 +458,8 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
+        if identity_provenance is not None:
+            metadata["metadata_evidence"] = identity_provenance
         periods_per_year = (
             int(round(365.0 * 24.0 / self.config.bar_hours))
             if self.config.calendar_kind == "continuous_24_7"

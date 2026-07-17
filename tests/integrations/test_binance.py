@@ -168,6 +168,34 @@ def test_build_uses_exchange_metadata_and_quote_notional_volume() -> None:
     )
 
 
+def test_build_binds_metadata_evidence_to_dataset_identity() -> None:
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    build_kwargs = {
+        "market": "usds-m",
+        "symbols": ("BTCUSDT",),
+        "interval": "1h",
+        "start_time": start,
+        "end_time": start + timedelta(hours=3),
+        "transport": FakeTransport(),
+    }
+
+    rest = build_binance_market_dataset(
+        **build_kwargs,
+        metadata_evidence={"mode": "rest", "digest": "sha256:rest"},
+    )
+    vision = build_binance_market_dataset(
+        **build_kwargs,
+        metadata_evidence={"mode": "vision", "digest": "sha256:vision"},
+    )
+    reordered = build_binance_market_dataset(
+        **build_kwargs,
+        metadata_evidence={"digest": "sha256:rest", "mode": "rest"},
+    )
+
+    assert rest.dataset.dataset_id != vision.dataset.dataset_id
+    assert rest.dataset.dataset_id == reordered.dataset.dataset_id
+
+
 def test_coin_m_fails_closed_before_linear_dataset_publication() -> None:
     start = datetime(2026, 6, 1, tzinfo=UTC)
 

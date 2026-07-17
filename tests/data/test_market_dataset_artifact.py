@@ -112,10 +112,7 @@ def test_write_market_dataset_files_returns_typed_result(tmp_path: Path) -> None
     assert len(result.artifact_digest) == 64
 
 
-def test_legacy_direct_writer_warns_and_preserves_path_return(tmp_path: Path) -> None:
+def test_legacy_direct_writer_is_not_exported() -> None:
     from trade_rl.data import artifacts as artifacts_module
 
-    with pytest.warns(DeprecationWarning, match="write_market_dataset_files"):
-        result = artifacts_module.write_market_dataset_artifact(tmp_path, _dataset())
-
-    assert result == tmp_path / "manifest.json"
+    assert not hasattr(artifacts_module, "write_market_dataset_artifact")

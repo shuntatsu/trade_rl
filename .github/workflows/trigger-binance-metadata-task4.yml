@@ -23,12 +23,13 @@ jobs:
           git apply --check /tmp/task4.patch
           git apply /tmp/task4.patch
           rm .github/task4.patch.gz.b64 .github/workflows/trigger-binance-metadata-task4.yml
+          rm -f docs/task4-verification-marker*.md docs/task4-verification-trigger.md
       - name: Install
         run: uv sync --extra dev --extra train-sb3
       - name: Format
         run: |
-          uv run ruff check --fix .
           uv run ruff format .
+          uv run ruff check --fix . || true
       - name: Lint
         run: uv run ruff check .
       - name: Type check

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
@@ -205,6 +206,64 @@ def test_load_exchange_information_delegates_to_snapshot_api(
     assert calls == [
         {"market": BinanceMarket.SPOT, "mode": BinanceTransportMode.REST}
     ]
+
+
+def test_exchange_information_snapshot_deeply_freezes_nested_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_payload = (
+        b'{"symbols":[{"symbol":"BTCUSDT","filters":'
+        b'[{"filterType":"PRICE_FILTER","tickSize":"0.10"}]}]}'
+    )
+    transport = BinancePublicTransport(max_attempts=1)
+    monkeypatch.setattr(transport, "_request_bytes", lambda _: raw_payload)
+
+    snapshot = transport.load_exchange_information_snapshot(
+        market=BinanceMarket.USDS_M,
+    )
+
+    symbols = snapshot.payload["symbols"]
+    assert isinstance(symbols, tuple)
+    symbol = symbols[0]
+    assert isinstance(symbol, Mapping)
+    filters = symbol["filters"]
+    assert isinstance(filters, tuple)
+    price_filter = filters[0]
+    assert isinstance(price_filter, Mapping)
+    with pytest.raises(TypeError):
+        price_filter["tickSize"] = "999"  # type: ignore[index]
+
+
+def test_load_exchange_information_returns_independent_mutable_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_payload = b'{"symbols":[{"symbol":"BTCUSDT"}]}'
+    transport = BinancePublicTransport(max_attempts=1)
+    monkeypatch.setattr(transport, "_request_bytes", lambda _: raw_payload)
+    snapshot = transport.load_exchange_information_snapshot(
+        market=BinanceMarket.USDS_M,
+    )
+    monkeypatch.setattr(
+        transport,
+        "load_exchange_information_snapshot",
+        lambda **_: snapshot,
+    )
+
+    payload, source = transport.load_exchange_information(
+        market=BinanceMarket.USDS_M,
+    )
+
+    assert source == "rest"
+    symbols = payload["symbols"]
+    assert isinstance(symbols, list)
+    symbol = symbols[0]
+    assert isinstance(symbol, dict)
+    symbol["symbol"] = "MUTATED"
+    snapshot_symbols = snapshot.payload["symbols"]
+    assert isinstance(snapshot_symbols, tuple)
+    snapshot_symbol = snapshot_symbols[0]
+    assert isinstance(snapshot_symbol, Mapping)
+    assert snapshot_symbol["symbol"] == "BTCUSDT"
 
 
 def test_usds_m_source_uses_close_boundaries_quote_volume_and_sparse_funding() -> None:

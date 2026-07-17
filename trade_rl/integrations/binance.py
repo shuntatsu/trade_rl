@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -89,6 +90,34 @@ class BinanceUnsupportedContractError(ValueError):
     """Requested instrument cannot be represented by the current accounting model."""
 
 
+def _freeze_json(value: object) -> object:
+    if isinstance(value, dict):
+        return MappingProxyType(
+            {str(key): _freeze_json(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+def _freeze_json_object(payload: Mapping[str, object]) -> Mapping[str, object]:
+    return MappingProxyType(
+        {key: _freeze_json(value) for key, value in payload.items()}
+    )
+
+
+def _mutable_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _mutable_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_mutable_json(item) for item in value]
+    return value
+
+
+def _mutable_json_object(payload: Mapping[str, object]) -> dict[str, object]:
+    return {key: _mutable_json(value) for key, value in payload.items()}
+
+
 @dataclass(frozen=True, slots=True)
 class BinanceInstrumentMetadata:
     symbol: str
@@ -133,11 +162,14 @@ class BinanceInstrumentMetadata:
 
 @dataclass(frozen=True, slots=True)
 class BinanceExchangeInfoSnapshot:
-    payload: dict[str, object]
+    payload: Mapping[str, object]
     raw_payload: bytes
     source_uri: str
     retrieved_at: datetime
     raw_payload_sha256: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "payload", _freeze_json_object(self.payload))
 
 
 @dataclass(frozen=True, slots=True)
@@ -749,7 +781,7 @@ class BinancePublicTransport:
             market=market,
             mode=mode,
         )
-        return snapshot.payload, "rest"
+        return _mutable_json_object(snapshot.payload), "rest"
 
     def load_exchange_information_snapshot(
         self,

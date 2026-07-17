@@ -10,10 +10,18 @@ from typing import Any
 import pytest
 
 from trade_rl.integrations.binance import BinanceExchangeInfoSnapshot
-from trade_rl.workflows.binance_metadata_modes import BinanceMetadataMode
+from trade_rl.workflows.binance_metadata_modes import (
+    BinanceHistoricalSignedScope,
+    BinanceMetadataMode,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER = ROOT / "examples" / "binance-multitimeframe" / "run_full_research.py"
+RUNNER = (
+    ROOT
+    / "examples"
+    / "binance-multitimeframe"
+    / "run_full_research_hardened.py"
+)
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 
 
@@ -58,12 +66,10 @@ class _Transport:
         return _snapshot()
 
 
-def test_runner_frozen_mode_does_not_require_signed_history(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_runner_frozen_mode_does_not_require_signed_history() -> None:
     namespace = _namespace()
     resolve = namespace["_resolve_metadata"]
-    resolve.__globals__["_load_rule_history"] = lambda: pytest.fail(
+    resolve.__globals__["_load_signed_history"] = lambda: pytest.fail(
         "frozen mode must not read signed history"
     )
     transport = _Transport()
@@ -79,14 +85,14 @@ def test_runner_frozen_mode_does_not_require_signed_history(
     assert result.execution_rule_histories is None
 
 
-def test_runner_historical_mode_preserves_existing_signed_loader(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_runner_historical_mode_preserves_scoped_signed_loader() -> None:
     namespace = _namespace()
     resolve = namespace["_resolve_metadata"]
     rule_type = namespace["InstrumentExecutionRule"]
+    start = datetime(2024, 12, 1, tzinfo=UTC)
+    end = datetime(2026, 7, 1, tzinfo=UTC)
     rule = rule_type(
-        effective_at=datetime(2024, 12, 1, tzinfo=UTC),
+        effective_at=start,
         tick_size=0.1,
         lot_size=0.001,
         minimum_notional=5.0,
@@ -101,18 +107,23 @@ def test_runner_historical_mode_preserves_existing_signed_loader(
         for symbol in SYMBOLS
     }
     histories = {symbol: (rule,) for symbol in SYMBOLS}
+    scope = BinanceHistoricalSignedScope(
+        market="usds-m",
+        symbols=SYMBOLS,
+        coverage_start=start,
+        coverage_end=end,
+        issued_at=datetime(2026, 7, 17, tzinfo=UTC),
+        source_uri="operator://signed-binance-rules",
+        payload_digest="a" * 64,
+    )
     calls = 0
 
     def load() -> object:
         nonlocal calls
         calls += 1
-        return metadata, histories, "a" * 64
+        return metadata, histories, scope
 
-    resolve.__globals__["_load_rule_history"] = load
-    monkeypatch.setenv(
-        "TRADE_RL_BINANCE_RULE_HISTORY",
-        "/workspace/var/metadata/binance-rule-history.json",
-    )
+    resolve.__globals__["_load_signed_history"] = load
 
     result = resolve(
         mode=BinanceMetadataMode.HISTORICAL_SIGNED,
@@ -124,6 +135,7 @@ def test_runner_historical_mode_preserves_existing_signed_loader(
     assert result.mode is BinanceMetadataMode.HISTORICAL_SIGNED
     assert result.execution_rule_histories == histories
     assert result.identity_evidence["point_in_time"] is True
+    assert result.identity_evidence["source_uri"] == scope.source_uri
 
 
 def test_runner_conservative_mode_requires_explicit_payload() -> None:
@@ -137,24 +149,22 @@ def test_runner_conservative_mode_requires_explicit_payload() -> None:
         )
 
 
-def test_runner_source_binds_metadata_evidence_and_exposes_cli() -> None:
+def test_runner_source_binds_metadata_and_selection_evidence() -> None:
     content = RUNNER.read_text(encoding="utf-8")
 
-    assert "--metadata-mode" in content
-    assert "historical_signed" in content
-    assert "frozen_snapshot" in content
-    assert "conservative_static" in content
-    assert "metadata_evidence=metadata_evidence" in content
-    assert "resolution.write_artifacts(work_root)" in content
-    assert '"metadata_mode": resolution.mode.value' in content
-    assert '"metadata_evidence_digest": resolution.evidence_digest' in content
+    assert "binance_instrument_rule_history_v3" in content
+    assert 'required_purpose="metadata-verification"' in content
+    assert "BinanceHistoricalSignedScope" in content
+    assert "SelectionAuthorization.create" in content
+    assert '"--require-selection-authorization"' in content
+    assert '"run_kind"' in content
 
 
 def test_runner_requires_identity_verified_execution_sensitivity_gate(
     tmp_path: Path,
 ) -> None:
     namespace = _namespace()
-    load_gate = namespace["_execution_sensitivity_gate"]
+    load_gate = namespace["_SENSITIVITY_GATE"]
     payload = {
         "dataset_id": "a" * 64,
         "experiment_plan_digest": "b" * 64,
@@ -202,7 +212,7 @@ def test_runner_requires_identity_verified_execution_sensitivity_gate(
 def test_runner_skips_execution_sensitivity_when_not_configured(
     tmp_path: Path,
 ) -> None:
-    load_gate = _namespace()["_execution_sensitivity_gate"]
+    load_gate = _namespace()["_SENSITIVITY_GATE"]
     (tmp_path / "walk-forward.json").write_text(
         json.dumps(
             {
@@ -224,7 +234,7 @@ def test_runner_rejects_execution_sensitivity_identity_mismatch(
     tmp_path: Path,
 ) -> None:
     namespace = _namespace()
-    load_gate = namespace["_execution_sensitivity_gate"]
+    load_gate = namespace["_SENSITIVITY_GATE"]
     payload = {
         "dataset_id": "a" * 64,
         "experiment_plan_digest": "b" * 64,

@@ -69,7 +69,7 @@ def test_execution_rule_stress_rejects_zero_source_rule() -> None:
     with pytest.raises(ValueError, match="lot_size.*positive"):
         MarketExecutor(
             dataset,
-            ExecutionCostConfig.zero(),
+            ExecutionCostConfig(lot_size=0.05),
             rule_stress=ExecutionRuleStress(name="lot_2x", lot_size_factor=2.0),
         )
 

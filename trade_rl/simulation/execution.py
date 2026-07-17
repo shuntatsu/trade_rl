@@ -276,25 +276,18 @@ class MarketExecutor:
         requirements = (
             (
                 "tick_size",
-                self.cost.tick_size,
                 self.rule_stress.tick_size_factor > 1.0
                 or self.rule_stress.adverse_tick_rounding,
             ),
-            (
-                "lot_size",
-                self.cost.lot_size,
-                self.rule_stress.lot_size_factor > 1.0,
-            ),
+            ("lot_size", self.rule_stress.lot_size_factor > 1.0),
             (
                 "minimum_notional",
-                self.cost.minimum_notional,
                 self.rule_stress.minimum_notional_factor > 1.0,
             ),
         )
-        for field_name, floor, required in requirements:
-            if required and np.any(
-                self._base_rule_array(field_name, floor=floor) <= 0.0
-            ):
+        for field_name, required in requirements:
+            source_rules = self.dataset.resolved_array(field_name)
+            if required and np.any(source_rules <= 0.0):
                 raise ValueError(
                     f"{field_name} must be positive for execution-rule sensitivity"
                 )

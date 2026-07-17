@@ -51,6 +51,10 @@ from trade_rl.rl.sequence_observations import (
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
+from trade_rl.workflows.selection_authorization import (
+    SelectionAuthorization,
+    load_selection_authorization,
+)
 
 
 def _mapping(value: object, *, field: str) -> dict[str, Any]:
@@ -306,6 +310,8 @@ class TrainingRunResult:
     run_digest: str
     policy_digest: str
     dataset_id: str
+    run_kind: str = "research_exploratory"
+    selection_authorization_digest: str | None = None
     production_status: str = "NO-GO"
 
 
@@ -598,6 +604,26 @@ def _maintained_training_run_config(config: TrainingRunConfig) -> TrainingRunCon
     )
 
 
+def _selection_authorization(
+    *,
+    path: Path | None,
+    required: bool,
+    dataset: MarketDataset,
+    config: TrainingRunConfig,
+) -> SelectionAuthorization | None:
+    if path is None:
+        if required:
+            raise ValueError("selected final training requires selection authorization")
+        return None
+    authorization = load_selection_authorization(path)
+    authorization.verify(
+        dataset_id=dataset.dataset_id,
+        candidate_config_digest=content_digest(config.candidate_digest_payload()),
+        seeds=config.training.seeds,
+    )
+    return authorization
+
+
 def execute_training_run(
     *,
     config_path: Path,
@@ -605,6 +631,8 @@ def execute_training_run(
     store_root: Path,
     run_id: str | None = None,
     created_at: datetime | None = None,
+    selection_authorization_path: Path | None = None,
+    require_selection_authorization: bool = False,
 ) -> TrainingRunResult:
     """Train, serialize, validate, and atomically publish one ensemble run."""
 
@@ -612,6 +640,17 @@ def execute_training_run(
     resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%SZ")
     config = _maintained_training_run_config(TrainingRunConfig.from_json(config_path))
     dataset = load_market_dataset_artifact(dataset_path)
+    authorization = _selection_authorization(
+        path=selection_authorization_path,
+        required=require_selection_authorization,
+        dataset=dataset,
+        config=config,
+    )
+    run_kind = (
+        "research_selected_final"
+        if authorization is not None
+        else "research_exploratory"
+    )
     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
@@ -630,6 +669,20 @@ def execute_training_run(
         dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
         _write_json(stage / "training-config.json", config.digest_payload())
         _write_json(
+            stage / "training-purpose.json",
+            {
+                "run_kind": run_kind,
+                "schema_version": "training_purpose_v1",
+                "selection_authorization_digest": (
+                    None
+                    if authorization is None
+                    else authorization.authorization_digest
+                ),
+            },
+        )
+        if authorization is not None:
+            _write_json(stage / "selection-authorization.json", asdict(authorization))
+        _write_json(
             stage / "dataset-reference.json",
             {
                 "artifact_digest": dataset_artifact_digest,
@@ -643,10 +696,7 @@ def execute_training_run(
                 "symbols": dataset.symbols,
             },
         )
-        _write_json(
-            stage / "normalizer.json",
-            _normalizer_payload(normalizer),
-        )
+        _write_json(stage / "normalizer.json", _normalizer_payload(normalizer))
         if sequence_normalizer is not None:
             _write_json(
                 stage / "sequence-normalizer.json",
@@ -731,6 +781,10 @@ def execute_training_run(
             run_digest=run_manifest.digest,
             policy_digest=ensemble.digest,
             dataset_id=dataset.dataset_id,
+            run_kind=run_kind,
+            selection_authorization_digest=(
+                None if authorization is None else authorization.authorization_digest
+            ),
         )
     except Exception:
         if stage.is_dir():

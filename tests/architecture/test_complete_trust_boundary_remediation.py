@@ -18,7 +18,6 @@ from trade_rl.workflows.selection_authorization import (
     SelectionProposal,
 )
 
-
 NOW = datetime(2026, 7, 18, 1, 0, tzinfo=UTC)
 PRIVATE_KEY = generate_private_key()
 PUBLIC_KEY = PublicVerificationKey(
@@ -213,7 +212,9 @@ def test_verified_binance_history_requires_a_valid_signature() -> None:
         )
 
 
-def test_training_manifest_selected_final_requires_authorization_chain(tmp_path: Path) -> None:
+def test_training_manifest_selected_final_requires_authorization_chain(
+    tmp_path: Path,
+) -> None:
     from trade_rl.artifacts.run_manifest import TrainingRunManifest
 
     artifact = tmp_path / "ensemble.json"
@@ -241,7 +242,9 @@ def test_training_manifest_selected_final_requires_authorization_chain(tmp_path:
 def test_workflow_checker_cannot_be_satisfied_by_comments(tmp_path: Path) -> None:
     from importlib.util import module_from_spec, spec_from_file_location
 
-    checker_path = Path(__file__).resolve().parents[2] / ".github" / "check_workflow_security.py"
+    checker_path = (
+        Path(__file__).resolve().parents[2] / ".github" / "check_workflow_security.py"
+    )
     spec = spec_from_file_location("workflow_security", checker_path)
     assert spec is not None and spec.loader is not None
     module = module_from_spec(spec)
@@ -271,7 +274,9 @@ jobs:
     assert any("mutable" in error for error in errors)
 
 
-def _completed(command: tuple[str, ...], stdout: str) -> subprocess.CompletedProcess[str]:
+def _completed(
+    command: tuple[str, ...], stdout: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
 
@@ -305,7 +310,10 @@ def test_training_image_is_digest_pinned_and_generation_scoped() -> None:
     dockerfile = (root / "Dockerfile.training").read_text(encoding="utf-8")
     compose = (root / "compose.training.yaml").read_text(encoding="utf-8")
     assert "python:3.12-slim@sha256:" in dockerfile
-    assert "/workspace/var/runs/${TRADE_RL_RUN_GENERATION}/cuda-preflight.json" in dockerfile
+    assert (
+        "/workspace/var/runs/${TRADE_RL_RUN_GENERATION}/cuda-preflight.json"
+        in dockerfile
+    )
     assert "TRADE_RL_METADATA_KEYS" not in compose
     assert "TRADE_RL_CONFIRMATION_KEYS" not in compose
 

@@ -13,6 +13,7 @@ from trade_rl.release.attestation import (
     default_attestation_path,
     write_release_attestation,
 )
+from trade_rl.release.signing import VerificationKey
 from trade_rl.risk.portfolio import PortfolioRiskConfig, PortfolioRiskModel
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.serving.bundle import load_serving_bundle
@@ -144,7 +145,13 @@ def test_registry_installs_external_release_attestation(tmp_path: Path) -> None:
     expected = _write_external_attestation(source)
     registry = ServingRegistry(
         tmp_path / "registry",
-        trusted_attestation_keys={"test-release-key": b"test-release-signing-key"},
+        trusted_attestation_keys={
+            "test-release-key": VerificationKey(
+                key_id="test-release-key",
+                key=b"test-release-signing-key",
+                purpose="release-verification",
+            )
+        },
     )
 
     active = registry.activate(source)

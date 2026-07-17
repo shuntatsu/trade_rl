@@ -19,21 +19,26 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Apply patch
         run: |
+          set -euo pipefail
           base64 -d .github/task4.patch.gz.b64 | gzip -d > /tmp/task4.patch
           git apply --check /tmp/task4.patch
           git apply /tmp/task4.patch
           python - <<'PY'
           from pathlib import Path
           path = Path('examples/binance-multitimeframe/run_full_research.py')
-          content = path.read_text()
+          content = path.read_text(encoding='utf-8')
           anchor = 'from trade_rl.data import publish_market_dataset_artifact\n'
           import_line = 'from trade_rl.artifacts.hashing import content_digest\n'
           if import_line not in content:
+              if anchor not in content:
+                  raise SystemExit('runner import anchor missing')
               content = content.replace(anchor, import_line + anchor, 1)
-          path.write_text(content)
+          path.write_text(content, encoding='utf-8')
           PY
-          rm .github/task4.patch.gz.b64 .github/workflows/trigger-binance-metadata-task4.yml
-          rm -f .github/workflows/diagnose-binance-metadata-task4-ruff.yml
+          python .github/task4_mypy_fix.py
+          rm -f .github/task4.patch.gz.b64 .github/task4_mypy_fix.py
+          rm -f .github/workflows/trigger-binance-metadata-task4.yml
+          rm -f .github/workflows/diagnose-binance-metadata-task4-*.yml
           rm -f docs/task4-verification-marker*.md docs/task4-verification-trigger.md
       - name: Install
         run: uv sync --extra dev --extra train-sb3

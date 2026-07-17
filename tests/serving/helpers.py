@@ -15,6 +15,7 @@ from trade_rl.release.attestation import (
 from trade_rl.release.attestation import (
     write_release_attestation as write_external_release_attestation,
 )
+from trade_rl.release.signing import VerificationKey
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
@@ -33,7 +34,13 @@ ACTION_SPEC_DIGEST = content_digest({"names": ACTION_NAMES})
 INITIAL_CAPITAL = 250_000.0
 TEST_ATTESTATION_KEY_ID = "test-attestation-key"
 TEST_ATTESTATION_SIGNING_KEY = b"test-attestation-signing-key"
-TEST_TRUSTED_ATTESTATION_KEYS = {TEST_ATTESTATION_KEY_ID: TEST_ATTESTATION_SIGNING_KEY}
+TEST_TRUSTED_ATTESTATION_KEYS = {
+    TEST_ATTESTATION_KEY_ID: VerificationKey(
+        key_id=TEST_ATTESTATION_KEY_ID,
+        key=TEST_ATTESTATION_SIGNING_KEY,
+        purpose="release-verification",
+    )
+}
 _CREATED_AT = datetime(2026, 7, 13, tzinfo=UTC)
 
 

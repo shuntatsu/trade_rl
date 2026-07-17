@@ -1,4 +1,4 @@
-"""Release attestation contracts."""
+"""Release attestation verification contracts."""
 
 from trade_rl.release.attestation import (
     RELEASE_ATTESTATION_SCHEMA,
@@ -9,19 +9,21 @@ from trade_rl.release.attestation import (
 )
 from trade_rl.release.signing import (
     AUTHENTICATED_ENVELOPE_SCHEMA,
+    HMAC_SHA256_ALGORITHM,
     AuthenticatedEnvelope,
-    sign_payload,
+    VerificationKey,
     verify_payload,
 )
 
 __all__ = [
     "AUTHENTICATED_ENVELOPE_SCHEMA",
+    "HMAC_SHA256_ALGORITHM",
     "AuthenticatedEnvelope",
     "RELEASE_ATTESTATION_SCHEMA",
     "ReleaseAttestation",
+    "VerificationKey",
     "default_attestation_path",
     "load_release_attestation",
-    "sign_payload",
     "verify_payload",
     "write_release_attestation",
 ]

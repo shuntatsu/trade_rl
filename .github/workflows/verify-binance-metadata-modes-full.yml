@@ -1,0 +1,86 @@
+name: Verify Binance metadata modes full
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/verify-binance-metadata-modes-full.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Full quality and coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 744861c69eadb8d4d81d46d28d7d544a2a4d66d2
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev --extra export --extra train-sb3
+      - run: uv run ruff check .
+      - run: uv run ruff format --check --diff .
+      - name: MyPy
+        run: uv run mypy trade_rl 2>&1 | tee mypy.log
+      - run: uv run lint-imports
+      - run: uv run vulture trade_rl tests --min-confidence 100
+      - name: Full pytest and coverage
+        run: uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+      - run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+      - run: uv run trade-rl --version
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: binance-metadata-full-verification
+          path: |
+            mypy.log
+            pytest.log
+            coverage.json
+          if-no-files-found: ignore
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 744861c69eadb8d4d81d46d28d7d544a2a4d66d2
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+
+  training-image:
+    name: Training image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 744861c69eadb8d4d81d46d28d7d544a2a4d66d2
+      - name: Build clean-provenance image
+        run: |
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT=744861c69eadb8d4d81d46d28d7d544a2a4d66d2 \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --file Dockerfile.training \
+            --tag trade-rl-training:metadata-modes-verify \
+            .
+      - name: Probe non-root packaged runtime
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:metadata-modes-verify -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            test "$TRADE_RL_METADATA_MODE" = frozen_snapshot
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '

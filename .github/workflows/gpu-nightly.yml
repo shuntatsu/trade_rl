@@ -6,7 +6,8 @@ on:
       timesteps:
         description: PPO timesteps for the CUDA smoke
         required: false
-        default: "4096"
+        type: number
+        default: 4096
 
 permissions:
   contents: read
@@ -17,6 +18,10 @@ concurrency:
 
 jobs:
   cuda-structured-resume:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/main'
+    environment: gpu-full-training
     runs-on: [self-hosted, linux, x64, gpu, nvidia]
     timeout-minutes: 180
     env:
@@ -25,8 +30,11 @@ jobs:
       OMP_NUM_THREADS: "2"
       MKL_NUM_THREADS: "2"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
@@ -34,10 +42,12 @@ jobs:
       - name: CUDA device evidence
         run: nvidia-smi
       - name: Structured BC PPO checkpoint resume smoke
+        env:
+          REQUESTED_TIMESTEPS: ${{ inputs.timesteps }}
         run: >-
           uv run python examples/binance-multitimeframe/run_gpu_training_smoke.py
           --work-root var/gpu-nightly
-          --timesteps ${{ inputs.timesteps }}
+          --timesteps "$REQUESTED_TIMESTEPS"
       - name: Verify measured evidence
         shell: bash
         run: |
@@ -56,7 +66,7 @@ jobs:
           assert evidence["resume"]["actual_timesteps"] == evidence["actual_timesteps"]
           assert evidence["resume"]["evidence"]["schema_version"] == "training_resume_v1"
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: gpu-structured-training-evidence

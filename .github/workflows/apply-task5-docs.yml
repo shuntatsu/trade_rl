@@ -1,0 +1,39 @@
+name: Apply Task 5 documentation
+
+on:
+  pull_request:
+    branches: [codex/binance-metadata-modes]
+    paths: ['.github/workflows/apply-task5-docs.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/binance-metadata-modes-task5
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - name: Apply documentation updates
+        run: |
+          set -euo pipefail
+          python .github/task5_docs_update.py
+          rm .github/task5_docs_update.py
+          rm .github/workflows/apply-task5-docs.yml
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Verify documentation contracts
+        run: |
+          uv run ruff format .
+          uv run ruff check .
+          uv run pytest -q tests/examples/test_docker_training_assets.py tests/examples/test_binance_metadata_mode_runner.py tests/examples/test_binance_multitimeframe_full_assets.py
+      - name: Commit verified documentation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'docs: document Binance metadata modes and sensitivity'
+          git push origin HEAD:agent/binance-metadata-modes-task5

@@ -9,6 +9,8 @@ services:
     gpus: all
     environment:
       TRADE_RL_RUN_GENERATION: ${TRADE_RL_RUN_GENERATION:-}
+      TRADE_RL_METADATA_MODE: ${TRADE_RL_METADATA_MODE:-frozen_snapshot}
+      TRADE_RL_CONSERVATIVE_STATIC_PATH: ${TRADE_RL_CONSERVATIVE_STATIC_PATH:-}
       TRADE_RL_BINANCE_RULE_HISTORY: ${TRADE_RL_BINANCE_RULE_HISTORY:-}
       TRADE_RL_METADATA_KEYS: ${TRADE_RL_METADATA_KEYS:-}
       TRADE_RL_CONFIRMATION_KEYS: ${TRADE_RL_CONFIRMATION_KEYS:-}
@@ -22,7 +24,8 @@ services:
       --output /workspace/var/cuda-preflight.json
       && python examples/binance-multitimeframe/run_full_research.py
       --work-root /workspace/var/runs/$${TRADE_RL_RUN_GENERATION}
-      --cache-root /workspace/var/cache/binance-vision"
+      --cache-root /workspace/var/cache/binance-vision
+      --metadata-mode $${TRADE_RL_METADATA_MODE}"
 
 volumes:
   trade-rl-training-data:

@@ -8,20 +8,27 @@ permissions:
 
 jobs:
   full-research:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/main'
+    environment: full-research
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
       - name: Run BTC ETH BNB native multi-timeframe research
         run: |
-          uv run python examples/binance-multitimeframe/run_full_research.py \
+          uv run python examples/binance-multitimeframe/run_full_research_hardened.py \
             --work-root var/binance-multitimeframe-full
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: binance-multitimeframe-full-evidence
@@ -30,10 +37,11 @@ jobs:
           path: |
             var/binance-multitimeframe-full/summary.json
             var/binance-multitimeframe-full/exchange-info.json
+            var/binance-multitimeframe-full/selection-authorization.json
             var/binance-multitimeframe-full/training.log
             var/binance-multitimeframe-full/walk-forward.log
             var/binance-multitimeframe-full/dataset-a/manifest.json
             var/binance-multitimeframe-full/dataset-b/manifest.json
-            var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-training/run.json
-            var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-training/ensemble.json
+            var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-selected-training/run.json
+            var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-selected-training/ensemble.json
             var/binance-multitimeframe-full/artifacts/runs/binance-multitimeframe-full-walk-forward/run.json

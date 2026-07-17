@@ -1,0 +1,100 @@
+name: Prune obsolete branches
+
+on:
+  push:
+    branches:
+      - ci/prune-obsolete-branches-20260717
+    paths:
+      - '.github/workflows/prune-obsolete-branches.yml'
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Safely prune obsolete branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          CLEANUP_BRANCH: ci/prune-obsolete-branches-20260717
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+          report=/tmp/branch-prune-report.txt
+          : > "$report"
+          echo 'branch_prune_v1' >> "$report"
+          echo "main_sha=$(git rev-parse origin/main)" >> "$report"
+          echo >> "$report"
+
+          mapfile -t branches < <(
+            git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin \
+              | grep -v '^HEAD$' \
+              | grep -v '^main$' \
+              | sort -u
+          )
+
+          deleted=0
+          kept=0
+          for branch in "${branches[@]}"; do
+            open_count=$(gh pr list --repo "$REPO" --state open --head "$branch" --json number --jq 'length')
+            if [ "$open_count" -gt 0 ]; then
+              echo "KEEP open-pr $branch" | tee -a "$report"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            reason=''
+            merged_count=$(gh pr list --repo "$REPO" --state merged --head "$branch" --json number --jq 'length')
+            if [ "$merged_count" -gt 0 ]; then
+              reason='merged-pr'
+            elif git merge-base --is-ancestor "origin/$branch" origin/main; then
+              reason='ancestor-of-main'
+            elif [ "$(git rev-parse "origin/$branch^{tree}")" = "$(git rev-parse 'origin/main^{tree}')" ]; then
+              reason='identical-tree'
+            else
+              obsolete_count=$(gh pr list \
+                --repo "$REPO" \
+                --state closed \
+                --head "$branch" \
+                --json title,body,mergedAt \
+                --jq '[.[] | select(.mergedAt == null) | select((((.title // "") + " " + (.body // "")) | test("(?i)(temporary|superseded|do not merge|cleanup completed|audit-only|trigger)")))] | length')
+              if [ "$obsolete_count" -gt 0 ]; then
+                reason='closed-temporary-or-superseded'
+              fi
+            fi
+
+            if [ -z "$reason" ]; then
+              echo "KEEP unique-unmerged $branch" | tee -a "$report"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            encoded=$(printf '%s' "$branch" | jq -sRr @uri)
+            if gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"; then
+              echo "DELETE $reason $branch" | tee -a "$report"
+              deleted=$((deleted + 1))
+            else
+              echo "KEEP delete-failed $branch" | tee -a "$report"
+              kept=$((kept + 1))
+            fi
+          done
+
+          echo >> "$report"
+          echo "deleted=$deleted" >> "$report"
+          echo "kept=$kept" >> "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: branch-prune-report
+          path: /tmp/branch-prune-report.txt
+          if-no-files-found: error
+          retention-days: 14

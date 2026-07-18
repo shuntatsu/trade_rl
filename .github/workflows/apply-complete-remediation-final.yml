@@ -121,6 +121,9 @@ jobs:
           uv run lint-imports
           uv run pytest -q
 
+          mkdir -p .github/workflows
+          git show "${CURRENT_SHA}:.github/workflows/apply-complete-remediation-final.yml" \
+            > .github/workflows/apply-complete-remediation-final.yml
           rm -rf .venv
           tar --exclude=.git -czf /tmp/complete-remediated.tar.gz .
           sha256sum /tmp/complete-remediated.tar.gz

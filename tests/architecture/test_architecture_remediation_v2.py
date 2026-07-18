@@ -159,6 +159,7 @@ def test_maintained_training_environment_liquidates_at_episode_end() -> None:
         episode_bars=100,
     )
     assert resolved.liquidate_on_end is True
+    assert resolved.fail_on_incomplete_emergency_liquidation is False
     assert resolved.terminal_accounting_mode == "liquidate_at_close"
 
 

@@ -34,6 +34,7 @@ class ResidualMarketEnvConfig:
     reward_config: RewardConfig | None = None
     reward: AbsoluteGrowthRewardConfig | None = None
     liquidate_on_end: bool = False
+    fail_on_incomplete_emergency_liquidation: bool = True
     finite_horizon_observation: bool = False
     structured_sequence_observation: bool = False
     sequence_windows: tuple[tuple[str, int], ...] = ()
@@ -150,6 +151,10 @@ class ResidualMarketEnvConfig:
             raise ValueError("initial_state_modes must be unique")
         for field_name, value in (
             ("liquidate_on_end", self.liquidate_on_end),
+            (
+                "fail_on_incomplete_emergency_liquidation",
+                self.fail_on_incomplete_emergency_liquidation,
+            ),
             ("finite_horizon_observation", self.finite_horizon_observation),
             ("structured_sequence_observation", self.structured_sequence_observation),
             ("require_full_reward_preroll", self.require_full_reward_preroll),

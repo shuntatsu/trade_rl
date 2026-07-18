@@ -404,6 +404,7 @@ def _maintained_training_environment(
         episode_bars=episode_bars,
         episode_hour_choices=(),
         liquidate_on_end=True,
+        fail_on_incomplete_emergency_liquidation=False,
         require_full_reward_preroll=True,
     )
 

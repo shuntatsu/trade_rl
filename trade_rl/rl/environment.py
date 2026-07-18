@@ -625,6 +625,9 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 "episode_hours": self.config.episode_hours,
                 "execution_cost": asdict(self.config.execution_cost),
                 "finite_horizon_observation": self.config.finite_horizon_observation,
+                "fail_on_incomplete_emergency_liquidation": (
+                    self.config.fail_on_incomplete_emergency_liquidation
+                ),
                 "structured_sequence_observation": self.config.structured_sequence_observation,
                 "sequence_windows": self.config.resolved_sequence_windows,
                 "require_full_reward_preroll": self.config.require_full_reward_preroll,
@@ -1520,6 +1523,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         shadow_log_return = shadow_execution.interval_log_return
         hybrid_liquidation: ExecutionResult | None = None
         shadow_liquidation: ExecutionResult | None = None
+        liquidation_complete = True
         emergency_deleverage = False
         drawdown_after_execution = self._drawdown(self.hybrid)
         drawdown_stop = min(
@@ -1535,7 +1539,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 self.hybrid,
                 index=self.current_index,
             )
-            if not self._liquidation_complete(hybrid_liquidation):
+            liquidation_complete = self._liquidation_complete(hybrid_liquidation)
+            if (
+                not liquidation_complete
+                and self.config.fail_on_incomplete_emergency_liquidation
+            ):
                 raise RuntimeError(
                     "hybrid liquidation could not fully exit at drawdown stop"
                 )
@@ -1547,7 +1555,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             and self.config.liquidate_on_end
             and not emergency_deleverage
         )
-        liquidation_complete = True
         if liquidation_terminal:
             hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
                 self.hybrid,

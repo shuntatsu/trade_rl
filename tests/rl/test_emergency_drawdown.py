@@ -46,6 +46,7 @@ def environment(
     *,
     market: MarketDataset | None = None,
     execution_cost: ExecutionCostConfig | None = None,
+    fail_on_incomplete_emergency_liquidation: bool = True,
 ) -> ResidualMarketEnv:
     return ResidualMarketEnv(
         market or crash_market(),
@@ -57,6 +58,9 @@ def environment(
             decision_every=1,
             initial_capital=1_000.0,
             execution_cost=execution_cost or ExecutionCostConfig.zero(),
+            fail_on_incomplete_emergency_liquidation=(
+                fail_on_incomplete_emergency_liquidation
+            ),
         ),
     )
 
@@ -110,3 +114,19 @@ def test_drawdown_stop_fails_closed_when_emergency_exit_cannot_fill() -> None:
 
     with pytest.raises(RuntimeError, match="hybrid liquidation"):
         env.step(np.zeros(2))
+
+
+def test_training_drawdown_stop_terminates_when_emergency_exit_is_partial() -> None:
+    env = environment(
+        market=crash_market(liquidation_volume=0.0),
+        fail_on_incomplete_emergency_liquidation=False,
+    )
+    env.reset(options={"start_idx": 24})
+
+    _, _, terminated, truncated, info = env.step(np.zeros(2))
+
+    assert terminated is True
+    assert truncated is False
+    assert info["termination_reason"] == "drawdown_stop"
+    assert info["liquidation_complete"] is False
+    assert np.any(np.abs(env.hybrid.quantities) > 0.0)

@@ -1,0 +1,107 @@
+name: Prune integrated branches 2026-07-18
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: prune-integrated-branches-20260718
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    if: github.head_ref == 'ci/prune-integrated-branches-20260718'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - name: Delete only fully integrated branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/prune-integrated-branches-20260718
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+          report=/tmp/branch-prune-report.txt
+          : > "$report"
+          echo 'branch_prune_v2' >> "$report"
+          echo "main_sha=$(git rev-parse origin/main)" >> "$report"
+          echo >> "$report"
+
+          mapfile -t branches < <(
+            git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin \
+              | grep -v '^HEAD$' \
+              | grep -v '^main$' \
+              | grep -v "^${CLEANUP_BRANCH}$" \
+              | sort -u
+          )
+
+          deleted=0
+          kept=0
+          for branch in "${branches[@]}"; do
+            open_count=$(gh pr list --repo "$REPO" --state open --head "$branch" --json number --jq 'length')
+            if [ "$open_count" -gt 0 ]; then
+              echo "KEEP open-pr $branch" | tee -a "$report"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            reason=''
+            if git merge-base --is-ancestor "origin/$branch" origin/main; then
+              reason='ancestor-of-main'
+            elif [ "$(git rev-parse "origin/$branch^{tree}")" = "$(git rev-parse 'origin/main^{tree}')" ]; then
+              reason='identical-tree'
+            fi
+
+            if [ -z "$reason" ]; then
+              echo "KEEP unique-or-unverified $branch" | tee -a "$report"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            encoded=$(printf '%s' "$branch" | jq -sRr @uri)
+            if gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"; then
+              echo "DELETE $reason $branch" | tee -a "$report"
+              deleted=$((deleted + 1))
+            else
+              echo "KEEP delete-failed $branch" | tee -a "$report"
+              kept=$((kept + 1))
+            fi
+          done
+
+          echo >> "$report"
+          echo "deleted=$deleted" >> "$report"
+          echo "kept=$kept" >> "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload branch report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: branch-prune-report-20260718
+          path: /tmp/branch-prune-report.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Delete cleanup branch
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/prune-integrated-branches-20260718
+        run: |
+          set -euo pipefail
+          encoded=$(printf '%s' "$CLEANUP_BRANCH" | jq -sRr @uri)
+          gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"

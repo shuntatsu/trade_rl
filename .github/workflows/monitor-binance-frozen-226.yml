@@ -1,0 +1,63 @@
+name: Monitor Binance frozen 226 full generation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binance-frozen-226-status
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    if: >-
+      (github.event_name == 'schedule' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.actor == github.repository_owner &&
+       github.ref == 'refs/heads/main')
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Inspect expected generation and heartbeat
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          expectation="$HOME/.local/state/trade-rl/frozen-226.json"
+          if [ ! -f "$expectation" ]; then
+            printf '%s\n' '{"schema_version":"full_run_monitor_v1","state":"idle"}' > gpu-full-supervisor.json
+            exit 0
+          fi
+          python examples/binance-multitimeframe/full_run_supervisor.py status \
+            --expectation-path "$expectation" \
+            --heartbeat-max-age-seconds 180 \
+            --max-runtime-hours 72 \
+            --evidence-path gpu-full-supervisor.json
+          state="$(python -c 'import json; print(json.load(open("gpu-full-supervisor.json"))["state"])')"
+          if [ "$state" = "exited" ]; then
+            generation="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"])' "$expectation")"
+            name="$(docker ps -a --filter 'label=trade-rl.project=trade-rl' --filter "label=trade-rl.generation=$generation" --format '{{.Names}}')"
+            test -n "$name"
+            mkdir -p retained-run
+            docker cp "$name:/workspace/var/runs/$generation/." retained-run/
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: binance-frozen-226-status-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            gpu-full-supervisor.json
+            retained-run
+          if-no-files-found: warn
+          retention-days: 30

@@ -32,8 +32,15 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Verify immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "TRADE_RL_SOURCE_TREE_DIGEST=$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')" >> "$GITHUB_ENV"
+          echo "TRADE_RL_LOCKFILE_DIGEST=$(sha256sum uv.lock | cut -d' ' -f1)" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"

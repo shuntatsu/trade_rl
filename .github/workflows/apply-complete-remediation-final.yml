@@ -41,7 +41,10 @@ jobs:
 
           : > /tmp/remediation.patch
           for number in $(seq -f '%03g' 0 38); do
-            if test "${number}" = "023"; then
+            if test "${number}" = "005"; then
+              git show "origin/${TRANSFER_BRANCH}:.remediation/part-005.diff" \
+                | sed '1s/^+ /+/' >> /tmp/remediation.patch
+            elif test "${number}" = "023"; then
               git show "origin/${TRANSFER_BRANCH}:.remediation/part-023a.diff" >> /tmp/remediation.patch
               git show "origin/${TRANSFER_BRANCH}:.remediation/part-023b.diff" >> /tmp/remediation.patch
             elif test "${number}" = "033"; then

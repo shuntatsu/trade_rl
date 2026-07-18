@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.26.0,<2.0.0",
     "gymnasium==0.29.1",
     "packaging<24.0",
+    "cryptography==49.0.0",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,7 @@ dev = [
     "hypothesis>=6.120.0",
     "import-linter>=2.1",
     "vulture>=2.14",
+    "PyYAML==6.0.3",
 ]
 export = [
     "onnx==1.16.2",
@@ -35,7 +37,7 @@ export = [
 ]
 
 [project.scripts]
-trade-rl = "trade_rl.cli.app:main"
+trade-rl = "trade_rl.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

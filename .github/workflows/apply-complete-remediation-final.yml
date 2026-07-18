@@ -95,6 +95,7 @@ jobs:
           git worktree add --detach /tmp/remediated "${BASE_SHA}"
           git show "${CURRENT_SHA}:uv.lock" > /tmp/current-uv.lock
           git show "${CURRENT_SHA}:.github/remediation-postfix.py" > /tmp/remediation-postfix.py
+          git show "${CURRENT_SHA}:.github/remediation-postfix-2.py" > /tmp/remediation-postfix-2.py
           git show "${CURRENT_SHA}:.github/remediation-overrides/tests/binance_signed_helpers.py" > /tmp/binance_signed_helpers.py
           git show "${CURRENT_SHA}:.github/remediation-overrides/tests/workflows/test_binance_signed_scope.py" > /tmp/test_binance_signed_scope.py
           git show "${CURRENT_SHA}:.github/remediation-overrides/patch_binance_metadata_test.py" > /tmp/patch_binance_metadata_test.py
@@ -106,6 +107,7 @@ jobs:
           cp /tmp/binance_signed_helpers.py tests/binance_signed_helpers.py
           cp /tmp/test_binance_signed_scope.py tests/workflows/test_binance_signed_scope.py
           python /tmp/patch_binance_metadata_test.py
+          python /tmp/remediation-postfix-2.py
 
           uv sync --frozen --extra dev --extra export --extra train-sb3
           uv run python -m compileall -q trade_rl examples tests

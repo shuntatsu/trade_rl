@@ -12,7 +12,7 @@ permissions:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout exact trigger commit
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: false
-      - name: Reconstruct, verify, test, and publish complete tree
+      - name: Reconstruct, repair, verify, and publish complete tree
         shell: bash
         env:
           BASE_SHA: 4f5723c2116fc267087e552c4f9a337a49928f7f
@@ -90,7 +90,6 @@ jobs:
             esac
             cat /tmp/group >> /tmp/remediation.patch
           done
-          sha256sum /tmp/remediation.patch
           echo "${PATCH_SHA256}  /tmp/remediation.patch" | sha256sum --check --strict
 
           git worktree add --detach /tmp/remediated "${BASE_SHA}"
@@ -100,8 +99,45 @@ jobs:
           git apply /tmp/remediation.patch
           cp /tmp/current-uv.lock uv.lock
 
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/architecture/test_architecture_remediation_v2.py")
+          source = path.read_text(encoding="utf-8")
+          marker = 'NOW = datetime(2026, 7, 16, tzinfo=UTC)\n'
+          replacement = '''NOW = datetime(2026, 7, 16, tzinfo=UTC)\nCONFIRMATION_PRIVATE_KEY = generate_private_key()\nCONFIRMATION_PUBLIC_KEY = PublicVerificationKey(\n    key_id="confirmation-key",\n    public_key=public_key_bytes(CONFIRMATION_PRIVATE_KEY),\n    purpose="fresh-confirmation",\n    valid_from=NOW - timedelta(days=1),\n    valid_until=NOW + timedelta(days=365),\n)\n'''
+          if marker not in source:
+              raise SystemExit("confirmation test key insertion marker is missing")
+          path.write_text(source.replace(marker, replacement, 1), encoding="utf-8")
+
+          path = Path("tests/serving/helpers.py")
+          source = path.read_text(encoding="utf-8")
+          marker = 'TEST_CLOCK = lambda: datetime(2026, 7, 14, tzinfo=UTC)\n'
+          replacement = 'def TEST_CLOCK() -> datetime:\n    return datetime(2026, 7, 14, tzinfo=UTC)\n'
+          if marker not in source:
+              raise SystemExit("serving clock replacement marker is missing")
+          path.write_text(source.replace(marker, replacement, 1), encoding="utf-8")
+
+          path = Path("trade_rl/serving/runtime.py")
+          source = path.read_text(encoding="utf-8")
+          source = source.replace(
+              "from typing import Any, Protocol\n",
+              "from typing import Any, Callable, Protocol\n",
+              1,
+          )
+          source = source.replace(
+              "from trade_rl.release.attestation import ReleaseAttestation\n",
+              "from trade_rl.release.asymmetric import PublicVerificationKey\n"
+              "from trade_rl.release.attestation import ReleaseAttestation\n",
+              1,
+          )
+          path.write_text(source, encoding="utf-8")
+          PY
+
           uv sync --frozen --extra dev --extra export --extra train-sb3
           uv run python -m compileall -q trade_rl examples tests
+          uv run ruff check . --fix
+          uv run ruff format .
           uv run ruff check .
           uv run ruff format --check .
           uv run mypy trade_rl

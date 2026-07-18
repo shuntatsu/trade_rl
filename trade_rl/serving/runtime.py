@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.attestation import ReleaseAttestation
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
@@ -85,6 +86,13 @@ class RuntimeSnapshot:
     signal_digest: str
     selection_digest: str
     release_digest: str | None
+    training_run_digest: str | None
+    run_kind: str
+    selection_proposal_digest: str | None
+    selection_authorization_digest: str | None
+    walk_forward_run_digest: str | None
+    gate_evidence_digest: str | None
+    confirmation_evidence_digest: str | None
     alpha_artifact_digest: str | None
     factor_artifact_digest: str | None
     normalizer_digest: str | None
@@ -107,8 +115,8 @@ class ServingRuntime:
         expected_normalizer_digest: str | None = None,
         expected_alpha_artifact_digest: str | None = None,
         expected_factor_artifact_digest: str | None = None,
-        trusted_attestation_keys: Mapping[str, bytes | bytearray | memoryview]
-        | None = None,
+        trusted_attestation_keys: Mapping[str, PublicVerificationKey] | None = None,
+        clock: Callable[[], datetime] | None = None,
         allow_unbound_state: bool = False,
     ) -> None:
         legacy_values = (
@@ -156,6 +164,7 @@ class ServingRuntime:
         self.identity_contract = identity_contract
         self.allow_unbound_identity = allow_unbound_identity
         self.trusted_attestation_keys = dict(trusted_attestation_keys or {})
+        self.clock = clock or (lambda: datetime.now(UTC))
         self.allow_unbound_state = allow_unbound_state or allow_unreleased
         self._state_guard = ServingStateGuard()
         self._lock = RLock()
@@ -183,6 +192,13 @@ class ServingRuntime:
             signal_digest=manifest.signal_digest,
             selection_digest=manifest.selection_digest,
             release_digest=(None if bundle.release is None else bundle.release.digest),
+            training_run_digest=manifest.training_run_digest,
+            run_kind=manifest.run_kind,
+            selection_proposal_digest=manifest.selection_proposal_digest,
+            selection_authorization_digest=manifest.selection_authorization_digest,
+            walk_forward_run_digest=manifest.walk_forward_run_digest,
+            gate_evidence_digest=manifest.gate_evidence_digest,
+            confirmation_evidence_digest=manifest.confirmation_evidence_digest,
             alpha_artifact_digest=manifest.alpha_artifact_digest,
             factor_artifact_digest=manifest.factor_artifact_digest,
             normalizer_digest=manifest.normalizer_digest,
@@ -273,17 +289,17 @@ class ServingRuntime:
     def activate(self, root: Path) -> RuntimeSnapshot:
         bundle = load_serving_bundle(root)
         manifest = bundle.manifest
-        if bundle.release is None:
-            if not self.allow_unreleased:
-                raise ValueError(
-                    "serving bundle requires a verified release attestation"
-                )
+        if self.allow_unreleased:
+            pass
+        elif bundle.release is None:
+            raise ValueError("serving bundle requires a verified release attestation")
         elif isinstance(bundle.release, ReleaseAttestation):
-            bundle.release.verify(self.trusted_attestation_keys)
-        elif not self.allow_unreleased:
-            raise ValueError(
-                "legacy release metadata is not an authenticated signed attestation"
+            bundle.release.verify(
+                self.trusted_attestation_keys,
+                trusted_at=self.clock(),
             )
+        else:
+            raise TypeError("serving bundle release metadata has an unsupported type")
         if manifest.action_schema != ACTION_SCHEMA:
             raise ValueError(
                 "serving bundle action schema does not match runtime action schema"

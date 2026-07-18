@@ -1,30 +1,28 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.releases import ReleaseManifest
 from trade_rl.domain.selection import PolicyMode
+from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.attestation import (
-    ReleaseAttestation,
     default_attestation_path,
+    write_release_attestation,
 )
-from trade_rl.release.attestation import (
-    write_release_attestation as write_external_release_attestation,
-)
+from trade_rl.release.offline_approval import create_release_attestation
+from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
-    load_serving_bundle,
     write_serving_bundle_manifest,
 )
 from trade_rl.serving.normalizer import write_observation_normalizer
-from trade_rl.serving.release import write_release_attestation
 from trade_rl.serving.runtime import RuntimeIdentityContract
 
 OBSERVATION_SIZE = 5
@@ -32,9 +30,28 @@ ACTION_NAMES = ("fast_tilt", "slow_tilt", "risk_tilt")
 ACTION_SPEC_DIGEST = content_digest({"names": ACTION_NAMES})
 INITIAL_CAPITAL = 250_000.0
 TEST_ATTESTATION_KEY_ID = "test-attestation-key"
-TEST_ATTESTATION_SIGNING_KEY = b"test-attestation-signing-key"
-TEST_TRUSTED_ATTESTATION_KEYS = {TEST_ATTESTATION_KEY_ID: TEST_ATTESTATION_SIGNING_KEY}
+TEST_ATTESTATION_PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(b"\x11" * 32)
 _CREATED_AT = datetime(2026, 7, 13, tzinfo=UTC)
+TEST_ATTESTATION_PUBLIC_KEY = PublicVerificationKey(
+    key_id=TEST_ATTESTATION_KEY_ID,
+    public_key=public_key_bytes(TEST_ATTESTATION_PRIVATE_KEY),
+    purpose="release-verification",
+    valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+    valid_until=datetime(2030, 1, 1, tzinfo=UTC),
+)
+TEST_TRUSTED_ATTESTATION_KEYS = {TEST_ATTESTATION_KEY_ID: TEST_ATTESTATION_PUBLIC_KEY}
+
+
+def TEST_CLOCK() -> datetime:
+    return datetime(2026, 7, 14, tzinfo=UTC)
+
+
+TRAINING_RUN_DIGEST = "1" * 64
+SELECTION_PROPOSAL_DIGEST = "2" * 64
+SELECTION_AUTHORIZATION_DIGEST = "3" * 64
+WALK_FORWARD_RUN_DIGEST = "4" * 64
+GATE_EVIDENCE_DIGEST = "5" * 64
+CONFIRMATION_EVIDENCE_DIGEST = "6" * 64
 
 
 def _normalizer(
@@ -57,6 +74,31 @@ def _normalizer(
 
 
 NORMALIZER_DIGEST = _normalizer().digest
+
+
+def _write_authenticated_attestation(
+    root: Path, manifest: ServingBundleManifest
+) -> None:
+    attestation = create_release_attestation(
+        bundle_digest=manifest.bundle_digest,
+        dataset_id=manifest.dataset_id,
+        training_run_digest=manifest.training_run_digest,
+        run_kind=manifest.run_kind,
+        selection_proposal_digest=manifest.selection_proposal_digest,
+        selection_authorization_digest=manifest.selection_authorization_digest,
+        walk_forward_run_digest=manifest.walk_forward_run_digest,
+        gate_evidence_digest=manifest.gate_evidence_digest,
+        confirmation_evidence_digest=manifest.confirmation_evidence_digest,
+        selected_policy_digest=manifest.policy_digest,
+        git_commit="3" * 40,
+        dependency_digest="4" * 64,
+        approver="serving-test",
+        approved_at=_CREATED_AT,
+        expires_at=_CREATED_AT + timedelta(days=365),
+        key_id=TEST_ATTESTATION_KEY_ID,
+        private_key=TEST_ATTESTATION_PRIVATE_KEY,
+    )
+    write_release_attestation(default_attestation_path(root), attestation)
 
 
 def create_bundle(
@@ -90,11 +132,12 @@ def create_bundle(
         write_observation_normalizer(root, resolved_normalizer)
         artifact_paths.append("normalizer.json")
     policy_digest: str | None = None
-    if policy_mode is PolicyMode.RESIDUAL_POLICY:
+    selected = policy_mode is PolicyMode.RESIDUAL_POLICY
+    if selected:
         (root / "policy.zip").write_bytes(b"residual-policy")
         artifact_paths.append("policy.zip")
         policy_digest = "e" * 64
-    candidate = ServingBundleManifest.build(
+    manifest = ServingBundleManifest.build(
         root=root,
         dataset_id="a" * 64,
         action_schema=ACTION_SCHEMA,
@@ -109,57 +152,31 @@ def create_bundle(
         policy_digest=policy_digest,
         signal_digest="b" * 64,
         selection_digest="c" * 64,
-        release_digest=None,
         normalizer_digest=normalizer_digest,
         artifact_paths=tuple(artifact_paths),
         created_at=_CREATED_AT,
+        training_run_digest=(TRAINING_RUN_DIGEST if selected else None),
+        run_kind=("research_selected_final" if selected else "baseline_release"),
+        selection_proposal_digest=(SELECTION_PROPOSAL_DIGEST if selected else None),
+        selection_authorization_digest=(
+            SELECTION_AUTHORIZATION_DIGEST if selected else None
+        ),
+        walk_forward_run_digest=(WALK_FORWARD_RUN_DIGEST if selected else None),
+        gate_evidence_digest=(GATE_EVIDENCE_DIGEST if selected else None),
+        confirmation_evidence_digest=(
+            CONFIRMATION_EVIDENCE_DIGEST if selected else None
+        ),
     )
-    manifest = candidate
-    if release_digest is not None:
-        release = ReleaseManifest(
-            version="2026.07.13",
-            git_commit="e" * 40,
-            dataset_id=candidate.dataset_id,
-            signal_digest=candidate.signal_digest,
-            selection_digest=candidate.selection_digest,
-            selection_evaluation_digest="1" * 64,
-            gate_evaluation_digest="2" * 64,
-            selected_policy_digest=candidate.policy_digest,
-            bundle_digest=candidate.bundle_digest,
-            created_at=_CREATED_AT,
-        )
-        manifest = candidate.with_release(release)
-        write_release_attestation(root, release)
     write_serving_bundle_manifest(root, manifest)
+    if release_digest is not None:
+        _write_authenticated_attestation(root, manifest)
     return root
 
 
-def create_authenticated_bundle(
-    root: Path,
-    **kwargs: object,
-) -> Path:
-    """Create a candidate plus a trusted external authenticated attestation."""
-
+def create_authenticated_bundle(root: Path, **kwargs: object) -> Path:
     if "release_digest" in kwargs:
-        raise ValueError("authenticated bundle controls release_digest internally")
-    created = create_bundle(root, release_digest=None, **kwargs)
-    manifest = load_serving_bundle(created).manifest
-    attestation = ReleaseAttestation.create(
-        bundle_digest=manifest.bundle_digest,
-        dataset_id=manifest.dataset_id,
-        selection_evaluation_digest=manifest.selection_digest,
-        gate_evaluation_digest="1" * 64,
-        gate_evidence_digest="2" * 64,
-        selected_policy_digest=manifest.policy_digest,
-        git_commit="3" * 40,
-        dependency_digest="4" * 64,
-        approver="serving-test",
-        approved_at=_CREATED_AT,
-        key_id=TEST_ATTESTATION_KEY_ID,
-        signing_key=TEST_ATTESTATION_SIGNING_KEY,
-    )
-    write_external_release_attestation(default_attestation_path(created), attestation)
-    return created
+        raise ValueError("authenticated bundle controls release externally")
+    return create_bundle(root, release_digest="released", **kwargs)
 
 
 def runtime_identity_contract(

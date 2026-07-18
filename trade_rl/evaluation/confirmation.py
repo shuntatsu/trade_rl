@@ -1,4 +1,4 @@
-"""Authenticated fresh-confirmation evidence with recomputed economic metrics."""
+"""Public-key-authenticated fresh-confirmation evidence."""
 
 from __future__ import annotations
 
@@ -6,22 +6,29 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
     require_aware_datetime,
     require_git_sha,
     require_sha256,
 )
-from trade_rl.release.signing import (
-    AuthenticatedEnvelope,
-    sign_payload,
-    verify_payload,
+from trade_rl.release.asymmetric import (
+    PublicVerificationKey,
+    SignedEvidenceEnvelope,
+    verify_signed_payload,
 )
 
-FRESH_CONFIRMATION_SCHEMA = "fresh_confirmation_evidence_v3"
+FRESH_CONFIRMATION_SCHEMA = "fresh_confirmation_evidence_ed25519_v4"
+_CONFIRMATION_PURPOSE = "fresh-confirmation"
+_DEFAULT_CLOCK_SKEW = timedelta(minutes=5)
+
+
+def _utc(value: datetime, *, field: str) -> datetime:
+    return require_aware_datetime(value, field=field).astimezone(UTC)
 
 
 def _returns(value: Sequence[float]) -> tuple[float, ...]:
@@ -53,8 +60,10 @@ class FreshConfirmationEvidence:
     training_run_digest: str
     git_commit: str
     dependency_digest: str
+    required_after: datetime
     start_time: datetime
     end_time: datetime
+    created_at: datetime
     returns: tuple[float, ...]
     return_period_hours: float
     order_log_digest: str
@@ -63,7 +72,7 @@ class FreshConfirmationEvidence:
     total_return: float
     maximum_drawdown: float
     days: float
-    envelope: AuthenticatedEnvelope
+    envelope: SignedEvidenceEnvelope
     sealed: bool = True
     schema_version: str = FRESH_CONFIRMATION_SCHEMA
 
@@ -81,8 +90,8 @@ class FreshConfirmationEvidence:
         ):
             require_sha256(value, field=name)
         require_git_sha(self.git_commit)
-        require_aware_datetime(self.start_time, field="start_time")
-        require_aware_datetime(self.end_time, field="end_time")
+        for field in ("required_after", "start_time", "end_time", "created_at"):
+            object.__setattr__(self, field, _utc(getattr(self, field), field=field))
         if self.end_time <= self.start_time:
             raise ValueError("confirmation end_time must follow start_time")
         object.__setattr__(self, "returns", _returns(self.returns))
@@ -110,15 +119,24 @@ class FreshConfirmationEvidence:
             ("days", self.days, days),
         ):
             if not math.isfinite(observed) or not math.isclose(
-                observed, expected, rel_tol=0.0, abs_tol=1e-12
+                observed,
+                expected,
+                rel_tol=0.0,
+                abs_tol=1e-12,
             ):
-                raise ValueError(f"confirmation {name} digest does not match returns")
-        if self.evidence_digest != self.envelope.payload_digest:
+                raise ValueError(f"confirmation {name} does not match returns")
+        if self.evidence_digest != content_digest(self.signed_payload()):
             raise ValueError("confirmation evidence digest mismatch")
+        if self.evidence_digest != self.envelope.payload_digest:
+            raise ValueError("confirmation envelope payload digest mismatch")
+        if self.envelope.signed_at != self.created_at:
+            raise ValueError("confirmation signed_at does not match created_at")
+        if self.envelope.purpose != _CONFIRMATION_PURPOSE:
+            raise ValueError("confirmation signature purpose mismatch")
 
     def signed_payload(self) -> dict[str, object]:
         return {
-            "training_run_digest": self.training_run_digest,
+            "created_at": self.created_at,
             "dataset_id": self.dataset_id,
             "days": self.days,
             "dependency_digest": self.dependency_digest,
@@ -130,98 +148,52 @@ class FreshConfirmationEvidence:
             "order_log_digest": self.order_log_digest,
             "policy_digest": self.policy_digest,
             "reconciliation_digest": self.reconciliation_digest,
+            "required_after": self.required_after,
             "return_period_hours": self.return_period_hours,
             "returns": self.returns,
             "schema_version": self.schema_version,
             "sealed": self.sealed,
             "start_time": self.start_time,
             "total_return": self.total_return,
+            "training_run_digest": self.training_run_digest,
         }
-
-    @classmethod
-    def create(
-        cls,
-        *,
-        dataset_id: str,
-        environment_digest: str,
-        policy_digest: str,
-        training_run_digest: str,
-        git_commit: str,
-        dependency_digest: str,
-        start_time: datetime,
-        end_time: datetime,
-        returns: Sequence[float],
-        return_period_hours: float,
-        order_log_digest: str,
-        fill_log_digest: str,
-        reconciliation_digest: str,
-        key_id: str,
-        signing_key: bytes | bytearray | memoryview,
-    ) -> FreshConfirmationEvidence:
-        resolved_returns = _returns(returns)
-        total_return, maximum_drawdown = _metrics(resolved_returns)
-        days = (end_time - start_time).total_seconds() / 86_400.0
-        if not math.isfinite(return_period_hours) or return_period_hours <= 0.0:
-            raise ValueError(
-                "confirmation return_period_hours must be finite and positive"
-            )
-        cadence_days = len(resolved_returns) * return_period_hours / 24.0
-        if not math.isclose(days, cadence_days, rel_tol=0.0, abs_tol=1e-9):
-            raise ValueError(
-                "confirmation return cadence does not cover the declared interval"
-            )
-        payload = {
-            "training_run_digest": training_run_digest,
-            "dataset_id": dataset_id,
-            "days": days,
-            "dependency_digest": dependency_digest,
-            "end_time": end_time,
-            "environment_digest": environment_digest,
-            "fill_log_digest": fill_log_digest,
-            "git_commit": git_commit,
-            "maximum_drawdown": maximum_drawdown,
-            "order_log_digest": order_log_digest,
-            "policy_digest": policy_digest,
-            "reconciliation_digest": reconciliation_digest,
-            "return_period_hours": return_period_hours,
-            "returns": resolved_returns,
-            "schema_version": FRESH_CONFIRMATION_SCHEMA,
-            "sealed": True,
-            "start_time": start_time,
-            "total_return": total_return,
-        }
-        envelope = sign_payload(payload, key_id=key_id, signing_key=signing_key)
-        return cls(
-            evidence_digest=envelope.payload_digest,
-            dataset_id=dataset_id,
-            environment_digest=environment_digest,
-            policy_digest=policy_digest,
-            training_run_digest=training_run_digest,
-            git_commit=git_commit,
-            dependency_digest=dependency_digest,
-            start_time=start_time,
-            end_time=end_time,
-            returns=resolved_returns,
-            return_period_hours=return_period_hours,
-            order_log_digest=order_log_digest,
-            fill_log_digest=fill_log_digest,
-            reconciliation_digest=reconciliation_digest,
-            total_return=total_return,
-            maximum_drawdown=maximum_drawdown,
-            days=days,
-            envelope=envelope,
-        )
 
     def verify(
         self,
-        trusted_keys: Mapping[str, bytes | bytearray | memoryview],
+        trusted_keys: Mapping[str, PublicVerificationKey],
+        *,
+        expected_required_after: datetime,
+        trusted_now: datetime,
+        allowed_clock_skew: timedelta = _DEFAULT_CLOCK_SKEW,
     ) -> None:
+        boundary = _utc(expected_required_after, field="expected_required_after")
+        now = _utc(trusted_now, field="trusted_now")
+        if allowed_clock_skew < timedelta(0):
+            raise ValueError("allowed_clock_skew must not be negative")
+        if self.required_after != boundary:
+            raise ValueError("confirmation required boundary mismatch")
+        if self.start_time < boundary:
+            raise ValueError("confirmation start is not fresh after required boundary")
+        if self.end_time > now + allowed_clock_skew:
+            raise ValueError(
+                "confirmation interval extends beyond trusted current time"
+            )
+        if self.created_at < self.end_time:
+            raise ValueError("confirmation was created before collection completed")
+        if self.created_at > now + allowed_clock_skew:
+            raise ValueError("confirmation creation time is in the future")
         total_return, maximum_drawdown = _metrics(self.returns)
         if not math.isclose(total_return, self.total_return, abs_tol=1e-12):
             raise ValueError("confirmation return digest mismatch")
         if not math.isclose(maximum_drawdown, self.maximum_drawdown, abs_tol=1e-12):
             raise ValueError("confirmation drawdown digest mismatch")
-        verify_payload(self.signed_payload(), self.envelope, trusted_keys=trusted_keys)
+        verify_signed_payload(
+            self.signed_payload(),
+            self.envelope,
+            trusted_keys=trusted_keys,
+            trusted_at=now,
+            required_purpose=_CONFIRMATION_PURPOSE,
+        )
 
     def with_returns(self, returns: Sequence[float]) -> FreshConfirmationEvidence:
         return replace(self, returns=tuple(float(item) for item in returns))
@@ -233,7 +205,16 @@ def write_confirmation_evidence(
 ) -> Path:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(canonical_json_bytes(asdict(evidence)))
+    encoded = canonical_json_bytes(asdict(evidence))
+    if output.exists():
+        if output.read_bytes() != encoded:
+            raise FileExistsError(
+                "refusing to overwrite immutable confirmation evidence"
+            )
+        return output
+    temporary = output.with_name(f".{output.name}.tmp")
+    temporary.write_bytes(encoded)
+    temporary.replace(output)
     return output
 
 
@@ -246,38 +227,70 @@ def load_confirmation_evidence(path: str | Path) -> FreshConfirmationEvidence:
         raise ValueError("confirmation evidence envelope is missing")
     try:
         return FreshConfirmationEvidence(
-            evidence_digest=str(raw["evidence_digest"]),
-            dataset_id=str(raw["dataset_id"]),
-            environment_digest=str(raw["environment_digest"]),
-            policy_digest=str(raw["policy_digest"]),
-            training_run_digest=str(raw["training_run_digest"]),
-            git_commit=str(raw["git_commit"]),
-            dependency_digest=str(raw["dependency_digest"]),
-            start_time=datetime.fromisoformat(
-                str(raw["start_time"]).replace("Z", "+00:00")
-            ),
-            end_time=datetime.fromisoformat(
-                str(raw["end_time"]).replace("Z", "+00:00")
-            ),
-            returns=tuple(float(item) for item in raw["returns"]),
-            return_period_hours=float(raw["return_period_hours"]),
-            order_log_digest=str(raw["order_log_digest"]),
-            fill_log_digest=str(raw["fill_log_digest"]),
-            reconciliation_digest=str(raw["reconciliation_digest"]),
-            total_return=float(raw["total_return"]),
-            maximum_drawdown=float(raw["maximum_drawdown"]),
-            days=float(raw["days"]),
-            envelope=AuthenticatedEnvelope(
-                key_id=str(envelope_raw["key_id"]),
-                payload_digest=str(envelope_raw["payload_digest"]),
-                signature=str(envelope_raw["signature"]),
-                schema_version=str(envelope_raw["schema_version"]),
-            ),
-            sealed=bool(raw["sealed"]),
-            schema_version=str(raw["schema_version"]),
+            evidence_digest=_strict_string(raw, "evidence_digest"),
+            dataset_id=_strict_string(raw, "dataset_id"),
+            environment_digest=_strict_string(raw, "environment_digest"),
+            policy_digest=_strict_string(raw, "policy_digest"),
+            training_run_digest=_strict_string(raw, "training_run_digest"),
+            git_commit=_strict_string(raw, "git_commit"),
+            dependency_digest=_strict_string(raw, "dependency_digest"),
+            required_after=_parse_datetime(raw, "required_after"),
+            start_time=_parse_datetime(raw, "start_time"),
+            end_time=_parse_datetime(raw, "end_time"),
+            created_at=_parse_datetime(raw, "created_at"),
+            returns=_strict_returns(raw["returns"]),
+            return_period_hours=_strict_number(raw, "return_period_hours"),
+            order_log_digest=_strict_string(raw, "order_log_digest"),
+            fill_log_digest=_strict_string(raw, "fill_log_digest"),
+            reconciliation_digest=_strict_string(raw, "reconciliation_digest"),
+            total_return=_strict_number(raw, "total_return"),
+            maximum_drawdown=_strict_number(raw, "maximum_drawdown"),
+            days=_strict_number(raw, "days"),
+            envelope=SignedEvidenceEnvelope.from_mapping(envelope_raw),
+            sealed=_strict_bool(raw, "sealed"),
+            schema_version=_strict_string(raw, "schema_version"),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError("confirmation evidence is invalid") from error
+
+
+def _strict_string(raw: Mapping[str, object], field: str) -> str:
+    value = raw[field]
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    return value
+
+
+def _strict_number(raw: Mapping[str, object], field: str) -> float:
+    value = raw[field]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    return float(value)
+
+
+def _strict_bool(raw: Mapping[str, object], field: str) -> bool:
+    value = raw[field]
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a boolean")
+    return value
+
+
+def _strict_returns(raw: object) -> tuple[float, ...]:
+    if not isinstance(raw, list):
+        raise ValueError("returns must be a list")
+    if any(
+        isinstance(item, bool) or not isinstance(item, (int, float)) for item in raw
+    ):
+        raise ValueError("returns must contain numbers")
+    return tuple(float(item) for item in raw)
+
+
+def _parse_datetime(raw: Mapping[str, object], field: str) -> datetime:
+    value = _strict_string(raw, field)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{field} must be an ISO-8601 datetime") from error
 
 
 __all__ = [

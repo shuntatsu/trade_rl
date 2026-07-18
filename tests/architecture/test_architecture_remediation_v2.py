@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-import inspect
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
 
+from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.integrations import binance as binance_module
+from trade_rl.release.asymmetric import (
+    PublicVerificationKey,
+)
 from trade_rl.release.attestation import ReleaseAttestation
+from trade_rl.release.offline_approval import create_release_attestation
+from trade_rl.release.offline_signing import generate_private_key, public_key_bytes
 from trade_rl.workflows import market_walk_forward as market_walk_forward_module
 from trade_rl.workflows.fold_runner import (
     CandidateConfiguration,
@@ -27,6 +32,14 @@ from trade_rl.workflows.fold_runner import (
 DATASET_ID = "a" * 64
 SIGNAL_DIGEST = "b" * 64
 NOW = datetime(2026, 7, 16, tzinfo=UTC)
+CONFIRMATION_PRIVATE_KEY = generate_private_key()
+CONFIRMATION_PUBLIC_KEY = PublicVerificationKey(
+    key_id="confirmation-key",
+    public_key=public_key_bytes(CONFIRMATION_PRIVATE_KEY),
+    purpose="fresh-confirmation",
+    valid_from=NOW - timedelta(days=1),
+    valid_until=NOW + timedelta(days=365),
+)
 
 
 def _fold() -> WalkForwardFold:
@@ -150,32 +163,53 @@ def test_maintained_training_environment_liquidates_at_episode_end() -> None:
 
 
 def test_release_attestation_requires_authenticated_signature() -> None:
-    parameters = inspect.signature(ReleaseAttestation.create).parameters
-    assert "key_id" in parameters
-    assert "signing_key" in parameters
-    attestation = ReleaseAttestation.create(
+    private_key = generate_private_key()
+    public_key = PublicVerificationKey(
+        key_id="ci-release-key",
+        public_key=public_key_bytes(private_key),
+        purpose="release-verification",
+        valid_from=NOW - timedelta(days=1),
+        valid_until=NOW + timedelta(days=365),
+    )
+    attestation = create_release_attestation(
         bundle_digest="a" * 64,
         dataset_id="b" * 64,
-        selection_evaluation_digest="c" * 64,
-        gate_evaluation_digest="d" * 64,
-        gate_evidence_digest="e" * 64,
-        selected_policy_digest="f" * 64,
-        git_commit="1" * 40,
-        dependency_digest="2" * 64,
+        training_run_digest="c" * 64,
+        run_kind="research_selected_final",
+        selection_proposal_digest="d" * 64,
+        selection_authorization_digest="e" * 64,
+        walk_forward_run_digest="f" * 64,
+        gate_evidence_digest="1" * 64,
+        confirmation_evidence_digest="2" * 64,
+        selected_policy_digest="3" * 64,
+        git_commit="4" * 40,
+        dependency_digest="5" * 64,
         approver="risk-committee",
         approved_at=NOW,
-        key_id="ci-release-key",
-        signing_key=b"release-secret-key",
+        expires_at=NOW + timedelta(days=30),
+        key_id=public_key.key_id,
+        private_key=private_key,
     )
-    attestation.verify({"ci-release-key": b"release-secret-key"})
-    with pytest.raises(ValueError, match="signature|trusted"):
-        attestation.verify({"ci-release-key": b"wrong-secret-key!"})
+    attestation.verify({public_key.key_id: public_key}, trusted_at=NOW)
+    assert not hasattr(ReleaseAttestation, "create")
+    wrong_key = generate_private_key()
+    with pytest.raises(ValueError, match="signature"):
+        attestation.verify(
+            {
+                public_key.key_id: PublicVerificationKey(
+                    key_id=public_key.key_id,
+                    public_key=public_key_bytes(wrong_key),
+                    purpose="release-verification",
+                    valid_from=NOW - timedelta(days=1),
+                    valid_until=NOW + timedelta(days=365),
+                )
+            },
+            trusted_at=NOW,
+        )
 
 
 def test_confirmation_evidence_recomputes_metrics_and_rejects_tampering() -> None:
-    from trade_rl.evaluation.confirmation import FreshConfirmationEvidence
-
-    evidence = FreshConfirmationEvidence.create(
+    evidence = create_fresh_confirmation_evidence(
         dataset_id="a" * 64,
         environment_digest="b" * 64,
         policy_digest="c" * 64,
@@ -189,15 +223,23 @@ def test_confirmation_evidence_recomputes_metrics_and_rejects_tampering() -> Non
         order_log_digest="1" * 64,
         fill_log_digest="2" * 64,
         reconciliation_digest="3" * 64,
+        required_after=NOW,
+        created_at=NOW + timedelta(days=30),
         key_id="confirmation-key",
-        signing_key=b"confirmation-secret",
+        private_key=CONFIRMATION_PRIVATE_KEY,
     )
-    evidence.verify({"confirmation-key": b"confirmation-secret"})
+    evidence.verify(
+        {"confirmation-key": CONFIRMATION_PUBLIC_KEY},
+        expected_required_after=NOW,
+        trusted_now=NOW + timedelta(days=30),
+    )
     assert evidence.total_return == pytest.approx((1.01 * 0.995 * 1.02) - 1.0)
     assert evidence.days == pytest.approx(30.0)
-    with pytest.raises(ValueError, match="signature|digest"):
+    with pytest.raises(ValueError, match="total_return|signature|digest"):
         evidence.with_returns((0.50, 0.0, 0.0)).verify(
-            {"confirmation-key": b"confirmation-secret"}
+            {"confirmation-key": CONFIRMATION_PUBLIC_KEY},
+            expected_required_after=NOW,
+            trusted_now=NOW + timedelta(days=30),
         )
 
 
@@ -412,10 +454,8 @@ def test_serving_state_match_requires_explicit_portfolio_state() -> None:
 
 
 def test_confirmation_return_cadence_must_cover_declared_interval() -> None:
-    from trade_rl.evaluation.confirmation import FreshConfirmationEvidence
-
     with pytest.raises(ValueError, match="cadence|interval|duration"):
-        FreshConfirmationEvidence.create(
+        create_fresh_confirmation_evidence(
             dataset_id="a" * 64,
             environment_digest="b" * 64,
             policy_digest="c" * 64,
@@ -429,6 +469,8 @@ def test_confirmation_return_cadence_must_cover_declared_interval() -> None:
             order_log_digest="1" * 64,
             fill_log_digest="2" * 64,
             reconciliation_digest="3" * 64,
+            required_after=NOW,
+            created_at=NOW + timedelta(days=2),
             key_id="confirmation-key",
-            signing_key=b"confirmation-secret",
+            private_key=CONFIRMATION_PRIVATE_KEY,
         )

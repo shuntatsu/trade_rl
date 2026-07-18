@@ -3,10 +3,8 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from trade_rl.learning.behavior_cloning import (
-    BehaviorCloningConfig,
-    pretrain_policy,
-)
+from trade_rl.integrations.behavior_cloning import pretrain_policy
+from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 
 
@@ -182,11 +180,11 @@ class _SquashedPolicy(torch.nn.Module):
 
 
 def test_behavior_cloning_uses_deterministic_action_space_output() -> None:
-    from trade_rl.learning.behavior_cloning import _actor_mean
+    from trade_rl.integrations.behavior_cloning import actor_mean
 
     observations = torch.zeros((3, 1), dtype=torch.float32)
     policy = _SquashedPolicy()
-    action = _actor_mean(policy, observations)
+    action = actor_mean(policy, observations)
 
     torch.testing.assert_close(action, torch.tanh(policy.raw).expand(3, -1))
     assert not torch.allclose(action, policy.raw.expand(3, -1))

@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
+from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.attestation import ReleaseAttestation, default_attestation_path
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 
@@ -42,12 +44,13 @@ class ServingRegistry:
         root: Path,
         *,
         allow_unreleased: bool = False,
-        trusted_attestation_keys: Mapping[str, bytes | bytearray | memoryview]
-        | None = None,
+        trusted_attestation_keys: Mapping[str, PublicVerificationKey] | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.root = root
         self.allow_unreleased = allow_unreleased
         self.trusted_attestation_keys = dict(trusted_attestation_keys or {})
+        self.clock = clock or (lambda: datetime.now(UTC))
         self.staging_root = root / ".staging"
         self.versions_root = root / "versions"
         self.active_pointer = root / "active.json"
@@ -55,19 +58,17 @@ class ServingRegistry:
             path.mkdir(parents=True, exist_ok=True)
 
     def _require_activatable(self, bundle: ServingBundle) -> None:
+        if self.allow_unreleased:
+            return
         if bundle.release is None:
-            if not self.allow_unreleased:
-                raise ValueError(
-                    "serving bundle requires a verified release attestation"
-                )
-            return
+            raise ValueError("serving bundle requires a verified release attestation")
         if isinstance(bundle.release, ReleaseAttestation):
-            bundle.release.verify(self.trusted_attestation_keys)
-            return
-        if not self.allow_unreleased:
-            raise ValueError(
-                "legacy release metadata is not an authenticated signed attestation"
+            bundle.release.verify(
+                self.trusted_attestation_keys,
+                trusted_at=self.clock(),
             )
+            return
+        raise TypeError("serving bundle release metadata has an unsupported type")
 
     def activate(self, source: Path) -> ServingBundle:
         """Validate a source bundle before copying and replacing active identity."""

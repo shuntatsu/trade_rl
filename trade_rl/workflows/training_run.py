@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Callable
@@ -31,6 +32,10 @@ from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
     load_factor_artifact,
 )
+from trade_rl.release.asymmetric import (
+    PublicVerificationKey,
+    load_public_verification_keys,
+)
 from trade_rl.risk.emergency import EmergencyRiskConfig
 from trade_rl.risk.portfolio import (
     PortfolioRiskConfig,
@@ -51,6 +56,12 @@ from trade_rl.rl.sequence_observations import (
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
+from trade_rl.workflows.selection_authorization import (
+    SelectionAuthorization,
+    SelectionProposal,
+    load_selection_authorization,
+    load_selection_proposal,
+)
 
 
 def _mapping(value: object, *, field: str) -> dict[str, Any]:
@@ -306,6 +317,9 @@ class TrainingRunResult:
     run_digest: str
     policy_digest: str
     dataset_id: str
+    run_kind: str = "research_exploratory"
+    selection_authorization_digest: str | None = None
+    selection_proposal_digest: str | None = None
     production_status: str = "NO-GO"
 
 
@@ -587,7 +601,7 @@ def _dataset_artifact_digest(root: Path) -> str:
     return digest
 
 
-def _maintained_training_run_config(config: TrainingRunConfig) -> TrainingRunConfig:
+def normalize_training_run_config(config: TrainingRunConfig) -> TrainingRunConfig:
     """Bind full training to the same liquidation-at-close terminal contract as OOS."""
 
     if config.environment.liquidate_on_end:
@@ -598,6 +612,68 @@ def _maintained_training_run_config(config: TrainingRunConfig) -> TrainingRunCon
     )
 
 
+def _lockfile_digest() -> str:
+    path = Path(__file__).resolve().parents[2] / "uv.lock"
+    if not path.is_file():
+        raise ValueError("selected final training requires uv.lock")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _selection_authorization(
+    *,
+    proposal_path: Path | None,
+    authorization_path: Path | None,
+    public_keys_path: Path | None,
+    required: bool,
+    dataset: MarketDataset,
+    config: TrainingRunConfig,
+    trusted_at: datetime,
+) -> tuple[SelectionProposal | None, SelectionAuthorization | None]:
+    supplied = (proposal_path, authorization_path, public_keys_path)
+    if all(value is None for value in supplied):
+        if required:
+            raise ValueError(
+                "selected final training requires proposal, authorization, and public keys"
+            )
+        return None, None
+    if any(value is None for value in supplied):
+        raise ValueError(
+            "selection proposal, authorization, and public keys must be supplied together"
+        )
+    assert proposal_path is not None
+    assert authorization_path is not None
+    assert public_keys_path is not None
+    if config.resume_checkpoints:
+        raise ValueError("selected final training forbids resume checkpoints")
+    proposal = load_selection_proposal(proposal_path)
+    authorization = load_selection_authorization(authorization_path)
+    trusted_keys: dict[str, PublicVerificationKey] = load_public_verification_keys(
+        public_keys_path
+    )
+    authorization.verify(
+        proposal,
+        trusted_keys=trusted_keys,
+        trusted_at=trusted_at,
+    )
+    if proposal.dataset_id != dataset.dataset_id:
+        raise ValueError("selection proposal dataset identity mismatch")
+    if proposal.candidate_config_digest != content_digest(
+        config.candidate_digest_payload()
+    ):
+        raise ValueError("selection proposal candidate identity mismatch")
+    if proposal.seeds != config.training.seeds:
+        raise ValueError("selection proposal seed set mismatch")
+    if proposal.resume_checkpoint_digests:
+        raise ValueError(
+            "selected final proposal must not authorize resume checkpoints"
+        )
+    if config.git_commit is None or proposal.git_commit != config.git_commit:
+        raise ValueError("selection proposal git commit mismatch")
+    if proposal.dependency_digest != _lockfile_digest():
+        raise ValueError("selection proposal dependency digest mismatch")
+    return proposal, authorization
+
+
 def execute_training_run(
     *,
     config_path: Path,
@@ -605,13 +681,31 @@ def execute_training_run(
     store_root: Path,
     run_id: str | None = None,
     created_at: datetime | None = None,
+    selection_proposal_path: Path | None = None,
+    selection_authorization_path: Path | None = None,
+    selection_public_keys_path: Path | None = None,
+    require_selection_authorization: bool = False,
 ) -> TrainingRunResult:
     """Train, serialize, validate, and atomically publish one ensemble run."""
 
     resolved_created_at = created_at or datetime.now(UTC)
     resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%SZ")
-    config = _maintained_training_run_config(TrainingRunConfig.from_json(config_path))
+    config = normalize_training_run_config(TrainingRunConfig.from_json(config_path))
     dataset = load_market_dataset_artifact(dataset_path)
+    proposal, authorization = _selection_authorization(
+        proposal_path=selection_proposal_path,
+        authorization_path=selection_authorization_path,
+        public_keys_path=selection_public_keys_path,
+        required=require_selection_authorization,
+        dataset=dataset,
+        config=config,
+        trusted_at=resolved_created_at,
+    )
+    run_kind = (
+        "research_selected_final"
+        if authorization is not None
+        else "research_exploratory"
+    )
     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
@@ -630,6 +724,27 @@ def execute_training_run(
         dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
         _write_json(stage / "training-config.json", config.digest_payload())
         _write_json(
+            stage / "training-purpose.json",
+            {
+                "run_kind": run_kind,
+                "schema_version": "training_purpose_v1",
+                "selection_authorization_digest": (
+                    None
+                    if authorization is None
+                    else authorization.authorization_digest
+                ),
+                "selection_proposal_digest": (
+                    None if proposal is None else proposal.digest
+                ),
+            },
+        )
+        if proposal is not None and authorization is not None:
+            _write_json(stage / "selection-proposal.json", proposal.to_mapping())
+            _write_json(
+                stage / "selection-authorization.json",
+                authorization.to_mapping(),
+            )
+        _write_json(
             stage / "dataset-reference.json",
             {
                 "artifact_digest": dataset_artifact_digest,
@@ -643,10 +758,7 @@ def execute_training_run(
                 "symbols": dataset.symbols,
             },
         )
-        _write_json(
-            stage / "normalizer.json",
-            _normalizer_payload(normalizer),
-        )
+        _write_json(stage / "normalizer.json", _normalizer_payload(normalizer))
         if sequence_normalizer is not None:
             _write_json(
                 stage / "sequence-normalizer.json",
@@ -720,6 +832,18 @@ def execute_training_run(
             provenance_digest=provenance.digest,
             artifact_paths=_artifact_paths(stage),
             created_at=resolved_created_at,
+            completed_at=datetime.now(UTC),
+            run_kind=run_kind,
+            selection_proposal_digest=(None if proposal is None else proposal.digest),
+            selection_authorization_digest=(
+                None if authorization is None else authorization.authorization_digest
+            ),
+            walk_forward_run_digest=(
+                None if proposal is None else proposal.walk_forward_run_digest
+            ),
+            gate_evidence_digest=(
+                None if proposal is None else proposal.gate_evidence_digest
+            ),
         )
         write_training_run_manifest(stage, run_manifest)
         validate_training_run_directory(stage)
@@ -731,6 +855,11 @@ def execute_training_run(
             run_digest=run_manifest.digest,
             policy_digest=ensemble.digest,
             dataset_id=dataset.dataset_id,
+            run_kind=run_kind,
+            selection_authorization_digest=(
+                None if authorization is None else authorization.authorization_digest
+            ),
+            selection_proposal_digest=(None if proposal is None else proposal.digest),
         )
     except Exception:
         if stage.is_dir():

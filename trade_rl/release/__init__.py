@@ -1,27 +1,33 @@
-"""Release attestation contracts."""
+"""Public-key release attestation verification contracts."""
 
+from trade_rl.release.asymmetric import (
+    ED25519_ALGORITHM,
+    SIGNED_EVIDENCE_SCHEMA,
+    PublicVerificationKey,
+    SignedEvidenceEnvelope,
+    load_public_verification_keys,
+    verify_signed_payload,
+)
 from trade_rl.release.attestation import (
     RELEASE_ATTESTATION_SCHEMA,
+    RELEASE_PURPOSE,
     ReleaseAttestation,
     default_attestation_path,
     load_release_attestation,
     write_release_attestation,
 )
-from trade_rl.release.signing import (
-    AUTHENTICATED_ENVELOPE_SCHEMA,
-    AuthenticatedEnvelope,
-    sign_payload,
-    verify_payload,
-)
 
 __all__ = [
-    "AUTHENTICATED_ENVELOPE_SCHEMA",
-    "AuthenticatedEnvelope",
+    "ED25519_ALGORITHM",
     "RELEASE_ATTESTATION_SCHEMA",
+    "RELEASE_PURPOSE",
+    "SIGNED_EVIDENCE_SCHEMA",
+    "PublicVerificationKey",
     "ReleaseAttestation",
+    "SignedEvidenceEnvelope",
     "default_attestation_path",
+    "load_public_verification_keys",
     "load_release_attestation",
-    "sign_payload",
-    "verify_payload",
+    "verify_signed_payload",
     "write_release_attestation",
 ]

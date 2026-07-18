@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
@@ -34,11 +34,20 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra export --extra train-sb3
 
+      - name: Workflow security
+        run: uv run python .github/check_workflow_security.py .
+
       - name: Ruff
-        run: uv run ruff check .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check . 2>&1 | tee ruff.log
 
       - name: Format
-        run: uv run ruff format --check --diff .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff format --check --diff . 2>&1 | tee format.log
 
       - name: Mypy
         shell: bash
@@ -46,15 +55,30 @@ jobs:
           set -o pipefail
           uv run mypy trade_rl 2>&1 | tee mypy.log
 
-      - name: Upload MyPy diagnostics
+      - name: Upload static diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: mypy-diagnostics
-          path: mypy.log
+          name: static-diagnostics
+          path: |
+            ruff.log
+            format.log
+            mypy.log
+          if-no-files-found: ignore
 
       - name: Import architecture
-        run: uv run lint-imports
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run lint-imports 2>&1 | tee import-linter.log
+
+      - name: Upload architecture diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-diagnostics
+          path: import-linter.log
+          if-no-files-found: error
 
       - name: Dead-code report
         run: uv run vulture trade_rl tests --min-confidence 100
@@ -73,7 +97,7 @@ jobs:
 
       - name: Upload pytest diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: pytest-diagnostics
           path: |
@@ -95,13 +119,24 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compatibility-${{ matrix.os }}
+          path: compatibility.log
+          if-no-files-found: error
 
   training-image:
     name: Training image
@@ -109,16 +144,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
       - name: Build complete training image
         shell: bash
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
           docker build \
             --build-arg TRADE_RL_GIT_COMMIT="$commit" \
             --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
             --file Dockerfile.training \
             --tag trade-rl-training:ci \
             .

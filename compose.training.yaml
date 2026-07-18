@@ -1,31 +1,36 @@
 services:
   trainer:
+    image: trade-rl-training:${TRADE_RL_GIT_COMMIT:-invalid}
     build:
       context: .
       dockerfile: Dockerfile.training
       args:
         TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:-}
         TRADE_RL_GIT_DIRTY: ${TRADE_RL_GIT_DIRTY:-}
+        TRADE_RL_SOURCE_TREE_DIGEST: ${TRADE_RL_SOURCE_TREE_DIGEST:-}
+        TRADE_RL_LOCKFILE_DIGEST: ${TRADE_RL_LOCKFILE_DIGEST:-}
     gpus: all
     environment:
       TRADE_RL_RUN_GENERATION: ${TRADE_RL_RUN_GENERATION:-}
+      TRADE_RL_RESEARCH_PHASE: ${TRADE_RL_RESEARCH_PHASE:-develop}
       TRADE_RL_METADATA_MODE: ${TRADE_RL_METADATA_MODE:-frozen_snapshot}
       TRADE_RL_CONSERVATIVE_STATIC_PATH: ${TRADE_RL_CONSERVATIVE_STATIC_PATH:-}
       TRADE_RL_BINANCE_RULE_HISTORY: ${TRADE_RL_BINANCE_RULE_HISTORY:-}
-      TRADE_RL_METADATA_KEYS: ${TRADE_RL_METADATA_KEYS:-}
-      TRADE_RL_CONFIRMATION_KEYS: ${TRADE_RL_CONFIRMATION_KEYS:-}
+      TRADE_RL_METADATA_PUBLIC_KEYS: ${TRADE_RL_METADATA_PUBLIC_KEYS:-}
+      TRADE_RL_SELECTION_AUTHORIZATION: ${TRADE_RL_SELECTION_AUTHORIZATION:-}
+      TRADE_RL_SELECTION_PUBLIC_KEYS: ${TRADE_RL_SELECTION_PUBLIC_KEYS:-}
+      TRADE_RL_CONFIRMATION_EVIDENCE: ${TRADE_RL_CONFIRMATION_EVIDENCE:-}
+      TRADE_RL_CONFIRMATION_PUBLIC_KEYS: ${TRADE_RL_CONFIRMATION_PUBLIC_KEYS:-}
+      TRADE_RL_TRUSTED_NOW: ${TRADE_RL_TRUSTED_NOW:-}
+      TRADE_RL_IMAGE_DIGEST: ${TRADE_RL_IMAGE_DIGEST:-}
       OMP_NUM_THREADS: "2"
       MKL_NUM_THREADS: "2"
     volumes:
       - trade-rl-training-data:/workspace/var
-    command: >-
-      sh -c ": $${TRADE_RL_RUN_GENERATION:?Set TRADE_RL_RUN_GENERATION to a unique generation name}
-      && python examples/binance-multitimeframe/training_cuda_preflight.py
-      --output /workspace/var/cuda-preflight.json
-      && python examples/binance-multitimeframe/run_full_research.py
-      --work-root /workspace/var/runs/$${TRADE_RL_RUN_GENERATION}
-      --cache-root /workspace/var/cache/binance-vision
-      --metadata-mode $${TRADE_RL_METADATA_MODE}"
+      - type: bind
+        source: ${TRADE_RL_EVIDENCE_ROOT:-./var/evidence}
+        target: /workspace/evidence
+        read_only: true
 
 volumes:
   trade-rl-training-data:

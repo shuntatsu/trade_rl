@@ -683,7 +683,14 @@ def main(
     stderr: TextIO | None = None,
 ) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments[:2] in (["train", "run"], ["walk-forward", "run"]):
+    if arguments[:2] in (
+        ["confirmation", "create"],
+        ["release", "approve"],
+        ["selection", "authorize"],
+        ["serving", "package"],
+        ["train", "run"],
+        ["walk-forward", "run"],
+    ):
         from trade_rl.cli.extended import main as artifact_main
 
         return artifact_main(arguments, stdout=stdout, stderr=stderr)

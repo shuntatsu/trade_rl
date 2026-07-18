@@ -10,13 +10,13 @@ import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.integrations.behavior_cloning import pretrain_policy
 from trade_rl.learning import (
     BehaviorCloningConfig,
     OracleTeacherConfig,
     StructuredTeacherObservationProvider,
     collect_teacher_rollout,
     oracle_target_path,
-    pretrain_policy,
     write_teacher_artifact,
 )
 from trade_rl.rl.algorithm_configs import (

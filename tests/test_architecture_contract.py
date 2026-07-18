@@ -16,7 +16,7 @@ def test_only_trade_rl_is_packaged() -> None:
 
     assert config["project"]["name"] == "trade-rl"
     assert config["tool"]["setuptools"]["packages"]["find"]["include"] == ["trade_rl*"]
-    assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli.app:main"}
+    assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli:main"}
 
 
 def test_source_contains_maintained_direct_target_mode_without_legacy_env() -> None:

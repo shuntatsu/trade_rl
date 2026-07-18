@@ -6,14 +6,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.serving.helpers import create_bundle
+from tests.serving.helpers import (
+    TEST_ATTESTATION_PRIVATE_KEY,
+    TEST_ATTESTATION_PUBLIC_KEY,
+    create_bundle,
+)
 from trade_rl.data.market import MarketDataset
 from trade_rl.release.attestation import (
     ReleaseAttestation,
     default_attestation_path,
     write_release_attestation,
 )
-from trade_rl.release.signing import VerificationKey
+from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.risk.portfolio import PortfolioRiskConfig, PortfolioRiskModel
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.serving.bundle import load_serving_bundle
@@ -122,19 +126,24 @@ def test_portfolio_risk_changes_final_target_and_environment_identity() -> None:
 
 def _write_external_attestation(source: Path) -> ReleaseAttestation:
     manifest = load_serving_bundle(source).manifest
-    attestation = ReleaseAttestation.create(
+    attestation = create_release_attestation(
         bundle_digest=manifest.bundle_digest,
         dataset_id=manifest.dataset_id,
-        selection_evaluation_digest=manifest.selection_digest,
-        gate_evaluation_digest="2" * 64,
-        gate_evidence_digest="3" * 64,
+        training_run_digest=manifest.training_run_digest,
+        run_kind=manifest.run_kind,
+        selection_proposal_digest=manifest.selection_proposal_digest,
+        selection_authorization_digest=manifest.selection_authorization_digest,
+        walk_forward_run_digest=manifest.walk_forward_run_digest,
+        gate_evidence_digest=manifest.gate_evidence_digest,
+        confirmation_evidence_digest=manifest.confirmation_evidence_digest,
         selected_policy_digest=manifest.policy_digest,
         git_commit="e" * 40,
         dependency_digest="4" * 64,
         approver="architecture-audit",
         approved_at=datetime(2026, 7, 14, tzinfo=UTC),
-        key_id="test-release-key",
-        signing_key=b"test-release-signing-key",
+        expires_at=datetime(2027, 7, 14, tzinfo=UTC),
+        key_id=TEST_ATTESTATION_PUBLIC_KEY.key_id,
+        private_key=TEST_ATTESTATION_PRIVATE_KEY,
     )
     write_release_attestation(default_attestation_path(source), attestation)
     return attestation
@@ -146,11 +155,7 @@ def test_registry_installs_external_release_attestation(tmp_path: Path) -> None:
     registry = ServingRegistry(
         tmp_path / "registry",
         trusted_attestation_keys={
-            "test-release-key": VerificationKey(
-                key_id="test-release-key",
-                key=b"test-release-signing-key",
-                purpose="release-verification",
-            )
+            TEST_ATTESTATION_PUBLIC_KEY.key_id: TEST_ATTESTATION_PUBLIC_KEY
         },
     )
 

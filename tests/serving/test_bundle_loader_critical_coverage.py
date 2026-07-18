@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from tests.serving.helpers import (
     ACTION_NAMES,
@@ -16,10 +16,10 @@ from tests.serving.helpers import (
 )
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.release.attestation import (
-    ReleaseAttestation,
     default_attestation_path,
     write_release_attestation,
 )
+from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import (
@@ -29,6 +29,7 @@ from trade_rl.serving.bundle import (
 )
 
 NOW = datetime(2026, 7, 14, tzinfo=UTC)
+PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(b"\x33" * 32)
 
 
 def _custom_manifest(
@@ -49,7 +50,6 @@ def _custom_manifest(
         policy_digest=None,
         signal_digest="b" * 64,
         selection_digest="c" * 64,
-        release_digest=None,
         artifact_paths=artifact_paths,
         created_at=NOW,
         action_size=len(ACTION_NAMES),
@@ -98,12 +98,8 @@ def test_loader_rejects_missing_unbound_and_mismatched_normalizer(
     with pytest.raises(ValueError, match="unbound normalizer"):
         load_serving_bundle(unbound)
 
-    mismatch = create_bundle(
-        tmp_path / "normalizer-mismatch",
-        release_digest=None,
-    )
+    mismatch = create_bundle(tmp_path / "normalizer-mismatch", release_digest=None)
     loaded = load_serving_bundle(mismatch)
-    artifact_paths = tuple(item.path for item in loaded.manifest.files)
     wrong = ServingBundleManifest.build(
         root=mismatch,
         dataset_id=loaded.manifest.dataset_id,
@@ -116,8 +112,7 @@ def test_loader_rejects_missing_unbound_and_mismatched_normalizer(
         policy_digest=loaded.manifest.policy_digest,
         signal_digest=loaded.manifest.signal_digest,
         selection_digest=loaded.manifest.selection_digest,
-        release_digest=None,
-        artifact_paths=artifact_paths,
+        artifact_paths=tuple(item.path for item in loaded.manifest.files),
         created_at=loaded.manifest.created_at,
         action_size=loaded.manifest.action_size,
         action_names=loaded.manifest.action_names,
@@ -129,11 +124,13 @@ def test_loader_rejects_missing_unbound_and_mismatched_normalizer(
         load_serving_bundle(mismatch)
 
 
-def test_loader_rejects_legacy_release_pointer_mismatch(tmp_path: Path) -> None:
-    root = create_bundle(tmp_path / "legacy")
-    manifest = load_serving_bundle(root).manifest
-    write_serving_bundle_manifest(root, replace(manifest, release_digest="f" * 64))
-    with pytest.raises(ValueError, match="pointer mismatch"):
+def test_loader_rejects_embedded_legacy_release_pointer(tmp_path: Path) -> None:
+    root = create_bundle(tmp_path / "legacy", release_digest=None)
+    path = root / "bundle.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["release_digest"] = "f" * 64
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="fields"):
         load_serving_bundle(root)
 
 
@@ -144,19 +141,25 @@ def _external_attestation(
     dataset_id: str,
     selected_policy_digest: str | None,
 ) -> None:
-    attestation = ReleaseAttestation.create(
+    manifest = load_serving_bundle(root).manifest
+    attestation = create_release_attestation(
         bundle_digest=bundle_digest,
         dataset_id=dataset_id,
-        selection_evaluation_digest="1" * 64,
-        gate_evaluation_digest="2" * 64,
-        gate_evidence_digest="3" * 64,
+        training_run_digest=manifest.training_run_digest,
+        run_kind=manifest.run_kind,
+        selection_proposal_digest=manifest.selection_proposal_digest,
+        selection_authorization_digest=manifest.selection_authorization_digest,
+        walk_forward_run_digest=manifest.walk_forward_run_digest,
+        gate_evidence_digest=manifest.gate_evidence_digest,
+        confirmation_evidence_digest=manifest.confirmation_evidence_digest,
         selected_policy_digest=selected_policy_digest,
         git_commit="4" * 40,
         dependency_digest="5" * 64,
         approver="coverage-test",
         approved_at=NOW,
+        expires_at=NOW + timedelta(days=30),
         key_id="bundle-loader-key",
-        signing_key=b"bundle-loader-signing-key",
+        private_key=PRIVATE_KEY,
     )
     write_release_attestation(default_attestation_path(root), attestation)
 
@@ -166,15 +169,24 @@ def test_loader_rejects_external_attestation_identity_mismatch(
     tmp_path: Path,
     mismatch: str,
 ) -> None:
-    root = create_bundle(tmp_path / mismatch, release_digest=None)
+    policy_mode = (
+        PolicyMode.RESIDUAL_POLICY if mismatch == "policy" else PolicyMode.BASELINE_ONLY
+    )
+    root = create_bundle(
+        tmp_path / mismatch,
+        policy_mode=policy_mode,
+        release_digest=None,
+    )
     manifest = load_serving_bundle(root).manifest
     _external_attestation(
         root,
         bundle_digest=("f" * 64 if mismatch == "bundle" else manifest.bundle_digest),
         dataset_id=("e" * 64 if mismatch == "dataset" else manifest.dataset_id),
-        selected_policy_digest=("d" * 64 if mismatch == "policy" else None),
+        selected_policy_digest=(
+            "d" * 64 if mismatch == "policy" else manifest.policy_digest
+        ),
     )
-    with pytest.raises(ValueError, match=f"external release attestation {mismatch}"):
+    with pytest.raises(ValueError, match="identity"):
         load_serving_bundle(root)
 
 
@@ -205,8 +217,7 @@ def test_loader_rejects_symlink_missing_size_digest_and_undeclared_files(
 
     digest_root = create_bundle(tmp_path / "digest")
     original = (digest_root / "dataset.json").read_bytes()
-    replacement = b"x" * len(original)
-    (digest_root / "dataset.json").write_bytes(replacement)
+    (digest_root / "dataset.json").write_bytes(b"x" * len(original))
     with pytest.raises(ValueError, match="digest mismatch"):
         load_serving_bundle(digest_root)
 

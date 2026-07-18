@@ -158,7 +158,20 @@ class SelectionProposal:
             "walk_forward_run_digest": walk_forward_run_digest,
             "gate_evidence_digest": gate_evidence_digest,
         }
-        return cls(digest=content_digest(payload), **payload)
+        return cls(
+            digest=content_digest(payload),
+            walk_forward_run_digest=walk_forward_run_digest,
+            gate_evidence_digest=gate_evidence_digest,
+            execution_sensitivity_digest=execution_sensitivity_digest,
+            dataset_id=dataset_id,
+            selected_configuration=selected_configuration,
+            candidate_config_digest=candidate_config_digest,
+            seeds=resolved_seeds,
+            git_commit=git_commit,
+            dependency_digest=dependency_digest,
+            resume_checkpoint_digests=resolved_resume,
+            schema_version=SELECTION_PROPOSAL_SCHEMA,
+        )
 
     def to_mapping(self) -> dict[str, object]:
         return asdict(self)
@@ -180,7 +193,9 @@ class SelectionProposal:
                 seeds=_strict_seeds(raw["seeds"]),
                 git_commit=_string(raw, "git_commit"),
                 dependency_digest=_string(raw, "dependency_digest"),
-                resume_checkpoint_digests=_strict_resume(raw["resume_checkpoint_digests"]),
+                resume_checkpoint_digests=_strict_resume(
+                    raw["resume_checkpoint_digests"]
+                ),
                 schema_version=_string(raw, "schema_version"),
             )
         except (KeyError, TypeError, ValueError) as error:
@@ -201,14 +216,18 @@ class SelectionAuthorization:
 
     def __post_init__(self) -> None:
         require_sha256(self.proposal_digest, field="proposal_digest")
-        object.__setattr__(self, "approver", require_non_empty(self.approver, field="approver"))
+        object.__setattr__(
+            self, "approver", require_non_empty(self.approver, field="approver")
+        )
         approved = _utc(self.approved_at, field="approved_at")
         expires = _utc(self.expires_at, field="expires_at")
         if expires <= approved:
             raise ValueError("selection authorization must expire after approval")
         object.__setattr__(self, "approved_at", approved)
         object.__setattr__(self, "expires_at", expires)
-        object.__setattr__(self, "key_id", require_non_empty(self.key_id, field="key_id"))
+        object.__setattr__(
+            self, "key_id", require_non_empty(self.key_id, field="key_id")
+        )
         if not isinstance(self.signature, str) or not self.signature:
             raise ValueError("selection authorization signature must be non-empty")
         if self.schema_version != SELECTION_AUTHORIZATION_SCHEMA:
@@ -316,7 +335,11 @@ def _strict_resume(raw: object) -> tuple[tuple[int, str], ...]:
         if not isinstance(item, list) or len(item) != 2:
             raise ValueError("resume checkpoint digests must contain pairs")
         seed, digest = item
-        if isinstance(seed, bool) or not isinstance(seed, int) or not isinstance(digest, str):
+        if (
+            isinstance(seed, bool)
+            or not isinstance(seed, int)
+            or not isinstance(digest, str)
+        ):
             raise ValueError("resume checkpoint digest pair is invalid")
         result.append((seed, digest))
     return tuple(result)

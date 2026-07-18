@@ -4,130 +4,111 @@ from datetime import UTC, datetime
 
 import pytest
 
-from trade_rl.data.contracts import InstrumentExecutionRule
+from tests.binance_signed_helpers import (
+    END,
+    START,
+    SYMBOLS,
+    TRUSTED_KEYS,
+    TRUSTED_NOW,
+    signed_rule_history_document,
+)
 from trade_rl.workflows.binance_metadata_modes import (
-    BinanceHistoricalSignedScope,
+    load_verified_binance_rule_history,
     resolution_from_historical_signed,
 )
 
-SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
-START = datetime(2024, 12, 1, tzinfo=UTC)
-END = datetime(2026, 7, 1, tzinfo=UTC)
-ISSUED = datetime(2026, 7, 17, tzinfo=UTC)
+
+def _load(document: dict[str, object]):
+    return load_verified_binance_rule_history(
+        document,
+        trusted_keys=TRUSTED_KEYS,
+        trusted_now=TRUSTED_NOW,
+    )
 
 
-def _scope(**overrides: object) -> BinanceHistoricalSignedScope:
-    values: dict[str, object] = {
-        "market": "usds-m",
-        "symbols": SYMBOLS,
-        "coverage_start": START,
-        "coverage_end": END,
-        "issued_at": ISSUED,
-        "source_uri": "operator://signed-binance-rules",
-        "payload_digest": "a" * 64,
-    }
-    values.update(overrides)
-    return BinanceHistoricalSignedScope(**values)
+def test_signed_history_requires_verified_exact_scope() -> None:
+    verified = _load(signed_rule_history_document())
 
-
-def _metadata() -> dict[str, dict[str, str | float]]:
-    return {
-        symbol: {
-            "listed_at": datetime(2020, 1, 1, tzinfo=UTC).isoformat(),
-            "tick_size": 0.1,
-            "lot_size": 0.001,
-            "minimum_notional": 5.0,
-        }
-        for symbol in SYMBOLS
-    }
-
-
-def _histories(
-    *, tick_size: float = 0.1
-) -> dict[str, tuple[InstrumentExecutionRule, ...]]:
-    return {
-        symbol: (
-            InstrumentExecutionRule(
-                effective_at=START,
-                tick_size=tick_size,
-                lot_size=0.001,
-                minimum_notional=5.0,
-            ),
-        )
-        for symbol in SYMBOLS
-    }
-
-
-def test_signed_history_requires_exact_scope() -> None:
     result = resolution_from_historical_signed(
-        metadata=_metadata(),
-        execution_rule_histories=_histories(),
-        signed_scope=_scope(),
+        verified,
         start_time=START,
         end_time=END,
     )
 
     assert result.identity_evidence["market"] == "usds-m"
     assert result.identity_evidence["symbols"] == SYMBOLS
+    assert result.identity_evidence["authentication"] == "ed25519"
     assert result.identity_evidence["point_in_time"] is True
 
 
-def test_signed_scope_rejects_non_usdm_market() -> None:
+def test_signed_history_preserves_explicit_symbol_order() -> None:
+    reversed_symbols = tuple(reversed(SYMBOLS))
+    verified = _load(signed_rule_history_document(symbol_order=reversed_symbols))
+
+    assert verified.symbols == reversed_symbols
+    assert tuple(verified.metadata) == reversed_symbols
+    assert tuple(verified.execution_rule_histories) == reversed_symbols
+
+
+def test_signed_history_rejects_non_usdm_market() -> None:
     with pytest.raises(ValueError, match="market"):
-        _scope(market="spot")
+        _load(signed_rule_history_document(market="spot"))
 
 
 @pytest.mark.parametrize(
-    "overrides,match",
+    ("start_time", "end_time"),
     [
-        ({"symbols": tuple(reversed(SYMBOLS))}, "symbol"),
-        ({"coverage_start": datetime(2024, 12, 2, tzinfo=UTC)}, "coverage"),
-        ({"coverage_end": datetime(2026, 6, 30, tzinfo=UTC)}, "coverage"),
+        (datetime(2024, 12, 2, tzinfo=UTC), END),
+        (START, datetime(2026, 6, 30, tzinfo=UTC)),
     ],
 )
-def test_signed_history_rejects_scope_mismatch(
-    overrides: dict[str, object],
-    match: str,
+def test_signed_resolution_rejects_coverage_mismatch(
+    start_time: datetime,
+    end_time: datetime,
 ) -> None:
-    scope = _scope(**overrides)
-    with pytest.raises(ValueError, match=match):
+    verified = _load(signed_rule_history_document())
+
+    with pytest.raises(ValueError, match="coverage"):
         resolution_from_historical_signed(
-            metadata=_metadata(),
-            execution_rule_histories=_histories(),
-            signed_scope=scope,
-            start_time=START,
-            end_time=END,
+            verified,
+            start_time=start_time,
+            end_time=end_time,
         )
 
 
 def test_signed_history_rejects_zero_execution_rules() -> None:
     with pytest.raises(ValueError, match="strictly positive"):
-        resolution_from_historical_signed(
-            metadata=_metadata(),
-            execution_rule_histories=_histories(tick_size=0.0),
-            signed_scope=_scope(),
-            start_time=START,
-            end_time=END,
-        )
+        _load(signed_rule_history_document(tick_size=0.0))
 
 
 def test_signed_history_rejects_rule_after_coverage() -> None:
-    histories = _histories()
-    histories["BTCUSDT"] = (
-        *histories["BTCUSDT"],
-        InstrumentExecutionRule(
-            effective_at=datetime(2026, 7, 2, tzinfo=UTC),
-            tick_size=0.1,
-            lot_size=0.001,
-            minimum_notional=5.0,
-        ),
-    )
-
     with pytest.raises(ValueError, match="coverage"):
-        resolution_from_historical_signed(
-            metadata=_metadata(),
-            execution_rule_histories=histories,
-            signed_scope=_scope(),
+        _load(
+            signed_rule_history_document(
+                extra_rule_effective_at=datetime(2026, 7, 2, tzinfo=UTC),
+            )
+        )
+
+
+def test_signed_history_rejects_metadata_that_differs_from_final_rule() -> None:
+    with pytest.raises(ValueError, match="final execution rule"):
+        _load(signed_rule_history_document(final_tick_size=0.2))
+
+
+def test_signed_history_rejects_payload_tampering() -> None:
+    document = signed_rule_history_document()
+    payload = document["payload"]
+    assert isinstance(payload, dict)
+    payload["source_uri"] = "operator://tampered"
+
+    with pytest.raises(ValueError, match="payload digest"):
+        _load(document)
+
+
+def test_resolution_rejects_unverified_mapping() -> None:
+    with pytest.raises(TypeError, match="load_verified_binance_rule_history"):
+        resolution_from_historical_signed(  # type: ignore[arg-type]
+            signed_rule_history_document(),
             start_time=START,
             end_time=END,
         )

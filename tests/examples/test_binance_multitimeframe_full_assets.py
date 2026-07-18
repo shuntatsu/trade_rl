@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import importlib
 import json
-import runpy
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.rl.checkpointing import publish_checkpoint
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
@@ -124,7 +126,7 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
-    content = (EXAMPLE_ROOT / "run_full_research.py").read_text(encoding="utf-8")
+    content = (EXAMPLE_ROOT / "full_research_pipeline.py").read_text(encoding="utf-8")
 
     for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT"):
         assert symbol in content
@@ -144,17 +146,20 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert '"walk-forward", "run"' in content
 
 
-def test_full_runner_selects_walk_forward_recipe_before_final_training() -> None:
-    content = (EXAMPLE_ROOT / "run_full_research.py").read_text(encoding="utf-8")
+def test_full_runner_separates_selection_from_final_training() -> None:
+    content = (EXAMPLE_ROOT / "run_full_research_state.py").read_text(encoding="utf-8")
 
-    walk_forward_call = content.index("walk_forward = _run_cli")
-    selected_recipe = content.index("_selected_walk_forward_recipe(", walk_forward_call)
-    final_training = content.index("training = _run_cli", walk_forward_call)
-    assert walk_forward_call < selected_recipe < final_training
+    develop = content.index("def _develop(")
+    proposal = content.index("SelectionProposal.create(", develop)
+    train_selected = content.index("def _train_selected(", proposal)
+    final_training = content.index("*pipeline._TRAIN_RUN_COMMAND", train_selected)
+    assert develop < proposal < train_selected < final_training
+    assert "SelectionAuthorization.authorize" not in content
 
 
 def _runner_namespace() -> dict[str, Any]:
-    return runpy.run_path(str(EXAMPLE_ROOT / "run_full_research.py"))
+    sys.path.insert(0, str(EXAMPLE_ROOT))
+    return vars(importlib.import_module("full_research_pipeline"))
 
 
 def test_full_runner_rejects_existing_generation_without_deleting_it(
@@ -822,18 +827,34 @@ def test_signed_rule_history_is_authoritative_and_reproducible(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from dataclasses import asdict
+    import base64
+    from datetime import UTC, datetime, timedelta
 
-    from trade_rl.release.signing import sign_payload
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from trade_rl.release.offline_signing import public_key_bytes, sign_payload
 
     namespace = _runner_namespace()
     load_history = namespace["_load_rule_history"]
+    symbols = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
     payload = {
-        "schema_version": "binance_instrument_rule_history_v2",
+        "schema_version": "binance_instrument_rule_history_v4",
+        "policy_version": "binance_metadata_modes_v2",
+        "market": "usds-m",
+        "symbol_order": list(symbols),
+        "coverage": {
+            "start_time": "2024-12-01T00:00:00+00:00",
+            "end_time": "2026-07-01T00:00:00+00:00",
+        },
+        "issued_at": "2026-07-17T00:00:00+00:00",
+        "source_uri": "operator://signed-binance-rules",
         "symbols": {
             symbol: {
                 "listed_at": "2020-01-01T00:00:00+00:00",
-                "rules": [
+                "tick_size": 0.01,
+                "lot_size": 0.0001,
+                "minimum_notional": 10.0,
+                "execution_rules": [
                     {
                         "effective_at": "2024-01-01T00:00:00+00:00",
                         "tick_size": 0.1,
@@ -848,28 +869,49 @@ def test_signed_rule_history_is_authoritative_and_reproducible(
                     },
                 ],
             }
-            for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT")
+            for symbol in symbols
         },
     }
+    private_key = Ed25519PrivateKey.from_private_bytes(b"\x55" * 32)
+    signed_at = datetime(2026, 7, 17, 1, tzinfo=UTC)
     envelope = sign_payload(
         payload,
         key_id="metadata-key",
-        signing_key=b"metadata-signing-key",
+        purpose="binance-rule-history",
+        private_key=private_key,
+        signed_at=signed_at,
     )
     path = tmp_path / "metadata-history.json"
-    path.write_text(
-        json.dumps({"payload": payload, "envelope": asdict(envelope)}),
+    path.write_bytes(
+        canonical_json_bytes({"payload": payload, "envelope": envelope.to_mapping()})
+    )
+    key_store = tmp_path / "metadata-public-keys.json"
+    key_store.write_text(
+        json.dumps(
+            {
+                "schema_version": "public_verification_key_store_v1",
+                "keys": [
+                    {
+                        "key_id": "metadata-key",
+                        "public_key": base64.b64encode(
+                            public_key_bytes(private_key)
+                        ).decode("ascii"),
+                        "purpose": "binance-rule-history",
+                        "valid_from": (signed_at - timedelta(days=1)).isoformat(),
+                        "valid_until": (signed_at + timedelta(days=365)).isoformat(),
+                        "algorithm": "ed25519",
+                    }
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setenv("TRADE_RL_BINANCE_RULE_HISTORY", str(path))
-    monkeypatch.setenv(
-        "TRADE_RL_METADATA_KEYS",
-        json.dumps({"metadata-key": "metadata-signing-key"}),
-    )
+    monkeypatch.setenv("TRADE_RL_METADATA_PUBLIC_KEYS", str(key_store))
 
-    metadata, histories, evidence_digest = load_history()
+    verified = load_history(trusted_now=datetime(2026, 7, 18, tzinfo=UTC))
 
-    assert len(evidence_digest) == 64
-    assert metadata["BTCUSDT"]["listed_at"].startswith("2020-01-01")
-    assert metadata["BTCUSDT"]["tick_size"] == pytest.approx(0.01)
-    assert len(histories["BTCUSDT"]) == 2
+    assert len(verified.payload_digest) == 64
+    assert verified.metadata["BTCUSDT"]["listed_at"].startswith("2020-01-01")
+    assert verified.metadata["BTCUSDT"]["tick_size"] == pytest.approx(0.01)
+    assert len(verified.execution_rule_histories["BTCUSDT"]) == 2

@@ -7,15 +7,20 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.data.contracts import InstrumentExecutionRule
+from tests.binance_signed_helpers import (
+    ISSUED,
+    TRUSTED_KEYS,
+    TRUSTED_NOW,
+    signed_rule_history_document,
+)
 from trade_rl.integrations.binance import (
     BinanceExchangeInfoSnapshot,
     BinanceMarket,
 )
 from trade_rl.workflows.binance_metadata_modes import (
-    BinanceHistoricalSignedScope,
     BinanceMetadataMode,
     BinanceMetadataResolutionProvider,
+    load_verified_binance_rule_history,
     resolution_from_historical_signed,
     resolve_conservative_static,
     resolve_frozen_snapshot,
@@ -187,47 +192,33 @@ def test_resolution_provider_reuses_one_resolution_for_both_dataset_builds() -> 
     assert calls == 1
 
 
-def test_historical_signed_resolution_preserves_effective_history() -> None:
-    rule = InstrumentExecutionRule(
-        effective_at=START,
-        tick_size=0.1,
-        lot_size=0.001,
-        minimum_notional=5.0,
-    )
-    metadata = {
-        symbol: {
-            "listed_at": datetime(2020, 1, 1, tzinfo=UTC).isoformat(),
-            "tick_size": rule.tick_size,
-            "lot_size": rule.lot_size,
-            "minimum_notional": rule.minimum_notional,
-        }
-        for symbol in SYMBOLS
-    }
-    histories = {symbol: (rule,) for symbol in SYMBOLS}
-    scope = BinanceHistoricalSignedScope(
-        market=BinanceMarket.USDS_M.value,
-        symbols=SYMBOLS,
-        coverage_start=START,
-        coverage_end=END,
-        issued_at=RETRIEVED,
-        source_uri="operator://signed-binance-rules",
-        payload_digest="a" * 64,
+def test_historical_signed_resolution_preserves_verified_effective_history(
+    tmp_path: Path,
+) -> None:
+    document = signed_rule_history_document()
+    verified = load_verified_binance_rule_history(
+        document,
+        trusted_keys=TRUSTED_KEYS,
+        trusted_now=TRUSTED_NOW,
     )
 
     resolution = resolution_from_historical_signed(
-        metadata=metadata,
-        execution_rule_histories=histories,
-        signed_scope=scope,
+        verified,
         start_time=START,
         end_time=END,
     )
+    resolution.write_artifacts(tmp_path)
 
     assert resolution.mode is BinanceMetadataMode.HISTORICAL_SIGNED
-    assert resolution.execution_rule_histories == histories
-    assert resolution.identity_evidence["authentication"] == "hmac-sha256"
+    assert resolution.execution_rule_histories == verified.execution_rule_histories
+    assert resolution.identity_evidence["authentication"] == "ed25519"
     assert resolution.identity_evidence["point_in_time"] is True
     assert resolution.identity_evidence["limitations"] == ()
-    assert resolution.identity_evidence["source_uri"] == scope.source_uri
+    assert resolution.identity_evidence["source_uri"] == verified.source_uri
+    assert resolution.identity_evidence["as_of"] == ISSUED.isoformat()
+    assert (
+        tmp_path / "exchange-info.raw.json"
+    ).read_bytes() == verified.signed_document
 
 
 def test_conservative_static_requires_versioned_payload_and_positive_stress(

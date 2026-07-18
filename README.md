@@ -32,7 +32,7 @@ Dataset identity v6 is recomputed from every observation, eligibility, execution
 
 Environment identity includes the verified dataset, calendar, action specification, content-addressed fold-local alpha/factor artifacts, semantic normalizer, episode curriculum, trend, reward, portfolio risk, execution and AUM. Signal filesystem paths are diagnostics only and never change experiment identity.
 
-Serving candidate bundle v4 contains no release identifier. A separate HMAC-SHA256-authenticated `ReleaseAttestation` binds the immutable bundle digest to dataset, selection, evaluation, gate evidence, selected policy, source commit, dependency provenance, approver and approval time. Registry and runtime activation require an explicitly trusted key ID, verify the signature, load the shared observation/normalization pipeline and run deterministic probe observations through every ensemble member before live state is swapped. Structured prediction additionally requires a monotonic identity-bound account-state snapshot in released mode. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
+Serving bundle v5 contains the complete selected-final evidence chain but no approval material. A detached Ed25519 `ReleaseAttestation` binds the immutable bundle digest to the training run, selection proposal and authorization, walk-forward and gate evidence, fresh confirmation, selected policy, source commit, dependency provenance, approver and expiry. Runtime and registry processes receive purpose-bound public keys only; private keys are accepted exclusively by explicit offline CLI commands. Exploratory runs, unsigned bundles, legacy release sidecars, wrong-purpose keys and incomplete evidence chains fail closed before activation. Structured prediction additionally requires a monotonic identity-bound account-state snapshot. Runtime inference rejects non-finite, incorrectly shaped or out-of-range actions rather than clipping them silently.
 
 The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3 and TQC ensemble bundles. Stable-Baselines3 and PyTorch are installed only with the `train-sb3` extra.
 
@@ -93,7 +93,37 @@ uv run trade-rl data binance \
 
 Spot and USDⓈ-M are supported linear products. COIN-M inverse futures fail closed because the current accounting model is linear and must not publish misleading inverse-contract PnL. See [docs/BINANCE.md](docs/BINANCE.md) for the fixed-range end-to-end smoke.
 
-Both execution commands print one machine-readable JSON result. Research runs remain non-production artifacts; a paper-serving activation additionally requires a signed external release attestation from an explicitly configured trusted key. Fresh confirmation evidence is likewise signed and recomputes return/drawdown from its immutable return series rather than trusting summary fields. Direct exchange connectivity is not implemented.
+Both execution commands print one machine-readable JSON result. Exploratory training cannot be packaged or released. A selected-final run requires an externally signed selection authorization before model construction, at least 30 days of Ed25519-signed post-training confirmation, deterministic bundle packaging, and a separate offline release approval. Fresh-confirmation metrics are recomputed from the immutable return series and must begin at the exact frozen boundary without extending into the future. Direct exchange connectivity is not implemented.
+
+### Offline evidence and release commands
+
+Private Ed25519 key files use schema `ed25519_private_key_v1`, must be purpose-bound, and on POSIX must have mode `0600`. They are used only on an offline approval host.
+
+```bash
+uv run trade-rl selection authorize \
+  --proposal var/research/selection-proposal.json \
+  --private-key /secure/selection-key.json \
+  --approver research-committee \
+  --approved-at 2026-07-18T03:00:00Z \
+  --expires-at 2026-07-25T03:00:00Z \
+  --output /secure/selection-authorization.json
+
+uv run trade-rl confirmation create \
+  --request /secure/fresh-confirmation-request.json \
+  --private-key /secure/confirmation-key.json \
+  --output /secure/fresh-confirmation.json
+
+uv run trade-rl release approve \
+  --bundle var/serving/candidate \
+  --private-key /secure/release-key.json \
+  --git-commit <40-character-commit> \
+  --dependency-digest <uv-lock-sha256> \
+  --approver release-committee \
+  --approved-at 2026-08-18T03:00:00Z \
+  --expires-at 2026-09-18T03:00:00Z
+```
+
+The resulting authorization, confirmation, and release files are immutable and remain external to the candidate bundle until verification.
 
 ## Docker GPU full research run
 
@@ -110,7 +140,7 @@ The second command exits nonzero when CUDA preflight, training, evaluation, or
 the research gate fails. A successful process is research evidence only: it is
 not a profitability guarantee and production status remains `NO-GO`.
 
-The Docker workflow defaults to `TRADE_RL_METADATA_MODE=frozen_snapshot`: one official current `exchangeInfo` payload is preserved byte-for-byte, identity-bound and disclosed as unauthenticated, non-point-in-time evidence. `historical_signed` remains the highest-integrity explicit opt-in and requires `TRADE_RL_BINANCE_RULE_HISTORY` plus `TRADE_RL_METADATA_KEYS`; `conservative_static` requires a versioned payload path. No mode silently projects current values backward as historical truth. The full preset also publishes identity-bound closed-loop execution sensitivity and requires the joint-2x research gate while keeping joint 5x report-only.
+The Docker workflow defaults to `TRADE_RL_METADATA_MODE=frozen_snapshot`: one official current `exchangeInfo` payload is preserved byte-for-byte, identity-bound and disclosed as unauthenticated, non-point-in-time evidence. `historical_signed` is the highest-integrity opt-in and requires a v4 signed document plus a read-only Ed25519 public-key store; the trainer never receives signing secrets. `conservative_static` requires a versioned payload path. No mode silently projects current values backward as historical truth. Full research is phase-separated into `develop`, `train-selected`, and `finalize`; waiting for external selection approval or fresh confirmation is a successful persisted state, not an infrastructure failure.
 
 See [Docker GPU full-training operations](docs/operations/docker-gpu-full-training.md)
 for exact detached start, status, logs, volume inspection, artifact extraction,

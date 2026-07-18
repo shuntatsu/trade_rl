@@ -39,6 +39,7 @@ def signed_rule_history_document(
     lot_size: float = 0.001,
     minimum_notional: float = 5.0,
     rule_effective_at: datetime = START,
+    extra_rule_effective_at: datetime | None = None,
     final_tick_size: float | None = None,
     payload_overrides: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
@@ -62,11 +63,16 @@ def signed_rule_history_document(
                 "minimum_notional": minimum_notional,
                 "execution_rules": [
                     {
-                        "effective_at": rule_effective_at.isoformat(),
+                        "effective_at": effective_at.isoformat(),
                         "tick_size": tick_size,
                         "lot_size": lot_size,
                         "minimum_notional": minimum_notional,
                     }
+                    for effective_at in (
+                        (rule_effective_at,)
+                        if extra_rule_effective_at is None
+                        else (rule_effective_at, extra_rule_effective_at)
+                    )
                 ],
             }
             for symbol in symbol_order

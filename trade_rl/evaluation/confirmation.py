@@ -175,7 +175,9 @@ class FreshConfirmationEvidence:
         if self.start_time < boundary:
             raise ValueError("confirmation start is not fresh after required boundary")
         if self.end_time > now + allowed_clock_skew:
-            raise ValueError("confirmation interval extends beyond trusted current time")
+            raise ValueError(
+                "confirmation interval extends beyond trusted current time"
+            )
         if self.created_at < self.end_time:
             raise ValueError("confirmation was created before collection completed")
         if self.created_at > now + allowed_clock_skew:
@@ -206,7 +208,9 @@ def write_confirmation_evidence(
     encoded = canonical_json_bytes(asdict(evidence))
     if output.exists():
         if output.read_bytes() != encoded:
-            raise FileExistsError("refusing to overwrite immutable confirmation evidence")
+            raise FileExistsError(
+                "refusing to overwrite immutable confirmation evidence"
+            )
         return output
     temporary = output.with_name(f".{output.name}.tmp")
     temporary.write_bytes(encoded)
@@ -274,7 +278,9 @@ def _strict_bool(raw: Mapping[str, object], field: str) -> bool:
 def _strict_returns(raw: object) -> tuple[float, ...]:
     if not isinstance(raw, list):
         raise ValueError("returns must be a list")
-    if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in raw):
+    if any(
+        isinstance(item, bool) or not isinstance(item, (int, float)) for item in raw
+    ):
         raise ValueError("returns must contain numbers")
     return tuple(float(item) for item in raw)
 

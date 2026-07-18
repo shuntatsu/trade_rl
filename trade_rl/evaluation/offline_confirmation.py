@@ -53,7 +53,9 @@ def create_fresh_confirmation_evidence(
         raise ValueError("confirmation return_period_hours must be finite and positive")
     cadence_days = len(resolved_returns) * return_period_hours / 24.0
     if not math.isclose(days, cadence_days, rel_tol=0.0, abs_tol=1e-9):
-        raise ValueError("confirmation return cadence does not cover the declared interval")
+        raise ValueError(
+            "confirmation return cadence does not cover the declared interval"
+        )
     payload = {
         "created_at": created,
         "dataset_id": dataset_id,

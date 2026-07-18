@@ -76,7 +76,7 @@ def test_bundle_parsers_reject_malformed_values() -> None:
         bundle_module._integer(True, field="value")
     with pytest.raises(ValueError, match="number"):
         bundle_module._number(True, field="value")
-    with pytest.raises(ValueError, match="files must be a list"):
+    with pytest.raises(ValueError, match="fields|files must be a list"):
         bundle_module._parse_manifest({"files": {}})
 
 

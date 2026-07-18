@@ -7,27 +7,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_training_compose_requests_gpu_and_uses_only_named_runtime_volume() -> None:
+def test_training_compose_requests_gpu_and_uses_named_runtime_plus_read_only_evidence() -> (
+    None
+):
     compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
 
     assert "gpus: all" in compose
     assert "trade-rl-training-data:/workspace/var" in compose
     assert "trade-rl-training-data:" in compose
     assert "./:/workspace" not in compose
+    assert "target: /workspace/evidence" in compose
+    assert "read_only: true" in compose
 
 
-def test_training_container_runs_preflight_then_maintained_full_runner() -> None:
+def test_training_container_uses_generation_scoped_supervised_entrypoint() -> None:
     dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
     compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
 
-    assert "FROM python:3.12" in dockerfile
+    assert "FROM python:3.12-slim@sha256:" in dockerfile
     assert "USER trainer" in dockerfile
-    assert "examples/binance-multitimeframe/training_cuda_preflight.py" in compose
-    assert "examples/binance-multitimeframe/run_full_research_hardened.py" in compose
-    assert "--work-root /workspace/var/runs/$${TRADE_RL_RUN_GENERATION}" in compose
-    assert "--cache-root /workspace/var/cache/binance-vision" in compose
-    assert "TRADE_RL_RUN_GENERATION:?" in compose
+    assert (
+        'CMD ["python", "examples/binance-multitimeframe/full_run_entrypoint.py"]'
+        in dockerfile
+    )
+    assert "training_cuda_preflight.py" not in compose
+    assert "run_full_research_hardened.py" not in compose
     assert "TRADE_RL_RUN_GENERATION: ${TRADE_RL_RUN_GENERATION:-}" in compose
+    assert "TRADE_RL_RESEARCH_PHASE: ${TRADE_RL_RESEARCH_PHASE:-develop}" in compose
+    assert "TRADE_RL_METADATA_PUBLIC_KEYS" in compose
+    assert "TRADE_RL_SELECTION_PUBLIC_KEYS" in compose
+    assert "TRADE_RL_CONFIRMATION_PUBLIC_KEYS" in compose
 
 
 def test_training_docker_context_excludes_local_state() -> None:
@@ -46,27 +55,27 @@ def test_training_docker_context_excludes_local_state() -> None:
         assert entry in ignored
 
 
-def test_optional_training_commands_use_installed_python_as_non_root() -> None:
+def test_training_runbook_uses_supervised_control_and_read_only_monitoring() -> None:
     runbook = (ROOT / "docs/operations/docker-gpu-full-training.md").read_text(
         encoding="utf-8"
     )
 
-    assert "--entrypoint uv trainer run python" not in runbook
-    assert (
-        "--entrypoint python trainer "
-        "examples/binance-multitimeframe/training_cuda_preflight.py"
-    ) in runbook
-    assert (
-        "--entrypoint python trainer "
-        "examples/binance-multitimeframe/run_gpu_training_smoke.py"
-    ) in runbook
+    assert "Control Binance frozen 226 full generation" in runbook
+    assert "Monitor Binance frozen 226 full generation" in runbook
+    assert "Private Ed25519 keys must never be stored" in runbook
+    assert "Logs are never requested after container removal" in runbook
 
 
 def test_training_image_requires_and_exports_packaged_git_provenance() -> None:
     dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
     compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
 
-    for name in ("TRADE_RL_GIT_COMMIT", "TRADE_RL_GIT_DIRTY"):
+    for name in (
+        "TRADE_RL_GIT_COMMIT",
+        "TRADE_RL_GIT_DIRTY",
+        "TRADE_RL_SOURCE_TREE_DIGEST",
+        "TRADE_RL_LOCKFILE_DIGEST",
+    ):
         assert f"ARG {name}" in dockerfile
         assert f"{name}=${{{name}}}" in dockerfile
         assert f"{name}: ${{{name}:-}}" in compose
@@ -80,6 +89,8 @@ def test_training_compose_renders_without_host_provenance_or_generation() -> Non
         "TRADE_RL_GIT_COMMIT",
         "TRADE_RL_GIT_DIRTY",
         "TRADE_RL_RUN_GENERATION",
+        "TRADE_RL_SOURCE_TREE_DIGEST",
+        "TRADE_RL_LOCKFILE_DIGEST",
     ):
         environment.pop(name, None)
 
@@ -96,6 +107,8 @@ def test_training_compose_renders_without_host_provenance_or_generation() -> Non
     assert 'TRADE_RL_GIT_COMMIT: ""' in completed.stdout
     assert 'TRADE_RL_GIT_DIRTY: ""' in completed.stdout
     assert 'TRADE_RL_RUN_GENERATION: ""' in completed.stdout
+    assert 'TRADE_RL_SOURCE_TREE_DIGEST: ""' in completed.stdout
+    assert 'TRADE_RL_LOCKFILE_DIGEST: ""' in completed.stdout
 
 
 def test_training_dockerfile_isolates_fast_provenance_validation_stage() -> None:
@@ -108,11 +121,13 @@ def test_training_dockerfile_isolates_fast_provenance_validation_stage() -> None
     assert provenance_stage < runtime_stage < marker_copy
     assert dockerfile.count("ARG TRADE_RL_GIT_COMMIT") == 2
     assert dockerfile.count("ARG TRADE_RL_GIT_DIRTY") == 2
+    assert dockerfile.count("ARG TRADE_RL_SOURCE_TREE_DIGEST") == 2
+    assert dockerfile.count("ARG TRADE_RL_LOCKFILE_DIGEST") == 2
 
 
 def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> None:
     dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
-    runtime = dockerfile.split("FROM python:3.12-slim AS training-runtime", 1)[1]
+    runtime = dockerfile.split(" AS training-runtime", 1)[1]
 
     dependency_sync = runtime.index(
         "uv sync --frozen --extra train-sb3 --no-dev --no-install-project"
@@ -169,6 +184,10 @@ def test_provenance_validation_target_fails_fast_without_valid_arguments() -> No
                 f"TRADE_RL_GIT_COMMIT={'a' * 40}",
                 "--build-arg",
                 "TRADE_RL_GIT_DIRTY=false",
+                "--build-arg",
+                f"TRADE_RL_SOURCE_TREE_DIGEST={'b' * 64}",
+                "--build-arg",
+                f"TRADE_RL_LOCKFILE_DIGEST={'c' * 64}",
             ],
             True,
         ),
@@ -187,17 +206,17 @@ def test_provenance_validation_target_fails_fast_without_valid_arguments() -> No
         assert "uv sync --frozen" not in output
 
 
-def test_training_runbook_uses_unique_generations_and_shared_cache() -> None:
+def test_training_runbook_uses_generation_scoped_evidence_and_external_expectation() -> (
+    None
+):
     runbook = (ROOT / "docs/operations/docker-gpu-full-training.md").read_text(
         encoding="utf-8"
     )
-    normalized = " ".join(runbook.split())
 
-    assert "$env:TRADE_RL_RUN_GENERATION" in runbook
-    assert "/workspace/var/runs/$TRADE_RL_RUN_GENERATION" in runbook
-    assert "/workspace/var/cache/binance-vision" in runbook
-    assert "never deletes or overwrites an existing generation" in normalized
-    assert "reuses the shared cache" in normalized
+    assert "/workspace/var/runs/<generation>/cuda-preflight.json" in runbook
+    assert "external expectation file" in runbook
+    assert "heartbeat" in runbook
+    assert "selected-final training forbids injected resume checkpoints" in runbook
 
 
 def test_ci_builds_and_probes_the_complete_training_image() -> None:
@@ -248,16 +267,15 @@ def test_architecture_docs_state_current_research_and_runtime_boundaries() -> No
     )
     combined = "\n".join((architecture, research, runbook))
     for phrase in (
-        "approximate portfolio teacher",
-        "shared per-asset actor",
-        "index-backed rollout",
-        "180 OOS days",
-        "fresh confirmation",
-        "structured sequence serving",
-        "Production remains NO-GO",
+        "Ed25519",
+        "selection proposal and authorization",
+        "awaiting_fresh_confirmation",
+        "external expectation",
+        "public keys only",
+        "Production status remains `NO-GO`",
     ):
         assert phrase in combined
-    assert "exact optimal Oracle" not in combined
+    assert "HMAC-SHA256-authenticated `ReleaseAttestation`" not in combined
 
 
 def test_training_docker_defaults_to_disclosed_frozen_metadata_mode() -> None:
@@ -268,5 +286,7 @@ def test_training_docker_defaults_to_disclosed_frozen_metadata_mode() -> None:
     assert (
         "TRADE_RL_METADATA_MODE: ${TRADE_RL_METADATA_MODE:-frozen_snapshot}" in compose
     )
-    assert "--metadata-mode $${TRADE_RL_METADATA_MODE}" in compose
+    assert "full_run_entrypoint.py" in dockerfile
     assert "TRADE_RL_CONSERVATIVE_STATIC_PATH" in compose
+    assert "TRADE_RL_METADATA_PUBLIC_KEYS" in compose
+    assert "TRADE_RL_METADATA_KEYS" not in compose

@@ -58,8 +58,12 @@ class PublicVerificationKey:
     algorithm: str = ED25519_ALGORITHM
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "key_id", require_non_empty(self.key_id, field="key_id"))
-        object.__setattr__(self, "purpose", require_non_empty(self.purpose, field="purpose"))
+        object.__setattr__(
+            self, "key_id", require_non_empty(self.key_id, field="key_id")
+        )
+        object.__setattr__(
+            self, "purpose", require_non_empty(self.purpose, field="purpose")
+        )
         raw = bytes(self.public_key)
         if len(raw) != _PUBLIC_KEY_BYTES:
             raise ValueError("public_key must contain 32 raw Ed25519 bytes")
@@ -90,8 +94,12 @@ class SignedEvidenceEnvelope:
     algorithm: str = ED25519_ALGORITHM
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "key_id", require_non_empty(self.key_id, field="key_id"))
-        object.__setattr__(self, "purpose", require_non_empty(self.purpose, field="purpose"))
+        object.__setattr__(
+            self, "key_id", require_non_empty(self.key_id, field="key_id")
+        )
+        object.__setattr__(
+            self, "purpose", require_non_empty(self.purpose, field="purpose")
+        )
         require_sha256(self.payload_digest, field="payload_digest")
         object.__setattr__(self, "signed_at", _utc(self.signed_at, field="signed_at"))
         _strict_b64(self.signature, field="signature", expected_size=_SIGNATURE_BYTES)
@@ -195,9 +203,9 @@ def load_public_verification_keys(path: str | Path) -> dict[str, PublicVerificat
     if not isinstance(raw, dict):
         raise ValueError("public verification key store must be an object")
     keys_raw = raw.get("keys")
-    if raw.get("schema_version") != "public_verification_key_store_v1" or not isinstance(
-        keys_raw, list
-    ):
+    if raw.get(
+        "schema_version"
+    ) != "public_verification_key_store_v1" or not isinstance(keys_raw, list):
         raise ValueError("public verification key store schema is invalid")
     result: dict[str, PublicVerificationKey] = {}
     for index, item in enumerate(keys_raw):
@@ -219,7 +227,9 @@ def load_public_verification_keys(path: str | Path) -> dict[str, PublicVerificat
                 algorithm=_strict_string(item, "algorithm"),
             )
         except (KeyError, TypeError, ValueError) as error:
-            raise ValueError(f"public verification key keys[{index}] is invalid") from error
+            raise ValueError(
+                f"public verification key keys[{index}] is invalid"
+            ) from error
         if key_id in result:
             raise ValueError("public verification key IDs must be unique")
         result[key_id] = key

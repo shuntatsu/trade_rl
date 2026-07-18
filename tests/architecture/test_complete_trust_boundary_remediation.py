@@ -8,11 +8,12 @@ from pathlib import Path
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.release.asymmetric import (
     PublicVerificationKey,
-    generate_private_key,
-    public_key_bytes,
 )
+from trade_rl.release.offline_signing import generate_private_key, public_key_bytes
+from trade_rl.workflows.offline_selection_approval import create_selection_authorization
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,
     SelectionProposal,
@@ -48,7 +49,7 @@ def _proposal(**overrides: object) -> SelectionProposal:
 
 def test_selection_authorization_uses_public_key_and_rejects_resume_injection() -> None:
     proposal = _proposal()
-    authorization = SelectionAuthorization.authorize(
+    authorization = create_selection_authorization(
         proposal,
         approver="research-approver",
         approved_at=NOW,
@@ -92,10 +93,8 @@ def test_selection_authorization_rejects_forged_self_hash() -> None:
 
 
 def test_confirmation_must_begin_after_frozen_boundary() -> None:
-    from trade_rl.evaluation.confirmation import FreshConfirmationEvidence
-
     required_after = NOW
-    evidence = FreshConfirmationEvidence.create(
+    evidence = create_fresh_confirmation_evidence(
         dataset_id="1" * 64,
         environment_digest="2" * 64,
         policy_digest="3" * 64,
@@ -130,10 +129,8 @@ def test_confirmation_must_begin_after_frozen_boundary() -> None:
 
 
 def test_confirmation_rejects_future_interval() -> None:
-    from trade_rl.evaluation.confirmation import FreshConfirmationEvidence
-
     required_after = NOW
-    evidence = FreshConfirmationEvidence.create(
+    evidence = create_fresh_confirmation_evidence(
         dataset_id="1" * 64,
         environment_digest="2" * 64,
         policy_digest="3" * 64,
@@ -310,10 +307,9 @@ def test_training_image_is_digest_pinned_and_generation_scoped() -> None:
     dockerfile = (root / "Dockerfile.training").read_text(encoding="utf-8")
     compose = (root / "compose.training.yaml").read_text(encoding="utf-8")
     assert "python:3.12-slim@sha256:" in dockerfile
-    assert (
-        "/workspace/var/runs/${TRADE_RL_RUN_GENERATION}/cuda-preflight.json"
-        in dockerfile
-    )
+    assert "full_run_entrypoint.py" in dockerfile
+    assert "TRADE_RL_SOURCE_TREE_DIGEST" in dockerfile
+    assert "TRADE_RL_LOCKFILE_DIGEST" in dockerfile
     assert "TRADE_RL_METADATA_KEYS" not in compose
     assert "TRADE_RL_CONFIRMATION_KEYS" not in compose
 
@@ -328,3 +324,53 @@ def test_privileged_workflows_checkout_the_event_sha() -> None:
         content = (root / relative).read_text(encoding="utf-8")
         assert "ref: ${{ github.sha }}" in content
         assert "ref: main" not in content
+
+
+def test_runtime_and_trainer_modules_do_not_import_private_signing_material() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for relative in (
+        "trade_rl/workflows/selection_authorization.py",
+        "trade_rl/workflows/training_run.py",
+        "trade_rl/evaluation/confirmation.py",
+        "trade_rl/serving/runtime.py",
+        "trade_rl/serving/registry.py",
+        "trade_rl/release/attestation.py",
+        "trade_rl/release/asymmetric.py",
+    ):
+        content = (root / relative).read_text(encoding="utf-8")
+        assert "Ed25519PrivateKey" not in content
+        assert "private_key" not in content
+    assert "offline_approval" not in (root / "trade_rl/serving/runtime.py").read_text(
+        encoding="utf-8"
+    )
+
+    verifier = (root / "trade_rl/release/asymmetric.py").read_text(encoding="utf-8")
+    assert "sign_payload" not in verifier
+    assert "generate_private_key" not in verifier
+    assert "public_key_bytes" not in verifier
+    contract = (root / ".importlinter").read_text(encoding="utf-8")
+    assert "trade_rl.release.offline_signing" in contract
+
+
+def test_learning_layer_does_not_import_torch_or_sb3_frameworks() -> None:
+    root = Path(__file__).resolve().parents[2]
+    learning = (root / "trade_rl" / "learning" / "behavior_cloning.py").read_text(
+        encoding="utf-8"
+    )
+    contract = (root / ".importlinter").read_text(encoding="utf-8")
+    assert "import torch" not in learning
+    assert "from torch" not in learning
+    learning_contract = contract.split(
+        "[importlinter:contract:learning-frameworks]", maxsplit=1
+    )[1].split("[importlinter:", maxsplit=1)[0]
+    assert "torch" in learning_contract
+
+
+def test_legacy_hmac_and_release_manifest_modules_are_removed() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for relative in (
+        "trade_rl/release/signing.py",
+        "trade_rl/serving/release.py",
+        "trade_rl/domain/releases.py",
+    ):
+        assert not (root / relative).exists()

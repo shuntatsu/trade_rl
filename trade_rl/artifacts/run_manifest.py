@@ -17,7 +17,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_aware_datetime, require_sha256
 
 RUN_MANIFEST_NAME: Final = "run.json"
-TRAINING_RUN_MANIFEST_SCHEMA: Final = "training_run_v2"
+TRAINING_RUN_MANIFEST_SCHEMA: Final = "training_run_v3"
 WALK_FORWARD_RUN_MANIFEST_SCHEMA: Final = "walk_forward_run_v1"
 RUN_MANIFEST_SCHEMA: Final = TRAINING_RUN_MANIFEST_SCHEMA
 _RUN_ID_RE: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -133,6 +133,12 @@ class TrainingRunManifest:
     provenance_digest: str
     files: tuple[RunFile, ...]
     created_at: datetime
+    completed_at: datetime
+    run_kind: str = "research_exploratory"
+    selection_proposal_digest: str | None = None
+    selection_authorization_digest: str | None = None
+    walk_forward_run_digest: str | None = None
+    gate_evidence_digest: str | None = None
     production_status: str = "NO-GO"
     schema_version: str = TRAINING_RUN_MANIFEST_SCHEMA
 
@@ -149,6 +155,37 @@ class TrainingRunManifest:
         )
         require_sha256(self.ensemble_digest, field="ensemble_digest")
         require_sha256(self.training_config_digest, field="training_config_digest")
+        require_aware_datetime(self.completed_at, field="completed_at")
+        if self.completed_at < self.created_at:
+            raise ValueError("completed_at must not precede created_at")
+        if self.run_kind not in {"research_exploratory", "research_selected_final"}:
+            raise ValueError("training run_kind is unsupported")
+        chain = (
+            self.selection_proposal_digest,
+            self.selection_authorization_digest,
+            self.walk_forward_run_digest,
+            self.gate_evidence_digest,
+        )
+        if self.run_kind == "research_selected_final":
+            if any(value is None for value in chain):
+                raise ValueError(
+                    "selected final training requires complete authorization chain"
+                )
+            for field, value in zip(
+                (
+                    "selection_proposal_digest",
+                    "selection_authorization_digest",
+                    "walk_forward_run_digest",
+                    "gate_evidence_digest",
+                ),
+                chain,
+                strict=True,
+            ):
+                require_sha256(value, field=field)  # type: ignore[arg-type]
+        elif any(value is not None for value in chain):
+            raise ValueError(
+                "exploratory training must not claim selection authorization"
+            )
         if self.schema_version != TRAINING_RUN_MANIFEST_SCHEMA:
             raise ValueError("unsupported training run schema")
         if self.digest != content_digest(self.digest_payload()):
@@ -156,16 +193,22 @@ class TrainingRunManifest:
 
     def digest_payload(self) -> dict[str, object]:
         return {
+            "completed_at": self.completed_at,
             "created_at": self.created_at,
             "dataset_id": self.dataset_id,
             "ensemble_digest": self.ensemble_digest,
             "environment_digest": self.environment_digest,
             "files": self.files,
+            "gate_evidence_digest": self.gate_evidence_digest,
             "production_status": self.production_status,
             "provenance_digest": self.provenance_digest,
             "run_id": self.run_id,
+            "run_kind": self.run_kind,
             "schema_version": self.schema_version,
+            "selection_authorization_digest": self.selection_authorization_digest,
+            "selection_proposal_digest": self.selection_proposal_digest,
             "training_config_digest": self.training_config_digest,
+            "walk_forward_run_digest": self.walk_forward_run_digest,
         }
 
     @classmethod
@@ -181,19 +224,32 @@ class TrainingRunManifest:
         provenance_digest: str,
         artifact_paths: tuple[str, ...],
         created_at: datetime,
+        completed_at: datetime | None = None,
+        run_kind: str = "research_exploratory",
+        selection_proposal_digest: str | None = None,
+        selection_authorization_digest: str | None = None,
+        walk_forward_run_digest: str | None = None,
+        gate_evidence_digest: str | None = None,
     ) -> TrainingRunManifest:
         files = _build_files(root, artifact_paths)
+        resolved_completed_at = created_at if completed_at is None else completed_at
         payload = {
+            "completed_at": resolved_completed_at,
             "created_at": created_at,
             "dataset_id": dataset_id,
             "ensemble_digest": ensemble_digest,
             "environment_digest": environment_digest,
             "files": files,
+            "gate_evidence_digest": gate_evidence_digest,
             "production_status": "NO-GO",
             "provenance_digest": provenance_digest,
             "run_id": run_id,
+            "run_kind": run_kind,
             "schema_version": TRAINING_RUN_MANIFEST_SCHEMA,
+            "selection_authorization_digest": selection_authorization_digest,
+            "selection_proposal_digest": selection_proposal_digest,
             "training_config_digest": training_config_digest,
+            "walk_forward_run_digest": walk_forward_run_digest,
         }
         return cls(
             digest=content_digest(payload),
@@ -205,6 +261,12 @@ class TrainingRunManifest:
             provenance_digest=provenance_digest,
             files=files,
             created_at=created_at,
+            completed_at=resolved_completed_at,
+            run_kind=run_kind,
+            selection_proposal_digest=selection_proposal_digest,
+            selection_authorization_digest=selection_authorization_digest,
+            walk_forward_run_digest=walk_forward_run_digest,
+            gate_evidence_digest=gate_evidence_digest,
         )
 
 
@@ -378,14 +440,23 @@ def _parse_files(payload: Mapping[str, object]) -> tuple[RunFile, ...]:
     )
 
 
+def _optional_string(value: object, *, field: str) -> str | None:
+    if value is None:
+        return None
+    return _string(value, field=field)
+
+
+def _datetime_field(payload: Mapping[str, object], field: str) -> datetime:
+    return datetime.fromisoformat(
+        _string(payload.get(field), field=field).replace("Z", "+00:00")
+    )
+
+
 def load_training_run_manifest(root: Path) -> TrainingRunManifest:
     payload = _read_payload(root)
     schema = _string(payload.get("schema_version"), field="schema_version")
     if schema != TRAINING_RUN_MANIFEST_SCHEMA:
         raise ValueError("unsupported training run schema")
-    created_at = datetime.fromisoformat(
-        _string(payload.get("created_at"), field="created_at").replace("Z", "+00:00")
-    )
     return TrainingRunManifest(
         digest=_string(payload.get("digest"), field="digest"),
         run_id=_string(payload.get("run_id"), field="run_id"),
@@ -403,7 +474,25 @@ def load_training_run_manifest(root: Path) -> TrainingRunManifest:
             payload.get("provenance_digest"), field="provenance_digest"
         ),
         files=_parse_files(payload),
-        created_at=created_at,
+        created_at=_datetime_field(payload, "created_at"),
+        completed_at=_datetime_field(payload, "completed_at"),
+        run_kind=_string(payload.get("run_kind"), field="run_kind"),
+        selection_proposal_digest=_optional_string(
+            payload.get("selection_proposal_digest"),
+            field="selection_proposal_digest",
+        ),
+        selection_authorization_digest=_optional_string(
+            payload.get("selection_authorization_digest"),
+            field="selection_authorization_digest",
+        ),
+        walk_forward_run_digest=_optional_string(
+            payload.get("walk_forward_run_digest"),
+            field="walk_forward_run_digest",
+        ),
+        gate_evidence_digest=_optional_string(
+            payload.get("gate_evidence_digest"),
+            field="gate_evidence_digest",
+        ),
         production_status=_string(
             payload.get("production_status"), field="production_status"
         ),

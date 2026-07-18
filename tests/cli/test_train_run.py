@@ -19,7 +19,9 @@ def test_train_run_command_emits_published_run_json(
             "dataset_path": Path("dataset"),
             "store_root": Path("artifacts"),
             "run_id": "run-001",
+            "selection_proposal_path": None,
             "selection_authorization_path": None,
+            "selection_public_keys_path": None,
             "require_selection_authorization": False,
         }
         return TrainingRunResult(
@@ -65,6 +67,7 @@ def test_train_run_command_emits_published_run_json(
         "run_kind": "research_exploratory",
         "schema": "training_run_result_v1",
         "selection_authorization_digest": None,
+        "selection_proposal_digest": None,
         "status": "published",
     }
 

@@ -3,7 +3,6 @@
 from trade_rl.learning.behavior_cloning import (
     BehaviorCloningConfig,
     BehaviorCloningResult,
-    pretrain_policy,
 )
 from trade_rl.learning.oracle_teacher import (
     ORACLE_TEACHER_SCHEMA,
@@ -36,6 +35,5 @@ __all__ = [
     "collect_teacher_rollout",
     "load_teacher_artifact",
     "oracle_target_path",
-    "pretrain_policy",
     "write_teacher_artifact",
 ]

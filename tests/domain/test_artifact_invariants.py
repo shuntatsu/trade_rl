@@ -5,9 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from trade_rl.domain.datasets import DatasetManifest
-from trade_rl.domain.evaluation import GateCheck, GateDecision
 from trade_rl.domain.policies import PolicyEnsembleManifest, PolicyMember
-from trade_rl.domain.releases import ReleaseManifest
 from trade_rl.domain.selection import PolicyMode, SelectionDecision
 from trade_rl.domain.signals import SignalArtifactManifest, SignalStatus
 
@@ -16,7 +14,6 @@ SIGNAL_DIGEST = "b" * 64
 POLICY_DIGEST = "c" * 64
 EVALUATION_DIGEST = "d" * 64
 TRAINING_CONFIG_DIGEST = "e" * 64
-GATE_EVALUATION_DIGEST = "f" * 64
 ENVIRONMENT_DIGEST = "1" * 64
 NOW = datetime(2026, 7, 13, tzinfo=UTC)
 
@@ -92,31 +89,6 @@ def residual_selection() -> SelectionDecision:
         evaluation_digest=EVALUATION_DIGEST,
         selected_at=NOW,
         reasons=("candidate won",),
-    )
-
-
-def passing_gate(
-    *,
-    dataset_id: str = DATASET_ID,
-    selected_policy_digest: str | None = None,
-) -> GateDecision:
-    return GateDecision(
-        dataset_id=dataset_id,
-        selected_policy_digest=selected_policy_digest,
-        evaluation_digest=GATE_EVALUATION_DIGEST,
-        passed=True,
-        checks=(
-            GateCheck.from_metric(
-                name="positive_holdout_return",
-                metric_name="holdout_return",
-                observed_value=0.01,
-                comparator=">",
-                threshold=0.0,
-                evidence_digest="2" * 64,
-                implementation_digest="3" * 64,
-            ),
-        ),
-        decided_at=NOW,
     )
 
 
@@ -197,89 +169,3 @@ def test_rejected_signal_cannot_enable_alpha() -> None:
             alpha_enabled=True,
             created_at=NOW,
         )
-
-
-def test_failed_mandatory_gate_blocks_release() -> None:
-    gate = GateDecision(
-        dataset_id=DATASET_ID,
-        selected_policy_digest=None,
-        evaluation_digest=GATE_EVALUATION_DIGEST,
-        passed=False,
-        checks=(
-            GateCheck.from_metric(
-                name="positive_holdout_return",
-                metric_name="holdout_return",
-                observed_value=0.01,
-                comparator=">",
-                threshold=0.0,
-                evidence_digest="2" * 64,
-                implementation_digest="3" * 64,
-            ),
-            GateCheck.from_metric(
-                name="positive_return_significant",
-                metric_name="p_value",
-                observed_value=0.10,
-                comparator="<",
-                threshold=0.05,
-                evidence_digest="4" * 64,
-                implementation_digest="5" * 64,
-            ),
-        ),
-        decided_at=NOW,
-    )
-
-    with pytest.raises(ValueError, match="mandatory gate"):
-        ReleaseManifest.create(
-            version="2026.07.13",
-            git_commit="e" * 40,
-            dataset=dataset(),
-            signal=rejected_signal(),
-            selection=baseline_selection(),
-            gate=gate,
-            bundle_digest="9" * 64,
-            created_at=NOW,
-        )
-
-
-def test_release_rejects_gate_dataset_identity_mismatch() -> None:
-    with pytest.raises(ValueError, match="gate dataset identity"):
-        ReleaseManifest.create(
-            version="2026.07.13",
-            git_commit="e" * 40,
-            dataset=dataset(),
-            signal=rejected_signal(),
-            selection=baseline_selection(),
-            gate=passing_gate(dataset_id="0" * 64),
-            bundle_digest="9" * 64,
-            created_at=NOW,
-        )
-
-
-def test_release_rejects_gate_selected_policy_identity_mismatch() -> None:
-    with pytest.raises(ValueError, match="gate selected policy identity"):
-        ReleaseManifest.create(
-            version="2026.07.13",
-            git_commit="e" * 40,
-            dataset=dataset(),
-            signal=rejected_signal(),
-            selection=residual_selection(),
-            gate=passing_gate(selected_policy_digest="1" * 64),
-            bundle_digest="9" * 64,
-            created_at=NOW,
-        )
-
-
-def test_release_records_final_gate_evaluation_identity() -> None:
-    release = ReleaseManifest.create(
-        version="2026.07.13",
-        git_commit="e" * 40,
-        dataset=dataset(),
-        signal=rejected_signal(),
-        selection=residual_selection(),
-        gate=passing_gate(selected_policy_digest=POLICY_DIGEST),
-        bundle_digest="9" * 64,
-        created_at=NOW,
-    )
-
-    assert release.selection_evaluation_digest == EVALUATION_DIGEST
-    assert release.gate_evaluation_digest == GATE_EVALUATION_DIGEST

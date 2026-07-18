@@ -7,12 +7,13 @@ import math
 import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol, TypeAlias, cast
+from urllib.parse import urlparse
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -27,10 +28,18 @@ from trade_rl.integrations.binance import (
     BinanceMarket,
     BinanceTransportMode,
 )
+from trade_rl.release.asymmetric import (
+    PublicVerificationKey,
+    SignedEvidenceEnvelope,
+    verify_signed_payload,
+)
 
 _METADATA_EVIDENCE_SCHEMA = "binance_metadata_evidence_v1"
 _CONSERVATIVE_STATIC_SCHEMA = "binance_conservative_static_v1"
-_POLICY_VERSION = "binance_metadata_modes_v1"
+_POLICY_VERSION = "binance_metadata_modes_v2"
+_SIGNED_HISTORY_SCHEMA = "binance_instrument_rule_history_v4"
+_SIGNED_HISTORY_PURPOSE = "binance-rule-history"
+_VERIFIED_HISTORY_TOKEN = object()
 _LIMITATION = (
     "Current exchange rules are applied statically across the research interval; "
     "they are not historical point-in-time observations."
@@ -316,41 +325,52 @@ def _write_new(path: Path, content: bytes) -> None:
             temporary.unlink()
 
 
-@dataclass(frozen=True, slots=True)
-class BinanceHistoricalSignedScope:
-    """Authenticated semantic scope for one point-in-time Binance rule history."""
+class VerifiedBinanceRuleHistory:
+    """Rule history returned only after signature and semantic verification."""
 
-    market: str
-    symbols: tuple[str, ...]
-    coverage_start: datetime
-    coverage_end: datetime
-    issued_at: datetime
-    source_uri: str
-    payload_digest: str
-    policy_version: str = _POLICY_VERSION
+    __slots__ = (
+        "market",
+        "symbols",
+        "coverage_start",
+        "coverage_end",
+        "issued_at",
+        "source_uri",
+        "payload_digest",
+        "metadata",
+        "execution_rule_histories",
+        "signed_document",
+        "envelope",
+    )
 
-    def __post_init__(self) -> None:
-        try:
-            market = BinanceMarket(self.market)
-        except ValueError as error:
-            raise ValueError("signed history market is unsupported") from error
-        if market is not BinanceMarket.USDS_M:
-            raise ValueError("signed history market must be Binance USD-M")
-        symbols = _validate_symbols(self.symbols)
-        coverage_start = _utc(self.coverage_start, field="coverage_start")
-        coverage_end = _utc(self.coverage_end, field="coverage_end")
-        issued_at = _utc(self.issued_at, field="issued_at")
-        if coverage_end <= coverage_start:
-            raise ValueError("signed history coverage end must follow start")
-        if self.policy_version != _POLICY_VERSION:
-            raise ValueError("signed history policy version is unsupported")
-        object.__setattr__(self, "market", market.value)
-        object.__setattr__(self, "symbols", symbols)
-        object.__setattr__(self, "coverage_start", coverage_start)
-        object.__setattr__(self, "coverage_end", coverage_end)
-        object.__setattr__(self, "issued_at", issued_at)
-        require_non_empty(self.source_uri, field="source_uri")
-        require_sha256(self.payload_digest, field="payload_digest")
+    def __init__(
+        self,
+        *,
+        token: object,
+        market: str,
+        symbols: tuple[str, ...],
+        coverage_start: datetime,
+        coverage_end: datetime,
+        issued_at: datetime,
+        source_uri: str,
+        payload_digest: str,
+        metadata: MetadataMap,
+        execution_rule_histories: HistoryMap,
+        signed_document: bytes,
+        envelope: SignedEvidenceEnvelope,
+    ) -> None:
+        if token is not _VERIFIED_HISTORY_TOKEN:
+            raise TypeError("verified Binance history must be created by the loader")
+        self.market = market
+        self.symbols = symbols
+        self.coverage_start = coverage_start
+        self.coverage_end = coverage_end
+        self.issued_at = issued_at
+        self.source_uri = source_uri
+        self.payload_digest = payload_digest
+        self.metadata = metadata
+        self.execution_rule_histories = execution_rule_histories
+        self.signed_document = signed_document
+        self.envelope = envelope
 
 
 @dataclass(frozen=True, slots=True)
@@ -521,51 +541,206 @@ def _signed_histories(
     return result
 
 
-def resolution_from_historical_signed(
+def _signed_history_payload(
+    document: Mapping[str, object],
+) -> tuple[Mapping[str, object], SignedEvidenceEnvelope]:
+    payload = document.get("payload")
+    envelope_raw = document.get("envelope")
+    if not isinstance(payload, Mapping) or not isinstance(envelope_raw, Mapping):
+        raise ValueError("signed Binance history must contain payload and envelope")
+    return cast(Mapping[str, object], payload), SignedEvidenceEnvelope.from_mapping(
+        cast(Mapping[str, object], envelope_raw)
+    )
+
+
+def _strict_object(value: object, *, field: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field} must be an object")
+    return cast(Mapping[str, object], value)
+
+
+def _strict_list(value: object, *, field: str) -> list[object]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list")
+    return value
+
+
+def load_verified_binance_rule_history(
+    document: Mapping[str, object],
     *,
-    metadata: Mapping[str, Mapping[str, MetadataValue]],
-    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]],
-    signed_scope: BinanceHistoricalSignedScope,
+    trusted_keys: Mapping[str, PublicVerificationKey],
+    trusted_now: datetime,
+    max_clock_skew: timedelta = timedelta(minutes=5),
+) -> VerifiedBinanceRuleHistory:
+    """Verify one complete Ed25519-signed Binance rule-history document."""
+
+    now = _utc(trusted_now, field="trusted_now")
+    if max_clock_skew < timedelta(0):
+        raise ValueError("max_clock_skew must not be negative")
+    payload, envelope = _signed_history_payload(document)
+    verify_signed_payload(
+        payload,
+        envelope,
+        trusted_keys=trusted_keys,
+        trusted_at=now,
+        required_purpose=_SIGNED_HISTORY_PURPOSE,
+    )
+    if payload.get("schema_version") != _SIGNED_HISTORY_SCHEMA:
+        raise ValueError("unsupported signed Binance history schema")
+    if payload.get("policy_version") != _POLICY_VERSION:
+        raise ValueError("unsupported signed Binance history policy version")
+    try:
+        market = BinanceMarket(str(payload["market"]))
+    except (KeyError, ValueError) as error:
+        raise ValueError("signed history market is unsupported") from error
+    if market is not BinanceMarket.USDS_M:
+        raise ValueError("signed history market must be Binance USD-M")
+    symbol_values = _strict_list(payload.get("symbol_order"), field="symbol_order")
+    if any(not isinstance(item, str) for item in symbol_values):
+        raise ValueError("symbol_order must contain strings")
+    symbols = _validate_symbols(cast(list[str], symbol_values))
+    coverage = _strict_object(payload.get("coverage"), field="coverage")
+    coverage_start = _parse_utc(coverage.get("start_time"), field="coverage.start_time")
+    coverage_end = _parse_utc(coverage.get("end_time"), field="coverage.end_time")
+    if coverage_end <= coverage_start:
+        raise ValueError("signed history coverage end must follow start")
+    issued_at = _parse_utc(payload.get("issued_at"), field="issued_at")
+    if issued_at < coverage_end:
+        raise ValueError("signed history issued_at must follow coverage end")
+    if issued_at > now + max_clock_skew:
+        raise ValueError("signed history issued_at is in the future")
+    if envelope.signed_at < issued_at:
+        raise ValueError("signed history signature predates issuance")
+    source_uri = require_non_empty(
+        str(payload.get("source_uri", "")), field="source_uri"
+    )
+    if urlparse(source_uri).scheme not in {"operator", "https"}:
+        raise ValueError("signed history source_uri scheme is not trusted")
+    raw_symbols = _strict_object(payload.get("symbols"), field="symbols")
+    if set(raw_symbols) != set(symbols):
+        raise ValueError("signed history symbols do not match symbol_order")
+
+    metadata: dict[str, dict[str, MetadataValue]] = {}
+    histories: dict[str, tuple[InstrumentExecutionRule, ...]] = {}
+    for symbol in symbols:
+        item = _strict_object(raw_symbols[symbol], field=f"symbols.{symbol}")
+        listed_at = _parse_utc(item.get("listed_at"), field=f"{symbol}.listed_at")
+        if listed_at > coverage_end:
+            raise ValueError(f"{symbol}.listed_at exceeds signed coverage")
+        tick_size = _strictly_positive(
+            item.get("tick_size"), field=f"{symbol}.tick_size"
+        )
+        lot_size = _strictly_positive(item.get("lot_size"), field=f"{symbol}.lot_size")
+        minimum_notional = _strictly_positive(
+            item.get("minimum_notional"), field=f"{symbol}.minimum_notional"
+        )
+        raw_rules = _strict_list(
+            item.get("execution_rules"), field=f"{symbol}.execution_rules"
+        )
+        rules: list[InstrumentExecutionRule] = []
+        for index, raw_rule in enumerate(raw_rules):
+            rule = _strict_object(raw_rule, field=f"{symbol}.execution_rules[{index}]")
+            rules.append(
+                InstrumentExecutionRule(
+                    effective_at=_parse_utc(
+                        rule.get("effective_at"),
+                        field=f"{symbol}.execution_rules[{index}].effective_at",
+                    ),
+                    tick_size=_strictly_positive(
+                        rule.get("tick_size"),
+                        field=f"{symbol}.execution_rules[{index}].tick_size",
+                    ),
+                    lot_size=_strictly_positive(
+                        rule.get("lot_size"),
+                        field=f"{symbol}.execution_rules[{index}].lot_size",
+                    ),
+                    minimum_notional=_strictly_positive(
+                        rule.get("minimum_notional"),
+                        field=f"{symbol}.execution_rules[{index}].minimum_notional",
+                    ),
+                )
+            )
+        resolved_rules = _signed_histories(
+            {symbol: tuple(rules)},
+            symbols=(symbol,),
+            start_time=coverage_start,
+            end_time=coverage_end,
+        )[symbol]
+        if resolved_rules[0].effective_at < listed_at:
+            raise ValueError(f"{symbol} execution history predates listing")
+        final = resolved_rules[-1]
+        if not (
+            math.isclose(final.tick_size, tick_size)
+            and math.isclose(final.lot_size, lot_size)
+            and math.isclose(final.minimum_notional, minimum_notional)
+        ):
+            raise ValueError(f"{symbol} metadata does not match final execution rule")
+        metadata[symbol] = {
+            "listed_at": listed_at.isoformat(),
+            "tick_size": tick_size,
+            "lot_size": lot_size,
+            "minimum_notional": minimum_notional,
+        }
+        histories[symbol] = resolved_rules
+
+    raw_document = canonical_json_bytes(document)
+    return VerifiedBinanceRuleHistory(
+        token=_VERIFIED_HISTORY_TOKEN,
+        market=market.value,
+        symbols=symbols,
+        coverage_start=coverage_start,
+        coverage_end=coverage_end,
+        issued_at=issued_at,
+        source_uri=source_uri,
+        payload_digest=envelope.payload_digest,
+        metadata=_freeze_metadata(metadata),
+        execution_rule_histories=cast(HistoryMap, _freeze_histories(histories)),
+        signed_document=raw_document,
+        envelope=envelope,
+    )
+
+
+def resolution_from_historical_signed(
+    verified_history: VerifiedBinanceRuleHistory,
+    *,
     start_time: datetime,
     end_time: datetime,
 ) -> BinanceMetadataResolution:
-    """Resolve an authenticated history only for its exact signed semantic scope."""
+    """Resolve only a rule history produced by the signature-verifying loader."""
 
+    if not isinstance(verified_history, VerifiedBinanceRuleHistory):
+        raise TypeError(
+            "verified_history must come from load_verified_binance_rule_history"
+        )
     requested_start = _utc(start_time, field="start_time")
     requested_end = _utc(end_time, field="end_time")
     if (
-        signed_scope.coverage_start != requested_start
-        or signed_scope.coverage_end != requested_end
+        verified_history.coverage_start != requested_start
+        or verified_history.coverage_end != requested_end
     ):
         raise ValueError("signed history coverage does not match the research interval")
-    symbols = signed_scope.symbols
-    resolved_metadata = _signed_metadata(metadata, symbols=symbols)
-    histories = _signed_histories(
-        execution_rule_histories,
-        symbols=symbols,
-        start_time=requested_start,
-        end_time=requested_end,
-    )
     identity = _identity(
         mode=BinanceMetadataMode.HISTORICAL_SIGNED,
-        market=signed_scope.market,
-        symbols=symbols,
-        source_uri=signed_scope.source_uri,
-        as_of=_iso(signed_scope.issued_at, field="issued_at"),
+        market=verified_history.market,
+        symbols=verified_history.symbols,
+        source_uri=verified_history.source_uri,
+        as_of=_iso(verified_history.issued_at, field="issued_at"),
         start_time=requested_start,
         end_time=requested_end,
-        authentication="hmac-sha256",
+        authentication="ed25519",
         point_in_time=True,
         limitations=(),
-        source_payload_digest=signed_scope.payload_digest,
+        source_payload_digest=verified_history.payload_digest,
+        raw_payload_sha256=sha256(verified_history.signed_document).hexdigest(),
     )
     return BinanceMetadataResolution(
         mode=BinanceMetadataMode.HISTORICAL_SIGNED,
-        metadata=_freeze_metadata(resolved_metadata),
-        execution_rule_histories=_freeze_histories(histories),
+        metadata=verified_history.metadata,
+        execution_rule_histories=verified_history.execution_rule_histories,
         identity_evidence=identity,
         evidence_digest=content_digest(identity),
-        source_uri=signed_scope.source_uri,
+        source_uri=verified_history.source_uri,
+        raw_payload=verified_history.signed_document,
     )
 
 
@@ -670,11 +845,12 @@ def resolve_conservative_static(
 
 
 __all__ = [
-    "BinanceHistoricalSignedScope",
     "BinanceMetadataMode",
     "BinanceMetadataResolution",
     "BinanceMetadataResolutionProvider",
     "resolve_conservative_static",
+    "VerifiedBinanceRuleHistory",
+    "load_verified_binance_rule_history",
     "resolve_frozen_snapshot",
     "resolution_from_historical_signed",
 ]

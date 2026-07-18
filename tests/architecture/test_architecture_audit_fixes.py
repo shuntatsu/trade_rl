@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
-import runpy
+import importlib
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -28,7 +28,8 @@ EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
 
 
 def _runner_namespace() -> dict[str, Any]:
-    return runpy.run_path(str(EXAMPLE_ROOT / "run_full_research.py"))
+    sys.path.insert(0, str(EXAMPLE_ROOT))
+    return vars(importlib.import_module("full_research_pipeline"))
 
 
 def test_training_policy_digest_uses_cli_policy_digest_and_fails_closed() -> None:
@@ -41,49 +42,12 @@ def test_training_policy_digest_uses_cli_policy_digest_and_fails_closed() -> Non
         resolve({"policy_digest": "A" * 64})
 
 
-def test_confirmation_recheck_loads_existing_generation_context(tmp_path: Path) -> None:
-    namespace = runpy.run_path(str(EXAMPLE_ROOT / "recheck_confirmation.py"))
-    load_context = namespace["_load_existing_context"]
-    work_root = tmp_path / "generation"
-    walk_forward = tmp_path / "artifacts" / "walk-forward"
-    training_path = tmp_path / "artifacts" / "training"
-    work_root.mkdir()
-    walk_forward.mkdir(parents=True)
-    training_path.mkdir(parents=True)
-    (training_path / "ensemble.json").write_text(
-        json.dumps({"environment_digest": "d" * 64}),
-        encoding="utf-8",
-    )
-    summary = {
-        "production_status": "NO-GO",
-        "training": {
-            "policy_digest": "b" * 64,
-            "dataset_id": "c" * 64,
-            "run_digest": "e" * 64,
-            "artifact_path": str(training_path),
-        },
-        "walk_forward": {"artifact_path": str(walk_forward)},
-    }
-    (work_root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+def test_confirmation_recheck_is_a_thin_finalize_launcher() -> None:
+    content = (EXAMPLE_ROOT / "recheck_confirmation.py").read_text(encoding="utf-8")
 
-    (
-        loaded_summary,
-        loaded_walk_forward,
-        digest,
-        dataset_id,
-        environment_digest,
-        training_run_digest,
-    ) = load_context(
-        work_root,
-        repository_root=ROOT,
-    )
-
-    assert loaded_summary == summary
-    assert loaded_walk_forward == walk_forward
-    assert digest == "b" * 64
-    assert dataset_id == "c" * 64
-    assert environment_digest == "d" * 64
-    assert training_run_digest == "e" * 64
+    assert "runpy" not in content
+    assert '"--phase", "finalize"' in content
+    assert "from run_full_research_state import main" in content
 
 
 def _sequence_policy() -> SharedPerAssetActorCriticPolicy:

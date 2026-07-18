@@ -1,2 +1,0 @@
-retry=2
-reason=retain diagnostic log

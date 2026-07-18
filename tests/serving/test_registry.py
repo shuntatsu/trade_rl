@@ -51,7 +51,7 @@ def test_research_registry_can_explicitly_allow_unreleased_bundle(
 
     active = registry.activate(source)
 
-    assert active.manifest.release_digest is None
+    assert active.release is None
 
 
 def test_failed_activation_preserves_previous_active_bundle(tmp_path: Path) -> None:

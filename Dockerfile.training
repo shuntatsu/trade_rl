@@ -1,24 +1,33 @@
-FROM python:3.12-slim AS provenance-validation
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS provenance-validation
 
 ARG TRADE_RL_GIT_COMMIT
 ARG TRADE_RL_GIT_DIRTY
+ARG TRADE_RL_SOURCE_TREE_DIGEST
+ARG TRADE_RL_LOCKFILE_DIGEST
 RUN printf '%s\n' "${TRADE_RL_GIT_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
+    && printf '%s\n' "${TRADE_RL_SOURCE_TREE_DIGEST}" | grep -Eq '^[0-9a-f]{64}$' \
+    && printf '%s\n' "${TRADE_RL_LOCKFILE_DIGEST}" | grep -Eq '^[0-9a-f]{64}$' \
     && case "${TRADE_RL_GIT_DIRTY}" in "true"|"false") ;; *) exit 1 ;; esac \
-    && printf '%s:%s\n' "${TRADE_RL_GIT_COMMIT}" "${TRADE_RL_GIT_DIRTY}" \
+    && printf '%s:%s:%s:%s\n' \
+        "${TRADE_RL_GIT_COMMIT}" \
+        "${TRADE_RL_GIT_DIRTY}" \
+        "${TRADE_RL_SOURCE_TREE_DIGEST}" \
+        "${TRADE_RL_LOCKFILE_DIGEST}" \
         > /provenance.valid
 
-FROM python:3.12-slim AS training-runtime
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS training-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TRADE_RL_METADATA_MODE=frozen_snapshot \
+    TRADE_RL_RESEARCH_PHASE=develop \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/trade-rl-venv \
     PATH="/opt/trade-rl-venv/bin:${PATH}"
 
 RUN groupadd --system trainer \
     && useradd --system --gid trainer --create-home trainer \
-    && pip install --no-cache-dir uv==0.8.4
+    && pip install --no-cache-dir uv==0.10.0
 
 WORKDIR /workspace
 COPY pyproject.toml uv.lock README.md ./
@@ -32,17 +41,28 @@ RUN uv sync --frozen --extra train-sb3 --no-dev
 
 ARG TRADE_RL_GIT_COMMIT
 ARG TRADE_RL_GIT_DIRTY
+ARG TRADE_RL_SOURCE_TREE_DIGEST
+ARG TRADE_RL_LOCKFILE_DIGEST
 COPY --from=provenance-validation /provenance.valid /provenance.valid
 
 ENV TRADE_RL_GIT_COMMIT=${TRADE_RL_GIT_COMMIT} \
-    TRADE_RL_GIT_DIRTY=${TRADE_RL_GIT_DIRTY}
+    TRADE_RL_GIT_DIRTY=${TRADE_RL_GIT_DIRTY} \
+    TRADE_RL_SOURCE_TREE_DIGEST=${TRADE_RL_SOURCE_TREE_DIGEST} \
+    TRADE_RL_LOCKFILE_DIGEST=${TRADE_RL_LOCKFILE_DIGEST}
+
+LABEL org.opencontainers.image.revision=${TRADE_RL_GIT_COMMIT} \
+    io.trade-rl.source-tree-digest=${TRADE_RL_SOURCE_TREE_DIGEST} \
+    io.trade-rl.lockfile-digest=${TRADE_RL_LOCKFILE_DIGEST}
+
+RUN test "$(sha256sum uv.lock | cut -d' ' -f1)" = "${TRADE_RL_LOCKFILE_DIGEST}" \
+    && test "$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("/workspace"))')" = "${TRADE_RL_SOURCE_TREE_DIGEST}"
 
 USER trainer
 RUN test "$(id -u)" -ne 0 \
     && test -w /workspace/var \
     && test -r /workspace/trade_rl/__init__.py \
-    && test -r /workspace/examples/binance-multitimeframe/run_full_research_hardened.py \
+    && test -r /workspace/examples/binance-multitimeframe/full_run_entrypoint.py \
     && test "$(cat /provenance.valid)" \
-        = "${TRADE_RL_GIT_COMMIT}:${TRADE_RL_GIT_DIRTY}"
+        = "${TRADE_RL_GIT_COMMIT}:${TRADE_RL_GIT_DIRTY}:${TRADE_RL_SOURCE_TREE_DIGEST}:${TRADE_RL_LOCKFILE_DIGEST}"
 
-CMD ["sh", "-c", ": \"${TRADE_RL_RUN_GENERATION:?Set TRADE_RL_RUN_GENERATION to a unique generation name}\" && python examples/binance-multitimeframe/training_cuda_preflight.py --output /workspace/var/cuda-preflight.json && python examples/binance-multitimeframe/run_full_research_hardened.py --work-root /workspace/var/runs/${TRADE_RL_RUN_GENERATION} --cache-root /workspace/var/cache/binance-vision --metadata-mode ${TRADE_RL_METADATA_MODE}"]
+CMD ["python", "examples/binance-multitimeframe/full_run_entrypoint.py"]

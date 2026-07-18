@@ -85,6 +85,7 @@ source_modules =
 forbidden_modules =
     stable_baselines3
     sb3_contrib
+    torch
 
 [importlinter:contract:workflow-frameworks]
 name = Workflows cannot directly import model frameworks
@@ -107,3 +108,19 @@ forbidden_modules =
     stable_baselines3
     sb3_contrib
     torch
+
+[importlinter:contract:offline-signers]
+name = Runtime and training paths cannot import offline signers
+type = forbidden
+source_modules =
+    trade_rl.serving
+    trade_rl.integrations
+    trade_rl.rl
+    trade_rl.workflows.training_run
+    trade_rl.workflows.market_walk_forward
+forbidden_modules =
+    trade_rl.release.offline_signing
+    trade_rl.release.offline_keys
+    trade_rl.release.offline_approval
+    trade_rl.evaluation.offline_confirmation
+    trade_rl.workflows.offline_selection_approval

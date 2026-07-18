@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fix/architecture-hardening-20260717
   pull_request:
     branches:
       - main
@@ -12,7 +11,7 @@ on:
       - agent/causal-sequence-feature-encoder
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -146,15 +145,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
       - name: Build complete training image
         shell: bash
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
           docker build \
             --build-arg TRADE_RL_GIT_COMMIT="$commit" \
             --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
             --file Dockerfile.training \
             --tag trade-rl-training:ci \
             .
@@ -168,95 +173,3 @@ jobs:
             test -w /workspace/var
             python -c "import torch, trade_rl; print(torch.__version__)"
           '
-
-  apply-complete-remediation:
-    name: Apply complete remediation
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/architecture-hardening-20260717'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout exact trigger commit
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-      - name: Set up uv and Python 3.12
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-        with:
-          python-version: "3.12"
-          enable-cache: false
-      - name: Reconstruct, verify, test, and publish complete tree
-        shell: bash
-        env:
-          BASE_SHA: 4f5723c2116fc267087e552c4f9a337a49928f7f
-          CURRENT_SHA: ${{ github.sha }}
-          TARGET_BRANCH: fix/architecture-hardening-20260717
-          TRANSFER_BRANCH: fix/remediation-transfer-complete
-          DIAG_BRANCH: fix/remediation-diagnostics
-          PATCH_SHA256: b2f1f71332943439d6a46b10bde983872d0d6cca9ddcfda665acef0f3413b82b
-        run: |
-          set -Euo pipefail
-          log=/tmp/complete-remediation-apply.log
-          exec >"${log}" 2>&1
-          git fetch --no-tags origin "refs/heads/${DIAG_BRANCH}:refs/remotes/origin/${DIAG_BRANCH}"
-          git worktree add -B remediation-diagnostics /tmp/remediation-diagnostics "origin/${DIAG_BRANCH}"
-          finish() {
-            code=$?
-            trap - EXIT
-            set +e
-            git -C /tmp/remediation-diagnostics fetch --no-tags origin "refs/heads/${DIAG_BRANCH}:refs/remotes/origin/${DIAG_BRANCH}"
-            git -C /tmp/remediation-diagnostics reset --hard "origin/${DIAG_BRANCH}"
-            mkdir -p /tmp/remediation-diagnostics/.verification
-            cp "${log}" "/tmp/remediation-diagnostics/.verification/apply-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log"
-            printf 'exit_code=%s\ntrigger_sha=%s\nrun_id=%s\nrun_attempt=%s\n' \
-              "${code}" "${CURRENT_SHA}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" \
-              > "/tmp/remediation-diagnostics/.verification/apply-latest.txt"
-            git -C /tmp/remediation-diagnostics config user.name "github-actions[bot]"
-            git -C /tmp/remediation-diagnostics config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git -C /tmp/remediation-diagnostics add .verification
-            git -C /tmp/remediation-diagnostics commit -m "ci: record complete remediation apply result" || true
-            git -C /tmp/remediation-diagnostics push origin "HEAD:refs/heads/${DIAG_BRANCH}" || true
-            exit "${code}"
-          }
-          trap finish EXIT
-          test "$(git rev-parse HEAD)" = "${CURRENT_SHA}"
-          git fetch --no-tags origin \
-            "${BASE_SHA}" \
-            "refs/heads/${TRANSFER_BRANCH}:refs/remotes/origin/${TRANSFER_BRANCH}"
-          : > /tmp/remediation.patch
-          for number in $(seq -f '%03g' 0 38); do
-            if test "${number}" = "023"; then
-              git show "origin/${TRANSFER_BRANCH}:.remediation/part-023a.diff" >> /tmp/remediation.patch
-              git show "origin/${TRANSFER_BRANCH}:.remediation/part-023b.diff" >> /tmp/remediation.patch
-            elif test "${number}" = "033"; then
-              git show "origin/${TRANSFER_BRANCH}:.github/remediation-transfer/part-033a.patch" >> /tmp/remediation.patch
-              git show "origin/${TRANSFER_BRANCH}:.github/remediation-transfer/part-033b.patch" >> /tmp/remediation.patch
-            elif ((10#${number} <= 28)); then
-              git show "origin/${TRANSFER_BRANCH}:.remediation/part-${number}.diff" >> /tmp/remediation.patch
-            else
-              git show "origin/${TRANSFER_BRANCH}:.github/remediation-transfer/part-${number}.patch" >> /tmp/remediation.patch
-            fi
-          done
-          echo "${PATCH_SHA256}  /tmp/remediation.patch" | sha256sum --check --strict
-          git worktree add --detach /tmp/remediated "${BASE_SHA}"
-          git show "${CURRENT_SHA}:uv.lock" > /tmp/current-uv.lock
-          cd /tmp/remediated
-          git apply --check /tmp/remediation.patch
-          git apply /tmp/remediation.patch
-          cp /tmp/current-uv.lock uv.lock
-          uv sync --frozen --extra dev --extra export --extra train-sb3
-          uv run python -m compileall -q trade_rl examples tests
-          uv run ruff check .
-          uv run ruff format --check .
-          uv run mypy trade_rl
-          uv run lint-imports
-          uv run pytest -q
-          git add -A
-          tree_sha="$(git write-tree)"
-          export GIT_AUTHOR_NAME='github-actions[bot]'
-          export GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
-          export GIT_COMMITTER_NAME="${GIT_AUTHOR_NAME}"
-          export GIT_COMMITTER_EMAIL="${GIT_AUTHOR_EMAIL}"
-          commit_sha="$(printf '%s\n' 'fix: apply complete trust-boundary remediation' | git commit-tree "${tree_sha}" -p "${CURRENT_SHA}")"
-          test "$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | cut -f1)" = "${CURRENT_SHA}"
-          git push origin "${commit_sha}:refs/heads/${TARGET_BRANCH}"

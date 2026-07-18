@@ -236,7 +236,7 @@ class StableBaselines3Backend:
                 environment = _build_training_environment(
                     self.environment_factory,
                     config.n_envs,
-                    subprocesses=not config.sequence_encoder,
+                    subprocesses=False,
                 )
             policy_identifier: Any = (
                 SharedPerAssetActorCriticPolicy
@@ -453,7 +453,7 @@ class StableBaselines3Backend:
                             else "default"
                         ),
                         "vector_environment": (
-                            "dummy" if config.sequence_encoder else "subprocess"
+                            "native" if config.n_envs == 1 else "dummy"
                         ),
                         "schema_version": "policy_architecture_v2",
                         "training_config_digest": content_digest(

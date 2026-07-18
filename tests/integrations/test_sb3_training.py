@@ -216,7 +216,7 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
     ) -> Any:
         assert worker_factory is factory
         assert n_envs == 2
-        assert subprocesses is True
+        assert subprocesses is False
         assert events == ["metadata", "validated", "metadata", "probe-close"]
         events.append("workers-build")
         return vector_environment

@@ -108,7 +108,7 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     snapshot = next(
         item.run for item in config.candidates if item.name == "snapshot-ppo-15m-target"
     )
-    assert snapshot.training.n_envs == 3
+    assert snapshot.training.n_envs == 4
     assert not snapshot.training.sequence_encoder
     assert not snapshot.environment.structured_sequence_observation
     oracle = next(

@@ -121,6 +121,10 @@ jobs:
           uv run lint-imports
           uv run pytest -q
 
+          rm -rf .venv
+          tar --exclude=.git -czf /tmp/complete-remediated.tar.gz .
+          sha256sum /tmp/complete-remediated.tar.gz
+
           git add -A
           tree_sha="$(git write-tree)"
           export GIT_AUTHOR_NAME='github-actions[bot]'
@@ -130,3 +134,11 @@ jobs:
           commit_sha="$(printf '%s\n' 'fix: apply complete trust-boundary remediation' | git commit-tree "${tree_sha}" -p "${CURRENT_SHA}")"
           test "$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | cut -f1)" = "${CURRENT_SHA}"
           git push origin "${commit_sha}:refs/heads/${TARGET_BRANCH}"
+      - name: Upload verified complete tree
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: complete-remediated-${{ github.sha }}
+          path: /tmp/complete-remediated.tar.gz
+          if-no-files-found: error
+          retention-days: 1

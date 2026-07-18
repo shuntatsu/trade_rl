@@ -73,3 +73,11 @@ jobs:
           done
           printf 'ALL %s %s\n' "$(wc -c < /tmp/remediation.patch)" "$(sha256sum /tmp/remediation.patch | cut -d' ' -f1)"
           exit 1
+      - name: Upload reconstructed patch
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reconstructed-remediation-${{ github.sha }}
+          path: /tmp/remediation.patch
+          if-no-files-found: error
+          retention-days: 1

@@ -27,7 +27,7 @@
             2
           ],
           "n_steps": 128,
-          "n_envs": 4,
+          "n_envs": 3,
           "batch_size": 128,
           "n_epochs": 10,
           "ent_coef": 0.001,

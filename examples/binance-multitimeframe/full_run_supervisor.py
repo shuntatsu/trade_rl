@@ -200,6 +200,9 @@ def _load_expectation(path: Path) -> dict[str, str]:
     ):
         if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
             raise RuntimeError(f"supervisor expectation {field} is invalid")
+    assert isinstance(image_digest, str)
+    assert isinstance(source_digest, str)
+    assert isinstance(lock_digest, str)
     return {
         "generation": generation,
         "git_commit": git_commit,
@@ -284,6 +287,9 @@ def _require_expected_identity(
         and evidence.get("lockfile_digest") != expected_lockfile_digest
     ):
         raise RuntimeError("supervised trainer lockfile digest mismatch")
+
+
+def _require_valid_runtime_state(evidence: dict[str, Any]) -> None:
     if evidence.get("oom_killed") is True:
         raise RuntimeError("supervised trainer was OOM killed")
     if evidence.get("health") == "unhealthy":
@@ -392,6 +398,7 @@ def start_supervised_run(
         expected_source_tree_digest=source_tree_digest,
         expected_lockfile_digest=lockfile_digest,
     )
+    _require_valid_runtime_state(evidence)
     if evidence["state"] != "running":
         raise RuntimeError("supervised trainer did not enter the running state")
     if expectation_path is not None:
@@ -481,6 +488,7 @@ def supervised_run_status(
         expected_source_tree_digest=expected_source_tree_digest,
         expected_lockfile_digest=expected_lockfile_digest,
     )
+    _require_valid_runtime_state(evidence)
     observed_now = now().astimezone(UTC)
     if evidence.get("state") == "running":
         generation = str(evidence.get("generation", ""))
@@ -570,8 +578,8 @@ def stop_supervised_run(
     log_tail = _container_logs(name, runner)
     evidence = {**evidence, "container_log_tail": log_tail}
     if remove:
-        command = ("docker", "rm", name)
-        _require_success(runner(command), command=command)
+        remove_command = ("docker", "rm", name)
+        _require_success(runner(remove_command), command=remove_command)
         evidence = {**evidence, "removed": True}
         if expectation_path is not None:
             expectation_path.unlink(missing_ok=True)

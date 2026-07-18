@@ -267,6 +267,34 @@ def test_stop_reads_logs_before_removing_container() -> None:
     assert evidence["container_log_tail"] == "retained-log\n"
 
 
+def test_stop_can_remove_matching_unsuccessful_container() -> None:
+    stop = _namespace()["stop_supervised_run"]
+    failed = json.loads(_running_inspect())
+    failed[0]["State"]["Status"] = "exited"
+    failed[0]["State"]["ExitCode"] = 3
+    runner = _Runner(
+        [
+            _completed("trade-rl-full-generation-1\n"),
+            _completed(json.dumps(failed)),
+            _completed(json.dumps(failed)),
+            _completed("startup failure\n"),
+            _completed(),
+        ]
+    )
+
+    evidence = stop(
+        remove=True,
+        expected_generation="generation-1",
+        expected_git_commit="a" * 40,
+        runner=runner,
+    )
+
+    assert evidence["exit_code"] == 3
+    assert evidence["container_log_tail"] == "startup failure\n"
+    assert evidence["removed"] is True
+    assert runner.commands[-1] == ("docker", "rm", "trade-rl-full-generation-1")
+
+
 def test_expectation_file_makes_absent_container_fail_closed(tmp_path: Path) -> None:
     status = _namespace()["supervised_run_status"]
     expectation = tmp_path / "expected.json"

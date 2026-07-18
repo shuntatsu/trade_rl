@@ -50,6 +50,19 @@ if str(_EXAMPLE_DIR) not in sys.path:
 import full_research_pipeline as pipeline  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parents[2]
+_SUPERVISED_BOOTSTRAP_ARTIFACTS = frozenset(
+    {"cuda-preflight.json", "entrypoint-provenance.json", "heartbeat.json"}
+)
+
+
+def _require_fresh_develop_root(work_root: Path) -> None:
+    unexpected = tuple(
+        entry
+        for entry in work_root.iterdir()
+        if entry.name not in _SUPERVISED_BOOTSTRAP_ARTIFACTS or not entry.is_file()
+    )
+    if unexpected:
+        raise FileExistsError(f"research generation already exists: {work_root}")
 
 
 def _lockfile_digest() -> str:
@@ -135,8 +148,7 @@ class BinanceFullResearchStages:
         return self._finalize(work_root)
 
     def _develop(self, work_root: Path) -> ResearchPhaseOutcome:
-        if any(work_root.iterdir()):
-            raise FileExistsError(f"research generation already exists: {work_root}")
+        _require_fresh_develop_root(work_root)
         cache_root = self.args.cache_root
         if not cache_root.is_absolute():
             cache_root = _ROOT / cache_root

@@ -4,6 +4,7 @@ import hashlib
 import importlib
 import json
 import sys
+from argparse import Namespace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,11 @@ SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 def _namespace() -> dict[str, Any]:
     sys.path.insert(0, str(EXAMPLE_ROOT))
     return vars(importlib.import_module("full_research_pipeline"))
+
+
+def _state_module() -> Any:
+    sys.path.insert(0, str(EXAMPLE_ROOT))
+    return importlib.import_module("run_full_research_state")
 
 
 def _snapshot() -> BinanceExchangeInfoSnapshot:
@@ -179,6 +185,63 @@ def test_runner_conservative_mode_requires_explicit_payload() -> None:
             transport=_Transport(),
             conservative_static_path=None,
         )
+
+
+def test_develop_accepts_supervised_bootstrap_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _state_module()
+    work_root = tmp_path / "generation"
+    work_root.mkdir()
+    for name in (
+        "cuda-preflight.json",
+        "entrypoint-provenance.json",
+        "heartbeat.json",
+    ):
+        (work_root / name).write_text("{}\n", encoding="utf-8")
+
+    class ReachedMetadataResolution(Exception):
+        pass
+
+    def reached_resolution(**_: object) -> None:
+        raise ReachedMetadataResolution
+
+    monkeypatch.setattr(module.pipeline, "resolve_metadata", reached_resolution)
+    stages = module.BinanceFullResearchStages(
+        Namespace(
+            cache_root=tmp_path / "cache",
+            conservative_static_path=None,
+            metadata_mode="frozen_snapshot",
+        )
+    )
+
+    with pytest.raises(ReachedMetadataResolution):
+        stages._develop(work_root)
+
+
+def test_develop_rejects_prior_research_artifacts_without_deleting_them(
+    tmp_path: Path,
+) -> None:
+    module = _state_module()
+    work_root = tmp_path / "generation"
+    work_root.mkdir()
+    prior_summary = work_root / "summary.json"
+    prior_summary.write_text('{"status":"infrastructure_error"}\n', encoding="utf-8")
+    stages = module.BinanceFullResearchStages(
+        Namespace(
+            cache_root=tmp_path / "cache",
+            conservative_static_path=None,
+            metadata_mode="frozen_snapshot",
+        )
+    )
+
+    with pytest.raises(FileExistsError, match="research generation already exists"):
+        stages._develop(work_root)
+
+    assert prior_summary.read_text(encoding="utf-8") == (
+        '{"status":"infrastructure_error"}\n'
+    )
 
 
 def test_runner_source_uses_typed_state_and_public_key_verification() -> None:

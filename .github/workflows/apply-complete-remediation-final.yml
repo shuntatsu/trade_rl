@@ -31,9 +31,33 @@ jobs:
           CURRENT_SHA: ${{ github.sha }}
           TARGET_BRANCH: fix/architecture-hardening-20260717
           TRANSFER_BRANCH: fix/remediation-transfer-complete
+          DIAG_BRANCH: fix/remediation-diagnostics
           PATCH_SHA256: b2f1f71332943439d6a46b10bde983872d0d6cca9ddcfda665acef0f3413b82b
         run: |
-          set -euo pipefail
+          set -Euo pipefail
+          log=/tmp/complete-remediation-final.log
+          exec >"${log}" 2>&1
+          git fetch --no-tags origin "refs/heads/${DIAG_BRANCH}:refs/remotes/origin/${DIAG_BRANCH}"
+          git worktree add -B remediation-final-diagnostics /tmp/remediation-final-diagnostics "origin/${DIAG_BRANCH}"
+          finish() {
+            code=$?
+            trap - EXIT
+            set +e
+            git -C /tmp/remediation-final-diagnostics fetch --no-tags origin "refs/heads/${DIAG_BRANCH}:refs/remotes/origin/${DIAG_BRANCH}"
+            git -C /tmp/remediation-final-diagnostics reset --hard "origin/${DIAG_BRANCH}"
+            mkdir -p /tmp/remediation-final-diagnostics/.verification
+            cp "${log}" "/tmp/remediation-final-diagnostics/.verification/apply-final-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+            printf 'exit_code=%s\ntrigger_sha=%s\nrun_id=%s\nrun_attempt=%s\n' \
+              "${code}" "${CURRENT_SHA}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}" \
+              > /tmp/remediation-final-diagnostics/.verification/apply-final-latest.txt
+            git -C /tmp/remediation-final-diagnostics config user.name "github-actions[bot]"
+            git -C /tmp/remediation-final-diagnostics config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C /tmp/remediation-final-diagnostics add -f .verification
+            git -C /tmp/remediation-final-diagnostics commit -m "ci: record final remediation apply result" || true
+            git -C /tmp/remediation-final-diagnostics push origin "HEAD:refs/heads/${DIAG_BRANCH}" || true
+            exit "${code}"
+          }
+          trap finish EXIT
           test "$(git rev-parse HEAD)" = "${CURRENT_SHA}"
           git fetch --no-tags origin \
             "${BASE_SHA}" \
@@ -56,6 +80,7 @@ jobs:
               git show "origin/${TRANSFER_BRANCH}:.github/remediation-transfer/part-${number}.patch" >> /tmp/remediation.patch
             fi
           done
+          sha256sum /tmp/remediation.patch
           echo "${PATCH_SHA256}  /tmp/remediation.patch" | sha256sum --check --strict
 
           git worktree add --detach /tmp/remediated "${BASE_SHA}"

@@ -146,6 +146,30 @@ def test_build_training_environment_uses_two_subprocess_workers() -> None:
         environment.close()
 
 
+def test_build_training_environment_explicitly_uses_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from stable_baselines3.common import vec_env
+
+    observed: dict[str, object] = {}
+
+    class FakeSubprocVecEnv:
+        def __init__(
+            self,
+            factories: list[Callable[[], TinyEnvironment]],
+            start_method: str | None = None,
+        ) -> None:
+            observed["factory_count"] = len(factories)
+            observed["start_method"] = start_method
+
+    monkeypatch.setattr(vec_env, "SubprocVecEnv", FakeSubprocVecEnv)
+
+    environment = _build_training_environment(_tiny_environment_factory, 2)
+
+    assert isinstance(environment, FakeSubprocVecEnv)
+    assert observed == {"factory_count": 2, "start_method": "spawn"}
+
+
 def test_build_training_environment_uses_in_process_workers_for_sequences() -> None:
     factory: Callable[[], TinyEnvironment] = _tiny_environment_factory
     environment = _build_training_environment(factory, 2, subprocesses=False)

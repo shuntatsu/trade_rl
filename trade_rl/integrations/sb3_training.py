@@ -53,7 +53,10 @@ def _build_training_environment(
     if subprocesses:
         from stable_baselines3.common.vec_env import SubprocVecEnv
 
-        return SubprocVecEnv([factory for _ in range(n_envs)])
+        return SubprocVecEnv(
+            [factory for _ in range(n_envs)],
+            start_method="spawn",
+        )
     from stable_baselines3.common.vec_env import DummyVecEnv
 
     return DummyVecEnv([factory for _ in range(n_envs)])

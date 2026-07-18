@@ -1,4 +1,4 @@
-name: Supervise Binance frozen 226 full generation
+name: Control Binance frozen 226 full generation
 
 on:
   workflow_dispatch:
@@ -7,13 +7,23 @@ on:
         description: Supervised full-run operation
         required: true
         type: choice
-        default: status
+        default: start
         options:
           - start
-          - status
           - stop
-  schedule:
-    - cron: '23 * * * *'
+      phase:
+        description: Research phase used when starting
+        required: true
+        type: choice
+        default: develop
+        options:
+          - develop
+          - train-selected
+          - finalize
+      generation:
+        description: Stable generation identifier shared by all phases
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,103 +33,124 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  supervise:
+  control:
     if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.actor == github.repository_owner &&
-       github.ref == 'refs/heads/main')
+      github.event_name == 'workflow_dispatch' &&
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/main'
     environment: gpu-full-training
     runs-on: [self-hosted, linux, x64, gpu, nvidia]
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
-      TRADE_RL_GIT_DIRTY: 'false'
+      TRADE_RL_EVIDENCE_ROOT: ${{ vars.TRADE_RL_EVIDENCE_ROOT }}
+      TRADE_RL_GIT_DIRTY: "false"
       TRADE_RL_METADATA_MODE: frozen_snapshot
+      TRADE_RL_RESEARCH_PHASE: ${{ inputs.phase }}
+      TRADE_RL_RUN_GENERATION: ${{ inputs.generation }}
+      TRADE_RL_BINANCE_RULE_HISTORY: /workspace/evidence/binance-rule-history.json
+      TRADE_RL_METADATA_PUBLIC_KEYS: /workspace/evidence/metadata-public-keys.json
+      TRADE_RL_SELECTION_AUTHORIZATION: /workspace/evidence/selection-authorization.json
+      TRADE_RL_SELECTION_PUBLIC_KEYS: /workspace/evidence/selection-public-keys.json
+      TRADE_RL_CONFIRMATION_EVIDENCE: /workspace/evidence/fresh-confirmation.json
+      TRADE_RL_CONFIRMATION_PUBLIC_KEYS: /workspace/evidence/confirmation-public-keys.json
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Resolve operation and immutable identity
+      - name: Resolve immutable execution identity
         shell: bash
         env:
-          DISPATCH_OPERATION: ${{ inputs.operation }}
+          REQUESTED_OPERATION: ${{ inputs.operation }}
         run: |
           set -euo pipefail
-          operation="$DISPATCH_OPERATION"
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            operation=status
-          fi
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          printf '%s\n' "$TRADE_RL_RUN_GENERATION" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
           commit="$(git rev-parse HEAD)"
-          generation="frozen-226-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          container="trade-rl-full-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          echo "TRADE_RL_OPERATION=$operation" >> "$GITHUB_ENV"
-          echo "TRADE_RL_RUN_GENERATION=$generation" >> "$GITHUB_ENV"
-          echo "TRADE_RL_CONTAINER_NAME=$container" >> "$GITHUB_ENV"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          evidence_root="${TRADE_RL_EVIDENCE_ROOT:-$HOME/.local/share/trade-rl/evidence}"
+          expectation="$HOME/.local/state/trade-rl/frozen-226.json"
+          container="trade-rl-full-${TRADE_RL_RUN_GENERATION}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$evidence_root" "$(dirname "$expectation")"
+          echo "TRADE_RL_OPERATION=$REQUESTED_OPERATION" >> "$GITHUB_ENV"
           echo "TRADE_RL_GIT_COMMIT=$commit" >> "$GITHUB_ENV"
+          echo "TRADE_RL_SOURCE_TREE_DIGEST=$source_digest" >> "$GITHUB_ENV"
+          echo "TRADE_RL_LOCKFILE_DIGEST=$lock_digest" >> "$GITHUB_ENV"
+          echo "TRADE_RL_EVIDENCE_ROOT=$evidence_root" >> "$GITHUB_ENV"
+          echo "TRADE_RL_EXPECTATION_PATH=$expectation" >> "$GITHUB_ENV"
+          echo "TRADE_RL_CONTAINER_NAME=$container" >> "$GITHUB_ENV"
 
-      - name: CUDA and Docker evidence
+      - name: Resolve or build immutable training image
         if: env.TRADE_RL_OPERATION == 'start'
-        run: |
-          nvidia-smi
-          docker version
-          docker compose version
-
-      - name: Build clean-provenance training image
-        if: env.TRADE_RL_OPERATION == 'start'
-        run: docker compose -f compose.training.yaml build trainer
-
-      - name: Run CUDA preflight
-        if: env.TRADE_RL_OPERATION == 'start'
-        run: >-
-          docker compose -f compose.training.yaml run --rm --entrypoint python trainer
-          examples/binance-multitimeframe/training_cuda_preflight.py
-          --output /workspace/var/cuda-preflight-${{ github.run_id }}.json
-
-      - name: Start supervised full generation
-        if: env.TRADE_RL_OPERATION == 'start'
-        run: >-
-          python examples/binance-multitimeframe/full_run_supervisor.py start
-          --generation "$TRADE_RL_RUN_GENERATION"
-          --container-name "$TRADE_RL_CONTAINER_NAME"
-          --git-commit "$TRADE_RL_GIT_COMMIT"
-          --metadata-mode "$TRADE_RL_METADATA_MODE"
-          --compose-file compose.training.yaml
-          --evidence-path gpu-full-supervisor.json
-
-      - name: Inspect supervised full generation
-        if: env.TRADE_RL_OPERATION == 'status'
-        run: >-
-          python examples/binance-multitimeframe/full_run_supervisor.py status
-          --evidence-path gpu-full-supervisor.json
-
-      - name: Stop and remove supervised full generation
-        if: env.TRADE_RL_OPERATION == 'stop'
-        run: >-
-          python examples/binance-multitimeframe/full_run_supervisor.py stop
-          --remove
-          --evidence-path gpu-full-supervisor.json
-
-      - name: Capture retained logs
-        if: always()
         shell: bash
         run: |
           set -euo pipefail
-          name="$(docker ps -a --filter 'label=trade-rl.supervised=true' --format '{{.Names}}' | head -n 1)"
-          if [ -n "$name" ]; then
-            docker logs --tail 200 "$name" > gpu-full-container.log 2>&1 || true
-          else
-            : > gpu-full-container.log
+          image="trade-rl-training:${TRADE_RL_GIT_COMMIT}"
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            docker compose -f compose.training.yaml build trainer
           fi
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = "$TRADE_RL_GIT_COMMIT"
+          test "$(docker image inspect --format '{{ index .Config.Labels "io.trade-rl.source-tree-digest" }}' "$image")" = "$TRADE_RL_SOURCE_TREE_DIGEST"
+          test "$(docker image inspect --format '{{ index .Config.Labels "io.trade-rl.lockfile-digest" }}' "$image")" = "$TRADE_RL_LOCKFILE_DIGEST"
+          image_digest="$(docker image inspect --format '{{.Id}}' "$image" | sed 's/^sha256://')"
+          printf '%s\n' "$image_digest" | grep -Eq '^[0-9a-f]{64}$'
+          echo "TRADE_RL_IMAGE_DIGEST=$image_digest" >> "$GITHUB_ENV"
+
+      - name: Require actual CUDA device
+        if: env.TRADE_RL_OPERATION == 'start'
+        shell: bash
+        run: |
+          set -euo pipefail
+          nvidia-smi
+          docker run --rm --gpus all --entrypoint python \
+            "trade-rl-training:${TRADE_RL_GIT_COMMIT}" \
+            -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
+
+      - name: Start supervised research phase
+        if: env.TRADE_RL_OPERATION == 'start'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python examples/binance-multitimeframe/full_run_supervisor.py start \
+            --generation "$TRADE_RL_RUN_GENERATION" \
+            --container-name "$TRADE_RL_CONTAINER_NAME" \
+            --git-commit "$TRADE_RL_GIT_COMMIT" \
+            --source-tree-digest "$TRADE_RL_SOURCE_TREE_DIGEST" \
+            --lockfile-digest "$TRADE_RL_LOCKFILE_DIGEST" \
+            --expected-image-digest "$TRADE_RL_IMAGE_DIGEST" \
+            --metadata-mode "$TRADE_RL_METADATA_MODE" \
+            --compose-file compose.training.yaml \
+            --expectation-path "$TRADE_RL_EXPECTATION_PATH" \
+            --evidence-path gpu-full-supervisor.json
+
+      - name: Stop phase and retain complete run evidence
+        if: env.TRADE_RL_OPERATION == 'stop'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python examples/binance-multitimeframe/full_run_supervisor.py stop \
+            --expectation-path "$TRADE_RL_EXPECTATION_PATH" \
+            --evidence-path gpu-full-supervisor.json
+          generation="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"])' "$TRADE_RL_EXPECTATION_PATH")"
+          name="$(docker ps -a --filter 'label=trade-rl.project=trade-rl' --filter "label=trade-rl.generation=$generation" --format '{{.Names}}')"
+          test -n "$name"
+          mkdir -p retained-run
+          docker cp "$name:/workspace/var/runs/$generation/." retained-run/
+          python examples/binance-multitimeframe/full_run_supervisor.py stop \
+            --remove \
+            --expectation-path "$TRADE_RL_EXPECTATION_PATH" \
+            --evidence-path gpu-full-supervisor-removed.json
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: binance-frozen-226-supervisor-${{ github.run_id }}-${{ github.run_attempt }}
+          name: binance-frozen-226-control-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             gpu-full-supervisor.json
-            gpu-full-container.log
+            gpu-full-supervisor-removed.json
+            retained-run
           if-no-files-found: warn
           retention-days: 30

@@ -18,18 +18,28 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Verify and apply audited patch
+      - name: Verify transfer payload
         shell: bash
         run: |
           set -euo pipefail
           cat .github/viz-audit-payload/part-* > /tmp/viz.patch.gz.b64
+          wc -c /tmp/viz.patch.gz.b64
+          sha256sum /tmp/viz.patch.gz.b64
           test "$(wc -c < /tmp/viz.patch.gz.b64)" -eq 12440
           echo "9340b8df18f1a58298885362dae942cd79d58813ea4e27f92f0703715cc28b46  /tmp/viz.patch.gz.b64" | sha256sum --check
           base64 --decode /tmp/viz.patch.gz.b64 | gzip --decompress > /tmp/viz.patch
+      - name: Apply audited patch
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git am --3way /tmp/viz.patch
           git diff --check
+      - name: Verify Studio frontend
+        shell: bash
+        run: |
+          set -euo pipefail
           npm ci --prefix studio --no-audit --no-fund
           npm test --prefix studio -- --run
           npm run typecheck --prefix studio

@@ -42,7 +42,7 @@ jobs:
           cache-dependency-path: studio/package-lock.json
 
       - name: Install Studio frontend
-        run: npm ci --prefix studio
+        run: npm ci --prefix studio --no-audit --no-fund
 
       - name: Verify Studio frontend
         run: |

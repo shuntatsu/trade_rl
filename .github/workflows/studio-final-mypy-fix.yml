@@ -1,0 +1,70 @@
+name: Fix Final Studio Types
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply literal type corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          python - <<'PY'
+          from pathlib import Path
+
+          evidence = Path("trade_rl/studio/evidence.py")
+          payload = evidence.read_text(encoding="utf-8")
+          replacements = {
+              "from typing import Any\n": "from typing import Any, Literal\n",
+              '    status = "VERIFIED" if valid_manifest and declared_item is not None else "PRESENT"\n': '    status: Literal["VERIFIED", "PRESENT"] = (\n        "VERIFIED" if valid_manifest and declared_item is not None else "PRESENT"\n    )\n',
+              '    status = "VALID" if valid and not required_invalid else "INVALID"\n': '    status: Literal["VALID", "INVALID"] = (\n        "VALID" if valid and not required_invalid else "INVALID"\n    )\n',
+          }
+          for old, new in replacements.items():
+              if payload.count(old) != 1:
+                  raise SystemExit(f"evidence replacement target mismatch: {old!r}")
+              payload = payload.replace(old, new)
+          evidence.write_text(payload, encoding="utf-8")
+
+          comparison = Path("trade_rl/studio/comparison.py")
+          payload = comparison.read_text(encoding="utf-8")
+          if payload.count("from typing import Any\n") != 1:
+              raise SystemExit("comparison typing import target mismatch")
+          payload = payload.replace("from typing import Any\n", "from typing import Any, Literal\n")
+          marker = "\n_METRICS: tuple[tuple[str, str, str], ...] = (\n"
+          replacement = '\nMetricPreference = Literal["higher", "lower", "neutral"]\n\n_METRICS: tuple[tuple[str, str, MetricPreference], ...] = (\n'
+          if payload.count(marker) != 1:
+              raise SystemExit("comparison metric type target mismatch")
+          payload = payload.replace(marker, replacement)
+          comparison.write_text(payload, encoding="utf-8")
+          PY
+          uv run ruff check --fix trade_rl/studio/evidence.py trade_rl/studio/comparison.py
+          uv run ruff format trade_rl/studio/evidence.py trade_rl/studio/comparison.py
+          uv run mypy trade_rl/studio
+          git diff --check
+      - name: Commit type corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/studio/evidence.py trade_rl/studio/comparison.py
+          git commit -m "fix: preserve Studio literal types"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

@@ -1,4 +1,5 @@
 import { chromium } from '@playwright/test'
+import { statSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
@@ -72,9 +73,29 @@ const auditFixtures = {
   },
 }
 
+const browserCandidates = [
+  process.env.CHROMIUM_PATH,
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+].filter(Boolean)
+
+const executablePath = browserCandidates.find((candidate) => {
+  try {
+    return statSync(candidate).isFile()
+  } catch {
+    return false
+  }
+})
+
+if (!executablePath) {
+  throw new Error(`Chromium executable was not found. Checked: ${browserCandidates.join(', ')}`)
+}
+
 const browser = await chromium.launch({
   headless: true,
-  executablePath: process.env.CHROMIUM_PATH ?? '/usr/bin/chromium',
+  executablePath,
   args: ['--no-sandbox'],
 })
 

@@ -241,7 +241,7 @@ class StudioCatalog:
                         id=dataset.dataset_id,
                         name=path.name,
                         relative_path=relative,
-                        market=dataset.calendar_kind.value,
+                        market=dataset.calendar_kind,
                         symbols=dataset.symbols,
                         timeframes=(_timeframe(dataset.bar_hours),),
                         range=f"{start} — {end}",
@@ -410,7 +410,7 @@ class StudioCatalog:
                 algorithm="training",
                 phase=job.status,
                 seed_progress=job.run_id,
-                progress=100.0 if job.status == "succeeded" else 0.0,
+                progress=0.0,
             )
             for job in jobs
             if job.status in {"queued", "running", "cancelling"}

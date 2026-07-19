@@ -25,8 +25,6 @@ jobs:
         run: |
           set -euo pipefail
           cat .github/viz-audit-payload/part-* > /tmp/viz.patch.gz.b64
-          wc -c /tmp/viz.patch.gz.b64
-          sha256sum /tmp/viz.patch.gz.b64
           test "$(wc -c < /tmp/viz.patch.gz.b64)" -eq 12440
           echo "9340b8df18f1a58298885362dae942cd79d58813ea4e27f92f0703715cc28b46  /tmp/viz.patch.gz.b64" | sha256sum --check
           base64 --decode /tmp/viz.patch.gz.b64 | gzip --decompress > /tmp/viz.patch
@@ -38,15 +36,16 @@ jobs:
           git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git am --3way /tmp/viz.patch
           git diff --check
-      - name: Verify Studio frontend
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm ci --prefix studio --no-audit --no-fund
-          npm test --prefix studio -- --run
-          npm run typecheck --prefix studio
-          npm run build --prefix studio
-          npm run check:layout --prefix studio
+      - name: Install Studio frontend
+        run: npm ci --prefix studio --no-audit --no-fund
+      - name: Test Studio frontend
+        run: npm test --prefix studio -- --run
+      - name: Typecheck Studio frontend
+        run: npm run typecheck --prefix studio
+      - name: Build Studio frontend
+        run: npm run build --prefix studio
+      - name: Check Studio layout
+        run: npm run check:layout --prefix studio
       - name: Remove transfer payload and push
         shell: bash
         run: |

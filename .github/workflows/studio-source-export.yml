@@ -37,7 +37,19 @@ jobs:
             exit 0
           fi
           cat "${parts[@]}" > /tmp/studio-runtime.patch.gz.b64
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("/tmp/studio-runtime.patch.gz.b64")
+          payload = path.read_text(encoding="ascii")
+          if len(payload) == 75558:
+              payload = payload[:41891] + "0G" + payload[41891:]
+              path.write_text(payload, encoding="ascii")
+          if len(payload) != 75560:
+              raise SystemExit(f"unexpected encoded patch length: {len(payload)}")
+          PY
           base64 --decode /tmp/studio-runtime.patch.gz.b64 | gzip --decompress > /tmp/studio-runtime.patch
+          test "$(sha256sum /tmp/studio-runtime.patch | cut -d' ' -f1)" = "66bf468c83fccdd1908b7451e219e2560c949db6a2e794e3775cd0a240ffa625"
           awk '
             /^diff -ruN / {
               skip = ($0 ~ /trade_rl_base\/\.github\/workflows\/studio-source-export\.yml /)

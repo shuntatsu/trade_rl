@@ -52,13 +52,13 @@ jobs:
           test "$(sha256sum /tmp/studio-runtime.patch | cut -d' ' -f1)" = "66bf468c83fccdd1908b7451e219e2560c949db6a2e794e3775cd0a240ffa625"
           awk '
             /^diff -ruN / {
-              skip = ($0 ~ /trade_rl_base\/\.github\/workflows\/studio-source-export\.yml /)
+              skip = ($0 ~ /trade_rl_base\/\.github\/workflows\/(studio-source-export|ci)\.yml /)
             }
             !skip { print }
           ' /tmp/studio-runtime.patch > /tmp/studio-runtime.filtered.patch
           patch -p1 < /tmp/studio-runtime.filtered.patch
           echo "PATCH_APPLIED"
-          rm -f "${parts[@]}" .github/workflows/studio-source-export.yml
+          rm -f "${parts[@]}"
           uv lock
           echo "LOCK_UPDATED"
           git diff --check

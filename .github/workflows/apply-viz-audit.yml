@@ -1,6 +1,9 @@
 name: Apply Visualization Audit
 
 on:
+  push:
+    branches:
+      - feat/trade-rl-studio-shell
   pull_request:
     branches:
       - main
@@ -10,13 +13,12 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: feat/trade-rl-studio-shell
           fetch-depth: 0
       - name: Verify transfer payload
         shell: bash
@@ -51,4 +53,4 @@ jobs:
           set -euo pipefail
           git rm -r .github/viz-audit-payload
           git commit -m "chore: remove visualization audit transfer payload"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:feat/trade-rl-studio-shell

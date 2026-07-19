@@ -47,6 +47,8 @@ jobs:
           Path('/tmp/studio-audit.patch.gz.b64').write_text(payload, encoding='utf-8')
           PY
           base64 --decode /tmp/studio-audit.patch.gz.b64 | gzip --decompress > /tmp/studio-audit.patch
+          git config user.name "github-actions[bot]"
+          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git am --3way /tmp/studio-audit.patch
           git diff --check
 
@@ -55,8 +57,6 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -d .github/audit-payload ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
             git rm -r .github/audit-payload
             git commit -m "chore: remove Studio audit transfer payload"
             git push origin HEAD:${{ github.event.pull_request.head.ref }}

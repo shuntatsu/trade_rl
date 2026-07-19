@@ -34,13 +34,16 @@ jobs:
           from pathlib import Path
 
           parts = sorted(Path('.github/audit-payload').glob('part-*'))
-          payload = ''.join(path.read_text(encoding='utf-8') for path in parts)
-          if len(payload) != 39249:
-              raise SystemExit(f'unexpected staged payload length: {len(payload)}')
-          insertion = 10000 + 247
-          if payload[insertion] != 'a':
-              raise SystemExit('verified transfer insertion was not found')
-          payload = payload[:insertion] + payload[insertion + 1:]
+          payload_parts = [path.read_text(encoding='utf-8') for path in parts]
+          damaged = payload_parts[1]
+          if len(damaged) != 10001 or damaged[247] != 'a' or damaged[5982] != 'y':
+              raise SystemExit('verified transfer corruption signature was not found')
+          repaired = damaged[:247] + damaged[248:]
+          repaired = repaired[:5981] + 'q' + repaired[5982:]
+          if sha256(repaired.encode('utf-8')).hexdigest() != '9ea9ca2926286bbe1cfa52ed1f5a55b34efab9ae5fb170c697c47cdd63c63682':
+              raise SystemExit('repaired part-01 digest mismatch')
+          payload_parts[1] = repaired
+          payload = ''.join(payload_parts)
           digest = sha256(payload.encode('utf-8')).hexdigest()
           if len(payload) != 39248 or digest != '508025526abd4056e25ea388b11e3c6d548359169099181ac5cbcb80da14cae5':
               raise SystemExit(f'repaired payload verification failed: {len(payload)} {digest}')

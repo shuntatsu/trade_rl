@@ -18,12 +18,12 @@ jobs:
 
       - name: Package source
         shell: bash
-        run: tar --exclude=.git -czf trade-rl-source.tar.gz .
+        run: tar --exclude=.git -czf /tmp/trade-rl-source.tar.gz .
 
       - name: Upload source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: trade-rl-studio-source
-          path: trade-rl-source.tar.gz
+          path: /tmp/trade-rl-source.tar.gz
           if-no-files-found: error
           retention-days: 1

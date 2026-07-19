@@ -6,7 +6,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from trade_rl.artifacts.run_manifest import validate_training_run_directory
 from trade_rl.studio.contracts import (
@@ -17,7 +17,9 @@ from trade_rl.studio.contracts import (
     RunComparison,
 )
 
-_METRICS: tuple[tuple[str, str, str], ...] = (
+MetricPreference = Literal["higher", "lower", "neutral"]
+
+_METRICS: tuple[tuple[str, str, MetricPreference], ...] = (
     ("total_return", "Total return", "higher"),
     ("sharpe", "Sharpe", "higher"),
     ("sortino", "Sortino", "higher"),

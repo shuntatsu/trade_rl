@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from trade_rl.artifacts.run_manifest import validate_training_run_directory
 from trade_rl.studio.contracts import (
@@ -66,7 +66,9 @@ def _file_node(
         )
     declared_item = declared.get(path)
     digest = None if declared_item is None else declared_item.get("digest")
-    status = "VERIFIED" if valid_manifest and declared_item is not None else "PRESENT"
+    status: Literal["VERIFIED", "PRESENT"] = (
+        "VERIFIED" if valid_manifest and declared_item is not None else "PRESENT"
+    )
     return EvidenceNode(
         key=key,
         label=label,
@@ -246,7 +248,9 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
     required_invalid = any(
         node.required and node.status in {"ABSENT", "INVALID"} for node in nodes
     )
-    status = "VALID" if valid and not required_invalid else "INVALID"
+    status: Literal["VALID", "INVALID"] = (
+        "VALID" if valid and not required_invalid else "INVALID"
+    )
     return EvidenceReport(
         run_id=run_id,
         run_kind=run_kind,

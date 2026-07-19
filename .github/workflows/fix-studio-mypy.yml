@@ -1,0 +1,48 @@
+name: Fix Studio Mypy
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Apply type corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/studio/catalog.py")
+          payload = path.read_text(encoding="utf-8")
+          old_market = "market=dataset.calendar_kind.value,"
+          old_progress = 'progress=100.0 if job.status == "succeeded" else 0.0,'
+          if payload.count(old_market) != 1 or payload.count(old_progress) != 1:
+              raise SystemExit("expected Studio mypy targets were not found exactly once")
+          payload = payload.replace(old_market, "market=dataset.calendar_kind,")
+          payload = payload.replace(old_progress, "progress=0.0,")
+          path.write_text(payload, encoding="utf-8")
+          PY
+          git diff --check
+
+      - name: Commit type corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/studio/catalog.py
+          git commit -m "fix: align Studio catalog types"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

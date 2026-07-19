@@ -150,20 +150,36 @@ def compare_runs(left: Path, right: Path) -> RunComparison:
     left_config = _flatten(_read_json(left / "training-config.json") or {})
     right_config = _flatten(_read_json(right / "training-config.json") or {})
     config_differences = tuple(
-        ConfigDifference(path=key, left=left_config.get(key), right=right_config.get(key))
+        ConfigDifference(
+            path=key, left=left_config.get(key), right=right_config.get(key)
+        )
         for key in sorted(set(left_config) | set(right_config))
         if left_config.get(key) != right_config.get(key)
     )
 
-    left_folds = {int(item.get("fold_index", index)): item for index, item in enumerate(_folds(left_walk))}
-    right_folds = {int(item.get("fold_index", index)): item for index, item in enumerate(_folds(right_walk))}
+    left_folds = {
+        int(item.get("fold_index", index)): item
+        for index, item in enumerate(_folds(left_walk))
+    }
+    right_folds = {
+        int(item.get("fold_index", index)): item
+        for index, item in enumerate(_folds(right_walk))
+    }
     folds = tuple(
         FoldComparison(
             label=f"Fold {index + 1}",
-            left_selected_return=_compound(left_folds.get(index, {}).get("selected_returns")),
-            left_baseline_return=_compound(left_folds.get(index, {}).get("baseline_returns")),
-            right_selected_return=_compound(right_folds.get(index, {}).get("selected_returns")),
-            right_baseline_return=_compound(right_folds.get(index, {}).get("baseline_returns")),
+            left_selected_return=_compound(
+                left_folds.get(index, {}).get("selected_returns")
+            ),
+            left_baseline_return=_compound(
+                left_folds.get(index, {}).get("baseline_returns")
+            ),
+            right_selected_return=_compound(
+                right_folds.get(index, {}).get("selected_returns")
+            ),
+            right_baseline_return=_compound(
+                right_folds.get(index, {}).get("baseline_returns")
+            ),
         )
         for index in sorted(set(left_folds) | set(right_folds))
     )

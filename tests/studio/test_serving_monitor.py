@@ -63,7 +63,9 @@ def test_missing_serving_registry_is_idle(tmp_path: Path) -> None:
     assert report.production_status == "NO-GO"
 
 
-def test_valid_active_bundle_reports_identity_and_optional_snapshot(tmp_path: Path) -> None:
+def test_valid_active_bundle_reports_identity_and_optional_snapshot(
+    tmp_path: Path,
+) -> None:
     manifest = build_active_bundle(tmp_path)
     snapshot = {
         "schema_version": "studio_paper_inference_v1",
@@ -75,7 +77,9 @@ def test_valid_active_bundle_reports_identity_and_optional_snapshot(tmp_path: Pa
         "latency_ms": 12.5,
         "snapshot_digest": "9" * 64,
     }
-    tmp_path.joinpath("paper-inference.json").write_text(json.dumps(snapshot), encoding="utf-8")
+    tmp_path.joinpath("paper-inference.json").write_text(
+        json.dumps(snapshot), encoding="utf-8"
+    )
 
     report = inspect_serving(settings_for(tmp_path))
 

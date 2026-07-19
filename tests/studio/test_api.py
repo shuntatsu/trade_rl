@@ -129,7 +129,9 @@ def test_audit_endpoints_reject_unknown_run_ids(tmp_path: Path) -> None:
     assert evidence.status_code == 404
 
 
-def test_evidence_endpoint_reports_tampered_run_instead_of_hiding_it(tmp_path: Path) -> None:
+def test_evidence_endpoint_reports_tampered_run_instead_of_hiding_it(
+    tmp_path: Path,
+) -> None:
     api, _ = client(tmp_path)
     run = tmp_path / "research" / "runs" / "run-001"
     (run / "walk-forward.json").write_text('{"tampered":true}', encoding="utf-8")

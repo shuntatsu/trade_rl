@@ -64,7 +64,10 @@ class StudioSettings:
             self.paper_snapshot_path
             or (project_root / "var/studio/paper-inference.json")
         ).resolve()
-        if paper_snapshot != project_root and project_root not in paper_snapshot.parents:
+        if (
+            paper_snapshot != project_root
+            and project_root not in paper_snapshot.parents
+        ):
             raise ValueError("paper_snapshot_path must remain inside project_root")
         object.__setattr__(self, "paper_snapshot_path", paper_snapshot)
 

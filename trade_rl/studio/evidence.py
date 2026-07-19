@@ -60,7 +60,9 @@ def _file_node(
             label=label,
             status="INVALID" if required else "ABSENT",
             required=required,
-            detail="required artifact is missing" if required else "optional artifact is absent",
+            detail="required artifact is missing"
+            if required
+            else "optional artifact is absent",
         )
     declared_item = declared.get(path)
     digest = None if declared_item is None else declared_item.get("digest")
@@ -72,7 +74,9 @@ def _file_node(
         required=required,
         digest=digest if isinstance(digest, str) else None,
         path=path,
-        detail="declared file closure verified" if status == "VERIFIED" else "artifact is present",
+        detail="declared file closure verified"
+        if status == "VERIFIED"
+        else "artifact is present",
     )
 
 
@@ -90,7 +94,9 @@ def _bound_node(
             label=label,
             status="INVALID" if required else "ABSENT",
             required=required,
-            detail="required identity is missing" if required else "optional identity is absent",
+            detail="required identity is missing"
+            if required
+            else "optional identity is absent",
         )
     return EvidenceNode(
         key=key,
@@ -113,8 +119,14 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
     except (OSError, ValueError, TypeError) as error:
         validation_error = str(error)
     valid = manifest is not None
-    run_id = manifest.run_id if manifest is not None else str(raw.get("run_id") or root.name)
-    run_kind = manifest.run_kind if manifest is not None else str(raw.get("run_kind") or "unknown")
+    run_id = (
+        manifest.run_id if manifest is not None else str(raw.get("run_id") or root.name)
+    )
+    run_kind = (
+        manifest.run_kind
+        if manifest is not None
+        else str(raw.get("run_kind") or "unknown")
+    )
     selected_final = run_kind == "research_selected_final"
     declared = _declared_files(raw)
 
@@ -126,7 +138,9 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
             required=True,
             digest=(manifest.digest if manifest is not None else None),
             path="run.json" if (root / "run.json").is_file() else None,
-            detail="manifest and file closure verified" if valid else (validation_error or "manifest is invalid"),
+            detail="manifest and file closure verified"
+            if valid
+            else (validation_error or "manifest is invalid"),
         ),
         _file_node(
             root=root,
@@ -174,8 +188,16 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
             valid_manifest=valid,
         ),
     ]
-    walk_digest = manifest.walk_forward_run_digest if manifest is not None else raw.get("walk_forward_run_digest")
-    gate_digest = manifest.gate_evidence_digest if manifest is not None else raw.get("gate_evidence_digest")
+    walk_digest = (
+        manifest.walk_forward_run_digest
+        if manifest is not None
+        else raw.get("walk_forward_run_digest")
+    )
+    gate_digest = (
+        manifest.gate_evidence_digest
+        if manifest is not None
+        else raw.get("gate_evidence_digest")
+    )
     nodes.extend(
         (
             _bound_node(
@@ -221,7 +243,9 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
         verified_count=declared_count if valid else 0,
         total_size_bytes=total_size,
     )
-    required_invalid = any(node.required and node.status in {"ABSENT", "INVALID"} for node in nodes)
+    required_invalid = any(
+        node.required and node.status in {"ABSENT", "INVALID"} for node in nodes
+    )
     status = "VALID" if valid and not required_invalid else "INVALID"
     return EvidenceReport(
         run_id=run_id,

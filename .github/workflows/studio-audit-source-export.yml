@@ -29,12 +29,26 @@ jobs:
             echo "No audit payload remains; nothing to apply."
             exit 0
           fi
+          wc -c "${parts[@]}" > /tmp/audit-diagnostics.txt
+          sha256sum "${parts[@]}" >> /tmp/audit-diagnostics.txt
           cat "${parts[@]}" > /tmp/studio-audit.patch.gz.b64
+          wc -c /tmp/studio-audit.patch.gz.b64 >> /tmp/audit-diagnostics.txt
+          sha256sum /tmp/studio-audit.patch.gz.b64 >> /tmp/audit-diagnostics.txt
+          cat /tmp/audit-diagnostics.txt
           test "$(wc -c < /tmp/studio-audit.patch.gz.b64)" -eq 39248
           echo "508025526abd4056e25ea388b11e3c6d548359169099181ac5cbcb80da14cae5  /tmp/studio-audit.patch.gz.b64" | sha256sum --check
           base64 --decode /tmp/studio-audit.patch.gz.b64 | gzip --decompress > /tmp/studio-audit.patch
           git am --3way /tmp/studio-audit.patch
           git diff --check
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-audit-payload-diagnostics
+          path: /tmp/audit-diagnostics.txt
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Remove transfer payload and push
         shell: bash

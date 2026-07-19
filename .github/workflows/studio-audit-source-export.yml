@@ -29,28 +29,26 @@ jobs:
             echo "No audit payload remains; nothing to apply."
             exit 0
           fi
-          wc -c "${parts[@]}" > /tmp/audit-diagnostics.txt
-          sha256sum "${parts[@]}" >> /tmp/audit-diagnostics.txt
-          cat "${parts[@]}" > /tmp/studio-audit.patch.gz.b64
-          wc -c /tmp/studio-audit.patch.gz.b64 >> /tmp/audit-diagnostics.txt
-          sha256sum /tmp/studio-audit.patch.gz.b64 >> /tmp/audit-diagnostics.txt
-          cat /tmp/audit-diagnostics.txt
-          test "$(wc -c < /tmp/studio-audit.patch.gz.b64)" -eq 39248
-          echo "508025526abd4056e25ea388b11e3c6d548359169099181ac5cbcb80da14cae5  /tmp/studio-audit.patch.gz.b64" | sha256sum --check
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          parts = sorted(Path('.github/audit-payload').glob('part-*'))
+          payload = ''.join(path.read_text(encoding='utf-8') for path in parts)
+          if len(payload) != 39249:
+              raise SystemExit(f'unexpected staged payload length: {len(payload)}')
+          insertion = 10000 + 247
+          if payload[insertion] != 'a':
+              raise SystemExit('verified transfer insertion was not found')
+          payload = payload[:insertion] + payload[insertion + 1:]
+          digest = sha256(payload.encode('utf-8')).hexdigest()
+          if len(payload) != 39248 or digest != '508025526abd4056e25ea388b11e3c6d548359169099181ac5cbcb80da14cae5':
+              raise SystemExit(f'repaired payload verification failed: {len(payload)} {digest}')
+          Path('/tmp/studio-audit.patch.gz.b64').write_text(payload, encoding='utf-8')
+          PY
           base64 --decode /tmp/studio-audit.patch.gz.b64 | gzip --decompress > /tmp/studio-audit.patch
           git am --3way /tmp/studio-audit.patch
           git diff --check
-
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: studio-audit-payload-diagnostics
-          path: |
-            /tmp/audit-diagnostics.txt
-            .github/audit-payload/part-01
-          if-no-files-found: ignore
-          retention-days: 1
 
       - name: Remove transfer payload and push
         shell: bash

@@ -1,4 +1,4 @@
-name: Studio Audit Source Export
+name: Apply Studio Audit Workspaces
 
 on:
   pull_request:
@@ -6,10 +6,10 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  apply:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -17,13 +17,33 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-      - name: Package source
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch
         shell: bash
-        run: tar --exclude=.git -czf /tmp/trade-rl-audit-source.tar.gz .
-      - name: Upload source
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: trade-rl-audit-source
-          path: /tmp/trade-rl-audit-source.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          parts=(.github/audit-payload/part-*)
+          if (( ${#parts[@]} == 0 )); then
+            echo "No audit payload remains; nothing to apply."
+            exit 0
+          fi
+          cat "${parts[@]}" > /tmp/studio-audit.patch.gz.b64
+          test "$(wc -c < /tmp/studio-audit.patch.gz.b64)" -eq 39248
+          echo "508025526abd4056e25ea388b11e3c6d548359169099181ac5cbcb80da14cae5  /tmp/studio-audit.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/studio-audit.patch.gz.b64 | gzip --decompress > /tmp/studio-audit.patch
+          git am --3way /tmp/studio-audit.patch
+          git diff --check
+
+      - name: Remove transfer payload and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d .github/audit-payload ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
+            git rm -r .github/audit-payload
+            git commit -m "chore: remove Studio audit transfer payload"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi

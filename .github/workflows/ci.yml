@@ -32,7 +32,23 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --extra export --extra train-sb3
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install Studio frontend
+        run: npm ci --prefix studio
+
+      - name: Verify Studio frontend
+        run: |
+          npm test --prefix studio -- --run
+          npm run typecheck --prefix studio
+          npm run build --prefix studio
 
       - name: Workflow security
         run: uv run python .github/check_workflow_security.py .

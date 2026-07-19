@@ -1,4 +1,4 @@
-name: Studio Source Export
+name: Apply Studio Runtime
 
 on:
   pull_request:
@@ -6,24 +6,51 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
-    name: Export PR source
+  apply:
+    name: Apply verified runtime patch
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout feature branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-
-      - name: Package source
-        shell: bash
-        run: tar --exclude=.git -czf /tmp/trade-rl-source.tar.gz .
-
-      - name: Upload source
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: trade-rl-studio-source
-          path: /tmp/trade-rl-source.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Apply patch and update lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .github/studio-runtime.patch ]]; then
+            echo "No runtime patch present; nothing to apply."
+            exit 0
+          fi
+          patch -p1 < .github/studio-runtime.patch
+          rm -f .github/studio-runtime.patch .github/workflows/studio-source-export.yml
+          uv lock
+          git diff --check
+
+      - name: Commit runtime implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f .github/studio-runtime.patch ]]; then
+            echo "Patch was not applied."
+            exit 1
+          fi
+          if git diff --quiet && git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: connect Trade RL Studio runtime"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

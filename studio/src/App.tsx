@@ -4,16 +4,16 @@ import { AppShell } from './components/AppShell'
 import type { WorkspaceId } from './components/Sidebar'
 import type { StudioOverviewResult } from './data/types'
 import { DashboardPage } from './pages/DashboardPage'
+import { DataLabPage } from './pages/DataLabPage'
+import { ExperimentsPage } from './pages/ExperimentsPage'
+import { RunCenterPage } from './pages/RunCenterPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 
 interface AppProps {
   initialOverview: StudioOverviewResult
 }
 
-const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard'>, { title: string; description: string }> = {
-  data: { title: 'Data Lab', description: '市場データと特徴量の品質を一画面で確認します。' },
-  experiments: { title: '実験', description: '学習条件を組み立て、検証してから実行します。' },
-  runs: { title: 'Run Center', description: 'seed、fold、checkpoint、ログを監視します。' },
+const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experiments' | 'runs'>, { title: string; description: string }> = {
   compare: { title: '比較', description: 'run、baseline、コスト条件の差を比較します。' },
   evidence: { title: 'Evidence Explorer', description: 'datasetからreleaseまでの証拠連鎖を確認します。' },
   serving: { title: 'Serving Monitor', description: 'paper serving状態と推論結果を監視します。' },
@@ -33,11 +33,13 @@ export function App({ initialOverview }: AppProps) {
       gpuName={overview.system.gpuName}
       pythonVersion={overview.system.pythonVersion}
     >
-      {active === 'dashboard' ? (
-        <DashboardPage overview={overview} />
-      ) : (
+      {active === 'dashboard' ? <DashboardPage overview={overview} /> : null}
+      {active === 'data' ? <DataLabPage /> : null}
+      {active === 'experiments' ? <ExperimentsPage /> : null}
+      {active === 'runs' ? <RunCenterPage /> : null}
+      {active !== 'dashboard' && active !== 'data' && active !== 'experiments' && active !== 'runs' ? (
         <WorkspacePage {...workspaceMeta[active]} />
-      )}
+      ) : null}
     </AppShell>
   )
 }

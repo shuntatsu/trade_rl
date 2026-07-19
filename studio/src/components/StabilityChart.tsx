@@ -9,6 +9,7 @@ function percent(value: number) {
 }
 
 export function StabilityChart({ folds }: StabilityChartProps) {
+  if (folds.length === 0) return <div className="chart-empty">walk-forward evidenceがありません。</div>
   return (
     <div className="stability-chart" role="img" aria-label="foldごとのSharpe分布">
       <div className="stability-axis"><span>-1.0</span><span>0</span><span>1.0</span><span>2.0</span></div>

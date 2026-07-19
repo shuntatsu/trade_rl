@@ -7,6 +7,7 @@ name = Trade RL responsibility layers
 type = layers
 layers =
     trade_rl.cli
+    trade_rl.studio
     trade_rl.workflows
     trade_rl.integrations
     trade_rl.serving
@@ -43,6 +44,7 @@ forbidden_modules =
     trade_rl.serving
     trade_rl.integrations
     trade_rl.workflows
+    trade_rl.studio
     trade_rl.cli
 
 [importlinter:contract:serving]
@@ -72,6 +74,7 @@ forbidden_modules =
     trade_rl.serving
     trade_rl.integrations
     trade_rl.workflows
+    trade_rl.studio
     trade_rl.cli
     stable_baselines3
     sb3_contrib
@@ -115,6 +118,7 @@ type = forbidden
 source_modules =
     trade_rl.serving
     trade_rl.integrations
+    trade_rl.studio
     trade_rl.rl
     trade_rl.workflows.training_run
     trade_rl.workflows.market_walk_forward

@@ -1,37 +1,56 @@
 # Trade RL Studio
 
-Local-first research console for `trade_rl`, implemented with Vite, React, and strict TypeScript.
+ローカル優先の `trade_rl` 研究コンソールです。Vite、React、strict TypeScript と FastAPI を使い、既存の正本artifactとworkflowを操作します。
 
-## Current slice
+## 実装済み
 
-- fixed top bar, sidebar, workspace, and status bar;
-- no browser page scrolling at 1536×1024 and 1440×900;
-- dashboard for system capacity, dataset identity, active jobs, run summary, alerts, baseline comparison, fold stability, and production assessment;
-- working workspace navigation;
-- typed `/api/studio/overview` adapter with deterministic demo fallback;
-- explicit `NO-GO` research status and no direct exchange-order controls.
+- 固定トップバー、サイドバー、ワークスペース、ステータスバー
+- 1536×1024／1440×900でブラウザページ全体の縦スクロールなし
+- システム、dataset、job、run、baseline、fold安定性、`NO-GO`を集約したダッシュボード
+- Data Labで正本dataset artifactを検証して一覧・詳細表示
+- 実験画面から検証済みconfigとdatasetを選び、exploratory trainingを開始
+- Run Centerで永続job状態、PID、終了コード、ログを表示し、所有プロセスを安全停止
+- FastAPIによるdataset・run・config・jobの型付きAPI
+- API未起動時は明示的な`DEMO DATA`へフォールバック
+- 直接取引所注文、APIキー入力、ライブ資金操作は未実装
 
-## Run locally
+## 起動
 
-```bash
-cd studio
-npm install
-npm run dev
-```
-
-Open `http://127.0.0.1:4173`.
-
-## Verify
+リポジトリ直下でPython APIを起動します。
 
 ```bash
-npm test -- --run
-npm run typecheck
-npm run build
-npm run check:layout
+uv sync --extra studio --extra train-sb3
+uv run trade-rl studio start --project-root .
 ```
 
-`check:layout` uses Chromium to verify that neither the document nor body exceeds the viewport height at the supported desktop sizes.
+別ターミナルでReactを起動します。
 
-## Backend contract
+```bash
+npm ci --prefix studio
+npm run dev --prefix studio
+```
 
-The frontend requests `GET /api/studio/overview`. Until the Python studio API is connected, failed or invalid responses automatically use deterministic demo data and display `DEMO DATA` in the top bar.
+`http://127.0.0.1:4173`を開きます。Viteは`/api`を`127.0.0.1:8765`へ転送します。
+
+## artifact探索範囲
+
+既定では次を探索します。
+
+- dataset: `artifacts/datasets`, `var/quickstart/dataset`
+- run store: `artifacts/research`, `var/quickstart/artifacts`
+- training config: `configs`, `examples`
+- job state: `var/studio/jobs`
+
+環境変数`TRADE_RL_STUDIO_DATASET_ROOTS`、`TRADE_RL_STUDIO_RUN_ROOTS`、`TRADE_RL_STUDIO_CONFIG_ROOTS`、`TRADE_RL_STUDIO_JOB_ROOT`で、プロジェクト配下の相対パスに変更できます。プロジェクト外へのパスは拒否されます。
+
+## 検証
+
+```bash
+pytest -q tests/studio
+npm test --prefix studio -- --run
+npm run typecheck --prefix studio
+npm run build --prefix studio
+npm run check:layout --prefix studio
+```
+
+Studioは常に研究状態を`NO-GO`として表示します。UIから開始できるのは既存の`trade-rl train run`を使うexploratory trainingだけです。

@@ -23,6 +23,7 @@ function pathFor(points: EquityPoint[], key: 'rl' | 'baseline') {
 }
 
 export function LineChart({ points }: LineChartProps) {
+  if (points.length === 0) return <div className="chart-empty">比較用の評価系列がありません。</div>
   return (
     <div className="line-chart">
       <div className="chart-legend" aria-label="チャート凡例">

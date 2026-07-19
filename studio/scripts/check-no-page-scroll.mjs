@@ -50,15 +50,20 @@ try {
     }
 
     await page.screenshot({ path: viewport.screenshot, fullPage: false })
-    await page.getByRole('button', { name: /Data Lab/i }).click()
-    await page.getByRole('heading', { name: 'Data Lab' }).waitFor()
-
-    const afterNavigation = await page.evaluate(() => ({
-      htmlScrollHeight: document.documentElement.scrollHeight,
-      viewportHeight: window.innerHeight,
-    }))
-    if (afterNavigation.htmlScrollHeight !== afterNavigation.viewportHeight) {
-      throw new Error(`workspace navigation introduced overflow at ${viewport.width}x${viewport.height}`)
+    for (const workspace of ['Data Lab', '実験', 'Run Center']) {
+      await page.getByRole('button', { name: new RegExp(workspace, 'i') }).click()
+      await page.getByRole('heading', { name: workspace }).waitFor()
+      const afterNavigation = await page.evaluate(() => ({
+        htmlScrollHeight: document.documentElement.scrollHeight,
+        bodyScrollHeight: document.body.scrollHeight,
+        viewportHeight: window.innerHeight,
+      }))
+      if (
+        afterNavigation.htmlScrollHeight !== afterNavigation.viewportHeight ||
+        afterNavigation.bodyScrollHeight !== afterNavigation.viewportHeight
+      ) {
+        throw new Error(`${workspace} introduced overflow at ${viewport.width}x${viewport.height}`)
+      }
     }
     await page.close()
   }

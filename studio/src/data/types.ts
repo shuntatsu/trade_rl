@@ -161,3 +161,105 @@ export interface StudioOverviewResult {
   source: 'api' | 'demo'
   overview: StudioOverview
 }
+
+export interface ComparisonMetric {
+  key: string
+  label: string
+  leftValue: number | null
+  rightValue: number | null
+  delta: number | null
+  preference: 'higher' | 'lower' | 'neutral'
+}
+
+export interface ConfigDifference {
+  path: string
+  left: string | null
+  right: string | null
+}
+
+export interface FoldComparison {
+  label: string
+  leftSelectedReturn: number | null
+  leftBaselineReturn: number | null
+  rightSelectedReturn: number | null
+  rightBaselineReturn: number | null
+}
+
+export interface ComparisonSeriesPoint {
+  label: string
+  left: number | null
+  right: number | null
+  leftBaseline: number | null
+  rightBaseline: number | null
+}
+
+export interface RunComparison {
+  leftRunId: string
+  rightRunId: string
+  metrics: ComparisonMetric[]
+  configDifferences: ConfigDifference[]
+  folds: FoldComparison[]
+  wealth: ComparisonSeriesPoint[]
+  productionStatus: ProductionStatus
+}
+
+export type EvidenceNodeStatus = 'VERIFIED' | 'PRESENT' | 'ABSENT' | 'INVALID'
+
+export interface EvidenceNode {
+  key: string
+  label: string
+  status: EvidenceNodeStatus
+  required: boolean
+  digest: string | null
+  path: string | null
+  detail: string
+}
+
+export interface FileIntegritySummary {
+  status: 'VERIFIED' | 'INVALID'
+  declaredCount: number
+  verifiedCount: number
+  totalSizeBytes: number
+}
+
+export interface EvidenceReport {
+  runId: string
+  runKind: string
+  status: ValidationStatus
+  productionStatus: ProductionStatus
+  nodes: EvidenceNode[]
+  files: FileIntegritySummary
+  validationError: string | null
+}
+
+export interface ServingCheck {
+  key: string
+  label: string
+  status: 'PASS' | 'WARN' | 'FAIL'
+  detail: string
+}
+
+export interface PaperInferenceSnapshot {
+  recordedAt: string
+  bundleDigest: string
+  datasetId: string
+  decisionIndex: number
+  targetWeights: Record<string, number>
+  latencyMs: number
+  snapshotDigest: string
+}
+
+export interface ServingMonitorReport {
+  state: 'IDLE' | 'VALID' | 'INVALID'
+  productionStatus: ProductionStatus
+  activeBundleDigest: string | null
+  datasetId: string | null
+  runKind: string | null
+  policyDigest: string | null
+  actionSchema: string | null
+  observationSchema: string | null
+  releaseAttestationPresent: boolean
+  checks: ServingCheck[]
+  paperSnapshot: PaperInferenceSnapshot | null
+  validationError: string | null
+}

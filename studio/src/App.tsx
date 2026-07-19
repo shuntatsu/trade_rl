@@ -4,6 +4,9 @@ import { AppShell } from './components/AppShell'
 import type { WorkspaceId } from './components/Sidebar'
 import type { StudioOverviewResult } from './data/types'
 import { DashboardPage } from './pages/DashboardPage'
+import { ComparePage } from './pages/ComparePage'
+import { EvidencePage } from './pages/EvidencePage'
+import { ServingPage } from './pages/ServingPage'
 import { DataLabPage } from './pages/DataLabPage'
 import { ExperimentsPage } from './pages/ExperimentsPage'
 import { RunCenterPage } from './pages/RunCenterPage'
@@ -13,10 +16,7 @@ interface AppProps {
   initialOverview: StudioOverviewResult
 }
 
-const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experiments' | 'runs'>, { title: string; description: string }> = {
-  compare: { title: '比較', description: 'run、baseline、コスト条件の差を比較します。' },
-  evidence: { title: 'Evidence Explorer', description: 'datasetからreleaseまでの証拠連鎖を確認します。' },
-  serving: { title: 'Serving Monitor', description: 'paper serving状態と推論結果を監視します。' },
+const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experiments' | 'runs' | 'compare' | 'evidence' | 'serving'>, { title: string; description: string }> = {
   settings: { title: '設定', description: 'ローカルUIと実行環境の設定を管理します。' },
 }
 
@@ -37,7 +37,10 @@ export function App({ initialOverview }: AppProps) {
       {active === 'data' ? <DataLabPage /> : null}
       {active === 'experiments' ? <ExperimentsPage /> : null}
       {active === 'runs' ? <RunCenterPage /> : null}
-      {active !== 'dashboard' && active !== 'data' && active !== 'experiments' && active !== 'runs' ? (
+      {active === 'compare' ? <ComparePage /> : null}
+      {active === 'evidence' ? <EvidencePage /> : null}
+      {active === 'serving' ? <ServingPage /> : null}
+      {active === 'settings' ? (
         <WorkspacePage {...workspaceMeta[active]} />
       ) : null}
     </AppShell>

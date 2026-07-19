@@ -5,13 +5,19 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query, status
 
 from trade_rl.studio.catalog import StudioCatalog
+from trade_rl.studio.comparison import compare_runs
+from trade_rl.studio.evidence import inspect_run_evidence
+from trade_rl.studio.serving_monitor import inspect_serving
 from trade_rl.studio.contracts import (
     ConfigListResponse,
+    EvidenceReport,
     DatasetListResponse,
     JobListResponse,
     JobLogResponse,
     JobSummary,
+    RunComparison,
     RunListResponse,
+    ServingMonitorReport,
     StudioOverview,
     TrainingJobRequest,
 )
@@ -83,6 +89,31 @@ def create_app(
             total=len(items),
             invalid=sum(item.status == "INVALID" for item in items),
         )
+
+    @app.get("/api/studio/compare", response_model=RunComparison)
+    def comparison(left_run_id: str, right_run_id: str) -> RunComparison:
+        try:
+            left = resolved_catalog.resolve_run(left_run_id)
+            right = resolved_catalog.resolve_run(right_run_id)
+            return compare_runs(left, right)
+        except Exception as error:
+            _raise_http(error)
+            raise AssertionError("unreachable")
+
+    @app.get(
+        "/api/studio/runs/{run_id}/evidence",
+        response_model=EvidenceReport,
+    )
+    def evidence(run_id: str) -> EvidenceReport:
+        try:
+            return inspect_run_evidence(resolved_catalog.resolve_run_for_evidence(run_id))
+        except Exception as error:
+            _raise_http(error)
+            raise AssertionError("unreachable")
+
+    @app.get("/api/studio/serving", response_model=ServingMonitorReport)
+    def serving() -> ServingMonitorReport:
+        return inspect_serving(settings)
 
     @app.get("/api/studio/jobs", response_model=JobListResponse)
     def jobs() -> JobListResponse:

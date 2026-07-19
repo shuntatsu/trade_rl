@@ -6,6 +6,9 @@ import type {
   JobLogResponse,
   JobSummary,
   RunListResponse,
+  RunComparison,
+  EvidenceReport,
+  ServingMonitorReport,
   StudioOverview,
   StudioOverviewResult,
   TrainingJobRequest,
@@ -53,10 +56,48 @@ async function requestJson<T>(
   path: string,
   fetcher: typeof fetch,
   init?: RequestInit,
+  validate?: (value: unknown) => value is T,
 ): Promise<T> {
   const response = await fetcher(path, init)
   if (!response.ok) throw new StudioApiError(response.status, await errorMessage(response))
-  return (await response.json()) as T
+  const payload: unknown = await response.json()
+  if (validate && !validate(payload)) {
+    throw new StudioApiError(502, 'Studio API returned an invalid response')
+  }
+  return payload as T
+}
+
+function isRunComparison(value: unknown): value is RunComparison {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.leftRunId === 'string' &&
+    typeof value.rightRunId === 'string' &&
+    Array.isArray(value.metrics) &&
+    Array.isArray(value.configDifferences) &&
+    Array.isArray(value.folds) &&
+    Array.isArray(value.wealth) &&
+    value.productionStatus === 'NO-GO'
+  )
+}
+
+function isEvidenceReport(value: unknown): value is EvidenceReport {
+  if (!isRecord(value) || !isRecord(value.files)) return false
+  return (
+    typeof value.runId === 'string' &&
+    typeof value.runKind === 'string' &&
+    (value.status === 'VALID' || value.status === 'INVALID') &&
+    Array.isArray(value.nodes) &&
+    value.productionStatus === 'NO-GO'
+  )
+}
+
+function isServingMonitorReport(value: unknown): value is ServingMonitorReport {
+  if (!isRecord(value)) return false
+  return (
+    (value.state === 'IDLE' || value.state === 'VALID' || value.state === 'INVALID') &&
+    Array.isArray(value.checks) &&
+    value.productionStatus === 'NO-GO'
+  )
 }
 
 export async function loadStudioOverview(
@@ -113,6 +154,34 @@ export function loadJobLog(
   return requestJson(`/api/studio/jobs/${encodeURIComponent(jobId)}/log?limit=200`, fetcher)
 }
 
+
+export function loadRunComparison(
+  leftRunId: string,
+  rightRunId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<RunComparison> {
+  const query = `left_run_id=${encodeURIComponent(leftRunId)}&right_run_id=${encodeURIComponent(rightRunId)}`
+  return requestJson(`/api/studio/compare?${query}`, fetcher, undefined, isRunComparison)
+}
+
+export function loadEvidenceReport(
+  runId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<EvidenceReport> {
+  return requestJson(
+    `/api/studio/runs/${encodeURIComponent(runId)}/evidence`,
+    fetcher,
+    undefined,
+    isEvidenceReport,
+  )
+}
+
+export function loadServingMonitor(
+  fetcher: typeof fetch = fetch,
+): Promise<ServingMonitorReport> {
+  return requestJson('/api/studio/serving', fetcher, undefined, isServingMonitorReport)
+}
+
 export interface StudioApi {
   loadDatasets: () => Promise<DatasetListResponse>
   loadRuns: () => Promise<RunListResponse>
@@ -121,6 +190,9 @@ export interface StudioApi {
   submitTrainingJob: (request: TrainingJobRequest) => Promise<JobSummary>
   cancelJob: (jobId: string) => Promise<JobSummary>
   loadJobLog: (jobId: string) => Promise<JobLogResponse>
+  loadRunComparison: (leftRunId: string, rightRunId: string) => Promise<RunComparison>
+  loadEvidenceReport: (runId: string) => Promise<EvidenceReport>
+  loadServingMonitor: () => Promise<ServingMonitorReport>
 }
 
 export const studioApi: StudioApi = {
@@ -131,4 +203,7 @@ export const studioApi: StudioApi = {
   submitTrainingJob,
   cancelJob,
   loadJobLog,
+  loadRunComparison,
+  loadEvidenceReport,
+  loadServingMonitor,
 }

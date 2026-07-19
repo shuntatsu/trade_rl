@@ -281,6 +281,28 @@ class StudioCatalog:
             directories.update(path for path in runs_root.iterdir() if path.is_dir())
         return tuple(sorted(directories, key=lambda item: item.as_posix()))
 
+    def resolve_run(self, run_id: str) -> Path:
+        """Resolve one exact validated run identity without path construction."""
+
+        for path in self._run_directories():
+            try:
+                manifest = validate_training_run_directory(path)
+            except (OSError, ValueError, TypeError):
+                continue
+            if manifest.run_id == run_id:
+                return path
+        raise KeyError(f"unknown Studio run: {run_id}")
+
+    def resolve_run_for_evidence(self, run_id: str) -> Path:
+        """Resolve an exact discovered run, including invalid runs for diagnosis."""
+
+        for path in self._run_directories():
+            raw = _read_json(path / "run.json")
+            raw_id = None if raw is None else raw.get("run_id")
+            if path.name == run_id or raw_id == run_id:
+                return path
+        raise KeyError(f"unknown Studio run: {run_id}")
+
     def _run_algorithm(self, path: Path) -> str:
         payload = _read_json(path / "training-config.json")
         training = None if payload is None else _mapping(payload.get("training"))

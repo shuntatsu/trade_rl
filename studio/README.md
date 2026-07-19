@@ -10,6 +10,9 @@
 - Data Labで正本dataset artifactを検証して一覧・詳細表示
 - 実験画面から検証済みconfigとdatasetを選び、exploratory trainingを開始
 - Run Centerで永続job状態、PID、終了コード、ログを表示し、所有プロセスを安全停止
+- Compareで検証済みrunの指標、設定差、fold、累積wealthを比較
+- Evidence Explorerでrun manifest、identity、authorization、artifact file closureを監査
+- Serving Monitorでactive bundleとpaper推論スナップショットを読み取り専用表示
 - FastAPIによるdataset・run・config・jobの型付きAPI
 - API未起動時は明示的な`DEMO DATA`へフォールバック
 - 直接取引所注文、APIキー入力、ライブ資金操作は未実装
@@ -30,7 +33,7 @@ npm ci --prefix studio
 npm run dev --prefix studio
 ```
 
-`http://127.0.0.1:4173`を開きます。Viteは`/api`を`127.0.0.1:8765`へ転送します。
+`http://127.0.0.1:5173`を開きます。Viteは`/api`を`127.0.0.1:8765`へ転送します。
 
 ## artifact探索範囲
 
@@ -40,8 +43,10 @@ npm run dev --prefix studio
 - run store: `artifacts/research`, `var/quickstart/artifacts`
 - training config: `configs`, `examples`
 - job state: `var/studio/jobs`
+- serving registry: `var/serving`
+- paper inference snapshot: `var/studio/paper-inference.json`
 
-環境変数`TRADE_RL_STUDIO_DATASET_ROOTS`、`TRADE_RL_STUDIO_RUN_ROOTS`、`TRADE_RL_STUDIO_CONFIG_ROOTS`、`TRADE_RL_STUDIO_JOB_ROOT`で、プロジェクト配下の相対パスに変更できます。プロジェクト外へのパスは拒否されます。
+環境変数`TRADE_RL_STUDIO_DATASET_ROOTS`、`TRADE_RL_STUDIO_RUN_ROOTS`、`TRADE_RL_STUDIO_CONFIG_ROOTS`、`TRADE_RL_STUDIO_JOB_ROOT`、`TRADE_RL_STUDIO_SERVING_ROOT`、`TRADE_RL_STUDIO_PAPER_SNAPSHOT`で、プロジェクト配下の相対パスに変更できます。プロジェクト外へのパスは拒否されます。
 
 ## 検証
 
@@ -53,4 +58,4 @@ npm run build --prefix studio
 npm run check:layout --prefix studio
 ```
 
-Studioは常に研究状態を`NO-GO`として表示します。UIから開始できるのは既存の`trade-rl train run`を使うexploratory trainingだけです。
+Studioは常に研究状態を`NO-GO`として表示します。UIから開始できるのは既存の`trade-rl train run`を使うexploratory trainingだけです。Serving Monitorは読み取り専用で、bundle activation、取引所注文、APIキー入力、ライブ資金操作を行いません。

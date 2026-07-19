@@ -6,7 +6,7 @@ Trade RL is a research-grade, baseline-anchored residual reinforcement-learning 
 
 ## Trade RL Studio
 
-ローカルGUIは`studio/`にあります。固定レイアウトのReact + Vite + TypeScript画面から、検証済みdataset、training config、exploratory training job、run artifactを扱えます。
+ローカルGUIは`studio/`にあります。固定レイアウトのReact + Vite + TypeScript画面から、検証済みdataset、training config、exploratory training job、run artifact、run比較、Evidence chain、read-only paper serving状態を扱えます。
 
 ```bash
 uv sync --extra studio --extra train-sb3

@@ -38,6 +38,8 @@ class StudioSettings:
     run_roots: tuple[Path, ...]
     config_roots: tuple[Path, ...]
     job_root: Path
+    serving_root: Path | None = None
+    paper_snapshot_path: Path | None = None
 
     def __post_init__(self) -> None:
         project_root = self.project_root.resolve()
@@ -54,6 +56,17 @@ class StudioSettings:
         if job_root != project_root and project_root not in job_root.parents:
             raise ValueError("job_root must remain inside project_root")
         object.__setattr__(self, "job_root", job_root)
+        serving_root = (self.serving_root or (project_root / "var/serving")).resolve()
+        if serving_root != project_root and project_root not in serving_root.parents:
+            raise ValueError("serving_root must remain inside project_root")
+        object.__setattr__(self, "serving_root", serving_root)
+        paper_snapshot = (
+            self.paper_snapshot_path
+            or (project_root / "var/studio/paper-inference.json")
+        ).resolve()
+        if paper_snapshot != project_root and project_root not in paper_snapshot.parents:
+            raise ValueError("paper_snapshot_path must remain inside project_root")
+        object.__setattr__(self, "paper_snapshot_path", paper_snapshot)
 
     @classmethod
     def from_environment(cls, project_root: Path | None = None) -> StudioSettings:
@@ -79,6 +92,16 @@ class StudioSettings:
                 resolved_project,
                 os.environ.get("TRADE_RL_STUDIO_JOB_ROOT"),
                 ("var/studio/jobs",),
+            )[0],
+            serving_root=_resolved_roots(
+                resolved_project,
+                os.environ.get("TRADE_RL_STUDIO_SERVING_ROOT"),
+                ("var/serving",),
+            )[0],
+            paper_snapshot_path=_resolved_roots(
+                resolved_project,
+                os.environ.get("TRADE_RL_STUDIO_PAPER_SNAPSHOT"),
+                ("var/studio/paper-inference.json",),
             )[0],
         )
 

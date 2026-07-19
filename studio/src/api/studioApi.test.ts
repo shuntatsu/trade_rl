@@ -140,3 +140,67 @@ describe('studio runtime API', () => {
     )
   })
 })
+
+describe('studio audit API', () => {
+  it('loads comparison, evidence, and serving reports from encoded endpoints', async () => {
+    const comparison = {
+      leftRunId: 'run left',
+      rightRunId: 'run/right',
+      metrics: [],
+      configDifferences: [],
+      folds: [],
+      wealth: [],
+      productionStatus: 'NO-GO' as const,
+    }
+    const evidence = {
+      runId: 'run left',
+      runKind: 'research_exploratory',
+      status: 'VALID' as const,
+      productionStatus: 'NO-GO' as const,
+      nodes: [],
+      files: { status: 'VERIFIED' as const, declaredCount: 1, verifiedCount: 1, totalSizeBytes: 10 },
+      validationError: null,
+    }
+    const serving = {
+      state: 'IDLE' as const,
+      productionStatus: 'NO-GO' as const,
+      activeBundleDigest: null,
+      datasetId: null,
+      runKind: null,
+      policyDigest: null,
+      actionSchema: null,
+      observationSchema: null,
+      releaseAttestationPresent: false,
+      checks: [],
+      paperSnapshot: null,
+      validationError: null,
+    }
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input)
+      if (path.includes('/compare?')) return new Response(JSON.stringify(comparison))
+      if (path.includes('/evidence')) return new Response(JSON.stringify(evidence))
+      if (path.endsWith('/serving')) return new Response(JSON.stringify(serving))
+      return new Response('not found', { status: 404 })
+    })
+
+    const { loadEvidenceReport, loadRunComparison, loadServingMonitor } = await import('./studioApi')
+
+    await expect(loadRunComparison('run left', 'run/right', fetcher)).resolves.toEqual(comparison)
+    await expect(loadEvidenceReport('run left', fetcher)).resolves.toEqual(evidence)
+    await expect(loadServingMonitor(fetcher)).resolves.toEqual(serving)
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/studio/compare?left_run_id=run%20left&right_run_id=run%2Fright',
+      undefined,
+    )
+    expect(fetcher).toHaveBeenCalledWith('/api/studio/runs/run%20left/evidence', undefined)
+  })
+
+  it('rejects malformed audit payloads instead of rendering untrusted shapes', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: 'ok' })))
+    const { loadEvidenceReport, loadRunComparison, loadServingMonitor } = await import('./studioApi')
+
+    await expect(loadRunComparison('left', 'right', fetcher)).rejects.toMatchObject({ status: 502 })
+    await expect(loadEvidenceReport('left', fetcher)).rejects.toMatchObject({ status: 502 })
+    await expect(loadServingMonitor(fetcher)).rejects.toMatchObject({ status: 502 })
+  })
+})

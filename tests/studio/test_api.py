@@ -91,3 +91,51 @@ def test_api_maps_missing_duplicate_and_invalid_requests(tmp_path: Path) -> None
         },
     )
     assert escaped.status_code == 400
+
+
+def test_audit_endpoints_compare_evidence_and_idle_serving(tmp_path: Path) -> None:
+    api, _ = client(tmp_path)
+    write_run(tmp_path / "research", run_id="run-002", algorithm="sac")
+
+    comparison = api.get(
+        "/api/studio/compare",
+        params={"left_run_id": "run-001", "right_run_id": "run-002"},
+    )
+    evidence = api.get("/api/studio/runs/run-001/evidence")
+    serving = api.get("/api/studio/serving")
+
+    assert comparison.status_code == 200
+    assert comparison.json()["leftRunId"] == "run-001"
+    assert comparison.json()["rightRunId"] == "run-002"
+    assert comparison.json()["productionStatus"] == "NO-GO"
+    assert evidence.status_code == 200
+    assert evidence.json()["runId"] == "run-001"
+    assert evidence.json()["productionStatus"] == "NO-GO"
+    assert serving.status_code == 200
+    assert serving.json()["state"] == "IDLE"
+    assert serving.json()["productionStatus"] == "NO-GO"
+
+
+def test_audit_endpoints_reject_unknown_run_ids(tmp_path: Path) -> None:
+    api, _ = client(tmp_path)
+
+    compare = api.get(
+        "/api/studio/compare",
+        params={"left_run_id": "run-001", "right_run_id": "missing"},
+    )
+    evidence = api.get("/api/studio/runs/missing/evidence")
+
+    assert compare.status_code == 404
+    assert evidence.status_code == 404
+
+
+def test_evidence_endpoint_reports_tampered_run_instead_of_hiding_it(tmp_path: Path) -> None:
+    api, _ = client(tmp_path)
+    run = tmp_path / "research" / "runs" / "run-001"
+    (run / "walk-forward.json").write_text('{"tampered":true}', encoding="utf-8")
+
+    response = api.get("/api/studio/runs/run-001/evidence")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "INVALID"
+    assert response.json()["validationError"] is not None

@@ -137,6 +137,106 @@ class StudioOverview(StudioModel):
     assessment: ProductionAssessment
 
 
+class ComparisonMetric(StudioModel):
+    key: str
+    label: str
+    left_value: float | None = None
+    right_value: float | None = None
+    delta: float | None = None
+    preference: Literal["higher", "lower", "neutral"] = "neutral"
+
+
+class ConfigDifference(StudioModel):
+    path: str
+    left: str | None = None
+    right: str | None = None
+
+
+class FoldComparison(StudioModel):
+    label: str
+    left_selected_return: float | None = None
+    left_baseline_return: float | None = None
+    right_selected_return: float | None = None
+    right_baseline_return: float | None = None
+
+
+class ComparisonSeriesPoint(StudioModel):
+    label: str
+    left: float | None = None
+    right: float | None = None
+    left_baseline: float | None = None
+    right_baseline: float | None = None
+
+
+class RunComparison(StudioModel):
+    left_run_id: str
+    right_run_id: str
+    metrics: tuple[ComparisonMetric, ...]
+    config_differences: tuple[ConfigDifference, ...]
+    folds: tuple[FoldComparison, ...]
+    wealth: tuple[ComparisonSeriesPoint, ...]
+    production_status: Literal["NO-GO"] = "NO-GO"
+
+
+class EvidenceNode(StudioModel):
+    key: str
+    label: str
+    status: Literal["VERIFIED", "PRESENT", "ABSENT", "INVALID"]
+    required: bool
+    digest: str | None = None
+    path: str | None = None
+    detail: str
+
+
+class FileIntegritySummary(StudioModel):
+    status: Literal["VERIFIED", "INVALID"]
+    declared_count: int = Field(ge=0)
+    verified_count: int = Field(ge=0)
+    total_size_bytes: int = Field(ge=0)
+
+
+class EvidenceReport(StudioModel):
+    run_id: str
+    run_kind: str
+    status: Literal["VALID", "INVALID"]
+    production_status: Literal["NO-GO"] = "NO-GO"
+    nodes: tuple[EvidenceNode, ...]
+    files: FileIntegritySummary
+    validation_error: str | None = None
+
+
+class ServingCheck(StudioModel):
+    key: str
+    label: str
+    status: Literal["PASS", "WARN", "FAIL"]
+    detail: str
+
+
+class PaperInferenceSnapshot(StudioModel):
+    recorded_at: str
+    bundle_digest: str
+    dataset_id: str
+    decision_index: int = Field(ge=0)
+    target_weights: dict[str, float]
+    latency_ms: float = Field(ge=0.0)
+    snapshot_digest: str
+
+
+class ServingMonitorReport(StudioModel):
+    state: Literal["IDLE", "VALID", "INVALID"]
+    production_status: Literal["NO-GO"] = "NO-GO"
+    active_bundle_digest: str | None = None
+    dataset_id: str | None = None
+    run_kind: str | None = None
+    policy_digest: str | None = None
+    action_schema: str | None = None
+    observation_schema: str | None = None
+    release_attestation_present: bool = False
+    checks: tuple[ServingCheck, ...]
+    paper_snapshot: PaperInferenceSnapshot | None = None
+    validation_error: str | None = None
+
+
 class DatasetListResponse(StudioModel):
     items: tuple[DatasetSummary, ...]
     total: int = Field(ge=0)

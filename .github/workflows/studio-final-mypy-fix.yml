@@ -26,8 +26,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv sync --extra dev
-          python - <<'PY'
+          {
+            uv sync --extra dev
+            python - <<'PY'
           from pathlib import Path
 
           evidence = Path("trade_rl/studio/evidence.py")
@@ -54,11 +55,21 @@ jobs:
               raise SystemExit("comparison metric type target mismatch")
           payload = payload.replace(marker, replacement)
           comparison.write_text(payload, encoding="utf-8")
+          print("literal replacements applied")
           PY
-          uv run ruff check --fix trade_rl/studio/evidence.py trade_rl/studio/comparison.py
-          uv run ruff format trade_rl/studio/evidence.py trade_rl/studio/comparison.py
-          uv run mypy trade_rl/studio
-          git diff --check
+            uv run ruff check --fix trade_rl/studio/evidence.py trade_rl/studio/comparison.py
+            uv run ruff format trade_rl/studio/evidence.py trade_rl/studio/comparison.py
+            uv run mypy trade_rl/studio
+            git diff --check
+          } 2>&1 | tee /tmp/studio-type-fix.log
+      - name: Upload type diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-final-type-diagnostics
+          path: /tmp/studio-type-fix.log
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Commit type corrections
         shell: bash
         run: |

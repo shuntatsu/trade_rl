@@ -29,6 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee /tmp/studio-runtime-apply.log) 2>&1
           shopt -s nullglob
           parts=(.github/studio-runtime.patch.gz.b64.part-*)
           if (( ${#parts[@]} == 0 )); then
@@ -44,9 +45,21 @@ jobs:
             !skip { print }
           ' /tmp/studio-runtime.patch > /tmp/studio-runtime.filtered.patch
           patch -p1 < /tmp/studio-runtime.filtered.patch
+          echo "PATCH_APPLIED"
           rm -f "${parts[@]}" .github/workflows/studio-source-export.yml
           uv lock
+          echo "LOCK_UPDATED"
           git diff --check
+          echo "DIFF_CHECK_PASSED"
+
+      - name: Upload apply diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-runtime-apply-diagnostics
+          path: /tmp/studio-runtime-apply.log
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Commit runtime implementation
         shell: bash

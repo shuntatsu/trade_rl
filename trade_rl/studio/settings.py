@@ -7,12 +7,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-def _resolved_roots(project_root: Path, raw: str | None, defaults: tuple[str, ...]) -> tuple[Path, ...]:
-    values = defaults if raw is None else tuple(item for item in raw.split(os.pathsep) if item)
+def _resolved_roots(
+    project_root: Path, raw: str | None, defaults: tuple[str, ...]
+) -> tuple[Path, ...]:
+    values = (
+        defaults
+        if raw is None
+        else tuple(item for item in raw.split(os.pathsep) if item)
+    )
     roots: list[Path] = []
     for value in values:
         path = Path(value)
-        resolved = (project_root / path).resolve() if not path.is_absolute() else path.resolve()
+        resolved = (
+            (project_root / path).resolve()
+            if not path.is_absolute()
+            else path.resolve()
+        )
         if resolved != project_root and project_root not in resolved.parents:
             raise ValueError("studio roots must remain inside project_root")
         roots.append(resolved)

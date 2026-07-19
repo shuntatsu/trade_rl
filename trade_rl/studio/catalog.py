@@ -126,7 +126,11 @@ def _gpu_status() -> tuple[str, bool, SystemMetric]:
             )
     except (ImportError, RuntimeError, AttributeError):
         pass
-    return "CUDA unavailable", False, SystemMetric(label="GPU", value=0.0, detail="CUDA unavailable")
+    return (
+        "CUDA unavailable",
+        False,
+        SystemMetric(label="GPU", value=0.0, detail="CUDA unavailable"),
+    )
 
 
 def _wealth_points(folds: object) -> tuple[EquityPoint, ...]:
@@ -179,7 +183,9 @@ def _stability_points(folds: object) -> tuple[StabilityFold, ...]:
             continue
         selected_values = fold.get("selected_returns")
         baseline_values = fold.get("baseline_returns")
-        if not isinstance(selected_values, list) or not isinstance(baseline_values, list):
+        if not isinstance(selected_values, list) or not isinstance(
+            baseline_values, list
+        ):
             continue
         selected_wealth = 1.0
         baseline_wealth = 1.0
@@ -412,7 +418,11 @@ class StudioCatalog:
         alerts: list[StudioAlert] = []
         if not valid_datasets:
             alerts.append(
-                StudioAlert(level="warning", message="検証済みデータセットがありません", age="now")
+                StudioAlert(
+                    level="warning",
+                    message="検証済みデータセットがありません",
+                    age="now",
+                )
             )
         invalid_dataset_count = len(datasets) - len(valid_datasets)
         if invalid_dataset_count:
@@ -456,9 +466,15 @@ class StudioCatalog:
         if valid_runs:
             run_path = self.settings.project_root / valid_runs[0].relative_path
             latest_payload = self._walk_forward_payload(run_path)
-        equity = () if latest_payload is None else _wealth_points(latest_payload.get("folds"))
+        equity = (
+            ()
+            if latest_payload is None
+            else _wealth_points(latest_payload.get("folds"))
+        )
         stability = (
-            () if latest_payload is None else _stability_points(latest_payload.get("folds"))
+            ()
+            if latest_payload is None
+            else _stability_points(latest_payload.get("folds"))
         )
         reasons = ["直接取引所への注文ルーティングは実装されていません"]
         if not valid_runs:

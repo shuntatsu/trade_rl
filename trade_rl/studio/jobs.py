@@ -165,7 +165,9 @@ class JobSupervisor:
         dataset_path = self.settings.resolve_dataset_path(request.dataset_path)
         artifact_root = self.settings.resolve_run_root(request.artifact_root)
         if not config_path.is_file():
-            raise FileNotFoundError(f"training config does not exist: {request.config_path}")
+            raise FileNotFoundError(
+                f"training config does not exist: {request.config_path}"
+            )
         if not dataset_path.is_dir():
             raise FileNotFoundError(f"dataset does not exist: {request.dataset_path}")
         if self._existing_run(artifact_root, request.run_id) or self._active_run(
@@ -173,7 +175,9 @@ class JobSupervisor:
         ):
             raise FileExistsError(f"run already exists or is active: {request.run_id}")
 
-        job_id = f"job-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
+        job_id = (
+            f"job-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
+        )
         submitted_at = _utc_now()
         queued = JobSummary(
             id=job_id,
@@ -312,7 +316,9 @@ class JobSupervisor:
                         update={"status": "cancelled", "completed_at": _utc_now()}
                     ).model_dump(mode="json")
                 )
-            raise RuntimeError("cannot safely terminate a worker not owned by this process")
+            raise RuntimeError(
+                "cannot safely terminate a worker not owned by this process"
+            )
         process.terminate()
         try:
             exit_code = process.wait(timeout=5.0)
@@ -330,7 +336,9 @@ class JobSupervisor:
             ).model_dump(mode="json")
         )
 
-    def tail_log(self, job_id: str, *, limit: int = 200) -> tuple[tuple[str, ...], bool]:
+    def tail_log(
+        self, job_id: str, *, limit: int = 200
+    ) -> tuple[tuple[str, ...], bool]:
         self.get_job(job_id)
         if limit <= 0 or limit > 2_000:
             raise ValueError("log limit must be between 1 and 2000")

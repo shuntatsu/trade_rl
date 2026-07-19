@@ -44,7 +44,9 @@ def test_training_job_lifecycle_is_exposed_over_api(tmp_path: Path) -> None:
 
     created = api.post(
         "/api/studio/jobs/training",
-        json=request().model_copy(update={"run_id": "run-002"}).model_dump(by_alias=True),
+        json=request()
+        .model_copy(update={"run_id": "run-002"})
+        .model_dump(by_alias=True),
     )
 
     assert created.status_code == 201
@@ -66,12 +68,17 @@ def test_api_maps_missing_duplicate_and_invalid_requests(tmp_path: Path) -> None
 
     assert api.get("/api/studio/jobs/missing").status_code == 404
     first = api.post(
-        "/api/studio/jobs/training", json=request().model_copy(update={"run_id": "run-002"}).model_dump(by_alias=True)
+        "/api/studio/jobs/training",
+        json=request()
+        .model_copy(update={"run_id": "run-002"})
+        .model_dump(by_alias=True),
     )
     assert first.status_code == 201
     duplicate = api.post(
         "/api/studio/jobs/training",
-        json=request().model_copy(update={"run_id": "run-002"}).model_dump(by_alias=True),
+        json=request()
+        .model_copy(update={"run_id": "run-002"})
+        .model_dump(by_alias=True),
     )
     assert duplicate.status_code == 409
     escaped = api.post(

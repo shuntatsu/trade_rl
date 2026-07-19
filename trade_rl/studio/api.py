@@ -6,12 +6,10 @@ from fastapi import FastAPI, HTTPException, Query, status
 
 from trade_rl.studio.catalog import StudioCatalog
 from trade_rl.studio.comparison import compare_runs
-from trade_rl.studio.evidence import inspect_run_evidence
-from trade_rl.studio.serving_monitor import inspect_serving
 from trade_rl.studio.contracts import (
     ConfigListResponse,
-    EvidenceReport,
     DatasetListResponse,
+    EvidenceReport,
     JobListResponse,
     JobLogResponse,
     JobSummary,
@@ -21,7 +19,9 @@ from trade_rl.studio.contracts import (
     StudioOverview,
     TrainingJobRequest,
 )
+from trade_rl.studio.evidence import inspect_run_evidence
 from trade_rl.studio.jobs import JobSupervisor
+from trade_rl.studio.serving_monitor import inspect_serving
 from trade_rl.studio.settings import StudioSettings
 
 
@@ -106,7 +106,9 @@ def create_app(
     )
     def evidence(run_id: str) -> EvidenceReport:
         try:
-            return inspect_run_evidence(resolved_catalog.resolve_run_for_evidence(run_id))
+            return inspect_run_evidence(
+                resolved_catalog.resolve_run_for_evidence(run_id)
+            )
         except Exception as error:
             _raise_http(error)
             raise AssertionError("unreachable")

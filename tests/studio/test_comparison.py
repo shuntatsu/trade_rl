@@ -23,7 +23,9 @@ def settings_for(root: Path) -> StudioSettings:
     )
 
 
-def rewrite_run_payload(root: Path, *, total_return: float, sharpe: float, fee: float) -> None:
+def rewrite_run_payload(
+    root: Path, *, total_return: float, sharpe: float, fee: float
+) -> None:
     walk_forward = json.loads((root / "walk-forward.json").read_text(encoding="utf-8"))
     walk_forward["selected_metrics"]["total_return"] = total_return
     walk_forward["selected_metrics"]["sharpe"] = sharpe
@@ -44,7 +46,10 @@ def rewrite_run_payload(root: Path, *, total_return: float, sharpe: float, fee: 
     # Refresh the manifest because canonical artifact digests changed.
     from datetime import UTC, datetime
 
-    from trade_rl.artifacts.run_manifest import TrainingRunManifest, write_training_run_manifest
+    from trade_rl.artifacts.run_manifest import (
+        TrainingRunManifest,
+        write_training_run_manifest,
+    )
 
     old = json.loads((root / "run.json").read_text(encoding="utf-8"))
     manifest = TrainingRunManifest.build(
@@ -73,7 +78,9 @@ def test_catalog_resolves_only_exact_valid_run_ids(tmp_path: Path) -> None:
         catalog.resolve_run("missing")
 
 
-def test_compare_runs_returns_metric_deltas_config_diffs_and_fold_wealth(tmp_path: Path) -> None:
+def test_compare_runs_returns_metric_deltas_config_diffs_and_fold_wealth(
+    tmp_path: Path,
+) -> None:
     left = write_run(tmp_path / "research", run_id="run-left", algorithm="ppo")
     right = write_run(tmp_path / "research", run_id="run-right", algorithm="sac")
     rewrite_run_payload(left, total_return=0.20, sharpe=1.0, fee=0.001)

@@ -4,7 +4,10 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from trade_rl.artifacts.run_manifest import TrainingRunManifest, write_training_run_manifest
+from trade_rl.artifacts.run_manifest import (
+    TrainingRunManifest,
+    write_training_run_manifest,
+)
 from trade_rl.studio.evidence import inspect_run_evidence
 
 
@@ -31,7 +34,9 @@ def build_run(root: Path, *, selected_final: bool = False) -> Path:
         artifact_paths=tuple(sorted(files)),
         created_at=datetime(2026, 7, 19, 12, 0, tzinfo=UTC),
         completed_at=datetime(2026, 7, 19, 12, 5, tzinfo=UTC),
-        run_kind="research_selected_final" if selected_final else "research_exploratory",
+        run_kind="research_selected_final"
+        if selected_final
+        else "research_exploratory",
         selection_proposal_digest="2" * 64 if selected_final else None,
         selection_authorization_digest="3" * 64 if selected_final else None,
         walk_forward_run_digest="4" * 64 if selected_final else None,
@@ -41,7 +46,9 @@ def build_run(root: Path, *, selected_final: bool = False) -> Path:
     return root
 
 
-def test_exploratory_evidence_marks_authorization_chain_optional(tmp_path: Path) -> None:
+def test_exploratory_evidence_marks_authorization_chain_optional(
+    tmp_path: Path,
+) -> None:
     root = build_run(tmp_path / "run-exploratory")
 
     report = inspect_run_evidence(root)

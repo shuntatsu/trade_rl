@@ -1,0 +1,29 @@
+name: Studio Audit Source Export
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Package source
+        shell: bash
+        run: tar --exclude=.git -czf /tmp/trade-rl-audit-source.tar.gz .
+      - name: Upload source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trade-rl-audit-source
+          path: /tmp/trade-rl-audit-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1

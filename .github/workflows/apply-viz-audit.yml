@@ -44,6 +44,12 @@ jobs:
         run: npm run typecheck --prefix studio
       - name: Build Studio frontend
         run: npm run build --prefix studio
+      - name: Check Studio layout
+        shell: bash
+        run: |
+          sudo mkdir -p /mnt/data
+          sudo chmod 777 /mnt/data
+          npm run check:layout --prefix studio
       - name: Remove transfer payload and push
         shell: bash
         run: |

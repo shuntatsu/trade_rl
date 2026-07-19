@@ -79,6 +79,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee /tmp/studio-runtime-commit.log) 2>&1
           shopt -s nullglob
           parts=(.github/studio-runtime.patch.gz.b64.part-*)
           if (( ${#parts[@]} != 0 )); then
@@ -93,3 +94,12 @@ jobs:
           git add -A
           git commit -m "feat: connect Trade RL Studio runtime"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
+      - name: Upload commit diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-runtime-commit-diagnostics
+          path: /tmp/studio-runtime-commit.log
+          if-no-files-found: ignore
+          retention-days: 1

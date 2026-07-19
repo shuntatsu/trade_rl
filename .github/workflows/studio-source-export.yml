@@ -29,12 +29,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f .github/studio-runtime.patch ]]; then
+          encoded=.github/studio-runtime.patch.gz.b64
+          if [[ ! -f "$encoded" ]]; then
             echo "No runtime patch present; nothing to apply."
             exit 0
           fi
-          patch -p1 < .github/studio-runtime.patch
-          rm -f .github/studio-runtime.patch .github/workflows/studio-source-export.yml
+          base64 --decode "$encoded" | gzip --decompress > /tmp/studio-runtime.patch
+          patch -p1 < /tmp/studio-runtime.patch
+          rm -f "$encoded" .github/workflows/studio-source-export.yml
           uv lock
           git diff --check
 
@@ -42,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -f .github/studio-runtime.patch ]]; then
+          if [[ -f .github/studio-runtime.patch.gz.b64 ]]; then
             echo "Patch was not applied."
             exit 1
           fi

@@ -57,7 +57,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: studio-runtime-apply-diagnostics
-          path: /tmp/studio-runtime-apply.log
+          path: |
+            /tmp/studio-runtime-apply.log
+            /tmp/studio-runtime.patch.gz.b64
           if-no-files-found: ignore
           retention-days: 1
 

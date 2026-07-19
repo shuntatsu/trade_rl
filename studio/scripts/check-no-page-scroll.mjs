@@ -69,7 +69,7 @@ const auditFixtures = {
       { key: 'identity', label: 'Bundle identity', status: 'PASS', detail: 'dataset, action, observation, and policy identities are bound' },
       { key: 'paper_snapshot', label: 'Paper inference snapshot', status: 'PASS', detail: 'latest snapshot identity is valid' },
     ],
-    paperSnapshot: { recordedAt: '2026-07-20T00:00:00Z', bundleDigest: 'f'.repeat(64), datasetId: 'dataset-1', decisionIndex: 42, targetWeights: { BTCUSDT: .4, ETHUSDT: .2, BNBUSDT: .1, CASH: .3 }, latencyMs: 8.4, snapshotDigest: '9'.repeat(64) },
+    paperSnapshot: { recordedAt: '2026-07-20T00:00:00Z', bundleDigest: 'f'.repeat(64), datasetId: 'dataset-1', decisionIndex: 42, targetWeights: { BTCUSDT: .4, ETHUSDT: -.2, BNBUSDT: .1, CASH: .7 }, latencyMs: 8.4, snapshotDigest: '9'.repeat(64) },
   },
 }
 

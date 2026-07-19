@@ -414,3 +414,45 @@ th:nth-child(1) { width: 23%; } th:nth-child(2) { width: 14%; } th:nth-child(3) 
   .audit-evidence-grid { grid-template-columns: minmax(280px, 1fr) minmax(0, 1fr) minmax(210px, .65fr); }
   .audit-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Visualization audit corrections: truthful shared scales, preference-aware outcomes, signed exposure. */
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+.audit-neutral { color: #a8bac3 !important; }
+.audit-metric-values { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px !important; }
+.audit-metric-values > span { min-width: 0; display: grid; gap: 2px; }
+.audit-metric-values small { font-size: 7px; letter-spacing: .08em; }
+.audit-metric-outcome { display: flex !important; justify-content: flex-start !important; gap: 6px !important; align-items: baseline !important; }
+.audit-metric-outcome strong { font-size: 9px; }
+.audit-chart-wrap { grid-template-rows: minmax(0, 1fr); padding: 8px; }
+.audit-chart-stack { position: relative; min-height: 0; height: 100%; display: grid; grid-template-columns: 27px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 26px; }
+.audit-chart { grid-column: 2; grid-row: 1; }
+.audit-chart-scale { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 8px 3px 9px 0; color: #8297a2; font-size: 7px; text-align: right; font-variant-numeric: tabular-nums; }
+.audit-chart__reference { stroke: #4c626d; stroke-width: .7; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+.audit-chart-legend { grid-column: 1 / 3; grid-row: 2; justify-content: flex-start; gap: 13px; padding-left: 28px; }
+.audit-chart-key { display: inline-flex; align-items: center; gap: 5px; }
+.audit-chart-key::before { content: ''; width: 14px; height: 2px; background: currentColor; }
+.audit-chart-key--left { color: #48c5db; }
+.audit-chart-key--right { color: #b1dc6b; }
+.audit-chart-key--baseline { color: #879aa4; }
+.audit-chart-key--baseline::before { height: 1px; background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 6px); }
+.audit-fold-list article { grid-template-columns: 50px minmax(0, 1fr); grid-template-rows: auto repeat(4, 22px); min-height: 120px; padding: 6px 8px; }
+.audit-fold-list article > strong { grid-column: 1 / 3; }
+.audit-fold-value { grid-column: 1 / 3; display: grid; grid-template-columns: 22px minmax(0, 1fr) 48px; align-items: center; gap: 5px; }
+.audit-fold-value > span { text-align: left; font-weight: 800; }
+.audit-fold-value > strong { text-align: right; font-size: 8px; font-variant-numeric: tabular-nums; }
+.audit-diverging-track, .audit-weight-track { position: relative; height: 8px; border-radius: 2px; background: linear-gradient(90deg, #10202a 0 49.5%, #526874 49.5% 50.5%, #10202a 50.5% 100%); overflow: hidden; }
+.audit-diverging-bar, .audit-weight-bar { position: absolute; top: 1px; bottom: 1px; }
+.audit-diverging-bar--positive, .audit-weight-bar--long { left: 50%; background: #48b7cb; }
+.audit-diverging-bar--negative, .audit-weight-bar--short { right: 50%; background: #d58b62; }
+.audit-chain { gap: 7px; }
+.audit-chain-node + .audit-chain-node { margin-top: 0; }
+.audit-chain-node i { display: none; }
+.audit-paper-stats { grid-template-rows: repeat(5, minmax(44px, 1fr)); overflow: auto; }
+.audit-weight-list article { display: grid; grid-template-columns: minmax(72px, .55fr) minmax(120px, 1fr) 58px; }
+.audit-weight-list article strong, .audit-weight-list article span { position: static; }
+.audit-weight-list article span { text-align: right; }
+.audit-weight-track { width: 100%; }
+.audit-weight-list article > i { display: none; }
+.audit-weight-track .audit-weight-bar { position: absolute; top: 1px; bottom: 1px; height: auto; }
+.audit-weight-track .audit-weight-bar--long { left: 50%; right: auto; background: #48b7cb; }
+.audit-weight-track .audit-weight-bar--short { left: auto; right: 50%; background: #d58b62; }

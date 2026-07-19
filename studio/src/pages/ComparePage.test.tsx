@@ -21,7 +21,10 @@ const runs: RunSummary[] = [
 
 const comparison: RunComparison = {
   leftRunId: 'run-001', rightRunId: 'run-002', productionStatus: 'NO-GO',
-  metrics: [{ key: 'total_return', label: 'Total return', leftValue: 0.12, rightValue: 0.18, delta: 0.06, preference: 'higher' }],
+  metrics: [
+    { key: 'total_return', label: 'Total return', leftValue: 0.12, rightValue: 0.18, delta: 0.06, preference: 'higher' },
+    { key: 'total_cost', label: 'Total cost', leftValue: 0.006, rightValue: 0.009, delta: 0.003, preference: 'lower' },
+  ],
   configDifferences: [{ path: 'training.algorithm', left: 'ppo', right: 'sac' }],
   folds: [{ label: 'Fold 1', leftSelectedReturn: 0.05, leftBaselineReturn: 0.03, rightSelectedReturn: 0.08, rightBaselineReturn: 0.03 }],
   wealth: [{ label: '0', left: 1, right: 1, leftBaseline: 1, rightBaseline: 1 }, { label: '1', left: 1.05, right: 1.08, leftBaseline: 1.03, rightBaseline: 1.03 }],
@@ -44,6 +47,8 @@ describe('ComparePage', () => {
     expect(screen.getByText('Fold 1')).toBeInTheDocument()
     expect(screen.getByText('NO-GO')).toBeInTheDocument()
     expect(screen.getByLabelText('comparison wealth chart')).toBeInTheDocument()
+    expect(screen.getByText('改善')).toBeInTheDocument()
+    expect(screen.getByText('悪化')).toBeInTheDocument()
     expect(screen.queryByText(/注文|発注/)).not.toBeInTheDocument()
   })
 
@@ -58,3 +63,17 @@ describe('ComparePage', () => {
     await waitFor(() => expect(runtimeApi.loadRunComparison).toHaveBeenLastCalledWith('run-001', 'run-001'))
   })
 })
+
+
+  it('uses one shared wealth scale for every series', async () => {
+    render(<ComparePage api={api()} />)
+
+    const chart = await screen.findByLabelText('comparison wealth chart')
+    const left = chart.querySelector('[data-series="left"]')
+    const right = chart.querySelector('[data-series="right"]')
+    expect(left).not.toBeNull()
+    expect(right).not.toBeNull()
+    expect(left?.getAttribute('points')).not.toBe(right?.getAttribute('points'))
+    expect(left).toHaveAttribute('data-final', '1.05')
+    expect(right).toHaveAttribute('data-final', '1.08')
+  })

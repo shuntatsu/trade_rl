@@ -70,14 +70,13 @@ export function EvidencePage({ api = studioApi }: EvidencePageProps) {
 
       <div className="audit-evidence-grid">
         <section className="runtime-pane audit-chain-pane">
-          <div className="runtime-pane__header"><strong>Evidence chain</strong><span>{report?.runKind ?? '—'}</span></div>
+          <div className="runtime-pane__header"><strong>Evidence coverage</strong><span>{report?.runKind ?? '—'}</span></div>
           <div className="audit-chain" aria-busy={loading}>
             {error ? <div className="runtime-error">{error}</div> : null}
-            {(report?.nodes ?? []).map((node, index) => (
+            {(report?.nodes ?? []).map((node) => (
               <button key={node.key} type="button" className={`audit-chain-node${node.key === selectedKey ? ' audit-chain-node--selected' : ''}`} onClick={() => setSelectedKey(node.key)}>
                 <span className={`audit-status audit-status--${node.status.toLowerCase()}`}>{node.status}</span>
                 <strong>{node.label}</strong><small>{node.detail}</small>
-                {index < (report?.nodes.length ?? 0) - 1 ? <i aria-hidden="true" /> : null}
               </button>
             ))}
             {!error && !loading && !report ? <div className="runtime-empty">Evidence reportがありません。</div> : null}

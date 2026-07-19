@@ -62,10 +62,21 @@ export function ServingPage({ api = studioApi }: ServingPageProps) {
 
         <section className="runtime-pane audit-paper-pane">
           <div className="runtime-pane__header"><strong>Paper inference snapshot</strong><span>{report?.paperSnapshot?.recordedAt ?? 'not present'}</span></div>
-          {report?.paperSnapshot ? <div className="audit-paper-layout">
-            <div className="audit-paper-stats"><article><span>Decision index</span><strong>{report.paperSnapshot.decisionIndex}</strong></article><article><span>Latency</span><strong>{report.paperSnapshot.latencyMs.toFixed(1)} ms</strong></article><article><span>Snapshot</span><code>{short(report.paperSnapshot.snapshotDigest)}</code></article></div>
-            <div className="audit-weight-list">{Object.entries(report.paperSnapshot.targetWeights).map(([symbol, weight]) => <article key={symbol}><strong>{symbol}</strong><span>{(weight * 100).toFixed(2)}%</span><i style={{ width: `${Math.min(Math.abs(weight) * 100, 100)}%` }} /></article>)}</div>
-          </div> : <div className="runtime-empty"><ShieldAlert size={26} aria-hidden="true" />paper推論スナップショットはありません。</div>}
+          {report?.paperSnapshot ? (() => {
+            const entries = Object.entries(report.paperSnapshot.targetWeights)
+            const nonCash = entries.filter(([symbol]) => symbol.toUpperCase() !== 'CASH')
+            const gross = nonCash.reduce((total, [, weight]) => total + Math.abs(weight), 0)
+            const net = nonCash.reduce((total, [, weight]) => total + weight, 0)
+            const maximum = Math.max(...entries.map(([, weight]) => Math.abs(weight)), 0.01)
+            return <div className="audit-paper-layout">
+              <div className="audit-paper-stats"><article><span>Decision index</span><strong>{report.paperSnapshot.decisionIndex}</strong></article><article><span>Latency</span><strong>{report.paperSnapshot.latencyMs.toFixed(1)} ms</strong></article><article><span>Non-cash gross</span><strong>{(gross * 100).toFixed(2)}%</strong></article><article><span>Non-cash net</span><strong>{(net * 100).toFixed(2)}%</strong></article><article><span>Snapshot</span><code>{short(report.paperSnapshot.snapshotDigest)}</code></article></div>
+              <div className="audit-weight-list">{entries.map(([symbol, weight]) => {
+                const direction = weight < 0 ? 'short' : 'long'
+                const width = Math.min(Math.abs(weight) / maximum, 1) * 50
+                return <article key={symbol} aria-label={`${symbol} target weight ${(weight * 100).toFixed(2)}%`} data-direction={direction}><strong>{symbol}</strong><div className="audit-weight-track" aria-hidden="true"><i className={`audit-weight-bar audit-weight-bar--${direction}`} style={{ width: `${width}%` }} /></div><span>{(weight * 100).toFixed(2)}%</span></article>
+              })}</div>
+            </div>
+          })() : <div className="runtime-empty"><ShieldAlert size={26} aria-hidden="true" />paper推論スナップショットはありません。</div>}
         </section>
       </div>
     </section>

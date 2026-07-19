@@ -25,7 +25,7 @@ const serving: ServingMonitorReport = {
   state: 'VALID', productionStatus: 'NO-GO', activeBundleDigest: 'c'.repeat(64), datasetId: 'dataset-1', runKind: 'research_selected_final',
   policyDigest: 'd'.repeat(64), actionSchema: 'target_weight_v1', observationSchema: 'sequence_v1', releaseAttestationPresent: true,
   checks: [{ key: 'closure', label: 'Bundle closure', status: 'PASS', detail: '9 declared files verified' }],
-  paperSnapshot: { recordedAt: '2026-07-20T00:00:00Z', bundleDigest: 'c'.repeat(64), datasetId: 'dataset-1', decisionIndex: 42, targetWeights: { BTCUSDT: 0.4, ETHUSDT: 0.2 }, latencyMs: 8.4, snapshotDigest: 'e'.repeat(64) },
+  paperSnapshot: { recordedAt: '2026-07-20T00:00:00Z', bundleDigest: 'c'.repeat(64), datasetId: 'dataset-1', decisionIndex: 42, targetWeights: { BTCUSDT: 0.4, ETHUSDT: -0.2, CASH: 0.8 }, latencyMs: 8.4, snapshotDigest: 'e'.repeat(64) },
   validationError: null,
 }
 
@@ -38,6 +38,7 @@ describe('EvidencePage', () => {
     render(<EvidencePage api={api} />)
 
     expect(await screen.findByText('Dataset identity')).toBeInTheDocument()
+    expect(screen.getByText('Evidence coverage')).toBeInTheDocument()
     expect(screen.getByText('Training config')).toBeInTheDocument()
     expect(screen.getAllByText('VERIFIED').length).toBeGreaterThan(0)
     expect(screen.getByText('9 / 9')).toBeInTheDocument()
@@ -56,6 +57,9 @@ describe('ServingPage', () => {
     expect(screen.getByText('READ ONLY')).toBeInTheDocument()
     expect(screen.getByText('BTCUSDT')).toBeInTheDocument()
     expect(screen.getByText('40.00%')).toBeInTheDocument()
+    expect(screen.getByText('-20.00%')).toBeInTheDocument()
+    expect(screen.getByText('Non-cash gross')).toBeInTheDocument()
+    expect(screen.getByLabelText('ETHUSDT target weight -20.00%')).toHaveAttribute('data-direction', 'short')
     expect(screen.queryByRole('button', { name: /activate|注文|発注/i })).not.toBeInTheDocument()
   })
 })

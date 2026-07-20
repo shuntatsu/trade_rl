@@ -22,4 +22,4 @@ These changes preserve causal sequence alignment and all dataset, normalizer, en
 
 ## Verification
 
-The focused Python 3.12 verification runs Ruff formatting and lint checks, Mypy on the changed production modules, and the example configuration, sequence normalization, structured teacher artifact, and Stable-Baselines3 integration test suites. The temporary source-transfer workflow is not part of the product branch.
+The focused Python 3.12 verification runs Ruff formatting and lint checks, Mypy on the changed production modules, and the example configuration, sequence normalization, structured teacher artifact, and Stable-Baselines3 integration test suites. A repository-wide `ruff format --check .` also passes. Temporary source-transfer and formatting workflows are not part of the product branch.

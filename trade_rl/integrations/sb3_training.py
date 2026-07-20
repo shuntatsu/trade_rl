@@ -15,6 +15,7 @@ from trade_rl.learning import (
     BehaviorCloningConfig,
     OracleTeacherConfig,
     StructuredTeacherObservationProvider,
+    SupervisedPolicyDataset,
     collect_teacher_rollout,
     oracle_target_path,
     write_teacher_artifact,
@@ -78,6 +79,9 @@ class StableBaselines3Backend:
         self.resume_replay_artifact = resume_replay_artifact
         self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
         self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
+        self._teacher_dataset_cache: dict[
+            tuple[str, int, int, str, str, str], SupervisedPolicyDataset
+        ] = {}
 
     def _oracle_targets(
         self,
@@ -100,6 +104,43 @@ class StableBaselines3Backend:
         targets.setflags(write=False)
         self._oracle_target_cache[key] = targets
         return targets
+
+    def _teacher_dataset(
+        self,
+        environment: Any,
+        targets: np.ndarray,
+        *,
+        dataset_id: str,
+        train_range: tuple[int, int],
+        teacher_config: OracleTeacherConfig,
+    ) -> SupervisedPolicyDataset:
+        start, stop = train_range
+        environment_digest = getattr(environment, "environment_digest", None)
+        action_spec_digest = getattr(environment, "action_spec_digest", None)
+        if not isinstance(environment_digest, str):
+            raise ValueError("teacher environment must expose environment_digest")
+        if not isinstance(action_spec_digest, str):
+            raise ValueError("teacher environment must expose action_spec_digest")
+        key = (
+            dataset_id,
+            int(start),
+            int(stop),
+            environment_digest,
+            action_spec_digest,
+            teacher_config.digest,
+        )
+        cached = self._teacher_dataset_cache.get(key)
+        if cached is not None:
+            return cached
+        teacher_dataset = collect_teacher_rollout(
+            environment,
+            targets,
+            dataset_id=dataset_id,
+            train_range=(start, stop),
+            teacher_config_digest=teacher_config.digest,
+        )
+        self._teacher_dataset_cache[key] = teacher_dataset
+        return teacher_dataset
 
     def train(
         self,
@@ -513,12 +554,12 @@ class StableBaselines3Backend:
                         ),
                     )
                     targets = self._oracle_targets(dataset, train_range, teacher_config)
-                    teacher_dataset = collect_teacher_rollout(
+                    teacher_dataset = self._teacher_dataset(
                         teacher_environment,
                         targets,
                         dataset_id=dataset.dataset_id,
                         train_range=train_range,
-                        teacher_config_digest=teacher_config.digest,
+                        teacher_config=teacher_config,
                     )
                     teacher_digest = write_teacher_artifact(
                         output_path.parent / "teacher",
@@ -539,6 +580,9 @@ class StableBaselines3Backend:
                             observations=teacher_dataset.observations,
                             sequence_normalizer=getattr(
                                 unwrapped_teacher, "sequence_normalizer", None
+                            ),
+                            policy_plane=getattr(
+                                unwrapped_teacher, "sequence_policy_plane", None
                             ),
                         )
                     cloning = pretrain_policy(

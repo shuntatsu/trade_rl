@@ -12,7 +12,7 @@
     "n_steps": 128,
     "n_envs": 4,
     "batch_size": 128,
-    "n_epochs": 3,
+    "n_epochs": 10,
     "gae_lambda": 0.95,
     "ent_coef": 0.001,
     "device": "cuda",
@@ -21,8 +21,9 @@
     "log_std_init": -0.7,
     "target_kl": 0.02,
     "policy_net_arch": [
-      128,
-      64
+      384,
+      256,
+      128
     ],
     "asset_set_encoder": false,
     "algorithm": "ppo",
@@ -33,16 +34,17 @@
     "behavior_cloning_batch_size": 256,
     "policy": "MultiInputPolicy",
     "value_net_arch": [
-      192,
-      96
+      512,
+      384,
+      256
     ],
     "sequence_encoder": true,
-    "sequence_capacity": "compact",
-    "sequence_d_model": 128,
-    "sequence_attention_heads": 4,
-    "sequence_attention_layers": 1,
+    "sequence_capacity": "standard",
+    "sequence_d_model": 336,
+    "sequence_attention_heads": 8,
+    "sequence_attention_layers": 2,
     "sequence_dropout": 0.05,
-    "max_policy_parameters": 2500000,
+    "max_policy_parameters": 12000000,
     "max_rollout_buffer_bytes": 805306368,
     "behavior_cloning_validation_fraction": 0.1,
     "behavior_cloning_patience": 5,

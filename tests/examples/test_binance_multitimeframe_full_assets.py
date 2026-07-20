@@ -34,6 +34,11 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.n_steps == 128
     assert config.training.batch_size == 128
     assert config.training.n_epochs == 10
+    assert config.training.sequence_capacity == "standard"
+    assert config.training.sequence_d_model == 336
+    assert config.training.sequence_attention_heads == 8
+    assert config.training.sequence_attention_layers == 2
+    assert config.training.max_policy_parameters == 12_000_000
     assert config.training.gamma == pytest.approx(0.998969062762624)
     assert config.training.decision_hours == 0.25
     assert config.environment.decision_hours == 0.25
@@ -80,7 +85,15 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
         if item.name == "oracle-bc-ppo-15m-target"
     )
     assert oracle.training.behavior_cloning_epochs == 15
-    assert oracle.training.batch_size == 512
+    assert oracle.training.batch_size == 128
+    assert oracle.training.n_epochs == 10
+    assert oracle.training.policy_net_arch == (384, 256, 128)
+    assert oracle.training.value_net_arch == (512, 384, 256)
+    assert oracle.training.sequence_capacity == "standard"
+    assert oracle.training.sequence_d_model == 336
+    assert oracle.training.sequence_attention_heads == 8
+    assert oracle.training.sequence_attention_layers == 2
+    assert oracle.training.max_policy_parameters == 12_000_000
     assert oracle.training.seeds == (0, 1, 2)
     assert oracle.training.timesteps >= 524_288
     assert oracle.training.gamma == pytest.approx(0.998969062762624)
@@ -106,7 +119,6 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert config.maximum_selection_cost_fraction == pytest.approx(0.03)
     assert config.minimum_selection_score == pytest.approx(0.0)
     assert config.maximum_selection_drawdown == pytest.approx(0.20)
-
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:

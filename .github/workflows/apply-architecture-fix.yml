@@ -1,0 +1,102 @@
+name: Apply Studio Architecture Hardening
+
+on:
+  push:
+    branches:
+      - feat/trade-rl-studio-shell
+    paths:
+      - .github/workflows/apply-architecture-fix.yml
+      - .github/architecture-fix-payload/**
+      - .github/architecture-fix-binary/**
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/trade-rl-studio-shell
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/architecture-fix-payload/part-000 > /tmp/studio-architecture-fix.patch.gz
+          base64 --decode .github/architecture-fix-payload/part-001 >> /tmp/studio-architecture-fix.patch.gz
+          cat .github/architecture-fix-binary/part-* >> /tmp/studio-architecture-fix.patch.gz
+          test "$(wc -c < /tmp/studio-architecture-fix.patch.gz)" -eq 58760
+          echo "761afb32e5aebf4280f57911ee22bfce109d749e804cfe1e43cc47e22bbd812a  /tmp/studio-architecture-fix.patch.gz" | sha256sum --check
+          gzip --decompress --stdout /tmp/studio-architecture-fix.patch.gz > /tmp/studio-architecture-fix.patch
+          test "$(wc -c < /tmp/studio-architecture-fix.patch)" -eq 276583
+
+      - name: Apply architecture patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/studio-architecture-fix.patch
+          git diff --cached --check
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install Studio frontend
+        run: npm ci --prefix studio --no-audit --no-fund
+
+      - name: Format and lint Studio backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/studio tests/studio
+          uv run ruff check --fix trade_rl/studio tests/studio
+          git add trade_rl/studio tests/studio
+          git diff --cached --check
+          uv run ruff check trade_rl/studio tests/studio
+          uv run ruff format --check trade_rl/studio tests/studio
+
+      - name: Test Studio backend
+        run: uv run pytest -q tests/studio
+
+      - name: Type and architecture checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run mypy trade_rl/studio
+          uv run lint-imports
+
+      - name: Test Studio frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test --prefix studio -- --run
+          npm run typecheck --prefix studio
+          npm run build --prefix studio
+          mkdir -p /tmp/studio-qa
+          STUDIO_QA_OUTPUT_DIR=/tmp/studio-qa npm run check:layout --prefix studio
+
+      - name: Commit and push product changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: harden Studio architecture boundaries"
+          git push origin HEAD:feat/trade-rl-studio-shell

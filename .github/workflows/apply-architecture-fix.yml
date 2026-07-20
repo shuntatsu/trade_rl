@@ -86,6 +86,18 @@ jobs:
           git apply --index /tmp/studio-architecture-fix.patch
           git diff --cached --check
 
+      - name: Apply pytest import overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/architecture-fix-payload/overlay-tests.b64 > /tmp/studio-architecture-overlay.patch.gz
+          test "$(wc -c < /tmp/studio-architecture-overlay.patch.gz)" -eq 634
+          echo "1c2abea26df2a64043d6ac24736f081aa9f77fa0d7435665babf836e814dbdba  /tmp/studio-architecture-overlay.patch.gz" | sha256sum --check
+          gzip --decompress --stdout /tmp/studio-architecture-overlay.patch.gz > /tmp/studio-architecture-overlay.patch
+          test "$(wc -c < /tmp/studio-architecture-overlay.patch)" -eq 2286
+          git apply --index /tmp/studio-architecture-overlay.patch
+          git diff --cached --check
+
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:

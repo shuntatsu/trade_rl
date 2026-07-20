@@ -1,13 +1,17 @@
-import { Cpu, Thermometer, UserRound } from 'lucide-react'
+import { Cpu, UserRound } from 'lucide-react'
+
+import type { RuntimeSource } from '../data/types'
 
 interface TopBarProps {
   cudaReady: boolean
   gpuName: string
   pythonVersion: string
-  source: 'api' | 'demo'
+  source: RuntimeSource
+  error: string | null
 }
 
-export function TopBar({ cudaReady, gpuName, pythonVersion, source }: TopBarProps) {
+export function TopBar({ cudaReady, gpuName, pythonVersion, source, error }: TopBarProps) {
+  const sourceLabel = source === 'live' ? 'LIVE' : source === 'demo' ? 'DEMO DATA' : 'OFFLINE'
   return (
     <header className="topbar">
       <div className="topbar-group">
@@ -19,8 +23,7 @@ export function TopBar({ cudaReady, gpuName, pythonVersion, source }: TopBarProp
         <div className="topbar-chip"><span>Python</span><strong>{pythonVersion}</strong></div>
       </div>
       <div className="topbar-group topbar-group--right">
-        {source === 'demo' ? <span className="demo-badge">DEMO DATA</span> : null}
-        <div className="topbar-chip"><Thermometer size={14} aria-hidden="true" /><strong className="text-positive">42°C</strong></div>
+        <span className={`demo-badge runtime-source runtime-source--${source}`} title={error ?? undefined}>{sourceLabel}</span>
         <div className="topbar-user"><UserRound size={16} aria-hidden="true" /> researcher</div>
       </div>
     </header>

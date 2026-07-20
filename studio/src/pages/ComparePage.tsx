@@ -1,8 +1,9 @@
 import { GitCompareArrows, RefreshCw } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { studioApi, type StudioApi } from '../api/studioApi'
 import type { ComparisonMetric, ComparisonSeriesPoint, FoldComparison, RunComparison, RunSummary } from '../data/types'
+import { readParam, replaceParams } from '../state/urlState'
 
 type CompareApi = Pick<StudioApi, 'loadRuns' | 'loadRunComparison'>
 
@@ -132,23 +133,29 @@ function foldMaximum(folds: FoldComparison[]): number {
 
 export function ComparePage({ api = studioApi }: ComparePageProps) {
   const [runs, setRuns] = useState<RunSummary[]>([])
-  const [leftRunId, setLeftRunId] = useState('')
-  const [rightRunId, setRightRunId] = useState('')
+  const [leftRunId, setLeftRunId] = useState(() => readParam(window.location.search, 'left') ?? '')
+  const [rightRunId, setRightRunId] = useState(() => readParam(window.location.search, 'right') ?? '')
   const [comparison, setComparison] = useState<RunComparison | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const requestSequence = useRef(0)
 
   async function loadComparison(left: string, right: string) {
     if (!left || !right) return
+    const sequence = ++requestSequence.current
     setLoading(true)
     setError(null)
+    replaceParams({ left, right })
     try {
-      setComparison(await api.loadRunComparison(left, right))
+      const value = await api.loadRunComparison(left, right)
+      if (sequence === requestSequence.current) setComparison(value)
     } catch (reason) {
-      setComparison(null)
-      setError(reason instanceof Error ? reason.message : 'run比較を取得できませんでした。')
+      if (sequence === requestSequence.current) {
+        setComparison(null)
+        setError(reason instanceof Error ? reason.message : 'run比較を取得できませんでした。')
+      }
     } finally {
-      setLoading(false)
+      if (sequence === requestSequence.current) setLoading(false)
     }
   }
 
@@ -187,10 +194,11 @@ export function ComparePage({ api = studioApi }: ComparePageProps) {
         <section className="runtime-pane audit-selector-pane">
           <div className="runtime-pane__header"><strong>Run pair</strong><span>{runs.length} validated</span></div>
           <div className="audit-selectors">
-            <label>Left run<select aria-label="Left run" value={leftRunId} onChange={(event) => { const value = event.target.value; setLeftRunId(value); void loadComparison(value, rightRunId) }}>{runs.map((run) => <option key={run.id} value={run.id}>{run.id} · {run.algorithm}</option>)}</select></label>
+            <label>Left run<select aria-label="Left run" value={leftRunId} onChange={(event) => { const value = event.target.value; setLeftRunId(value); void loadComparison(value, rightRunId) }}>{runs.map((run) => <option key={run.id} value={run.id}>{run.runId} · {run.algorithm}</option>)}</select></label>
             <GitCompareArrows size={18} aria-hidden="true" />
-            <label>Right run<select aria-label="Right run" value={rightRunId} onChange={(event) => { const value = event.target.value; setRightRunId(value); void loadComparison(leftRunId, value) }}>{runs.map((run) => <option key={run.id} value={run.id}>{run.id} · {run.algorithm}</option>)}</select></label>
+            <label>Right run<select aria-label="Right run" value={rightRunId} onChange={(event) => { const value = event.target.value; setRightRunId(value); void loadComparison(leftRunId, value) }}>{runs.map((run) => <option key={run.id} value={run.id}>{run.runId} · {run.algorithm}</option>)}</select></label>
           </div>
+          {comparison ? <div className={`audit-eligibility audit-eligibility--${comparison.eligibility.status.toLowerCase().replaceAll('_', '-')}`} aria-label="comparison eligibility"><strong>{comparison.eligibility.status}</strong><span>{comparison.leftRunId} ↔ {comparison.rightRunId}</span><small>{comparison.eligibility.reasons.join(' · ') || 'sealed evaluation identities are compatible'}</small></div> : null}
         </section>
 
         <section className="runtime-pane audit-metrics-pane">

@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.serving.bundle import load_serving_bundle
 from trade_rl.studio.contracts import (
     PaperInferenceSnapshot,
@@ -61,6 +62,13 @@ def _paper_snapshot(
         raise ValueError("paper snapshot latency_ms must be finite and non-negative")
     if not isinstance(weights, Mapping) or not weights:
         raise ValueError("paper snapshot target_weights must be a non-empty object")
+    snapshot_digest = _string(
+        payload.get("snapshot_digest"), field="paper snapshot digest"
+    )
+    digest_payload = dict(payload)
+    digest_payload.pop("snapshot_digest", None)
+    if content_digest(digest_payload) != snapshot_digest:
+        raise ValueError("paper snapshot digest mismatch")
     resolved_weights: dict[str, float] = {}
     for key, raw in weights.items():
         if not isinstance(key, str) or not key:
@@ -81,9 +89,7 @@ def _paper_snapshot(
         decision_index=decision_index,
         target_weights=resolved_weights,
         latency_ms=float(latency_ms),
-        snapshot_digest=_string(
-            payload.get("snapshot_digest"), field="paper snapshot digest"
-        ),
+        snapshot_digest=snapshot_digest,
     )
 
 

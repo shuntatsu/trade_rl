@@ -7,12 +7,13 @@ import { EvidencePage } from './EvidencePage'
 import { ServingPage } from './ServingPage'
 
 const run: RunSummary = {
-  id: 'run-001', relativePath: 'research/runs/run-001', runKind: 'research_selected_final', algorithm: 'ppo', datasetId: 'dataset-1',
+  id: 'run-111111111111111111111111', runId: 'run-001', manifestDigest: '1'.repeat(64), relativePath: 'research/runs/run-001', runKind: 'research_selected_final', algorithm: 'ppo', datasetId: 'dataset-1',
   period: '2026-01-01 — 2026-01-02', createdAt: '2026-01-01', completedAt: '2026-01-02', fileCount: 9,
   sharpe: 1.2, maxDrawdown: 0.08, totalReturn: 0.2, productionStatus: 'NO-GO', status: 'VALID', validationError: null,
 }
 
 const evidence: EvidenceReport = {
+  runResourceId: run.id,
   runId: 'run-001', runKind: 'research_selected_final', status: 'VALID', productionStatus: 'NO-GO', validationError: null,
   files: { status: 'VERIFIED', declaredCount: 9, verifiedCount: 9, totalSizeBytes: 4096 },
   nodes: [

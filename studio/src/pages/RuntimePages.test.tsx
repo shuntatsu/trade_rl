@@ -9,7 +9,8 @@ import { ExperimentsPage } from './ExperimentsPage'
 import { RunCenterPage } from './RunCenterPage'
 
 const dataset: DatasetSummary = {
-  id: 'dataset-1',
+  id: 'dataset-111111111111111111111111',
+  datasetId: 'd'.repeat(64),
   name: 'btc-eth',
   relativePath: 'artifacts/datasets/btc-eth',
   market: 'continuous_24_7',
@@ -25,6 +26,8 @@ const dataset: DatasetSummary = {
 }
 
 const config: ConfigSummary = {
+  id: 'config-111111111111111111111111',
+  configDigest: 'c'.repeat(64),
   name: 'training.json',
   relativePath: 'configs/training.json',
   algorithm: 'ppo',
@@ -34,17 +37,25 @@ const config: ConfigSummary = {
 
 const job: JobSummary = {
   id: 'job-1',
+  schemaVersion: 'studio_job_v2',
   kind: 'training',
   status: 'running',
   runId: 'run-1',
+  configResourceId: config.id,
+  datasetResourceId: dataset.id,
+  configDigest: config.configDigest!,
+  datasetId: dataset.datasetId,
   configPath: config.relativePath,
   datasetPath: dataset.relativePath,
   artifactRoot: 'artifacts/research',
+  ownerInstanceId: 'studio-instance',
   submittedAt: '2026-07-19T00:00:00+00:00',
   startedAt: '2026-07-19T00:00:01+00:00',
   completedAt: null,
   pid: 123,
+  pidStartToken: '99',
   exitCode: null,
+  cancellable: true,
   error: null,
 }
 
@@ -89,8 +100,8 @@ describe('ExperimentsPage', () => {
 
     await waitFor(() => {
       expect(runtimeApi.submitTrainingJob).toHaveBeenCalledWith({
-        configPath: config.relativePath,
-        datasetPath: dataset.relativePath,
+        configResourceId: config.id,
+        datasetResourceId: dataset.id,
         runId: 'ui-training-001',
       })
     })

@@ -21,7 +21,6 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--project-root", type=Path, default=Path.cwd())
     start.add_argument("--host", default="127.0.0.1")
     start.add_argument("--port", type=int, default=8765)
-    start.add_argument("--allow-remote", action="store_true")
     start.add_argument("--log-level", default="info")
     return parser
 
@@ -45,8 +44,8 @@ def main(
         raise ValueError("unsupported studio command")
     if not 1 <= args.port <= 65_535:
         raise ValueError("port must be between 1 and 65535")
-    if not args.allow_remote and not _loopback_host(args.host):
-        raise ValueError("remote binding requires --allow-remote")
+    if not _loopback_host(args.host):
+        raise ValueError("Studio API host must be loopback-only")
     settings = StudioSettings.from_environment(args.project_root)
     app = create_app(settings)
     if runner is None:

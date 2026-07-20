@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test'
 import { statSync } from 'node:fs'
-import { readFile, readdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -18,15 +18,27 @@ const [css, rawJs] = await Promise.all([
 const js = rawJs.replaceAll('</script>', '<\\/script>')
 const html = `<!doctype html><html lang="ja"><head><base href="http://127.0.0.1:4173/"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script type="module">${js}</script></body></html>`
 
+const outputDir = process.env.STUDIO_QA_OUTPUT_DIR ?? '/mnt/data'
+await mkdir(outputDir, { recursive: true })
+
 const auditFixtures = {
+  overview: {
+    system: { gpuName: 'QA GPU', cudaReady: false, pythonVersion: '3.12', metrics: [] },
+    latestDataset: null, activeJobs: [], runs: [],
+    alerts: [{ level: 'info', message: 'QA fixture', age: 'now' }], equity: [], stability: [],
+    assessment: { status: 'NO-GO', reasons: ['QA fixture'] },
+  },
+  datasets: { items: [], total: 0, invalid: 0 },
+  configs: { items: [], total: 0, invalid: 0 },
+  jobs: { items: [], total: 0 },
   runs: {
     items: [
-      { id: 'run-001', relativePath: 'research/runs/run-001', runKind: 'research_exploratory', algorithm: 'ppo', datasetId: 'dataset-1', period: '2026-01-01 — 2026-01-02', createdAt: '2026-01-01', completedAt: '2026-01-02', fileCount: 8, sharpe: 0.8, maxDrawdown: 0.1, totalReturn: 0.12, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
-      { id: 'run-002', relativePath: 'research/runs/run-002', runKind: 'research_selected_final', algorithm: 'sac', datasetId: 'dataset-1', period: '2026-02-01 — 2026-02-02', createdAt: '2026-02-01', completedAt: '2026-02-02', fileCount: 10, sharpe: 1.1, maxDrawdown: 0.08, totalReturn: 0.18, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
+      { id: 'run-111111111111111111111111', runId: 'run-001', manifestDigest: '1'.repeat(64), relativePath: 'research/runs/run-001', runKind: 'research_exploratory', algorithm: 'ppo', datasetId: 'dataset-1', period: '2026-01-01 — 2026-01-02', createdAt: '2026-01-01', completedAt: '2026-01-02', fileCount: 8, sharpe: 0.8, maxDrawdown: 0.1, totalReturn: 0.12, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
+      { id: 'run-222222222222222222222222', runId: 'run-002', manifestDigest: '2'.repeat(64), relativePath: 'research/runs/run-002', runKind: 'research_selected_final', algorithm: 'sac', datasetId: 'dataset-1', period: '2026-02-01 — 2026-02-02', createdAt: '2026-02-01', completedAt: '2026-02-02', fileCount: 10, sharpe: 1.1, maxDrawdown: 0.08, totalReturn: 0.18, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
     ], total: 2, invalid: 0,
   },
   comparison: {
-    leftRunId: 'run-001', rightRunId: 'run-002', productionStatus: 'NO-GO',
+    leftResourceId: 'run-111111111111111111111111', rightResourceId: 'run-222222222222222222222222', leftRunId: 'run-001', rightRunId: 'run-002', eligibility: { status: 'COMPARABLE', reasons: [], datasetId: 'dataset-1' }, productionStatus: 'NO-GO',
     metrics: [
       { key: 'total_return', label: 'Total return', leftValue: .12, rightValue: .18, delta: .06, preference: 'higher' },
       { key: 'sharpe', label: 'Sharpe', leftValue: .8, rightValue: 1.1, delta: .3, preference: 'higher' },
@@ -50,6 +62,7 @@ const auditFixtures = {
     ],
   },
   evidence: {
+    runResourceId: 'run-111111111111111111111111',
     runId: 'run-001', runKind: 'research_selected_final', status: 'VALID', productionStatus: 'NO-GO', validationError: null,
     files: { status: 'VERIFIED', declaredCount: 10, verifiedCount: 10, totalSizeBytes: 162430 },
     nodes: [
@@ -101,8 +114,8 @@ const browser = await chromium.launch({
 
 try {
   const viewports = [
-    { width: 1536, height: 1024, screenshot: '/mnt/data/trade-rl-studio-dashboard.png' },
-    { width: 1440, height: 900, screenshot: '/mnt/data/trade-rl-studio-dashboard-1440.png' },
+    { width: 1536, height: 1024, screenshot: path.join(outputDir, 'trade-rl-studio-dashboard.png') },
+    { width: 1440, height: 900, screenshot: path.join(outputDir, 'trade-rl-studio-dashboard-1440.png') },
   ]
 
   for (const viewport of viewports) {
@@ -110,7 +123,11 @@ try {
     await page.route('**/api/studio/**', async (route) => {
       const url = new URL(route.request().url())
       let payload = null
-      if (url.pathname.endsWith('/runs')) payload = auditFixtures.runs
+      if (url.pathname.endsWith('/overview')) payload = auditFixtures.overview
+      else if (url.pathname.endsWith('/datasets')) payload = auditFixtures.datasets
+      else if (url.pathname.endsWith('/configs')) payload = auditFixtures.configs
+      else if (url.pathname.endsWith('/jobs')) payload = auditFixtures.jobs
+      else if (url.pathname.endsWith('/runs')) payload = auditFixtures.runs
       else if (url.pathname.endsWith('/compare')) payload = auditFixtures.comparison
       else if (url.pathname.endsWith('/evidence')) payload = auditFixtures.evidence
       else if (url.pathname.endsWith('/serving')) payload = auditFixtures.serving
@@ -139,9 +156,9 @@ try {
     for (const workspace of ['Data Lab', '実験', 'Run Center', '比較', 'Evidence Explorer', 'Serving Monitor']) {
       await page.getByRole('button', { name: new RegExp(workspace, 'i') }).click()
       await page.getByRole('heading', { name: workspace }).waitFor()
-      if (workspace === '比較') await page.screenshot({ path: '/mnt/data/trade-rl-studio-compare.png', fullPage: false })
-      if (workspace === 'Evidence Explorer') await page.screenshot({ path: '/mnt/data/trade-rl-studio-evidence.png', fullPage: false })
-      if (workspace === 'Serving Monitor') await page.screenshot({ path: '/mnt/data/trade-rl-studio-serving.png', fullPage: false })
+      if (workspace === '比較') await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-compare.png'), fullPage: false })
+      if (workspace === 'Evidence Explorer') await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-evidence.png'), fullPage: false })
+      if (workspace === 'Serving Monitor') await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-serving.png'), fullPage: false })
       const afterNavigation = await page.evaluate(() => ({
         htmlScrollHeight: document.documentElement.scrollHeight,
         bodyScrollHeight: document.body.scrollHeight,

@@ -25,10 +25,10 @@ def test_studio_cli_binds_loopback_and_constructs_app(tmp_path: Path) -> None:
     assert calls[0]["app"].title == "Trade RL Studio API"
 
 
-def test_studio_cli_rejects_remote_binding_without_explicit_override(
+def test_studio_cli_rejects_remote_binding_unconditionally(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(ValueError, match="--allow-remote"):
+    with pytest.raises(ValueError, match="loopback"):
         cli.main(
             [
                 "start",
@@ -37,6 +37,12 @@ def test_studio_cli_rejects_remote_binding_without_explicit_override(
                 "--host",
                 "0.0.0.0",
             ],
+            runner=lambda *args, **kwargs: None,
+        )
+
+    with pytest.raises(SystemExit):
+        cli.main(
+            ["start", "--allow-remote"],
             runner=lambda *args, **kwargs: None,
         )
 

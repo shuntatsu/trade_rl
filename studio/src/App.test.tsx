@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { demoOverview } from './data/demoOverview'
 import { App } from './App'
 
-const initialOverview = { source: 'demo' as const, overview: demoOverview }
+const initialOverview = { source: 'demo' as const, overview: demoOverview, error: null }
 
 describe('App', () => {
   it('renders the fixed shell and research status', () => {

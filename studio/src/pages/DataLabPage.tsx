@@ -120,7 +120,7 @@ export function DataLabPage({ api = studioApi }: DataLabPageProps) {
               <article><span>Timeframes</span><strong>{selected.timeframes.join(' / ') || 'base only'}</strong></article>
               <article><span>Range</span><strong>{selected.range}</strong></article>
               <article><span>Artifact path</span><code>{selected.relativePath}</code></article>
-              <article><span>Dataset identity</span><code>{selected.id}</code></article>
+              <article><span>Dataset identity</span><code>{selected.datasetId}</code></article>
               <article><span>Updated</span><strong>{formatUpdated(selected.updated)}</strong></article>
               {selected.validationError ? <article className="runtime-validation-error"><span>Validation error</span><p>{selected.validationError}</p></article> : null}
             </div>

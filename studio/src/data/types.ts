@@ -1,6 +1,7 @@
 export type ProductionStatus = 'NO-GO'
 export type AlertLevel = 'warning' | 'info'
 export type ValidationStatus = 'VALID' | 'INVALID'
+export type RuntimeSource = 'live' | 'offline' | 'demo'
 export type JobStatus =
   | 'queued'
   | 'running'
@@ -17,6 +18,7 @@ export interface SystemMetric {
 
 export interface DatasetSummary {
   id: string
+  datasetId: string
   name: string
   relativePath: string
   market: string
@@ -41,6 +43,8 @@ export interface ActiveJob {
 
 export interface RunSummary {
   id: string
+  runId: string
+  manifestDigest: string | null
   relativePath: string
   runKind: string
   algorithm: string
@@ -58,6 +62,8 @@ export interface RunSummary {
 }
 
 export interface ConfigSummary {
+  id: string
+  configDigest: string | null
   name: string
   relativePath: string
   algorithm: string
@@ -67,25 +73,32 @@ export interface ConfigSummary {
 
 export interface JobSummary {
   id: string
+  schemaVersion: 'studio_job_v2'
   kind: 'training'
   status: JobStatus
   runId: string
+  configResourceId: string
+  datasetResourceId: string
+  configDigest: string
+  datasetId: string
   configPath: string
   datasetPath: string
   artifactRoot: string
   submittedAt: string
+  ownerInstanceId: string
   startedAt: string | null
   completedAt: string | null
   pid: number | null
+  pidStartToken: string | null
   exitCode: number | null
+  cancellable: boolean
   error: string | null
 }
 
 export interface TrainingJobRequest {
-  configPath: string
-  datasetPath: string
+  configResourceId: string
+  datasetResourceId: string
   runId: string
-  artifactRoot?: string
 }
 
 export interface JobLogResponse {
@@ -158,8 +171,9 @@ export interface StudioOverview {
 }
 
 export interface StudioOverviewResult {
-  source: 'api' | 'demo'
+  source: RuntimeSource
   overview: StudioOverview
+  error: string | null
 }
 
 export interface ComparisonMetric {
@@ -193,9 +207,18 @@ export interface ComparisonSeriesPoint {
   rightBaseline: number | null
 }
 
+export interface ComparisonEligibility {
+  status: 'COMPARABLE' | 'PARTIALLY_COMPARABLE' | 'NOT_COMPARABLE'
+  reasons: string[]
+  datasetId: string | null
+}
+
 export interface RunComparison {
+  leftResourceId: string
+  rightResourceId: string
   leftRunId: string
   rightRunId: string
+  eligibility: ComparisonEligibility
   metrics: ComparisonMetric[]
   configDifferences: ConfigDifference[]
   folds: FoldComparison[]
@@ -223,6 +246,7 @@ export interface FileIntegritySummary {
 }
 
 export interface EvidenceReport {
+  runResourceId: string
   runId: string
   runKind: string
   status: ValidationStatus

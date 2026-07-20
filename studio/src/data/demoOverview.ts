@@ -13,7 +13,8 @@ export const demoOverview: StudioOverview = {
     ],
   },
   latestDataset: {
-    id: 'demo-dataset',
+    id: 'dataset-demo0000000000000000000',
+    datasetId: 'd'.repeat(64),
     name: 'binance_spot_multi_tf_v1',
     relativePath: 'artifacts/datasets/binance_spot_multi_tf_v1',
     market: 'Spot',
@@ -32,10 +33,10 @@ export const demoOverview: StudioOverview = {
     { id: 'job_20250719_002', algorithm: 'SAC', phase: 'training', seedProgress: 'seed 1/3', progress: 23 },
   ],
   runs: [
-    { id: 'run_20250718_001', relativePath: 'artifacts/research/runs/run_20250718_001', runKind: 'research_exploratory', algorithm: 'PPO', datasetId: 'demo-dataset', period: '2023-01 → 2024-12', createdAt: '2025-07-18T00:00:00Z', completedAt: '2025-07-18T04:00:00Z', fileCount: 8, sharpe: 1.32, maxDrawdown: 0.124, totalReturn: 0.84, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
-    { id: 'run_20250717_003', relativePath: 'artifacts/research/runs/run_20250717_003', runKind: 'research_exploratory', algorithm: 'SAC', datasetId: 'demo-dataset', period: '2023-01 → 2024-12', createdAt: '2025-07-17T00:00:00Z', completedAt: '2025-07-17T04:00:00Z', fileCount: 8, sharpe: 0.85, maxDrawdown: 0.148, totalReturn: 0.49, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
-    { id: 'run_20250716_002', relativePath: 'artifacts/research/runs/run_20250716_002', runKind: 'research_exploratory', algorithm: 'PPO', datasetId: 'demo-dataset', period: '2023-01 → 2024-12', createdAt: '2025-07-16T00:00:00Z', completedAt: '2025-07-16T04:00:00Z', fileCount: 8, sharpe: 1.78, maxDrawdown: 0.093, totalReturn: 0.72, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
-    { id: 'run_20250715_001', relativePath: 'artifacts/research/runs/run_20250715_001', runKind: 'research_exploratory', algorithm: 'TD3', datasetId: 'demo-dataset', period: '2023-01 → 2024-12', createdAt: '2025-07-15T00:00:00Z', completedAt: '2025-07-15T04:00:00Z', fileCount: 8, sharpe: 0.92, maxDrawdown: 0.117, totalReturn: 0.55, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
+    { id: 'run-demo000000000000000000001', runId: 'run_20250718_001', manifestDigest: '1'.repeat(64), relativePath: 'artifacts/research/runs/run_20250718_001', runKind: 'research_exploratory', algorithm: 'PPO', datasetId: 'd'.repeat(64), period: '2023-01 → 2024-12', createdAt: '2025-07-18T00:00:00Z', completedAt: '2025-07-18T04:00:00Z', fileCount: 8, sharpe: 1.32, maxDrawdown: 0.124, totalReturn: 0.84, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
+    { id: 'run-demo000000000000000000002', runId: 'run_20250717_003', manifestDigest: '2'.repeat(64), relativePath: 'artifacts/research/runs/run_20250717_003', runKind: 'research_exploratory', algorithm: 'SAC', datasetId: 'd'.repeat(64), period: '2023-01 → 2024-12', createdAt: '2025-07-17T00:00:00Z', completedAt: '2025-07-17T04:00:00Z', fileCount: 8, sharpe: 0.85, maxDrawdown: 0.148, totalReturn: 0.49, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
+    { id: 'run-demo000000000000000000003', runId: 'run_20250716_002', manifestDigest: '3'.repeat(64), relativePath: 'artifacts/research/runs/run_20250716_002', runKind: 'research_exploratory', algorithm: 'PPO', datasetId: 'd'.repeat(64), period: '2023-01 → 2024-12', createdAt: '2025-07-16T00:00:00Z', completedAt: '2025-07-16T04:00:00Z', fileCount: 8, sharpe: 1.78, maxDrawdown: 0.093, totalReturn: 0.72, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
+    { id: 'run-demo000000000000000000004', runId: 'run_20250715_001', manifestDigest: '4'.repeat(64), relativePath: 'artifacts/research/runs/run_20250715_001', runKind: 'research_exploratory', algorithm: 'TD3', datasetId: 'd'.repeat(64), period: '2023-01 → 2024-12', createdAt: '2025-07-15T00:00:00Z', completedAt: '2025-07-15T04:00:00Z', fileCount: 8, sharpe: 0.92, maxDrawdown: 0.117, totalReturn: 0.55, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
   ],
   alerts: [
     { level: 'warning', message: 'seedが1つだけです（推奨: ≥3）', age: '2時間前' },

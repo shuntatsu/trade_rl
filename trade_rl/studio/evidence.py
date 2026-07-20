@@ -1,4 +1,4 @@
-"""Read-only evidence-chain inspection for Studio run artifacts."""
+"""Read-only evidence coverage and internal identity inspection."""
 
 from __future__ import annotations
 
@@ -7,11 +7,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from trade_rl.artifacts.run_manifest import validate_training_run_directory
-from trade_rl.studio.contracts import (
-    EvidenceNode,
-    EvidenceReport,
-    FileIntegritySummary,
+from trade_rl.artifacts.run_manifest import (
+    TrainingRunManifest,
+    validate_training_run_directory,
+)
+from trade_rl.studio.contracts import EvidenceNode, EvidenceReport, FileIntegritySummary
+from trade_rl.workflows.selection_authorization import (
+    load_selection_authorization,
+    load_selection_proposal,
 )
 
 
@@ -82,36 +85,114 @@ def _file_node(
     )
 
 
-def _bound_node(
+def _selection_nodes(
+    root: Path,
+    manifest: TrainingRunManifest | None,
     *,
-    key: str,
-    label: str,
-    digest: object,
     required: bool,
-) -> EvidenceNode:
-    value = digest if isinstance(digest, str) and digest else None
-    if value is None:
-        return EvidenceNode(
-            key=key,
-            label=label,
+) -> tuple[EvidenceNode, EvidenceNode, bool]:
+    proposal_path = root / "selection-proposal.json"
+    authorization_path = root / "selection-authorization.json"
+    if not proposal_path.is_file():
+        proposal_node = EvidenceNode(
+            key="selection_proposal",
+            label="Selection proposal",
             status="INVALID" if required else "ABSENT",
             required=required,
-            detail="required identity is missing"
+            detail="required artifact is missing"
             if required
-            else "optional identity is absent",
+            else "optional artifact is absent",
         )
-    return EvidenceNode(
-        key=key,
-        label=label,
-        status="PRESENT",
-        required=required,
-        digest=value,
-        detail="identity is bound by the run manifest",
+        proposal = None
+    else:
+        try:
+            proposal = load_selection_proposal(proposal_path)
+            if manifest is None:
+                raise ValueError("run manifest is invalid")
+            if proposal.digest != manifest.selection_proposal_digest:
+                raise ValueError("proposal digest differs from run manifest")
+            if proposal.dataset_id != manifest.dataset_id:
+                raise ValueError("proposal dataset identity differs from run manifest")
+            if proposal.walk_forward_run_digest != manifest.walk_forward_run_digest:
+                raise ValueError(
+                    "proposal walk-forward identity differs from run manifest"
+                )
+            if proposal.gate_evidence_digest != manifest.gate_evidence_digest:
+                raise ValueError(
+                    "proposal gate evidence identity differs from run manifest"
+                )
+            proposal_node = EvidenceNode(
+                key="selection_proposal",
+                label="Selection proposal",
+                status="VERIFIED",
+                required=required,
+                digest=proposal.digest,
+                path=proposal_path.name,
+                detail="proposal content and manifest bindings verified",
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            proposal = None
+            proposal_node = EvidenceNode(
+                key="selection_proposal",
+                label="Selection proposal",
+                status="INVALID",
+                required=required,
+                path=proposal_path.name,
+                detail=str(error),
+            )
+
+    if not authorization_path.is_file():
+        authorization_node = EvidenceNode(
+            key="selection_authorization",
+            label="Selection authorization",
+            status="INVALID" if required else "ABSENT",
+            required=required,
+            detail="required artifact is missing"
+            if required
+            else "optional artifact is absent",
+        )
+        authorization_valid = False
+    else:
+        try:
+            authorization = load_selection_authorization(authorization_path)
+            if manifest is None:
+                raise ValueError("run manifest is invalid")
+            if (
+                authorization.authorization_digest
+                != manifest.selection_authorization_digest
+            ):
+                raise ValueError("authorization digest differs from run manifest")
+            if proposal is None or authorization.proposal_digest != proposal.digest:
+                raise ValueError("authorization proposal binding is invalid")
+            authorization_node = EvidenceNode(
+                key="selection_authorization",
+                label="Selection authorization",
+                status="VERIFIED",
+                required=required,
+                digest=authorization.authorization_digest,
+                path=authorization_path.name,
+                detail="authorization content and proposal binding verified; signature trust remains external",
+            )
+            authorization_valid = True
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            authorization_node = EvidenceNode(
+                key="selection_authorization",
+                label="Selection authorization",
+                status="INVALID",
+                required=required,
+                path=authorization_path.name,
+                detail=str(error),
+            )
+            authorization_valid = False
+    return (
+        proposal_node,
+        authorization_node,
+        proposal is not None and authorization_valid,
     )
 
 
-def inspect_run_evidence(root: Path) -> EvidenceReport:
-    """Return a structured report while preserving validator failures."""
+def inspect_run_evidence(root: Path, *, run_resource_id: str) -> EvidenceReport:
+    """Return a structured report while preserving validator and binding failures."""
 
     raw = _raw_manifest(root)
     validation_error: str | None = None
@@ -120,7 +201,7 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
         manifest = validate_training_run_directory(root)
     except (OSError, ValueError, TypeError) as error:
         validation_error = str(error)
-    valid = manifest is not None
+    valid_manifest = manifest is not None
     run_id = (
         manifest.run_id if manifest is not None else str(raw.get("run_id") or root.name)
     )
@@ -132,17 +213,32 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
     selected_final = run_kind == "research_selected_final"
     declared = _declared_files(raw)
 
+    proposal_node, authorization_node, selection_valid = _selection_nodes(
+        root,
+        manifest,
+        required=selected_final,
+    )
+    walk_digest = None if manifest is None else manifest.walk_forward_run_digest
+    gate_digest = None if manifest is None else manifest.gate_evidence_digest
+    bound_status: Literal["VERIFIED", "PRESENT", "ABSENT", "INVALID"]
+    if selected_final:
+        bound_status = "VERIFIED" if selection_valid else "INVALID"
+    else:
+        bound_status = "ABSENT"
+
     nodes: list[EvidenceNode] = [
         EvidenceNode(
             key="run_manifest",
             label="Run manifest",
-            status="VERIFIED" if valid else "INVALID",
+            status="VERIFIED" if valid_manifest else "INVALID",
             required=True,
             digest=(manifest.digest if manifest is not None else None),
             path="run.json" if (root / "run.json").is_file() else None,
-            detail="manifest and file closure verified"
-            if valid
-            else (validation_error or "manifest is invalid"),
+            detail=(
+                "manifest and file closure verified"
+                if valid_manifest
+                else (validation_error or "manifest is invalid")
+            ),
         ),
         _file_node(
             root=root,
@@ -151,7 +247,7 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
             label="Dataset reference",
             candidates=("dataset-reference.json",),
             required=True,
-            valid_manifest=valid,
+            valid_manifest=valid_manifest,
         ),
         _file_node(
             root=root,
@@ -160,7 +256,7 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
             label="Research configuration",
             candidates=("training-config.json", "walk-forward-config.json"),
             required=True,
-            valid_manifest=valid,
+            valid_manifest=valid_manifest,
         ),
         _file_node(
             root=root,
@@ -169,69 +265,55 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
             label="Policy ensemble",
             candidates=("ensemble.json", "walk-forward.json"),
             required=True,
-            valid_manifest=valid,
+            valid_manifest=valid_manifest,
+        ),
+        proposal_node,
+        authorization_node,
+        EvidenceNode(
+            key="walk_forward",
+            label="Walk-forward evidence",
+            status=bound_status,
+            required=selected_final,
+            digest=walk_digest,
+            detail=(
+                "proposal and manifest bind the walk-forward identity"
+                if bound_status == "VERIFIED"
+                else "walk-forward identity is not fully verified"
+                if selected_final
+                else "optional identity is absent"
+            ),
+        ),
+        EvidenceNode(
+            key="gate_evidence",
+            label="Gate evidence",
+            status=bound_status,
+            required=selected_final,
+            digest=gate_digest,
+            detail=(
+                "proposal and manifest bind the gate evidence identity"
+                if bound_status == "VERIFIED"
+                else "gate evidence identity is not fully verified"
+                if selected_final
+                else "optional identity is absent"
+            ),
         ),
         _file_node(
             root=root,
             declared=declared,
-            key="selection_proposal",
-            label="Selection proposal",
-            candidates=("selection-proposal.json",),
-            required=selected_final,
-            valid_manifest=valid,
+            key="confirmation_evidence",
+            label="Confirmation evidence",
+            candidates=("confirmation-evidence.json",),
+            required=False,
+            valid_manifest=valid_manifest,
         ),
-        _file_node(
-            root=root,
-            declared=declared,
-            key="selection_authorization",
-            label="Selection authorization",
-            candidates=("selection-authorization.json",),
-            required=selected_final,
-            valid_manifest=valid,
+        EvidenceNode(
+            key="serving_bundle",
+            label="Serving bundle",
+            status="ABSENT",
+            required=False,
+            detail="serving bundle linkage is optional for research runs",
         ),
     ]
-    walk_digest = (
-        manifest.walk_forward_run_digest
-        if manifest is not None
-        else raw.get("walk_forward_run_digest")
-    )
-    gate_digest = (
-        manifest.gate_evidence_digest
-        if manifest is not None
-        else raw.get("gate_evidence_digest")
-    )
-    nodes.extend(
-        (
-            _bound_node(
-                key="walk_forward",
-                label="Walk-forward evidence",
-                digest=walk_digest,
-                required=selected_final,
-            ),
-            _bound_node(
-                key="gate_evidence",
-                label="Gate evidence",
-                digest=gate_digest,
-                required=selected_final,
-            ),
-            _file_node(
-                root=root,
-                declared=declared,
-                key="confirmation_evidence",
-                label="Confirmation evidence",
-                candidates=("confirmation-evidence.json",),
-                required=False,
-                valid_manifest=valid,
-            ),
-            EvidenceNode(
-                key="serving_bundle",
-                label="Serving bundle",
-                status="ABSENT",
-                required=False,
-                detail="serving bundle linkage is optional for research runs",
-            ),
-        )
-    )
 
     declared_count = len(declared)
     total_size = sum(
@@ -240,18 +322,21 @@ def inspect_run_evidence(root: Path) -> EvidenceReport:
         if isinstance(item.get("size_bytes", 0), int)
     )
     files = FileIntegritySummary(
-        status="VERIFIED" if valid else "INVALID",
+        status="VERIFIED" if valid_manifest else "INVALID",
         declared_count=declared_count,
-        verified_count=declared_count if valid else 0,
+        verified_count=declared_count if valid_manifest else 0,
         total_size_bytes=total_size,
     )
     required_invalid = any(
         node.required and node.status in {"ABSENT", "INVALID"} for node in nodes
     )
     status: Literal["VALID", "INVALID"] = (
-        "VALID" if valid and not required_invalid else "INVALID"
+        "VALID" if valid_manifest and not required_invalid else "INVALID"
     )
+    if status == "INVALID" and validation_error is None:
+        validation_error = "required evidence binding is invalid"
     return EvidenceReport(
+        run_resource_id=run_resource_id,
         run_id=run_id,
         run_kind=run_kind,
         status=status,

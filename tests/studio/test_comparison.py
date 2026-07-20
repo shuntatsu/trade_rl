@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from tests.studio.helpers import write_run
+from trade_rl.artifacts.run_manifest import (
+    TrainingRunManifest,
+    write_training_run_manifest,
+)
 from trade_rl.studio.catalog import StudioCatalog
 from trade_rl.studio.comparison import compare_runs
 from trade_rl.studio.settings import StudioSettings
+
+from .helpers import write_run
 
 
 def settings_for(root: Path) -> StudioSettings:
@@ -24,32 +30,34 @@ def settings_for(root: Path) -> StudioSettings:
 
 
 def rewrite_run_payload(
-    root: Path, *, total_return: float, sharpe: float, fee: float
+    root: Path,
+    *,
+    total_return: float,
+    sharpe: float,
+    fee: float,
+    test_range: list[int] | None = None,
 ) -> None:
     walk_forward = json.loads((root / "walk-forward.json").read_text(encoding="utf-8"))
+    walk_forward["dataset_id"] = json.loads((root / "run.json").read_text())[
+        "dataset_id"
+    ]
+    walk_forward["stitch_mode"] = "independent"
     walk_forward["selected_metrics"]["total_return"] = total_return
     walk_forward["selected_metrics"]["sharpe"] = sharpe
     walk_forward["selected_metrics"]["turnover_total"] = 2.5
     walk_forward["selected_metrics"]["total_cost"] = fee
-    walk_forward["folds"] = [
-        {
-            "fold_index": 0,
-            "selected_returns": [total_return / 2.0, total_return / 2.0],
-            "baseline_returns": [0.01, 0.01],
-        }
-    ]
+    fold = {
+        "fold_index": 0,
+        "selected_returns": [total_return / 2.0, total_return / 2.0],
+        "baseline_returns": [0.01, 0.01],
+    }
+    if test_range is not None:
+        fold["test_range"] = test_range
+    walk_forward["folds"] = [fold]
     (root / "walk-forward.json").write_text(json.dumps(walk_forward), encoding="utf-8")
     config = json.loads((root / "training-config.json").read_text(encoding="utf-8"))
     config["execution"] = {"fee_rate": fee}
     (root / "training-config.json").write_text(json.dumps(config), encoding="utf-8")
-
-    # Refresh the manifest because canonical artifact digests changed.
-    from datetime import UTC, datetime
-
-    from trade_rl.artifacts.run_manifest import (
-        TrainingRunManifest,
-        write_training_run_manifest,
-    )
 
     old = json.loads((root / "run.json").read_text(encoding="utf-8"))
     manifest = TrainingRunManifest.build(
@@ -67,49 +75,63 @@ def rewrite_run_payload(
     write_training_run_manifest(root, manifest)
 
 
-def test_catalog_resolves_only_exact_valid_run_ids(tmp_path: Path) -> None:
-    run = write_run(tmp_path / "research", run_id="run-left")
+def resolved_pair(tmp_path: Path):
     catalog = StudioCatalog(settings_for(tmp_path))
+    records = {
+        item.run_id: item for item in catalog.list_runs() if item.status == "VALID"
+    }
+    return catalog.resolve_run(records["run-left"].id), catalog.resolve_run(
+        records["run-right"].id
+    )
 
-    assert catalog.resolve_run("run-left") == run
-    with pytest.raises(KeyError, match="unknown Studio run"):
-        catalog.resolve_run("../run-left")
-    with pytest.raises(KeyError, match="unknown Studio run"):
-        catalog.resolve_run("missing")
 
-
-def test_compare_runs_returns_metric_deltas_config_diffs_and_fold_wealth(
-    tmp_path: Path,
-) -> None:
+def test_compare_runs_returns_comparable_aligned_metrics(tmp_path: Path) -> None:
     left = write_run(tmp_path / "research", run_id="run-left", algorithm="ppo")
     right = write_run(tmp_path / "research", run_id="run-right", algorithm="sac")
-    rewrite_run_payload(left, total_return=0.20, sharpe=1.0, fee=0.001)
-    rewrite_run_payload(right, total_return=0.35, sharpe=1.4, fee=0.002)
+    rewrite_run_payload(
+        left, total_return=0.20, sharpe=1.0, fee=0.001, test_range=[10, 12]
+    )
+    rewrite_run_payload(
+        right, total_return=0.35, sharpe=1.4, fee=0.002, test_range=[10, 12]
+    )
+    left_resolved, right_resolved = resolved_pair(tmp_path)
 
-    result = compare_runs(left, right)
+    result = compare_runs(left_resolved, right_resolved)
 
+    assert result.eligibility.status == "COMPARABLE"
     metrics = {item.key: item for item in result.metrics}
-    assert metrics["total_return"].left_value == pytest.approx(0.20)
-    assert metrics["total_return"].right_value == pytest.approx(0.35)
     assert metrics["total_return"].delta == pytest.approx(0.15)
-    assert metrics["max_drawdown"].preference == "lower"
-    differences = {item.path: item for item in result.config_differences}
-    assert differences["training.algorithm"].left == "ppo"
-    assert differences["training.algorithm"].right == "sac"
-    assert differences["execution.fee_rate"].left == "0.001"
-    assert result.folds[0].left_selected_return == pytest.approx(0.21)
-    assert result.folds[0].right_selected_return == pytest.approx(0.380625)
-    assert result.wealth[0].left == 1.0
+    assert result.wealth[1].label == "10"
     assert result.wealth[-1].right > result.wealth[-1].left
-    assert result.production_status == "NO-GO"
+    assert result.left_resource_id == left_resolved.summary.id
 
 
-def test_compare_runs_preserves_missing_metrics_as_none(tmp_path: Path) -> None:
-    left = write_run(tmp_path / "research", run_id="run-left", with_walk_forward=False)
+def test_compare_runs_marks_legacy_missing_ranges_partial(tmp_path: Path) -> None:
+    left = write_run(tmp_path / "research", run_id="run-left")
     right = write_run(tmp_path / "research", run_id="run-right")
+    rewrite_run_payload(left, total_return=0.2, sharpe=1.0, fee=0.001)
+    rewrite_run_payload(right, total_return=0.3, sharpe=1.1, fee=0.001)
 
-    result = compare_runs(left, right)
+    result = compare_runs(*resolved_pair(tmp_path))
 
-    total_return = next(item for item in result.metrics if item.key == "total_return")
-    assert total_return.left_value is None
-    assert total_return.delta is None
+    assert result.eligibility.status == "PARTIALLY_COMPARABLE"
+    assert any("test ranges" in reason for reason in result.eligibility.reasons)
+    assert result.metrics
+
+
+def test_compare_runs_fails_closed_for_different_datasets(tmp_path: Path) -> None:
+    left = write_run(tmp_path / "research", run_id="run-left", dataset_id="a" * 64)
+    right = write_run(tmp_path / "research", run_id="run-right", dataset_id="f" * 64)
+    rewrite_run_payload(
+        left, total_return=0.2, sharpe=1.0, fee=0.001, test_range=[10, 12]
+    )
+    rewrite_run_payload(
+        right, total_return=0.3, sharpe=1.1, fee=0.001, test_range=[10, 12]
+    )
+
+    result = compare_runs(*resolved_pair(tmp_path))
+
+    assert result.eligibility.status == "NOT_COMPARABLE"
+    assert result.metrics == ()
+    assert result.folds == ()
+    assert result.wealth == ()

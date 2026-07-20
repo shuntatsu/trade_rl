@@ -8,7 +8,8 @@ import './styles.css'
 async function bootstrap() {
   const root = document.getElementById('root')
   if (!root) throw new Error('root element not found')
-  const overview = await loadStudioOverview()
+  const demo = new URLSearchParams(window.location.search).get('demo') === '1'
+  const overview = await loadStudioOverview(fetch, { demo })
   createRoot(root).render(
     <StrictMode>
       <App initialOverview={overview} />

@@ -3,14 +3,15 @@ import { useState } from 'react'
 import { AppShell } from './components/AppShell'
 import type { WorkspaceId } from './components/Sidebar'
 import type { StudioOverviewResult } from './data/types'
-import { DashboardPage } from './pages/DashboardPage'
 import { ComparePage } from './pages/ComparePage'
-import { EvidencePage } from './pages/EvidencePage'
-import { ServingPage } from './pages/ServingPage'
+import { DashboardPage } from './pages/DashboardPage'
 import { DataLabPage } from './pages/DataLabPage'
+import { EvidencePage } from './pages/EvidencePage'
 import { ExperimentsPage } from './pages/ExperimentsPage'
 import { RunCenterPage } from './pages/RunCenterPage'
+import { ServingPage } from './pages/ServingPage'
 import { WorkspacePage } from './pages/WorkspacePage'
+import { readWorkspace, replaceParams } from './state/urlState'
 
 interface AppProps {
   initialOverview: StudioOverviewResult
@@ -21,14 +22,19 @@ const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experim
 }
 
 export function App({ initialOverview }: AppProps) {
-  const [active, setActive] = useState<WorkspaceId>('dashboard')
-  const { overview, source } = initialOverview
+  const [active, setActive] = useState<WorkspaceId>(() => readWorkspace(window.location.search))
+  const { overview, source, error } = initialOverview
+  const select = (workspace: WorkspaceId) => {
+    setActive(workspace)
+    replaceParams({ workspace })
+  }
 
   return (
     <AppShell
       active={active}
-      onSelect={setActive}
+      onSelect={select}
       source={source}
+      sourceError={error}
       cudaReady={overview.system.cudaReady}
       gpuName={overview.system.gpuName}
       pythonVersion={overview.system.pythonVersion}
@@ -40,9 +46,7 @@ export function App({ initialOverview }: AppProps) {
       {active === 'compare' ? <ComparePage /> : null}
       {active === 'evidence' ? <EvidencePage /> : null}
       {active === 'serving' ? <ServingPage /> : null}
-      {active === 'settings' ? (
-        <WorkspacePage {...workspaceMeta[active]} />
-      ) : null}
+      {active === 'settings' ? <WorkspacePage {...workspaceMeta[active]} /> : null}
     </AppShell>
   )
 }

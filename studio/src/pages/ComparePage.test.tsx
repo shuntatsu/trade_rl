@@ -8,19 +8,19 @@ import { ComparePage } from './ComparePage'
 
 const runs: RunSummary[] = [
   {
-    id: 'run-001', relativePath: 'research/runs/run-001', runKind: 'research_exploratory', algorithm: 'ppo',
+    id: 'run-111111111111111111111111', runId: 'run-001', manifestDigest: '1'.repeat(64), relativePath: 'research/runs/run-001', runKind: 'research_exploratory', algorithm: 'ppo',
     datasetId: 'dataset-1', period: '2026-01-01 — 2026-01-02', createdAt: '2026-01-01', completedAt: '2026-01-02',
     fileCount: 8, sharpe: 0.8, maxDrawdown: 0.1, totalReturn: 0.12, productionStatus: 'NO-GO', status: 'VALID', validationError: null,
   },
   {
-    id: 'run-002', relativePath: 'research/runs/run-002', runKind: 'research_exploratory', algorithm: 'sac',
+    id: 'run-222222222222222222222222', runId: 'run-002', manifestDigest: '2'.repeat(64), relativePath: 'research/runs/run-002', runKind: 'research_exploratory', algorithm: 'sac',
     datasetId: 'dataset-1', period: '2026-02-01 — 2026-02-02', createdAt: '2026-02-01', completedAt: '2026-02-02',
     fileCount: 8, sharpe: 1.1, maxDrawdown: 0.08, totalReturn: 0.18, productionStatus: 'NO-GO', status: 'VALID', validationError: null,
   },
 ]
 
 const comparison: RunComparison = {
-  leftRunId: 'run-001', rightRunId: 'run-002', productionStatus: 'NO-GO',
+  leftResourceId: runs[0].id, rightResourceId: runs[1].id, leftRunId: 'run-001', rightRunId: 'run-002', eligibility: { status: 'COMPARABLE', reasons: [], datasetId: 'dataset-1' }, productionStatus: 'NO-GO',
   metrics: [
     { key: 'total_return', label: 'Total return', leftValue: 0.12, rightValue: 0.18, delta: 0.06, preference: 'higher' },
     { key: 'total_cost', label: 'Total cost', leftValue: 0.006, rightValue: 0.009, delta: 0.003, preference: 'lower' },
@@ -58,9 +58,9 @@ describe('ComparePage', () => {
     render(<ComparePage api={runtimeApi} />)
 
     await screen.findByText('Total return')
-    await user.selectOptions(screen.getByLabelText('Right run'), 'run-001')
+    await user.selectOptions(screen.getByLabelText('Right run'), runs[0].id)
 
-    await waitFor(() => expect(runtimeApi.loadRunComparison).toHaveBeenLastCalledWith('run-001', 'run-001'))
+    await waitFor(() => expect(runtimeApi.loadRunComparison).toHaveBeenLastCalledWith(runs[0].id, runs[0].id))
   })
 })
 

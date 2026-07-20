@@ -1,20 +1,26 @@
-"""Persistent local subprocess jobs for exploratory Studio training runs."""
+"""Persistent, restart-safe subprocess jobs for exploratory Studio training."""
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
 import sys
 import uuid
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from trade_rl.artifacts.run_manifest import validate_training_run_directory
 from trade_rl.studio.contracts import JobSummary, TrainingJobRequest
+from trade_rl.studio.errors import (
+    IdentityConflict,
+    InvalidStudioRequest,
+    JobOwnershipLost,
+)
+from trade_rl.studio.job_store import JobStore
 from trade_rl.studio.settings import StudioSettings
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -33,21 +39,17 @@ class ProcessHandle(Protocol):
     def wait(self, timeout: float | None = None) -> int: ...
 
 
+class CatalogProtocol(Protocol):
+    def resolve_config(self, resource_id: str) -> Any: ...
+
+    def resolve_dataset(self, resource_id: str) -> Any: ...
+
+
 ProcessFactory = Callable[..., ProcessHandle]
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-        encoding="utf-8",
-    )
-    temporary.replace(path)
 
 
 def _default_process_factory(
@@ -66,6 +68,15 @@ def _default_process_factory(
     return cast(ProcessHandle, process)
 
 
+def _pid_start_token(pid: int) -> str | None:
+    path = Path(f"/proc/{pid}/stat")
+    try:
+        fields = path.read_text(encoding="utf-8").split()
+    except OSError:
+        return None
+    return fields[21] if len(fields) > 21 else None
+
+
 def _pid_alive(pid: int | None) -> bool:
     if pid is None or pid <= 0:
         return False
@@ -78,44 +89,39 @@ def _pid_alive(pid: int | None) -> bool:
     return True
 
 
+def _pid_matches(pid: int | None, token: str | None) -> bool:
+    if not _pid_alive(pid):
+        return False
+    if pid is None or token is None:
+        return True
+    current = _pid_start_token(pid)
+    return current is not None and current == token
+
+
 class JobSupervisor:
-    """Submit and reconcile fixed exploratory training commands."""
+    """Submit fixed training commands through an atomic, restart-safe job store."""
 
     def __init__(
         self,
         settings: StudioSettings,
         *,
+        catalog: CatalogProtocol | None = None,
         process_factory: ProcessFactory = _default_process_factory,
+        instance_id: str | None = None,
     ) -> None:
         self.settings = settings
-        self.process_factory = process_factory
-        self.settings.job_root.mkdir(parents=True, exist_ok=True)
-        self._processes: dict[str, ProcessHandle] = {}
+        if catalog is None:
+            from trade_rl.studio.catalog import StudioCatalog
 
-    def _record_path(self, job_id: str) -> Path:
-        if not job_id or Path(job_id).name != job_id:
-            raise KeyError(job_id)
-        return self.settings.job_root / f"{job_id}.json"
+            catalog = StudioCatalog(settings)
+        self.catalog = catalog
+        self.process_factory = process_factory
+        self.instance_id = instance_id or f"studio-{uuid.uuid4().hex}"
+        self.store = JobStore(settings.job_root)
+        self._processes: dict[str, ProcessHandle] = {}
 
     def _log_path(self, job_id: str) -> Path:
         return self.settings.job_root / f"{job_id}.log"
-
-    def _read(self, job_id: str) -> dict[str, Any]:
-        path = self._record_path(job_id)
-        if not path.is_file():
-            raise KeyError(f"unknown job: {job_id}")
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("job record must be a JSON object")
-        return dict(payload)
-
-    def _write(self, payload: dict[str, Any]) -> JobSummary:
-        summary = JobSummary.model_validate(payload)
-        _atomic_json(
-            self._record_path(summary.id),
-            summary.model_dump(mode="json", by_alias=False),
-        )
-        return summary
 
     def _command(
         self,
@@ -141,184 +147,221 @@ class JobSupervisor:
             run_id,
         )
 
-    def _existing_run(self, artifact_root: Path, run_id: str) -> bool:
+    @staticmethod
+    def _existing_run(artifact_root: Path, run_id: str) -> bool:
         return any(
             (artifact_root / namespace / run_id).exists()
             for namespace in ("runs", "failed", ".staging")
         )
 
-    def _active_run(self, run_id: str) -> bool:
-        for path in self.settings.job_root.glob("*.json"):
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                summary = JobSummary.model_validate(payload)
-            except (OSError, ValueError, json.JSONDecodeError):
-                continue
-            if summary.run_id == run_id and summary.status not in _TERMINAL_STATES:
-                return True
-        return False
-
     def submit_training(self, request: TrainingJobRequest) -> JobSummary:
         if request.run_id in {".", ".."} or not _RUN_ID_RE.fullmatch(request.run_id):
-            raise ValueError("run_id contains unsupported characters")
-        config_path = self.settings.resolve_config_path(request.config_path)
-        dataset_path = self.settings.resolve_dataset_path(request.dataset_path)
-        artifact_root = self.settings.resolve_run_root(request.artifact_root)
-        if not config_path.is_file():
-            raise FileNotFoundError(
-                f"training config does not exist: {request.config_path}"
-            )
-        if not dataset_path.is_dir():
-            raise FileNotFoundError(f"dataset does not exist: {request.dataset_path}")
-        if self._existing_run(artifact_root, request.run_id) or self._active_run(
-            request.run_id
-        ):
-            raise FileExistsError(f"run already exists or is active: {request.run_id}")
+            raise InvalidStudioRequest("run_id contains unsupported characters")
+        config = self.catalog.resolve_config(request.config_resource_id)
+        dataset = self.catalog.resolve_dataset(request.dataset_resource_id)
+        artifact_root = self.settings.run_roots[0]
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        if self._existing_run(artifact_root, request.run_id):
+            raise IdentityConflict(f"run already exists: {request.run_id}")
 
         job_id = (
             f"job-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
         )
         submitted_at = _utc_now()
-        queued = JobSummary(
-            id=job_id,
-            status="queued",
+        relative_root = self.settings.relative_path(artifact_root)
+        self.store.reserve(
+            artifact_root=relative_root,
             run_id=request.run_id,
-            config_path=self.settings.relative_path(config_path),
-            dataset_path=self.settings.relative_path(dataset_path),
-            artifact_root=self.settings.relative_path(artifact_root),
-            submitted_at=submitted_at,
-        )
-        self._write(queued.model_dump(mode="json"))
-        command = self._command(
-            config_path=config_path,
-            dataset_path=dataset_path,
-            artifact_root=artifact_root,
-            run_id=request.run_id,
+            job_id=job_id,
+            owner_instance_id=self.instance_id,
+            created_at=submitted_at,
         )
         try:
-            process = self.process_factory(
-                command,
-                cwd=self.settings.project_root,
-                log_path=self._log_path(job_id),
+            if self._existing_run(artifact_root, request.run_id):
+                raise IdentityConflict(f"run already exists: {request.run_id}")
+            config_digest = config.summary.config_digest
+            if not isinstance(config_digest, str) or not config_digest:
+                raise InvalidStudioRequest(
+                    "resolved training config has no canonical digest"
+                )
+            dataset_id = dataset.summary.dataset_id
+            if not isinstance(dataset_id, str) or not dataset_id:
+                raise InvalidStudioRequest("resolved dataset has no canonical identity")
+            queued = JobSummary(
+                id=job_id,
+                status="queued",
+                run_id=request.run_id,
+                config_resource_id=request.config_resource_id,
+                dataset_resource_id=request.dataset_resource_id,
+                config_digest=config_digest,
+                dataset_id=dataset_id,
+                config_path=self.settings.relative_path(config.path),
+                dataset_path=self.settings.relative_path(dataset.path),
+                artifact_root=relative_root,
+                submitted_at=submitted_at,
+                owner_instance_id=self.instance_id,
             )
-        except Exception as error:
-            return self._write(
-                queued.model_copy(
-                    update={
+            self.store.create(queued)
+            command = self._command(
+                config_path=config.path,
+                dataset_path=dataset.path,
+                artifact_root=artifact_root,
+                run_id=request.run_id,
+            )
+            try:
+                process = self.process_factory(
+                    command,
+                    cwd=self.settings.project_root,
+                    log_path=self._log_path(job_id),
+                )
+            except Exception as error:
+                failed = self.store.transition(
+                    job_id,
+                    expected={"queued"},
+                    updates={
                         "status": "failed",
                         "completed_at": _utc_now(),
                         "error": f"worker start failed: {error}",
-                    }
-                ).model_dump(mode="json")
-            )
-        self._processes[job_id] = process
-        return self._write(
-            queued.model_copy(
-                update={
+                    },
+                )
+                self.store.release(
+                    artifact_root=relative_root,
+                    run_id=request.run_id,
+                    job_id=job_id,
+                )
+                return failed
+            self._processes[job_id] = process
+            return self.store.transition(
+                job_id,
+                expected={"queued"},
+                updates={
                     "status": "running",
                     "started_at": _utc_now(),
                     "pid": process.pid,
-                }
-            ).model_dump(mode="json")
+                    "pid_start_token": _pid_start_token(process.pid),
+                    "cancellable": True,
+                },
+            )
+        except Exception:
+            self.store.release(
+                artifact_root=relative_root,
+                run_id=request.run_id,
+                job_id=job_id,
+            )
+            raise
+
+    def _finish(
+        self,
+        summary: JobSummary,
+        *,
+        status: str,
+        exit_code: int | None,
+        error: str | None,
+    ) -> JobSummary:
+        finished = self.store.transition(
+            summary.id,
+            expected={summary.status},
+            updates={
+                "status": status,
+                "completed_at": summary.completed_at or _utc_now(),
+                "exit_code": exit_code,
+                "cancellable": False,
+                "error": error,
+            },
         )
+        self.store.release(
+            artifact_root=summary.artifact_root,
+            run_id=summary.run_id,
+            job_id=summary.id,
+        )
+        return finished
+
+    def _published_valid(self, path: Path) -> bool:
+        if not path.is_dir():
+            return False
+        try:
+            validate_training_run_directory(path)
+        except (OSError, ValueError, TypeError):
+            return False
+        return True
 
     def _reconcile(self, summary: JobSummary) -> JobSummary:
         if summary.status in _TERMINAL_STATES:
-            return summary
-        artifact_root = self.settings.resolve_run_root(summary.artifact_root)
+            self.store.release(
+                artifact_root=summary.artifact_root,
+                run_id=summary.run_id,
+                job_id=summary.id,
+            )
+            return summary.model_copy(update={"cancellable": False})
+        artifact_root = self.settings.project_root / summary.artifact_root
         published = artifact_root / "runs" / summary.run_id
         failed = artifact_root / "failed" / summary.run_id
         process = self._processes.get(summary.id)
         if process is not None:
             exit_code = process.poll()
             if exit_code is None:
-                return summary
+                return summary.model_copy(update={"cancellable": True})
             self._processes.pop(summary.id, None)
             if summary.status == "cancelling":
-                status = "cancelled"
-                error = None
-            elif exit_code == 0 and published.is_dir():
-                status = "succeeded"
-                error = None
-            else:
-                status = "failed"
-                error = (
-                    f"worker exited with code {exit_code}"
-                    if exit_code != 0
-                    else "worker exited without a published run"
+                return self._finish(
+                    summary, status="cancelled", exit_code=exit_code, error=None
                 )
-            return self._write(
-                summary.model_copy(
-                    update={
-                        "status": status,
-                        "completed_at": _utc_now(),
-                        "exit_code": exit_code,
-                        "error": error,
-                    }
-                ).model_dump(mode="json")
+            if exit_code == 0 and self._published_valid(published):
+                return self._finish(
+                    summary, status="succeeded", exit_code=0, error=None
+                )
+            error = (
+                f"worker exited with code {exit_code}"
+                if exit_code != 0
+                else "worker exited without a valid published run"
             )
-        if published.is_dir():
-            return self._write(
-                summary.model_copy(
-                    update={
-                        "status": "succeeded",
-                        "completed_at": summary.completed_at or _utc_now(),
-                        "exit_code": 0,
-                    }
-                ).model_dump(mode="json")
+            return self._finish(
+                summary, status="failed", exit_code=exit_code, error=error
             )
+        if self._published_valid(published):
+            return self._finish(summary, status="succeeded", exit_code=0, error=None)
         if failed.is_dir():
-            return self._write(
-                summary.model_copy(
-                    update={
-                        "status": "failed",
-                        "completed_at": summary.completed_at or _utc_now(),
-                        "error": summary.error or "training run was isolated as failed",
-                    }
-                ).model_dump(mode="json")
+            return self._finish(
+                summary,
+                status="failed",
+                exit_code=summary.exit_code,
+                error=summary.error or "training run was isolated as failed",
             )
-        if _pid_alive(summary.pid):
-            return summary
-        return self._write(
-            summary.model_copy(
-                update={
-                    "status": "failed",
-                    "completed_at": summary.completed_at or _utc_now(),
-                    "error": summary.error or "worker is no longer running",
-                }
-            ).model_dump(mode="json")
+        if _pid_matches(summary.pid, summary.pid_start_token):
+            return summary.model_copy(update={"cancellable": False})
+        return self._finish(
+            summary,
+            status="failed",
+            exit_code=summary.exit_code,
+            error=summary.error or "worker is no longer running",
         )
 
     def get_job(self, job_id: str) -> JobSummary:
-        return self._reconcile(JobSummary.model_validate(self._read(job_id)))
+        return self._reconcile(self.store.read(job_id))
 
     def list_jobs(self) -> tuple[JobSummary, ...]:
         jobs: list[JobSummary] = []
-        for path in self.settings.job_root.glob("*.json"):
+        for summary in self.store.list():
             try:
-                jobs.append(self.get_job(path.stem))
-            except (KeyError, OSError, ValueError, json.JSONDecodeError):
-                continue
+                jobs.append(self._reconcile(summary))
+            except (IdentityConflict, ValueError):
+                jobs.append(summary.model_copy(update={"cancellable": False}))
         return tuple(sorted(jobs, key=lambda item: item.submitted_at, reverse=True))
 
     def cancel(self, job_id: str) -> JobSummary:
         summary = self.get_job(job_id)
         if summary.status in _TERMINAL_STATES:
             return summary
-        cancelling = self._write(
-            summary.model_copy(update={"status": "cancelling"}).model_dump(mode="json")
-        )
         process = self._processes.get(job_id)
-        if process is None:
-            if not _pid_alive(cancelling.pid):
-                return self._write(
-                    cancelling.model_copy(
-                        update={"status": "cancelled", "completed_at": _utc_now()}
-                    ).model_dump(mode="json")
-                )
-            raise RuntimeError(
-                "cannot safely terminate a worker not owned by this process"
+        if process is None or summary.owner_instance_id != self.instance_id:
+            raise JobOwnershipLost(
+                "job process is not owned by this Studio instance and cannot be terminated"
             )
+        cancelling = self.store.transition(
+            job_id,
+            expected={"queued", "running"},
+            updates={"status": "cancelling", "cancellable": False},
+        )
         process.terminate()
         try:
             exit_code = process.wait(timeout=5.0)
@@ -326,14 +369,11 @@ class JobSupervisor:
             process.kill()
             exit_code = process.wait(timeout=5.0)
         self._processes.pop(job_id, None)
-        return self._write(
-            cancelling.model_copy(
-                update={
-                    "status": "cancelled",
-                    "completed_at": _utc_now(),
-                    "exit_code": exit_code,
-                }
-            ).model_dump(mode="json")
+        return self._finish(
+            cancelling,
+            status="cancelled",
+            exit_code=exit_code,
+            error=None,
         )
 
     def tail_log(
@@ -341,7 +381,7 @@ class JobSupervisor:
     ) -> tuple[tuple[str, ...], bool]:
         self.get_job(job_id)
         if limit <= 0 or limit > 2_000:
-            raise ValueError("log limit must be between 1 and 2000")
+            raise InvalidStudioRequest("log limit must be between 1 and 2000")
         path = self._log_path(job_id)
         if not path.is_file():
             return (), False
@@ -353,3 +393,6 @@ class JobSupervisor:
         if truncated:
             lines.popleft()
         return tuple(lines), truncated
+
+
+__all__ = ["JobSupervisor"]

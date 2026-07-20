@@ -31,6 +31,7 @@ class SystemSummary(StudioModel):
 
 class DatasetSummary(StudioModel):
     id: str
+    dataset_id: str
     name: str
     relative_path: str
     market: str
@@ -47,6 +48,8 @@ class DatasetSummary(StudioModel):
 
 class RunSummary(StudioModel):
     id: str
+    run_id: str
+    manifest_digest: str | None = None
     relative_path: str
     run_kind: str
     algorithm: str
@@ -64,6 +67,8 @@ class RunSummary(StudioModel):
 
 
 class ConfigSummary(StudioModel):
+    id: str
+    config_digest: str | None = None
     name: str
     relative_path: str
     algorithm: str
@@ -73,6 +78,7 @@ class ConfigSummary(StudioModel):
 
 class JobSummary(StudioModel):
     id: str
+    schema_version: Literal["studio_job_v2"] = "studio_job_v2"
     kind: Literal["training"] = "training"
     status: Literal[
         "queued",
@@ -83,14 +89,21 @@ class JobSummary(StudioModel):
         "cancelled",
     ]
     run_id: str
+    config_resource_id: str
+    dataset_resource_id: str
+    config_digest: str
+    dataset_id: str
     config_path: str
     dataset_path: str
     artifact_root: str
     submitted_at: str
+    owner_instance_id: str
     started_at: str | None = None
     completed_at: str | None = None
     pid: int | None = None
+    pid_start_token: str | None = None
     exit_code: int | None = None
+    cancellable: bool = False
     error: str | None = None
 
 
@@ -168,9 +181,18 @@ class ComparisonSeriesPoint(StudioModel):
     right_baseline: float | None = None
 
 
+class ComparisonEligibility(StudioModel):
+    status: Literal["COMPARABLE", "PARTIALLY_COMPARABLE", "NOT_COMPARABLE"]
+    reasons: tuple[str, ...]
+    dataset_id: str | None = None
+
+
 class RunComparison(StudioModel):
+    left_resource_id: str
+    right_resource_id: str
     left_run_id: str
     right_run_id: str
+    eligibility: ComparisonEligibility
     metrics: tuple[ComparisonMetric, ...]
     config_differences: tuple[ConfigDifference, ...]
     folds: tuple[FoldComparison, ...]
@@ -196,6 +218,7 @@ class FileIntegritySummary(StudioModel):
 
 
 class EvidenceReport(StudioModel):
+    run_resource_id: str
     run_id: str
     run_kind: str
     status: Literal["VALID", "INVALID"]
@@ -261,10 +284,9 @@ class JobListResponse(StudioModel):
 
 
 class TrainingJobRequest(StudioModel):
-    config_path: str = Field(min_length=1)
-    dataset_path: str = Field(min_length=1)
+    config_resource_id: str = Field(min_length=1)
+    dataset_resource_id: str = Field(min_length=1)
     run_id: str = Field(min_length=1, max_length=128)
-    artifact_root: str | None = None
 
 
 class JobLogResponse(StudioModel):

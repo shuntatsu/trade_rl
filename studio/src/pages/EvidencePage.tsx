@@ -1,8 +1,9 @@
 import { FileCheck2, RefreshCw, ShieldCheck } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { studioApi, type StudioApi } from '../api/studioApi'
 import type { EvidenceNode, EvidenceReport, RunSummary } from '../data/types'
+import { readParam, replaceParams } from '../state/urlState'
 
 type EvidenceApi = Pick<StudioApi, 'loadRuns' | 'loadEvidenceReport'>
 
@@ -16,25 +17,26 @@ function bytes(value: number): string {
 
 export function EvidencePage({ api = studioApi }: EvidencePageProps) {
   const [runs, setRuns] = useState<RunSummary[]>([])
-  const [runId, setRunId] = useState('')
+  const [runId, setRunId] = useState(() => readParam(window.location.search, 'evidenceRun') ?? '')
   const [report, setReport] = useState<EvidenceReport | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const requestSequence = useRef(0)
 
   async function loadReport(selected: string) {
     if (!selected) return
+    const sequence = ++requestSequence.current
     setLoading(true)
     setError(null)
+    replaceParams({ evidenceRun: selected })
     try {
       const value = await api.loadEvidenceReport(selected)
-      setReport(value)
-      setSelectedKey(value.nodes[0]?.key ?? null)
+      if (sequence === requestSequence.current) { setReport(value); setSelectedKey(value.nodes[0]?.key ?? null) }
     } catch (reason) {
-      setReport(null)
-      setError(reason instanceof Error ? reason.message : 'Evidenceを取得できませんでした。')
+      if (sequence === requestSequence.current) { setReport(null); setError(reason instanceof Error ? reason.message : 'Evidenceを取得できませんでした。') }
     } finally {
-      setLoading(false)
+      if (sequence === requestSequence.current) setLoading(false)
     }
   }
 
@@ -62,7 +64,7 @@ export function EvidencePage({ api = studioApi }: EvidencePageProps) {
       <header className="runtime-toolbar">
         <div><span className="runtime-eyebrow">PROVENANCE AND CLOSURE</span><h1 id="evidence-title">Evidence Explorer</h1><p>run manifestを起点に、identity、authorization、artifact file closureを読み取り専用で検査します。</p></div>
         <div className="runtime-toolbar__actions">
-          <label className="audit-run-select">Run<select value={runId} onChange={(event) => { setRunId(event.target.value); void loadReport(event.target.value) }}>{runs.map((run) => <option key={run.id}>{run.id}</option>)}</select></label>
+          <label className="audit-run-select">Run<select value={runId} onChange={(event) => { setRunId(event.target.value); void loadReport(event.target.value) }}>{runs.map((run) => <option key={run.id} value={run.id}>{run.runId} · {run.algorithm}</option>)}</select></label>
           <span className="runtime-danger">NO-GO</span>
           <button type="button" className="runtime-button runtime-button--quiet" onClick={() => void refresh()} disabled={loading}><RefreshCw size={14} aria-hidden="true" />再読込</button>
         </div>

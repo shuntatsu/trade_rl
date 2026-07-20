@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.serving.bundle import ServingBundleManifest, write_serving_bundle_manifest
 from trade_rl.studio.serving_monitor import inspect_serving
@@ -75,8 +76,8 @@ def test_valid_active_bundle_reports_identity_and_optional_snapshot(
         "decision_index": 42,
         "target_weights": {"BTCUSDT": 0.25, "CASH": 0.75},
         "latency_ms": 12.5,
-        "snapshot_digest": "9" * 64,
     }
+    snapshot["snapshot_digest"] = content_digest(snapshot)
     tmp_path.joinpath("paper-inference.json").write_text(
         json.dumps(snapshot), encoding="utf-8"
     )
@@ -107,3 +108,32 @@ def test_invalid_pointer_or_bundle_fails_closed(tmp_path: Path) -> None:
     assert report.validation_error is not None
     assert "escapes" in report.validation_error
     assert any(check.status == "FAIL" for check in report.checks)
+
+
+def test_snapshot_digest_mismatch_is_reported_without_invalidating_bundle(
+    tmp_path: Path,
+) -> None:
+    manifest = build_active_bundle(tmp_path)
+    snapshot = {
+        "schema_version": "studio_paper_inference_v1",
+        "recorded_at": "2026-07-19T12:10:00+00:00",
+        "bundle_digest": manifest.bundle_digest,
+        "dataset_id": manifest.dataset_id,
+        "decision_index": 42,
+        "target_weights": {"BTCUSDT": 0.25, "CASH": 0.75},
+        "latency_ms": 12.5,
+        "snapshot_digest": "9" * 64,
+    }
+    tmp_path.joinpath("paper-inference.json").write_text(
+        json.dumps(snapshot), encoding="utf-8"
+    )
+
+    report = inspect_serving(settings_for(tmp_path))
+
+    assert report.state == "VALID"
+    assert report.paper_snapshot is None
+    paper_check = next(
+        check for check in report.checks if check.key == "paper_snapshot"
+    )
+    assert paper_check.status == "FAIL"
+    assert "digest" in paper_check.detail

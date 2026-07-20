@@ -29,16 +29,42 @@ jobs:
         with:
           ref: feat/trade-rl-studio-shell
           fetch-depth: 0
+          show-progress: false
 
-      - name: Reconstruct and verify patch
+      - name: Assemble patch archive
         shell: bash
         run: |
           set -euo pipefail
           base64 --decode .github/architecture-fix-payload/part-000 > /tmp/studio-architecture-fix.patch.gz
           base64 --decode .github/architecture-fix-payload/part-001 >> /tmp/studio-architecture-fix.patch.gz
-          cat .github/architecture-fix-binary/part-* >> /tmp/studio-architecture-fix.patch.gz
-          test "$(wc -c < /tmp/studio-architecture-fix.patch.gz)" -eq 58760
-          echo "761afb32e5aebf4280f57911ee22bfce109d749e804cfe1e43cc47e22bbd812a  /tmp/studio-architecture-fix.patch.gz" | sha256sum --check
+          cat \
+            .github/architecture-fix-binary/part-0020 \
+            .github/architecture-fix-binary/part-0021 \
+            .github/architecture-fix-binary/part-0022 \
+            .github/architecture-fix-binary/part-0030 \
+            .github/architecture-fix-binary/part-0031 \
+            .github/architecture-fix-binary/part-0032 \
+            .github/architecture-fix-binary/part-0040-00 \
+            .github/architecture-fix-binary/part-0040-01 \
+            .github/architecture-fix-binary/part-0041-00 \
+            .github/architecture-fix-binary/part-0041-01 \
+            .github/architecture-fix-binary/part-0041-02 \
+            >> /tmp/studio-architecture-fix.patch.gz
+          wc -c /tmp/studio-architecture-fix.patch.gz
+          sha256sum /tmp/studio-architecture-fix.patch.gz
+
+      - name: Verify patch archive size
+        shell: bash
+        run: test "$(wc -c < /tmp/studio-architecture-fix.patch.gz)" -eq 58760
+
+      - name: Verify patch archive digest
+        shell: bash
+        run: echo "761afb32e5aebf4280f57911ee22bfce109d749e804cfe1e43cc47e22bbd812a  /tmp/studio-architecture-fix.patch.gz" | sha256sum --check
+
+      - name: Decompress patch archive
+        shell: bash
+        run: |
+          set -euo pipefail
           gzip --decompress --stdout /tmp/studio-architecture-fix.patch.gz > /tmp/studio-architecture-fix.patch
           test "$(wc -c < /tmp/studio-architecture-fix.patch)" -eq 276583
 

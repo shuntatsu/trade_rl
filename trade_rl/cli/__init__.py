@@ -34,6 +34,10 @@ def main(
     """Dispatch offline/artifact commands without importing the RL runtime."""
 
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ["studio"]:
+        from trade_rl.studio.cli import main as studio_main
+
+        return studio_main(arguments[1:])
     if tuple(arguments[:2]) in _ARTIFACT_COMMANDS:
         from trade_rl.cli.extended import main as artifact_main
 

@@ -4,6 +4,20 @@ Trade RL is a research-grade, baseline-anchored residual reinforcement-learning 
 
 > Capability status: **research-ready** and **attested paper-serving-ready**. Direct exchange order routing remains **NO-GO**. The repository does not claim profitability or authorize live capital deployment.
 
+## Trade RL Studio
+
+ローカルGUIは`studio/`にあります。固定レイアウトのReact + Vite + TypeScript画面から、検証済みdataset、training config、exploratory training job、run artifact、run比較、Evidence chain、read-only paper serving状態を扱えます。
+
+```bash
+uv sync --extra studio --extra train-sb3
+uv run trade-rl studio start --project-root .
+# 別ターミナル
+npm ci --prefix studio
+npm run dev --prefix studio
+```
+
+Studioも直接取引所注文を提供せず、production statusは`NO-GO`のままです。詳細は[`studio/README.md`](studio/README.md)を参照してください。
+
 ## Start here
 
 For a copy-paste first training run, including deterministic demo-data generation, a maintained PPO configuration, artifact inspection, real-data replacement, GPU settings and troubleshooting, read [START.md](START.md). For the maintained public Binance ingestion and live-smoke path, read [Binance Public Data Workflow](docs/BINANCE.md).

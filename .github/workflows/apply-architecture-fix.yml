@@ -50,8 +50,19 @@ jobs:
             .github/architecture-fix-binary/part-0041-01 \
             .github/architecture-fix-binary/part-0041-02 \
             >> /tmp/studio-architecture-fix.patch.gz
-          wc -c /tmp/studio-architecture-fix.patch.gz
-          sha256sum /tmp/studio-architecture-fix.patch.gz
+          wc -c /tmp/studio-architecture-fix.patch.gz | tee /tmp/archive-size.txt
+          sha256sum /tmp/studio-architecture-fix.patch.gz | tee /tmp/archive-sha256.txt
+
+      - name: Upload assembly diagnostics
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-assembly-diagnostics
+          path: |
+            /tmp/studio-architecture-fix.patch.gz
+            /tmp/archive-size.txt
+            /tmp/archive-sha256.txt
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Verify patch archive size
         shell: bash

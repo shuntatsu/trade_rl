@@ -381,6 +381,83 @@ def test_backend_caches_oracle_targets_across_seed_members(
     assert first.flags.writeable is False
 
 
+def test_backend_caches_teacher_dataset_across_seed_members(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
+
+    calls = 0
+
+    def collect(
+        environment: Any,
+        targets: np.ndarray,
+        *,
+        dataset_id: str,
+        train_range: tuple[int, int],
+        teacher_config_digest: str,
+    ) -> SupervisedPolicyDataset:
+        nonlocal calls
+        calls += 1
+        start, stop = train_range
+        return SupervisedPolicyDataset(
+            observations=np.zeros((stop - start - 1, 2), dtype=np.float32),
+            actions=np.asarray(targets, dtype=np.float32),
+            dataset_id=dataset_id,
+            train_start=start,
+            train_stop=stop,
+            environment_digest=environment.environment_digest,
+            action_spec_digest=environment.action_spec_digest,
+            teacher_config_digest=teacher_config_digest,
+        )
+
+    monkeypatch.setattr(sb3_training, "collect_teacher_rollout", collect)
+    backend = StableBaselines3Backend(_tiny_environment_factory)
+    teacher_config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    targets = np.asarray([[0.0], [0.25]], dtype=np.float32)
+    environment = type(
+        "TeacherEnvironment",
+        (),
+        {
+            "environment_digest": "1" * 64,
+            "action_spec_digest": "2" * 64,
+        },
+    )()
+
+    first = backend._teacher_dataset(
+        environment,
+        targets,
+        dataset_id="3" * 64,
+        train_range=(3, 6),
+        teacher_config=teacher_config,
+    )
+    second = backend._teacher_dataset(
+        environment,
+        targets,
+        dataset_id="3" * 64,
+        train_range=(3, 6),
+        teacher_config=teacher_config,
+    )
+    changed_environment = type(
+        "TeacherEnvironment",
+        (),
+        {
+            "environment_digest": "4" * 64,
+            "action_spec_digest": "2" * 64,
+        },
+    )()
+    third = backend._teacher_dataset(
+        changed_environment,
+        targets,
+        dataset_id="3" * 64,
+        train_range=(3, 6),
+        teacher_config=teacher_config,
+    )
+
+    assert calls == 2
+    assert first is second
+    assert third is not first
+
+
 def test_backend_rejects_ppo_rollout_before_worker_or_model_allocation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

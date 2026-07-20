@@ -282,6 +282,38 @@ class SequencePolicyPlane:
     available: Mapping[str, np.ndarray]
     staleness: Mapping[str, np.ndarray]
 
+    def batch_components(self, decision_indices: np.ndarray) -> dict[str, np.ndarray]:
+        """Gather policy sequence channels for a batch of causal indices."""
+
+        raw_indices = np.asarray(decision_indices)
+        if raw_indices.ndim != 1:
+            raise ValueError("sequence indices must be one-dimensional")
+        if raw_indices.size == 0:
+            raise ValueError("sequence indices must not be empty")
+        if not np.issubdtype(raw_indices.dtype, np.integer):
+            raise ValueError("sequence indices must be integers")
+        indices = np.asarray(raw_indices, dtype=np.int64)
+        if np.any(indices < self.minimum_index) or np.any(indices >= self.n_bars):
+            raise ValueError("sequence index is outside causal history")
+
+        result: dict[str, np.ndarray] = {}
+        for window in self.windows:
+            timeframe = window.timeframe
+            offsets = self.steps[timeframe] * np.arange(
+                window.length - 1, -1, -1, dtype=np.int64
+            )
+            rows = indices[:, None] - offsets[None, :]
+            result[f"sequence_{timeframe}_values"] = self.values[timeframe][
+                rows
+            ].transpose(0, 2, 1, 3)
+            result[f"sequence_{timeframe}_available"] = self.available[timeframe][
+                rows
+            ].transpose(0, 2, 1, 3)
+            result[f"sequence_{timeframe}_staleness"] = self.staleness[timeframe][
+                rows
+            ].transpose(0, 2, 1, 3)
+        return result
+
     def components(self, decision_index: int) -> dict[str, np.ndarray]:
         if isinstance(decision_index, bool) or not isinstance(decision_index, int):
             raise ValueError("sequence index must be an integer")

@@ -441,9 +441,13 @@ class StructuredTeacherObservationProvider:
         sequence_builder: object,
         observations: Mapping[str, np.ndarray],
         sequence_normalizer: object | None = None,
+        policy_plane: object | None = None,
     ) -> None:
         from trade_rl.data.market import MarketDataset
-        from trade_rl.rl.sequence_observations import SequenceObservationBuilder
+        from trade_rl.rl.sequence_observations import (
+            SequenceObservationBuilder,
+            SequencePolicyPlane,
+        )
 
         if not isinstance(dataset, MarketDataset):
             raise TypeError("structured teacher provider requires a MarketDataset")
@@ -458,6 +462,22 @@ class StructuredTeacherObservationProvider:
         ):
             raise TypeError("structured teacher sequence normalizer is invalid")
         self.sequence_normalizer = sequence_normalizer
+        if policy_plane is not None:
+            if not isinstance(policy_plane, SequencePolicyPlane):
+                raise TypeError("structured teacher policy plane is invalid")
+            if policy_plane.dataset_id != dataset.dataset_id:
+                raise ValueError("structured teacher policy plane dataset mismatch")
+            if policy_plane.layout_digest != sequence_builder.layout_digest(dataset):
+                raise ValueError("structured teacher policy plane layout mismatch")
+            raw_normalizer_digest = getattr(sequence_normalizer, "digest", None)
+            expected_normalizer_digest = (
+                "none"
+                if sequence_normalizer is None
+                else str(raw_normalizer_digest or f"object:{id(sequence_normalizer)}")
+            )
+            if policy_plane.normalizer_digest != expected_normalizer_digest:
+                raise ValueError("structured teacher policy plane normalizer mismatch")
+        self.policy_plane = policy_plane
         self.observations = {
             key: np.asarray(value) for key, value in observations.items()
         }
@@ -483,6 +503,9 @@ class StructuredTeacherObservationProvider:
             if key != "decision_index"
         }
         decision_indices = self.observations["decision_index"][requested].reshape(-1)
+        if self.policy_plane is not None:
+            result.update(self.policy_plane.batch_components(decision_indices))
+            return result
         per_timeframe_values: dict[str, list[np.ndarray]] = {}
         per_timeframe_available: dict[str, list[np.ndarray]] = {}
         per_timeframe_staleness: dict[str, list[np.ndarray]] = {}

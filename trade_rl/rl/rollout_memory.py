@@ -77,9 +77,7 @@ def estimate_index_backed_ppo_rollout_buffer_bytes(
         dtype = getattr(component, "dtype", None)
         if dtype is None:
             raise ValueError("observation component must declare a dtype")
-        component_bytes = math.prod(int(width) for width in shape) * int(
-            dtype.itemsize
-        )
+        component_bytes = math.prod(int(width) for width in shape) * int(dtype.itemsize)
         if key.startswith("sequence_"):
             materialized_sequence_bytes += component_bytes
         else:

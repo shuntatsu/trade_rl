@@ -339,7 +339,5 @@ def test_index_backed_buffer_materializes_sequence_rollout_once_across_epochs(
     )
     for samples in (*first_epoch, *second_epoch):
         sampled_indices = samples.observations["current_snapshot"][:, 0, 0]
-        sampled_latest_values = samples.observations[
-            "sequence_15m_values"
-        ][:, 0, -1, 0]
+        sampled_latest_values = samples.observations["sequence_15m_values"][:, 0, -1, 0]
         np.testing.assert_array_equal(sampled_latest_values, sampled_indices)

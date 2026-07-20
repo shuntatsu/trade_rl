@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
@@ -196,3 +197,47 @@ def test_precomputed_sequence_policy_plane_matches_legacy_window_normalization()
                 actual[f"sequence_{timeframe}_staleness"],
                 sequence.staleness[timeframe].astype(np.float16),
             )
+
+
+def test_sequence_policy_plane_batch_components_match_scalar_components() -> None:
+    import trade_rl.rl.sequence_observations as sequence_observations
+
+    dataset = _dataset()
+    builder = _builder()
+    normalizer = SequenceFeatureNormalizer.fit(
+        dataset, builder, train_start=96, train_end=120
+    )
+    plane = sequence_observations.build_sequence_policy_plane(
+        dataset, builder, normalizer
+    )
+    indices = np.asarray([128, 129], dtype=np.int64)
+
+    batched = plane.batch_components(indices)
+
+    for batch_index, decision_index in enumerate(indices):
+        scalar = plane.components(int(decision_index))
+        for key, expected in scalar.items():
+            np.testing.assert_array_equal(batched[key][batch_index], expected)
+
+
+@pytest.mark.parametrize(
+    "indices, message",
+    [
+        (np.asarray([], dtype=np.int64), "must not be empty"),
+        (np.asarray([[128]], dtype=np.int64), "one-dimensional"),
+        (np.asarray([31], dtype=np.int64), "outside causal history"),
+        (np.asarray([140], dtype=np.int64), "outside causal history"),
+    ],
+)
+def test_sequence_policy_plane_batch_components_reject_invalid_indices(
+    indices: np.ndarray,
+    message: str,
+) -> None:
+    import trade_rl.rl.sequence_observations as sequence_observations
+
+    dataset = _dataset()
+    builder = _builder()
+    plane = sequence_observations.build_sequence_policy_plane(dataset, builder, None)
+
+    with pytest.raises(ValueError, match=message):
+        plane.batch_components(indices)

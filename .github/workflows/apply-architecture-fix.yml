@@ -117,7 +117,19 @@ jobs:
           uv run ruff format --check trade_rl/studio tests/studio
 
       - name: Test Studio backend
-        run: uv run pytest -q tests/studio
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/studio 2>&1 | tee /tmp/pytest-studio.log
+
+      - name: Upload Studio backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-pytest-diagnostics
+          path: /tmp/pytest-studio.log
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Type and architecture checks
         shell: bash

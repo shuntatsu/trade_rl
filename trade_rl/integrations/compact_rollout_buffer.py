@@ -161,9 +161,7 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         raw_indices = self.observations[_DECISION_INDEX_KEY]
         decision_indices = np.asarray(raw_indices, dtype=np.int64).reshape(-1)
         reconstructed = reconstructor.reconstruct(decision_indices)
-        cached = {
-            key: self.to_torch(value) for key, value in reconstructed.items()
-        }
+        cached = {key: self.to_torch(value) for key, value in reconstructed.items()}
         self._materialized_sequence_observations = cached
         return cached
 

@@ -821,9 +821,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 layout=self.layout,
                 n_features=self.dataset.n_features,
             )
-            structured.update(
-                self.sequence_policy_plane.components(self.current_index)
-            )
+            structured.update(self.sequence_policy_plane.components(self.current_index))
             structured["decision_index"] = np.asarray(
                 [self.current_index], dtype=np.int64
             )

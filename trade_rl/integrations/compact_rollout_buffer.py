@@ -15,6 +15,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.rl.sequence_observations import (
     SequenceNormalizerProtocol,
     SequenceObservationBuilder,
+    SequencePolicyPlane,
     sequence_policy_values,
 )
 
@@ -32,12 +33,18 @@ class SequenceRolloutReconstructor:
     normalizer: SequenceNormalizerProtocol | None
     expected_dataset_id: str
     expected_layout_digest: str
+    policy_plane: SequencePolicyPlane | None = None
 
     def __post_init__(self) -> None:
         if self.dataset.dataset_id != self.expected_dataset_id:
             raise ValueError("rollout reconstruction dataset identity mismatch")
         if self.builder.layout_digest(self.dataset) != self.expected_layout_digest:
             raise ValueError("rollout reconstruction sequence layout mismatch")
+        if self.policy_plane is not None and (
+            self.policy_plane.dataset_id != self.expected_dataset_id
+            or self.policy_plane.layout_digest != self.expected_layout_digest
+        ):
+            raise ValueError("rollout reconstruction policy plane identity mismatch")
 
     def reconstruct(self, decision_indices: np.ndarray) -> dict[str, np.ndarray]:
         indices = np.asarray(decision_indices, dtype=np.int64).reshape(-1)
@@ -50,6 +57,9 @@ class SequenceRolloutReconstructor:
         cache: dict[int, dict[str, np.ndarray]] = {}
         for raw_index in np.unique(indices):
             index = int(raw_index)
+            if self.policy_plane is not None:
+                cache[index] = self.policy_plane.components(index)
+                continue
             sequence = self.builder.build(self.dataset, index=index)
             components: dict[str, np.ndarray] = {}
             for timeframe in sequence.values:
@@ -119,6 +129,7 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         self.sequence_reconstructor = reconstructor
 
     def reset(self) -> None:
+        self._materialized_sequence_observations: dict[str, Any] | None = None
         self.observations = {
             key: np.zeros(
                 (self.buffer_size, self.n_envs, *self.obs_shape[key]),
@@ -140,6 +151,21 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         self.generator_ready = False
         self.pos = 0
         self.full = False
+
+    def _materialize_sequence_observations(
+        self, reconstructor: SequenceRolloutReconstructor
+    ) -> dict[str, Any]:
+        cached = self._materialized_sequence_observations
+        if cached is not None:
+            return cached
+        raw_indices = self.observations[_DECISION_INDEX_KEY]
+        decision_indices = np.asarray(raw_indices, dtype=np.int64).reshape(-1)
+        reconstructed = reconstructor.reconstruct(decision_indices)
+        cached = {
+            key: self.to_torch(value) for key, value in reconstructed.items()
+        }
+        self._materialized_sequence_observations = cached
+        return cached
 
     def add(
         self,
@@ -171,8 +197,6 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             raise ValueError(
                 "index-backed sequence rollout does not support VecNormalize"
             )
-        raw_indices = self.observations[_DECISION_INDEX_KEY][batch_inds]
-        decision_indices = np.asarray(raw_indices, dtype=np.int64).reshape(-1)
         observations = {
             key: values[batch_inds]
             for key, values in self.observations.items()
@@ -181,11 +205,21 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         reconstructor = self.sequence_reconstructor
         if reconstructor is None:
             raise RuntimeError("sequence rollout reconstructor is not bound")
-        observations.update(reconstructor.reconstruct(decision_indices))
+        sequence_observations = self._materialize_sequence_observations(reconstructor)
+        tensor_indices = self.to_torch(
+            np.asarray(batch_inds, dtype=np.int64), copy=False
+        )
+        torch_observations = {
+            key: self.to_torch(value) for key, value in observations.items()
+        }
+        torch_observations.update(
+            {
+                key: value.index_select(0, tensor_indices)
+                for key, value in sequence_observations.items()
+            }
+        )
         return DictRolloutBufferSamples(
-            observations={
-                key: self.to_torch(value) for key, value in observations.items()
-            },
+            observations=torch_observations,
             actions=self.to_torch(self.actions[batch_inds]),
             old_values=self.to_torch(self.values[batch_inds].flatten()),
             old_log_prob=self.to_torch(self.log_probs[batch_inds].flatten()),

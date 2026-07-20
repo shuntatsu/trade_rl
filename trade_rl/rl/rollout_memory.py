@@ -50,7 +50,7 @@ def estimate_index_backed_ppo_rollout_buffer_bytes(
     n_envs: int,
     action_dim: int,
 ) -> int:
-    """Estimate persistent bytes after overlapping sequence arrays are removed."""
+    """Estimate compact storage plus one materialized native sequence rollout."""
 
     for name, value in (
         ("n_steps", n_steps),
@@ -69,22 +69,25 @@ def estimate_index_backed_ppo_rollout_buffer_bytes(
     if "decision_index" not in observation_space.spaces:
         raise ValueError("index-backed rollout requires decision_index observation")
     observation_bytes = 0
+    materialized_sequence_bytes = 0
     for key, component in observation_space.spaces.items():
-        if key.startswith("sequence_"):
-            continue
         shape = component.shape
         if shape is None:
             raise ValueError("observation component must declare a finite shape")
         dtype = getattr(component, "dtype", None)
         if dtype is None:
             raise ValueError("observation component must declare a dtype")
-        observation_bytes += math.prod(int(width) for width in shape) * int(
+        component_bytes = math.prod(int(width) for width in shape) * int(
             dtype.itemsize
         )
+        if key.startswith("sequence_"):
+            materialized_sequence_bytes += component_bytes
+        else:
+            observation_bytes += component_bytes
     per_transition = (
         observation_bytes + (action_dim + _PPO_SCALAR_ARRAYS) * _FLOAT32_BYTES
     )
-    return per_transition * n_steps * n_envs
+    return (per_transition + materialized_sequence_bytes) * n_steps * n_envs
 
 
 estimate_compact_ppo_rollout_buffer_bytes = (

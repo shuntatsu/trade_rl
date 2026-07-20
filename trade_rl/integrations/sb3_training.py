@@ -168,6 +168,7 @@ class StableBaselines3Backend:
                     normalizer=getattr(unwrapped, "sequence_normalizer", None),
                     expected_dataset_id=dataset.dataset_id,
                     expected_layout_digest=sequence_builder.layout_digest(dataset),
+                    policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
                 )
                 policy_kwargs = {
                     "net_arch": {
@@ -177,6 +178,7 @@ class StableBaselines3Backend:
                     "features_extractor_class": SequenceAssetFeatureExtractor,
                     "features_extractor_kwargs": {
                         **sequence_metadata,
+                        "sequence_capacity": config.sequence_capacity,
                         "d_model": config.sequence_d_model,
                         "attention_heads": config.sequence_attention_heads,
                         "attention_layers": config.sequence_attention_layers,
@@ -400,7 +402,7 @@ class StableBaselines3Backend:
                 extractor = getattr(model.policy, "features_extractor", None)
                 asset_encoder = getattr(extractor, "asset_encoder", None)
                 timeframe_encoders = getattr(asset_encoder, "timeframe_encoders", None)
-                if timeframe_encoders is None:
+                if asset_encoder is None or timeframe_encoders is None:
                     raise ValueError(
                         "sequence policy does not expose its maintained timeframe encoders"
                     )
@@ -412,6 +414,7 @@ class StableBaselines3Backend:
                         "encoder": "MultiTimeframeTCNEncoder",
                         "feature_counts": dict(sequence_metadata["feature_counts"]),
                         "window_lengths": dict(sequence_metadata["window_lengths"]),
+                        "sequence_capacity": config.sequence_capacity,
                         "d_model": config.sequence_d_model,
                         "attention_heads": config.sequence_attention_heads,
                         "attention_layers": config.sequence_attention_layers,
@@ -425,6 +428,15 @@ class StableBaselines3Backend:
                             timeframe: tuple(
                                 int(value)
                                 for value in timeframe_encoders[timeframe].dilations
+                            )
+                            for timeframe in ("15m", "1h", "4h", "1d")
+                        },
+                        "encoder_widths": {
+                            timeframe: tuple(
+                                int(value)
+                                for value in asset_encoder.architecture.encoder_widths[
+                                    timeframe
+                                ]
                             )
                             for timeframe in ("15m", "1h", "4h", "1d")
                         },

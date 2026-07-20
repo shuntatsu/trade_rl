@@ -82,6 +82,7 @@ class ResidualTrainingConfig:
     policy_net_arch: tuple[int, ...] = (128, 128)
     value_net_arch: tuple[int, ...] = (128, 128)
     sequence_encoder: bool = False
+    sequence_capacity: str = "standard"
     sequence_d_model: int = 320
     sequence_attention_heads: int = 8
     sequence_attention_layers: int = 2
@@ -256,6 +257,8 @@ class ResidualTrainingConfig:
                 raise ValueError(f"{field_name} must contain positive integers")
         if not isinstance(self.sequence_encoder, bool):
             raise ValueError("sequence_encoder must be a boolean")
+        if self.sequence_capacity not in {"standard", "compact"}:
+            raise ValueError("sequence_capacity must be standard or compact")
         if self.sequence_encoder and self.policy != "MultiInputPolicy":
             raise ValueError("sequence_encoder requires MultiInputPolicy")
         if self.sequence_encoder and self.algorithm != "ppo":
@@ -335,6 +338,7 @@ class ResidualTrainingConfig:
         if not self.sequence_encoder:
             _require_inactive_defaults(
                 (
+                    ("sequence_capacity", self.sequence_capacity, "standard"),
                     ("sequence_d_model", self.sequence_d_model, 320),
                     ("sequence_attention_heads", self.sequence_attention_heads, 8),
                     ("sequence_attention_layers", self.sequence_attention_layers, 2),
@@ -429,6 +433,7 @@ class ResidualTrainingConfig:
             "policy_net_arch": self.policy_net_arch,
             "value_net_arch": self.value_net_arch,
             "sequence_encoder": self.sequence_encoder,
+            "sequence_capacity": self.sequence_capacity,
             "sequence_d_model": self.sequence_d_model,
             "sequence_attention_heads": self.sequence_attention_heads,
             "sequence_attention_layers": self.sequence_attention_layers,

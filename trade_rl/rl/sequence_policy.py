@@ -15,6 +15,22 @@ _DEFAULT_WIDTHS: dict[str, tuple[int, ...]] = {
     "4h": (48, 80, 112, 144, 160, 160, 160),
     "1d": (32, 64, 96, 112, 128),
 }
+_COMPACT_WIDTHS: dict[str, tuple[int, ...]] = {
+    "15m": (40, 56, 72, 96, 112, 112),
+    "1h": (40, 56, 72, 96, 112, 112, 112),
+    "4h": (32, 48, 64, 88, 96, 96),
+    "1d": (24, 40, 56, 72, 80),
+}
+
+
+def sequence_encoder_widths(capacity: str) -> dict[str, tuple[int, ...]]:
+    """Resolve an explicit maintained temporal-capacity preset."""
+
+    if capacity == "standard":
+        return dict(_DEFAULT_WIDTHS)
+    if capacity == "compact":
+        return dict(_COMPACT_WIDTHS)
+    raise ValueError("sequence capacity must be standard or compact")
 
 
 def _required_dilations(window_length: int, *, kernel_size: int = 3) -> tuple[int, ...]:
@@ -136,15 +152,14 @@ class CausalTimeframeEncoder(nn.Module):
             raise ValueError("timeframe input must be [batch, time, channels]")
         if value.shape[1] != self.window_length:
             raise ValueError("timeframe input length does not match architecture")
-        encoded = self.blocks(value.transpose(1, 2)).transpose(1, 2)
-        return self.projection(encoded)
+        return self.blocks(value.transpose(1, 2)).transpose(1, 2)
 
     def forward(
         self, value: torch.Tensor, available: torch.Tensor | None = None
     ) -> torch.Tensor:
         encoded = self.forward_sequence(value)
         if available is None:
-            return encoded[:, -1]
+            return self.projection(encoded[:, -1])
         if available.shape != value.shape[:2]:
             raise ValueError("availability mask must match batch and time dimensions")
         mask = available.to(dtype=torch.bool)
@@ -152,8 +167,9 @@ class CausalTimeframeEncoder(nn.Module):
         indices = positions.masked_fill(~mask, -1).max(dim=1).values
         safe = indices.clamp_min(0)
         selected = encoded[torch.arange(value.shape[0], device=value.device), safe]
+        projected = self.projection(selected)
         return torch.where(
-            (indices >= 0).unsqueeze(1), selected, torch.zeros_like(selected)
+            (indices >= 0).unsqueeze(1), projected, torch.zeros_like(projected)
         )
 
 
@@ -342,4 +358,5 @@ __all__ = [
     "CausalTimeframeEncoder",
     "MultiTimeframeAssetEncoder",
     "SequencePolicyArchitecture",
+    "sequence_encoder_widths",
 ]

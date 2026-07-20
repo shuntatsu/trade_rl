@@ -102,6 +102,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         asset_state_width: int,
         global_width: int,
         n_symbols: int,
+        sequence_capacity: str = "standard",
         d_model: int = 320,
         attention_heads: int = 8,
         attention_layers: int = 2,
@@ -110,6 +111,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         from trade_rl.rl.sequence_policy import (
             MultiTimeframeAssetEncoder,
             SequencePolicyArchitecture,
+            sequence_encoder_widths,
         )
 
         timeframes = ("15m", "1h", "4h", "1d")
@@ -152,6 +154,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             attention_heads=attention_heads,
             attention_layers=attention_layers,
             dropout=dropout,
+            encoder_widths=sequence_encoder_widths(sequence_capacity),
         )
         self.asset_encoder = MultiTimeframeAssetEncoder(architecture)
         self.global_encoder = nn.Sequential(

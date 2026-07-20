@@ -62,7 +62,10 @@ from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
 from trade_rl.rl.sequence_observations import (
     SEQUENCE_OBSERVATION_SCHEMA,
     SequenceObservationBuilder,
+    SequencePolicyPlane,
     SequenceWindowSpec,
+    build_sequence_policy_plane,
+    build_structured_current_observation,
     build_structured_policy_observation,
 )
 from trade_rl.rl.transition import classify_economic_transition
@@ -381,6 +384,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.layout = layout
         self.asset_active_column = 4 * dataset.n_features
         self.sequence_observation_builder: SequenceObservationBuilder | None = None
+        self.sequence_policy_plane: SequencePolicyPlane | None = None
         self.sequence_layout_metadata: dict[str, object] | None = None
         if self.config.structured_sequence_observation:
             self.sequence_observation_builder = SequenceObservationBuilder(
@@ -404,6 +408,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                     raise ValueError(
                         "sequence normalizer schema does not match environment"
                     )
+            self.sequence_policy_plane = build_sequence_policy_plane(
+                dataset,
+                self.sequence_observation_builder,
+                sequence_normalizer,
+            )
             self._minimum_start_index = max(
                 self._minimum_start_index,
                 self.sequence_observation_builder.minimum_index(dataset),
@@ -806,6 +815,19 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         current = raw if self.normalizer is None else self.normalizer.transform(raw)
         if self.sequence_observation_builder is None:
             return current
+        if self.sequence_policy_plane is not None:
+            structured = build_structured_current_observation(
+                current_flat=current,
+                layout=self.layout,
+                n_features=self.dataset.n_features,
+            )
+            structured.update(
+                self.sequence_policy_plane.components(self.current_index)
+            )
+            structured["decision_index"] = np.asarray(
+                [self.current_index], dtype=np.int64
+            )
+            return structured
         sequence = self.sequence_observation_builder.build(
             self.dataset, index=self.current_index
         )

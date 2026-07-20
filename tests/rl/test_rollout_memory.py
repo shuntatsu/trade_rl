@@ -74,8 +74,8 @@ def test_production_sequence_rollout_fits_configured_memory_cap() -> None:
         space, n_steps=128, n_envs=4, action_dim=3
     )
     assert default_estimated == 473_122_816
-    assert compact_estimated == 5_765_120
-    assert compact_estimated < default_estimated / 50
+    assert compact_estimated == 200_499_200
+    assert compact_estimated < default_estimated / 2
     assert compact_estimated < 805_306_368
 
 
@@ -272,3 +272,74 @@ def test_index_backed_buffer_requires_runtime_reconstructor_only_when_sampling()
     assert buffer.sequence_reconstructor is None
     with pytest.raises(RuntimeError, match="reconstructor"):
         buffer._get_samples(np.array([0], dtype=np.int64))
+
+
+def test_index_backed_buffer_materializes_sequence_rollout_once_across_epochs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.integrations.compact_rollout_buffer import (
+        IndexBackedDictRolloutBuffer,
+        SequenceRolloutReconstructor,
+    )
+    from trade_rl.rl.sequence_observations import (
+        SequenceObservationBuilder,
+        SequenceWindowSpec,
+    )
+
+    dataset = _sequence_dataset()
+    builder = SequenceObservationBuilder(
+        windows=(
+            SequenceWindowSpec("15m", 4),
+            SequenceWindowSpec("1h", 3),
+            SequenceWindowSpec("4h", 2),
+            SequenceWindowSpec("1d", 1),
+        )
+    )
+    reconstructor = SequenceRolloutReconstructor(
+        dataset=dataset,
+        builder=builder,
+        normalizer=None,
+        expected_dataset_id=dataset.dataset_id,
+        expected_layout_digest=builder.layout_digest(dataset),
+    )
+    buffer = IndexBackedDictRolloutBuffer(
+        4,
+        _sequence_observation_space(),
+        spaces.Box(-1, 1, shape=(2,), dtype=np.float32),
+        device="cpu",
+        n_envs=2,
+        sequence_reconstructor=reconstructor,
+    )
+    decision_indices = np.arange(64, 72, dtype=np.int64).reshape(4, 2, 1)
+    buffer.observations["decision_index"][:] = decision_indices
+    buffer.observations["current_snapshot"][:, :, 0, 0] = decision_indices[..., 0]
+    buffer.full = True
+    buffer.pos = buffer.buffer_size
+
+    reconstruct_calls: list[np.ndarray] = []
+    original_reconstruct = SequenceRolloutReconstructor.reconstruct
+
+    def counting_reconstruct(
+        self: SequenceRolloutReconstructor, indices: np.ndarray
+    ) -> dict[str, np.ndarray]:
+        reconstruct_calls.append(np.asarray(indices).copy())
+        return original_reconstruct(self, indices)
+
+    monkeypatch.setattr(
+        SequenceRolloutReconstructor, "reconstruct", counting_reconstruct
+    )
+
+    first_epoch = list(buffer.get(batch_size=2))
+    second_epoch = list(buffer.get(batch_size=2))
+
+    assert len(first_epoch) == len(second_epoch) == 4
+    assert len(reconstruct_calls) == 1
+    np.testing.assert_array_equal(
+        np.sort(reconstruct_calls[0]), np.arange(64, 72, dtype=np.int64)
+    )
+    for samples in (*first_epoch, *second_epoch):
+        sampled_indices = samples.observations["current_snapshot"][:, 0, 0]
+        sampled_latest_values = samples.observations[
+            "sequence_15m_values"
+        ][:, 0, -1, 0]
+        np.testing.assert_array_equal(sampled_latest_values, sampled_indices)

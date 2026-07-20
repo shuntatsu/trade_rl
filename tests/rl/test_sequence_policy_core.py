@@ -31,6 +31,18 @@ def test_causal_temporal_block_does_not_use_future_values() -> None:
     torch.testing.assert_close(left[:, :, :13], right[:, :, :13])
 
 
+def test_compact_sequence_capacity_preserves_all_receptive_field_depths() -> None:
+    import trade_rl.rl.sequence_policy as sequence_policy
+
+    resolver = getattr(sequence_policy, "sequence_encoder_widths", None)
+    assert callable(resolver)
+    widths = resolver("compact")
+
+    assert tuple(widths) == ("15m", "1h", "4h", "1d")
+    assert tuple(map(len, widths.values())) == (6, 7, 6, 5)
+    assert max(max(values) for values in widths.values()) == 112
+
+
 def test_multitimeframe_encoder_shapes_and_parameter_budget() -> None:
     architecture = SequencePolicyArchitecture(
         input_channels={"15m": 18, "1h": 20, "4h": 16, "1d": 12},
@@ -94,6 +106,97 @@ def test_timeframe_receptive_fields_cover_declared_windows() -> None:
 
     for timeframe, window in architecture.window_lengths.items():
         assert encoder.timeframe_encoders[timeframe].receptive_field >= window
+
+
+def test_timeframe_projection_runs_only_after_causal_timestep_selection() -> None:
+    from trade_rl.rl.sequence_policy import CausalTimeframeEncoder
+
+    encoder = CausalTimeframeEncoder(
+        4,
+        8,
+        window_length=12,
+        widths=(8, 8, 8, 8),
+        dropout=0.0,
+    )
+    projection_input_shapes: list[torch.Size] = []
+
+    def capture_projection_input(
+        _module: torch.nn.Module, args: tuple[torch.Tensor, ...]
+    ) -> None:
+        projection_input_shapes.append(args[0].shape)
+
+    handle = encoder.projection.register_forward_pre_hook(capture_projection_input)
+    try:
+        encoder(
+            torch.randn(3, 12, 4),
+            torch.tensor(
+                [
+                    [True] * 12,
+                    [True] * 7 + [False] * 5,
+                    [False] * 12,
+                ]
+            ),
+        )
+    finally:
+        handle.remove()
+
+    assert projection_input_shapes == [torch.Size((3, 8))]
+
+
+def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> None:
+    from trade_rl.rl.sequence_policy import CausalTimeframeEncoder
+
+    torch.manual_seed(23)
+    encoder = CausalTimeframeEncoder(
+        4,
+        8,
+        window_length=12,
+        widths=(8, 8, 8, 8),
+        dropout=0.0,
+    )
+    available = torch.tensor(
+        [
+            [True] * 12,
+            [True] * 7 + [False] * 5,
+            [False] * 12,
+        ]
+    )
+    legacy_input = torch.randn(3, 12, 4, requires_grad=True)
+    optimized_input = legacy_input.detach().clone().requires_grad_(True)
+
+    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))
+    positions = torch.arange(12).expand_as(available)
+    indices = positions.masked_fill(~available, -1).max(dim=1).values
+    safe = indices.clamp_min(0)
+    legacy_selected = legacy_sequence[torch.arange(3), safe]
+    legacy = torch.where(
+        (indices >= 0).unsqueeze(1),
+        legacy_selected,
+        torch.zeros_like(legacy_selected),
+    )
+    legacy.square().sum().backward()
+    legacy_parameter_gradients = {
+        name: parameter.grad.detach().clone()
+        for name, parameter in encoder.named_parameters()
+        if parameter.grad is not None
+    }
+
+    encoder.zero_grad(set_to_none=True)
+    optimized = encoder(optimized_input, available)
+    optimized.square().sum().backward()
+
+    torch.testing.assert_close(optimized, legacy, rtol=1e-5, atol=1e-6)
+    torch.testing.assert_close(
+        optimized_input.grad, legacy_input.grad, rtol=1e-5, atol=1e-6
+    )
+    for name, parameter in encoder.named_parameters():
+        assert parameter.grad is not None
+        torch.testing.assert_close(
+            parameter.grad,
+            legacy_parameter_gradients[name],
+            rtol=1e-5,
+            atol=1e-6,
+        )
 
 
 def test_oldest_declared_history_can_influence_final_timeframe_latent() -> None:

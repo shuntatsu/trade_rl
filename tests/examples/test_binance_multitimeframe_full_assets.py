@@ -70,53 +70,35 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert sum(fold.test.size for fold in folds) == 17_280
     assert (folds[0].test.start, folds[0].test.stop) == (26_336, 29_216)
     assert (folds[-1].test.start, folds[-1].test.stop) == (40_736, 43_616)
+    # oracle-bc-ppo-15m-target のみの1候補構成
     assert [candidate.name for candidate in config.candidates] == [
-        "snapshot-ppo-15m-target",
-        "ppo-15m-target",
         "oracle-bc-ppo-15m-target",
     ]
-    candidate = next(
-        item.run for item in config.candidates if item.name == "ppo-15m-target"
-    )
-    assert (
-        candidate.training.device,
-        candidate.training.n_envs,
-        candidate.training.policy,
-        candidate.training.policy_net_arch,
-        candidate.training.value_net_arch,
-        candidate.training.sequence_encoder,
-    ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
-    assert candidate.training.seeds == (0, 1, 2)
-    assert candidate.training.timesteps >= 524_288
-    assert candidate.training.gamma == pytest.approx(0.998969062762624)
-    assert candidate.training.decision_hours == 0.25
-    assert candidate.environment.decision_hours == 0.25
-    assert candidate.environment.structured_sequence_observation
-    assert candidate.environment.resolved_sequence_windows == (
-        ("15m", 96),
-        ("1h", 168),
-        ("4h", 120),
-        ("1d", 60),
-    )
-    assert candidate.risk.max_turnover is None
-    assert not candidate.action.risk_tilt_enabled
-    assert candidate.action.mode.value == "target_weight"
-    assert candidate.action.target_weight_count == 3
-    assert candidate.action.n_factors == 0
-    assert candidate.factor_artifact is None
-    assert candidate.training.behavior_cloning_epochs == 0
-    snapshot = next(
-        item.run for item in config.candidates if item.name == "snapshot-ppo-15m-target"
-    )
-    assert snapshot.training.n_envs == 4
-    assert not snapshot.training.sequence_encoder
-    assert not snapshot.environment.structured_sequence_observation
     oracle = next(
         item.run
         for item in config.candidates
         if item.name == "oracle-bc-ppo-15m-target"
     )
     assert oracle.training.behavior_cloning_epochs == 15
+    assert oracle.training.batch_size == 512
+    assert oracle.training.seeds == (0, 1, 2)
+    assert oracle.training.timesteps >= 524_288
+    assert oracle.training.gamma == pytest.approx(0.998969062762624)
+    assert oracle.training.decision_hours == 0.25
+    assert oracle.environment.decision_hours == 0.25
+    assert oracle.environment.structured_sequence_observation
+    assert oracle.environment.resolved_sequence_windows == (
+        ("15m", 96),
+        ("1h", 168),
+        ("4h", 120),
+        ("1d", 60),
+    )
+    assert oracle.risk.max_turnover is None
+    assert not oracle.action.risk_tilt_enabled
+    assert oracle.action.mode.value == "target_weight"
+    assert oracle.action.target_weight_count == 3
+    assert oracle.action.n_factors == 0
+    assert oracle.factor_artifact is None
     assert config.minimum_seed_success_fraction == pytest.approx(2.0 / 3.0)
     assert config.minimum_worst_seed_uplift == pytest.approx(0.0)
     assert config.maximum_seed_score_std == pytest.approx(0.10)
@@ -124,6 +106,7 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert config.maximum_selection_cost_fraction == pytest.approx(0.03)
     assert config.minimum_selection_score == pytest.approx(0.0)
     assert config.maximum_selection_drawdown == pytest.approx(0.20)
+
 
 
 def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:

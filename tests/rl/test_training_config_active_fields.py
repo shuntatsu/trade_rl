@@ -69,6 +69,26 @@ def test_off_policy_rejects_non_default_ppo_only_parameters() -> None:
 def test_disabled_sequence_encoder_rejects_non_default_sequence_parameters() -> None:
     with pytest.raises(ValueError, match="sequence_d_model.*sequence_encoder"):
         _config(sequence_d_model=64)
+    with pytest.raises(ValueError, match="sequence_capacity.*sequence_encoder"):
+        _config(sequence_capacity="compact")
+
+
+def test_compact_sequence_capacity_is_explicit_and_identity_bound() -> None:
+    standard = _config(sequence_encoder=True, policy="MultiInputPolicy")
+    compact = _config(
+        sequence_encoder=True,
+        sequence_capacity="compact",
+        policy="MultiInputPolicy",
+    )
+
+    assert compact.sequence_capacity == "compact"
+    assert compact.digest_payload() != standard.digest_payload()
+    with pytest.raises(ValueError, match="sequence_capacity"):
+        _config(
+            sequence_encoder=True,
+            sequence_capacity="tiny",
+            policy="MultiInputPolicy",
+        )
 
 
 def test_disabled_asset_set_encoder_rejects_non_default_embedding_parameters() -> None:

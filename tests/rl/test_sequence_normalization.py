@@ -157,3 +157,42 @@ def test_sequence_normalizer_fails_closed_when_a_required_channel_has_no_events(
             train_end=120,
             minimum_samples_per_channel=1,
         )
+
+
+def test_precomputed_sequence_policy_plane_matches_legacy_window_normalization() -> (
+    None
+):
+    import trade_rl.rl.sequence_observations as sequence_observations
+
+    factory = getattr(sequence_observations, "build_sequence_policy_plane", None)
+    assert callable(factory)
+    dataset = _dataset()
+    builder = _builder()
+    normalizer = SequenceFeatureNormalizer.fit(
+        dataset, builder, train_start=96, train_end=120
+    )
+
+    plane = factory(dataset, builder, normalizer)
+    assert factory(dataset, builder, normalizer) is plane
+    for decision_index in (128, 129):
+        actual = plane.components(decision_index)
+        sequence = builder.build(dataset, index=decision_index)
+        for timeframe in sequence.values:
+            expected_values = sequence_observations.sequence_policy_values(
+                timeframe=timeframe,
+                values=sequence.values[timeframe],
+                available=sequence.available[timeframe],
+                feature_names=sequence.feature_names[timeframe],
+                sequence_normalizer=normalizer,
+            )
+            np.testing.assert_array_equal(
+                actual[f"sequence_{timeframe}_values"], expected_values
+            )
+            np.testing.assert_array_equal(
+                actual[f"sequence_{timeframe}_available"],
+                sequence.available[timeframe].astype(np.uint8),
+            )
+            np.testing.assert_array_equal(
+                actual[f"sequence_{timeframe}_staleness"],
+                sequence.staleness[timeframe].astype(np.float16),
+            )

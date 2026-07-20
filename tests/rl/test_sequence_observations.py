@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.sequence_observations import (
@@ -176,3 +177,28 @@ def test_sequence_observation_schema_is_index_backed() -> None:
     from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 
     assert SEQUENCE_OBSERVATION_SCHEMA == "native_timeframe_sequence_observation_v2"
+
+
+def test_sequence_builder_compiles_static_layout_once_per_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.rl.sequence_observations as sequence_observations
+
+    dataset = replace(_dataset(), dataset_id="d" * 64)
+    builder = _builder()
+    digest_calls = 0
+    original_content_digest = sequence_observations.content_digest
+
+    def counting_content_digest(payload: object) -> str:
+        nonlocal digest_calls
+        digest_calls += 1
+        return original_content_digest(payload)
+
+    monkeypatch.setattr(
+        sequence_observations, "content_digest", counting_content_digest
+    )
+
+    for index in (64, 65, 66):
+        builder.build(dataset, index=index)
+
+    assert digest_calls == 2

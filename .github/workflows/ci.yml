@@ -50,6 +50,19 @@ jobs:
           npm run typecheck --prefix studio
           npm run build --prefix studio
 
+      - name: Verify Studio fixed viewport layout
+        env:
+          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
+        run: npm run check:layout --prefix studio
+
+      - name: Upload Studio layout diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-layout-diagnostics
+          path: studio/qa-screenshots
+          if-no-files-found: ignore
+
       - name: Workflow security
         run: uv run python .github/check_workflow_security.py .
 

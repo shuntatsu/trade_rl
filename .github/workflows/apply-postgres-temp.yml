@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: apply-postgres-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  diagnose-market-artifact:
+  finalize:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -22,7 +22,10 @@ jobs:
         with:
           ref: feat/postgres-artifact-catalog
           fetch-depth: 0
-      - name: Reconstruct product changes and apply type fix
+      - name: Capture branch head
+        id: branch
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Reconstruct product changes and apply fixes
         shell: bash
         run: |
           set -euo pipefail
@@ -31,13 +34,103 @@ jobs:
           tar -xzf /tmp/postgres-changes.tar.gz -C .
           python - <<'PY'
           from pathlib import Path
-          path = Path('trade_rl/catalog/contracts.py')
-          text = path.read_text(encoding='utf-8')
+
+          contracts = Path('trade_rl/catalog/contracts.py')
+          text = contracts.read_text(encoding='utf-8')
           text = text.replace('''        if not isinstance(self.artifact_kind, ArtifactKind):\n            object.__setattr__(self, "artifact_kind", ArtifactKind(self.artifact_kind))\n        if not isinstance(self.status, ArtifactStatus):\n            object.__setattr__(self, "status", ArtifactStatus(self.status))\n''', '')
           text = text.replace('''        if self.artifact_kind is not None and not isinstance(\n            self.artifact_kind, ArtifactKind\n        ):\n            object.__setattr__(\n                self, "artifact_kind", ArtifactKind(self.artifact_kind)\n            )\n        if self.status is not None and not isinstance(self.status, ArtifactStatus):\n            object.__setattr__(self, "status", ArtifactStatus(self.status))\n''', '')
           text = text.replace('def thaw_json(value: JsonValue) -> object:', 'def thaw_json(value: object) -> object:')
-          path.write_text(text, encoding='utf-8')
+          contracts.write_text(text, encoding='utf-8')
           PY
+          cat > tests/data/test_market_artifact_catalog.py <<'PYTEST'
+          from __future__ import annotations
+
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          import numpy as np
+          import pytest
+
+          from trade_rl.catalog import ArtifactKind
+          from trade_rl.data import artifact as artifact_module
+          from trade_rl.data.builder import MarketDatasetBuilder
+          from trade_rl.data.contracts import (
+              FeatureKind,
+              FeatureSpec,
+              InstrumentContract,
+              MarketBuildConfig,
+          )
+          from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+
+
+          def _dataset():
+              timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+                  24
+              ) * np.timedelta64(1, "h")
+              close = 100.0 + np.arange(24, dtype=np.float64)
+              open_price = np.concatenate([close[:1], close[:-1]])
+              raw = RawMarketSeries(
+                  timestamps=timestamps,
+                  open=open_price,
+                  high=np.maximum(open_price, close) + 1.0,
+                  low=np.minimum(open_price, close) - 1.0,
+                  close=close,
+                  volume=np.full(24, 1_000.0),
+                  funding_rate=np.zeros(24),
+                  tradable=np.ones(24, dtype=np.bool_),
+              )
+              config = MarketBuildConfig(
+                  base_timeframe="1h",
+                  features=(FeatureSpec(name="ret", kind=FeatureKind.LOG_RETURN),),
+              )
+              contract = InstrumentContract(
+                  symbol="BTCUSDT",
+                  listed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+              )
+              return MarketDatasetBuilder(config).build(
+                  InMemoryMarketDataSource({"BTCUSDT": raw}),
+                  (contract,),
+              )
+
+
+          def test_publish_registers_after_atomic_filesystem_publication(
+              tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+          ) -> None:
+              observed: dict[str, object] = {}
+
+              def capture(registration):
+                  observed["registration"] = registration
+                  observed["root_exists"] = (tmp_path / "artifact").is_dir()
+                  return None
+
+              monkeypatch.setattr(artifact_module, "register_artifact_if_configured", capture)
+
+              published = artifact_module.publish_market_dataset_artifact(
+                  tmp_path / "artifact", _dataset()
+              )
+
+              registration = observed["registration"]
+              assert observed["root_exists"] is True
+              assert registration.artifact_kind is ArtifactKind.MARKET_DATASET
+              assert registration.artifact_digest == published.artifact_digest
+              assert registration.dataset_id == _dataset().dataset_id
+
+
+          def test_catalog_failure_does_not_remove_valid_published_artifact(
+              tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+          ) -> None:
+              def fail(_):
+                  raise RuntimeError("catalog unavailable")
+
+              monkeypatch.setattr(artifact_module, "register_artifact_if_configured", fail)
+              root = tmp_path / "artifact"
+
+              with pytest.raises(RuntimeError, match="catalog unavailable"):
+                  artifact_module.publish_market_dataset_artifact(root, _dataset())
+
+              assert (root / "manifest.json").is_file()
+              assert (root / "arrays.npz").is_file()
+          PYTEST
           rm -rf .github/postgres-payload
           rm -f .github/workflows/source-export-postgres-temp.yml
           rm -f .github/workflows/apply-postgres-temp.yml
@@ -46,27 +139,76 @@ jobs:
         with:
           version: '0.9.18'
           enable-cache: true
-      - name: Install and apply Ruff
+      - name: Install
         run: |
           uv lock
           uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra postgres
-          uv run ruff format .
-          uv run ruff check . --fix
-      - name: Capture market artifact test
-        id: test
+      - name: Ruff format
+        run: uv run ruff format .
+      - name: Ruff automatic fixes
+        run: uv run ruff check . --fix
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Ruff lint check
+        run: uv run ruff check .
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Import architecture
+        run: uv run lint-imports
+      - name: Compose contract
+        run: uv run pytest tests/ops/test_postgres_compose_contract.py -q
+      - name: Catalog contracts
+        run: uv run pytest tests/catalog/test_contracts.py -q
+      - name: Catalog migrations
+        run: uv run pytest tests/catalog/test_migrations.py -q
+      - name: PostgreSQL repository
+        run: uv run pytest tests/catalog/test_postgres_repository.py -q
+      - name: Catalog service
+        run: uv run pytest tests/catalog/test_service.py -q
+      - name: Market artifact catalog
+        run: uv run pytest tests/data/test_market_artifact_catalog.py -q
+      - name: Existing market artifact
+        run: uv run pytest tests/data/test_market_artifact.py -q
+      - name: Catalog CLI
+        run: uv run pytest tests/cli/test_catalog_commands.py -q
+      - name: Binance data CLI
+        run: uv run pytest tests/cli/test_binance_data_command.py -q
+      - name: Binance multitimeframe CLI
+        run: uv run pytest tests/cli/test_binance_multitimeframe_command.py -q
+      - name: Compose validation
+        run: docker compose config --quiet
+      - name: PostgreSQL integration test
         shell: bash
         run: |
-          set +e
-          uv run pytest tests/data/test_market_artifact_catalog.py -vv --tb=long 2>&1 | tee market-artifact-test.txt
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Upload test diagnostics
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: market-artifact-test-diagnostics
-          path: market-artifact-test.txt
-          retention-days: 1
-      - name: Enforce test
+          set -euo pipefail
+          docker compose up -d postgres
+          trap 'docker compose down -v' EXIT
+          for attempt in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U trade_rl -d trade_rl; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker compose logs postgres
+              exit 1
+            fi
+            sleep 2
+          done
+          export TRADE_RL_DATABASE_URL='postgresql://trade_rl:trade_rl@localhost:5432/trade_rl'
+          export TRADE_RL_TEST_DATABASE_URL="$TRADE_RL_DATABASE_URL"
+          uv run trade-rl catalog migrate
+          uv run trade-rl catalog health
+          uv run pytest tests/catalog/test_postgres_integration.py -q
+      - name: Commit verified product branch
+        shell: bash
         env:
-          TEST_STATUS: ${{ steps.test.outputs.status }}
-        run: test "$TEST_STATUS" = 0
+          START_SHA: ${{ steps.branch.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add PostgreSQL artifact catalog'
+          git fetch origin feat/postgres-artifact-catalog
+          remote_sha=$(git rev-parse origin/feat/postgres-artifact-catalog)
+          test "$remote_sha" = "$START_SHA"
+          git push origin HEAD:feat/postgres-artifact-catalog

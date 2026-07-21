@@ -30,14 +30,19 @@ const job: JobSummary = {
   error: null,
 }
 
-function telemetry(sequence: number, close: number, weight: number): TrainingTelemetryRecord {
+function telemetry(
+  sequence: number,
+  close: number,
+  weight: number,
+  seed = 7,
+): TrainingTelemetryRecord {
   return {
     schemaVersion: 'training_telemetry_v1',
     sequence,
     recordedAt: `2026-07-21T08:0${sequence}:00+00:00`,
     globalStep: sequence * 32,
     environmentStep: sequence,
-    seed: 7,
+    seed,
     environmentId: 0,
     eventType: sequence === 2 ? 'position' : 'rollout',
     marketIndex: 100 + sequence,
@@ -65,11 +70,17 @@ function telemetry(sequence: number, close: number, weight: number): TrainingTel
 }
 
 function api(): StudioApi {
-  const items = [
-    telemetry(1, 67_500, 0.1),
-    telemetry(2, 67_842.3, 0.4),
-    telemetry(3, 67_780, 0.4),
-  ]
+  const bySeed: Record<number, TrainingTelemetryRecord[]> = {
+    7: [
+      telemetry(1, 67_500, 0.1),
+      telemetry(2, 67_842.3, 0.4),
+      telemetry(3, 67_780, 0.4),
+    ],
+    11: [
+      telemetry(1, 67_500, 0, 11),
+      telemetry(2, 67_100, -0.2, 11),
+    ],
+  }
   return {
     loadDatasets: vi.fn().mockResolvedValue({ items: [], total: 0, invalid: 0 }),
     loadRuns: vi.fn().mockResolvedValue({ items: [], total: 0, invalid: 0 }),
@@ -81,26 +92,70 @@ function api(): StudioApi {
     loadRunComparison: vi.fn().mockRejectedValue(new Error('not used')),
     loadEvidenceReport: vi.fn().mockRejectedValue(new Error('not used')),
     loadServingMonitor: vi.fn().mockRejectedValue(new Error('not used')),
-    loadTelemetryStatus: vi.fn().mockResolvedValue({
-      available: true,
-      recordCount: items.length,
-      lastSequence: items.at(-1)!.sequence,
-      malformedLines: 0,
-      sizeBytes: 2048,
-      source: 'research/.staging/btc-live-001/seed-7/telemetry/training-telemetry.jsonl',
+    loadTelemetryStatus: vi.fn().mockImplementation((_jobId: string, seed: number | null = null) => {
+      const selected = seed ?? 7
+      const items = bySeed[selected] ?? []
+      return Promise.resolve({
+        available: items.length > 0,
+        selectedSeed: items.length > 0 ? selected : null,
+        availableSeeds: [7, 11],
+        recordCount: items.length,
+        lastSequence: items.at(-1)?.sequence ?? 0,
+        malformedLines: 0,
+        sizeBytes: 2048,
+        source: items.length > 0 ? `research/.staging/btc-live-001/seed-${selected}/telemetry/training-telemetry.jsonl` : null,
+      })
     }),
-    loadTelemetryEvents: vi.fn().mockResolvedValue({
-      items,
-      nextSequence: items.at(-1)!.sequence,
-      truncated: false,
-      malformedLines: 0,
-      sequenceGaps: [],
+    loadTelemetryEvents: vi.fn().mockImplementation((
+      _jobId: string,
+      afterSequence = 0,
+      _limit = 512,
+      seed: number | null = null,
+    ) => {
+      const selected = seed ?? 7
+      const items = (bySeed[selected] ?? []).filter((item) => item.sequence > afterSequence)
+      return Promise.resolve({
+        seed: selected,
+        items,
+        nextSequence: items.at(-1)?.sequence ?? afterSequence,
+        truncated: false,
+        malformedLines: 0,
+        sequenceGaps: [],
+      })
+    }),
+    loadCheckpointEvaluations: vi.fn().mockResolvedValue({
+      available: true,
+      productionStatus: 'NO-GO',
+      items: [
+        {
+          configuration: 'residual',
+          seed: 7,
+          policyDigest: 'a'.repeat(64),
+          evaluationDigest: 'b'.repeat(64),
+          score: Math.log1p(0.05),
+          totalReturn: 0.05,
+          finalist: true,
+          checkpointRange: [100, 120],
+          source: 'research/.staging/btc-live-001/fold-000/candidates/residual/checkpoint-selection.json',
+        },
+        {
+          configuration: 'residual',
+          seed: 11,
+          policyDigest: 'c'.repeat(64),
+          evaluationDigest: 'd'.repeat(64),
+          score: Math.log1p(-0.02),
+          totalReturn: -0.02,
+          finalist: true,
+          checkpointRange: [100, 120],
+          source: 'research/.staging/btc-live-001/fold-000/candidates/residual/checkpoint-selection.json',
+        },
+      ],
     }),
   }
 }
 
 describe('LiveTrainingPage', () => {
-  it('renders the approved buffered chart-first replay and switches display modes', async () => {
+  it('renders seed-scoped exploration beside deterministic checkpoint evidence', async () => {
     const user = userEvent.setup()
     render(<LiveTrainingPage api={api()} />)
 
@@ -111,6 +166,13 @@ describe('LiveTrainingPage', () => {
     expect(screen.getByRole('button', { name: 'ローソク足ごと' })).toHaveAttribute('aria-pressed', 'true')
     expect(await screen.findByText(/ロング 40.0%/)).toBeInTheDocument()
     expect(screen.getAllByText(/\+1,000\.00/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/\+5.00% finalist/)).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Live Training seed'), '11')
+
+    expect(await screen.findByText(/ショート 20.0%/)).toBeInTheDocument()
+    expect(screen.getByText(/-2.00% finalist/)).toBeInTheDocument()
+    expect(screen.getByText(/Seed 11 · exploration/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'ほぼライブ' }))
     await user.click(screen.getByRole('button', { name: 'イベント圧縮' }))

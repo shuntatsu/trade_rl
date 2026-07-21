@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.training_telemetry import build_training_telemetry_callback
 
 CHECKPOINT_MANIFEST_SCHEMA = "policy_checkpoint_v1"
 CHECKPOINT_MANIFEST_NAME = "checkpoint.json"
@@ -219,14 +220,20 @@ def build_checkpoint_callback(
     max_checkpoints: int,
     environment_digest: str,
     training_config_digest: str,
-) -> Any | None:
-    """Build an SB3 callback lazily so pure checkpoint code has no SB3 dependency."""
+) -> Any:
+    """Build checkpoint and sampled Studio telemetry callbacks lazily."""
 
-    if interval_steps == 0:
-        return None
     if interval_steps < 0 or max_checkpoints <= 0:
         raise ValueError("checkpoint interval and maximum are invalid")
-    from stable_baselines3.common.callbacks import BaseCallback
+    from stable_baselines3.common.callbacks import BaseCallback, CallbackList
+
+    checkpoint_root = Path(checkpoint_root)
+    telemetry_callback = build_training_telemetry_callback(
+        path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
+        seed=seed,
+    )
+    if interval_steps == 0:
+        return telemetry_callback
 
     class AtomicCheckpointCallback(BaseCallback):
         def __init__(self) -> None:
@@ -256,7 +263,7 @@ def build_checkpoint_callback(
             )
             return True
 
-    return AtomicCheckpointCallback()
+    return CallbackList([AtomicCheckpointCallback(), telemetry_callback])
 
 
 __all__ = [

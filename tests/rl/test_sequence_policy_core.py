@@ -153,7 +153,7 @@ def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> No
         window_length=12,
         widths=(8, 8, 8, 8),
         dropout=0.0,
-    )
+    ).double()
     available = torch.tensor(
         [
             [True] * 12,
@@ -161,7 +161,9 @@ def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> No
             [False] * 12,
         ]
     )
-    legacy_input = torch.randn(3, 12, 4, requires_grad=True)
+    legacy_input = torch.randn(
+        3, 12, 4, dtype=torch.float64, requires_grad=True
+    )
     optimized_input = legacy_input.detach().clone().requires_grad_(True)
 
     legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))

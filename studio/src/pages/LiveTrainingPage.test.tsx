@@ -109,8 +109,8 @@ describe('LiveTrainingPage', () => {
     expect(await screen.findByRole('img', { name: /BTCUSDT 市場リプレイ/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'バッファ再生' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'ローソク足ごと' })).toHaveAttribute('aria-pressed', 'true')
-    expect(await screen.findByText(/ロング 0.400/)).toBeInTheDocument()
-    expect(screen.getAllByText(/\+1,500\.00/).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/ロング 40.0%/)).toBeInTheDocument()
+    expect(screen.getAllByText(/\+1,000\.00/).length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: 'ほぼライブ' }))
     await user.click(screen.getByRole('button', { name: 'イベント圧縮' }))

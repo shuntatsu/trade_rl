@@ -1,0 +1,238 @@
+import { Activity, AlertTriangle, Database, Pause, Play, Radio, RotateCcw, SkipBack, SkipForward } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+
+import { studioApi, type StudioApi } from '../api/studioApi'
+import type { JobSummary, TrainingTelemetryRecord } from '../data/types'
+import { MarketReplayChart } from '../live/MarketReplayChart'
+import { useTrainingTelemetry } from '../live/useTrainingTelemetry'
+import '../liveTraining.css'
+
+interface LiveTrainingPageProps { api?: StudioApi }
+type ReplayMode = 'live' | 'buffered'
+type TimelineMode = 'candles' | 'events'
+type Speed = 1 | 4 | 8
+
+function signed(value: number | null, digits = 2): string {
+  if (value === null || !Number.isFinite(value)) return '—'
+  const sign = value >= 0 ? '+' : ''
+  return `${sign}${value.toLocaleString('ja-JP', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
+}
+
+function eventLabel(record: TrainingTelemetryRecord): string {
+  if (record.eventType === 'risk') return 'RISK'
+  if (record.eventType === 'episode_end') return 'END'
+  const before = record.weightsBefore[0] ?? 0
+  const after = record.weightsAfter[0] ?? 0
+  if (after > before + 1e-9) return 'BUY'
+  if (after < before - 1e-9) return 'SELL'
+  return 'HOLD'
+}
+
+function Sparkline({ values, label }: { values: (number | null)[]; label: string }) {
+  const finite = values.filter((value): value is number => value !== null && Number.isFinite(value))
+  if (finite.length < 2) return <div className="live-sparkline live-sparkline--empty" aria-label={`${label} データ待機中`} />
+  const minimum = Math.min(...finite)
+  const maximum = Math.max(...finite)
+  const spread = Math.max(maximum - minimum, 1e-9)
+  const points = values.map((value, index) => {
+    const resolved = value ?? minimum
+    const x = values.length === 1 ? 50 : index * 100 / (values.length - 1)
+    const y = 30 - (resolved - minimum) / spread * 26
+    return `${x},${y}`
+  }).join(' ')
+  return (
+    <svg className="live-sparkline" viewBox="0 0 100 34" preserveAspectRatio="none" role="img" aria-label={label}>
+      <polyline points={points} />
+    </svg>
+  )
+}
+
+function MetricCard({ label, value, values, tone = 'positive' }: {
+  label: string
+  value: string
+  values: (number | null)[]
+  tone?: 'positive' | 'negative' | 'neutral'
+}) {
+  return (
+    <article className="live-metric-card">
+      <span>{label}</span>
+      <strong className={`live-tone live-tone--${tone}`}>{value}</strong>
+      <Sparkline values={values} label={`${label} 推移`} />
+    </article>
+  )
+}
+
+export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
+  const [jobs, setJobs] = useState<JobSummary[]>([])
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobsError, setJobsError] = useState<string | null>(null)
+  const [replayMode, setReplayMode] = useState<ReplayMode>('buffered')
+  const [timelineMode, setTimelineMode] = useState<TimelineMode>('candles')
+  const [playing, setPlaying] = useState(true)
+  const [speed, setSpeed] = useState<Speed>(4)
+  const [cursor, setCursor] = useState(0)
+  const telemetry = useTrainingTelemetry(jobId, api)
+
+  useEffect(() => {
+    let active = true
+    void api.loadJobs().then((response) => {
+      if (!active) return
+      setJobs(response.items)
+      const preferred = response.items.find((job) => job.status === 'running') ?? response.items[0] ?? null
+      setJobId(preferred?.id ?? null)
+      setJobsError(null)
+    }).catch((reason: unknown) => {
+      if (!active) return
+      setJobsError(reason instanceof Error ? reason.message : 'ジョブを取得できませんでした。')
+    })
+    return () => { active = false }
+  }, [api])
+
+  useEffect(() => {
+    if (telemetry.records.length === 0) {
+      setCursor(0)
+      return
+    }
+    setCursor((current) => replayMode === 'live' || current === 0
+      ? telemetry.records.length - 1
+      : Math.min(current, telemetry.records.length - 1))
+  }, [replayMode, telemetry.records.length])
+
+  useEffect(() => {
+    if (!playing || replayMode === 'live' || telemetry.records.length < 2) return undefined
+    const timer = window.setInterval(() => {
+      setCursor((current) => current >= telemetry.records.length - 1 ? 0 : current + 1)
+    }, Math.max(90, 700 / speed))
+    return () => window.clearInterval(timer)
+  }, [playing, replayMode, speed, telemetry.records.length])
+
+  const selectedJob = jobs.find((job) => job.id === jobId) ?? null
+  const activeRecord = telemetry.records[Math.min(cursor, Math.max(0, telemetry.records.length - 1))] ?? null
+  const latestRecord = telemetry.records.at(-1) ?? null
+  const firstPortfolio = 100_000
+  const equity = activeRecord?.portfolioValue ?? null
+  const baseline = activeRecord?.baselinePortfolioValue ?? null
+  const pnl = equity === null ? null : equity - firstPortfolio
+  const baselineDelta = equity !== null && baseline !== null ? equity - baseline : null
+  const currentWeight = activeRecord?.weightsAfter[0] ?? 0
+  const compressed = timelineMode === 'events'
+  const recentEvents = useMemo(
+    () => telemetry.records.filter((record) => record.eventType !== 'rollout').slice(-8).reverse(),
+    [telemetry.records],
+  )
+  const equityValues = telemetry.records.map((record) => record.portfolioValue)
+  const baselineValues = telemetry.records.map((record) => record.baselinePortfolioValue)
+  const rewardValues = telemetry.records.map((record) => record.reward)
+  const drawdownValues = telemetry.records.map((record) => record.drawdown === null ? null : -record.drawdown * 100)
+  const connectionLabel = telemetry.connection === 'live' ? 'LIVE' : telemetry.connection === 'delayed' ? 'DELAYED' : telemetry.connection === 'connecting' ? 'CONNECTING' : 'OFFLINE'
+
+  const jump = (amount: number) => {
+    setPlaying(false)
+    setCursor((current) => Math.max(0, Math.min(telemetry.records.length - 1, current + amount)))
+  }
+
+  return (
+    <section className="live-page" aria-labelledby="live-training-title">
+      <header className="live-header">
+        <div className="live-title-block">
+          <div className="live-title-row">
+            <span className="live-nogo">NO-GO</span>
+            <span className={`live-connection live-connection--${telemetry.connection}`}><Radio size={12} aria-hidden="true" />{connectionLabel}</span>
+          </div>
+          <h1 id="live-training-title">Live Training</h1>
+          <p>学習中のエージェントが行う探索行動を、人間が理解できる速度の市場リプレイとして可視化します。</p>
+        </div>
+        <div className="live-header-controls">
+          <label className="live-job-select">Run
+            <select value={jobId ?? ''} onChange={(event) => setJobId(event.target.value || null)} aria-label="Live Training job">
+              {jobs.length === 0 ? <option value="">実行中ジョブなし</option> : null}
+              {jobs.map((job) => <option key={job.id} value={job.id}>{job.runId} · {job.status}</option>)}
+            </select>
+          </label>
+          <div className="live-segment-group" aria-label="リプレイモード">
+            <span>リプレイモード</span>
+            <div className="live-segment">
+              <button type="button" aria-pressed={replayMode === 'live'} onClick={() => setReplayMode('live')}>ほぼライブ</button>
+              <button type="button" aria-pressed={replayMode === 'buffered'} onClick={() => setReplayMode('buffered')}>バッファ再生</button>
+            </div>
+          </div>
+          <div className="live-buffer"><Database size={14} aria-hidden="true" /><strong>{telemetry.records.length}</strong> steps buffered</div>
+          <div className="live-segment-group" aria-label="タイム軸">
+            <span>タイム軸（切替可能）</span>
+            <div className="live-segment">
+              <button type="button" aria-pressed={timelineMode === 'candles'} onClick={() => setTimelineMode('candles')}>ローソク足ごと</button>
+              <button type="button" aria-pressed={timelineMode === 'events'} onClick={() => setTimelineMode('events')}>イベント圧縮</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {(jobsError || telemetry.error) ? <div className="live-alert"><AlertTriangle size={16} aria-hidden="true" />{jobsError ?? telemetry.error}</div> : null}
+
+      <div className="live-primary-grid">
+        <article className="live-market-panel">
+          <div className="live-panel-title">
+            <div><strong>{activeRecord?.symbol ?? latestRecord?.symbol ?? 'Market'} 市場リプレイ</strong><span>{selectedJob?.runId ?? 'ジョブ待機中'} · research only</span></div>
+            <span className="live-step-chip">Replay Step {activeRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</span>
+          </div>
+          <MarketReplayChart records={telemetry.records} cursorSequence={activeRecord?.sequence ?? null} compressed={compressed} />
+          <div className="live-transport" aria-label="リプレイ操作">
+            <button type="button" className="live-icon-button live-icon-button--primary" aria-label={playing ? '一時停止' : '再生'} onClick={() => setPlaying((current) => !current)}>{playing ? <Pause size={17} /> : <Play size={17} />}</button>
+            <button type="button" className="live-icon-button" aria-label="先頭へ戻る" onClick={() => { setPlaying(false); setCursor(0) }}><RotateCcw size={16} /></button>
+            <div className="live-speed" aria-label="再生速度">{([1, 4, 8] as Speed[]).map((value) => <button type="button" key={value} aria-pressed={speed === value} onClick={() => setSpeed(value)}>{value}x</button>)}</div>
+            <span className="live-sampling">一定ステップごとに表示 <strong>Adaptive / 32 steps</strong></span>
+            <div className="live-jump"><button type="button" onClick={() => jump(-10)}><SkipBack size={14} />−10</button><button type="button" onClick={() => jump(10)}>+10<SkipForward size={14} /></button></div>
+            <button type="button" className="live-latest" onClick={() => { setCursor(Math.max(0, telemetry.records.length - 1)); setReplayMode('live') }}>最新へ</button>
+          </div>
+        </article>
+
+        <aside className="live-agent-panel" aria-label="エージェント状態">
+          <div className="live-panel-title"><div><strong>エージェント状態（現在）</strong><span>再生カーソル同期</span></div><Activity size={17} aria-hidden="true" /></div>
+          <dl>
+            <div><dt>現在ポジション</dt><dd className={currentWeight >= 0 ? 'live-positive' : 'live-negative'}>{currentWeight >= 0 ? 'ロング' : 'ショート'} {Math.abs(currentWeight).toFixed(3)}</dd></div>
+            <div><dt>現在価格</dt><dd>{activeRecord?.close?.toLocaleString('ja-JP', { maximumFractionDigits: 2 }) ?? '—'} USDT</dd></div>
+            <div><dt>含み・累積損益</dt><dd className={(pnl ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{signed(pnl)} USDT</dd></div>
+            <div><dt>ベースライン超過</dt><dd className={(baselineDelta ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{signed(baselineDelta)} USDT</dd></div>
+            <div><dt>報酬</dt><dd>{signed(activeRecord?.reward ?? null, 3)}</dd></div>
+            <div><dt>ドローダウン</dt><dd className="live-negative">{activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`}</dd></div>
+            <div><dt>環境 / Seed</dt><dd>env {activeRecord?.environmentId ?? '—'} / {activeRecord?.seed ?? '—'}</dd></div>
+            <div><dt>最新受信Step</dt><dd>{latestRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</dd></div>
+          </dl>
+          <div className="live-exposure">
+            <span>Target weight</span>
+            <div><i style={{ width: `${Math.min(100, Math.abs(currentWeight) * 100)}%` }} /></div>
+            <strong>{currentWeight.toFixed(3)}</strong>
+          </div>
+          <div className="live-research-note"><AlertTriangle size={15} aria-hidden="true" /><span>探索行動の可視化です。実運用・発注には使用しません。</span></div>
+        </aside>
+      </div>
+
+      <div className="live-metric-grid">
+        <MetricCard label="評価損益（Equity）" value={`${signed(pnl)} USDT`} values={equityValues} tone={(pnl ?? 0) >= 0 ? 'positive' : 'negative'} />
+        <MetricCard label="ベースライン比較" value={`${signed(baselineDelta)} USDT`} values={baselineValues} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
+        <MetricCard label="報酬（Reward）" value={signed(activeRecord?.reward ?? null, 3)} values={rewardValues} tone="neutral" />
+        <MetricCard label="ドローダウン（Equity）" value={activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`} values={drawdownValues} tone="negative" />
+      </div>
+
+      <article className="live-events-panel">
+        <div className="live-panel-title"><div><strong>イベント（最新）</strong><span>売買・リスク・Episode終了</span></div><span>{telemetry.status?.malformedLines ? `破損行 ${telemetry.status.malformedLines}` : 'sequence verified'}</span></div>
+        <div className="live-event-list">
+          {recentEvents.length === 0 ? <div className="live-empty-event">重要イベントを待っています。</div> : recentEvents.map((record) => {
+            const label = eventLabel(record)
+            return (
+              <button type="button" key={`${record.sequence}-${record.environmentId}`} aria-label={`Step ${record.globalStep} ${label}`} onClick={() => { setPlaying(false); setCursor(Math.max(0, telemetry.records.findIndex((item) => item.sequence === record.sequence))) }}>
+                <time>{record.marketTime?.slice(11, 19) ?? record.recordedAt.slice(11, 19)}</time>
+                <span className={`live-event-tag live-event-tag--${label.toLowerCase()}`}>{label}</span>
+                <strong>{record.symbol}</strong>
+                <span>weight {(record.weightsBefore[0] ?? 0).toFixed(3)} → {(record.weightsAfter[0] ?? 0).toFixed(3)}</span>
+                <span>{record.close?.toLocaleString('ja-JP', { maximumFractionDigits: 2 }) ?? 'price —'}</span>
+                <span>{record.riskReasons.join(', ') || `reward ${signed(record.reward, 3)}`}</span>
+                <small>Step {record.globalStep.toLocaleString('ja-JP')}</small>
+              </button>
+            )
+          })}
+        </div>
+      </article>
+    </section>
+  )
+}

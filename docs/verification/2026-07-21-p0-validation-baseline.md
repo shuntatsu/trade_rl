@@ -28,7 +28,15 @@ The execution container could not resolve `github.com`, so `uv` could not downlo
 - RED test commit: `805d4b1216a1d1ae4714c97a0fa8d3a5f66104a5`
 - RED PostgreSQL workflow: `29807890440` (failed in the unit/integration test step before implementation)
 - Implementation commit: `aa78df94def16fc2efe069f05943cd3b359c1642`
-- Final GREEN workflow IDs: pending
+- GREEN PostgreSQL workflow: `29809028352` (success)
+
+## P0-2 training-serving observation parity
+
+- RED test commit: `352e77be6217d68576fba1a5d047d8cacecf00ba`
+- RED CI workflow: `29811288399`
+- RED evidence: 330 compatibility tests passed and the new parity test failed because `ResidualMarketEnv.observation_snapshot()` did not exist.
+- Implementation product commit: `9fb891f6d933e307b6b08a24c356552c333df0f6`
+- GREEN workflow IDs: pending on the evidence-refresh head.
 
 ## Final verification
 

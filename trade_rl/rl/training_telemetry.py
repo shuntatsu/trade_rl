@@ -463,9 +463,7 @@ def build_training_telemetry_callback(
             else {}
         )
         market_indices[environment_id] = (
-            _current_market_index(environments[environment_id])
-            if done
-            else end_index
+            _current_market_index(environments[environment_id]) if done else end_index
         )
         if market_indices[environment_id] is None:
             market_indices[environment_id] = end_index
@@ -481,8 +479,7 @@ def build_training_telemetry_callback(
             if isinstance(raw_environments, (tuple, list)):
                 environments = tuple(raw_environments)
                 market_indices = [
-                    _current_market_index(environment)
-                    for environment in environments
+                    _current_market_index(environment) for environment in environments
                 ]
 
         def _on_step(self) -> bool:

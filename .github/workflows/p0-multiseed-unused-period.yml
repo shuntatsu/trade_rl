@@ -1,0 +1,85 @@
+name: P0 Multi-Seed Unused Period
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install training dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Create three-seed walk-forward configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var/p0-evidence
+          uv run python examples/quickstart/create_demo_dataset.py \
+            --output var/p0-evidence/dataset \
+            --bars 1024
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          source = Path("examples/binance/walk-forward-smoke.json")
+          payload = json.loads(source.read_text(encoding="utf-8"))
+          training = payload["candidates"][0]["run"]["training"]
+          training["seeds"] = [0, 1, 2]
+          training["timesteps"] = 128
+          training["checkpoint_interval_steps"] = 64
+          training["max_checkpoints"] = 2
+          output = Path("var/p0-evidence/walk-forward-three-seed.json")
+          output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run actual three-seed nested walk-forward
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          uv run trade-rl walk-forward run \
+            --config var/p0-evidence/walk-forward-three-seed.json \
+            --dataset var/p0-evidence/dataset \
+            --output var/p0-evidence/artifacts \
+            --run-id p0-three-seed-unused-period \
+            2>&1 | tee var/p0-evidence/walk-forward.log
+
+      - name: Bind evidence identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > var/p0-evidence/COMMIT_SHA
+          find var/p0-evidence -type f -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > var/p0-evidence/SHA256SUMS
+          find var/p0-evidence -maxdepth 6 -type f -print \
+            | sort \
+            > var/p0-evidence/FILE_INVENTORY
+
+      - name: Upload walk-forward evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p0-multiseed-unused-period-${{ github.event.pull_request.head.sha }}
+          path: var/p0-evidence
+          if-no-files-found: error
+          retention-days: 90

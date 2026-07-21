@@ -37,7 +37,7 @@ jobs:
           path = Path('trade_rl/catalog/contracts.py')
           text = path.read_text(encoding='utf-8')
           text = text.replace('''        if not isinstance(self.artifact_kind, ArtifactKind):\n            object.__setattr__(self, "artifact_kind", ArtifactKind(self.artifact_kind))\n        if not isinstance(self.status, ArtifactStatus):\n            object.__setattr__(self, "status", ArtifactStatus(self.status))\n''', '')
-          text = text.replace('''        if self.artifact_kind is not None and not isinstance(\n            self.artifact_kind, ArtifactKind\n        ):\n            object.__setattr__(self, "artifact_kind", ArtifactKind(self.artifact_kind))\n        if self.status is not None and not isinstance(self.status, ArtifactStatus):\n            object.__setattr__(self, "status", ArtifactStatus(self.status))\n''', '')
+          text = text.replace('''        if self.artifact_kind is not None and not isinstance(\n            self.artifact_kind, ArtifactKind\n        ):\n            object.__setattr__(\n                self, "artifact_kind", ArtifactKind(self.artifact_kind)\n            )\n        if self.status is not None and not isinstance(self.status, ArtifactStatus):\n            object.__setattr__(self, "status", ArtifactStatus(self.status))\n''', '')
           text = text.replace('def thaw_json(value: JsonValue) -> object:', 'def thaw_json(value: object) -> object:')
           path.write_text(text, encoding='utf-8')
           PY

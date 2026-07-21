@@ -68,6 +68,8 @@ function api(overrides: Partial<StudioApi> = {}): StudioApi {
     submitTrainingJob: vi.fn().mockResolvedValue(job),
     cancelJob: vi.fn().mockResolvedValue({ ...job, status: 'cancelled' }),
     loadJobLog: vi.fn().mockResolvedValue({ jobId: job.id, lines: ['step 1', 'step 2'], truncated: false }),
+    loadTelemetryStatus: vi.fn().mockRejectedValue(new Error('not used')),
+    loadTelemetryEvents: vi.fn().mockRejectedValue(new Error('not used')),
     loadRunComparison: vi.fn().mockRejectedValue(new Error('not used')),
     loadEvidenceReport: vi.fn().mockRejectedValue(new Error('not used')),
     loadServingMonitor: vi.fn().mockRejectedValue(new Error('not used')),

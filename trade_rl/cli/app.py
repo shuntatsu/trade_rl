@@ -435,6 +435,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command")
 
+    from trade_rl.cli.catalog import add_catalog_parser
+
+    add_catalog_parser(subparsers)
+
     data_commands = _add_status_group(
         subparsers,
         name="data",

@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TRADE_RL_POSTGRES_DB:-trade_rl}
+      POSTGRES_USER: ${TRADE_RL_POSTGRES_USER:-trade_rl}
+      POSTGRES_PASSWORD: ${TRADE_RL_POSTGRES_PASSWORD:-trade_rl}
+    ports:
+      - "${TRADE_RL_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - trade-rl-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  trade-rl-postgres:

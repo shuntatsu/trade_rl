@@ -159,3 +159,32 @@ uv run pytest --cov=trade_rl --cov-branch
 ```
 
 詳細は[アーキテクチャ](docs/ARCHITECTURE.md)と[研究結果の扱い](docs/RESEARCH_STATUS.md)を参照してください。
+
+## PostgreSQL artifact catalog
+
+再計算不要な研究artifactの検索・依存関係・cache identityは、Dockerで起動するPostgreSQLへ保存できます。NumPy配列、dataset本体、checkpoint、modelはPostgreSQLのBLOBにはせず、従来どおり不変filesystem artifactとして保持します。
+
+```bash
+cp .env.example .env
+docker compose up -d postgres
+docker compose ps
+
+uv sync --extra dev --extra postgres
+export TRADE_RL_DATABASE_URL=postgresql://trade_rl:trade_rl@localhost:5432/trade_rl
+uv run trade-rl catalog migrate
+uv run trade-rl catalog health
+```
+
+market datasetのpublish時に`TRADE_RL_DATABASE_URL`が設定されていれば、dataset ID、artifact digest、canonical cache key、保存場所、サイズが自動登録されます。DB未設定時は従来どおりfilesystemだけで動作します。
+
+停止してデータを保持する場合:
+
+```bash
+docker compose down
+```
+
+PostgreSQL volumeも削除する場合のみ、明示的に次を実行します。
+
+```bash
+docker compose down -v
+```

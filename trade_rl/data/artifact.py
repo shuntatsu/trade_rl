@@ -8,6 +8,10 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
+from trade_rl.catalog.service import (
+    market_dataset_registration,
+    register_artifact_if_configured,
+)
 from trade_rl.data.artifact_codec import (
     DATASET_ARRAYS_NAME as MARKET_ARTIFACT_ARRAYS,
 )
@@ -39,6 +43,7 @@ class PublishedDatasetArtifact:
     manifest_path: Path
     arrays_path: Path
     artifact_digest: str
+    schema_version: str = MARKET_ARTIFACT_SCHEMA
 
 
 def publish_market_dataset_artifact(
@@ -64,12 +69,14 @@ def publish_market_dataset_artifact(
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    return PublishedDatasetArtifact(
+    published = PublishedDatasetArtifact(
         root=output,
         manifest_path=output / MARKET_ARTIFACT_MANIFEST,
         arrays_path=output / MARKET_ARTIFACT_ARRAYS,
         artifact_digest=files.artifact_digest,
     )
+    register_artifact_if_configured(market_dataset_registration(published, dataset))
+    return published
 
 
 def write_market_dataset_artifact(root: str | Path, dataset: MarketDataset) -> str:

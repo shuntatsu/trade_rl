@@ -448,7 +448,7 @@ def observation_market_matrix(
         )
         per_symbol[:, :n_features] = dataset.features[index]
         per_symbol[:, n_features : 2 * n_features] = dataset.feature_available[index]
-        per_symbol[:, 2 * n_features : 3 * n_features] = _feature_staleness(
+        per_symbol[:, 2 * n_features : 3 * n_features] = observation_feature_staleness(
             dataset, index
         )
         per_symbol[:, 3 * n_features : 4 * n_features] = dataset.resolved_array(
@@ -577,7 +577,7 @@ def build_observation(
         (
             dataset.features[index],
             dataset.feature_available[index].astype(np.float64, copy=False),
-            _feature_staleness(dataset, index),
+            observation_feature_staleness(dataset, index),
             dataset.resolved_array("feature_missing_reason")[index].astype(
                 np.float64, copy=False
             ),

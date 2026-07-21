@@ -16,7 +16,9 @@ from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
     OBSERVATION_SCHEMA,
     ObservationBuilder,
+    observation_availability_mask,
     observation_passthrough_indices,
+    observation_staleness_vector,
 )
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
@@ -212,14 +214,16 @@ def test_real_environment_observation_matches_serving_members_and_ensemble(
 
     snapshot = env.observation_snapshot()
     assert snapshot.index == 19
+    assert snapshot.symbols == dataset.symbols
     assert snapshot.feature_names == dataset.feature_names
+    assert snapshot.global_feature_names == dataset.global_feature_names
     np.testing.assert_array_equal(
         snapshot.availability_mask.astype(bool),
-        dataset.feature_available[19].reshape(-1),
+        observation_availability_mask(dataset, 19),
     )
     np.testing.assert_array_equal(
         snapshot.staleness,
-        dataset.resolved_array("feature_staleness")[19].reshape(-1),
+        observation_staleness_vector(dataset, 19),
     )
     np.testing.assert_allclose(snapshot.hybrid_book_state, _book_vector(env.hybrid))
     np.testing.assert_allclose(snapshot.shadow_book_state, _book_vector(env.shadow))
@@ -238,9 +242,7 @@ def test_real_environment_observation_matches_serving_members_and_ensemble(
         np.array((0.2, -0.4, 0.6), dtype=np.float32),
         np.array((0.4, 0.2, 0.0), dtype=np.float32),
     )
-    models = tuple(
-        _RecordingModel(action, layout.size) for action in member_actions
-    )
+    models = tuple(_RecordingModel(action, layout.size) for action in member_actions)
     iterator = iter(models)
     loader = StableBaselines3PolicyLoader(
         model_loader=lambda algorithm, path: next(iterator)

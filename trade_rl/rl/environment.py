@@ -52,7 +52,11 @@ from trade_rl.rl.observations import (
     ObservationBuilder,
     ObservationExecutionState,
     ObservationInput,
+    PolicyObservationSnapshot,
+    book_state_vector,
+    observation_availability_mask,
     observation_passthrough_indices,
+    observation_staleness_vector,
 )
 from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
@@ -787,7 +791,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
         return trends, alpha, self._factor_basis_at(self.current_index)
 
-    def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
+    def _flat_observation_pair(self) -> tuple[np.ndarray, np.ndarray]:
         trends, alpha, factor_basis = self._market_inputs()
         raw = self.observation_builder.build(
             ObservationInput(
@@ -813,6 +817,41 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
         )
         current = raw if self.normalizer is None else self.normalizer.transform(raw)
+        return raw, current
+
+    def observation_snapshot(self) -> PolicyObservationSnapshot:
+        """Export the exact current training observation for serving parity."""
+
+        if not self._has_reset:
+            raise RuntimeError("environment must be reset before exporting observation")
+        raw, current = self._flat_observation_pair()
+        pending = (
+            np.zeros(self.dataset.n_symbols, dtype=np.float64)
+            if self._pending_hybrid_target is None
+            else self._pending_hybrid_target.copy()
+        )
+        return PolicyObservationSnapshot(
+            dataset_id=self.dataset.dataset_id,
+            index=self.current_index,
+            symbols=self.dataset.symbols,
+            feature_names=self.dataset.feature_names,
+            global_feature_names=self.dataset.global_feature_names,
+            availability_mask=observation_availability_mask(
+                self.dataset, self.current_index
+            ),
+            staleness=observation_staleness_vector(
+                self.dataset, self.current_index
+            ),
+            hybrid_book_state=book_state_vector(self.hybrid),
+            shadow_book_state=book_state_vector(self.shadow),
+            pending_target=pending,
+            previous_action=self._previous_action,
+            raw_observation=raw,
+            normalized_observation=current,
+        )
+
+    def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
+        _, current = self._flat_observation_pair()
         if self.sequence_observation_builder is None:
             return current
         if self.sequence_policy_plane is not None:

@@ -1,0 +1,37 @@
+name: Vulture Diagnostic Temp
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vulture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Capture Vulture report
+        shell: bash
+        run: |
+          set +e
+          uv run vulture trade_rl tests --min-confidence 100 > vulture.txt 2>&1
+          echo $? > vulture-status.txt
+          exit 0
+      - name: Upload report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vulture-diagnostics
+          path: |
+            vulture.txt
+            vulture-status.txt
+          retention-days: 1

@@ -1,0 +1,225 @@
+name: Order Simulator Exact-Head Smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Install exact lock
+        run: uv sync --extra dev --extra train-sb3 --extra studio --frozen
+
+      - name: Run three-seed walk-forward and deterministic replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/order-simulator-smoke"
+          git rev-parse HEAD > "${RUNNER_TEMP}/order-simulator-smoke/head-sha.txt"
+          git ls-files -z \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > "${RUNNER_TEMP}/order-simulator-smoke/source-file-sha256s.txt"
+          sha256sum "${RUNNER_TEMP}/order-simulator-smoke/source-file-sha256s.txt" \
+            | awk '{print $1}' \
+            > "${RUNNER_TEMP}/order-simulator-smoke/source-tree-digest.txt"
+          sha256sum uv.lock | awk '{print $1}' \
+            > "${RUNNER_TEMP}/order-simulator-smoke/uv-lock-digest.txt"
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import runpy
+          import subprocess
+          from collections import Counter
+          from dataclasses import replace
+          from pathlib import Path
+
+          import numpy as np
+
+          from trade_rl.data import write_market_dataset_files
+          from trade_rl.workflows.market_walk_forward import execute_market_walk_forward
+
+          root = Path.cwd()
+          output_root = Path("${RUNNER_TEMP}") / "order-simulator-smoke"
+          work_root = Path("${RUNNER_TEMP}") / "order-simulator-work"
+          work_root.mkdir(parents=True, exist_ok=True)
+
+          workflow_helpers = runpy.run_path(
+              str(root / "tests/workflows/test_market_walk_forward.py")
+          )
+          dataset = workflow_helpers["_sequence_dataset"]()
+          dataset_root = work_root / "dataset"
+          write_market_dataset_files(dataset_root, dataset)
+          run = workflow_helpers["_sequence_candidate_config"]()
+          run = replace(
+              run,
+              training=replace(
+                  run.training,
+                  seeds=(0, 1, 2),
+                  timesteps=8,
+                  checkpoint_interval_steps=4,
+                  max_checkpoints=2,
+              ),
+              execution=replace(
+                  run.execution,
+                  path_mode="conservative",
+                  processing_bar_volume_capacity=True,
+                  partial_fill_carry=True,
+                  trigger_volume_fractions=(1.0, 0.5, 0.25, 0.0),
+              ),
+          )
+          config_path = work_root / "walk-forward.json"
+          config_path.write_text(
+              json.dumps(
+                  {
+                      "workflow": {
+                          "train_bars": 220,
+                          "checkpoint_bars": 20,
+                          "selection_bars": 20,
+                          "test_bars": 20,
+                          "purge_bars": 4,
+                          "max_folds": 1,
+                      },
+                      "minimum_selection_uplift": 0.0,
+                      "candidates": [
+                          {"name": "stateful-sequence-ppo", "run": run.digest_payload()}
+                      ],
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          result = execute_market_walk_forward(
+              config_path=config_path,
+              dataset_path=dataset_root,
+              store_root=work_root / "artifacts",
+              run_id="order-simulator-three-seed-smoke",
+          )
+          walk_forward = json.loads(
+              (result.path / "walk-forward.json").read_text(encoding="utf-8")
+          )
+          fold = walk_forward["folds"][0]
+
+          replay_helpers = runpy.run_path(
+              str(root / "tests/e2e/test_stateful_order_replay.py")
+          )
+          replay_dataset = replay_helpers["_dataset"]()
+          actions = (
+              np.array((1.0,), dtype=np.float32),
+              np.array((1.0,), dtype=np.float32),
+              np.array((-0.5,), dtype=np.float32),
+              np.array((0.25,), dtype=np.float32),
+              np.array((0.0,), dtype=np.float32),
+              np.array((0.75,), dtype=np.float32),
+          )
+          replay_records: list[dict[str, object]] = []
+          aggregate_events: Counter[str] = Counter()
+          for seed in (0, 1, 2):
+              first = replay_helpers["_run_episode"](seed=seed)
+              second = replay_helpers["_run_episode"](seed=seed)
+              if first != second or first.digest != second.digest:
+                  raise RuntimeError(f"replay divergence for seed {seed}")
+
+              env = replay_helpers["_environment"](replay_dataset)
+              env.reset(
+                  seed=seed,
+                  options={"start_idx": 10, "initial_state_mode": "cash"},
+              )
+              event_counts: Counter[str] = Counter()
+              final_equity = env.hybrid.portfolio_value
+              for action in actions:
+                  _, _, terminated, truncated, info = env.step(action)
+                  for event in info["hybrid_execution"].order_events:
+                      event_counts[event.event_type] += 1
+                  final_equity = env.hybrid.portfolio_value
+                  if terminated or truncated:
+                      raise RuntimeError(f"unexpected replay termination for seed {seed}")
+              aggregate_events.update(event_counts)
+              replay_records.append(
+                  {
+                      **first.to_mapping(),
+                      "digest": first.digest,
+                      "event_counts": dict(sorted(event_counts.items())),
+                      "final_equity": final_equity,
+                  }
+              )
+
+          seed_finalists = [
+              {
+                  "seed": item["seed"],
+                  "checkpoint_score": item.get("checkpoint_score"),
+                  "selection_score": item.get("selection_score"),
+                  "policy_digest": item.get("policy_digest"),
+                  "checkpoint_evaluation_digest": item.get(
+                      "checkpoint_evaluation_digest"
+                  ),
+                  "selection_evaluation_digest": item.get(
+                      "selection_evaluation_digest"
+                  ),
+              }
+              for item in fold["seed_finalists"]
+          ]
+          summary = {
+              "schema_version": "order_simulator_smoke_v1",
+              "head_sha": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
+              "dataset_id": walk_forward["dataset_id"],
+              "experiment_plan_digest": walk_forward["experiment_plan_digest"],
+              "execution_policy_digest": replay_records[0][
+                  "execution_policy_digest"
+              ],
+              "ranges": {
+                  "train": fold["train_range"],
+                  "checkpoint": fold["checkpoint_range"],
+                  "selection": fold["selection_range"],
+                  "sealed_test": fold["test_range"],
+              },
+              "seed_finalists": seed_finalists,
+              "candidate_aggregates": fold["candidate_aggregates"],
+              "selected_configuration": fold["selected_configuration"],
+              "selected_member_seeds": fold["selected_member_seeds"],
+              "sealed_test_evaluations": fold["sealed_test_evaluations"],
+              "sealed_test_access": fold["sealed_test_access"],
+              "replays": replay_records,
+              "aggregate_event_counts": dict(sorted(aggregate_events.items())),
+              "promotion_claim": "none-smoke-only",
+          }
+          (output_root / "smoke.json").write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Run focused replay and walk-forward tests
+        run: |
+          uv run pytest -q \
+            tests/e2e/test_stateful_order_replay.py \
+            tests/workflows/test_market_walk_forward.py::test_structured_walk_forward_trains_three_seed_ensemble_end_to_end
+
+      - name: Upload exact-head smoke evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: order-simulator-smoke-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/order-simulator-smoke
+          if-no-files-found: error
+          retention-days: 30

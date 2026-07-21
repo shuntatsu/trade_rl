@@ -134,7 +134,9 @@
 .live-jump button, .live-latest { height: 30px; display: flex; align-items: center; gap: 3px; padding: 0 9px; border: 1px solid var(--live-border); border-radius: 5px; color: #aebfc8; background: #0b1721; cursor: pointer; }
 .live-latest { color: var(--live-cyan); }
 
-.live-agent-panel { display: grid; grid-template-rows: 44px minmax(0, 1fr) auto auto; overflow: hidden; }
+.live-agent-panel { display: grid; grid-template-rows: 44px auto minmax(0, 1fr) auto auto; overflow: hidden; }
+.live-checkpoint-select { display: grid; gap: 4px; padding: 8px 12px; border-bottom: 1px solid #172936; color: var(--live-muted); font-size: 9px; font-weight: 700; }
+.live-checkpoint-select select { width: 100%; height: 30px; border: 1px solid var(--live-border); border-radius: 6px; padding: 0 8px; color: var(--live-text); background: #08141e; }
 .live-agent-panel dl { margin: 0; padding: 3px 12px; overflow: auto; }
 .live-agent-panel dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid #172936; }
 .live-agent-panel dt { color: #8fa1ad; font-size: 10px; }

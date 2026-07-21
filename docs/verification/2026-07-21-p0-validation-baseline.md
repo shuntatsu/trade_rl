@@ -1,0 +1,45 @@
+# P0 Validation Evidence — 2026-07-21
+
+## Scope
+
+This record binds static analysis, tests, PostgreSQL integration, Serving E2E, and the training image to exact pull-request head commits for PR #73.
+
+## Baseline main
+
+- Baseline commit: `e295949be29612691a1b62aa998d85709930c389`
+- Latest previously verified product PR: #72
+- Previous CI run: `29804354107` (`CI`, success)
+- Previous PostgreSQL run: `29804354112` (`PostgreSQL Catalog`, success)
+
+## Exact source export
+
+- Source-export head: `045d8e9af24a3cf8e3fa9b26d5255c39ac4e2242`
+- Source artifact ID: `8486039455`
+- Source artifact digest: `sha256:e654746b41f2f520aaaf2dbe081b2542114d82e5aae8c59f597631113211450c`
+- Source-tree digest: `f2b3e0f85889199452347b43f31e29841672eb42e6190ad170e8ad3dd5c604f1`
+- `uv.lock` digest: `d2fb04f4bca12cb1b0702033aa46db27dc6a821764aad864f373bc490b012c79`
+
+## Local environment limitation
+
+The execution container could not resolve `github.com`, so `uv` could not download the required CPython 3.12 distribution. Local dependency installation was therefore unavailable. All authoritative Python 3.12, Docker, PostgreSQL, SB3, Serving, and image verification is run through GitHub Actions on the exact recorded PR head.
+
+## P0-1 persistent sealed test
+
+- RED test commit: `805d4b1216a1d1ae4714c97a0fa8d3a5f66104a5`
+- RED PostgreSQL workflow: `29807890440` (failed in the unit/integration test step before implementation)
+- Implementation commit: `aa78df94def16fc2efe069f05943cd3b359c1642`
+- Final GREEN workflow IDs: pending
+
+## Final verification
+
+The final section will record:
+
+- `ruff check .`
+- `ruff format --check .`
+- `mypy trade_rl`
+- complete `pytest` with branch coverage
+- PostgreSQL 16 integration
+- Ubuntu and Windows compatibility
+- Serving recovery/structured E2E smoke
+- complete training-image build and non-root probe
+- exact final commit SHA and Docker image identity

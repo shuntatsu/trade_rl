@@ -11,8 +11,11 @@ import type {
   RunListResponse,
   ServingMonitorReport,
   StudioOverviewResult,
+  TelemetryEventsResponse,
+  TelemetryStatusResponse,
   TrainingJobRequest,
 } from '../data/types'
+import { isTelemetryEvents, isTelemetryStatus } from '../live/telemetryGuards'
 import {
   isConfigList,
   isDatasetList,
@@ -123,6 +126,31 @@ export function loadJobLog(jobId: string, fetcher: typeof fetch = fetch): Promis
   return requestJson(`/api/studio/jobs/${encodeURIComponent(jobId)}/log?limit=200`, fetcher, isJobLog)
 }
 
+export function loadTelemetryStatus(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<TelemetryStatusResponse> {
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/telemetry/status`,
+    fetcher,
+    isTelemetryStatus,
+  )
+}
+
+export function loadTelemetryEvents(
+  jobId: string,
+  afterSequence = 0,
+  limit = 512,
+  fetcher: typeof fetch = fetch,
+): Promise<TelemetryEventsResponse> {
+  const query = `after_sequence=${encodeURIComponent(afterSequence)}&limit=${encodeURIComponent(limit)}`
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/telemetry/events?${query}`,
+    fetcher,
+    isTelemetryEvents,
+  )
+}
+
 export function loadRunComparison(
   leftResourceId: string,
   rightResourceId: string,
@@ -148,6 +176,8 @@ export interface StudioApi {
   submitTrainingJob: (request: TrainingJobRequest) => Promise<JobSummary>
   cancelJob: (jobId: string) => Promise<JobSummary>
   loadJobLog: (jobId: string) => Promise<JobLogResponse>
+  loadTelemetryStatus: (jobId: string) => Promise<TelemetryStatusResponse>
+  loadTelemetryEvents: (jobId: string, afterSequence?: number, limit?: number) => Promise<TelemetryEventsResponse>
   loadRunComparison: (leftResourceId: string, rightResourceId: string) => Promise<RunComparison>
   loadEvidenceReport: (runResourceId: string) => Promise<EvidenceReport>
   loadServingMonitor: () => Promise<ServingMonitorReport>
@@ -161,6 +191,8 @@ export const studioApi: StudioApi = {
   submitTrainingJob,
   cancelJob,
   loadJobLog,
+  loadTelemetryStatus,
+  loadTelemetryEvents,
   loadRunComparison,
   loadEvidenceReport,
   loadServingMonitor,

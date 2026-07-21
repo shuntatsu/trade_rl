@@ -6,7 +6,7 @@ Trade RL is a research-grade, baseline-anchored residual reinforcement-learning 
 
 ## Trade RL Studio
 
-ローカルGUIは`studio/`にあります。固定レイアウトのReact + Vite + TypeScript画面から、検証済みdataset、training config、exploratory training job、run artifact、run比較、Evidence chain、read-only paper serving状態を扱えます。
+ローカルGUIは`studio/`にあります。固定レイアウトのReact + Vite + TypeScript画面から、検証済みdataset、training config、exploratory training job、run artifact、run比較、Evidence chain、read-only paper serving状態を扱えます。Live Trainingでは、学習中の探索行動をチャート中心の市場リプレイとして表示し、ほぼライブ／バッファ再生、ローソク足／イベント圧縮、position変化、損益、reward、drawdownを同期して観察できます。
 
 ```bash
 uv sync --extra studio --extra train-sb3
@@ -16,7 +16,7 @@ npm ci --prefix studio
 npm run dev --prefix studio
 ```
 
-Studioも直接取引所注文を提供せず、production statusは`NO-GO`のままです。詳細は[`studio/README.md`](studio/README.md)を参照してください。
+Studioも直接取引所注文を提供せず、production statusは`NO-GO`のままです。Live TrainingのBUY／SELL表示は学習中のweight変化を可視化したもので、実注文ではありません。詳細は[`studio/README.md`](studio/README.md)を参照してください。
 
 ## Start here
 
@@ -55,6 +55,8 @@ The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.inte
 A market dataset artifact is a validated directory containing canonical `manifest.json` and deterministic `arrays.npz`. The maintained API is `write_market_dataset_files` for deterministic staging files, `publish_market_dataset_artifact` for exclusive atomic publication, and `load_market_dataset_artifact` for verified loading; older same-named writers remain warning-only compatibility wrappers for one release. Training and walk-forward runs are staged, validated and then atomically published under `runs/<run-id>`; incomplete runs are isolated under `failed/<run-id>` and never replace `latest.json`.
 
 A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one authoritative `policy.zip` per seed, content-addressed intermediate checkpoints selected only on checkpoint-validation data, a `policy-loader.json`, optional verified ONNX/TorchScript actors and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format. ONNX is an optional required export when requested; TorchScript is best-effort and records an explicit unsupported reason when conversion is unsafe.
+
+Exploratory Stable-Baselines3 training also emits sampled, append-only `training_telemetry_v1` JSON Lines beneath each seed's `telemetry/` directory. Normal rollout transitions are sampled, while material position changes, risk events and episode termination are retained for Studio replay. Telemetry is diagnostic and does not participate in model selection, artifact identity, serving approval or order execution.
 
 Nested walk-forward execution builds fold-local causal signals, fits only exogenous normalization statistics on each train capability, records one-shot sealed-test access, and evaluates the exact deterministic mean seed ensemble used by serving on the outer test range only after selection. Training, behavior cloning, checkpoint selection and sealed evaluation all use liquidation-at-close terminal accounting. Independent folds retain full execution evidence and are reported as a distribution; continuous return and drawdown are produced only with verified contiguous account-state handoff. An optional identity-bound post-selection execution-sensitivity pack replays the selected ensemble and baseline closed-loop under nominal, individual 2x, joint 2x and report-only joint 5x rule stresses without participating in selection.
 

@@ -34,8 +34,16 @@ jobs:
             git apply --check "${RUNNER_TEMP}/${patch_name}.patch"
             git apply "${RUNNER_TEMP}/${patch_name}.patch"
           done
-          git apply --check .github/order-sim-staging/task6-runtime-error.patch
-          git apply .github/order-sim-staging/task6-runtime-error.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/serving/runtime.py")
+          source = path.read_text(encoding="utf-8")
+          old = "raise BundleValidationError("
+          if source.count(old) != 1:
+              raise SystemExit("expected exactly one Task 6 runtime error reference")
+          path.write_text(source.replace(old, "raise ValueError(", 1), encoding="utf-8")
+          PY
 
       - name: Format Task 6 source
         shell: bash

@@ -28,42 +28,87 @@ jobs:
 
           path = Path("tools/run_training_capability_audit.py")
           text = path.read_text(encoding="utf-8")
-          replacements = {
-              '        model = PPO.load(str(checkpoint), device="cpu")\n': '        ppo_model = PPO.load(str(checkpoint), device="cpu")\n',
-              '            "actor": _linear_widths(model.policy.mlp_extractor.policy_net),\n': '            "actor": _linear_widths(ppo_model.policy.mlp_extractor.policy_net),\n',
-              '            "critic": _linear_widths(model.policy.mlp_extractor.value_net),\n': '            "critic": _linear_widths(ppo_model.policy.mlp_extractor.value_net),\n',
-              '        model = SAC.load(str(checkpoint), device="cpu")\n': '        sac_model = SAC.load(str(checkpoint), device="cpu")\n',
-              '            "actor": _linear_widths(model.policy.actor.latent_pi),\n': '            "actor": _linear_widths(sac_model.policy.actor.latent_pi),\n',
-              '            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],\n': '            "critic": _linear_widths(sac_model.policy.critic.q_networks[0])[:-1],\n',
-              '        model = TD3.load(str(checkpoint), device="cpu")\n': '        td3_model = TD3.load(str(checkpoint), device="cpu")\n',
-              '            "actor": _linear_widths(model.policy.actor.mu)[:-1],\n': '            "actor": _linear_widths(td3_model.policy.actor.mu)[:-1],\n',
-              '        model = TQC.load(str(checkpoint), device="cpu")\n': '        tqc_model = TQC.load(str(checkpoint), device="cpu")\n',
-              '    report = {\n': '    report: dict[str, object] = {\n',
-          }
-          for old, new in replacements.items():
-              count = text.count(old)
-              expected = 2 if old == '            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],\n' else 1
-              if count != expected:
-                  raise SystemExit(f"unexpected replacement count {count} for {old!r}")
-              if expected == 2:
-                  text = text.replace(old, '            "critic": _linear_widths(sac_model.policy.critic.q_networks[0])[:-1],\n', 1)
-                  text = text.replace(old, '            "critic": _linear_widths(td3_model.policy.critic.q_networks[0])[:-1],\n', 1)
-              else:
-                  text = text.replace(old, new, 1)
-          old_tqc_actor = '            "actor": _linear_widths(model.policy.actor.latent_pi),\n'
-          if text.count(old_tqc_actor) != 1:
-              raise SystemExit("expected one remaining TQC actor reference")
+          old = '''def _architecture(algorithm: str, checkpoint: Path) -> dict[str, list[int]]:
+              if algorithm == "ppo":
+                  from stable_baselines3 import PPO
+
+                  model = PPO.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(model.policy.mlp_extractor.policy_net),
+                      "critic": _linear_widths(model.policy.mlp_extractor.value_net),
+                  }
+              if algorithm == "sac":
+                  from stable_baselines3 import SAC
+
+                  model = SAC.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(model.policy.actor.latent_pi),
+                      "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],
+                  }
+              if algorithm == "td3":
+                  from stable_baselines3 import TD3
+
+                  model = TD3.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(model.policy.actor.mu)[:-1],
+                      "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],
+                  }
+              if algorithm == "tqc":
+                  from sb3_contrib import TQC
+
+                  model = TQC.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(model.policy.actor.latent_pi),
+                      "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],
+                  }
+              raise ValueError(f"unsupported algorithm: {algorithm}")
+          '''
+          new = '''def _architecture(algorithm: str, checkpoint: Path) -> dict[str, list[int]]:
+              if algorithm == "ppo":
+                  from stable_baselines3 import PPO
+
+                  ppo_model = PPO.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(ppo_model.policy.mlp_extractor.policy_net),
+                      "critic": _linear_widths(ppo_model.policy.mlp_extractor.value_net),
+                  }
+              if algorithm == "sac":
+                  from stable_baselines3 import SAC
+
+                  sac_model = SAC.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(sac_model.policy.actor.latent_pi),
+                      "critic": _linear_widths(sac_model.policy.critic.q_networks[0])[:-1],
+                  }
+              if algorithm == "td3":
+                  from stable_baselines3 import TD3
+
+                  td3_model = TD3.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(td3_model.policy.actor.mu)[:-1],
+                      "critic": _linear_widths(td3_model.policy.critic.q_networks[0])[:-1],
+                  }
+              if algorithm == "tqc":
+                  from sb3_contrib import TQC
+
+                  tqc_model = TQC.load(str(checkpoint), device="cpu")
+                  return {
+                      "actor": _linear_widths(tqc_model.policy.actor.latent_pi),
+                      "critic": _linear_widths(tqc_model.policy.critic.q_networks[0])[:-1],
+                  }
+              raise ValueError(f"unsupported algorithm: {algorithm}")
+          '''
+          # Dedent the workflow literal back to source indentation.
+          old = "\n".join(line[10:] if line.startswith("          ") else line for line in old.splitlines()) + "\n"
+          new = "\n".join(line[10:] if line.startswith("          ") else line for line in new.splitlines()) + "\n"
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one architecture block, found {text.count(old)}")
+          text = text.replace(old, new, 1)
+          if text.count("    report = {\n") != 1:
+              raise SystemExit("expected one untyped report mapping")
           text = text.replace(
-              old_tqc_actor,
-              '            "actor": _linear_widths(tqc_model.policy.actor.latent_pi),\n',
-              1,
-          )
-          old_tqc_critic = '            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],\n'
-          if text.count(old_tqc_critic) != 1:
-              raise SystemExit("expected one remaining TQC critic reference")
-          text = text.replace(
-              old_tqc_critic,
-              '            "critic": _linear_widths(tqc_model.policy.critic.q_networks[0])[:-1],\n',
+              "    report = {\n",
+              "    report: dict[str, object] = {\n",
               1,
           )
           path.write_text(text, encoding="utf-8")

@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
@@ -36,7 +36,7 @@ jobs:
           tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
 
       - name: Upload exact source
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: p0-source-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/trade-rl-source.tar.gz

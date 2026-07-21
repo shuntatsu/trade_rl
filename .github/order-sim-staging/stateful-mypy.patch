@@ -1,0 +1,39 @@
+--- a/trade_rl/simulation/stateful_execution.py
++++ b/trade_rl/simulation/stateful_execution.py
+@@ -257,14 +257,16 @@
+     starting_value = result_book.portfolio_value
+     if not math.isfinite(starting_value) or starting_value <= 0.0:
+         raise ValueError("stateful execution requires positive starting equity")
+-    requested_notional = float(
+-        sum(
++    result_multipliers = result_book.contract_multipliers
++    if result_multipliers is None:
++        raise ValueError("stateful execution requires contract multipliers")
++    requested_notional = 0.0
++    for order in state.active_orders:
++        requested_notional += (
+             abs(order.remaining_quantity)
+             * order.intent.submission_reference_price
+-            * float(result_book.contract_multipliers[order.intent.symbol_index])
+-            for order in state.active_orders
++            * float(result_multipliers[order.intent.symbol_index])
+         )
+-    )
+     total_cost = 0.0
+     total_funding = 0.0
+     total_borrow = 0.0
+@@ -436,10 +438,13 @@
+             accepted.append(current)
+             admitted = decision.admitted_quantity
+             projected_book.quantities[symbol] += admitted
++            projected_multipliers = projected_book.contract_multipliers
++            if projected_multipliers is None:
++                raise ValueError("projected order book requires contract multipliers")
+             cash_delta = (
+                 admitted
+                 * open_prices[symbol]
+-                * float(projected_book.contract_multipliers[symbol])
++                * float(projected_multipliers[symbol])
+             )
+             projected_book.cash -= cash_delta
+             projected_book.revalue(open_prices)

@@ -109,12 +109,14 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const selectedJob = jobs.find((job) => job.id === jobId) ?? null
   const activeRecord = telemetry.records[Math.min(cursor, Math.max(0, telemetry.records.length - 1))] ?? null
   const latestRecord = telemetry.records.at(-1) ?? null
-  const firstPortfolio = 100_000
+  const firstPortfolio = telemetry.records.find((record) => record.portfolioValue !== null)?.portfolioValue ?? null
   const equity = activeRecord?.portfolioValue ?? null
   const baseline = activeRecord?.baselinePortfolioValue ?? null
-  const pnl = equity === null ? null : equity - firstPortfolio
+  const pnl = equity !== null && firstPortfolio !== null ? equity - firstPortfolio : null
   const baselineDelta = equity !== null && baseline !== null ? equity - baseline : null
   const currentWeight = activeRecord?.weightsAfter[0] ?? 0
+  const positionDirection = Math.abs(currentWeight) < 1e-9 ? 'フラット' : currentWeight > 0 ? 'ロング' : 'ショート'
+  const positionTone = currentWeight > 0 ? 'live-positive' : currentWeight < 0 ? 'live-negative' : ''
   const compressed = timelineMode === 'events'
   const recentEvents = useMemo(
     () => telemetry.records.filter((record) => record.eventType !== 'rollout').slice(-8).reverse(),
@@ -189,9 +191,9 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
         <aside className="live-agent-panel" aria-label="エージェント状態">
           <div className="live-panel-title"><div><strong>エージェント状態（現在）</strong><span>再生カーソル同期</span></div><Activity size={17} aria-hidden="true" /></div>
           <dl>
-            <div><dt>現在ポジション</dt><dd className={currentWeight >= 0 ? 'live-positive' : 'live-negative'}>{currentWeight >= 0 ? 'ロング' : 'ショート'} {Math.abs(currentWeight).toFixed(3)}</dd></div>
+            <div><dt>現在ポジション</dt><dd className={positionTone}>{positionDirection} {(Math.abs(currentWeight) * 100).toFixed(1)}%</dd></div>
             <div><dt>現在価格</dt><dd>{activeRecord?.close?.toLocaleString('ja-JP', { maximumFractionDigits: 2 }) ?? '—'} USDT</dd></div>
-            <div><dt>含み・累積損益</dt><dd className={(pnl ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{signed(pnl)} USDT</dd></div>
+            <div><dt>再生区間損益</dt><dd className={(pnl ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{signed(pnl)} USDT</dd></div>
             <div><dt>ベースライン超過</dt><dd className={(baselineDelta ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{signed(baselineDelta)} USDT</dd></div>
             <div><dt>報酬</dt><dd>{signed(activeRecord?.reward ?? null, 3)}</dd></div>
             <div><dt>ドローダウン</dt><dd className="live-negative">{activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`}</dd></div>
@@ -208,7 +210,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
       </div>
 
       <div className="live-metric-grid">
-        <MetricCard label="評価損益（Equity）" value={`${signed(pnl)} USDT`} values={equityValues} tone={(pnl ?? 0) >= 0 ? 'positive' : 'negative'} />
+        <MetricCard label="再生区間損益（Equity）" value={`${signed(pnl)} USDT`} values={equityValues} tone={(pnl ?? 0) >= 0 ? 'positive' : 'negative'} />
         <MetricCard label="ベースライン比較" value={`${signed(baselineDelta)} USDT`} values={baselineValues} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
         <MetricCard label="報酬（Reward）" value={signed(activeRecord?.reward ?? null, 3)} values={rewardValues} tone="neutral" />
         <MetricCard label="ドローダウン（Equity）" value={activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`} values={drawdownValues} tone="negative" />

@@ -13,6 +13,7 @@ from trade_rl.telemetry.training import (
     TelemetryEventType,
     TrainingTelemetryRecord,
     TrainingTelemetryWriter,
+    training_telemetry_status,
 )
 
 _DEFAULT_SAMPLE_EVERY = 32
@@ -185,7 +186,7 @@ class TrainingTelemetrySampler:
         self.sample_every = int(sample_every)
         self.position_threshold = float(position_threshold)
         self.writer = TrainingTelemetryWriter(path)
-        self.sequence = 0
+        self.sequence = training_telemetry_status(path).last_sequence
         self.disabled = False
         self._previous_weights: dict[int, tuple[float, ...]] = {}
         self._previous_close: dict[int, float] = {}

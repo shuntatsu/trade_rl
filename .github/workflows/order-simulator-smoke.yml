@@ -44,6 +44,7 @@ jobs:
           from __future__ import annotations
 
           import json
+          import os
           import runpy
           import subprocess
           from collections import Counter
@@ -56,8 +57,9 @@ jobs:
           from trade_rl.workflows.market_walk_forward import execute_market_walk_forward
 
           root = Path.cwd()
-          output_root = Path("${RUNNER_TEMP}") / "order-simulator-smoke"
-          work_root = Path("${RUNNER_TEMP}") / "order-simulator-work"
+          runner_temp = Path(os.environ["RUNNER_TEMP"])
+          output_root = runner_temp / "order-simulator-smoke"
+          work_root = runner_temp / "order-simulator-work"
           work_root.mkdir(parents=True, exist_ok=True)
 
           workflow_helpers = runpy.run_path(
@@ -151,7 +153,9 @@ jobs:
                       event_counts[event.event_type] += 1
                   final_equity = env.hybrid.portfolio_value
                   if terminated or truncated:
-                      raise RuntimeError(f"unexpected replay termination for seed {seed}")
+                      raise RuntimeError(
+                          f"unexpected replay termination for seed {seed}"
+                      )
               aggregate_events.update(event_counts)
               replay_records.append(
                   {

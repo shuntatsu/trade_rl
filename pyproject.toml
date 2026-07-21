@@ -68,6 +68,11 @@ known-first-party = ["trade_rl", "tests"]
 [tool.mypy]
 python_version = "3.12"
 files = ["trade_rl"]
+exclude = [
+    "^tests/",
+    "^examples/",
+    "^studio/",
+]
 check_untyped_defs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

@@ -41,16 +41,37 @@ jobs:
         run: |
           uv lock
           uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra postgres
-      - name: Ruff format
+      - name: Ruff format and lint
         run: |
           uv run ruff format .
-          uv run ruff format --check .
-      - name: Ruff lint
-        run: |
           uv run ruff check . --fix
+          uv run ruff format --check .
           uv run ruff check .
-      - name: Mypy
-        run: uv run mypy trade_rl
+      - name: Capture Mypy result
+        id: mypy
+        shell: bash
+        run: |
+          set +e
+          uv run mypy trade_rl 2>&1 | tee mypy-diagnostics.txt
+          status=${PIPESTATUS[0]}
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Publish typed implementation snapshot
+        if: steps.mypy.outputs.status != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'chore: publish PostgreSQL Mypy diagnostics'
+          git push origin HEAD:feat/postgres-artifact-catalog
+      - name: Stop on Mypy errors
+        if: steps.mypy.outputs.status != '0'
+        run: exit 1
+      - name: Remove empty diagnostics
+        if: steps.mypy.outputs.status == '0'
+        run: rm -f mypy-diagnostics.txt
       - name: Import architecture
         run: uv run lint-imports
       - name: Focused tests

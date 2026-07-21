@@ -11,7 +11,6 @@ from trade_rl.studio.contracts import JobSummary, StudioModel
 from trade_rl.studio.errors import ArtifactInvalid
 from trade_rl.studio.settings import StudioSettings
 from trade_rl.telemetry.training import (
-    TELEMETRY_SCHEMA_VERSION,
     TrainingTelemetryRecord,
     read_training_telemetry,
     training_telemetry_status,
@@ -21,7 +20,7 @@ _TELEMETRY_NAME = "training-telemetry.jsonl"
 
 
 class TelemetryRecordResponse(StudioModel):
-    schema_version: Literal["training_telemetry_v1"] = TELEMETRY_SCHEMA_VERSION
+    schema_version: Literal["training_telemetry_v1"] = "training_telemetry_v1"
     sequence: int = Field(ge=1)
     recorded_at: str
     global_step: int = Field(ge=0)

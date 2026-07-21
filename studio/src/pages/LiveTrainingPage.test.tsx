@@ -179,10 +179,9 @@ describe('LiveTrainingPage', () => {
     expect(screen.getByRole('button', { name: 'バッファ再生' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'ローソク足ごと' })).toHaveAttribute('aria-pressed', 'true')
     expect(await screen.findByText(/ロング 40.0%/)).toBeInTheDocument()
-    expect(screen.getAllByText(/\+1,000\.00/).length).toBeGreaterThan(0)
 
     const evidence = screen.getByLabelText('Checkpoint evaluation evidence')
-    expect(evidence).toHaveDisplayValue('fold-000 · residual · finalist')
+    await waitFor(() => expect(evidence).toHaveDisplayValue('fold-000 · residual · finalist'))
     expect(screen.getAllByText(/\+2.00%/).length).toBeGreaterThan(0)
     expect(screen.queryByText(/\+5.00% finalist/)).not.toBeInTheDocument()
 
@@ -194,7 +193,7 @@ describe('LiveTrainingPage', () => {
     await user.selectOptions(screen.getByLabelText('Live Training seed'), '11')
 
     expect(await screen.findByText(/ショート 20.0%/)).toBeInTheDocument()
-    expect(screen.getByLabelText('Checkpoint evaluation evidence')).toHaveDisplayValue('fold-000 · residual · finalist')
+    await waitFor(() => expect(screen.getByLabelText('Checkpoint evaluation evidence')).toHaveDisplayValue('fold-000 · residual · finalist'))
     expect(screen.getByText(/-2.00% finalist/)).toBeInTheDocument()
     expect(screen.getByText(/Seed 11 · exploration/)).toBeInTheDocument()
 

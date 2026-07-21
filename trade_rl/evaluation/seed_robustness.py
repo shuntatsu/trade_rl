@@ -21,7 +21,11 @@ class SeedEvaluation:
     total_cost: float = 0.0
 
     def __post_init__(self) -> None:
-        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+        ):
             raise ValueError("seed must be a non-negative integer")
         for field_name, value in (
             ("turnover_total", self.turnover_total),
@@ -77,7 +81,9 @@ def summarize_seed_robustness(
         raise ValueError("seed and baseline return kinds must match")
     if any(len(item.returns.values) != len(baseline.values) for item in seeds):
         raise ValueError("seed and baseline ranges must have equal length")
-    if any(item.returns.periods_per_year != baseline.periods_per_year for item in seeds):
+    if any(
+        item.returns.periods_per_year != baseline.periods_per_year for item in seeds
+    ):
         raise ValueError("seed and baseline annualization must match")
 
     baseline_return = compound_return(baseline.values)

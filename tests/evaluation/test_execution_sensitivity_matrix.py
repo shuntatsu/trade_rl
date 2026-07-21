@@ -96,7 +96,18 @@ def test_sensitivity_results_expose_cost_capacity_delay_and_fill_dependence() ->
     assert by_name["spread_2x"].interval_cost > by_name["spread_1x"].interval_cost
     assert by_name["slippage_4x"].interval_cost > by_name["slippage_1x"].interval_cost
     assert by_name["capacity_25pct"].fill_ratio < by_name["capacity_100pct"].fill_ratio
-    assert by_name["capacity_25pct"].unfilled_turnover > by_name["capacity_100pct"].unfilled_turnover
-    assert by_name["signal_delay_2"].total_return != by_name["signal_delay_0"].total_return
-    assert by_name["limit_conservative"].fill_ratio <= by_name["limit_optimistic"].fill_ratio
-    assert by_name["tradability_delay_1"].fill_ratio <= by_name["tradability_delay_0"].fill_ratio
+    assert (
+        by_name["capacity_25pct"].unfilled_turnover
+        > by_name["capacity_100pct"].unfilled_turnover
+    )
+    assert (
+        by_name["signal_delay_2"].total_return != by_name["signal_delay_0"].total_return
+    )
+    assert (
+        by_name["limit_conservative"].fill_ratio
+        <= by_name["limit_optimistic"].fill_ratio
+    )
+    assert (
+        by_name["tradability_delay_1"].fill_ratio
+        <= by_name["tradability_delay_0"].fill_ratio
+    )

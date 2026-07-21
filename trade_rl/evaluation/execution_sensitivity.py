@@ -66,14 +66,18 @@ class ExecutionSensitivityResult:
     termination_reason: str | None
 
 
-def default_execution_sensitivity_scenarios() -> tuple[ExecutionSensitivityScenario, ...]:
+def default_execution_sensitivity_scenarios() -> tuple[
+    ExecutionSensitivityScenario, ...
+]:
     scenarios: list[ExecutionSensitivityScenario] = []
     scenarios.extend(
         ExecutionSensitivityScenario(name=f"fee_{factor:g}x", fee_multiplier=factor)
         for factor in (1.0, 2.0, 4.0)
     )
     scenarios.extend(
-        ExecutionSensitivityScenario(name=f"spread_{factor:g}x", spread_multiplier=factor)
+        ExecutionSensitivityScenario(
+            name=f"spread_{factor:g}x", spread_multiplier=factor
+        )
         for factor in (1.0, 2.0)
     )
     scenarios.extend(
@@ -89,7 +93,9 @@ def default_execution_sensitivity_scenarios() -> tuple[ExecutionSensitivityScena
         for fraction in (1.0, 0.5, 0.25)
     )
     scenarios.extend(
-        ExecutionSensitivityScenario(name=f"signal_delay_{bars}", signal_delay_bars=bars)
+        ExecutionSensitivityScenario(
+            name=f"signal_delay_{bars}", signal_delay_bars=bars
+        )
         for bars in (0, 1, 2)
     )
     scenarios.extend(
@@ -166,8 +172,7 @@ def _scenario_cost(
         taker_fee_rate=base.taker_fee_rate * scenario.fee_multiplier,
         spread_rate=base.spread_rate * scenario.spread_multiplier,
         slippage_std=base.slippage_std * scenario.slippage_multiplier,
-        max_participation_rate=base.max_participation_rate
-        * scenario.capacity_fraction,
+        max_participation_rate=base.max_participation_rate * scenario.capacity_fraction,
         order_latency_bars=scenario.signal_delay_bars,
         order_type=order_type,
         limit_offset_rate=limit_offset,
@@ -185,9 +190,7 @@ def evaluate_execution_sensitivity(
     scenarios: tuple[ExecutionSensitivityScenario, ...] | None = None,
 ) -> tuple[ExecutionSensitivityResult, ...]:
     selected = (
-        default_execution_sensitivity_scenarios()
-        if scenarios is None
-        else scenarios
+        default_execution_sensitivity_scenarios() if scenarios is None else scenarios
     )
     if not selected:
         raise ValueError("at least one execution sensitivity scenario is required")

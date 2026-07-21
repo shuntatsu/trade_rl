@@ -21,8 +21,7 @@ class ManualBook:
     @property
     def position_values(self) -> tuple[float, float]:
         return tuple(
-            qty * mark
-            for qty, mark in zip(self.quantities, self.marks, strict=True)
+            qty * mark for qty, mark in zip(self.quantities, self.marks, strict=True)
         )
 
     @property
@@ -42,8 +41,7 @@ def _manual_trade(
         for target, current in zip(targets, book.quantities, strict=True)
     )
     traded_notional = sum(
-        abs(delta * price)
-        for delta, price in zip(deltas, fill_prices, strict=True)
+        abs(delta * price) for delta, price in zip(deltas, fill_prices, strict=True)
     )
     cash = book.cash - sum(
         delta * price for delta, price in zip(deltas, fill_prices, strict=True)
@@ -60,8 +58,7 @@ def _manual_split(book: ManualBook, factors: tuple[float, float]) -> ManualBook:
     return ManualBook(
         cash=book.cash,
         quantities=tuple(
-            qty * factor
-            for qty, factor in zip(book.quantities, factors, strict=True)
+            qty * factor for qty, factor in zip(book.quantities, factors, strict=True)
         ),
         marks=tuple(
             mark / factor for mark, factor in zip(book.marks, factors, strict=True)

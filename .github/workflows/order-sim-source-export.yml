@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Apply Task 6 tests and product source
+      - name: Assemble verified Task 6 source
         shell: bash
         run: |
           set -euo pipefail
@@ -46,11 +46,6 @@ jobs:
           PY
           git apply --check .github/order-sim-staging/task6-green-fixes.patch
           git apply .github/order-sim-staging/task6-green-fixes.patch
-
-      - name: Format Task 6 source
-        shell: bash
-        run: |
-          set -euo pipefail
           uv sync --extra dev --extra train-sb3 --frozen
           uv run ruff check --fix \
             trade_rl/rl/environment.py \
@@ -80,54 +75,27 @@ jobs:
             tests/serving/test_observation_parity.py \
             tests/simulation/test_liquidity.py \
             tests/simulation/test_stateful_execution.py
-
-      - name: Verify Task 6 implementation
-        shell: bash
-        run: |
-          set +e
-          set -o pipefail
-          uv run ruff check trade_rl tests 2>&1 | tee task6-ruff.log
-          ruff_status=${PIPESTATUS[0]}
+          uv run ruff check trade_rl tests
           uv run mypy \
             trade_rl/simulation \
             trade_rl/rl/environment.py \
             trade_rl/rl/normalization.py \
             trade_rl/rl/observations.py \
-            trade_rl/serving/runtime.py \
-            2>&1 | tee task6-mypy.log
-          mypy_status=${PIPESTATUS[0]}
+            trade_rl/serving/runtime.py
           uv run pytest -q \
             tests/simulation \
             tests/rl \
             tests/serving/test_observation_parity.py \
-            tests/serving/test_observation_snapshot_fail_closed.py \
-            2>&1 | tee task6-pytest.log
-          pytest_status=${PIPESTATUS[0]}
-          printf 'ruff=%s\nmypy=%s\npytest=%s\n' \
-            "$ruff_status" "$mypy_status" "$pytest_status" \
-            > task6-status.txt
-          if ((ruff_status != 0 || mypy_status != 0 || pytest_status != 0)); then
-            exit 1
-          fi
+            tests/serving/test_observation_snapshot_fail_closed.py
 
-      - name: Upload Task 6 diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: pending-order-observation-verification-${{ github.event.pull_request.head.sha }}
-          path: |
-            task6-ruff.log
-            task6-mypy.log
-            task6-pytest.log
-            task6-status.txt
-          if-no-files-found: warn
-          retention-days: 1
-
-      - name: Commit verified Task 6 source
+      - name: Finalize and push verified Task 6 source
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          set -o pipefail
+          exec > >(tee task6-finalize.log) 2>&1
           git rm -r .github/order-sim-staging
+          rm_status=$?
           cat > .github/workflows/order-sim-source-export.yml <<'EOF'
           name: Order Simulator Source Export
 
@@ -165,39 +133,34 @@ jobs:
                     if-no-files-found: error
                     retention-days: 1
           EOF
-          git add \
-            .github/workflows/order-sim-source-export.yml \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/normalization.py \
-            trade_rl/rl/observations.py \
-            trade_rl/serving/runtime.py \
-            trade_rl/simulation/liquidity.py \
-            trade_rl/simulation/stateful_execution.py \
-            tests/rl/test_emergency_drawdown.py \
-            tests/rl/test_observation_v2.py \
-            tests/rl/test_pending_order_environment.py \
-            tests/rl/test_pending_order_observation.py \
-            tests/serving/test_observation_parity.py \
-            tests/simulation/test_liquidity.py \
-            tests/simulation/test_stateful_execution.py
+          git add -A
+          add_status=$?
+          git status --short
+          git diff --cached --stat
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "feat: expose pending order state to policy and serving"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          commit_status=$?
+          if ((commit_status == 0)); then
+            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+            push_status=$?
+          else
+            push_status=99
+          fi
+          printf 'rm=%s\nadd=%s\ncommit=%s\npush=%s\n' \
+            "$rm_status" "$add_status" "$commit_status" "$push_status" \
+            | tee task6-finalize-status.txt
+          if ((rm_status != 0 || add_status != 0 || commit_status != 0 || push_status != 0)); then
+            exit 1
+          fi
 
-      - name: Record and package exact source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git rev-parse HEAD > "${RUNNER_TEMP}/source-head-sha.txt"
-          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
-
-      - name: Upload exact source
+      - name: Upload finalize diagnostics
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: order-simulator-source-${{ github.event.pull_request.head.sha }}
+          name: task6-finalize-${{ github.event.pull_request.head.sha }}
           path: |
-            ${{ runner.temp }}/trade-rl-source.tar.gz
-            ${{ runner.temp }}/source-head-sha.txt
-          if-no-files-found: error
+            task6-finalize.log
+            task6-finalize-status.txt
+          if-no-files-found: warn
           retention-days: 1

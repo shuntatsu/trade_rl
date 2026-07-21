@@ -1,0 +1,42 @@
+name: P0 Source Export
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Record source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${GITHUB_SHA}" > SOURCE_COMMIT_SHA
+          git ls-files -z | sort -z | xargs -0 sha256sum > SOURCE_FILE_SHA256SUMS
+          sha256sum SOURCE_FILE_SHA256SUMS | awk '{print $1}' > SOURCE_TREE_DIGEST
+          sha256sum uv.lock | awk '{print $1}' > UV_LOCK_DIGEST
+
+      - name: Package source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf trade-rl-source.tar.gz .
+
+      - name: Upload exact source
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: trade-rl-source.tar.gz
+          if-no-files-found: error
+          retention-days: 7

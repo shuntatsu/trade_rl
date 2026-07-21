@@ -129,6 +129,39 @@ def test_sampler_skips_unimportant_steps_and_preserves_position_risk_and_termina
     assert page.items[0].action == pytest.approx((0.4,))
 
 
+def test_sampler_continues_sequence_after_training_resume(tmp_path: Path) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    first = TrainingTelemetrySampler(path, seed=5, sample_every=1)
+    assert (
+        first.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]], dtype=np.float32),
+            rewards=np.asarray([0.1], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(1),),
+        )
+        == 1
+    )
+    first.close()
+
+    resumed = TrainingTelemetrySampler(path, seed=5, sample_every=1)
+    assert (
+        resumed.consume(
+            global_step=2,
+            actions=np.asarray([[0.2]], dtype=np.float32),
+            rewards=np.asarray([0.2], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(2),),
+        )
+        == 1
+    )
+    resumed.close()
+
+    page = read_training_telemetry(path, limit=10)
+    assert [item.sequence for item in page.items] == [1, 2]
+    assert [item.global_step for item in page.items] == [1, 2]
+
+
 def test_sampler_records_regular_interval_and_disables_itself_after_writer_error(
     tmp_path: Path,
 ) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from trade_rl.integrations.training_telemetry import TrainingTelemetrySampler
 from trade_rl.telemetry.training import read_training_telemetry
@@ -94,7 +95,7 @@ def test_sampler_skips_unimportant_steps_and_preserves_position_risk_and_termina
         "episode_end",
     ]
     assert [item.sequence for item in page.items] == [1, 2, 3]
-    assert page.items[0].action == (0.4,)
+    assert page.items[0].action == pytest.approx((0.4,))
 
 
 def test_sampler_records_regular_interval_and_disables_itself_after_writer_error(

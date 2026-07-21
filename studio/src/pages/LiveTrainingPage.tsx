@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { studioApi, type StudioApi } from '../api/studioApi'
 import type {
+  CheckpointEvaluationItem,
   CheckpointEvaluationsResponse,
   JobSummary,
   TrainingTelemetryRecord,
@@ -24,6 +25,14 @@ function signed(value: number | null, digits = 2): string {
 
 function shortDigest(value: string | null): string {
   return value ? `${value.slice(0, 8)}…` : '—'
+}
+
+function checkpointIdentity(item: CheckpointEvaluationItem): string {
+  return `${item.fold}|${item.configuration}|${item.evaluationDigest}`
+}
+
+function checkpointLabel(item: CheckpointEvaluationItem): string {
+  return `${item.fold} · ${item.configuration}${item.finalist ? ' · finalist' : ''}`
 }
 
 function eventLabel(record: TrainingTelemetryRecord): string {
@@ -74,6 +83,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const [jobs, setJobs] = useState<JobSummary[]>([])
   const [jobId, setJobId] = useState<string | null>(null)
   const [seed, setSeed] = useState<number | null>(null)
+  const [checkpointEvidenceId, setCheckpointEvidenceId] = useState<string | null>(null)
   const [jobsError, setJobsError] = useState<string | null>(null)
   const [checkpointEvaluations, setCheckpointEvaluations] = useState<CheckpointEvaluationsResponse | null>(null)
   const [checkpointError, setCheckpointError] = useState<string | null>(null)
@@ -101,6 +111,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
 
   useEffect(() => {
     setSeed(null)
+    setCheckpointEvidenceId(null)
     setCheckpointEvaluations(null)
     setCheckpointError(null)
     if (!jobId || !api.loadCheckpointEvaluations) return undefined
@@ -146,11 +157,31 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const activeRecord = telemetry.records[Math.min(cursor, Math.max(0, telemetry.records.length - 1))] ?? null
   const latestRecord = telemetry.records.at(-1) ?? null
   const effectiveSeed = seed ?? telemetry.status?.selectedSeed ?? null
-  const selectedCheckpoint = useMemo(() => {
-    if (effectiveSeed === null) return null
+  const checkpointOptions = useMemo(() => {
+    if (effectiveSeed === null) return []
     const candidates = checkpointEvaluations?.items.filter((item) => item.seed === effectiveSeed) ?? []
-    return [...candidates].sort((left, right) => Number(right.finalist) - Number(left.finalist) || right.score - left.score)[0] ?? null
+    const finalists = candidates.filter((item) => item.finalist)
+    const options = finalists.length > 0 ? finalists : candidates
+    return [...options].sort((left, right) =>
+      left.fold.localeCompare(right.fold)
+      || left.configuration.localeCompare(right.configuration)
+      || left.evaluationDigest.localeCompare(right.evaluationDigest))
   }, [checkpointEvaluations, effectiveSeed])
+  const checkpointOptionsKey = checkpointOptions.map(checkpointIdentity).join(',')
+
+  useEffect(() => {
+    if (checkpointOptions.length === 0) {
+      setCheckpointEvidenceId(null)
+      return
+    }
+    if (!checkpointOptions.some((item) => checkpointIdentity(item) === checkpointEvidenceId)) {
+      setCheckpointEvidenceId(checkpointIdentity(checkpointOptions[0]))
+    }
+  }, [checkpointEvidenceId, checkpointOptions, checkpointOptionsKey])
+
+  const selectedCheckpoint = checkpointOptions.find(
+    (item) => checkpointIdentity(item) === checkpointEvidenceId,
+  ) ?? checkpointOptions[0] ?? null
   const firstPortfolio = telemetry.records.find((record) => record.portfolioValue !== null)?.portfolioValue ?? null
   const equity = activeRecord?.portfolioValue ?? null
   const baseline = activeRecord?.baselinePortfolioValue ?? null
@@ -184,7 +215,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             <span className={`live-connection live-connection--${telemetry.connection}`}><Radio size={12} aria-hidden="true" />{connectionLabel}</span>
           </div>
           <h1 id="live-training-title">Live Training</h1>
-          <p>探索ロールアウトと決定論的Checkpoint評価を分離し、同じseed単位で確認します。</p>
+          <p>探索ロールアウトと決定論的Checkpoint評価を分離し、同じseed・明示fold単位で確認します。</p>
         </div>
         <div className="live-header-controls">
           <label className="live-job-select">Run
@@ -238,6 +269,18 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
 
         <aside className="live-agent-panel" aria-label="エージェント状態">
           <div className="live-panel-title"><div><strong>エージェント状態（現在）</strong><span>再生カーソル同期</span></div><Activity size={17} aria-hidden="true" /></div>
+          <label className="live-checkpoint-select">Checkpoint evidence
+            <select
+              aria-label="Checkpoint evaluation evidence"
+              value={checkpointEvidenceId ?? ''}
+              onChange={(event) => setCheckpointEvidenceId(event.target.value || null)}
+            >
+              {checkpointOptions.length === 0 ? <option value="">未生成</option> : null}
+              {checkpointOptions.map((item) => (
+                <option key={checkpointIdentity(item)} value={checkpointIdentity(item)}>{checkpointLabel(item)}</option>
+              ))}
+            </select>
+          </label>
           <dl>
             <div><dt>現在ポジション</dt><dd className={positionTone}>{positionDirection} {(Math.abs(currentWeight) * 100).toFixed(1)}%</dd></div>
             <div><dt>現在価格</dt><dd>{activeRecord?.close?.toLocaleString('ja-JP', { maximumFractionDigits: 2 }) ?? '—'} USDT</dd></div>
@@ -246,7 +289,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             <div><dt>報酬</dt><dd>{signed(activeRecord?.reward ?? null, 3)}</dd></div>
             <div><dt>ドローダウン</dt><dd className="live-negative">{activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`}</dd></div>
             <div><dt>Checkpoint評価</dt><dd className={(checkpointReturn ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{checkpointReturn === null ? '未生成' : `${signed(checkpointReturn * 100)}%${selectedCheckpoint?.finalist ? ' finalist' : ''}`}</dd></div>
-            <div><dt>評価range / digest</dt><dd>{selectedCheckpoint ? `[${selectedCheckpoint.checkpointRange[0]}, ${selectedCheckpoint.checkpointRange[1]}) · ${shortDigest(selectedCheckpoint.evaluationDigest)}` : '—'}</dd></div>
+            <div><dt>評価range / digest</dt><dd>{selectedCheckpoint ? `${selectedCheckpoint.fold} [${selectedCheckpoint.checkpointRange[0]}, ${selectedCheckpoint.checkpointRange[1]}) · ${shortDigest(selectedCheckpoint.evaluationDigest)}` : '—'}</dd></div>
             <div><dt>環境 / Seed</dt><dd>env {activeRecord?.environmentId ?? '—'} / {effectiveSeed ?? '—'}</dd></div>
             <div><dt>最新受信Step</dt><dd>{latestRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</dd></div>
           </dl>
@@ -255,13 +298,13 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             <div><i style={{ width: `${Math.min(100, Math.abs(currentWeight) * 100)}%` }} /></div>
             <strong>{currentWeight.toFixed(3)}</strong>
           </div>
-          <div className="live-research-note"><AlertTriangle size={15} aria-hidden="true" /><span>探索とCheckpoint評価は異なる過程です。評価rangeとdigestを確認し、実運用・発注には使用しません。</span></div>
+          <div className="live-research-note"><AlertTriangle size={15} aria-hidden="true" /><span>探索とCheckpoint評価は異なる過程です。fold・評価range・digestを明示確認し、実運用・発注には使用しません。</span></div>
         </aside>
       </div>
 
       <div className="live-metric-grid">
         <MetricCard label="探索リプレイ区間損益" value={`${signed(pnl)} USDT`} values={equityValues} tone={(pnl ?? 0) >= 0 ? 'positive' : 'negative'} />
-        <MetricCard label={`決定論Checkpoint · Seed ${effectiveSeed ?? '—'}`} value={checkpointReturn === null ? '未生成' : `${signed(checkpointReturn * 100)}%`} values={[checkpointReturn === null ? null : checkpointReturn * 100]} tone={checkpointReturn === null ? 'neutral' : checkpointReturn >= 0 ? 'positive' : 'negative'} />
+        <MetricCard label={`決定論Checkpoint · Seed ${effectiveSeed ?? '—'} · ${selectedCheckpoint?.fold ?? '未生成'}`} value={checkpointReturn === null ? '未生成' : `${signed(checkpointReturn * 100)}%`} values={[checkpointReturn === null ? null : checkpointReturn * 100]} tone={checkpointReturn === null ? 'neutral' : checkpointReturn >= 0 ? 'positive' : 'negative'} />
         <MetricCard label="探索中ベースライン比較" value={`${signed(baselineDelta)} USDT`} values={baselineValues} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
         <MetricCard label="ドローダウン（探索）" value={activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`} values={drawdownValues} tone="negative" />
       </div>

@@ -10,6 +10,10 @@ from datetime import datetime
 from pathlib import Path
 
 from trade_rl.artifacts.run_manifest import validate_training_run_directory
+from trade_rl.data.metadata_promotion import (
+    METADATA_PROMOTION_FILE_NAME,
+    load_metadata_promotion_evidence,
+)
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.evaluation.confirmation import load_confirmation_evidence
@@ -77,6 +81,12 @@ def package_selected_training_run(
         )
     ):
         raise ValueError("selected-final training manifest lacks authorization chain")
+    metadata_promotion = load_metadata_promotion_evidence(
+        training_root / METADATA_PROMOTION_FILE_NAME
+    )
+    if metadata_promotion.dataset_id != manifest.dataset_id:
+        raise ValueError("metadata promotion dataset identity mismatch")
+    metadata_promotion.require_promotable()
 
     ensemble_raw = _mapping(
         json.loads((training_root / "ensemble.json").read_text(encoding="utf-8")),

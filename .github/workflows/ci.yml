@@ -22,8 +22,11 @@ jobs:
     name: Rebuilt Core
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -82,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run mypy trade_rl 2>&1 | tee mypy.log
+          uv run mypy . 2>&1 | tee mypy.log
 
       - name: Upload static diagnostics
         if: always()
@@ -122,7 +125,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
 
       - name: Upload pytest diagnostics
         if: always()
@@ -148,7 +151,11 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
@@ -172,9 +179,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout
+      - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Build complete training image
@@ -192,6 +200,30 @@ jobs:
             --file Dockerfile.training \
             --tag trade-rl-training:ci \
             .
+
+      - name: Record training image identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
+          repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"
+          {
+            printf 'commit_sha=%s\n' "$commit"
+            printf 'source_tree_digest=%s\n' "$source_digest"
+            printf 'lockfile_digest=%s\n' "$lock_digest"
+            printf 'image_id=%s\n' "$image_id"
+            printf 'repo_digests=%s\n' "$repo_digests"
+          } > training-image-evidence.txt
+
+      - name: Upload training image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: training-image-evidence
+          path: training-image-evidence.txt
+          if-no-files-found: error
 
       - name: Probe packaged non-root runtime
         shell: bash

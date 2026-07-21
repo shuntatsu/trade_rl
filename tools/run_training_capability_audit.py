@@ -94,34 +94,34 @@ def _architecture(algorithm: str, checkpoint: Path) -> dict[str, list[int]]:
     if algorithm == "ppo":
         from stable_baselines3 import PPO
 
-        model = PPO.load(str(checkpoint), device="cpu")
+        ppo_model = PPO.load(str(checkpoint), device="cpu")
         return {
-            "actor": _linear_widths(model.policy.mlp_extractor.policy_net),
-            "critic": _linear_widths(model.policy.mlp_extractor.value_net),
+            "actor": _linear_widths(ppo_model.policy.mlp_extractor.policy_net),
+            "critic": _linear_widths(ppo_model.policy.mlp_extractor.value_net),
         }
     if algorithm == "sac":
         from stable_baselines3 import SAC
 
-        model = SAC.load(str(checkpoint), device="cpu")
+        sac_model = SAC.load(str(checkpoint), device="cpu")
         return {
-            "actor": _linear_widths(model.policy.actor.latent_pi),
-            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],
+            "actor": _linear_widths(sac_model.policy.actor.latent_pi),
+            "critic": _linear_widths(sac_model.policy.critic.q_networks[0])[:-1],
         }
     if algorithm == "td3":
         from stable_baselines3 import TD3
 
-        model = TD3.load(str(checkpoint), device="cpu")
+        td3_model = TD3.load(str(checkpoint), device="cpu")
         return {
-            "actor": _linear_widths(model.policy.actor.mu)[:-1],
-            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],
+            "actor": _linear_widths(td3_model.policy.actor.mu)[:-1],
+            "critic": _linear_widths(td3_model.policy.critic.q_networks[0])[:-1],
         }
     if algorithm == "tqc":
         from sb3_contrib import TQC
 
-        model = TQC.load(str(checkpoint), device="cpu")
+        tqc_model = TQC.load(str(checkpoint), device="cpu")
         return {
-            "actor": _linear_widths(model.policy.actor.latent_pi),
-            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],
+            "actor": _linear_widths(tqc_model.policy.actor.latent_pi),
+            "critic": _linear_widths(tqc_model.policy.critic.q_networks[0])[:-1],
         }
     raise ValueError(f"unsupported algorithm: {algorithm}")
 
@@ -596,7 +596,7 @@ def run_audit(output_root: Path) -> dict[str, object]:
         record, result = _train_algorithm(output_root, algorithm)
         algorithms[algorithm] = record
         results[algorithm] = result
-    report = {
+    report: dict[str, object] = {
         "algorithms": algorithms,
         "behavior_cloning": _behavior_cloning_training(output_root),
         "exports": _export_ppo(output_root),

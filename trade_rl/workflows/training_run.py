@@ -25,6 +25,11 @@ from trade_rl.artifacts.signals import SignalKind, load_signal_artifact
 from trade_rl.artifacts.store import ArtifactStore
 from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.metadata_promotion import (
+    METADATA_PROMOTION_FILE_NAME,
+    metadata_promotion_from_dataset,
+    write_metadata_promotion_evidence,
+)
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
@@ -706,6 +711,9 @@ def execute_training_run(
         if authorization is not None
         else "research_exploratory"
     )
+    metadata_promotion = metadata_promotion_from_dataset(dataset)
+    if run_kind == "research_selected_final":
+        metadata_promotion.require_promotable()
     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
@@ -721,6 +729,10 @@ def execute_training_run(
             },
         )
         _write_json(stage / "provenance.json", asdict(provenance))
+        write_metadata_promotion_evidence(
+            stage / METADATA_PROMOTION_FILE_NAME,
+            metadata_promotion,
+        )
         dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
         _write_json(stage / "training-config.json", config.digest_payload())
         _write_json(

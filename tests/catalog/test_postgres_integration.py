@@ -6,6 +6,8 @@ import pytest
 
 from trade_rl.catalog import ArtifactKind, ArtifactQuery, ArtifactRegistration
 from trade_rl.catalog.postgres import CatalogConflictError, PostgresArtifactCatalog
+from trade_rl.catalog.sealed_test import PostgresSealedTestLedger
+from trade_rl.evaluation.walk_forward.folds import IndexRange
 
 pytestmark = pytest.mark.postgres
 
@@ -21,7 +23,7 @@ def _database_url() -> str:
 def test_postgres_catalog_migrates_registers_queries_and_links_artifacts() -> None:
     catalog = PostgresArtifactCatalog(_database_url())
     applied = catalog.migrate()
-    assert applied in {(1,), ()}
+    assert applied in {(1, 2), (2,), ()}
 
     parent = ArtifactRegistration(
         artifact_digest="1" * 64,
@@ -73,4 +75,31 @@ def test_postgres_catalog_migrates_registers_queries_and_links_artifacts() -> No
 
     health = catalog.health()
     assert health["status"] == "ok"
-    assert health["migration_version"] == 1
+    assert health["migration_version"] == 2
+
+
+def test_postgres_sealed_test_ledger_rejects_duplicate_across_instances() -> None:
+    database_url = _database_url()
+    first_catalog = PostgresArtifactCatalog(database_url)
+    first_catalog.migrate()
+    first = PostgresSealedTestLedger(first_catalog)
+    second = PostgresSealedTestLedger(PostgresArtifactCatalog(database_url))
+
+    first.authorize_once(
+        experiment_plan_digest="a" * 64,
+        dataset_id="b" * 64,
+        fold_index=7,
+        test_range=IndexRange(100, 120),
+        selected_configuration="candidate",
+        selected_policy_digest="c" * 64,
+    )
+
+    with pytest.raises(ValueError, match="already opened"):
+        second.authorize_once(
+            experiment_plan_digest="a" * 64,
+            dataset_id="b" * 64,
+            fold_index=7,
+            test_range=IndexRange(100, 120),
+            selected_configuration="candidate",
+            selected_policy_digest="c" * 64,
+        )

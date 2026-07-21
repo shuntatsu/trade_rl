@@ -255,9 +255,7 @@ class TrainingTelemetryRecord:
             weights_before=_float_tuple(raw, "weights_before"),
             weights_after=_float_tuple(raw, "weights_after"),
             portfolio_value=_optional_float(raw, "portfolio_value"),
-            baseline_portfolio_value=_optional_float(
-                raw, "baseline_portfolio_value"
-            ),
+            baseline_portfolio_value=_optional_float(raw, "baseline_portfolio_value"),
             reward=_optional_float(raw, "reward"),
             drawdown=_optional_float(raw, "drawdown"),
             interval_cost=_optional_float(raw, "interval_cost"),

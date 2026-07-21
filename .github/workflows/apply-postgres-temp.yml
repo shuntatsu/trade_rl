@@ -204,6 +204,8 @@ jobs:
           START_SHA: ${{ steps.branch.outputs.sha }}
         run: |
           set -euo pipefail
+          mkdir -p /tmp/postgres-workflow
+          mv .github/workflows/postgres-catalog.yml /tmp/postgres-workflow/postgres-catalog.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A

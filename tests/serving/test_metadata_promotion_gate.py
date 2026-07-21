@@ -38,6 +38,9 @@ def _selected_training_run(root: Path, *, metadata_mode: str) -> TrainingRunMani
     historical = metadata_mode == "historical_signed"
     promotion = {
         "authentication": "ed25519" if historical else "none",
+        "coverage_application": (
+            "effective-dated-full-interval" if historical else "static-full-interval"
+        ),
         "dataset_id": "b" * 64,
         "limitations": [] if historical else ["static-full-interval"],
         "metadata_evidence_digest": "6" * 64,

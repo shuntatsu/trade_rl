@@ -25,6 +25,9 @@ train-sb3 = [
     "sb3-contrib==2.3.0",
     "torch==2.3.1",
 ]
+postgres = [
+    "psycopg[binary]>=3.2,<4",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
@@ -47,6 +50,9 @@ trade-rl = "trade_rl.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["trade_rl*"]
+
+[tool.setuptools.package-data]
+"trade_rl.catalog.sql" = ["*.sql"]
 
 [tool.ruff]
 line-length = 88
@@ -81,12 +87,16 @@ module = [
     "onnx.*",
     "onnxruntime.*",
     "torch.*",
+    "psycopg.*",
 ]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers --strict-config"
+markers = [
+    "postgres: requires a live PostgreSQL test database",
+]
 
 [tool.coverage.run]
 source = ["trade_rl"]

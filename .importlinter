@@ -17,6 +17,7 @@ layers =
     trade_rl.simulation
     trade_rl.strategies
     trade_rl.data
+    trade_rl.catalog
     trade_rl.evaluation
     trade_rl.release
     trade_rl.artifacts
@@ -128,3 +129,23 @@ forbidden_modules =
     trade_rl.release.offline_approval
     trade_rl.evaluation.offline_confirmation
     trade_rl.workflows.offline_selection_approval
+
+
+[importlinter:contract:catalog-contracts]
+name = Catalog contracts remain framework and adapter independent
+type = forbidden
+source_modules =
+    trade_rl.catalog.contracts
+forbidden_modules =
+    numpy
+    gymnasium
+    stable_baselines3
+    sb3_contrib
+    torch
+    psycopg
+    trade_rl.data
+    trade_rl.rl
+    trade_rl.learning
+    trade_rl.integrations
+    trade_rl.workflows
+    trade_rl.cli

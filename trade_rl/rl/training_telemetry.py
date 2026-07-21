@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -16,6 +17,7 @@ from trade_rl.telemetry.training import (
 
 _DEFAULT_SAMPLE_EVERY = 32
 _DEFAULT_POSITION_THRESHOLD = 0.02
+MarketSnapshotProvider = Callable[[int, int], dict[str, object]]
 
 
 class _BookLike(Protocol):
@@ -64,6 +66,52 @@ def _execution_book(info: dict[str, object], name: str) -> _BookLike | None:
     execution = info.get(name)
     book = getattr(execution, "book", None)
     return cast(_BookLike, book) if book is not None else None
+
+
+def environment_market_snapshot(
+    environment: object,
+    *,
+    bars_advanced: int,
+) -> dict[str, object]:
+    """Return exact primary-symbol OHLC for the interval just executed."""
+
+    try:
+        unwrapped = getattr(environment, "unwrapped", environment)
+        dataset = getattr(unwrapped, "dataset")
+        end_index = int(getattr(unwrapped, "current_index"))
+        n_bars = int(getattr(dataset, "n_bars"))
+        resolved_bars = max(1, int(bars_advanced))
+        start_index = max(0, end_index - resolved_bars + 1)
+        if not 0 <= start_index <= end_index < n_bars:
+            return {}
+        symbols = tuple(getattr(dataset, "symbols"))
+        if not symbols:
+            return {}
+        open_values = np.asarray(getattr(dataset, "open"), dtype=np.float64)
+        high_values = np.asarray(getattr(dataset, "high"), dtype=np.float64)
+        low_values = np.asarray(getattr(dataset, "low"), dtype=np.float64)
+        close_values = np.asarray(getattr(dataset, "close"), dtype=np.float64)
+        timestamps = np.asarray(getattr(dataset, "timestamps"))
+        primary = 0
+        ohlc = (
+            float(open_values[start_index, primary]),
+            float(np.max(high_values[start_index : end_index + 1, primary])),
+            float(np.min(low_values[start_index : end_index + 1, primary])),
+            float(close_values[end_index, primary]),
+        )
+        if not np.isfinite(np.asarray(ohlc, dtype=np.float64)).all():
+            return {}
+        return {
+            "telemetry_market_index": end_index,
+            "telemetry_market_time": np.datetime_as_string(
+                timestamps[end_index].astype("datetime64[ns]"),
+                unit="ns",
+            ),
+            "telemetry_symbol": str(symbols[primary]),
+            "telemetry_ohlc": ohlc,
+        }
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return {}
 
 
 def _market_values(
@@ -198,6 +246,7 @@ class TrainingTelemetrySampler:
         rewards: object,
         dones: object,
         infos: object,
+        market_snapshot_provider: MarketSnapshotProvider | None = None,
     ) -> int:
         if self.disabled:
             return 0
@@ -242,6 +291,20 @@ class TrainingTelemetrySampler:
                 self._previous_weights[environment_id] = weights_after
                 if event_type is None:
                     continue
+                if market_snapshot_provider is not None:
+                    bars = info.get("bars_advanced", 1)
+                    bars_advanced = (
+                        int(bars)
+                        if isinstance(bars, (int, np.integer))
+                        and not isinstance(bars, bool)
+                        else 1
+                    )
+                    snapshot = market_snapshot_provider(
+                        environment_id,
+                        bars_advanced,
+                    )
+                    if snapshot:
+                        info = {**info, **snapshot}
                 market = _market_values(
                     info,
                     previous_close=self._previous_close.get(environment_id),
@@ -354,10 +417,28 @@ def build_training_telemetry_callback(
         seed=seed,
         sample_every=sample_every,
     )
+    environments: tuple[object, ...] = ()
+
+    def snapshot_provider(
+        environment_id: int,
+        bars_advanced: int,
+    ) -> dict[str, object]:
+        if not 0 <= environment_id < len(environments):
+            return {}
+        return environment_market_snapshot(
+            environments[environment_id],
+            bars_advanced=bars_advanced,
+        )
 
     class TrainingTelemetryCallback(BaseCallback):
         def __init__(self) -> None:
             super().__init__(verbose=0)
+
+        def _on_training_start(self) -> None:
+            nonlocal environments
+            raw_environments = getattr(self.training_env, "envs", ())
+            if isinstance(raw_environments, (tuple, list)):
+                environments = tuple(raw_environments)
 
         def _on_step(self) -> bool:
             sampler.consume(
@@ -366,6 +447,7 @@ def build_training_telemetry_callback(
                 rewards=self.locals.get("rewards", ()),
                 dones=self.locals.get("dones", ()),
                 infos=self.locals.get("infos", ()),
+                market_snapshot_provider=snapshot_provider,
             )
             return True
 
@@ -381,4 +463,5 @@ def build_training_telemetry_callback(
 __all__ = [
     "TrainingTelemetrySampler",
     "build_training_telemetry_callback",
+    "environment_market_snapshot",
 ]

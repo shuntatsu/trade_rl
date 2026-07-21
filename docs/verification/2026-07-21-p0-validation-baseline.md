@@ -37,7 +37,14 @@ The execution container could not resolve `github.com`, so `uv` could not downlo
 - RED evidence: 330 compatibility tests passed and the new parity test failed because `ResidualMarketEnv.observation_snapshot()` did not exist.
 - First implementation product commit: `9fb891f6d933e307b6b08a24c356552c333df0f6`
 - Focused reference-fix product commit: `91cfa0a80729e8c3f1f079d57f9a15aa242cf42d`
-- GREEN workflow IDs: pending on this evidence-refresh head.
+- Functional GREEN CI: `29812366883`; Ubuntu and Windows compatibility and the complete training image passed. The core job stopped only at formatting before the final formatting commit.
+- Formatting product commit: `b71d43e0b6d805f5575095006326b9e2c6a8661d`
+
+## P0-3 historical metadata promotion gate
+
+- RED test commit: `276bdf267e75f0d61561f544fc17a8a4e37f4f5d`
+- Formatted RED head: `b71d43e0b6d805f5575095006326b9e2c6a8661d`
+- RED workflow: pending on this evidence-refresh head.
 
 ## Final verification
 

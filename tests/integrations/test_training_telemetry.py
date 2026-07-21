@@ -45,7 +45,9 @@ def info(
 
 
 def test_environment_market_snapshot_aggregates_exact_decision_interval() -> None:
-    timestamps = np.datetime64("2026-07-21T08:00:00", "ns") + np.arange(6) * np.timedelta64(5, "m")
+    timestamps = np.datetime64("2026-07-21T08:00:00", "ns") + np.arange(
+        6
+    ) * np.timedelta64(5, "m")
     open_price = np.column_stack((np.arange(100.0, 106.0), np.arange(200.0, 206.0)))
     close = open_price + 0.5
     dataset = SimpleNamespace(

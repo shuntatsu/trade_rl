@@ -1,8 +1,117 @@
 # Research Status
 
+## Current capability status — 2026-07-22
+
+```text
+RepositoryIntegrity: VERIFIED_ON_PR_75_HEAD
+ResearchWorkflows: AVAILABLE
+StatefulOHLCExecution: AVAILABLE_WITH_KNOWN_COMPATIBILITY_GAPS
+TradeRLStudio: AVAILABLE_FOR_DIAGNOSTIC_REPLAY
+AttestedPaperServing: AVAILABLE_FOR_ELIGIBLE_SELECTED_FINAL_BUNDLES
+DirectExchangeRouting: NOT_IMPLEMENTED
+EmpiricalProductionGate: NO-GO
+ProfitabilityClaim: NONE
+```
+
+The latest integrated verification record is PR #75's conservative stateful order simulator. On exact product head `27a564313f64a4ebbd4001fc77518c9985af78b8`, repository CI run `29858620871` and PostgreSQL run `29858620803` succeeded. The full Python result was `1131 passed, 2 skipped`, with 83.43% total coverage. Studio tests/build/layout, Ruff, Mypy, Import Linter, critical coverage, Ubuntu/Windows suites, PostgreSQL migration/integration, structured Serving smoke, and the non-root training image were included in that verification record.
+
+This evidence establishes code, packaging, artifact, and test integrity for that source head. It does not establish profitability, exchange-equivalent fills, paper/live reconciliation, or permission to deploy capital.
+
+## 2026-07-21 P0 validation boundaries
+
+The maintained P0 validation work added three explicit trust boundaries:
+
+1. a PostgreSQL-backed persistent sealed-test ledger that rejects a second opening of the same experiment-plan, dataset, and fold identity across processes;
+2. a real, non-zero Training–Serving observation parity test covering symbol/feature order, availability, staleness, hybrid/shadow books, pending target, previous action, raw and normalized observations, policy-member actions, and deterministic ensemble action;
+3. a historical-metadata promotion gate that requires dataset-bound, point-in-time, Ed25519-authenticated, effective-dated full-interval evidence.
+
+A three-seed CPU smoke selected the baseline because both the candidate median seed score and deployable ensemble score were below the declared threshold. The sealed outer test was opened once and production status remained `NO-GO`. This is correct fail-closed behavior rather than a failed pipeline.
+
+## Conservative stateful execution status
+
+Normal RL environment transitions now use persistent market, limit, and stop-market instructions. The maintained configuration selects:
+
+```text
+path mode: conservative
+processing-bar volume capacity: true
+partial-fill carry: true
+trigger-volume fractions: 1.00 / 0.50 / 0.25 / 0.00
+stateful environment time in force: GTC
+```
+
+Order quantity is fixed using decision-time information. Pending orders preserve residual quantity, latency, trigger state, replacement linkage, status, and deterministic event evidence across decisions. Fills share one symbol-level processing-bar capacity pool. Final promotion requires complete conservative execution evidence and a matching execution-policy digest.
+
+The deterministic replay smoke reproduced identical order-event, equity-curve, and observation-trace digests. Its candidate was not promoted because the declared performance requirements failed. No profitability claim was made.
+
+Two boundaries remain important:
+
+- OHLCV cannot reconstruct true intrabar order, exchange queue position, hidden liquidity, auctions, or L2 depth.
+- `MarketExecutor.execute_interval` remains a separate compatibility target-filling implementation instead of a thin stateful adapter. Normal episode steps are stateful, but baseline reward pre-roll and some compatibility/sensitivity callers still use this path. Their outputs must not be described as complete persistent-order evidence until migrated.
+
+## Trade RL Studio and training telemetry
+
+Trade RL Studio provides a local research console for validated datasets, configs, exploratory jobs, runs, evidence, comparisons, and read-only serving state. Live Training shows seed-scoped exploration telemetry as a market replay.
+
+`training_telemetry_v1` is append-only diagnostic data. It does not participate in checkpoint selection, configuration selection, sealed evaluation, run identity, release approval, or order execution. BUY/SELL markers represent exposure changes, not exchange orders.
+
+Current telemetry limitations are recorded in the architecture audit:
+
+- status and paged reads scan the JSONL file from the beginning, so repeated polling grows with accumulated file size;
+- JSON boolean fields are currently coerced with Python truthiness rather than parsed strictly;
+- duplicate files resolving to the same seed are selected by discovery order instead of being rejected as ambiguous;
+- `trade_rl.telemetry` is not yet placed inside the enforced Import Linter layer stack.
+
+These issues affect diagnostics, scaling, and architectural enforcement. They do not alter the fact that telemetry is excluded from promotion evidence.
+
+## PostgreSQL artifact catalog
+
+The optional PostgreSQL catalog stores verified artifact metadata, canonical cache keys, locations, sizes, dependency edges, lifecycle status, and persistent sealed-test reservations. Datasets, arrays, checkpoints, models, and run evidence remain immutable filesystem artifacts.
+
+Catalog registration is idempotent for identical metadata and rejects digest/cache-key conflicts. PostgreSQL is optional for ordinary filesystem operation, but the durable cross-process sealed-test uniqueness guarantee requires the persistent ledger.
+
+## Absolute-growth reward and paired inference contract
+
+The maintained environment optimizes the hybrid book's net absolute log growth. The independent shadow baseline supplies a light rolling non-inferiority hinge and sealed paired evaluation. Raw interval excess return is not added as a second primary growth objective.
+
+The baseline hinge uses a 30-day rolling window, seven-day minimum history, and 1.5% full-window log-growth tolerance. Only increases in hinge severity are penalized. Drawdown shaping is free through 5%, becomes progressively steeper through 20%, and likewise penalizes only newly worsening severity. Zero residual action produces identical hybrid and shadow books, but its reward is the baseline strategy's absolute growth rather than zero.
+
+Paired moving-block inference uses `log1p(candidate_return) - log1p(shadow_return)` for its mean, confidence interval, and p-value. That quantity is a selection/non-inferiority contract, not the primary step reward.
+
+The maintained reward contract is **Reward schema v4**.
+
+## Causal training contract
+
+Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed evaluation use liquidation-at-close terminal accounting. Policy observations do not include synthetic episode progress or future tradability. They do include the state required by reward, risk, and persistent execution semantics.
+
+A 20% hybrid drawdown triggers current-close liquidation of the hybrid policy book and a true `drawdown_stop` terminal transition. The independent shadow book is not charged for a policy-specific failure. Actual liquidation costs enter final wealth and reward; no fixed terminal jackpot is used.
+
+Every policy ensemble records observation schema, action identity, PPO configuration digest, requested/actual timesteps, compute device, dataset/environment identity, AUM, normalizers, and policy-member digests. Low GPU utilization for a small model is not itself a quality failure; throughput and sealed OOS evidence are the relevant criteria.
+
+The baseline reward pre-roll currently uses the compatibility execution path, while normal transitions use the stateful engine. Under non-zero latency, persistent partial fills, limit/stop semantics, or cancel-and-replace, this can create an economic-state mismatch at episode reset. Production promotion remains blocked, and this gap is prioritized in the 2026-07-22 architecture audit.
+
+## AUM and environment identity
+
+Initial capital is an explicit quote-currency research input. The environment refuses construction when AUM is omitted. Environment identity hashes dataset, timing, trend, risk, execution policy, reward, rolling windows, alpha/factor mode, action and observation schemas, sequence settings, and initial capital.
+
+Capacity conclusions must be evaluated at predeclared AUM scenarios. Performance at one capital scale does not establish performance at a larger scale.
+
+## Nested walk-forward execution
+
+The maintained workflow uses fold-local signal lineage, stage-scoped dataset capabilities, and a one-shot sealed-test access ledger. Alpha/factor artifacts identify fit/prediction ranges, generator configuration/code digests, validity masks, and row availability times.
+
+Each fold preserves execution evidence including turnover, fees, funding, borrow, dividends, cash interest, fills, participation, pending-order events, and economic termination. Candidate eligibility is computed from a fixed seed distribution. Configuration selection and sealed testing evaluate the exact deterministic mean-action ensemble that serving loads.
+
+Independent folds are summarized as a distribution with median, weighted mean, win rate, and worst fold. They are not mislabeled as one continuous portfolio return or drawdown. Continuous metrics require contiguous ranges and verified opening/closing state digests.
+
+## Serving and activation contract
+
+Serving candidate bundle schema is **v5**. The bundle binds runtime contracts and declared files but deliberately contains no private approval material. A detached `ReleaseAttestation` binds the immutable bundle to verified dataset, selection/evaluation/gate evidence, fresh confirmation, conservative execution evidence, selected policy, source commit, dependency provenance, approver, approval time, and expiry.
+
+Registry and runtime require a purpose-bound trusted public key. Unknown-key, unsigned, expired, or tampered attestations fail closed. Before activation, the runtime verifies file closure, rejects symlinks, loads shared normalizers and adapters, and executes deterministic probe observations through every policy member. Structured predictions require a monotonic identity-bound `ServingStateSnapshot` including persistent execution state.
+
 ## 2026-07-13 archived real-data result
 
-The archived result is classified as follows:
+The archived result remains classified as:
 
 ```text
 ResearchRun: COMPLETED
@@ -12,54 +121,14 @@ BaselineFallback: SELECTED_FOR_ANALYSIS
 ProductionRelease: BLOCKED
 ```
 
-Configuration A was the identity baseline and had no selected PPO model path. The signal gate failed because mean OOS IC was below its required threshold. The final production gate also failed, including the positive-return significance check. Positive holdout return and positive 2x-cost return remain evidence, but they do not override failed mandatory gates.
+Configuration A was the identity baseline and had no selected PPO path. The signal gate failed because mean OOS IC was below threshold. The final production gate also failed, including the positive-return significance check. Positive holdout return and positive 2x-cost return remain evidence, but they do not override mandatory failed gates.
 
-The migration fixture exists to prevent this evidence from being mislabeled as a selected policy ensemble or a production release.
-
-## Absolute-growth reward and paired inference contract
-
-The maintained residual environment now optimizes the hybrid book's net absolute log growth. It uses the independent shadow baseline only for a light rolling non-inferiority hinge and for sealed paired evaluation. The reward does not add raw interval excess return as a second growth objective.
-
-The baseline hinge uses a 30-day rolling window, a seven-day minimum history, and a 1.5% full-window log-growth tolerance. Only increases in the hinge level are penalized. Drawdown shaping is free through 5%, becomes progressively steeper through 20%, and likewise penalizes only newly worsening severity. Zero action still produces identical hybrid and shadow books, but its reward is the baseline strategy's absolute growth rather than zero.
-
-Paired moving-block inference continues to use `log1p(candidate_return) - log1p(shadow_return)` for its mean, confidence interval, and p-value. That paired quantity is a selection and non-inferiority contract, not the primary step reward. Arithmetic period-return differences remain diagnostic only.
-
-## Causal training contract
-
-Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed outer evaluation all use the same `liquidate_at_close` terminal-accounting contract. Terminal liquidation costs therefore enter both optimization and evaluation, and every stage fails closed if liquidity prevents a complete exit. Legacy bootstrap-compatible truncation remains available only through non-maintained custom configurations and is not eligible for the complete research workflow.
-
-Policy observations do not include synthetic episode progress or next-bar tradability. They do include rolling hybrid and shadow growth, their growth gap, baseline shortfall, scaled tolerance, hinge level, and emergency-deleverage state because those values determine future reward and termination semantics. Next-open execution uses the last completed bar's volume as its capacity proxy, while actual next-bar tradability remains part of transition dynamics.
-
-A 20% hybrid drawdown triggers current-close liquidation of the hybrid policy book and a true `drawdown_stop` terminal transition. The independent shadow book is preserved rather than charged for a policy failure. Actual hybrid liquidation costs are included in final wealth and reward; there is no fixed terminal jackpot or penalty. Explicit sealed end-of-window evaluation remains the separate mode that liquidates both books.
-
-Every policy ensemble records the observation schema, complete PPO configuration digest, requested timesteps, observed actual timesteps, and resolved compute device. Low GPU utilization for the current small single-environment MLP is not treated as a quality failure; throughput and sealed OOS evidence remain the relevant criteria.
-
-## AUM and environment identity contract
-
-Initial capital is an explicit quote-currency research input rather than a scale-free default. The environment refuses construction when AUM is omitted. This prevents a one-dollar simulation from silently disabling participation, impact, and liquidation constraints that matter for the intended deployment capital.
-
-The environment identity hashes the dataset, resolved timing, trend configuration, risk limits, execution costs, complete reward configuration and resolved rolling windows, alpha mode, action and observation schemas, and initial capital. Policy ensembles record the environment digest and AUM, and fail closed when seeds report inconsistent environment or capital identities.
-
-Capacity conclusions must therefore be evaluated at predeclared AUM scenarios. Performance at one capital scale does not establish performance at a larger scale.
-
-## Nested walk-forward execution contract
-
-The maintained workflow uses fold-local signal lineage, stage-scoped dataset capabilities and a one-shot sealed-test access ledger. Alpha and factor artifacts identify fit and prediction ranges, generator configuration/code digests, validity masks and per-row availability times. Training predictions must be causal inside the train capability; checkpoint, selection and test predictions must be generated from the authorized train fit.
-
-Every fold preserves execution evidence including turnover, fees, funding, borrow, dividends, cash interest, fills, participation and economic termination. Candidate eligibility is still computed from the fixed seed distribution, while configuration selection and sealed outer testing evaluate the exact deterministic mean-action ensemble that final serving loads. Independent folds are summarized as a distribution with median, weighted mean, win rate and worst fold. They are not mislabeled as one continuous portfolio return or drawdown. Continuous metrics require contiguous ranges and verified opening/closing state digests. Session-market annualization and carry use actual elapsed time.
-
-Training and walk-forward runs have separate manifest schemas, exact file closure and content-addressed provenance. Git commit, dirty state, lockfile digest, runtime/library versions, platform/hardware and deterministic seed configuration are captured automatically.
-
-## Serving and activation contract
-
-Serving candidate bundle schema v4 binds the exact runtime contract and declared files but deliberately contains no release digest. A separate external `ReleaseAttestation` binds the candidate bundle to verified dataset, selection/evaluation and evidence-bound gate digests, selected policy, source commit, dependency provenance, approver and approval time. This removes the former bundle/release circular hash.
-
-Registry and runtime activation require a detached Ed25519 external attestation issued under an explicitly trusted, purpose-bound public key ID. Unknown-key, unsigned, or tampered attestations fail closed. Before swapping live state, the runtime verifies exact file closure, rejects symlinks, loads the shared observation normalizer and executes deterministic probe observations through every policy member. Structured predictions additionally require a monotonic identity-bound `ServingStateSnapshot` so stale portfolio or pending-target state cannot be reused. Shape, finite-value, bounds, action-name, observation-schema, normalizer, and state-identity mismatches fail before activation or inference.
+The migration fixture prevents this evidence from being mislabeled as a selected policy ensemble or production release.
 
 ## Capability boundary
 
-The repository is research-ready and supports attested local/paper serving. It still does not implement direct exchange websocket ingestion, order submit/cancel/replace, broker reconciliation, production secrets, venue kill switches or operational alerting. Those capabilities remain a separate live-trading integration phase and the project makes no profitability claim.
+The repository supports research workflows and attested local/paper serving for eligible selected-final bundles. It does not implement direct exchange websocket ingestion, order submission/cancellation/replacement, broker reconciliation, production secrets, venue kill switches, or operational alerting.
 
-## Maintained reward identity
+Production remains `NO-GO` until maintained GPU verification, at least 180 OOS days, a strictly positive paired block-bootstrap lower bound on RL-minus-baseline daily log excess, signed fresh confirmation, complete conservative execution evidence, and paper-trading reconciliation all pass.
 
-The maintained reward contract is **Reward schema v4** with a complete 720-hour baseline window, fixed 1.5% tolerance, worsening-only staged drawdown shaping, and continuous economic terminal penalties.
+See [Architecture](ARCHITECTURE.md), [P0 validation evidence](verification/2026-07-21-p0-validation-baseline.md), [stateful execution verification](verification/2026-07-21-conservative-order-simulator.md), and the [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md).

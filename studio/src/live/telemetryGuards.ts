@@ -1,4 +1,6 @@
 import type {
+  CheckpointEvaluationItem,
+  CheckpointEvaluationsResponse,
   TelemetryEventsResponse,
   TelemetryStatusResponse,
   TrainingTelemetryRecord,
@@ -60,6 +62,10 @@ export function isTrainingTelemetryRecord(value: unknown): value is TrainingTele
 export function isTelemetryStatus(value: unknown): value is TelemetryStatusResponse {
   if (!isRecord(value)) return false
   return typeof value.available === 'boolean'
+    && (value.selectedSeed === null || isNonNegativeInteger(value.selectedSeed))
+    && Array.isArray(value.availableSeeds)
+    && value.availableSeeds.every(isNonNegativeInteger)
+    && new Set(value.availableSeeds).size === value.availableSeeds.length
     && isNonNegativeInteger(value.recordCount)
     && isNonNegativeInteger(value.lastSequence)
     && isNonNegativeInteger(value.malformedLines)
@@ -70,9 +76,11 @@ export function isTelemetryStatus(value: unknown): value is TelemetryStatusRespo
 export function isTelemetryEvents(value: unknown): value is TelemetryEventsResponse {
   if (!isRecord(value) || !Array.isArray(value.items)) return false
   if (!value.items.every(isTrainingTelemetryRecord)) return false
+  if (value.seed !== null && !isNonNegativeInteger(value.seed)) return false
   let previous = 0
   for (const item of value.items) {
     if (item.sequence <= previous) return false
+    if (value.seed !== null && item.seed !== value.seed) return false
     previous = item.sequence
   }
   return isNonNegativeInteger(value.nextSequence)
@@ -86,4 +94,29 @@ export function isTelemetryEvents(value: unknown): value is TelemetryEventsRespo
       && isNonNegativeInteger(gap[0])
       && isNonNegativeInteger(gap[1])
       && gap[0] <= gap[1])
+}
+
+function isCheckpointEvaluationItem(value: unknown): value is CheckpointEvaluationItem {
+  if (!isRecord(value)) return false
+  return typeof value.configuration === 'string' && value.configuration.length > 0
+    && isNonNegativeInteger(value.seed)
+    && typeof value.policyDigest === 'string' && /^[0-9a-f]{64}$/.test(value.policyDigest)
+    && typeof value.evaluationDigest === 'string' && /^[0-9a-f]{64}$/.test(value.evaluationDigest)
+    && isFiniteNumber(value.score)
+    && isFiniteNumber(value.totalReturn) && value.totalReturn > -1
+    && typeof value.finalist === 'boolean'
+    && Array.isArray(value.checkpointRange)
+    && value.checkpointRange.length === 2
+    && isNonNegativeInteger(value.checkpointRange[0])
+    && isNonNegativeInteger(value.checkpointRange[1])
+    && value.checkpointRange[0] < value.checkpointRange[1]
+    && typeof value.source === 'string' && value.source.length > 0
+}
+
+export function isCheckpointEvaluations(value: unknown): value is CheckpointEvaluationsResponse {
+  return isRecord(value)
+    && typeof value.available === 'boolean'
+    && value.productionStatus === 'NO-GO'
+    && Array.isArray(value.items)
+    && value.items.every(isCheckpointEvaluationItem)
 }

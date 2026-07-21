@@ -1,0 +1,436 @@
+--- /dev/null
++++ b/trade_rl/data/metadata_promotion.py
+@@ -0,0 +1,236 @@
++"""Fail-closed promotion evidence for point-in-time execution metadata."""
++
++from __future__ import annotations
++
++import json
++from collections.abc import Mapping, Sequence
++from dataclasses import dataclass
++from pathlib import Path
++
++from trade_rl.artifacts.codec import canonical_json_bytes
++from trade_rl.artifacts.hashing import content_digest
++from trade_rl.data.identity import parse_identity_json
++from trade_rl.data.market import MarketDataset
++from trade_rl.domain.common import require_non_empty, require_sha256
++
++METADATA_PROMOTION_FILE_NAME = "metadata-promotion.json"
++METADATA_PROMOTION_SCHEMA = "metadata_promotion_evidence_v1"
++_HISTORICAL_MODE = "historical_signed"
++_HISTORICAL_AUTHENTICATION = "ed25519"
++_HISTORICAL_APPLICATION = "effective-dated-full-interval"
++_ZERO_DIGEST = "0" * 64
++
++
++def _string(value: object, *, field: str) -> str:
++    if not isinstance(value, str):
++        raise ValueError(f"{field} must be a string")
++    return require_non_empty(value, field=field)
++
++
++def _limitations(value: object) -> tuple[str, ...]:
++    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
++        raise ValueError("metadata limitations must be a sequence")
++    return tuple(_string(item, field="metadata limitations") for item in value)
++
++
++@dataclass(frozen=True, slots=True)
++class MetadataPromotionEvidence:
++    """Dataset-bound decision on whether metadata may enter release promotion."""
++
++    dataset_id: str
++    mode: str
++    metadata_evidence_digest: str
++    source_payload_digest: str
++    point_in_time: bool
++    authentication: str
++    coverage_application: str
++    limitations: tuple[str, ...]
++    promotable: bool
++    schema_version: str = METADATA_PROMOTION_SCHEMA
++
++    def __post_init__(self) -> None:
++        require_sha256(self.dataset_id, field="metadata_promotion.dataset_id")
++        require_sha256(
++            self.metadata_evidence_digest,
++            field="metadata_promotion.metadata_evidence_digest",
++        )
++        require_sha256(
++            self.source_payload_digest,
++            field="metadata_promotion.source_payload_digest",
++        )
++        require_non_empty(self.mode, field="metadata_promotion.mode")
++        require_non_empty(
++            self.authentication,
++            field="metadata_promotion.authentication",
++        )
++        require_non_empty(
++            self.coverage_application,
++            field="metadata_promotion.coverage_application",
++        )
++        if self.schema_version != METADATA_PROMOTION_SCHEMA:
++            raise ValueError("unsupported metadata promotion evidence schema")
++        expected = self._expected_promotable()
++        if self.promotable is not expected:
++            raise ValueError("metadata promotion flag contradicts its evidence")
++
++    def _expected_promotable(self) -> bool:
++        return (
++            self.mode == _HISTORICAL_MODE
++            and self.point_in_time
++            and self.authentication == _HISTORICAL_AUTHENTICATION
++            and self.coverage_application == _HISTORICAL_APPLICATION
++            and not self.limitations
++            and self.source_payload_digest != _ZERO_DIGEST
++        )
++
++    def require_promotable(self) -> None:
++        if not self.promotable:
++            raise ValueError(
++                "metadata promotion requires historical_signed point-in-time "
++                "Ed25519 evidence with effective-dated full-interval coverage"
++            )
++
++    def to_mapping(self) -> dict[str, object]:
++        return {
++            "authentication": self.authentication,
++            "coverage_application": self.coverage_application,
++            "dataset_id": self.dataset_id,
++            "limitations": self.limitations,
++            "metadata_evidence_digest": self.metadata_evidence_digest,
++            "mode": self.mode,
++            "point_in_time": self.point_in_time,
++            "promotable": self.promotable,
++            "schema_version": self.schema_version,
++            "source_payload_digest": self.source_payload_digest,
++        }
++
++    @classmethod
++    def from_mapping(cls, value: Mapping[str, object]) -> MetadataPromotionEvidence:
++        point_in_time = value.get("point_in_time")
++        promotable = value.get("promotable")
++        if not isinstance(point_in_time, bool):
++            raise ValueError("metadata promotion point_in_time must be boolean")
++        if not isinstance(promotable, bool):
++            raise ValueError("metadata promotion promotable must be boolean")
++        return cls(
++            dataset_id=_string(value.get("dataset_id"), field="dataset_id"),
++            mode=_string(value.get("mode"), field="mode"),
++            metadata_evidence_digest=_string(
++                value.get("metadata_evidence_digest"),
++                field="metadata_evidence_digest",
++            ),
++            source_payload_digest=_string(
++                value.get("source_payload_digest"),
++                field="source_payload_digest",
++            ),
++            point_in_time=point_in_time,
++            authentication=_string(
++                value.get("authentication"), field="authentication"
++            ),
++            coverage_application=_string(
++                value.get("coverage_application"), field="coverage_application"
++            ),
++            limitations=_limitations(value.get("limitations")),
++            promotable=promotable,
++            schema_version=_string(
++                value.get("schema_version"), field="schema_version"
++            ),
++        )
++
++
++def metadata_promotion_from_dataset(dataset: MarketDataset) -> MetadataPromotionEvidence:
++    """Derive immutable promotion evidence from the dataset identity payload."""
++
++    if dataset.identity_payload_json is None:
++        return MetadataPromotionEvidence(
++            dataset_id=dataset.dataset_id,
++            mode="unspecified",
++            metadata_evidence_digest=content_digest(
++                {"dataset_id": dataset.dataset_id, "metadata_evidence": None}
++            ),
++            source_payload_digest=_ZERO_DIGEST,
++            point_in_time=False,
++            authentication="none",
++            coverage_application="unspecified",
++            limitations=("dataset identity has no execution metadata evidence",),
++            promotable=False,
++        )
++    identity = parse_identity_json(dataset.identity_payload_json)
++    raw = identity.get("metadata_evidence")
++    if not isinstance(raw, Mapping):
++        return MetadataPromotionEvidence(
++            dataset_id=dataset.dataset_id,
++            mode="unspecified",
++            metadata_evidence_digest=content_digest(
++                {"dataset_id": dataset.dataset_id, "metadata_evidence": None}
++            ),
++            source_payload_digest=_ZERO_DIGEST,
++            point_in_time=False,
++            authentication="none",
++            coverage_application="unspecified",
++            limitations=("dataset identity has no execution metadata evidence",),
++            promotable=False,
++        )
++    point_in_time = raw.get("point_in_time")
++    if not isinstance(point_in_time, bool):
++        raise ValueError("dataset metadata point_in_time must be boolean")
++    coverage = raw.get("coverage")
++    if not isinstance(coverage, Mapping):
++        raise ValueError("dataset metadata coverage must be a mapping")
++    source_payload_digest = _string(
++        raw.get("source_payload_digest"), field="source_payload_digest"
++    )
++    mode = _string(raw.get("mode"), field="mode")
++    authentication = _string(raw.get("authentication"), field="authentication")
++    coverage_application = _string(
++        coverage.get("application"), field="coverage.application"
++    )
++    limitations = _limitations(raw.get("limitations"))
++    promotable = (
++        mode == _HISTORICAL_MODE
++        and point_in_time
++        and authentication == _HISTORICAL_AUTHENTICATION
++        and coverage_application == _HISTORICAL_APPLICATION
++        and not limitations
++        and source_payload_digest != _ZERO_DIGEST
++    )
++    return MetadataPromotionEvidence(
++        dataset_id=dataset.dataset_id,
++        mode=mode,
++        metadata_evidence_digest=content_digest(raw),
++        source_payload_digest=source_payload_digest,
++        point_in_time=point_in_time,
++        authentication=authentication,
++        coverage_application=coverage_application,
++        limitations=limitations,
++        promotable=promotable,
++    )
++
++
++def write_metadata_promotion_evidence(
++    path: Path,
++    evidence: MetadataPromotionEvidence,
++) -> None:
++    if path.exists():
++        raise FileExistsError("metadata promotion evidence already exists")
++    path.parent.mkdir(parents=True, exist_ok=True)
++    path.write_bytes(canonical_json_bytes(evidence.to_mapping()) + b"\n")
++
++
++def load_metadata_promotion_evidence(path: Path) -> MetadataPromotionEvidence:
++    if not path.is_file():
++        raise FileNotFoundError("metadata promotion evidence is missing")
++    raw = json.loads(path.read_text(encoding="utf-8"))
++    if not isinstance(raw, Mapping):
++        raise ValueError("metadata promotion evidence must be a mapping")
++    return MetadataPromotionEvidence.from_mapping(raw)
++
++
++__all__ = [
++    "METADATA_PROMOTION_FILE_NAME",
++    "METADATA_PROMOTION_SCHEMA",
++    "MetadataPromotionEvidence",
++    "load_metadata_promotion_evidence",
++    "metadata_promotion_from_dataset",
++    "write_metadata_promotion_evidence",
++]
+--- a/trade_rl/workflows/training_run.py
++++ b/trade_rl/workflows/training_run.py
+@@ -25,6 +25,11 @@
+ from trade_rl.artifacts.store import ArtifactStore
+ from trade_rl.data import load_market_dataset_artifact
+ from trade_rl.data.market import MarketDataset
++from trade_rl.data.metadata_promotion import (
++    METADATA_PROMOTION_FILE_NAME,
++    metadata_promotion_from_dataset,
++    write_metadata_promotion_evidence,
++)
+ from trade_rl.domain.datasets import DatasetManifest
+ from trade_rl.domain.policies import PolicyEnsembleManifest
+ from trade_rl.integrations.sb3_training import StableBaselines3Backend
+@@ -706,6 +711,9 @@
+         if authorization is not None
+         else "research_exploratory"
+     )
++    metadata_promotion = metadata_promotion_from_dataset(dataset)
++    if run_kind == "research_selected_final":
++        metadata_promotion.require_promotable()
+     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
+     store = ArtifactStore(store_root)
+     stage = store.stage_run(resolved_run_id)
+@@ -721,6 +729,10 @@
+             },
+         )
+         _write_json(stage / "provenance.json", asdict(provenance))
++        write_metadata_promotion_evidence(
++            stage / METADATA_PROMOTION_FILE_NAME,
++            metadata_promotion,
++        )
+         dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
+         _write_json(stage / "training-config.json", config.digest_payload())
+         _write_json(
+--- a/trade_rl/serving/package.py
++++ b/trade_rl/serving/package.py
+@@ -10,6 +10,10 @@
+ from pathlib import Path
+ 
+ from trade_rl.artifacts.run_manifest import validate_training_run_directory
++from trade_rl.data.metadata_promotion import (
++    METADATA_PROMOTION_FILE_NAME,
++    load_metadata_promotion_evidence,
++)
+ from trade_rl.domain.common import require_sha256
+ from trade_rl.domain.selection import PolicyMode
+ from trade_rl.evaluation.confirmation import load_confirmation_evidence
+@@ -77,6 +81,12 @@
+         )
+     ):
+         raise ValueError("selected-final training manifest lacks authorization chain")
++    metadata_promotion = load_metadata_promotion_evidence(
++        training_root / METADATA_PROMOTION_FILE_NAME
++    )
++    if metadata_promotion.dataset_id != manifest.dataset_id:
++        raise ValueError("metadata promotion dataset identity mismatch")
++    metadata_promotion.require_promotable()
+ 
+     ensemble_raw = _mapping(
+         json.loads((training_root / "ensemble.json").read_text(encoding="utf-8")),
+--- /dev/null
++++ b/tests/data/test_metadata_promotion.py
+@@ -0,0 +1,73 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++import numpy as np
++import pytest
++
++from trade_rl.data.market import MarketDataset
++from trade_rl.data.metadata_promotion import (
++    load_metadata_promotion_evidence,
++    metadata_promotion_from_dataset,
++    write_metadata_promotion_evidence,
++)
++
++
++def _dataset(metadata_evidence: dict[str, object]) -> MarketDataset:
++    timestamps = np.datetime64("2026-01-01", "ns") + np.arange(3) * np.timedelta64(
++        1, "h"
++    )
++    close = np.asarray([[100.0], [101.0], [102.0]])
++    dataset = MarketDataset(
++        dataset_id="0" * 64,
++        symbols=("BTCUSDT",),
++        timestamps=timestamps,
++        features=np.ones((3, 1, 1), dtype=np.float32),
++        global_features=np.ones((3, 1), dtype=np.float32),
++        open=close.copy(),
++        high=close.copy(),
++        low=close.copy(),
++        close=close,
++        volume=np.full((3, 1), 1_000_000.0),
++        funding_rate=np.zeros((3, 1)),
++        tradable=np.ones((3, 1), dtype=np.bool_),
++        feature_available=np.ones((3, 1, 1), dtype=np.bool_),
++        feature_names=("return",),
++        global_feature_names=("regime",),
++        periods_per_year=8_760,
++    )
++    return dataset.with_content_identity({"metadata_evidence": metadata_evidence})
++
++
++def _evidence(*, historical: bool) -> dict[str, object]:
++    return {
++        "authentication": "ed25519" if historical else "none",
++        "coverage": {
++            "application": (
++                "effective-dated-full-interval"
++                if historical
++                else "static-full-interval"
++            ),
++            "end_time": "2026-01-04T00:00:00+00:00",
++            "start_time": "2026-01-01T00:00:00+00:00",
++        },
++        "limitations": [] if historical else ["static rules"],
++        "mode": "historical_signed" if historical else "frozen_snapshot",
++        "point_in_time": historical,
++        "source_payload_digest": "1" * 64,
++    }
++
++
++def test_historical_metadata_promotion_round_trips(tmp_path: Path) -> None:
++    promotion = metadata_promotion_from_dataset(_dataset(_evidence(historical=True)))
++    promotion.require_promotable()
++    path = tmp_path / "metadata-promotion.json"
++    write_metadata_promotion_evidence(path, promotion)
++    assert load_metadata_promotion_evidence(path) == promotion
++
++
++def test_static_metadata_cannot_be_promoted() -> None:
++    promotion = metadata_promotion_from_dataset(_dataset(_evidence(historical=False)))
++    assert promotion.promotable is False
++    with pytest.raises(ValueError, match="historical_signed"):
++        promotion.require_promotable()
+--- a/tests/serving/test_package.py
++++ b/tests/serving/test_package.py
+@@ -11,6 +11,10 @@
+     TrainingRunManifest,
+     write_training_run_manifest,
+ )
++from trade_rl.data.metadata_promotion import (
++    MetadataPromotionEvidence,
++    write_metadata_promotion_evidence,
++)
+ from trade_rl.evaluation.confirmation import write_confirmation_evidence
+ from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
+ from trade_rl.release.asymmetric import PublicVerificationKey
+@@ -50,6 +54,20 @@
+     (root / "ensemble.json").write_text(json.dumps(ensemble), encoding="utf-8")
+     (root / "policy-loader.json").write_text("{}", encoding="utf-8")
+     (root / "policy.zip").write_bytes(b"policy")
++    write_metadata_promotion_evidence(
++        root / "metadata-promotion.json",
++        MetadataPromotionEvidence(
++            dataset_id="b" * 64,
++            mode="historical_signed",
++            metadata_evidence_digest="6" * 64,
++            source_payload_digest="7" * 64,
++            point_in_time=True,
++            authentication="ed25519",
++            coverage_application="effective-dated-full-interval",
++            limitations=(),
++            promotable=True,
++        ),
++    )
+     selected = run_kind == "research_selected_final"
+     manifest = TrainingRunManifest.build(
+         root=root,
+@@ -59,7 +77,12 @@
+         ensemble_digest="c" * 64,
+         training_config_digest="e" * 64,
+         provenance_digest="f" * 64,
+-        artifact_paths=("ensemble.json", "policy-loader.json", "policy.zip"),
++        artifact_paths=(
++            "ensemble.json",
++            "metadata-promotion.json",
++            "policy-loader.json",
++            "policy.zip",
++        ),
+         created_at=COMPLETED - timedelta(hours=1),
+         completed_at=COMPLETED,
+         run_kind=run_kind,
+--- a/tests/serving/test_metadata_promotion_gate.py
++++ b/tests/serving/test_metadata_promotion_gate.py
+@@ -38,6 +38,9 @@
+     historical = metadata_mode == "historical_signed"
+     promotion = {
+         "authentication": "ed25519" if historical else "none",
++        "coverage_application": (
++            "effective-dated-full-interval" if historical else "static-full-interval"
++        ),
+         "dataset_id": "b" * 64,
+         "limitations": [] if historical else ["static-full-interval"],
+         "metadata_evidence_digest": "6" * 64,

@@ -1,0 +1,35 @@
+name: Order Simulator Source Export
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Record and package exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > source-head-sha.txt
+          tar --exclude=.git --exclude=trade-rl-source.tar.gz -czf trade-rl-source.tar.gz .
+
+      - name: Upload exact source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: order-simulator-source-${{ github.event.pull_request.head.sha }}
+          path: |
+            trade-rl-source.tar.gz
+            source-head-sha.txt
+          if-no-files-found: error
+          retention-days: 1

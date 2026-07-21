@@ -142,14 +142,18 @@ class TrainingTelemetryRecord:
     def __post_init__(self) -> None:
         if self.schema_version != TELEMETRY_SCHEMA_VERSION:
             raise ValueError("unsupported telemetry schema")
-        for name, value, minimum in (
+        for name, integer_value, minimum in (
             ("sequence", self.sequence, 1),
             ("global_step", self.global_step, 0),
             ("environment_step", self.environment_step, 0),
             ("seed", self.seed, 0),
             ("environment_id", self.environment_id, 0),
         ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            if (
+                isinstance(integer_value, bool)
+                or not isinstance(integer_value, int)
+                or integer_value < minimum
+            ):
                 raise ValueError(f"{name} is invalid")
         if self.market_index is not None and (
             isinstance(self.market_index, bool)
@@ -169,7 +173,7 @@ class TrainingTelemetryRecord:
             raise ValueError("symbol must be non-empty")
         if self.event_type not in _EVENT_TYPES:
             raise ValueError("event_type is invalid")
-        for field, value in (
+        for field, metric_value in (
             ("open", self.open),
             ("high", self.high),
             ("low", self.low),
@@ -181,7 +185,7 @@ class TrainingTelemetryRecord:
             ("interval_cost", self.interval_cost),
             ("interval_return", self.interval_return),
         ):
-            _finite(value, field=field)
+            _finite(metric_value, field=field)
         for field, values in (
             ("action", self.action),
             ("executed_target", self.executed_target),

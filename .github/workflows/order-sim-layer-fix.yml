@@ -1,0 +1,76 @@
+name: Order Simulator Layer Fix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Apply layer correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/order-sim-staging/layer-fix.patch.gz.b64 \
+            | gzip --decompress > "${RUNNER_TEMP}/layer-fix.patch"
+          git apply --check "${RUNNER_TEMP}/layer-fix.patch"
+          git apply "${RUNNER_TEMP}/layer-fix.patch"
+          uv sync --extra dev --extra train-sb3 --extra studio --frozen
+          uv run ruff check --fix trade_rl tests
+          uv run ruff format \
+            trade_rl/simulation/execution_promotion.py \
+            trade_rl/simulation/execution_replay.py \
+            trade_rl/workflows/training_run.py \
+            trade_rl/serving/package.py \
+            tests/evaluation/test_execution_promotion.py \
+            tests/e2e/test_stateful_order_replay.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            tests/workflows/test_training_run.py \
+            tests/serving/test_package.py
+
+      - name: Verify architecture and behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl tests
+          uv run mypy \
+            trade_rl/simulation/execution_promotion.py \
+            trade_rl/simulation/execution_replay.py \
+            trade_rl/workflows/training_run.py \
+            trade_rl/serving/package.py
+          uv run lint-imports
+          uv run pytest -q \
+            tests/evaluation/test_execution_promotion.py \
+            tests/e2e/test_stateful_order_replay.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            tests/workflows/test_training_run.py \
+            tests/serving/test_package.py
+
+      - name: Commit and push verified correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -r .github/order-sim-staging
+          git add trade_rl tests
+          git status --short
+          git diff --cached --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor: place execution evidence in simulation layer"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"

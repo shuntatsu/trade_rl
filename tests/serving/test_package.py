@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -16,11 +17,16 @@ from trade_rl.data.metadata_promotion import (
     write_metadata_promotion_evidence,
 )
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
+from trade_rl.evaluation.execution_promotion import (
+    ExecutionEvidence,
+    write_execution_evidence,
+)
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.bundle import load_serving_bundle
 from trade_rl.serving.package import package_selected_training_run
+from trade_rl.simulation.execution import ExecutionCostConfig
 
 COMPLETED = datetime(2026, 7, 1, tzinfo=UTC)
 PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(b"\x44" * 32)
@@ -33,7 +39,13 @@ PUBLIC_KEY = PublicVerificationKey(
 )
 
 
-def _training_run(root: Path, *, run_kind: str) -> TrainingRunManifest:
+def _training_run(
+    root: Path,
+    *,
+    run_kind: str,
+    execution_path_mode: str = "conservative",
+    execution_policy_digest: str | None = None,
+) -> TrainingRunManifest:
     root.mkdir()
     ensemble = {
         "action_names": ["fast", "slow"],
@@ -54,6 +66,34 @@ def _training_run(root: Path, *, run_kind: str) -> TrainingRunManifest:
     (root / "ensemble.json").write_text(json.dumps(ensemble), encoding="utf-8")
     (root / "policy-loader.json").write_text("{}", encoding="utf-8")
     (root / "policy.zip").write_bytes(b"policy")
+    execution_cost = ExecutionCostConfig(path_mode="conservative")
+    (root / "environment.json").write_text(
+        json.dumps(
+            {
+                "environment": {"execution_cost": asdict(execution_cost)},
+                "schema_version": "training_environment_v2",
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_execution_evidence(
+        root / "execution-evidence.json",
+        ExecutionEvidence(
+            dataset_id="b" * 64,
+            execution_policy_digest=(
+                execution_cost.execution_policy_digest
+                if execution_policy_digest is None
+                else execution_policy_digest
+            ),
+            path_mode=execution_path_mode,
+            processing_bar_volume_capacity=True,
+            partial_fill_carry=True,
+            trigger_volume_fractions=(1.0, 0.5, 0.25, 0.0),
+            order_event_count=4,
+            complete_order_evidence=True,
+            sensitivity_path_modes=("conservative",),
+        ),
+    )
     write_metadata_promotion_evidence(
         root / "metadata-promotion.json",
         MetadataPromotionEvidence(
@@ -79,6 +119,8 @@ def _training_run(root: Path, *, run_kind: str) -> TrainingRunManifest:
         provenance_digest="f" * 64,
         artifact_paths=(
             "ensemble.json",
+            "environment.json",
+            "execution-evidence.json",
             "metadata-promotion.json",
             "policy-loader.json",
             "policy.zip",
@@ -147,6 +189,48 @@ def test_package_rejects_exploratory_training(tmp_path: Path) -> None:
     confirmation_path = tmp_path / "confirmation.json"
     _confirmation(confirmation_path, training)
     with pytest.raises(ValueError, match="selected-final"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_non_conservative_execution_evidence(tmp_path: Path) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(
+        training_root,
+        run_kind="research_selected_final",
+        execution_path_mode="optimistic",
+    )
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(confirmation_path, training)
+    with pytest.raises(ValueError, match="conservative"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_execution_policy_digest_mismatch(tmp_path: Path) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(
+        training_root,
+        run_kind="research_selected_final",
+        execution_policy_digest="f" * 64,
+    )
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(confirmation_path, training)
+    with pytest.raises(ValueError, match="policy digest"):
         package_selected_training_run(
             training_root=training_root,
             confirmation_path=confirmation_path,

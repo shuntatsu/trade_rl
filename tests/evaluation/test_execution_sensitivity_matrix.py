@@ -111,3 +111,28 @@ def test_sensitivity_results_expose_cost_capacity_delay_and_fill_dependence() ->
         by_name["tradability_delay_1"].fill_ratio
         <= by_name["tradability_delay_0"].fill_ratio
     )
+
+
+def test_sensitivity_results_bind_each_limit_path_assumption() -> None:
+    dataset = _dataset()
+    results = evaluate_execution_sensitivity(
+        dataset=dataset,
+        initial_book=BookState.zero(2, 10_000.0, dataset.close[0]),
+        target=np.asarray((0.4, -0.2)),
+        start_index=0,
+        horizon_bars=5,
+        base_cost=ExecutionCostConfig(
+            max_participation_rate=0.5,
+            max_leverage=1.0,
+            maintenance_margin_rate=0.0,
+        ),
+    )
+    by_name = {item.scenario.name: item for item in results}
+    assert by_name["limit_optimistic"].path_mode == "optimistic"
+    assert by_name["limit_neutral"].path_mode == "neutral"
+    assert by_name["limit_conservative"].path_mode == "conservative"
+    assert len(by_name["limit_conservative"].execution_policy_digest) == 64
+    assert (
+        by_name["limit_conservative"].execution_policy_digest
+        != by_name["limit_optimistic"].execution_policy_digest
+    )

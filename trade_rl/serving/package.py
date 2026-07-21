@@ -17,11 +17,17 @@ from trade_rl.data.metadata_promotion import (
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.evaluation.confirmation import load_confirmation_evidence
+from trade_rl.evaluation.execution_promotion import (
+    EXECUTION_EVIDENCE_FILE_NAME,
+    load_execution_evidence,
+    validate_execution_promotion,
+)
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
 )
+from trade_rl.simulation.execution import ExecutionCostConfig
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -52,6 +58,129 @@ def _number(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric")
     return float(value)
+
+
+def _boolean(value: object, *, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a boolean")
+    return value
+
+
+def _number_tuple4(
+    value: object,
+    *,
+    field: str,
+) -> tuple[float, float, float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        raise ValueError(f"{field} must contain four numeric values")
+    return (
+        _number(value[0], field=f"{field}[0]"),
+        _number(value[1], field=f"{field}[1]"),
+        _number(value[2], field=f"{field}[2]"),
+        _number(value[3], field=f"{field}[3]"),
+    )
+
+
+def _execution_cost(training_root: Path) -> ExecutionCostConfig:
+    payload = _mapping(
+        json.loads((training_root / "environment.json").read_text(encoding="utf-8")),
+        field="training environment",
+    )
+    environment = _mapping(payload.get("environment"), field="environment")
+    raw = _mapping(environment.get("execution_cost"), field="execution_cost")
+    defaults = ExecutionCostConfig()
+    return ExecutionCostConfig(
+        fee_rate=_number(raw.get("fee_rate", defaults.fee_rate), field="fee_rate"),
+        maker_fee_rate=_number(
+            raw.get("maker_fee_rate", defaults.maker_fee_rate),
+            field="maker_fee_rate",
+        ),
+        taker_fee_rate=_number(
+            raw.get("taker_fee_rate", defaults.taker_fee_rate),
+            field="taker_fee_rate",
+        ),
+        spread_rate=_number(
+            raw.get("spread_rate", defaults.spread_rate), field="spread_rate"
+        ),
+        impact_rate=_number(
+            raw.get("impact_rate", defaults.impact_rate), field="impact_rate"
+        ),
+        multiplier=_number(
+            raw.get("multiplier", defaults.multiplier), field="multiplier"
+        ),
+        max_participation_rate=_number(
+            raw.get("max_participation_rate", defaults.max_participation_rate),
+            field="max_participation_rate",
+        ),
+        slippage_std=_number(
+            raw.get("slippage_std", defaults.slippage_std), field="slippage_std"
+        ),
+        tail_slippage_probability=_number(
+            raw.get("tail_slippage_probability", defaults.tail_slippage_probability),
+            field="tail_slippage_probability",
+        ),
+        tail_slippage_multiplier=_number(
+            raw.get("tail_slippage_multiplier", defaults.tail_slippage_multiplier),
+            field="tail_slippage_multiplier",
+        ),
+        random_seed=_integer(
+            raw.get("random_seed", defaults.random_seed), field="random_seed"
+        ),
+        minimum_notional=_number(
+            raw.get("minimum_notional", defaults.minimum_notional),
+            field="minimum_notional",
+        ),
+        lot_size=_number(raw.get("lot_size", defaults.lot_size), field="lot_size"),
+        tick_size=_number(raw.get("tick_size", defaults.tick_size), field="tick_size"),
+        allow_short=_boolean(
+            raw.get("allow_short", defaults.allow_short), field="allow_short"
+        ),
+        borrow_rate_multiplier=_number(
+            raw.get("borrow_rate_multiplier", defaults.borrow_rate_multiplier),
+            field="borrow_rate_multiplier",
+        ),
+        max_leverage=_number(
+            raw.get("max_leverage", defaults.max_leverage), field="max_leverage"
+        ),
+        maintenance_margin_rate=_number(
+            raw.get("maintenance_margin_rate", defaults.maintenance_margin_rate),
+            field="maintenance_margin_rate",
+        ),
+        collateral_haircut=_number(
+            raw.get("collateral_haircut", defaults.collateral_haircut),
+            field="collateral_haircut",
+        ),
+        margin_mode=_string(
+            raw.get("margin_mode", defaults.margin_mode), field="margin_mode"
+        ),
+        order_latency_bars=_integer(
+            raw.get("order_latency_bars", defaults.order_latency_bars),
+            field="order_latency_bars",
+        ),
+        order_type=_string(
+            raw.get("order_type", defaults.order_type), field="order_type"
+        ),
+        limit_offset_rate=_number(
+            raw.get("limit_offset_rate", defaults.limit_offset_rate),
+            field="limit_offset_rate",
+        ),
+        path_mode=_string(raw.get("path_mode", defaults.path_mode), field="path_mode"),
+        processing_bar_volume_capacity=_boolean(
+            raw.get(
+                "processing_bar_volume_capacity",
+                defaults.processing_bar_volume_capacity,
+            ),
+            field="processing_bar_volume_capacity",
+        ),
+        partial_fill_carry=_boolean(
+            raw.get("partial_fill_carry", defaults.partial_fill_carry),
+            field="partial_fill_carry",
+        ),
+        trigger_volume_fractions=_number_tuple4(
+            raw.get("trigger_volume_fractions", defaults.trigger_volume_fractions),
+            field="trigger_volume_fractions",
+        ),
+    )
 
 
 def package_selected_training_run(
@@ -87,6 +216,16 @@ def package_selected_training_run(
     if metadata_promotion.dataset_id != manifest.dataset_id:
         raise ValueError("metadata promotion dataset identity mismatch")
     metadata_promotion.require_promotable()
+    execution_cost = _execution_cost(training_root)
+    execution_evidence = load_execution_evidence(
+        training_root / EXECUTION_EVIDENCE_FILE_NAME
+    )
+    if execution_evidence.dataset_id != manifest.dataset_id:
+        raise ValueError("execution evidence dataset identity mismatch")
+    validate_execution_promotion(
+        execution_evidence,
+        expected_policy_digest=execution_cost.execution_policy_digest,
+    )
 
     ensemble_raw = _mapping(
         json.loads((training_root / "ensemble.json").read_text(encoding="utf-8")),

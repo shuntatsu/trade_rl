@@ -194,6 +194,25 @@ class ExecutionCostConfig:
                 "trigger_volume_fractions must be four non-increasing rates"
             )
 
+    def execution_policy_payload(self) -> dict[str, object]:
+        return {
+            "allow_short": self.allow_short,
+            "limit_offset_rate": self.limit_offset_rate,
+            "max_leverage": self.max_leverage,
+            "max_participation_rate": self.max_participation_rate,
+            "order_latency_bars": self.order_latency_bars,
+            "order_type": self.order_type,
+            "partial_fill_carry": self.partial_fill_carry,
+            "path_mode": self.path_mode,
+            "processing_bar_volume_capacity": self.processing_bar_volume_capacity,
+            "schema_version": "execution_policy_v1",
+            "trigger_volume_fractions": list(self.trigger_volume_fractions),
+        }
+
+    @property
+    def execution_policy_digest(self) -> str:
+        return calculate_execution_policy_digest(self.execution_policy_payload())
+
     @property
     def rate_per_turnover(self) -> float:
         return self.multiplier * (self.fee_rate + self.spread_rate)
@@ -726,23 +745,7 @@ class MarketExecutor:
 
     @property
     def execution_policy_digest(self) -> str:
-        return calculate_execution_policy_digest(
-            {
-                "allow_short": self.cost.allow_short,
-                "limit_offset_rate": self.cost.limit_offset_rate,
-                "max_leverage": self.cost.max_leverage,
-                "max_participation_rate": self.cost.max_participation_rate,
-                "order_latency_bars": self.cost.order_latency_bars,
-                "order_type": self.cost.order_type,
-                "partial_fill_carry": self.cost.partial_fill_carry,
-                "path_mode": self.cost.path_mode,
-                "processing_bar_volume_capacity": (
-                    self.cost.processing_bar_volume_capacity
-                ),
-                "schema_version": "execution_policy_v1",
-                "trigger_volume_fractions": list(self.cost.trigger_volume_fractions),
-            }
-        )
+        return self.cost.execution_policy_digest
 
     def execute_orders(
         self,

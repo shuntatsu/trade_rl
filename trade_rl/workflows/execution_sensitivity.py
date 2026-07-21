@@ -56,6 +56,8 @@ class ExecutionSensitivityScenario:
 @dataclass(frozen=True, slots=True)
 class ExecutionSensitivityResult:
     scenario: ExecutionSensitivityScenario
+    execution_policy_digest: str
+    path_mode: str
     ending_equity: float
     total_return: float
     interval_cost: float
@@ -165,6 +167,9 @@ def _scenario_cost(
         limit_offset = max(base.limit_offset_rate, 0.0005)
     elif assumption is LimitFillAssumption.CONSERVATIVE:
         limit_offset = max(base.limit_offset_rate, 0.001)
+    path_mode = base.path_mode
+    if assumption is not LimitFillAssumption.MARKET:
+        path_mode = assumption.value
     return replace(
         base,
         fee_rate=base.fee_rate * scenario.fee_multiplier,
@@ -176,6 +181,7 @@ def _scenario_cost(
         order_latency_bars=scenario.signal_delay_bars,
         order_type=order_type,
         limit_offset_rate=limit_offset,
+        path_mode=path_mode,
     )
 
 
@@ -209,7 +215,8 @@ def evaluate_execution_sensitivity(
             stressed_dataset,
             LimitFillAssumption(scenario.limit_fill),
         )
-        executor = MarketExecutor(stressed_dataset, _scenario_cost(base_cost, scenario))
+        stressed_cost = _scenario_cost(base_cost, scenario)
+        executor = MarketExecutor(stressed_dataset, stressed_cost)
         execution = executor.execute_interval(
             initial_book,
             target,
@@ -219,6 +226,8 @@ def evaluate_execution_sensitivity(
         results.append(
             ExecutionSensitivityResult(
                 scenario=scenario,
+                execution_policy_digest=executor.execution_policy_digest,
+                path_mode=stressed_cost.path_mode,
                 ending_equity=execution.book.portfolio_value,
                 total_return=execution.book.portfolio_value / starting_equity - 1.0,
                 interval_cost=execution.interval_cost,

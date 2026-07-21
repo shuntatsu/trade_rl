@@ -128,6 +128,7 @@ function api(): StudioApi {
       productionStatus: 'NO-GO',
       items: [
         {
+          fold: 'fold-001',
           configuration: 'residual',
           seed: 7,
           policyDigest: 'a'.repeat(64),
@@ -135,10 +136,23 @@ function api(): StudioApi {
           score: Math.log1p(0.05),
           totalReturn: 0.05,
           finalist: true,
+          checkpointRange: [120, 140],
+          source: 'research/.staging/btc-live-001/fold-001/candidates/residual/checkpoint-selection.json',
+        },
+        {
+          fold: 'fold-000',
+          configuration: 'residual',
+          seed: 7,
+          policyDigest: 'e'.repeat(64),
+          evaluationDigest: 'f'.repeat(64),
+          score: Math.log1p(0.02),
+          totalReturn: 0.02,
+          finalist: true,
           checkpointRange: [100, 120],
           source: 'research/.staging/btc-live-001/fold-000/candidates/residual/checkpoint-selection.json',
         },
         {
+          fold: 'fold-000',
           configuration: 'residual',
           seed: 11,
           policyDigest: 'c'.repeat(64),
@@ -155,7 +169,7 @@ function api(): StudioApi {
 }
 
 describe('LiveTrainingPage', () => {
-  it('renders seed-scoped exploration beside deterministic checkpoint evidence', async () => {
+  it('requires explicit fold selection instead of choosing the highest checkpoint score', async () => {
     const user = userEvent.setup()
     render(<LiveTrainingPage api={api()} />)
 
@@ -166,11 +180,21 @@ describe('LiveTrainingPage', () => {
     expect(screen.getByRole('button', { name: 'ローソク足ごと' })).toHaveAttribute('aria-pressed', 'true')
     expect(await screen.findByText(/ロング 40.0%/)).toBeInTheDocument()
     expect(screen.getAllByText(/\+1,000\.00/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/\+5.00% finalist/)).toBeInTheDocument()
+
+    const evidence = screen.getByLabelText('Checkpoint evaluation evidence')
+    expect(evidence).toHaveDisplayValue('fold-000 · residual · finalist')
+    expect(screen.getAllByText(/\+2.00%/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/\+5.00% finalist/)).not.toBeInTheDocument()
+
+    await user.selectOptions(evidence, screen.getByRole('option', { name: 'fold-001 · residual · finalist' }))
+
+    expect(screen.getAllByText(/\+5.00%/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/fold-001 \[120, 140\)/)).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Live Training seed'), '11')
 
     expect(await screen.findByText(/ショート 20.0%/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Checkpoint evaluation evidence')).toHaveDisplayValue('fold-000 · residual · finalist')
     expect(screen.getByText(/-2.00% finalist/)).toBeInTheDocument()
     expect(screen.getByText(/Seed 11 · exploration/)).toBeInTheDocument()
 

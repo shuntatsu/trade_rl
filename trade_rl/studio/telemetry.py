@@ -92,7 +92,9 @@ class StudioTelemetryReader:
         try:
             candidate.relative_to(project_root)
         except ValueError as error:
-            raise ArtifactInvalid("job artifact root escapes the Studio project") from error
+            raise ArtifactInvalid(
+                "job artifact root escapes the Studio project"
+            ) from error
         return candidate
 
     def _path(self, job: JobSummary) -> Path | None:
@@ -103,7 +105,9 @@ class StudioTelemetryReader:
             try:
                 run_root.relative_to(root)
             except ValueError as error:
-                raise ArtifactInvalid("telemetry run path escapes artifact root") from error
+                raise ArtifactInvalid(
+                    "telemetry run path escapes artifact root"
+                ) from error
             if run_root.is_dir():
                 candidates.extend(sorted(run_root.rglob(_TELEMETRY_NAME)))
         for candidate in candidates:

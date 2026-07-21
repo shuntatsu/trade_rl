@@ -168,6 +168,7 @@ export interface TelemetryEventsResponse {
 }
 
 export interface CheckpointEvaluationItem {
+  fold: string
   configuration: string
   seed: number
   policyDigest: string

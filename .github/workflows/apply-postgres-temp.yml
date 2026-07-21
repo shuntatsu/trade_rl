@@ -56,16 +56,13 @@ jobs:
           status=${PIPESTATUS[0]}
           echo "status=${status}" >> "$GITHUB_OUTPUT"
           exit 0
-      - name: Publish typed implementation snapshot
+      - name: Upload Mypy diagnostics
         if: steps.mypy.outputs.status != '0'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'chore: publish PostgreSQL Mypy diagnostics'
-          git push origin HEAD:feat/postgres-artifact-catalog
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: postgres-mypy-diagnostics
+          path: mypy-diagnostics.txt
+          retention-days: 1
       - name: Stop on Mypy errors
         if: steps.mypy.outputs.status != '0'
         run: exit 1

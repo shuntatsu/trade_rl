@@ -149,6 +149,8 @@ export interface TrainingTelemetryRecord {
 
 export interface TelemetryStatusResponse {
   available: boolean
+  selectedSeed: number | null
+  availableSeeds: number[]
   recordCount: number
   lastSequence: number
   malformedLines: number
@@ -157,11 +159,30 @@ export interface TelemetryStatusResponse {
 }
 
 export interface TelemetryEventsResponse {
+  seed: number | null
   items: TrainingTelemetryRecord[]
   nextSequence: number
   truncated: boolean
   malformedLines: number
   sequenceGaps: [number, number][]
+}
+
+export interface CheckpointEvaluationItem {
+  configuration: string
+  seed: number
+  policyDigest: string
+  evaluationDigest: string
+  score: number
+  totalReturn: number
+  finalist: boolean
+  checkpointRange: [number, number]
+  source: string
+}
+
+export interface CheckpointEvaluationsResponse {
+  available: boolean
+  items: CheckpointEvaluationItem[]
+  productionStatus: ProductionStatus
 }
 
 export interface DatasetListResponse {

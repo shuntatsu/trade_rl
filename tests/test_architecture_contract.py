@@ -85,7 +85,7 @@ def test_quickstart_installs_training_dependencies_before_training() -> None:
     assert "uv run trade-rl train run" in text
 
 
-def test_architecture_doc_names_every_enforced_layer() -> None:
+def test_architecture_doc_matches_enforced_layer_order() -> None:
     architecture = Path("docs/ARCHITECTURE.md").read_text(encoding="utf-8")
     import_linter = Path(".importlinter").read_text(encoding="utf-8")
     layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
@@ -97,9 +97,16 @@ def test_architecture_doc_names_every_enforced_layer() -> None:
         if line.strip().startswith("trade_rl.")
     )
 
+    marker = "The enforced Import Linter layer order is exactly:"
+    documented_block = architecture.split(marker, maxsplit=1)[1].split("```", maxsplit=2)[1]
+    documented_layers = tuple(
+        line.strip().removeprefix("-> ")
+        for line in documented_block.splitlines()
+        if line.strip()
+    )
+
     assert enforced_layers
-    for layer in enforced_layers:
-        assert layer in architecture, layer
+    assert documented_layers == enforced_layers
 
 
 def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:
@@ -129,13 +136,19 @@ def test_large_facades_delegate_configuration_to_focused_modules() -> None:
 def test_sb3_and_torch_are_optional_training_dependencies() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     core = set(config["project"]["dependencies"])
-    training = set(config["project"]["optional-dependencies"]["train-sb3"])
+    training = set(config["tool"]["setuptools"]["packages"]["find"]["include"])
+    training_dependencies = set(
+        config["project"]["optional-dependencies"]["train-sb3"]
+    )
 
+    assert training == {"trade_rl*"}
     assert not any(item.startswith("stable-baselines3") for item in core)
     assert not any(item.startswith("sb3-contrib") for item in core)
     assert not any(item.startswith("torch") for item in core)
-    assert any(item.startswith("stable-baselines3") for item in training)
-    assert any(item.startswith("torch") for item in training)
+    assert any(
+        item.startswith("stable-baselines3") for item in training_dependencies
+    )
+    assert any(item.startswith("torch") for item in training_dependencies)
 
 
 def test_core_training_contract_does_not_import_gym_or_model_frameworks() -> None:

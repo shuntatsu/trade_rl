@@ -26,3 +26,23 @@ def test_sealed_test_ledger_authorizes_each_plan_once() -> None:
             selected_configuration="candidate",
             selected_policy_digest="3" * 64,
         )
+
+
+def test_sealed_test_access_digest_is_stable_across_ledger_instances() -> None:
+    first = SealedTestLedger().authorize_once(
+        experiment_plan_digest="4" * 64,
+        dataset_id="5" * 64,
+        fold_index=2,
+        test_range=IndexRange(200, 240),
+        selected_configuration="candidate",
+        selected_policy_digest="6" * 64,
+    )
+    second = SealedTestLedger().authorize_once(
+        experiment_plan_digest="4" * 64,
+        dataset_id="5" * 64,
+        fold_index=2,
+        test_range=IndexRange(200, 240),
+        selected_configuration="candidate",
+        selected_policy_digest="6" * 64,
+    )
+    assert first == second

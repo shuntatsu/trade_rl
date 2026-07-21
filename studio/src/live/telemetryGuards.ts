@@ -98,7 +98,8 @@ export function isTelemetryEvents(value: unknown): value is TelemetryEventsRespo
 
 function isCheckpointEvaluationItem(value: unknown): value is CheckpointEvaluationItem {
   if (!isRecord(value)) return false
-  return typeof value.configuration === 'string' && value.configuration.length > 0
+  return typeof value.fold === 'string' && /^fold-\d+$/.test(value.fold)
+    && typeof value.configuration === 'string' && value.configuration.length > 0
     && isNonNegativeInteger(value.seed)
     && typeof value.policyDigest === 'string' && /^[0-9a-f]{64}$/.test(value.policyDigest)
     && typeof value.evaluationDigest === 'string' && /^[0-9a-f]{64}$/.test(value.evaluationDigest)

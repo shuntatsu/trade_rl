@@ -45,34 +45,46 @@ def test_sampler_skips_unimportant_steps_and_preserves_position_risk_and_termina
     path = tmp_path / "training-telemetry.jsonl"
     sampler = TrainingTelemetrySampler(path, seed=7, sample_every=32)
 
-    assert sampler.consume(
-        global_step=1,
-        actions=np.asarray([[0.1]], dtype=np.float32),
-        rewards=np.asarray([0.0], dtype=np.float32),
-        dones=np.asarray([False]),
-        infos=(info(1),),
-    ) == 0
-    assert sampler.consume(
-        global_step=2,
-        actions=np.asarray([[0.4]], dtype=np.float32),
-        rewards=np.asarray([0.2], dtype=np.float32),
-        dones=np.asarray([False]),
-        infos=(info(2, before=(0.2,), after=(0.4,)),),
-    ) == 1
-    assert sampler.consume(
-        global_step=3,
-        actions=np.asarray([[0.2]], dtype=np.float32),
-        rewards=np.asarray([-0.1], dtype=np.float32),
-        dones=np.asarray([False]),
-        infos=(info(3, risk_reasons=("drawdown",)),),
-    ) == 1
-    assert sampler.consume(
-        global_step=4,
-        actions=np.asarray([[0.0]], dtype=np.float32),
-        rewards=np.asarray([-1.0], dtype=np.float32),
-        dones=np.asarray([True]),
-        infos=(info(4, terminated=True),),
-    ) == 1
+    assert (
+        sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]], dtype=np.float32),
+            rewards=np.asarray([0.0], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(1),),
+        )
+        == 0
+    )
+    assert (
+        sampler.consume(
+            global_step=2,
+            actions=np.asarray([[0.4]], dtype=np.float32),
+            rewards=np.asarray([0.2], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(2, before=(0.2,), after=(0.4,)),),
+        )
+        == 1
+    )
+    assert (
+        sampler.consume(
+            global_step=3,
+            actions=np.asarray([[0.2]], dtype=np.float32),
+            rewards=np.asarray([-0.1], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(3, risk_reasons=("drawdown",)),),
+        )
+        == 1
+    )
+    assert (
+        sampler.consume(
+            global_step=4,
+            actions=np.asarray([[0.0]], dtype=np.float32),
+            rewards=np.asarray([-1.0], dtype=np.float32),
+            dones=np.asarray([True]),
+            infos=(info(4, terminated=True),),
+        )
+        == 1
+    )
     sampler.close()
 
     page = read_training_telemetry(path, limit=10)
@@ -91,20 +103,26 @@ def test_sampler_records_regular_interval_and_disables_itself_after_writer_error
     path = tmp_path / "training-telemetry.jsonl"
     sampler = TrainingTelemetrySampler(path, seed=1, sample_every=2)
 
-    assert sampler.consume(
-        global_step=2,
-        actions=np.asarray([[0.1]], dtype=np.float32),
-        rewards=np.asarray([0.1], dtype=np.float32),
-        dones=np.asarray([False]),
-        infos=(info(2),),
-    ) == 1
+    assert (
+        sampler.consume(
+            global_step=2,
+            actions=np.asarray([[0.1]], dtype=np.float32),
+            rewards=np.asarray([0.1], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(2),),
+        )
+        == 1
+    )
     sampler.close()
 
-    assert sampler.consume(
-        global_step=4,
-        actions=np.asarray([[0.1]], dtype=np.float32),
-        rewards=np.asarray([0.1], dtype=np.float32),
-        dones=np.asarray([False]),
-        infos=(info(4),),
-    ) == 0
+    assert (
+        sampler.consume(
+            global_step=4,
+            actions=np.asarray([[0.1]], dtype=np.float32),
+            rewards=np.asarray([0.1], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(4),),
+        )
+        == 0
+    )
     assert sampler.disabled is True

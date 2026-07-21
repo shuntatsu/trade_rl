@@ -2,90 +2,77 @@
 
 ## Status
 
-Approved for implementation design on 2026-07-21.
+Approved on 2026-07-21 and self-reviewed for implementation planning.
 
 ## Goal
 
-Replace direct per-bar target filling with an explicit, persistent order lifecycle that remains usable with OHLCV data while making fills materially more conservative, auditable, and resistant to policy exploitation.
+Replace direct per-bar target filling with an explicit order lifecycle that works with OHLCV data while making fills conservative, deterministic, auditable, and harder for an RL policy to exploit.
 
-The simulator must preserve the existing accounting boundary and research-only posture. It must not introduce exchange connectivity or imply that OHLCV can reproduce a true order book.
+The simulator preserves `BookState` as the accounting authority. It does not add exchange connectivity and does not claim that OHLCV reproduces a real order book.
 
 ## Current Problem
 
-The current executor converts a target directly into desired quantities and repeatedly fills toward those quantities. It uses the next bar open as the execution price but uses the preceding bar volume for capacity. Limit orders are treated as filled when the bar low or high touches the limit, without modeling order state, time in force, trigger timing, residual quantity, or bar-path ambiguity.
+The current executor fills toward target quantities, executes at the next bar open, and uses the preceding bar volume for capacity. Limit orders fill when the bar low or high touches the limit, without durable order state, time in force, trigger timing, residual quantity, or an explicit bar-path assumption.
 
 This creates four research risks:
 
-1. Liquidity is measured from a different bar than the execution event.
-2. A limit touch can consume an unrealistically large portion of the whole bar volume.
-3. Unfilled quantity is implicit rather than represented as a durable order state.
-4. A policy can learn the deterministic weaknesses of an OHLC touch rule instead of a robust trading strategy.
+1. liquidity comes from a different bar than the fill;
+2. a late limit touch can consume an unrealistic share of the whole bar volume;
+3. residual exposure is implicit and can be resubmitted incorrectly;
+4. a policy can learn the OHLC touch rule instead of a robust strategy.
 
-## Design Principles
+## Principles
 
-- Fail closed when order state, prices, quantities, or evidence are invalid.
-- Preserve `BookState` as the authoritative accounting object.
-- Keep order lifecycle, bar-path interpretation, liquidity allocation, and accounting as separate components.
-- Use the actual processing bar's volume for capacity.
-- Treat OHLC path assumptions as explicit evidence, never as recovered truth.
-- Use deterministic execution for reproducible research.
-- Require conservative execution assumptions for final promotion.
-- Keep the current executor API usable during migration through an adapter layer.
+- Fail closed on invalid state, arithmetic, identity, or evidence.
+- Separate order lifecycle, path interpretation, liquidity allocation, and accounting.
+- Use the processing bar's volume for fills in that bar.
+- Fix requested quantity using information known at submission time.
+- Treat OHLC paths as explicit assumptions, never recovered truth.
+- Keep execution deterministic and replayable.
+- Require conservative execution for final promotion.
+- Preserve the current executor API through a migration adapter.
 
 ## Scope
 
-This design includes:
+Included:
 
-- market, limit, and stop-market orders;
-- explicit submitted, eligible, triggered, partially filled, filled, rejected, expired, and cancelled states;
-- latency before an order becomes eligible;
-- time-in-force expiry;
-- cancel-and-replace when a new target supersedes an existing residual order;
-- deterministic optimistic, neutral, and conservative OHLC path modes;
-- gap-aware execution prices;
-- current-bar liquidity and participation limits;
-- reduced available volume when an order becomes executable partway through a bar;
-- residual quantity carried across bars;
-- deterministic rejection rules;
-- order-level evidence and aggregate interval evidence;
-- promotion rules requiring conservative mode.
+- market, limit, and stop-market instructions;
+- submitted, latency-wait, eligible, triggered, partially-filled, filled, rejected, expired, and cancelled states;
+- latency, time in force, cancel-and-replace, partial-fill carry, gap rules, deterministic rejection, and order evidence;
+- optimistic, neutral, and conservative OHLC path modes;
+- current-bar capacity and reduced available volume for late triggers;
+- stateful execution across RL decisions;
+- promotion gates requiring conservative evidence.
 
-The following are explicitly out of scope:
+Excluded:
 
-- historical L2 reconstruction;
-- queue position inferred from unavailable data;
-- hidden liquidity, iceberg orders, auctions, and exchange-specific matching priority;
-- real exchange routing;
-- stochastic fills that cannot be replayed from a seed and evidence record;
-- claiming that the simulator is equivalent to live execution.
+- L2 reconstruction and inferred exchange queue position;
+- hidden liquidity, auctions, iceberg priority, and venue-specific matching;
+- real order routing;
+- non-replayable stochastic fills;
+- any claim that the model equals live execution.
 
 ## Architecture
 
-### 1. Order Domain Model
+### Order domain
 
-Add a focused order module under `trade_rl/simulation/orders.py`.
+Create `trade_rl/simulation/orders.py`.
 
-#### `OrderType`
-
-Values:
+`OrderType`:
 
 - `market`
 - `limit`
 - `stop_market`
 
-#### `TimeInForce`
+`TimeInForce`:
 
-Values:
+- `ioc`: one eligible processing attempt, then expire the remainder;
+- `day`: expire after an explicit dataset index;
+- `gtc`: persist until filled, cancelled, superseded, interval termination, or dataset termination.
 
-- `ioc`: execute once on the first eligible bar, then expire any remainder;
-- `day`: expire at a configured expiry index;
-- `gtc`: persist until filled, cancelled, superseded, or the execution interval ends.
+A persistent market instruction with `gtc` represents a parent execution instruction split over bars, not one literal exchange market order. The legacy target adapter uses IOC market children by default.
 
-`day` is index-based because the dataset may contain arbitrary bar durations. The caller resolves a timestamp policy into an explicit expiry index before submission.
-
-#### `OrderStatus`
-
-Values:
+`OrderStatus`:
 
 - `submitted`
 - `latency_wait`
@@ -97,207 +84,176 @@ Values:
 - `expired`
 - `cancelled`
 
-Terminal statuses are `filled`, `rejected`, `expired`, and `cancelled`.
+Terminal statuses are filled, rejected, expired, and cancelled.
 
-#### `OrderIntent`
+`OrderIntent` is immutable and contains:
 
-Immutable submission request containing:
-
-- deterministic `order_id`;
+- deterministic order ID;
 - symbol index;
 - signed requested quantity;
-- order type;
-- optional limit price;
-- optional stop price;
-- submit index;
-- eligible index;
-- optional expiry index;
-- time in force;
+- order type and time in force;
+- optional limit or stop price;
+- submit, eligible, and optional expiry indices;
+- submission reference price and decision equity;
 - target-generation identity;
-- execution-policy digest.
+- execution-policy digest;
+- optional replaced-order ID.
 
-Validation rules:
+The requested quantity is fixed at submission using decision-time equity and the latest causally available mark or close. It must not be recalculated from a future eligible-bar open. Latency changes when the order may execute, not how large the submitted order becomes.
 
-- quantity must be finite and non-zero;
-- symbol index must exist;
-- buy and sell direction are derived from quantity sign;
-- limit orders require exactly one valid limit price;
-- stop-market orders require exactly one valid stop price;
-- market orders must not carry limit or stop prices;
-- eligible index must not precede submit index;
-- expiry index, when present, must not precede eligible index.
+Validation requires finite non-zero quantity, valid symbol, valid type-specific prices, causal submission inputs, eligible index not before submit index, and expiry not before eligibility.
 
-#### `PendingOrder`
+`PendingOrder` stores runtime state:
 
-Mutable runtime state containing:
-
-- original `OrderIntent`;
-- remaining signed quantity;
-- cumulative filled quantity;
-- cumulative execution notional;
+- immutable intent;
+- signed remaining quantity;
+- cumulative filled quantity and notional;
 - current status;
 - trigger state and trigger index;
 - last processed index;
-- cancellation, rejection, or expiry reason;
-- version number for evidence ordering.
+- terminal reason;
+- monotonic evidence version.
 
-The invariant is:
+Invariant:
 
 `requested_quantity = cumulative_filled_quantity + remaining_quantity`
 
 within the configured quantity tolerance.
 
-### 2. Target-to-Order Reconciliation
+### Target-to-order reconciliation
 
-Add `TargetOrderReconciler` under `trade_rl/simulation/order_reconciliation.py`.
+Create `trade_rl/simulation/order_reconciliation.py`.
 
-At each decision point:
+At each decision:
 
-1. Convert target weights into desired quantities using decision equity and the next eligible reference price.
-2. Calculate the desired net delta against current holdings.
-3. Include the signed remaining quantity of all active orders when computing outstanding exposure.
-4. Cancel active orders that no longer move the book toward the latest target.
-5. Create replacement orders only for the residual delta required by the latest target.
+1. Use decision-time equity and the current causally available price to derive desired quantities.
+2. Compare desired quantities with current holdings plus active signed residual quantities.
+3. Cancel active orders that no longer move exposure toward the latest target.
+4. Submit only the residual delta still required.
+5. Link replacements to cancelled order IDs.
 
-The reconciler must prevent double counting. A partially filled order and its replacement must never both represent the same residual exposure.
+Default behavior is cancel-and-replace per symbol. A partial fill and its replacement may not both represent the same residual exposure.
 
-Default behavior is cancel-and-replace per symbol when a new decision target arrives. The cancelled order retains immutable evidence and the replacement receives a new deterministic order ID linked by `replaces_order_id`.
+### Bar-path model
 
-### 3. Bar Path Model
+Create `trade_rl/simulation/bar_path.py`.
 
-Add `trade_rl/simulation/bar_path.py`.
+A path is an ordered sequence beginning at open and ending at close. It is recorded as an assumption.
 
-A bar path is represented as an ordered sequence of price points beginning at open and ending at close. It is an execution assumption, not a reconstructed fact.
+`optimistic` chooses the ordering favorable to the evaluated order and is sensitivity-only.
 
-#### `optimistic`
+`neutral` is order independent:
 
-Choose the extreme ordering that is most favorable to the order being evaluated. This mode is sensitivity-only and cannot support model promotion.
-
-#### `neutral`
-
-Use a deterministic order-independent path:
-
-- if the low is closer to open than the high, use `open -> low -> high -> close`;
+- use `open -> low -> high -> close` when low is closer to open;
 - otherwise use `open -> high -> low -> close`;
-- ties use `open -> low -> high -> close`.
+- ties use low first.
 
-This avoids using order direction to choose the path.
+`conservative` delays favorable limit touches behind adverse movement and applies adverse post-trigger movement to stops.
 
-#### `conservative`
+One path is selected per symbol and bar. The engine may not choose a separate favorable or adverse path for every order. When active directions conflict, use the neutral path and record `mixed_direction_fallback`.
 
-Choose the extreme ordering that is least favorable to the order:
+### Trigger and gap rules
 
-- buy limit: favorable downward touch is delayed behind the adverse high;
-- sell limit: favorable upward touch is delayed behind the adverse low;
-- buy stop: upward trigger is followed by the most adverse reachable price before close;
-- sell stop: downward trigger is followed by the most adverse reachable price before close.
+Market:
 
-For multiple active orders in one symbol, path selection must not be independently optimized for each order. The engine derives one conservative path per symbol and bar from the aggregate active order directions. When opposing orders coexist, the fixed neutral path is used and the evidence records `mixed_direction_fallback`.
+- first eligible processing begins at the bar open;
+- fill remains subject to admission, capacity, rounding, participation, and cost.
 
-### 4. Trigger and Gap Rules
+Buy limit:
 
-#### Market
+- open at or below limit: executable at open and priced at open;
+- otherwise executable only when the selected path reaches the limit;
+- price may not exceed the limit after adverse tick rounding.
 
-A market order fills at the first eligible bar open, subject to rejection, tradability, capacity, rounding, and participation constraints.
+Sell limit:
 
-#### Buy limit
+- open at or above limit: executable at open and priced at open;
+- otherwise executable only when the selected path reaches the limit;
+- price may not fall below the limit after rounding.
 
-- If open is at or below the limit, execution begins at open.
-- Otherwise, the order becomes executable only when the selected path reaches the limit.
-- The execution price is no better than the limit and is rounded adversely according to market rules.
+Buy stop-market:
 
-#### Sell limit
+- open at or above stop: trigger at open and execute as an adverse market fill;
+- otherwise trigger when the path reaches stop;
+- execution uses a market-style adverse price bounded by the modeled reachable path and configured impact.
 
-- If open is at or above the limit, execution begins at open.
-- Otherwise, the order becomes executable only when the selected path reaches the limit.
-- The execution price is no better than the limit and is rounded adversely.
+Sell stop-market is symmetric.
 
-#### Buy stop-market
+A triggered stop remains triggered across later bars until terminal.
 
-- If open is at or above the stop, trigger at open and execute at open plus configured adverse market impact.
-- Otherwise, trigger when the path reaches the stop.
-- After triggering, execution uses a market-style adverse price bounded by reachable path prices and configured slippage.
+### Trigger position and available volume
 
-#### Sell stop-market
+Capacity uses `dataset.volume[processing_index]`.
 
-- If open is at or below the stop, trigger at open and execute at open minus configured adverse market impact.
-- Otherwise, trigger when the path reaches the stop.
-- After triggering, execution uses a market-style adverse price bounded by reachable path prices and configured slippage.
-
-A stop-market order remains triggered across later bars until filled, cancelled, rejected, or expired.
-
-### 5. Available Volume by Trigger Position
-
-Capacity must use `dataset.volume[processing_index]`, not the previous bar's volume.
-
-Available volume is reduced according to when the order becomes executable in the selected path.
-
-Default deterministic fractions:
+Default available-volume fractions:
 
 - executable at open: `1.00`;
-- executable on first extreme segment: `0.50`;
-- executable on second extreme segment: `0.25`;
-- executable only at close: `0.00`.
+- first extreme segment: `0.50`;
+- second extreme segment: `0.25`;
+- close only: `0.00`.
 
-The fractions are configurable but must be monotonic, finite, and within `[0, 1]`. Final promotion uses the default conservative fractions unless a stricter profile is selected.
+Fractions are configurable but must be finite, monotonic, and within `[0, 1]`. Final promotion uses these conservative defaults or stricter values.
 
-For multiple orders competing for the same symbol and bar, the symbol-level capacity is allocated in deterministic order:
+Orders sharing a symbol and bar consume one symbol-level capacity pool in deterministic priority:
 
-1. previously triggered stop-market residuals;
-2. market orders;
-3. newly triggered stop-market orders;
-4. older limit orders;
-5. newer limit orders.
+1. previously triggered stop residuals;
+2. market instructions;
+3. newly triggered stops;
+4. older limits;
+5. newer limits.
 
-Within a class, sort by eligible index and then order ID. This is not an exchange queue model; it is a stable conservative allocation rule.
+Within a class, sort by eligible index and order ID. This is an explicit allocation convention, not a claim about exchange queue priority.
 
-### 6. Liquidity and Partial Fills
+### Liquidity allocator
 
-Add `LiquidityAllocator` under `trade_rl/simulation/liquidity.py`.
+Create `trade_rl/simulation/liquidity.py`.
 
 For each symbol and processing bar:
 
-1. Convert current-bar volume to notional using the candidate execution price and dataset contract rules.
-2. Apply dataset and configured maximum participation rates.
-3. Multiply by the trigger-position available-volume fraction.
-4. Subtract capacity already consumed by higher-priority orders in the same symbol and bar.
-5. Fill no more than the order's remaining notional.
-6. Convert filled notional to quantity and apply lot-size rounding.
-7. Recompute exact notional from the rounded quantity.
+1. Convert current-bar volume to notional with the candidate execution price and contract rules.
+2. Apply dataset and configured participation limits.
+3. Apply the trigger-position volume fraction.
+4. Subtract capacity consumed by higher-priority orders.
+5. Cap the fill at remaining order notional.
+6. Convert to quantity and apply lot-size rounding.
+7. Recompute exact notional from rounded quantity.
 
-If the rounded fill falls below minimum notional, no fill occurs and the evidence records `below_minimum_notional_after_rounding`.
+If the rounded result falls below minimum notional, record a no-fill reason. Residual quantity remains pending for a later bar when time in force permits.
 
-Residual quantity remains on the `PendingOrder`. It is reevaluated on future bars until terminal.
+The allocator must prove that total filled notional never exceeds the symbol-level capacity pool.
 
-### 7. Deterministic Rejection
+### Admission and rejection
 
-Add an `OrderAdmissionPolicy` that evaluates rejection before capacity allocation.
+Create `OrderAdmissionPolicy`.
 
-Required rejection reasons include:
+Required deterministic rejection reasons:
 
-- asset inactive;
-- market not tradable;
-- buy or sell direction disabled;
-- borrow unavailable for incremental short exposure;
+- inactive asset;
+- non-tradable market;
+- disabled buy or sell direction;
+- unavailable borrow for incremental short exposure;
 - invalid tick, lot, or minimum-notional rule;
-- order quantity becomes zero after rounding;
-- insufficient leverage or margin under configured pre-trade checks;
-- order expired before first eligibility;
+- zero quantity after rounding;
+- failed pre-trade leverage or margin check;
+- expired before first eligibility;
+- identity mismatch;
 - invalid state transition.
 
-Random rejection is out of scope for the initial implementation. A later sensitivity overlay may introduce seeded stochastic rejection without changing the order state contract.
+A normal inability to fill is represented as no-fill, rejection, expiry, or cancellation evidence rather than an exception.
 
-### 8. Time in Force and Interval Boundaries
+Seeded stochastic rejection is deferred to a later sensitivity overlay.
 
-- `ioc`: after the first eligible processing attempt, any residual expires.
-- `day`: expires before processing a bar whose index is greater than the explicit expiry index.
-- `gtc`: remains active across bars and across calls only when an `OrderBookState` is supplied by the caller.
+### Time in force and state persistence
 
-The existing `execute_interval` compatibility path is self-contained. At interval end, active orders are cancelled with `interval_end` unless the caller uses the new stateful API.
+- IOC expires residual quantity after its first eligible processing attempt.
+- Day expires before processing an index later than its explicit expiry index.
+- GTC persists only through the stateful execution API.
 
-The new stateful API returns both `ExecutionResult` and `OrderBookState`, allowing the RL environment to carry pending orders between decisions.
+The compatibility `execute_interval` path remains self-contained and cancels active residuals at interval end with reason `interval_end`.
 
-### 9. Stateful Execution API
+The RL environment uses the stateful API and carries pending orders between decisions.
+
+### Stateful API
 
 Add:
 
@@ -312,208 +268,122 @@ execute_orders(
 ) -> StatefulExecutionResult
 ```
 
-`StatefulExecutionResult` includes:
+The result contains:
 
 - updated `BookState`;
 - updated `OrderBookState`;
 - interval accounting metrics;
-- order events;
-- symbol-level capacity evidence;
+- ordered `OrderEvent` evidence;
+- symbol capacity evidence;
 - execution-policy digest;
 - selected path mode;
 - exact processed range.
 
-The existing `execute_interval(book, target, ...)` remains as an adapter during migration. It creates intents through the reconciler, executes them through the new engine, and cancels residual orders at interval end. Once all maintained callers use stateful execution, the adapter may be deprecated in a separate change.
+The existing `execute_interval(book, target, ...)` becomes an adapter. It converts targets to intents, executes through the new engine, and cancels residual orders at interval end. Deprecation is a separate future change after maintained callers migrate.
 
-### 10. Accounting Boundary
+### Accounting boundary
 
-`BookState` remains responsible for:
+`BookState` remains authoritative for cash, quantities, valuation, fees, funding, borrow, dividends, cash interest, splits, delisting settlement, margin, and economic termination.
 
-- cash;
-- quantities;
-- position values;
-- portfolio value;
-- fees and execution cost charging;
-- funding;
-- borrow cost;
-- dividends;
-- cash interest;
-- splits;
-- delisting settlement;
-- margin state and economic termination.
+The order simulator supplies only rounded quantity deltas, fill prices, costs, and evidence. It does not duplicate accounting equations.
 
-The order simulator supplies only exact rounded quantity deltas, fill prices, costs, and evidence. It must not reimplement portfolio accounting.
+The independent P0 accounting oracle remains the verification authority.
 
-The independent accounting oracle introduced in P0 remains the verification authority for economic state changes.
+### Evidence
 
-### 11. Evidence
+Immutable `OrderEvent` records include:
 
-Add immutable `OrderEvent` records with:
-
-- schema version;
-- event sequence;
+- schema version and event sequence;
 - order ID and replacement linkage;
-- symbol;
-- event type;
+- symbol and event type;
 - processing index and timestamp;
-- prior and new status;
+- previous and new status;
 - requested, remaining, and filled quantities;
-- execution price and notional when applicable;
+- execution price and notional;
 - capacity before and after allocation;
 - participation rate;
 - trigger segment and available-volume fraction;
-- rejection, cancellation, or expiry reason;
-- bar-path mode and path points;
-- execution-policy digest;
-- dataset ID.
+- rejection, cancellation, expiry, or no-fill reason;
+- path mode and path points;
+- execution-policy digest and dataset ID.
 
-`ExecutionResult` gains aggregate counts for submitted, rejected, expired, cancelled, partial, and full fills. Detailed events are returned separately to avoid making the summary object excessively large.
+Events are deterministically ordered and canonically serializable.
 
-Evidence ordering must be deterministic and serializable to canonical JSON.
+`ExecutionResult` gains aggregate counts for submitted, rejected, expired, cancelled, partial, and complete fills. Detailed events remain separate from the compact summary.
 
-### 12. Promotion Gate
+### Promotion gate
 
-Selected-final, sealed-test, Serving package, and release evidence must reject results unless:
+Selected-final, sealed-test, Serving package, and release evidence must reject execution results unless:
 
-- path mode is `conservative`;
-- current-bar volume capacity is enabled;
+- path mode is conservative;
+- processing-bar volume capacity is enabled;
 - partial-fill carry is enabled;
 - order evidence is complete;
 - execution-policy digest matches the experiment plan;
-- no optimistic-only result is used as primary evidence.
+- optimistic-only results are not used as primary evidence.
 
-Neutral and optimistic modes remain available for sensitivity analysis and development diagnostics.
+Neutral and optimistic modes remain development and sensitivity tools.
 
-### 13. Error Handling
+## Error Handling
 
-The engine raises explicit domain errors for:
+Raise explicit domain errors for invalid construction, impossible transitions, duplicate active IDs, inconsistent fill arithmetic, directionally negative residuals, non-finite values, capacity over-allocation, dataset-range violations, policy digest mismatch, and unsupported legacy combinations.
 
-- invalid order construction;
-- impossible state transitions;
-- duplicate active order IDs;
-- inconsistent fill arithmetic;
-- negative remaining quantity in order direction;
-- non-finite prices, quantities, costs, or capacity;
-- capacity over-allocation;
-- execution outside dataset bounds;
-- policy digest mismatch;
-- unsupported legacy configuration combinations.
+Economic non-fill conditions produce evidence and continue safely.
 
-Economic inability to fill is not an exception. It produces a valid no-fill, rejection, expiry, or cancellation event.
+## Backward Compatibility
 
-### 14. Backward Compatibility
+Temporarily preserve `ExecutionCostConfig.order_type` and `limit_offset_rate` through the target adapter:
 
-The existing `ExecutionCostConfig.order_type` and `limit_offset_rate` remain temporarily supported by the target adapter.
+- `market` creates IOC market children after configured latency;
+- `limit` creates interval-expiring limit instructions using the configured offset.
 
-Mapping:
+New manifest and report fields are versioned additions. Maintained final-evaluation recipes explicitly select conservative stateful execution instead of relying on defaults.
 
-- `market` creates IOC market intents after configured latency;
-- `limit` creates day-style limit intents using the existing offset and interval end as expiry.
-
-New configuration fields must have defaults preserving executable behavior, but maintained final-evaluation recipes will explicitly select conservative stateful execution.
-
-Manifest and report schemas receive versioned additions rather than silent semantic changes.
-
-### 15. Testing Strategy
+## Testing Strategy
 
 Implementation is test-driven.
 
-#### Domain tests
+Domain tests cover construction, state transitions, invariants, replacement linkage, deterministic IDs, and canonical serialization.
 
-- construction validation for every order type and TIF;
-- all valid and invalid state transitions;
-- invariant preservation after partial fills and replacements;
-- deterministic order IDs and canonical evidence serialization.
+Path tests cover neutral permutations, conservative buy and sell limits, conservative stops, mixed-direction fallback, and open/first-segment/second-segment/close triggers.
 
-#### Bar-path tests
+Liquidity tests prove use of processing-bar volume, all trigger fractions, shared capacity without over-allocation, lot and minimum-notional effects, residual carry, and deterministic priority.
 
-- all neutral path permutations;
-- conservative buy/sell limit paths;
-- conservative buy/sell stop paths;
-- mixed-direction fallback;
-- open gap, first-segment, second-segment, and close-only triggers.
+Lifecycle tests cover latency, IOC expiry, day expiry, GTC persistence, cancel-and-replace, stop trigger persistence, and interval-end cancellation.
 
-#### Liquidity tests
+Price tests cover favorable and adverse gaps, stop gaps, adverse tick rounding, limit protection, and stop-market reachable-price bounds.
 
-- processing-bar volume is used rather than prior-bar volume;
-- trigger fractions 1.00, 0.50, 0.25, and 0.00;
-- capacity shared across multiple orders without over-allocation;
-- lot-size and minimum-notional effects;
-- residual quantity carried across bars;
-- deterministic priority ordering.
+Accounting integration compares every fill path with the independent oracle and preserves fees, splits, delisting, funding, borrow, margin, equity, and exact log reward.
 
-#### Lifecycle tests
+Environment integration proves pending-order observations are causal, Training-Serving parity includes order state, changed targets cannot double-submit residual exposure, and replay is deterministic.
 
-- latency wait to eligibility;
-- IOC residual expiry;
-- day expiry;
-- GTC persistence in the stateful API;
-- cancel-and-replace after a changed target;
-- stop trigger persistence;
-- interval-end cancellation in the compatibility adapter.
+Promotion tests prove optimistic evidence cannot promote a model and incomplete evidence fails closed.
 
-#### Gap and price tests
-
-- favorable and adverse limit gaps;
-- stop gaps through the trigger;
-- adverse tick rounding;
-- execution price never violates limit protection;
-- stop-market price remains within the modeled reachable path plus configured market impact.
-
-#### Accounting integration
-
-- every fill is checked against the independent accounting oracle;
-- fees, partial fills, splits, delisting, funding, borrow, and margin termination remain correct;
-- exact log reward remains consistent with final equity.
-
-#### Environment integration
-
-- pending-order state appears in observations without future information;
-- Training–Serving parity includes pending orders and previous fills;
-- target changes cannot double-submit residual exposure;
-- deterministic replay produces identical actions, events, and rewards.
-
-#### Sensitivity and promotion
-
-- optimistic performance cannot promote a model;
-- conservative performance is primary evidence;
-- fee, spread, slippage, capacity, delay, path, and TIF sensitivity are identity-bound;
-- incomplete order evidence fails closed.
-
-#### Full verification
-
-- `ruff check .`;
-- `ruff format --check .`;
-- `mypy .`;
-- full `pytest -q` with branch coverage;
-- PostgreSQL integration where order evidence is persisted;
-- research-to-serving E2E;
-- Docker training-image build and non-root probe.
+Full verification includes Ruff, format, `mypy .`, full pytest with branch coverage, PostgreSQL evidence persistence, research-to-serving E2E, Docker training-image build, and non-root probe.
 
 ## Migration Sequence
 
-1. Add order domain types and state-transition tests.
+1. Add domain types and transition tests.
 2. Add bar-path and trigger engine.
-3. Add current-bar liquidity allocator and partial-fill carry.
-4. Add admission, rejection, expiry, and cancellation rules.
-5. Add stateful execution API while retaining the old adapter.
+3. Add current-bar liquidity allocation and partial-fill carry.
+4. Add admission, rejection, expiry, and cancellation.
+5. Add stateful API while retaining the adapter.
 6. Migrate `ResidualMarketEnv` to carry `OrderBookState`.
-7. Extend observation parity and evidence schemas.
-8. Add conservative promotion requirements.
-9. Run independent oracle, sensitivity, full CI, PostgreSQL, Serving, and Docker verification.
-10. Run a small deterministic multi-seed smoke before any full-scale training.
+7. Extend observations, parity, manifests, and evidence.
+8. Enforce conservative promotion.
+9. Run oracle, sensitivity, full CI, PostgreSQL, Serving, and Docker verification.
+10. Run a deterministic small multi-seed smoke before full-scale training.
 
 ## Success Criteria
 
-The design is complete when all of the following hold:
-
-- no execution path uses preceding-bar volume for a fill occurring in the processing bar;
-- all residual exposure is represented by explicit pending orders;
-- partial fills persist correctly without double submission;
-- market, limit, and stop-market gap rules are deterministic and tested;
-- bar-path assumptions and available-volume fractions are present in evidence;
-- conservative mode is required for promotion;
-- existing accounting and reward invariants remain unchanged;
-- Training–Serving parity includes pending-order state;
-- full static, unit, integration, E2E, PostgreSQL, and Docker verification passes on one exact head SHA;
-- a smoke training run completes without order-state divergence or nondeterminism.
+- No fill uses preceding-bar volume for processing-bar capacity.
+- Submitted quantity is fixed using only decision-time information.
+- All residual exposure is represented by pending orders.
+- Partial fills persist without duplicate submission.
+- Market, limit, and stop gap rules are deterministic and tested.
+- Path assumptions and volume fractions appear in evidence.
+- Conservative mode is required for promotion.
+- Accounting and reward invariants remain unchanged.
+- Training-Serving parity includes pending-order state.
+- One exact head passes static, unit, integration, E2E, PostgreSQL, and Docker verification.
+- A smoke training run completes without state divergence or nondeterminism.

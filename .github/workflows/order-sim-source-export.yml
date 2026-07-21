@@ -34,12 +34,14 @@ jobs:
             git apply --check "${RUNNER_TEMP}/${patch_name}.patch"
             git apply "${RUNNER_TEMP}/${patch_name}.patch"
           done
+          git apply --check .github/order-sim-staging/task7-mypy-fix.patch
+          git apply .github/order-sim-staging/task7-mypy-fix.patch
 
       - name: Format Task 7 source
         shell: bash
         run: |
           set -euo pipefail
-          uv sync --extra dev --extra train-sb3 --frozen
+          uv sync --extra dev --extra train-sb3 --extra studio --frozen
           files=(
             trade_rl/evaluation/execution_promotion.py
             trade_rl/simulation/execution.py

@@ -22,6 +22,7 @@ from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.evaluation.walk_forward.sealed_test import (
     SealedTestAccessRecord,
     SealedTestLedger,
+    SealedTestLedgerProtocol,
 )
 from trade_rl.evaluation.walk_forward.stitching import FoldOOSResult
 
@@ -484,11 +485,12 @@ class ConcreteFoldRunner:
         config: FoldExecutionConfig,
         trainer: CandidateTrainer,
         evaluator: CandidateEvaluator,
+        sealed_test_ledger: SealedTestLedgerProtocol | None = None,
     ) -> None:
         self.config = config
         self.trainer = trainer
         self.evaluator = evaluator
-        self._sealed_test_ledger = SealedTestLedger()
+        self._sealed_test_ledger = sealed_test_ledger or SealedTestLedger()
 
     @staticmethod
     def _require_range_length(

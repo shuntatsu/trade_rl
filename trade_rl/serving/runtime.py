@@ -17,7 +17,7 @@ from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.attestation import ReleaseAttestation
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.normalization import ObservationNormalizer
-from trade_rl.rl.observations import OBSERVATION_SCHEMA
+from trade_rl.rl.observations import OBSERVATION_SCHEMA, PolicyObservationSnapshot
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 from trade_rl.serving.state import ServingStateGuard, ServingStateSnapshot
@@ -435,3 +435,68 @@ class ServingRuntime:
         ):
             raise ValueError("policy output violates the residual action schema")
         return raw.copy()
+
+    def predict_from_observation_snapshot(
+        self,
+        dataset: Any,
+        observation_snapshot: PolicyObservationSnapshot,
+    ) -> np.ndarray:
+        """Predict from an immutable state exported by the training environment."""
+
+        observation_snapshot.require_matches_dataset(dataset)
+        with self._lock:
+            policy = self._policy
+            snapshot = self._snapshot
+            normalizer = self._normalizer
+        if policy is None or snapshot is None:
+            raise RuntimeError("serving runtime has no active policy")
+        raw_observation = observation_snapshot.raw_observation
+        expected = (
+            raw_observation.astype(np.float32, copy=True)
+            if normalizer is None
+            else normalizer.transform(raw_observation)
+        )
+        if not np.allclose(
+            expected,
+            observation_snapshot.normalized_observation,
+            rtol=0.0,
+            atol=1e-7,
+        ):
+            raise ValueError("serving normalized observation parity mismatch")
+        state = ServingStateSnapshot.create(
+            dataset_id=observation_snapshot.dataset_id,
+            decision_index=observation_snapshot.index,
+            portfolio_state=observation_snapshot.hybrid_book_state,
+            pending_target=observation_snapshot.pending_target,
+            observation_digest=ServingStateSnapshot.observation_digest_for(
+                raw_observation
+            ),
+        )
+        with self._state_lock:
+            self._state_guard.require_fresh(state)
+            predictor = getattr(policy, "predict_from_dataset", None)
+            if callable(predictor):
+                action = np.asarray(
+                    predictor(
+                        dataset,
+                        index=observation_snapshot.index,
+                        current_flat=raw_observation,
+                    ),
+                    dtype=np.float32,
+                ).reshape(-1)
+            else:
+                action = self._predict_action(
+                    policy,
+                    snapshot,
+                    normalizer,
+                    raw_observation,
+                )
+            self._state_guard.accept(state)
+        if (
+            action.shape != (snapshot.action_size,)
+            or not np.isfinite(action).all()
+            or np.any(action < -1.0)
+            or np.any(action > 1.0)
+        ):
+            raise ValueError("policy output violates the residual action schema")
+        return action.copy()

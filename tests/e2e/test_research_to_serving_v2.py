@@ -63,7 +63,7 @@ def _dataset():
         funding_rate=np.zeros(n),
         tradable=np.ones(n, dtype=np.bool_),
     )
-    return MarketDatasetBuilder(
+    dataset = MarketDatasetBuilder(
         MarketBuildConfig(
             base_timeframe="1h",
             features=(FeatureSpec(name="ret", kind=FeatureKind.LOG_RETURN),),
@@ -76,6 +76,23 @@ def _dataset():
                 listed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
             ),
         ),
+    )
+    return dataset.with_content_identity(
+        {
+            "metadata_evidence": {
+                "authentication": "ed25519",
+                "coverage": {
+                    "application": "effective-dated-full-interval",
+                    "end_time": "2026-01-03T16:00:00+00:00",
+                    "start_time": "2026-01-01T00:00:00+00:00",
+                },
+                "limitations": [],
+                "mode": "historical_signed",
+                "point_in_time": True,
+                "source_payload_digest": "6" * 64,
+            },
+            "source": "research-to-serving-e2e-v2",
+        }
     )
 
 
@@ -211,6 +228,11 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     )
     run_root = result.path
     ensemble = json.loads((run_root / "ensemble.json").read_text(encoding="utf-8"))
+    promotion = json.loads(
+        (run_root / "metadata-promotion.json").read_text(encoding="utf-8")
+    )
+    assert promotion["mode"] == "historical_signed"
+    assert promotion["promotable"] is True
     training_manifest = json.loads((run_root / "run.json").read_text(encoding="utf-8"))
     confirmation_start = datetime.fromisoformat(
         training_manifest["completed_at"].replace("Z", "+00:00")

@@ -11,6 +11,10 @@ from trade_rl.artifacts.run_manifest import (
     TrainingRunManifest,
     write_training_run_manifest,
 )
+from trade_rl.data.metadata_promotion import (
+    MetadataPromotionEvidence,
+    write_metadata_promotion_evidence,
+)
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.release.asymmetric import PublicVerificationKey
@@ -50,6 +54,20 @@ def _training_run(root: Path, *, run_kind: str) -> TrainingRunManifest:
     (root / "ensemble.json").write_text(json.dumps(ensemble), encoding="utf-8")
     (root / "policy-loader.json").write_text("{}", encoding="utf-8")
     (root / "policy.zip").write_bytes(b"policy")
+    write_metadata_promotion_evidence(
+        root / "metadata-promotion.json",
+        MetadataPromotionEvidence(
+            dataset_id="b" * 64,
+            mode="historical_signed",
+            metadata_evidence_digest="6" * 64,
+            source_payload_digest="7" * 64,
+            point_in_time=True,
+            authentication="ed25519",
+            coverage_application="effective-dated-full-interval",
+            limitations=(),
+            promotable=True,
+        ),
+    )
     selected = run_kind == "research_selected_final"
     manifest = TrainingRunManifest.build(
         root=root,
@@ -59,7 +77,12 @@ def _training_run(root: Path, *, run_kind: str) -> TrainingRunManifest:
         ensemble_digest="c" * 64,
         training_config_digest="e" * 64,
         provenance_digest="f" * 64,
-        artifact_paths=("ensemble.json", "policy-loader.json", "policy.zip"),
+        artifact_paths=(
+            "ensemble.json",
+            "metadata-promotion.json",
+            "policy-loader.json",
+            "policy.zip",
+        ),
         created_at=COMPLETED - timedelta(hours=1),
         completed_at=COMPLETED,
         run_kind=run_kind,

@@ -16,6 +16,7 @@ from trade_rl.catalog.contracts import (
     thaw_json,
 )
 from trade_rl.catalog.migrations import apply_migrations
+from trade_rl.evaluation.walk_forward.sealed_test import SealedTestAccessRecord
 
 _ARTIFACT_COLUMNS = """
 artifact_digest, artifact_kind, schema_version, dataset_id, cache_key_digest,
@@ -252,6 +253,39 @@ class PostgresArtifactCatalog:
                 )
                 rows = cursor.fetchall()
         return tuple(_record_from_row(row) for row in rows)
+
+    def reserve_sealed_test_access(self, record: SealedTestAccessRecord) -> None:
+        with self._connect() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO catalog_sealed_test_access (
+                            experiment_plan_digest, dataset_id, fold_index,
+                            test_start, test_stop, selected_configuration,
+                            selected_policy_digest, access_digest
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (
+                            experiment_plan_digest, dataset_id, fold_index
+                        ) DO NOTHING
+                        RETURNING access_digest
+                        """,
+                        (
+                            record.experiment_plan_digest,
+                            record.dataset_id,
+                            record.fold_index,
+                            record.test_range.start,
+                            record.test_range.stop,
+                            record.selected_configuration,
+                            record.selected_policy_digest,
+                            record.access_digest,
+                        ),
+                    )
+                    if cursor.fetchone() is None:
+                        raise ValueError(
+                            "sealed outer test was already opened for this plan"
+                        )
 
     def add_dependency(self, parent_digest: str, child_digest: str, role: str) -> None:
         ArtifactRegistration(

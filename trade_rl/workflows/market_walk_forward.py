@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,6 +19,8 @@ from trade_rl.artifacts.run_manifest import (
     write_training_run_manifest,
 )
 from trade_rl.artifacts.store import ArtifactStore
+from trade_rl.catalog.postgres import PostgresArtifactCatalog
+from trade_rl.catalog.sealed_test import PostgresSealedTestLedger
 from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.artifacts import MarketDatasetView
 from trade_rl.data.market import MarketDataset
@@ -1092,6 +1095,15 @@ def _validate_for_store(path: Path) -> bool:
     return True
 
 
+def _sealed_test_ledger() -> PostgresSealedTestLedger | None:
+    database_url = os.environ.get("TRADE_RL_DATABASE_URL")
+    if not database_url:
+        return None
+    catalog = PostgresArtifactCatalog(database_url)
+    catalog.migrate()
+    return PostgresSealedTestLedger(catalog)
+
+
 def execute_market_walk_forward(
     *,
     config_path: Path,
@@ -1154,6 +1166,7 @@ def execute_market_walk_forward(
             ),
             trainer=trainer,
             evaluator=evaluator,
+            sealed_test_ledger=_sealed_test_ledger(),
         )
         result: WalkForwardExecutionResult = execute_walk_forward(
             config.workflow,

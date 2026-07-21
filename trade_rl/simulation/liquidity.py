@@ -134,6 +134,7 @@ def allocate_symbol_capacity(
     requests: Sequence[LiquidityRequest],
     *,
     processing_volume: float,
+    processing_market_notional: float | None = None,
     price: float,
     contract_multiplier: float,
     participation_limit: float,
@@ -154,6 +155,13 @@ def allocate_symbol_capacity(
             raise LiquidityAllocationError(f"{name} must be finite")
     if processing_volume < 0.0:
         raise LiquidityAllocationError("processing_volume must be non-negative")
+    if processing_market_notional is not None and (
+        not math.isfinite(processing_market_notional)
+        or processing_market_notional < 0.0
+    ):
+        raise LiquidityAllocationError(
+            "processing_market_notional must be finite and non-negative"
+        )
     if price <= 0.0:
         raise LiquidityAllocationError("price must be positive")
     if contract_multiplier <= 0.0:
@@ -172,7 +180,11 @@ def allocate_symbol_capacity(
             "duplicate liquidity request order IDs are not allowed"
         )
 
-    market_notional = processing_volume * price * contract_multiplier
+    market_notional = (
+        processing_volume * price * contract_multiplier
+        if processing_market_notional is None
+        else processing_market_notional
+    )
     initial_capacity = market_notional * participation_limit
     remaining_capacity = initial_capacity
     allocations: list[LiquidityAllocation] = []

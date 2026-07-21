@@ -52,6 +52,16 @@ def _number(value: object, *, field: str) -> float:
     return resolved
 
 
+def _total_return(score: float) -> float:
+    try:
+        value = math.expm1(score)
+    except OverflowError as error:
+        raise ArtifactInvalid("checkpoint evaluation return overflowed") from error
+    if not math.isfinite(value) or value <= -1.0:
+        raise ArtifactInvalid("checkpoint evaluation return is invalid")
+    return value
+
+
 def _digest(value: object, *, field: str) -> str:
     if not isinstance(value, str) or _DIGEST.fullmatch(value) is None:
         raise ArtifactInvalid(f"checkpoint evaluation {field} is invalid")
@@ -139,27 +149,32 @@ class StudioCheckpointEvaluationReader:
         finalists = payload.get("seed_finalists")
         if not isinstance(candidates, list) or not isinstance(finalists, list):
             raise ArtifactInvalid("checkpoint evaluation candidates are invalid")
-        finalist_keys: set[tuple[int, str, str]] = set()
+        finalist_scores: dict[tuple[int, str, str], float] = {}
         for raw_finalist in finalists:
             finalist = _mapping(raw_finalist, field="finalist")
-            finalist_keys.add(
-                (
-                    _integer(finalist.get("seed"), field="finalist seed"),
-                    _digest(
-                        finalist.get("policy_digest"),
-                        field="finalist policy digest",
-                    ),
-                    _digest(
-                        finalist.get("checkpoint_evaluation_digest"),
-                        field="finalist evaluation digest",
-                    ),
-                )
+            key = (
+                _integer(finalist.get("seed"), field="finalist seed"),
+                _digest(
+                    finalist.get("policy_digest"),
+                    field="finalist policy digest",
+                ),
+                _digest(
+                    finalist.get("checkpoint_evaluation_digest"),
+                    field="finalist evaluation digest",
+                ),
+            )
+            if key in finalist_scores:
+                raise ArtifactInvalid("checkpoint finalist identity is duplicated")
+            finalist_scores[key] = _number(
+                finalist.get("checkpoint_score"),
+                field="finalist score",
             )
         configuration = path.parent.name
         if not configuration:
             raise ArtifactInvalid("checkpoint configuration is unavailable")
         source = self._source(path)
         items: list[CheckpointEvaluationItemResponse] = []
+        candidate_keys: set[tuple[int, str, str]] = set()
         for raw_candidate in candidates:
             candidate = _mapping(raw_candidate, field="candidate")
             seed = _integer(candidate.get("seed"), field="seed")
@@ -170,6 +185,18 @@ class StudioCheckpointEvaluationReader:
                 candidate.get("evaluation_digest"), field="evaluation digest"
             )
             score = _number(candidate.get("score"), field="score")
+            key = (seed, policy_digest, evaluation_digest)
+            if key in candidate_keys:
+                raise ArtifactInvalid("checkpoint candidate identity is duplicated")
+            candidate_keys.add(key)
+            finalist_score = finalist_scores.get(key)
+            if finalist_score is not None and not math.isclose(
+                finalist_score,
+                score,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                raise ArtifactInvalid("checkpoint finalist score does not match candidate")
             items.append(
                 CheckpointEvaluationItemResponse(
                     configuration=configuration,
@@ -177,13 +204,14 @@ class StudioCheckpointEvaluationReader:
                     policy_digest=policy_digest,
                     evaluation_digest=evaluation_digest,
                     score=score,
-                    total_return=math.expm1(score),
-                    finalist=(seed, policy_digest, evaluation_digest)
-                    in finalist_keys,
+                    total_return=_total_return(score),
+                    finalist=key in finalist_scores,
                     checkpoint_range=checkpoint_range,
                     source=source,
                 )
             )
+        if not set(finalist_scores).issubset(candidate_keys):
+            raise ArtifactInvalid("checkpoint finalist is absent from candidates")
         return tuple(items)
 
     def inspect(self, job: JobSummary) -> CheckpointEvaluationsResponse:

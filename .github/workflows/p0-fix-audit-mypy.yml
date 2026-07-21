@@ -1,0 +1,85 @@
+name: P0 Fix Audit Mypy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply exact typing corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/run_training_capability_audit.py")
+          text = path.read_text(encoding="utf-8")
+          replacements = {
+              '        model = PPO.load(str(checkpoint), device="cpu")\n': '        ppo_model = PPO.load(str(checkpoint), device="cpu")\n',
+              '            "actor": _linear_widths(model.policy.mlp_extractor.policy_net),\n': '            "actor": _linear_widths(ppo_model.policy.mlp_extractor.policy_net),\n',
+              '            "critic": _linear_widths(model.policy.mlp_extractor.value_net),\n': '            "critic": _linear_widths(ppo_model.policy.mlp_extractor.value_net),\n',
+              '        model = SAC.load(str(checkpoint), device="cpu")\n': '        sac_model = SAC.load(str(checkpoint), device="cpu")\n',
+              '            "actor": _linear_widths(model.policy.actor.latent_pi),\n': '            "actor": _linear_widths(sac_model.policy.actor.latent_pi),\n',
+              '            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],\n': '            "critic": _linear_widths(sac_model.policy.critic.q_networks[0])[:-1],\n',
+              '        model = TD3.load(str(checkpoint), device="cpu")\n': '        td3_model = TD3.load(str(checkpoint), device="cpu")\n',
+              '            "actor": _linear_widths(model.policy.actor.mu)[:-1],\n': '            "actor": _linear_widths(td3_model.policy.actor.mu)[:-1],\n',
+              '        model = TQC.load(str(checkpoint), device="cpu")\n': '        tqc_model = TQC.load(str(checkpoint), device="cpu")\n',
+              '    report = {\n': '    report: dict[str, object] = {\n',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              expected = 2 if old == '            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],\n' else 1
+              if count != expected:
+                  raise SystemExit(f"unexpected replacement count {count} for {old!r}")
+              if expected == 2:
+                  text = text.replace(old, '            "critic": _linear_widths(sac_model.policy.critic.q_networks[0])[:-1],\n', 1)
+                  text = text.replace(old, '            "critic": _linear_widths(td3_model.policy.critic.q_networks[0])[:-1],\n', 1)
+              else:
+                  text = text.replace(old, new, 1)
+          old_tqc_actor = '            "actor": _linear_widths(model.policy.actor.latent_pi),\n'
+          if text.count(old_tqc_actor) != 1:
+              raise SystemExit("expected one remaining TQC actor reference")
+          text = text.replace(
+              old_tqc_actor,
+              '            "actor": _linear_widths(tqc_model.policy.actor.latent_pi),\n',
+              1,
+          )
+          old_tqc_critic = '            "critic": _linear_widths(model.policy.critic.q_networks[0])[:-1],\n'
+          if text.count(old_tqc_critic) != 1:
+              raise SystemExit("expected one remaining TQC critic reference")
+          text = text.replace(
+              old_tqc_critic,
+              '            "critic": _linear_widths(tqc_model.policy.critic.q_networks[0])[:-1],\n',
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
+          python3 -m compileall -q tools/run_training_capability_audit.py
+          git diff --check
+
+      - name: Publish typing fix
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/p0-fix-audit-mypy.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: type training capability audit models"
+          git push origin "HEAD:${HEAD_BRANCH}"

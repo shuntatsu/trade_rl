@@ -74,7 +74,7 @@ def test_maintained_docs_reference_serving_bundle_v5() -> None:
     ):
         text = path.read_text(encoding="utf-8").lower()
         assert "bundle v4" not in text, path
-        assert "bundle v5" in text, path
+        assert "bundle v5" in text or "bundle schema is **v5**" in text, path
 
 
 def test_quickstart_installs_training_dependencies_before_training() -> None:
@@ -101,7 +101,7 @@ def test_architecture_doc_matches_enforced_layer_order() -> None:
     documented_layers = tuple(
         line.strip().removeprefix("-> ")
         for line in documented_block.splitlines()
-        if line.strip()
+        if line.strip() and line.strip() != "text"
     )
 
     assert enforced_layers

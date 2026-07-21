@@ -71,7 +71,9 @@ def test_order_intent_rejects_noncausal_or_zero_inputs() -> None:
         _intent(decision_equity=float("nan"))
 
 
-def test_pending_order_preserves_quantity_identity_across_partial_and_full_fill() -> None:
+def test_pending_order_preserves_quantity_identity_across_partial_and_full_fill() -> (
+    None
+):
     pending = PendingOrder.from_intent(_intent())
     partial = pending.apply_fill(quantity=4.0, notional=396.0, processing_index=5)
 

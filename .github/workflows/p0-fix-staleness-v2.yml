@@ -28,13 +28,18 @@ jobs:
 
           path = Path("trade_rl/rl/observations.py")
           text = path.read_text(encoding="utf-8")
-          old = "_feature_staleness("
-          if text.count(old) != 2:
-              raise SystemExit(f"expected exactly two stale references, found {text.count(old)}")
-          path.write_text(
-              text.replace(old, "observation_feature_staleness("),
-              encoding="utf-8",
-          )
+          replacements = {
+              "= _feature_staleness(\n": "= observation_feature_staleness(\n",
+              "            _feature_staleness(dataset, index),": (
+                  "            observation_feature_staleness(dataset, index),"
+              ),
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one exact stale reference, found {count}: {old!r}")
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
           PY
           python3 -m compileall -q trade_rl/rl/observations.py
           git diff --check

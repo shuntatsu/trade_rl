@@ -15,6 +15,7 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -22,7 +23,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s\n' "${GITHUB_SHA}" > SOURCE_COMMIT_SHA
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git rev-parse HEAD > SOURCE_COMMIT_SHA
           git ls-files -z | sort -z | xargs -0 sha256sum > SOURCE_FILE_SHA256SUMS
           sha256sum SOURCE_FILE_SHA256SUMS | awk '{print $1}' > SOURCE_TREE_DIGEST
           sha256sum uv.lock | awk '{print $1}' > UV_LOCK_DIGEST

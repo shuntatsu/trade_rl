@@ -163,8 +163,14 @@ def create_app(
         "/api/studio/jobs/{job_id}/telemetry/status",
         response_model=TelemetryStatusResponse,
     )
-    def telemetry_status(job_id: str) -> TelemetryStatusResponse:
-        return telemetry_reader.status(resolved_supervisor.get_job(job_id))
+    def telemetry_status(
+        job_id: str,
+        seed: int | None = Query(default=None, ge=0),
+    ) -> TelemetryStatusResponse:
+        return telemetry_reader.status(
+            resolved_supervisor.get_job(job_id),
+            seed=seed,
+        )
 
     @app.get(
         "/api/studio/jobs/{job_id}/telemetry/events",
@@ -172,11 +178,13 @@ def create_app(
     )
     def telemetry_events(
         job_id: str,
+        seed: int | None = Query(default=None, ge=0),
         after_sequence: int = Query(default=0, ge=0),
         limit: int = Query(default=512, ge=1, le=2_000),
     ) -> TelemetryEventsResponse:
         return telemetry_reader.events(
             resolved_supervisor.get_job(job_id),
+            seed=seed,
             after_sequence=after_sequence,
             limit=limit,
         )

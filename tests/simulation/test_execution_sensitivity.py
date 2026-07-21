@@ -41,6 +41,16 @@ def _market(**overrides: object) -> MarketDataset:
     return MarketDataset(**values)
 
 
+def test_execution_rule_stress_rejects_empty_name() -> None:
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        ExecutionRuleStress(name="")
+
+
+def test_execution_rule_stress_rejects_non_boolean_rounding_flag() -> None:
+    with pytest.raises(ValueError, match="adverse_tick_rounding must be a boolean"):
+        ExecutionRuleStress(adverse_tick_rounding=1)  # type: ignore[arg-type]
+
+
 def test_execution_rule_stress_multiplies_point_in_time_rules_without_mutation() -> (
     None
 ):

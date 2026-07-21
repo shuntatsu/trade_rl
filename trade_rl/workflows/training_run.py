@@ -60,6 +60,14 @@ from trade_rl.rl.sequence_observations import (
 )
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution_promotion import (
+    EXECUTION_EVIDENCE_FILE_NAME,
+    ExecutionPromotionError,
+    execution_evidence_from_cost,
+    load_execution_evidence,
+    validate_execution_promotion,
+    write_execution_evidence,
+)
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,
@@ -690,6 +698,7 @@ def execute_training_run(
     selection_authorization_path: Path | None = None,
     selection_public_keys_path: Path | None = None,
     require_selection_authorization: bool = False,
+    execution_evidence_path: Path | None = None,
 ) -> TrainingRunResult:
     """Train, serialize, validate, and atomically publish one ensemble run."""
 
@@ -712,8 +721,33 @@ def execute_training_run(
         else "research_exploratory"
     )
     metadata_promotion = metadata_promotion_from_dataset(dataset)
+    expected_execution_policy_digest = (
+        config.environment.execution_cost.execution_policy_digest
+    )
+    if execution_evidence_path is None:
+        execution_evidence = execution_evidence_from_cost(
+            dataset_id=dataset.dataset_id,
+            cost=config.environment.execution_cost,
+        )
+    else:
+        execution_evidence = load_execution_evidence(execution_evidence_path)
+        if execution_evidence.dataset_id != dataset.dataset_id:
+            raise ValueError("execution evidence dataset identity mismatch")
+        if (
+            execution_evidence.execution_policy_digest
+            != expected_execution_policy_digest
+        ):
+            raise ValueError("execution evidence policy digest mismatch")
     if run_kind == "research_selected_final":
         metadata_promotion.require_promotable()
+        if execution_evidence_path is None:
+            raise ExecutionPromotionError(
+                "selected-final training requires explicit execution evidence"
+            )
+        validate_execution_promotion(
+            execution_evidence,
+            expected_policy_digest=expected_execution_policy_digest,
+        )
     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
@@ -732,6 +766,10 @@ def execute_training_run(
         write_metadata_promotion_evidence(
             stage / METADATA_PROMOTION_FILE_NAME,
             metadata_promotion,
+        )
+        write_execution_evidence(
+            stage / EXECUTION_EVIDENCE_FILE_NAME,
+            execution_evidence,
         )
         dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
         _write_json(stage / "training-config.json", config.digest_payload())

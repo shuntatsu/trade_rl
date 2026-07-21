@@ -229,6 +229,9 @@ def test_real_environment_observation_matches_serving_members_and_ensemble(
     np.testing.assert_allclose(snapshot.shadow_book_state, _book_vector(env.shadow))
     np.testing.assert_allclose(snapshot.previous_action, actions[-1])
     assert np.count_nonzero(snapshot.pending_target) > 0
+    assert snapshot.execution_policy_digest == env.execution_policy_digest
+    assert snapshot.pending_order_remaining.shape == (dataset.n_symbols,)
+    assert snapshot.pending_order_status.shape == (dataset.n_symbols,)
     np.testing.assert_allclose(
         snapshot.normalized_observation,
         normalizer.transform(snapshot.raw_observation),
@@ -255,6 +258,7 @@ def test_real_environment_observation_matches_serving_members_and_ensemble(
             action_names=env.action_names,
             action_spec_digest=env.action_spec_digest,
             normalizer_digest=normalizer.digest,
+            execution_policy_digest=env.execution_policy_digest,
         ),
     )
     runtime.activate(bundle.root)

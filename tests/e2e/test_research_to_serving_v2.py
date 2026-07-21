@@ -34,6 +34,10 @@ from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
+from trade_rl.simulation.execution_promotion import (
+    ExecutionEvidence,
+    write_execution_evidence,
+)
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
 from trade_rl.workflows.selection_authorization import (
     SelectionProposal,
@@ -214,6 +218,24 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     )
     selection_keys_path = tmp_path / "selection-keys.json"
     _key_store(selection_keys_path, selection_public)
+    execution_evidence_path = tmp_path / "execution-evidence.json"
+    execution_cost = config.environment.execution_cost
+    write_execution_evidence(
+        execution_evidence_path,
+        ExecutionEvidence(
+            dataset_id=dataset.dataset_id,
+            execution_policy_digest=execution_cost.execution_policy_digest,
+            path_mode=execution_cost.path_mode,
+            processing_bar_volume_capacity=(
+                execution_cost.processing_bar_volume_capacity
+            ),
+            partial_fill_carry=execution_cost.partial_fill_carry,
+            trigger_volume_fractions=execution_cost.trigger_volume_fractions,
+            order_event_count=1,
+            complete_order_evidence=True,
+            sensitivity_path_modes=("optimistic", "neutral", "conservative"),
+        ),
+    )
 
     result = execute_training_run(
         config_path=config_path,
@@ -225,6 +247,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         selection_authorization_path=authorization_path,
         selection_public_keys_path=selection_keys_path,
         require_selection_authorization=True,
+        execution_evidence_path=execution_evidence_path,
     )
     run_root = result.path
     ensemble = json.loads((run_root / "ensemble.json").read_text(encoding="utf-8"))
@@ -233,6 +256,11 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     )
     assert promotion["mode"] == "historical_signed"
     assert promotion["promotable"] is True
+    execution_promotion = json.loads(
+        (run_root / "execution-evidence.json").read_text(encoding="utf-8")
+    )
+    assert execution_promotion["path_mode"] == "conservative"
+    assert execution_promotion["complete_order_evidence"] is True
     training_manifest = json.loads((run_root / "run.json").read_text(encoding="utf-8"))
     confirmation_start = datetime.fromisoformat(
         training_manifest["completed_at"].replace("Z", "+00:00")

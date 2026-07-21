@@ -8,6 +8,7 @@ import pytest
 
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
+from trade_rl.simulation.execution_promotion import load_execution_evidence
 from trade_rl.workflows.training_run import execute_training_run
 
 
@@ -108,6 +109,10 @@ def test_execute_training_run_trains_serializes_and_publishes(tmp_path: Path) ->
     assert (published / "training-config.json").is_file()
     assert (published / "dataset-reference.json").is_file()
     assert (published / "policy-loader.json").is_file()
+    execution_evidence = load_execution_evidence(published / "execution-evidence.json")
+    assert execution_evidence.dataset_id == result.dataset_id
+    assert execution_evidence.complete_order_evidence is False
+    assert execution_evidence.order_event_count == 0
     environment = json.loads(
         (published / "environment.json").read_text(encoding="utf-8")
     )

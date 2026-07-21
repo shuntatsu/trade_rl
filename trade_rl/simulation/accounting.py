@@ -468,6 +468,11 @@ class BookState:
         self.returns_history.append(float(net_return))
         return float(net_return)
 
+    def refresh_drawdown(self) -> None:
+        """Refresh peak and drawdown after a causal mark change."""
+
+        self._update_drawdown()
+
     def _update_drawdown(self) -> None:
         value = max(self.portfolio_value, 0.0)
         self.peak_value = max(self.peak_value, value)

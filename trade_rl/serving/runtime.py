@@ -52,6 +52,7 @@ class RuntimeIdentityContract:
     normalizer_digest: str | None
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
+    execution_policy_digest: str | None = None
 
     def __post_init__(self) -> None:
         require_sha256(self.environment_digest, field="environment_digest")
@@ -64,6 +65,7 @@ class RuntimeIdentityContract:
             ("normalizer_digest", self.normalizer_digest),
             ("alpha_artifact_digest", self.alpha_artifact_digest),
             ("factor_artifact_digest", self.factor_artifact_digest),
+            ("execution_policy_digest", self.execution_policy_digest),
         ):
             if value is not None:
                 require_sha256(value, field=field_name)
@@ -444,6 +446,14 @@ class ServingRuntime:
         """Predict from an immutable state exported by the training environment."""
 
         observation_snapshot.require_matches_dataset(dataset)
+        contract = self.identity_contract
+        if (
+            contract is not None
+            and contract.execution_policy_digest is not None
+            and observation_snapshot.execution_policy_digest
+            != contract.execution_policy_digest
+        ):
+            raise ValueError("observation snapshot execution policy identity mismatch")
         with self._lock:
             policy = self._policy
             snapshot = self._snapshot

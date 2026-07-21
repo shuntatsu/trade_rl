@@ -5,6 +5,7 @@ import numpy as np
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
+    ORDER_OBSERVATION_WIDTH,
     build_observation,
     observation_layout,
     observation_passthrough_indices,
@@ -68,14 +69,14 @@ def observation() -> tuple[MarketDataset, np.ndarray]:
     return dataset, result
 
 
-def test_observation_v3_contains_factor_and_execution_market_contracts() -> None:
+def test_observation_v5_contains_factor_execution_and_order_contracts() -> None:
     dataset, result = observation()
     layout = observation_layout(dataset, action_size=4, n_factors=1)
     assert result.shape == (layout.size,)
     rows = result[: dataset.n_symbols * layout.per_symbol_width].reshape(
         dataset.n_symbols, layout.per_symbol_width
     )
-    assert rows[0, -1] > 0.0  # mark/index premium
+    assert rows[0, -ORDER_OBSERVATION_WIDTH - 1] > 0.0  # mark/index premium
 
 
 def test_normalizer_is_fitted_only_on_train_range_and_preserves_masks() -> None:

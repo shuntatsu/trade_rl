@@ -52,6 +52,7 @@ from trade_rl.rl.observations import (
     ObservationBuilder,
     ObservationExecutionState,
     ObservationInput,
+    PendingOrderObservationState,
     PolicyObservationSnapshot,
     book_state_vector,
     observation_availability_mask,
@@ -79,6 +80,9 @@ from trade_rl.simulation.execution import (
     ExecutionRuleStress,
     MarketExecutor,
 )
+from trade_rl.simulation.order_reconciliation import reconcile_target
+from trade_rl.simulation.orders import OrderBookState, OrderType, TimeInForce
+from trade_rl.simulation.stateful_execution import StatefulExecutionResult
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
 
 _LIQUIDATION_TOLERANCE = 1e-12
@@ -549,6 +553,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
         self._pending_hybrid_target: np.ndarray | None = None
         self._pending_shadow_target: np.ndarray | None = None
+        self._hybrid_order_book = OrderBookState.empty()
+        self._shadow_order_book = OrderBookState.empty()
         self._position_age = np.zeros(dataset.n_symbols, dtype=np.float64)
         self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
         self._action_diagnostics = ActionDiagnosticsAccumulator()
@@ -706,6 +712,18 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         return self._environment_digest
 
     @property
+    def execution_policy_digest(self) -> str:
+        return self.hybrid_executor.execution_policy_digest
+
+    @property
+    def hybrid_order_book(self) -> OrderBookState:
+        return self._hybrid_order_book
+
+    @property
+    def shadow_order_book(self) -> OrderBookState:
+        return self._shadow_order_book
+
+    @property
     def episode_bars(self) -> int:
         return self._nominal_episode_bars
 
@@ -791,6 +809,21 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
         return trends, alpha, self._factor_basis_at(self.current_index)
 
+    def _pending_order_observation_state(self) -> PendingOrderObservationState:
+        multipliers = self.hybrid.contract_multipliers
+        if multipliers is None:
+            raise RuntimeError("hybrid book is missing contract multipliers")
+        return PendingOrderObservationState.from_order_book(
+            self._hybrid_order_book,
+            n_symbols=self.dataset.n_symbols,
+            current_index=self.current_index,
+            reference_prices=self.dataset.resolved_array("mark_price")[
+                self.current_index
+            ],
+            contract_multipliers=multipliers,
+            portfolio_value=max(self.hybrid.portfolio_value, _LIQUIDATION_TOLERANCE),
+        )
+
     def _flat_observation_pair(self) -> tuple[np.ndarray, np.ndarray]:
         trends, alpha, factor_basis = self._market_inputs()
         raw = self.observation_builder.build(
@@ -811,6 +844,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                     self._drawdown(self.shadow)
                 ),
                 execution_state=self._execution_state,
+                pending_order_state=self._pending_order_observation_state(),
                 previous_action=self._previous_action,
                 action_size=self.action_spec.size,
                 finite_horizon=self.config.finite_horizon_observation,
@@ -830,6 +864,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             if self._pending_hybrid_target is None
             else self._pending_hybrid_target.copy()
         )
+        order_state = self._pending_order_observation_state()
         return PolicyObservationSnapshot(
             dataset_id=self.dataset.dataset_id,
             index=self.current_index,
@@ -844,6 +879,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             shadow_book_state=book_state_vector(self.shadow),
             pending_target=pending,
             previous_action=self._previous_action,
+            pending_order_remaining=order_state.remaining_notional_ratio,
+            pending_order_type=order_state.order_type_code,
+            pending_order_status=order_state.status_code,
+            pending_order_age_bars=order_state.age_bars,
+            pending_order_eligible_delay=order_state.eligible_delay_bars,
+            pending_order_triggered=order_state.triggered,
+            pending_order_expiry_distance=order_state.expiry_distance_bars,
+            execution_policy_digest=self.execution_policy_digest,
             raw_observation=raw,
             normalized_observation=current,
         )
@@ -1231,6 +1274,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
         self._pending_hybrid_target = None
         self._pending_shadow_target = None
+        self._hybrid_order_book = OrderBookState.empty()
+        self._shadow_order_book = OrderBookState.empty()
         self._position_age = np.zeros(self.dataset.n_symbols, dtype=np.float64)
         if mode == "partial_fill":
             raw_requested = self.trend_strategy.targets(self.dataset, start).base
@@ -1454,7 +1499,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self,
         *,
         requested_weights: np.ndarray,
-        result: ExecutionResult,
+        result: ExecutionResult | StatefulExecutionResult,
         previous_weights: np.ndarray,
     ) -> ObservationExecutionState:
         requested = np.asarray(requested_weights, dtype=np.float64).reshape(-1)
@@ -1496,6 +1541,52 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             participation=participation,
             execution_cost=cost,
             position_age=self._position_age.copy(),
+        )
+
+    def _execute_stateful_target(
+        self,
+        *,
+        executor: MarketExecutor,
+        book: BookState,
+        order_book: OrderBookState,
+        target: np.ndarray,
+        bars: int,
+        book_kind: str,
+    ) -> StatefulExecutionResult:
+        target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
+        target_identity = content_digest(
+            {
+                "book_kind": book_kind,
+                "dataset_id": self.dataset.dataset_id,
+                "decision_step_index": self._decision_step_index,
+                "submit_index": self.current_index,
+                "target": tuple(float(value) for value in target_vector),
+                "schema_version": "environment_order_target_v1",
+            }
+        )
+        reconciliation = reconcile_target(
+            dataset_id=self.dataset.dataset_id,
+            target_identity=target_identity,
+            execution_policy_digest=executor.execution_policy_digest,
+            target_weights=target_vector,
+            book=book,
+            order_book=order_book,
+            reference_prices=self.dataset.close[self.current_index],
+            decision_equity=max(book.portfolio_value, _LIQUIDATION_TOLERANCE),
+            submit_index=self.current_index,
+            latency_bars=self.config.execution_cost.order_latency_bars,
+            order_type=OrderType(self.config.execution_cost.order_type),
+            time_in_force=TimeInForce.GTC,
+            expiry_index=None,
+            limit_offset_rate=self.config.execution_cost.limit_offset_rate,
+            maximum_gross=self.config.execution_cost.max_leverage,
+        )
+        return executor.execute_orders(
+            book,
+            reconciliation.order_book,
+            reconciliation.new_intents,
+            start_index=self.current_index,
+            bars=bars,
         )
 
     def step(
@@ -1542,23 +1633,29 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         shadow_risk = self._constrain_target(executed_shadow_target, self.shadow)
         bars = self._decision_bar_count()
         previous_hybrid_weights = self.hybrid.weights.copy()
-        hybrid_execution = self.hybrid_executor.execute_interval(
-            self.hybrid,
-            hybrid_risk.weights,
-            start_index=self.current_index,
+        hybrid_execution = self._execute_stateful_target(
+            executor=self.hybrid_executor,
+            book=self.hybrid,
+            order_book=self._hybrid_order_book,
+            target=hybrid_risk.weights,
             bars=bars,
+            book_kind="hybrid",
         )
-        shadow_execution = self.shadow_executor.execute_interval(
-            self.shadow,
-            shadow_risk.weights,
-            start_index=self.current_index,
+        shadow_execution = self._execute_stateful_target(
+            executor=self.shadow_executor,
+            book=self.shadow,
+            order_book=self._shadow_order_book,
+            target=shadow_risk.weights,
             bars=bars,
+            book_kind="shadow",
         )
         if hybrid_execution.bars_advanced != shadow_execution.bars_advanced:
             raise RuntimeError("hybrid and shadow books advanced different bar counts")
 
         self.hybrid = hybrid_execution.book
         self.shadow = shadow_execution.book
+        self._hybrid_order_book = hybrid_execution.order_book
+        self._shadow_order_book = shadow_execution.order_book
         self.current_index = hybrid_execution.next_index
         self._decision_step_index += 1
         time_limit_reached = self.current_index >= self.end_index

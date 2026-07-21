@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { DataLabPage } from './pages/DataLabPage'
 import { EvidencePage } from './pages/EvidencePage'
 import { ExperimentsPage } from './pages/ExperimentsPage'
+import { LiveTrainingPage } from './pages/LiveTrainingPage'
 import { RunCenterPage } from './pages/RunCenterPage'
 import { ServingPage } from './pages/ServingPage'
 import { WorkspacePage } from './pages/WorkspacePage'
@@ -17,7 +18,7 @@ interface AppProps {
   initialOverview: StudioOverviewResult
 }
 
-const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experiments' | 'runs' | 'compare' | 'evidence' | 'serving'>, { title: string; description: string }> = {
+const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experiments' | 'runs' | 'live' | 'compare' | 'evidence' | 'serving'>, { title: string; description: string }> = {
   settings: { title: '設定', description: 'ローカルUIと実行環境の設定を管理します。' },
 }
 
@@ -43,6 +44,7 @@ export function App({ initialOverview }: AppProps) {
       {active === 'data' ? <DataLabPage /> : null}
       {active === 'experiments' ? <ExperimentsPage /> : null}
       {active === 'runs' ? <RunCenterPage /> : null}
+      {active === 'live' ? <LiveTrainingPage /> : null}
       {active === 'compare' ? <ComparePage /> : null}
       {active === 'evidence' ? <EvidencePage /> : null}
       {active === 'serving' ? <ServingPage /> : null}

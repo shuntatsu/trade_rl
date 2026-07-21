@@ -1,6 +1,7 @@
 import { demoOverview } from '../data/demoOverview'
 import { offlineOverview } from '../data/offlineOverview'
 import type {
+  CheckpointEvaluationsResponse,
   ConfigListResponse,
   DatasetListResponse,
   EvidenceReport,
@@ -11,8 +12,15 @@ import type {
   RunListResponse,
   ServingMonitorReport,
   StudioOverviewResult,
+  TelemetryEventsResponse,
+  TelemetryStatusResponse,
   TrainingJobRequest,
 } from '../data/types'
+import {
+  isCheckpointEvaluations,
+  isTelemetryEvents,
+  isTelemetryStatus,
+} from '../live/telemetryGuards'
 import {
   isConfigList,
   isDatasetList,
@@ -123,6 +131,49 @@ export function loadJobLog(jobId: string, fetcher: typeof fetch = fetch): Promis
   return requestJson(`/api/studio/jobs/${encodeURIComponent(jobId)}/log?limit=200`, fetcher, isJobLog)
 }
 
+export function loadTelemetryStatus(
+  jobId: string,
+  seed: number | null = null,
+  fetcher: typeof fetch = fetch,
+): Promise<TelemetryStatusResponse> {
+  const query = seed === null ? '' : `?seed=${encodeURIComponent(seed)}`
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/telemetry/status${query}`,
+    fetcher,
+    isTelemetryStatus,
+  )
+}
+
+export function loadTelemetryEvents(
+  jobId: string,
+  afterSequence = 0,
+  limit = 512,
+  seed: number | null = null,
+  fetcher: typeof fetch = fetch,
+): Promise<TelemetryEventsResponse> {
+  const parameters = new URLSearchParams({
+    after_sequence: String(afterSequence),
+    limit: String(limit),
+  })
+  if (seed !== null) parameters.set('seed', String(seed))
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/telemetry/events?${parameters.toString()}`,
+    fetcher,
+    isTelemetryEvents,
+  )
+}
+
+export function loadCheckpointEvaluations(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<CheckpointEvaluationsResponse> {
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/checkpoint-evaluations`,
+    fetcher,
+    isCheckpointEvaluations,
+  )
+}
+
 export function loadRunComparison(
   leftResourceId: string,
   rightResourceId: string,
@@ -148,6 +199,9 @@ export interface StudioApi {
   submitTrainingJob: (request: TrainingJobRequest) => Promise<JobSummary>
   cancelJob: (jobId: string) => Promise<JobSummary>
   loadJobLog: (jobId: string) => Promise<JobLogResponse>
+  loadTelemetryStatus: (jobId: string, seed?: number | null) => Promise<TelemetryStatusResponse>
+  loadTelemetryEvents: (jobId: string, afterSequence?: number, limit?: number, seed?: number | null) => Promise<TelemetryEventsResponse>
+  loadCheckpointEvaluations?: (jobId: string) => Promise<CheckpointEvaluationsResponse>
   loadRunComparison: (leftResourceId: string, rightResourceId: string) => Promise<RunComparison>
   loadEvidenceReport: (runResourceId: string) => Promise<EvidenceReport>
   loadServingMonitor: () => Promise<ServingMonitorReport>
@@ -161,6 +215,9 @@ export const studioApi: StudioApi = {
   submitTrainingJob,
   cancelJob,
   loadJobLog,
+  loadTelemetryStatus,
+  loadTelemetryEvents,
+  loadCheckpointEvaluations,
   loadRunComparison,
   loadEvidenceReport,
   loadServingMonitor,

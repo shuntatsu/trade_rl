@@ -107,6 +107,85 @@ export interface JobLogResponse {
   truncated: boolean
 }
 
+export type TelemetryEventType =
+  | 'rollout'
+  | 'position'
+  | 'risk'
+  | 'episode_end'
+  | 'checkpoint'
+  | 'gap'
+
+export interface TrainingTelemetryRecord {
+  schemaVersion: 'training_telemetry_v1'
+  sequence: number
+  recordedAt: string
+  globalStep: number
+  environmentStep: number
+  seed: number
+  environmentId: number
+  eventType: TelemetryEventType
+  marketIndex: number | null
+  marketTime: string | null
+  symbol: string
+  open: number | null
+  high: number | null
+  low: number | null
+  close: number | null
+  action: number[]
+  executedTarget: number[]
+  weightsBefore: number[]
+  weightsAfter: number[]
+  portfolioValue: number | null
+  baselinePortfolioValue: number | null
+  reward: number | null
+  drawdown: number | null
+  intervalCost: number | null
+  intervalReturn: number | null
+  riskReasons: string[]
+  emergencyDeleverage: boolean
+  terminated: boolean
+  truncated: boolean
+}
+
+export interface TelemetryStatusResponse {
+  available: boolean
+  selectedSeed: number | null
+  availableSeeds: number[]
+  recordCount: number
+  lastSequence: number
+  malformedLines: number
+  sizeBytes: number
+  source: string | null
+}
+
+export interface TelemetryEventsResponse {
+  seed: number | null
+  items: TrainingTelemetryRecord[]
+  nextSequence: number
+  truncated: boolean
+  malformedLines: number
+  sequenceGaps: [number, number][]
+}
+
+export interface CheckpointEvaluationItem {
+  fold: string
+  configuration: string
+  seed: number
+  policyDigest: string
+  evaluationDigest: string
+  score: number
+  totalReturn: number
+  finalist: boolean
+  checkpointRange: [number, number]
+  source: string
+}
+
+export interface CheckpointEvaluationsResponse {
+  available: boolean
+  items: CheckpointEvaluationItem[]
+  productionStatus: ProductionStatus
+}
+
 export interface DatasetListResponse {
   items: DatasetSummary[]
   total: number

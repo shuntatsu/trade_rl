@@ -28,8 +28,10 @@ jobs:
       - name: Run three-seed walk-forward and deterministic replay
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          set -o pipefail
           mkdir -p "${RUNNER_TEMP}/order-simulator-smoke"
+          exec > >(tee "${RUNNER_TEMP}/order-simulator-smoke/smoke-run.log") 2>&1
           git rev-parse HEAD > "${RUNNER_TEMP}/order-simulator-smoke/head-sha.txt"
           git ls-files -z \
             | sort -z \
@@ -78,12 +80,15 @@ jobs:
                   checkpoint_interval_steps=4,
                   max_checkpoints=2,
               ),
-              execution=replace(
-                  run.execution,
-                  path_mode="conservative",
-                  processing_bar_volume_capacity=True,
-                  partial_fill_carry=True,
-                  trigger_volume_fractions=(1.0, 0.5, 0.25, 0.0),
+              environment=replace(
+                  run.environment,
+                  execution_cost=replace(
+                      run.environment.execution_cost,
+                      path_mode="conservative",
+                      processing_bar_volume_capacity=True,
+                      partial_fill_carry=True,
+                      trigger_volume_fractions=(1.0, 0.5, 0.25, 0.0),
+                  ),
               ),
           )
           config_path = work_root / "walk-forward.json"
@@ -213,14 +218,20 @@ jobs:
           )
           print(json.dumps(summary, sort_keys=True))
           PY
+          status=${PIPESTATUS[0]}
+          printf 'smoke=%s\n' "$status" \
+            > "${RUNNER_TEMP}/order-simulator-smoke/status.txt"
+          exit "$status"
 
       - name: Run focused replay and walk-forward tests
+        if: always()
         run: |
           uv run pytest -q \
             tests/e2e/test_stateful_order_replay.py \
             tests/workflows/test_market_walk_forward.py::test_structured_walk_forward_trains_three_seed_ensemble_end_to_end
 
       - name: Upload exact-head smoke evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: order-simulator-smoke-${{ github.event.pull_request.head.sha }}

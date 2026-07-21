@@ -6,6 +6,10 @@ from fastapi import FastAPI, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from trade_rl.studio.catalog import StudioCatalog
+from trade_rl.studio.checkpoint_evaluations import (
+    CheckpointEvaluationsResponse,
+    StudioCheckpointEvaluationReader,
+)
 from trade_rl.studio.comparison import compare_runs
 from trade_rl.studio.contracts import (
     ConfigListResponse,
@@ -68,6 +72,7 @@ def create_app(
         catalog=resolved_catalog,
     )
     telemetry_reader = StudioTelemetryReader(settings)
+    checkpoint_reader = StudioCheckpointEvaluationReader(settings)
     app = FastAPI(
         title="Trade RL Studio API",
         version="0.3.0",
@@ -188,6 +193,13 @@ def create_app(
             after_sequence=after_sequence,
             limit=limit,
         )
+
+    @app.get(
+        "/api/studio/jobs/{job_id}/checkpoint-evaluations",
+        response_model=CheckpointEvaluationsResponse,
+    )
+    def checkpoint_evaluations(job_id: str) -> CheckpointEvaluationsResponse:
+        return checkpoint_reader.inspect(resolved_supervisor.get_job(job_id))
 
     @app.post(
         "/api/studio/jobs/training",

@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: apply-postgres-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  apply:
+  export:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -45,12 +45,17 @@ jobs:
           uv run ruff check . --fix
           uv run ruff format --check .
           uv run ruff check .
-      - name: Commit implementation snapshot
+      - name: Package formatted source
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'feat: add PostgreSQL artifact catalog'
-          git push origin HEAD:feat/postgres-artifact-catalog
+          tar --exclude=.git --exclude=.venv -czf /tmp/postgres-product-source.tar.gz .
+          sha256sum /tmp/postgres-product-source.tar.gz > /tmp/postgres-product-source.sha256
+      - name: Upload formatted source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: postgres-product-source
+          path: |
+            /tmp/postgres-product-source.tar.gz
+            /tmp/postgres-product-source.sha256
+          retention-days: 1

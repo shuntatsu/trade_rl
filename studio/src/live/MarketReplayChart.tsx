@@ -48,20 +48,14 @@ export function MarketReplayChart({ records, cursorSequence, compressed }: Marke
   const x = (index: number) => PADDING.left + (selected.length === 1 ? chartWidth / 2 : index * chartWidth / (selected.length - 1))
   const y = (value: number) => PADDING.top + (high - value) / (high - low) * chartHeight
   const candleWidth = Math.max(3, Math.min(10, chartWidth / Math.max(selected.length, 1) * 0.55))
-  const cursorIndex = Math.max(0, selected.findIndex((record) => record.sequence === cursorSequence))
+  const cursorIndex = selected.findIndex((record) => record.sequence === cursorSequence)
   const resolvedCursor = cursorSequence === null || cursorIndex < 0 ? selected.length - 1 : cursorIndex
   const cursorRecord = selected[resolvedCursor]
   const navigatorPoints = selected.map((record, index) => `${x(index)},${HEIGHT - 12 - ((record.close ?? low) - low) / (high - low) * 18}`).join(' ')
 
   return (
-    <div className="live-chart" role="img" aria-label={`${selected.at(-1)?.symbol ?? '市場'} 市場リプレイ`}> 
+    <div className="live-chart" role="img" aria-label={`${selected.at(-1)?.symbol ?? '市場'} 市場リプレイ`}>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="replay-area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--live-cyan)" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="var(--live-cyan)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
           const gridY = PADDING.top + chartHeight * ratio
           const label = high - (high - low) * ratio

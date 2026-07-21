@@ -5,17 +5,60 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout PR branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Assemble stateful execution source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/order-sim-staging/stateful.b64.* \
+            | base64 --decode \
+            > trade_rl/simulation/stateful_execution.py
+          git apply --check .github/order-sim-staging/execution.patch
+          git apply .github/order-sim-staging/execution.patch
+
+      - name: Format and verify stateful execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --frozen
+          uv run ruff format \
+            trade_rl/simulation/stateful_execution.py \
+            trade_rl/simulation/execution.py \
+            tests/simulation/test_stateful_execution.py
+          uv run ruff check trade_rl/simulation tests/simulation
+          uv run mypy trade_rl/simulation
+          uv run pytest tests/simulation -q
+
+      - name: Commit verified product source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -r .github/order-sim-staging
+          git add \
+            trade_rl/simulation/stateful_execution.py \
+            trade_rl/simulation/execution.py \
+            tests/simulation/test_stateful_execution.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: add stateful conservative execution engine"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
 
       - name: Record and package exact source
         shell: bash

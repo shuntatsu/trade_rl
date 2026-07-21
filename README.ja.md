@@ -1,190 +1,159 @@
 # Trade RL
 
-Trade RLは、ポートフォリオ配分を対象とした**ベースライン固定型Residual強化学習**の研究コアです。方策がポートフォリオ比率を直接自由に決めるのではなく、決定論的なTrend baselineに対して、制約された残差行動だけを加えます。報酬と評価では、独立したShadow baseline bookとの差分を使用します。
+Trade RLは、ポートフォリオ配分を対象とした研究用の強化学習基盤です。維持対象の方策は、決定論的な因果ベースラインへ制約付きResidual行動を加える方式と、銘柄順序を明示的に固定したTarget Weight方式を扱います。比較用のShadow baseline bookは学習方策と独立して更新されます。
 
-> 能力判定は **研究実行可能**、**外部Attestation付きPaper Serving可能** です。取引所への直接注文送信は **NO-GO** のままです。構造改善は収益性や実資金投入を保証しません。
+> 能力判定は **研究実行可能**、**外部Attestation付きPaper Serving可能** です。取引所への直接注文送信は **NO-GO** のままです。テストや構造改善は、収益性や実資金投入を保証しません。
 
-## 再構築内容
+## 現在の維持対象
 
-旧`mars_lite`、Direct-action PPO、旧CLIスクリプト、重複した評価計算、旧テスト群は互換層を残さず削除しました。Git履歴が旧実装のアーカイブです。
+現在のリポジトリは、次の役割を明確に分離しています。
 
-現在の責務は次のように分離されています。
+- 因果的な市場データとMulti-Timeframe特徴量artifact
+- Exploratory学習と、承認付きSelected-final学習
+- Nested walk-forward、Checkpoint選択、永続Sealed-test ledger
+- 保守的なOHLCV状態付き約定シミュレータ
+- 学習中の探索を観察するTrade RL Studio
+- 外部署名で検証されるRead-only Paper Serving
 
-- `domain`: Dataset、Signal、Policy ensemble、Selection、Releaseの不変条件
-- `artifacts`: canonical JSON、SHA-256、staging、atomic publish
-- `data`: 実データsource、因果的特徴量builder、MarketDataset検証
-- `strategies`: 決定論的Trend baseline
-- `risk`: Gross、銘柄上限、Turnover、Drawdown縮小
-- `simulation`: 約定、コスト、Funding、会計
-- `evaluation`: Return、Sharpe、Sortino、Drawdown、paired比較、bootstrap、Gate
-- `rl`: Residual action、Observation、Reward、Environment、framework非依存Training contract
-- `integrations`: Stable-Baselines3の学習・Serving adapter
+PostgreSQLは、再計算不要なartifactの検索、cache identity、依存関係、状態、Sealed-test予約を保存する任意のメタデータカタログです。NumPy配列、dataset、checkpoint、model、run evidenceは従来どおり不変filesystem artifactに保存し、DBのBLOBを数値計算の正本にはしません。
 
-維持対象の報酬契約は **Reward schema v4** です。絶対対数資産成長を主目的とし、完全な30日履歴が揃った場合だけ固定1.5%許容幅のベースライン劣後ペナルティを有効化します。
-- `workflows`: 型付き設定を受け取るApplication orchestration
-- `serving`: Bundle検証、Registry、Runtime hot-swap
+通常のEnvironment遷移では、Market、Limit、Stop-market注文を状態として保持します。注文にはLatency、Time in Force、残数量、Trigger状態、Cancel-and-replaceの対応、決定論的OrderEvent証拠が含まれます。約定容量は処理対象バーの出来高を使い、OHLC内の経路は明示した仮定として記録します。これは板復元や実取引所と同等の約定を意味しません。
+
+## 責務の分離
+
+- `domain`: Dataset、Policy、Selection、Releaseなどの不変Identity
+- `artifacts`: Canonical serialization、Hash、Staging、Atomic publish
+- `release`: Offline署名と外部Attestationの検証契約
+- `evaluation`: Return、Risk、Paired inference、Walk-forward、Gate
+- `catalog`: Framework非依存のartifact catalog契約とPostgreSQL adapter
+- `data`: Market calendar、特徴量、Execution data、Dataset検証
+- `strategies`: 決定論的な因果Baseline
+- `simulation`: Order lifecycle、Liquidity、約定、Cost、Carry、Margin、Accounting
+- `risk`: Pre-trade制約、Portfolio risk、Emergency deleverage
+- `rl`: Action、Observation、Normalizer、Reward、Environment、Training protocol
+- `learning`: Teacher、Behavior cloning、Supervised data契約
+- `serving`: Candidate bundle、Registry、Fail-closed runtime
+- `integrations`: Stable-Baselines3など外部Framework adapter
+- `workflows`: Training、Walk-forward、Artifact publicationのApplication orchestration
+- `studio`: Local GUI用の型付きRead modelとJob管理API
 - `cli`: 単一の`trade-rl`入口
+
+依存方向の正本は`.importlinter`です。`trade_rl.telemetry`は標準ライブラリ中心の診断契約ですが、現時点ではLayer stackへ明示配置されていません。この点は[最新アーキテクチャ監査](docs/verification/2026-07-22-documentation-and-architecture-audit.md)に記録しています。
+
+## Trade RL Studio
+
+固定レイアウトのReact + Vite + TypeScript画面から、検証済みdataset、config、exploratory training job、run、比較結果、Evidence chain、read-only paper-serving状態を確認できます。Live Trainingでは、学習中の探索をSeed単位の市場リプレイとして表示します。
+
+```bash
+uv sync --extra studio --extra train-sb3
+uv run trade-rl studio start --project-root .
+
+# 別ターミナル
+npm ci --prefix studio
+npm run dev --prefix studio
+```
+
+BUY／SELL表示はTarget exposureの変化であり、取引所注文ではありません。Telemetryは診断専用で、モデル選択、artifact identity、Serving承認、注文実行には使いません。詳細は[`studio/README.md`](studio/README.md)を参照してください。
 
 ## 因果的な実データ入力
 
-正式なデータ経路は、銘柄ごとのCSV実データから`MarketDatasetBuilder`で`MarketDataset`を生成します。全銘柄の共通時刻を欠損ごと削除するのではなく、規則的なunion clockを保持し、上場・廃止期間、実現した取引可否、情報利用可能時刻、特徴量ごとの利用可否と鮮度を別々に記録します。
+正式なデータ経路では、規則的なUnion clockを保持し、上場・廃止期間、実現した取引可否、情報利用可能時刻、特徴量ごとのAvailabilityとStalenessを別々に記録します。行`t`の方策判断は、行`t`のCloseまでに利用可能な情報だけを使い、最短でも`t + 1`のOpen以降で約定します。
 
-```python
-from datetime import datetime, timezone
+`dataset_id`は、FeatureとAvailabilityだけでなく、Fee、Maker/Taker fee、Spread、Participation、Lot/Tick、Minimum notional、Borrow/Funding、Buy/Sell制限、Mark/Index価格、配当・分割・上場廃止、Cash rate、Volume unit、Contract multiplierを含む実行・会計配列から再計算されます。正式artifactは任意ID、Symlink、Root escape、未宣言ファイルを拒否します。
 
-from trade_rl.data import (
-    CsvMarketDataSource,
-    FeatureKind,
-    FeatureSpec,
-    InstrumentContract,
-    MarketBuildConfig,
-    MarketDatasetBuilder,
-)
+正式APIは次の3つです。
 
-config = MarketBuildConfig(
-    base_timeframe="1h",
-    features=(
-        FeatureSpec(name="ret_1", kind=FeatureKind.LOG_RETURN),
-        FeatureSpec(name="funding_bps", kind=FeatureKind.FUNDING_BPS),
-    ),
-)
-contracts = (
-    InstrumentContract(
-        symbol="BTCUSDT",
-        listed_at=datetime(2019, 9, 1, tzinfo=timezone.utc),
-    ),
-)
-dataset = MarketDatasetBuilder(config).build(
-    CsvMarketDataSource("data/market"),
-    contracts,
-)
-```
+- `write_market_dataset_files`: 決定論的Staging file作成
+- `publish_market_dataset_artifact`: 排他的なAtomic publish
+- `load_market_dataset_artifact`: IdentityとFile closureを検証した読込
 
-CSVの必須列は`timestamp,open,high,low,close,volume`で、`available_at`、`funding_rate`、`tradable`は任意です。`timestamp`は市場イベント時刻、`available_at`はその行を知り得た最初の時刻です。遅延行は実現した執行履歴として保持しますが、同時刻の特徴量や方策観測へ遡及注入しません。方策が見る`MarketDataset.observable_tradable(t)`は`tradable[t] & information_available[t]`であり、Executorだけがマスク前の実現`tradable`を使用します。
+## Observation、学習、Servingの整合性
 
-Trend、Alpha、pre-trade targetは同じpoint-in-time eligibility maskを使用します。要求されたlookback全体で、上場中・取引可能・情報利用可能である銘柄だけを対象にします。翌バー以降の取引可否はExecutorが実現状態として処理し、現在のtarget生成には使用しません。
+Observation schema v3は、Feature、Availability、Staleness、Baseline、Factor、現在・要求Portfolio、Fill/Cost/Capacity、Pending order、Cash/Net/Gross/Margin、Previous actionを含みます。Multi-Timeframe方策は、15m、1h、4h、1dのNative sequenceをDict observationとして受け取り、各時間足専用の因果TCNとCross-asset attentionを使用します。
 
-Alpha providerへ渡すのは、判断時点までをコピーした読み取り専用`CausalMarketView`だけです。因果的特徴量とmaskは含みますが、未来行やraw OHLCは公開しません。学習環境とServingは、Trend・Alpha設定をdigest化した同じ`MarketInputResolver`を使用します。
+学習EnvironmentとServingは同じObservation builder、Normalizer、Sequence adapter、Symbol/Feature順序を検証します。Candidate bundleは **Serving bundle v5** です。Bundle自体にApproval秘密情報は含めず、別の`ReleaseAttestation`がBundle、Selected-final run、Walk-forward、Gate、Fresh confirmation、Source commit、Dependency provenance、Approver、Expiryを結合します。
 
-`volume`の意味は銘柄契約ごとにbase asset数量、quote notional、契約枚数のいずれかを明示し、契約枚数にはbase asset換算用のcontract multiplierを設定します。
+Runtimeは、署名、Identity、File closure、Action shape、有限値、Bounds、Observation schema、Normalizer、Pending-order state、ServingStateSnapshotが一致しない場合、Policy実行前またはActivation前にFail closedします。
 
-`dataset_id`には、特徴量と利用可能時刻だけでなく、fee、spread、participation、lot/tick、borrow/funding、buy/sell制限、mark/index価格、配当・分割・上場廃止回収率、cash rate、volume単位、contract multiplierを含む全実行・会計配列を含めます。正式artifactはIDを保存時と読込時に再計算し、任意ID、symlink、未宣言ファイルを拒否します。
+## Rewardと評価
 
-## 決定論的Dataset artifact
+維持対象は **Reward schema v4** です。主目的は絶対対数資産成長で、Baseline-relative growthは補助目的です。DrawdownとBaseline劣後は、許容幅を超えて悪化した増分だけを段階的に罰します。
 
-正式APIは、staging用の `write_market_dataset_files`、排他的なatomic publish用の `publish_market_dataset_artifact`、検証付き読込用の `load_market_dataset_artifact` です。旧writerは1リリースだけ警告付き互換wrapperとして残ります。alpha/factor artifactのidentityはファイルパスではなく検証済み内容digestで決まります。
+Nested walk-forwardでは、Train、Checkpoint validation、Configuration selection、Sealed outer testを分離します。NormalizerはFold train capabilityだけでFitし、その後Freezeします。Outer testは選択完了後に一度だけ開き、Servingと同じ決定論的Mean ensembleを評価します。
 
-厳格なJSON設定から正式なCLI経路を実行できます。
+Production statusは、GPU検証、十分なOOS期間、Paired block-bootstrap、Fresh confirmation、Paper reconciliationなどの必須Gateが揃うまで`NO-GO`です。
 
-```json
-{
-  "source_root": "data/market",
-  "base_timeframe": "1h",
-  "features": [
-    {"name": "ret_1", "kind": "log_return", "lookback": 1}
-  ],
-  "instruments": [
-    {
-      "symbol": "BTCUSDT",
-      "listed_at": "2019-09-01T00:00:00Z",
-      "volume_unit": "quote_notional"
-    }
-  ]
-}
-```
+## セットアップと最初の学習
 
-```bash
-uv run trade-rl data build --config market-build.json --output output/dataset
-```
-
-出力先は未作成でなければなりません。完全な`manifest.json`と決定論的な`arrays.npz`を同じ親ディレクトリのstaging領域に書いて再読込検証した後、ディレクトリを1回だけrenameして公開します。既存artifactは上書きしません。manifestにはcanonicalなidentity payloadを保存し、loaderは記載されたID文字列を信用せず、payloadと配列から`dataset_id`を独立再計算します。
-
-## ObservationとServingの整合性
-
-学習環境とServingは同じ`ObservationBuilder`と`MarketInputResolver`を使用します。Servingは呼出側が渡したTrend・Alphaを信用せず、因果的なresolverで再計算します。候補bundle v4は`dataset_id`、action schema、observation schema digest、vector長、normalizer、market-input resolver digestを保持しますが、release IDは含めません。別の`ReleaseAttestation`がbundle、評価・Gate証拠、選択Policy、Git commit、依存関係、承認者を結合します。
-
-構造化入力はいずれかのidentityが一致しなければpolicy実行前にfail-closedで拒否します。Activation時には共有Observation/Normalizerを読み込み、複数のprobe観測を全ensemble memberへ通してshape・finite・boundsを検証してからだけlive stateを交換します。
-
-## セットアップ
+Python 3.12が必要です。
 
 ```bash
 uv sync --extra dev --extra train-sb3
+uv run trade-rl --version
 ```
 
-## 使用例
+最短手順は[START.md](START.md)を参照してください。
 
 ```bash
-uv run trade-rl --version
+uv run python examples/quickstart/create_demo_dataset.py \
+  --output var/quickstart/dataset
 
-uv run trade-rl data build \
-  --config market-build.json --output output/dataset
+uv run trade-rl train run \
+  --config examples/quickstart/training.json \
+  --dataset var/quickstart/dataset \
+  --output var/quickstart/artifacts \
+  --run-id quickstart-001
+```
 
-uv run trade-rl train config \
-  --timesteps 1024 --gamma 0.5 --seed 0 --seed 1
+## PostgreSQL artifact catalog
 
-uv run trade-rl walk-forward plan \
-  --bars 220 --train-bars 80 --checkpoint-bars 10 \
-  --selection-bars 10 --test-bars 20 --purge-bars 2 --max-folds 2
+```bash
+cp .env.example .env
+docker compose up -d postgres
+
+uv sync --extra postgres
+export TRADE_RL_DATABASE_URL=postgresql://trade_rl:trade_rl@localhost:5432/trade_rl
+uv run trade-rl catalog migrate
+uv run trade-rl catalog health
+```
+
+DB未設定時はFilesystemだけで動作します。Market dataset publish時にDBが利用可能なら、Dataset ID、Artifact digest、Canonical cache key、Location、Sizeなどを登録します。
+
+停止してVolumeを保持する場合:
+
+```bash
+docker compose down
+```
+
+Volumeも削除する場合だけ:
+
+```bash
+docker compose down -v
 ```
 
 ## Docker GPU完全リサーチ実行
-
-維持対象のコンテナはCUDAを必須とし、実行時データをDocker named volume
-`trade-rl-training-data`へ保存して、Binance multi-timeframeの完全な研究workflowを
-実行します。repository rootで次を実行します。
 
 ```bash
 docker compose -f compose.training.yaml build trainer
 docker compose -f compose.training.yaml run --rm trainer
 ```
 
-2番目のcommandは、CUDA preflight、学習、評価、またはresearch gateが失敗すると
-非ゼロで終了します。終了コード0は研究上の証拠であり、収益性を保証しません。
-production statusは`NO-GO`のままです。
+CUDA preflight、学習、評価、Research gateのいずれかが失敗すると非ゼロ終了します。成功はPipelineとResearch evidenceであり、利益を保証しません。Metadata modeの既定は`frozen_snapshot`で、Current official payloadをPoint-in-time履歴として偽装しません。最高Integrityの`historical_signed`は、期間を覆う署名済みMetadataが必要です。
 
-detached起動、status、log、volume確認、artifact抽出、fresh retry、cleanupの正確な
-commandは[Docker GPU完全学習の運用手順](docs/operations/docker-gpu-full-training.md)を
-参照してください。artifact抽出ではPowerShellの絶対host pathと、実行中のAlpine
-copy containerを使用します。CUDA preflightとsmoke toolは
-`examples/binance-multitimeframe/`配下にあります。
+運用手順は[Docker GPU完全学習](docs/operations/docker-gpu-full-training.md)を参照してください。
 
 ## 品質確認
 
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy trade_rl
+uv run mypy .
 uv run lint-imports
 uv run pytest --cov=trade_rl --cov-branch
+npm test --prefix studio -- --run
+npm run typecheck --prefix studio
+npm run build --prefix studio
+npm run check:layout --prefix studio
 ```
 
-詳細は[アーキテクチャ](docs/ARCHITECTURE.md)と[研究結果の扱い](docs/RESEARCH_STATUS.md)を参照してください。
-
-## PostgreSQL artifact catalog
-
-再計算不要な研究artifactの検索・依存関係・cache identityは、Dockerで起動するPostgreSQLへ保存できます。NumPy配列、dataset本体、checkpoint、modelはPostgreSQLのBLOBにはせず、従来どおり不変filesystem artifactとして保持します。
-
-```bash
-cp .env.example .env
-docker compose up -d postgres
-docker compose ps
-
-uv sync --extra dev --extra postgres
-export TRADE_RL_DATABASE_URL=postgresql://trade_rl:trade_rl@localhost:5432/trade_rl
-uv run trade-rl catalog migrate
-uv run trade-rl catalog health
-```
-
-market datasetのpublish時に`TRADE_RL_DATABASE_URL`が設定されていれば、dataset ID、artifact digest、canonical cache key、保存場所、サイズが自動登録されます。DB未設定時は従来どおりfilesystemだけで動作します。
-
-停止してデータを保持する場合:
-
-```bash
-docker compose down
-```
-
-PostgreSQL volumeも削除する場合のみ、明示的に次を実行します。
-
-```bash
-docker compose down -v
-```
+詳細は[アーキテクチャ](docs/ARCHITECTURE.md)、[研究結果の扱い](docs/RESEARCH_STATUS.md)、[Binance Public Data Workflow](docs/BINANCE.md)、[2026-07-22アーキテクチャ監査](docs/verification/2026-07-22-documentation-and-architecture-audit.md)を参照してください。

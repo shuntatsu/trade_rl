@@ -57,11 +57,7 @@ def _risk_reasons(info: dict[str, object]) -> tuple[str, ...]:
         return tuple(str(item) for item in explicit if str(item))
     risk = info.get("hybrid_risk")
     reasons = getattr(risk, "reasons", ())
-    return tuple(
-        str(getattr(item, "value", item))
-        for item in reasons
-        if str(item)
-    )
+    return tuple(str(getattr(item, "value", item)) for item in reasons if str(item))
 
 
 def _execution_book(info: dict[str, object], name: str) -> _BookLike | None:
@@ -87,8 +83,7 @@ def _market_values(
     raw_index = info.get("telemetry_market_index")
     market_index = (
         int(raw_index)
-        if isinstance(raw_index, (int, np.integer))
-        and not isinstance(raw_index, bool)
+        if isinstance(raw_index, (int, np.integer)) and not isinstance(raw_index, bool)
         else None
     )
     raw_time = info.get("telemetry_market_time")
@@ -137,9 +132,7 @@ class TrainingTelemetrySampler:
         if isinstance(sample_every, bool) or sample_every <= 0:
             raise ValueError("sample_every must be positive")
         if not np.isfinite(position_threshold) or position_threshold < 0.0:
-            raise ValueError(
-                "position_threshold must be finite and non-negative"
-            )
+            raise ValueError("position_threshold must be finite and non-negative")
         self.seed = int(seed)
         self.sample_every = int(sample_every)
         self.position_threshold = float(position_threshold)
@@ -279,8 +272,7 @@ class TrainingTelemetrySampler:
                 self.sequence += 1
                 action = (
                     tuple(
-                        float(item)
-                        for item in action_rows[environment_id].reshape(-1)
+                        float(item) for item in action_rows[environment_id].reshape(-1)
                     )
                     if environment_id < action_rows.shape[0]
                     else ()
@@ -323,9 +315,7 @@ class TrainingTelemetrySampler:
                         interval_cost=_number(info.get("interval_cost")),
                         interval_return=_number(info.get("interval_net_return")),
                         risk_reasons=reasons,
-                        emergency_deleverage=bool(
-                            info.get("emergency_deleverage")
-                        ),
+                        emergency_deleverage=bool(info.get("emergency_deleverage")),
                         terminated=bool(info.get("hybrid_terminated")) or done,
                         truncated=bool(info.get("TimeLimit.truncated")),
                     )

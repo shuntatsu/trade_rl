@@ -106,7 +106,7 @@ describe('LiveTrainingPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Live Training' })).toBeInTheDocument()
     expect(screen.getByText('NO-GO')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /BTCUSDT 市場リプレイ/ })).toBeInTheDocument()
+    expect(await screen.findByRole('img', { name: /BTCUSDT 市場リプレイ/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'バッファ再生' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'ローソク足ごと' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText(/ロング 0.400/)).toBeInTheDocument()

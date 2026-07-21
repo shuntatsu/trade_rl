@@ -3,12 +3,12 @@ from __future__ import annotations
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.execution_sensitivity import (
+from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.workflows.execution_sensitivity import (
     default_execution_sensitivity_scenarios,
     evaluate_execution_sensitivity,
 )
-from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import ExecutionCostConfig
 
 
 def _dataset() -> MarketDataset:

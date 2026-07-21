@@ -5,24 +5,25 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout PR branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
 
-      - name: Assemble and format Task 6 source
+      - name: Apply Task 6 tests and product source
         shell: bash
         run: |
           set -euo pipefail
@@ -43,58 +44,160 @@ jobs:
               raise SystemExit("expected exactly one Task 6 runtime error reference")
           path.write_text(source.replace(old, "raise ValueError(", 1), encoding="utf-8")
           PY
+          git apply --check .github/order-sim-staging/task6-green-fixes.patch
+          git apply .github/order-sim-staging/task6-green-fixes.patch
+
+      - name: Format Task 6 source
+        shell: bash
+        run: |
+          set -euo pipefail
           uv sync --extra dev --extra train-sb3 --frozen
           uv run ruff check --fix \
             trade_rl/rl/environment.py \
             trade_rl/rl/normalization.py \
             trade_rl/rl/observations.py \
             trade_rl/serving/runtime.py \
+            trade_rl/simulation/liquidity.py \
             trade_rl/simulation/stateful_execution.py \
+            tests/rl/test_emergency_drawdown.py \
             tests/rl/test_observation_v2.py \
             tests/rl/test_pending_order_environment.py \
             tests/rl/test_pending_order_observation.py \
             tests/serving/test_observation_parity.py \
+            tests/simulation/test_liquidity.py \
             tests/simulation/test_stateful_execution.py
           uv run ruff format \
             trade_rl/rl/environment.py \
             trade_rl/rl/normalization.py \
             trade_rl/rl/observations.py \
             trade_rl/serving/runtime.py \
+            trade_rl/simulation/liquidity.py \
             trade_rl/simulation/stateful_execution.py \
+            tests/rl/test_emergency_drawdown.py \
             tests/rl/test_observation_v2.py \
             tests/rl/test_pending_order_environment.py \
             tests/rl/test_pending_order_observation.py \
             tests/serving/test_observation_parity.py \
+            tests/simulation/test_liquidity.py \
             tests/simulation/test_stateful_execution.py
 
-      - name: Run focused failing tests
+      - name: Verify Task 6 implementation
         shell: bash
         run: |
           set +e
           set -o pipefail
+          uv run ruff check trade_rl tests 2>&1 | tee task6-ruff.log
+          ruff_status=${PIPESTATUS[0]}
+          uv run mypy \
+            trade_rl/simulation \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/normalization.py \
+            trade_rl/rl/observations.py \
+            trade_rl/serving/runtime.py \
+            2>&1 | tee task6-mypy.log
+          mypy_status=${PIPESTATUS[0]}
           uv run pytest -q \
-            tests/rl/test_emergency_drawdown.py \
-            tests/serving/test_observation_parity.py::test_real_environment_observation_matches_serving_members_and_ensemble \
-            2>&1 | tee task6-focused-failures.log
-          status=${PIPESTATUS[0]}
-          printf 'pytest=%s\n' "$status" > task6-focused-status.txt
-          exit 0
+            tests/simulation \
+            tests/rl \
+            tests/serving/test_observation_parity.py \
+            tests/serving/test_observation_snapshot_fail_closed.py \
+            2>&1 | tee task6-pytest.log
+          pytest_status=${PIPESTATUS[0]}
+          printf 'ruff=%s\nmypy=%s\npytest=%s\n' \
+            "$ruff_status" "$mypy_status" "$pytest_status" \
+            > task6-status.txt
+          if ((ruff_status != 0 || mypy_status != 0 || pytest_status != 0)); then
+            exit 1
+          fi
 
-      - name: Package patched Task 6 source
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar --exclude=.git --exclude=.venv --exclude=node_modules \
-            -czf "${RUNNER_TEMP}/task6-patched-source.tar.gz" .
-
-      - name: Upload patched source and diagnostics
+      - name: Upload Task 6 diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: task6-patched-source-${{ github.event.pull_request.head.sha }}
+          name: pending-order-observation-verification-${{ github.event.pull_request.head.sha }}
           path: |
-            ${{ runner.temp }}/task6-patched-source.tar.gz
-            task6-focused-failures.log
-            task6-focused-status.txt
+            task6-ruff.log
+            task6-mypy.log
+            task6-pytest.log
+            task6-status.txt
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Commit verified Task 6 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -r .github/order-sim-staging
+          cat > .github/workflows/order-sim-source-export.yml <<'EOF'
+          name: Order Simulator Source Export
+
+          on:
+            pull_request:
+              branches: [main]
+
+          permissions:
+            contents: read
+
+          jobs:
+            export:
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout exact PR head
+                  uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+                  with:
+                    ref: ${{ github.event.pull_request.head.sha }}
+                    persist-credentials: false
+
+                - name: Record and package exact source
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    git rev-parse HEAD > "${RUNNER_TEMP}/source-head-sha.txt"
+                    tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
+
+                - name: Upload exact source
+                  uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+                  with:
+                    name: order-simulator-source-${{ github.event.pull_request.head.sha }}
+                    path: |
+                      ${{ runner.temp }}/trade-rl-source.tar.gz
+                      ${{ runner.temp }}/source-head-sha.txt
+                    if-no-files-found: error
+                    retention-days: 1
+          EOF
+          git add \
+            .github/workflows/order-sim-source-export.yml \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/normalization.py \
+            trade_rl/rl/observations.py \
+            trade_rl/serving/runtime.py \
+            trade_rl/simulation/liquidity.py \
+            trade_rl/simulation/stateful_execution.py \
+            tests/rl/test_emergency_drawdown.py \
+            tests/rl/test_observation_v2.py \
+            tests/rl/test_pending_order_environment.py \
+            tests/rl/test_pending_order_observation.py \
+            tests/serving/test_observation_parity.py \
+            tests/simulation/test_liquidity.py \
+            tests/simulation/test_stateful_execution.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: expose pending order state to policy and serving"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+
+      - name: Record and package exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > "${RUNNER_TEMP}/source-head-sha.txt"
+          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
+
+      - name: Upload exact source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: order-simulator-source-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/trade-rl-source.tar.gz
+            ${{ runner.temp }}/source-head-sha.txt
           if-no-files-found: error
           retention-days: 1

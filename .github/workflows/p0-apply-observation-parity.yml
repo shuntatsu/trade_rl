@@ -1,0 +1,47 @@
+name: P0 Apply Observation Parity
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply verified patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check scripts/p0_observation_parity.patch
+          git apply scripts/p0_observation_parity.patch
+          python3 -m compileall -q \
+            trade_rl/rl/observations.py \
+            trade_rl/rl/environment.py \
+            trade_rl/serving/runtime.py \
+            tests/serving/test_observation_parity.py
+          git diff --check
+
+      - name: Publish product commit
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm scripts/p0_observation_parity.patch
+          rm .github/workflows/p0-apply-observation-parity.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: bind training and serving observation parity"
+          git push origin "HEAD:${HEAD_BRANCH}"

@@ -53,14 +53,18 @@ jobs:
         run: |
           uv lock
           uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra postgres
-      - name: Static verification
-        run: |
-          uv run ruff format .
-          uv run ruff check . --fix
-          uv run ruff format --check .
-          uv run ruff check .
-          uv run mypy trade_rl
-          uv run lint-imports
+      - name: Ruff format
+        run: uv run ruff format .
+      - name: Ruff automatic fixes
+        run: uv run ruff check . --fix
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Ruff lint check
+        run: uv run ruff check .
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Import architecture
+        run: uv run lint-imports
       - name: Focused regression tests
         run: |
           uv run pytest \
@@ -74,7 +78,8 @@ jobs:
             tests/data/test_market_artifact.py \
             tests/cli/test_binance_data_command.py \
             tests/cli/test_binance_multitimeframe_command.py -q
-          docker compose config --quiet
+      - name: Compose validation
+        run: docker compose config --quiet
       - name: PostgreSQL integration test
         shell: bash
         run: |

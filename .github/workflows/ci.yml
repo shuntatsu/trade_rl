@@ -45,10 +45,14 @@ jobs:
         run: npm ci --prefix studio --no-audit --no-fund
 
       - name: Verify Studio frontend
+        shell: bash
         run: |
-          npm test --prefix studio -- --run
-          npm run typecheck --prefix studio
-          npm run build --prefix studio
+          set -o pipefail
+          {
+            npm test --prefix studio -- --run
+            npm run typecheck --prefix studio
+            npm run build --prefix studio
+          } 2>&1 | tee studio-frontend.log
 
       - name: Verify Studio fixed viewport layout
         env:
@@ -60,8 +64,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: studio-layout-diagnostics
-          path: studio/qa-screenshots
-          if-no-files-found: ignore
+          path: |
+            studio-frontend.log
+            studio/qa-screenshots
+          if-no-files-found: error
 
       - name: Workflow security
         run: uv run python .github/check_workflow_security.py .

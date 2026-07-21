@@ -17,19 +17,48 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Record and package exact source
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Apply execution promotion tests only
         shell: bash
         run: |
           set -euo pipefail
-          git rev-parse HEAD > "${RUNNER_TEMP}/source-head-sha.txt"
-          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
+          base64 --decode .github/order-sim-staging/task7-tests.patch.gz.b64 \
+            | gzip --decompress > "${RUNNER_TEMP}/task7-tests.patch"
+          git apply --check "${RUNNER_TEMP}/task7-tests.patch"
+          git apply "${RUNNER_TEMP}/task7-tests.patch"
 
-      - name: Upload exact source
+      - name: Run expected RED tests
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          uv sync --extra dev --extra train-sb3 --frozen
+          uv run pytest -q \
+            tests/evaluation/test_execution_promotion.py \
+            tests/evaluation/test_execution_sensitivity_matrix.py \
+            tests/serving/test_package.py \
+            tests/workflows/test_training_run.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            2>&1 | tee task7-red.log
+          status=${PIPESTATUS[0]}
+          printf 'pytest=%s\n' "$status" > task7-red-status.txt
+          if ((status == 0)); then
+            echo "Task 7 tests unexpectedly passed before implementation." | tee -a task7-red.log
+            exit 1
+          fi
+          exit "$status"
+
+      - name: Upload RED diagnostics
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: order-simulator-source-${{ github.event.pull_request.head.sha }}
+          name: execution-promotion-red-${{ github.event.pull_request.head.sha }}
           path: |
-            ${{ runner.temp }}/trade-rl-source.tar.gz
-            ${{ runner.temp }}/source-head-sha.txt
+            task7-red.log
+            task7-red-status.txt
           if-no-files-found: error
           retention-days: 1

@@ -33,7 +33,7 @@ jobs:
           git apply --check .github/order-sim-staging/execution.patch
           git apply .github/order-sim-staging/execution.patch
 
-      - name: Format and verify stateful execution
+      - name: Prepare formatted source
         shell: bash
         run: |
           set -euo pipefail
@@ -42,9 +42,37 @@ jobs:
             trade_rl/simulation/stateful_execution.py \
             trade_rl/simulation/execution.py \
             tests/simulation/test_stateful_execution.py
-          uv run ruff check trade_rl/simulation tests/simulation
-          uv run mypy trade_rl/simulation
-          uv run pytest tests/simulation -q
+
+      - name: Verify stateful execution
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          uv run ruff check trade_rl/simulation tests/simulation 2>&1 | tee ruff-stateful.log
+          ruff_status=${PIPESTATUS[0]}
+          uv run mypy trade_rl/simulation 2>&1 | tee mypy-stateful.log
+          mypy_status=${PIPESTATUS[0]}
+          uv run pytest tests/simulation -q 2>&1 | tee pytest-stateful.log
+          pytest_status=${PIPESTATUS[0]}
+          printf 'ruff=%s\nmypy=%s\npytest=%s\n' \
+            "$ruff_status" "$mypy_status" "$pytest_status" \
+            > stateful-status.txt
+          if ((ruff_status != 0 || mypy_status != 0 || pytest_status != 0)); then
+            exit 1
+          fi
+
+      - name: Upload stateful diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: order-simulator-verification-${{ github.event.pull_request.head.sha }}
+          path: |
+            ruff-stateful.log
+            mypy-stateful.log
+            pytest-stateful.log
+            stateful-status.txt
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Commit verified product source
         shell: bash

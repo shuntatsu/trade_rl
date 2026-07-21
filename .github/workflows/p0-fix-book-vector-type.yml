@@ -1,0 +1,51 @@
+name: P0 Fix Book Vector Type
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fix optional array typing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/observations.py")
+          text = path.read_text(encoding="utf-8")
+          old = "            book.contract_multipliers,\n"
+          new = "            np.asarray(book.contract_multipliers),\n"
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one multiplier reference, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          python3 -m compileall -q trade_rl/rl/observations.py
+          git diff --check
+
+      - name: Publish product commit
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/p0-fix-book-vector-type.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: type observation book multipliers explicitly"
+          git push origin "HEAD:${HEAD_BRANCH}"

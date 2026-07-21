@@ -184,7 +184,9 @@ def test_untouched_limit_is_explicit_no_fill() -> None:
     assert decision.available_volume_fraction == 0.0
 
 
-def test_stop_gap_uses_open_and_conservative_intrabar_stop_uses_adverse_reachable_price() -> None:
+def test_stop_gap_uses_open_and_conservative_intrabar_stop_uses_adverse_reachable_price() -> (
+    None
+):
     gap_path = select_bar_path(
         open_price=103.0,
         high=108.0,

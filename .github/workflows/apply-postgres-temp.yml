@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: apply-postgres-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  diagnose:
+  finalize:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -22,6 +22,9 @@ jobs:
         with:
           ref: feat/postgres-artifact-catalog
           fetch-depth: 0
+      - name: Capture branch head
+        id: branch
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Reconstruct product changes and apply type fix
         shell: bash
         run: |
@@ -50,44 +53,60 @@ jobs:
         run: |
           uv lock
           uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra postgres
-      - name: Ruff
-        id: ruff
-        shell: bash
+      - name: Static verification
         run: |
-          set +e
           uv run ruff format .
           uv run ruff check . --fix
-          { uv run ruff format --check . && uv run ruff check .; } 2>&1 | tee ruff.txt
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Mypy
-        id: mypy
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy trade_rl
+          uv run lint-imports
+      - name: Focused regression tests
+        run: |
+          uv run pytest \
+            tests/ops/test_postgres_compose_contract.py \
+            tests/catalog/test_contracts.py \
+            tests/catalog/test_migrations.py \
+            tests/catalog/test_postgres_repository.py \
+            tests/catalog/test_service.py \
+            tests/cli/test_catalog_commands.py \
+            tests/data/test_market_artifact_catalog.py \
+            tests/data/test_market_artifact.py \
+            tests/cli/test_binance_data_command.py \
+            tests/cli/test_binance_multitimeframe_command.py -q
+          docker compose config --quiet
+      - name: PostgreSQL integration test
         shell: bash
         run: |
-          set +e
-          uv run mypy trade_rl 2>&1 | tee mypy.txt
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Import architecture
-        id: imports
+          set -euo pipefail
+          docker compose up -d postgres
+          trap 'docker compose down -v' EXIT
+          for attempt in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U trade_rl -d trade_rl; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker compose logs postgres
+              exit 1
+            fi
+            sleep 2
+          done
+          export TRADE_RL_DATABASE_URL='postgresql://trade_rl:trade_rl@localhost:5432/trade_rl'
+          export TRADE_RL_TEST_DATABASE_URL="$TRADE_RL_DATABASE_URL"
+          uv run trade-rl catalog migrate
+          uv run trade-rl catalog health
+          uv run pytest tests/catalog/test_postgres_integration.py -q
+      - name: Commit verified product branch
         shell: bash
-        run: |
-          set +e
-          uv run lint-imports 2>&1 | tee imports.txt
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Upload diagnostics
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: postgres-static-diagnostics
-          path: |
-            ruff.txt
-            mypy.txt
-            imports.txt
-          retention-days: 1
-      - name: Enforce static checks
         env:
-          RUFF_STATUS: ${{ steps.ruff.outputs.status }}
-          MYPY_STATUS: ${{ steps.mypy.outputs.status }}
-          IMPORT_STATUS: ${{ steps.imports.outputs.status }}
-        run: test "$RUFF_STATUS" = 0 -a "$MYPY_STATUS" = 0 -a "$IMPORT_STATUS" = 0
+          START_SHA: ${{ steps.branch.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add PostgreSQL artifact catalog'
+          git fetch origin feat/postgres-artifact-catalog
+          remote_sha=$(git rev-parse origin/feat/postgres-artifact-catalog)
+          test "$remote_sha" = "$START_SHA"
+          git push origin HEAD:feat/postgres-artifact-catalog

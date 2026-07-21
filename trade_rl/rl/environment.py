@@ -839,9 +839,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             availability_mask=observation_availability_mask(
                 self.dataset, self.current_index
             ),
-            staleness=observation_staleness_vector(
-                self.dataset, self.current_index
-            ),
+            staleness=observation_staleness_vector(self.dataset, self.current_index),
             hybrid_book_state=book_state_vector(self.hybrid),
             shadow_book_state=book_state_vector(self.shadow),
             pending_target=pending,

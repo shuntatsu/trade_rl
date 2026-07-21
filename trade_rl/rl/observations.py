@@ -57,9 +57,7 @@ def book_state_vector(book: BookState) -> np.ndarray:
     )
 
 
-def observation_feature_staleness(
-    dataset: MarketDataset, index: int
-) -> np.ndarray:
+def observation_feature_staleness(dataset: MarketDataset, index: int) -> np.ndarray:
     if not 0 <= index < dataset.n_bars:
         raise ValueError("observation index is outside the dataset")
     staleness = dataset.resolved_array("feature_staleness")[index].astype(
@@ -70,9 +68,7 @@ def observation_feature_staleness(
     return np.where(available, staleness, np.maximum(staleness, 1.0))
 
 
-def observation_availability_mask(
-    dataset: MarketDataset, index: int
-) -> np.ndarray:
+def observation_availability_mask(dataset: MarketDataset, index: int) -> np.ndarray:
     if not 0 <= index < dataset.n_bars:
         raise ValueError("observation index is outside the dataset")
     return np.concatenate(
@@ -83,15 +79,13 @@ def observation_availability_mask(
     )
 
 
-def observation_staleness_vector(
-    dataset: MarketDataset, index: int
-) -> np.ndarray:
+def observation_staleness_vector(dataset: MarketDataset, index: int) -> np.ndarray:
     if not 0 <= index < dataset.n_bars:
         raise ValueError("observation index is outside the dataset")
     global_available = dataset.resolved_array("global_feature_available")[index]
-    global_staleness = dataset.resolved_array(
-        "global_feature_staleness_hours"
-    )[index].astype(np.float64, copy=False)
+    global_staleness = dataset.resolved_array("global_feature_staleness_hours")[
+        index
+    ].astype(np.float64, copy=False)
     resolved_global = np.where(
         global_available,
         global_staleness,
@@ -495,8 +489,6 @@ def _drawdown(book: BookState) -> float:
 def _validate_book(book: BookState, dataset: MarketDataset, *, field_name: str) -> None:
     if book.weights.shape != (dataset.n_symbols,):
         raise ValueError(f"{field_name} weights do not match dataset symbols")
-
-
 
 
 def build_observation(

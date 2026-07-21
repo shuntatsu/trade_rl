@@ -5,17 +5,47 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout PR branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Format approved order-simulator files
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --frozen
+          uv run ruff format \
+            tests/simulation/test_bar_path.py \
+            tests/simulation/test_orders.py \
+            trade_rl/simulation/order_admission.py \
+            trade_rl/simulation/orders.py
+          if git diff --quiet; then
+            echo "No formatting changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tests/simulation/test_bar_path.py \
+            tests/simulation/test_orders.py \
+            trade_rl/simulation/order_admission.py \
+            trade_rl/simulation/orders.py
+          git commit -m "style: apply Ruff formatting"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
 
       - name: Record and package exact source
         shell: bash

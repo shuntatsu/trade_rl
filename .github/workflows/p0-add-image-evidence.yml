@@ -1,0 +1,53 @@
+name: P0 Add Training Image Evidence
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Add image evidence steps
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(".github/workflows/ci.yml")
+          text = path.read_text(encoding="utf-8")
+          marker = '''      - name: Probe packaged non-root runtime
+                shell: bash
+                run: |
+                  docker run --rm --entrypoint sh trade-rl-training:ci -c '\n                    set -eu\n                    test "$(id -u)" -ne 0\n                    test -w /workspace/var\n                    python -c "import torch, trade_rl; print(torch.__version__)"\n                  '\n'''
+          replacement = marker + '''\n      - name: Record training image identity\n        if: always()\n        shell: bash\n        run: |\n          set -euo pipefail\n          commit="$(git rev-parse HEAD)"\n          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"\n          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"\n          image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"\n          repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"\n          {\n            printf 'commit_sha=%s\\n' "$commit"\n            printf 'source_tree_digest=%s\\n' "$source_digest"\n            printf 'lockfile_digest=%s\\n' "$lock_digest"\n            printf 'image_id=%s\\n' "$image_id"\n            printf 'repo_digests=%s\\n' "$repo_digests"\n          } > training-image-evidence.txt\n\n      - name: Upload training image identity\n        if: always()\n        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        with:\n          name: training-image-evidence\n          path: training-image-evidence.txt\n          if-no-files-found: error\n'''
+          if text.count(marker) != 1:
+              raise SystemExit(f"expected one training probe block, found {text.count(marker)}")
+          path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+          PY
+          git diff --check
+
+      - name: Publish CI evidence change
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/p0-add-image-evidence.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "ci: record training image content identity"
+          git push origin "HEAD:${HEAD_BRANCH}"

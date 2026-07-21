@@ -2,106 +2,161 @@
 
 ## Status
 
-`trade_rl` is a research-grade baseline-anchored residual-RL core with attested local/paper-serving contracts. Direct exchange trading remains unavailable. Architecture quality, empirical profitability and operational authorization are separate gates.
+`trade_rl` is a research-grade portfolio-RL core with attested local/paper-serving contracts. Direct exchange trading remains unavailable. Architecture integrity, empirical profitability, and operational authorization are separate gates; passing one does not imply the others.
+
+The current maintained system uses causal market artifacts, baseline-anchored or direct-target policies, persistent stateful order simulation, nested walk-forward selection, immutable evidence, an optional PostgreSQL metadata catalog, a local read-only research console, and fail-closed serving activation.
 
 ## Responsibility map
 
 ```text
 trade_rl/
-  domain/        immutable dataset, policy, selection and release identities
-  artifacts/     canonical serialization, hashing and atomic publication
-  data/          market calendar, feature and execution-data contracts
+  domain/        immutable dataset, policy, selection, and release identities
+  artifacts/     canonical serialization, hashing, file closure, atomic publication
+  release/       external attestation verification and offline approval contracts
+  evaluation/    metrics, paired inference, folds, gates, and AUM capacity
+  catalog/       framework-independent artifact metadata contracts and PostgreSQL adapter
+  data/          market calendar, causal features, execution-data contracts, datasets
   strategies/    deterministic causal baselines
-  risk/          pure hard/soft pre-trade constraints
-  simulation/    execution, costs, carry, margin and accounting
-  evaluation/    metrics, paired tests, folds, gates and AUM capacity
-  learning/      framework-light teacher, behavior-cloning and supervised-data contracts
-  rl/            actions, observations, normalization, rewards, environment and framework-neutral training protocols
-  release/       verification contracts for non-circular external release attestations
-  serving/       framework-independent candidate bundles, registry and fail-closed runtime
-  integrations/  Stable-Baselines3 training/serving and other framework adapters
-  workflows/     typed training, walk-forward and publication orchestration
+  simulation/    orders, bar paths, liquidity, execution, carry, margin, accounting
+  risk/          pure hard/soft pre-trade and portfolio constraints
+  rl/            actions, observations, normalization, rewards, environment, protocols
+  learning/      framework-light teachers, behavior cloning, supervised-data contracts
+  serving/       candidate bundles, registry, and fail-closed runtime
+  integrations/  Stable-Baselines3 and external-system adapters
+  workflows/     typed training, walk-forward, sensitivity, and publication orchestration
+  studio/        local research read models, job control, and typed API surfaces
+  telemetry/     append-only diagnostic training-event contracts
   cli/           single authoritative configuration and execution entry point
 ```
 
-The enforced dependency order is `cli -> workflows -> integrations -> serving -> learning -> rl -> risk -> simulation -> strategies -> data -> evaluation -> release -> artifacts -> domain`. Integrations own external model-framework adapters. Release verification cannot import serving, integrations or workflows. Learning contracts cannot depend on Stable-Baselines3 or sb3-contrib. Core training and serving modules do not import Stable-Baselines3 directly.
+The enforced Import Linter layer order is exactly:
+
+```text
+cli
+  -> studio
+  -> workflows
+  -> integrations
+  -> serving
+  -> learning
+  -> rl
+  -> risk
+  -> simulation
+  -> strategies
+  -> data
+  -> catalog
+  -> evaluation
+  -> release
+  -> artifacts
+  -> domain
+```
+
+`domain` is standard-library only. `release` cannot depend on evaluation, data, simulation, RL, serving, integrations, workflows, Studio, or model frameworks. `learning` and the core training protocol cannot depend on Stable-Baselines3, sb3-contrib, or Torch. `workflows` may use integration interfaces but may not directly import model frameworks. Serving cannot import training workflows or Stable-Baselines3. Runtime, training, and Studio paths cannot import offline signing modules. Catalog contracts cannot depend on NumPy, model frameworks, psycopg, data, RL, learning, integrations, workflows, or CLI.
+
+`trade_rl.telemetry` was added after the current layer stack and is not yet explicitly placed in `.importlinter`. Its current implementation is standard-library only and is consumed by integrations and Studio, but this is a convention rather than an enforced dependency boundary. The latest architecture audit records this as a remediation item.
 
 ## Privileged GPU boundary
 
-Self-hosted GPU runners never execute pull-request-controlled workflows. The maintained full-run workflow is restricted to the protected `main` ref, the repository owner and the `gpu-full-training` GitHub Environment. External Actions in that privileged workflow are pinned to immutable commit SHAs. Detached full runs are labeled and supervised through explicit `start`, `status` and `stop` operations; terminal exit status and retained logs are collected without deleting the failed container before evidence is captured.
+Self-hosted GPU runners never execute pull-request-controlled workflows. The maintained full-run workflow is restricted to the protected `main` ref, the repository owner, and the `gpu-full-training` GitHub Environment. External Actions in that privileged workflow are pinned to immutable commit SHAs. Detached full runs expose explicit start, status, and stop operations; failed-container logs and exit status are retained before cleanup.
 
-## Action contract
+## Action and baseline contracts
 
-`portfolio_action_v3` supports either the maintained baseline-residual controls or direct per-symbol `target_weight:<symbol>` controls. The environment derives the exact dimension from `ActionSpec` and binds symbol order into its identity. In target-weight mode, zero action means flat; in residual mode, zero action remains exact baseline identity. Training may clip with diagnostics; evaluation and serving can reject out-of-range actions fail closed.
+`portfolio_action_v3` supports the maintained baseline-residual controls and direct per-symbol `target_weight:<symbol>` controls. The environment derives the exact dimension from `ActionSpec` and binds symbol order into identity. In target-weight mode, zero action means flat. In residual mode, zero action is exact baseline identity. Training may clip with diagnostics; evaluation and serving can reject out-of-range actions fail closed.
 
-## Baseline contract
+Trend baselines distinguish time-series direction from cross-sectional ranking. `auto` uses time-series trend for a one-symbol universe and cross-sectional trend for multiple symbols. Directional modes preserve signal confidence and cash rather than always normalizing to full gross exposure.
 
-Trend baselines distinguish time-series direction from cross-sectional ranking. `auto` uses time-series trend for a one-symbol universe and cross-sectional trend for multiple symbols. Directional modes preserve signal confidence and cash allocation rather than always normalizing to full gross exposure.
+## Market-data and metadata contracts
 
-## Market and execution contract
+Bar timestamps are close times and decisions first execute after the decision close. Continuous datasets require regular cadence; session datasets use wall-clock lookup across overnight, weekend, and holiday gaps. Feature values, eligibility, availability, and staleness are point-in-time contracts. Executor-only realized tradability is not exposed to the policy before the transition.
 
-Bar timestamps are close times and decisions first execute at the next open. Continuous datasets require regular cadence; session datasets use wall-clock lookup helpers across overnight, weekend and holiday gaps. Execution uses only information available at the decision and execution timestamps. Hybrid and shadow books share one episode RNG stream while different episodes receive distinct deterministic seeds.
+Dataset identity v6 is recomputed from every observation, execution, and accounting scalar/array, including effective-dated instrument filters, funding-event counts, quantity semantics, maker/taker fees, spread, participation, borrow/funding schedules, mark/index prices, corporate actions, cash rates, availability/age, and contract multipliers. The maintained artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. Loading checks exact file closure, rejects symlinks/root escapes, recomputes identity, and validates array allow-list, shape, dtype, ordering, and `MarketDataset` invariants.
 
-The execution layer models partial fills, fees, spread, impact, random and tail slippage, per-bar constraints, minimum notional, lot/tick rules, borrow, carry, latency, market/limit orders, margin, dividends, splits and delisting recovery. Economic failures become structured terminal transitions; malformed market data remains an exception.
+Binance `historical_signed` metadata carries market, ordered symbols, coverage range, issue time, source URI, policy version, payload digest, and a purpose-bound signature. The resolver requires exact market, symbol-order, and research-interval coverage. `frozen_snapshot` and `conservative_static` are explicitly non-point-in-time and retain those limitations in dataset identity and reports. They cannot enter final promotion as authenticated historical metadata.
 
-Binance `historical_signed` execution rules carry an authenticated semantic scope: market, ordered symbols, coverage start/end, issue time, source URI, policy version and payload digest. The maintained resolver requires an exact USD-M, symbol-order and research-interval match. Tick size, lot size and minimum notional are strictly positive for every signed metadata entry and effective rule. Frozen and conservative-static modes remain explicitly non-point-in-time and retain their limitations in dataset identity.
+## Stateful execution contract
+
+Normal RL environment transitions use the stateful execution API:
+
+```text
+target proposal
+  -> risk projection
+  -> target-to-order reconciliation
+  -> persistent OrderBookState
+  -> deterministic admission and OHLC path interpretation
+  -> shared processing-bar liquidity allocation
+  -> BookState accounting
+  -> OrderEvent and capacity evidence
+```
+
+Order intents bind dataset ID, target identity, execution-policy digest, symbol, fixed decision-time quantity, type, time in force, limit/stop price, submission/eligibility/expiry indices, reference price, decision equity, and replacement linkage. Pending orders preserve remaining quantity, cumulative fills, trigger state, terminal reason, last processed index, and a monotonic evidence version.
+
+The simulator supports market, limit, and stop-market instructions; latency; IOC, day, and GTC semantics; cancel-and-replace; partial-fill carry; deterministic rejection; gap handling; and persistent stop triggers. One explicit optimistic, neutral, or conservative OHLC path is selected per symbol and bar. Capacity uses the processing bar's volume, a configured trigger-position fraction, and one deterministic symbol-level priority pool. `BookState` remains the accounting authority for cash, quantities, fees, funding, borrow, dividends, cash interest, splits, delisting settlement, margin, and economic termination.
+
+Final promotion requires conservative primary path mode, processing-bar volume capacity, partial-fill carry, complete order-event evidence, conservative trigger-volume fractions, and an execution-policy digest matching the experiment plan. Optimistic and neutral modes are sensitivity tools only. OHLCV cannot recover queue position, hidden liquidity, auctions, or L2 depth.
+
+The compatibility `MarketExecutor.execute_interval` path remains in the codebase for older callers and selected utilities. It currently retains its own target-filling implementation rather than being a thin adapter over the stateful engine. The maintained RL step path is stateful, but any compatibility caller must not be described as producing complete stateful order evidence. The latest audit identifies remaining maintained call sites that require convergence.
 
 ## Risk ordering
 
-Turnover is a soft operational constraint. Concentration, gross leverage and emergency drawdown limits are hard constraints applied afterward and validated again. A hard deleveraging requirement may override turnover, and every projection exposes reasons and L1 distance.
+Turnover is a soft operational constraint. Concentration, gross leverage, portfolio risk, and emergency drawdown limits are hard constraints applied afterward and validated again. A hard deleveraging requirement may override turnover, and each projection exposes reasons and L1 distance.
 
 ## Observation and normalization
 
-Observation schema v3 carries feature values, feature-level availability/staleness/reasons, active/tradable state, all baseline and factor inputs, current and requested portfolios, fill/cost/capacity state, cash/net/gross/margin state and previous action. Remaining time is included only for an explicitly finite-horizon MDP. Normalization statistics are fitted on an explicit train range, frozen elsewhere, content-addressed, and preserve mask/categorical coordinates exactly.
+Observation schema v3 carries feature values, feature-level availability/staleness/reasons, active/tradable state, baseline and factor inputs, current/requested portfolios, fill/cost/capacity state, persistent pending-order state, cash/net/gross/margin state, and previous action. Remaining time appears only for an explicitly finite-horizon MDP. Normalization statistics are fitted on an explicit train capability, frozen elsewhere, content-addressed, and preserve mask/categorical coordinates exactly.
 
-The maintained multi-timeframe policy uses a structured Dict observation rather than flattening history into one vector. Completed native sequences are 15m=96 bars, 1h=168, 4h=120 and 1d=60. Each clock has ordered values, availability and staleness tensors. Timeframe-specific left-padded residual TCNs use per-timestep LayerNorm and dilation schedules whose receptive fields cover the complete declared window, so neither convolution nor normalization can read future timesteps and the oldest declared observation can still affect the final latent. A timestep mask is true when any channel is available; unavailable channels are zeroed and remain individually masked. Train-range-only robust median/IQR statistics normalize sequence values per native feature while availability and staleness remain separate inputs.
+The maintained multi-timeframe policy uses a structured Dict observation. Completed native sequences are 15m=96 bars, 1h=168, 4h=120, and 1d=60. Each clock has ordered values, availability, and staleness tensors. Timeframe-specific left-padded residual TCNs use per-timestep LayerNorm and dilation schedules whose receptive fields cover the declared window without reading future timesteps.
 
-Cross-asset attention preserves one contextual token per ordered symbol. Learned symbol embeddings bind token identity, the actor receives ordered per-symbol tokens so each target weight remains attached to its symbol, and only the critic/global context uses pooled portfolio representations. PPO and behavior cloning share this exact feature extractor.
+Cross-asset attention preserves one contextual token per ordered symbol. Learned symbol embeddings bind token identity; the actor receives ordered per-symbol tokens so each target weight remains attached to its symbol. Only critic/global context uses pooled portfolio representations. PPO and behavior cloning share this feature extractor.
 
-The maintained dataset has 226 ordered point-in-time channels across the four clocks, including explicit BTC-relative return, rolling BTC correlation/beta, cross-sectional momentum rank and dispersion. Derived features preserve native source age through as-of alignment. Dataset and policy identities bind symbols, feature order, window lengths, availability rules and architecture settings, and reject mismatched artifacts.
+The maintained dataset has 226 ordered point-in-time channels across four clocks, including BTC-relative return, rolling BTC correlation/beta, cross-sectional momentum rank, and dispersion. Derived features retain native source age through as-of alignment. Dataset and policy identities bind symbols, feature order, windows, availability rules, and architecture settings.
+
+Training–Serving observation parity includes symbol and feature order, availability, staleness, hybrid/shadow books, pending target, previous action, pending-order remaining/type/status/age/eligibility/trigger/expiry state, raw observation, normalized observation, each member action, and deterministic ensemble action.
 
 ## Reward contract
 
-Reward schema v4 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on new excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
+Reward schema v4 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on newly worsening excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance, and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
 
-## Dataset and run artifacts
+Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed evaluation use liquidation-at-close terminal accounting. The baseline reward pre-roll is intended to represent the same economics as the main environment, but it currently calls the compatibility `execute_interval` path. Because normal transitions use persistent orders, latency and partial residuals can diverge between pre-roll and episode execution. This is a confirmed architecture/correctness gap pending migration to the stateful reconciliation path.
 
-Dataset identity v6 is recomputed from every observation, execution and accounting scalar/array, including effective-dated instrument filters, funding-event counts, quantity semantics and corporate actions. The maintained dataset artifact consists of canonical `manifest.json` and deterministic `arrays.npz`. `write_market_dataset_files`, `publish_market_dataset_artifact`, and `load_market_dataset_artifact` are the authoritative staging, publication, and loading APIs. Loading verifies exact file closure, rejects symlinks/root escapes, recomputes dataset identity, and checks array allow-list, shape, dtype, ordering and `MarketDataset` invariants. `MarketDatasetView` carries an immutable half-open absolute range and rejects subviews outside its parent range. The former duplicate `write_market_dataset_artifact` compatibility export is not part of the maintained API.
+## Artifact store and PostgreSQL catalog
 
-Training outputs are first written to `ArtifactStore/.staging/<run-id>`. `run.json` binds every declared file by relative path, byte size and SHA-256 together with dataset, environment, training-config and ensemble identities. Only a fully validated run is atomically moved to `runs/<run-id>` and made current through `latest.json`; partial failures are moved to `failed/<run-id>`.
+Training output is first written to `ArtifactStore/.staging/<run-id>`. `run.json` binds each declared file by relative path, byte size, and SHA-256 together with dataset, environment, training-config, ensemble, execution, and evidence identities. Only a fully validated run moves atomically to `runs/<run-id>` and updates `latest.json`; partial failures move to `failed/<run-id>`.
+
+The optional PostgreSQL catalog stores reusable artifact metadata, canonical cache keys, dependencies, lifecycle status, and persistent sealed-test reservations. Catalog registration is idempotent for an identical artifact and fails on digest/cache-key conflicts. The filesystem artifact remains authoritative: the catalog stores its verified location and identity, not mutable numerical payloads.
+
+A PostgreSQL uniqueness boundary prevents separate workflow processes from opening the same `(experiment_plan_digest, dataset_id, fold_index)` sealed test twice. When PostgreSQL is not configured, workflows retain filesystem behavior, but cross-process sealed-test uniqueness is not provided by an in-memory object alone.
 
 ## Training and nested walk-forward
 
-`trade-rl train run` loads a validated dataset artifact, resolves content-addressed alpha/factor artifacts independently of filesystem location, requires a complete causal reward pre-roll, fits flat and sequence normalizers only on the declared training capability, constructs the real residual market environment, trains one Stable-Baselines3 checkpoint per seed, writes canonical configuration and ensemble manifests, validates the complete run and publishes atomically. Flat and structured policies both emit their matching SB3 loader contract; structured bundles include the native dataset/sequence adapter and never masquerade as flat policies. Maintained training, behavior cloning, checkpoint validation, configuration selection and outer testing share liquidation-at-close terminal accounting.
+`trade-rl train run` loads a validated dataset, resolves content-addressed alpha/factor artifacts independently of path, requires complete causal reward pre-roll, fits flat and sequence normalizers only on the declared training capability, constructs the real environment, trains one policy per seed, writes canonical configuration and ensemble manifests, validates the run, and publishes atomically.
 
-Direct training without selection evidence is labeled `research_exploratory`. A `research_selected_final` run requires an immutable `SelectionAuthorization` before normalizer fitting or model construction. That authorization binds the walk-forward run digest, gate-evidence digest, dataset ID, selected configuration, canonical candidate-config digest and fixed seed set. The authorization is copied into the staged run and therefore included in `run.json` file closure.
+Direct training without selection evidence is `research_exploratory`. A `research_selected_final` run requires an immutable `SelectionAuthorization` before normalizer fitting or model construction. It binds the walk-forward run digest, gate-evidence digest, dataset ID, selected configuration, canonical candidate-config digest, and fixed seed set.
 
-`trade-rl walk-forward run` uses the existing nested fold contract with concrete market adapters. Each fold receives disjoint train, checkpoint-validation, configuration-selection and sealed-test ranges. Training views include the maximum of trend and native-sequence history plus any reward/baseline pre-roll, so the nominal train start is never silently discarded. Flat and sequence normalizers fit only the chronological fold-train capability and are frozen and identity-bound thereafter. Masks, actions, portfolio/risk and bounded execution coordinates are pass-through or fixed-scaled.
+`trade-rl walk-forward run` provides disjoint train, checkpoint-validation, configuration-selection, and sealed-test ranges. Fold train views include required trend, reward, and sequence history without treating pre-range history as fit data. Normalizers fit only the chronological fold-train capability and remain frozen thereafter.
 
-Checkpoint validation selects the deterministic winner for each predeclared seed. Configuration selection retains per-seed evidence for median score, worst-seed uplift, seed dispersion, success fraction, daily turnover, cost fraction and drawdown, then separately evaluates the exact deterministic mean ensemble across those fixed seed members. That same ensemble rule is used for the sealed fold evaluation and final serving. The maintained hardened research runner executes walk-forward before final training, freezes the agreed recipe and complete seed set, writes `SelectionAuthorization`, and blocks final RL training when folds disagree, select baseline, or authorization identity differs. Sealed outer-test returns never flow back into training or selection.
+Checkpoint validation selects a deterministic winner for each predeclared seed. Configuration selection retains per-seed score, worst-seed uplift, dispersion, success fraction, turnover, cost fraction, and drawdown evidence, then evaluates the exact deterministic mean ensemble. The same ensemble rule is used for sealed evaluation and serving. Sealed returns never flow back into training or selection.
 
-Fold results retain complete execution evidence. Independent folds expose fold-distribution summaries rather than synthetic continuous-account metrics; continuous results require verified state handoff. Final `policy.zip` files are authoritative model artifacts. Training emits bounded, atomic intermediate policy checkpoints during each SB3 learning call. The checkpoint selector compares intermediate and final member checkpoints only on the checkpoint-validation range and records the selected content digest before sealed outer-test evaluation.
+Independent folds expose distribution summaries rather than synthetic continuous-account metrics. Continuous results require contiguous ranges and verified account-state handoff. Final `policy.zip` files remain authoritative model artifacts.
 
-## Export contract
+## Training telemetry and Studio boundary
 
-ONNX and TorchScript export a deterministic actor wrapper rather than the optimizer or replay state. Each export is compared with Stable-Baselines3 deterministic predictions on a fixed finite observation corpus. Shape, finite values and maximum absolute error must satisfy the configured tolerance. Requested ONNX failure rejects the run. TorchScript is best-effort and records an explicit `unsupported` result when conversion cannot be proven safe.
+Exploratory SB3 training emits seed-scoped, append-only `training_telemetry_v1` JSONL. Normal intervals are sampled; position, risk, emergency, and terminal events are retained. Telemetry is best-effort diagnostics: a telemetry write failure may disable visualization but must not stop learning.
 
-## Serving and release
+Studio reads telemetry only beneath a known job's declared artifact root and run namespaces. It rejects project-root escapes, symlinks, unknown jobs, and records whose seed differs from the selected stream. Studio never ranks checkpoints from replay data, retrains a policy, activates a bundle, or submits an exchange order.
 
-Candidate bundle v5 binds action size/names/spec digest, observation schema/size, environment, normalizer, alpha/factor artifacts, the selected-final training run, selection proposal and authorization, walk-forward/gate evidence, and fresh confirmation. Approval remains detached from bundle identity. An offline Ed25519 signer creates a purpose-bound `ReleaseAttestation`; registry and runtime load public verification keys only and reject exploratory runs, legacy sidecars, wrong-purpose keys, expired signatures, or incomplete chains.
+Telemetry currently uses whole-file scans for status and paged reads. Repeated polling therefore scales with total file size rather than only newly appended bytes. It also requires stricter boolean parsing and duplicate-seed stream rejection. These are audit findings, not claims that telemetry participates in the research evidence chain.
 
-Private signing material is accepted only by `trade_rl.release.offline_keys` and offline approval modules/CLI handlers. Trainer, Docker, CI verification, registry, and runtime packages cannot import those modules under the architecture contracts. Source-tree, lockfile, image, generation, heartbeat, and external expectation identities are independently checked before and during privileged GPU execution.
+## Export, serving, and release
 
-`StableBaselines3PolicyLoader` lives in the integration layer. It verifies the bundle-declared `policy-loader.json`, loads every declared PPO, SAC, TD3 or TQC member and runs deterministic probe observations before the runtime swaps active state. Every member must return a finite dynamic action vector inside `[-1, 1]`; the ensemble is averaged only when all members succeed. The runtime loads the same normalizer contract used in training.
+ONNX and TorchScript export a deterministic actor wrapper rather than optimizer state. Each export is compared with Stable-Baselines3 deterministic predictions on a fixed finite corpus. Requested ONNX failure rejects the run. TorchScript is best-effort and records an explicit unsupported reason when conversion cannot be proven safe.
 
-Direct exchange connectivity, order routing, broker reconciliation and operational secrets/alerting are deliberately outside this repository's current capability boundary.
+Candidate bundle v5 binds action size/names/spec digest, observation schema/size, environment, normalizers, alpha/factor artifacts, selected-final run, selection proposal and authorization, walk-forward/gate evidence, fresh confirmation, execution evidence, and policy-loader contract. Approval remains detached from bundle identity. An offline Ed25519 signer creates a purpose-bound `ReleaseAttestation`; registry and runtime load public verification keys only.
 
-## Final causal sequence hardening
+`StableBaselines3PolicyLoader` lives in the integration layer. It verifies `policy-loader.json`, loads every PPO, SAC, TD3, or TQC member, and executes deterministic probe observations before runtime activation. Every member must return a finite dynamic action vector inside `[-1, 1]`; the ensemble is averaged only when all members succeed. Structured prediction requires a monotonic identity-bound `ServingStateSnapshot`.
 
-The maintained policy uses a shared per-asset actor over contextual asset tokens. The critic remains portfolio-level. PPO uses an index-backed rollout: persistent rollout state contains decision indices and current state, while overlapping native sequences are reconstructed from the immutable causal dataset only for sampled minibatches.
+Direct exchange websocket ingestion, order submit/cancel/replace, broker reconciliation, venue kill switches, production secrets, and operational alerting remain outside this repository.
 
-The BC teacher is an approximate portfolio teacher rather than a globally optimal oracle. It uses a bounded beam and executor-compatible minimum-notional and partial-fill semantics. Model artifacts record the approximation contract.
+## Production gate
 
-Structured sequence serving is native SB3 serving. The runtime restores the flat and sequence normalizers, validates symbols, ordered features, global features, cadence and sequence layout, rebuilds the Dict observation from a bounded rolling dataset, and requires a monotonic `ServingStateSnapshot` binding dataset, decision index, portfolio state, pending target and current observation before released inference. Live order routing remains outside the policy artifact.
+Production remains `NO-GO` until the maintained GPU verification, at least 180 OOS days, a strictly positive paired block-bootstrap lower bound on RL-minus-baseline daily log excess, signed fresh confirmation, conservative complete execution evidence, and paper-trading reconciliation all pass. Passing repository CI proves code and artifact integrity at one source head; it does not prove profitability or authorize capital deployment.
 
-Production remains NO-GO until the maintained GPU verification, 180 OOS days, a strictly positive paired block-bootstrap lower bound on RL-minus-baseline daily log excess, a signed fresh confirmation interval and paper-trading reconciliation all pass.
+See [Research Status](RESEARCH_STATUS.md) and the [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md).

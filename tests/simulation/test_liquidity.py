@@ -238,6 +238,26 @@ def test_allocator_never_overallocates_across_many_request_shapes() -> None:
         assert evidence.remaining_capacity_notional >= -1e-12
 
 
+def test_large_capacity_tolerates_subtraction_roundoff() -> None:
+    price = 103.66558464909237
+    allocations, evidence = allocate_symbol_capacity(
+        requests=(_request("a", 0.1, price=price),),
+        processing_volume=1_000_000.0,
+        processing_market_notional=103_665_584.64909236,
+        price=price,
+        contract_multiplier=1.0,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+    )
+
+    assert allocations[0].filled_quantity == pytest.approx(0.1)
+    assert evidence.consumed_capacity_notional == pytest.approx(
+        allocations[0].filled_notional
+    )
+    assert evidence.remaining_capacity_notional >= 0.0
+
+
 def test_invalid_requests_and_capacity_inputs_fail_closed() -> None:
     with pytest.raises(LiquidityAllocationError, match="duplicate"):
         allocate_symbol_capacity(

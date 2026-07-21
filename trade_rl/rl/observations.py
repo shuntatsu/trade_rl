@@ -11,10 +11,25 @@ from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.orders import OrderBookState, OrderStatus, OrderType
 from trade_rl.strategies.trend import TrendTargets
 
-OBSERVATION_SCHEMA = "baseline_residual_observation_v4"
-OBSERVATION_SNAPSHOT_SCHEMA = "policy_observation_snapshot_v1"
+OBSERVATION_SCHEMA = "baseline_residual_observation_v5"
+OBSERVATION_SNAPSHOT_SCHEMA = "policy_observation_snapshot_v2"
+ORDER_OBSERVATION_WIDTH = 7
+
+_ORDER_TYPE_CODES = {
+    OrderType.MARKET: 1.0,
+    OrderType.LIMIT: 2.0,
+    OrderType.STOP_MARKET: 3.0,
+}
+_ORDER_STATUS_CODES = {
+    OrderStatus.SUBMITTED: 1.0,
+    OrderStatus.LATENCY_WAIT: 2.0,
+    OrderStatus.ELIGIBLE: 3.0,
+    OrderStatus.TRIGGERED: 4.0,
+    OrderStatus.PARTIALLY_FILLED: 5.0,
+}
 
 
 def _readonly_vector(value: np.ndarray, *, field: str) -> np.ndarray:
@@ -97,6 +112,171 @@ def observation_staleness_vector(dataset: MarketDataset, index: int) -> np.ndarr
 
 
 @dataclass(frozen=True, slots=True)
+class PendingOrderObservationState:
+    """Fixed-width causal pending-order state exposed to the policy."""
+
+    remaining_notional_ratio: np.ndarray
+    order_type_code: np.ndarray
+    status_code: np.ndarray
+    age_bars: np.ndarray
+    eligible_delay_bars: np.ndarray
+    triggered: np.ndarray
+    expiry_distance_bars: np.ndarray
+
+    @classmethod
+    def zero(cls, n_symbols: int) -> PendingOrderObservationState:
+        if (
+            isinstance(n_symbols, bool)
+            or not isinstance(n_symbols, int)
+            or n_symbols <= 0
+        ):
+            raise ValueError("n_symbols must be a positive integer")
+        zeros = np.zeros(n_symbols, dtype=np.float64)
+        return cls(
+            remaining_notional_ratio=zeros.copy(),
+            order_type_code=zeros.copy(),
+            status_code=zeros.copy(),
+            age_bars=zeros.copy(),
+            eligible_delay_bars=zeros.copy(),
+            triggered=zeros.copy(),
+            expiry_distance_bars=zeros.copy(),
+        )
+
+    @classmethod
+    def from_order_book(
+        cls,
+        order_book: OrderBookState,
+        *,
+        n_symbols: int,
+        current_index: int,
+        reference_prices: np.ndarray,
+        contract_multipliers: np.ndarray,
+        portfolio_value: float,
+    ) -> PendingOrderObservationState:
+        if (
+            isinstance(current_index, bool)
+            or not isinstance(current_index, int)
+            or current_index < 0
+        ):
+            raise ValueError("current_index must be a non-negative integer")
+        prices = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
+        multipliers = np.asarray(contract_multipliers, dtype=np.float64).reshape(-1)
+        if (
+            prices.shape != (n_symbols,)
+            or multipliers.shape != (n_symbols,)
+            or not np.isfinite(prices).all()
+            or not np.isfinite(multipliers).all()
+            or np.any(prices <= 0.0)
+            or np.any(multipliers <= 0.0)
+        ):
+            raise ValueError("pending-order prices and multipliers must match symbols")
+        if not np.isfinite(portfolio_value) or portfolio_value <= 0.0:
+            raise ValueError("portfolio_value must be finite and positive")
+
+        state = cls.zero(n_symbols)
+        values = {
+            name: np.asarray(getattr(state, name), dtype=np.float64).copy()
+            for name in (
+                "remaining_notional_ratio",
+                "order_type_code",
+                "status_code",
+                "age_bars",
+                "eligible_delay_bars",
+                "triggered",
+                "expiry_distance_bars",
+            )
+        }
+        for symbol_index in range(n_symbols):
+            active = order_book.active_for_symbol(symbol_index)
+            if len(active) > 1:
+                raise ValueError(
+                    "policy observation supports one active order per symbol"
+                )
+            if not active:
+                continue
+            order = active[0]
+            if order.status not in _ORDER_STATUS_CODES:
+                raise ValueError("active order has an unsupported observation status")
+            intent = order.intent
+            values["remaining_notional_ratio"][symbol_index] = (
+                order.remaining_quantity
+                * prices[symbol_index]
+                * multipliers[symbol_index]
+                / portfolio_value
+            )
+            values["order_type_code"][symbol_index] = _ORDER_TYPE_CODES[
+                intent.order_type
+            ]
+            values["status_code"][symbol_index] = _ORDER_STATUS_CODES[order.status]
+            values["age_bars"][symbol_index] = float(
+                max(0, current_index - intent.submit_index)
+            )
+            values["eligible_delay_bars"][symbol_index] = float(
+                max(0, intent.eligible_index - current_index)
+            )
+            values["triggered"][symbol_index] = float(
+                order.trigger_index is not None
+                or order.status in {OrderStatus.TRIGGERED, OrderStatus.PARTIALLY_FILLED}
+                and order.intent.order_type is OrderType.STOP_MARKET
+            )
+            if intent.expiry_index is not None:
+                values["expiry_distance_bars"][symbol_index] = float(
+                    max(0, intent.expiry_index - current_index) + 1
+                )
+        return cls(**values).validated(n_symbols)
+
+    def validated(self, n_symbols: int) -> PendingOrderObservationState:
+        arrays: dict[str, np.ndarray] = {}
+        for field_name in (
+            "remaining_notional_ratio",
+            "order_type_code",
+            "status_code",
+            "age_bars",
+            "eligible_delay_bars",
+            "triggered",
+            "expiry_distance_bars",
+        ):
+            vector = np.asarray(getattr(self, field_name), dtype=np.float64).reshape(-1)
+            if vector.shape != (n_symbols,) or not np.isfinite(vector).all():
+                raise ValueError(f"{field_name} do not match symbols")
+            arrays[field_name] = vector.copy()
+        if any(
+            np.any(arrays[name] < 0.0)
+            for name in (
+                "order_type_code",
+                "status_code",
+                "age_bars",
+                "eligible_delay_bars",
+                "triggered",
+                "expiry_distance_bars",
+            )
+        ):
+            raise ValueError(
+                "pending-order categorical and timing fields must be non-negative"
+            )
+        if np.any(arrays["triggered"] > 1.0):
+            raise ValueError("pending-order triggered flag must be within [0, 1]")
+        return PendingOrderObservationState(**arrays)
+
+    @property
+    def matrix(self) -> np.ndarray:
+        validated = self.validated(
+            len(np.asarray(self.remaining_notional_ratio).reshape(-1))
+        )
+        return np.column_stack(
+            (
+                validated.remaining_notional_ratio,
+                validated.order_type_code,
+                validated.status_code,
+                validated.age_bars,
+                validated.eligible_delay_bars,
+                validated.triggered,
+                validated.expiry_distance_bars,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyObservationSnapshot:
     """Immutable training state exported for serving parity verification."""
 
@@ -111,6 +291,14 @@ class PolicyObservationSnapshot:
     shadow_book_state: np.ndarray
     pending_target: np.ndarray
     previous_action: np.ndarray
+    pending_order_remaining: np.ndarray
+    pending_order_type: np.ndarray
+    pending_order_status: np.ndarray
+    pending_order_age_bars: np.ndarray
+    pending_order_eligible_delay: np.ndarray
+    pending_order_triggered: np.ndarray
+    pending_order_expiry_distance: np.ndarray
+    execution_policy_digest: str
     raw_observation: np.ndarray
     normalized_observation: np.ndarray
     snapshot_digest: str = ""
@@ -118,6 +306,7 @@ class PolicyObservationSnapshot:
 
     def __post_init__(self) -> None:
         require_sha256(self.dataset_id, field="dataset_id")
+        require_sha256(self.execution_policy_digest, field="execution_policy_digest")
         if self.index < 0:
             raise ValueError("observation snapshot index must be non-negative")
         if not self.symbols:
@@ -132,6 +321,13 @@ class PolicyObservationSnapshot:
             "shadow_book_state",
             "pending_target",
             "previous_action",
+            "pending_order_remaining",
+            "pending_order_type",
+            "pending_order_status",
+            "pending_order_age_bars",
+            "pending_order_eligible_delay",
+            "pending_order_triggered",
+            "pending_order_expiry_distance",
             "raw_observation",
             "normalized_observation",
         ):
@@ -141,9 +337,23 @@ class PolicyObservationSnapshot:
             raise ValueError("availability and staleness sizes must match")
         if arrays["raw_observation"].shape != arrays["normalized_observation"].shape:
             raise ValueError("raw and normalized observation sizes must match")
+        symbol_shape = (len(self.symbols),)
+        for name in (
+            "pending_target",
+            "pending_order_remaining",
+            "pending_order_type",
+            "pending_order_status",
+            "pending_order_age_bars",
+            "pending_order_eligible_delay",
+            "pending_order_triggered",
+            "pending_order_expiry_distance",
+        ):
+            if arrays[name].shape != symbol_shape:
+                raise ValueError(f"{name} must match snapshot symbols")
         expected = content_and_arrays_digest(
             {
                 "dataset_id": self.dataset_id,
+                "execution_policy_digest": self.execution_policy_digest,
                 "feature_names": self.feature_names,
                 "global_feature_names": self.global_feature_names,
                 "symbols": self.symbols,
@@ -268,6 +478,7 @@ class ObservationInput:
     shadow_risk_scale: float
     factor_basis: np.ndarray | None = None
     execution_state: ObservationExecutionState | None = None
+    pending_order_state: PendingOrderObservationState | None = None
     previous_action: np.ndarray | None = None
     action_size: int | None = None
     finite_horizon: bool = False
@@ -340,6 +551,7 @@ class ObservationBuilder:
             hybrid_risk_scale=value.hybrid_risk_scale,
             shadow_risk_scale=value.shadow_risk_scale,
             execution_state=value.execution_state,
+            pending_order_state=value.pending_order_state,
             previous_action=value.previous_action,
             action_size=self.action_size,
             finite_horizon=self.finite_horizon,
@@ -361,9 +573,9 @@ def observation_layout(
         raise ValueError("action_size must be a positive integer")
     if isinstance(n_factors, bool) or not isinstance(n_factors, int) or n_factors < 0:
         raise ValueError("n_factors must be a non-negative integer")
-    # Features, masks, staleness, missing reasons, factor loadings, and 18
-    # scalar asset fields, including mark/index basis premium.
-    per_symbol_width = 4 * dataset.n_features + n_factors + 18
+    # Features, masks, staleness, missing reasons, factor loadings, 18 asset
+    # fields, and the fixed-width pending-order state.
+    per_symbol_width = 4 * dataset.n_features + n_factors + 18 + ORDER_OBSERVATION_WIDTH
     # global features, masks, staleness, reasons, 15 book/risk fields and action.
     global_width = 4 * len(dataset.global_feature_names) + 15 + action_size
     if finite_horizon:
@@ -505,6 +717,7 @@ def build_observation(
     hybrid_risk_scale: float,
     shadow_risk_scale: float,
     execution_state: ObservationExecutionState | None = None,
+    pending_order_state: PendingOrderObservationState | None = None,
     previous_action: np.ndarray | None = None,
     action_size: int | None = None,
     finite_horizon: bool = False,
@@ -563,6 +776,11 @@ def build_observation(
         if execution_state is None
         else execution_state.validated(dataset.n_symbols)
     )
+    pending = (
+        PendingOrderObservationState.zero(dataset.n_symbols)
+        if pending_order_state is None
+        else pending_order_state.validated(dataset.n_symbols)
+    )
     hybrid_weights = hybrid.weights
     shadow_weights = shadow.weights
     per_symbol = np.column_stack(
@@ -603,6 +821,7 @@ def build_observation(
                     - 1.0
                 )
             ),
+            pending.matrix,
         )
     )
 

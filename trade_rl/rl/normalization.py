@@ -46,7 +46,7 @@ class ObservationNormalizer:
     source_dataset_artifact_digest: str | None = None
     absolute_train_start: int | None = None
     absolute_train_end: int | None = None
-    observation_schema: str = "baseline_residual_observation_v4"
+    observation_schema: str = "baseline_residual_observation_v5"
     observation_schema_digest: str | None = None
     action_spec_digest: str | None = None
     alpha_artifact_digest: str | None = None
@@ -172,7 +172,7 @@ class ObservationNormalizer:
         source_dataset_artifact_digest: str | None = None,
         absolute_train_start: int | None = None,
         absolute_train_end: int | None = None,
-        observation_schema: str = "baseline_residual_observation_v4",
+        observation_schema: str = "baseline_residual_observation_v5",
         observation_schema_digest: str | None = None,
         action_spec_digest: str | None = None,
         alpha_artifact_digest: str | None = None,

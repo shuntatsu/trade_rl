@@ -280,9 +280,19 @@ def allocate_symbol_capacity(
 
     consumed = initial_capacity - remaining_capacity
     filled_total = sum(allocation.filled_notional for allocation in allocations)
-    if not math.isclose(consumed, filled_total, rel_tol=0.0, abs_tol=1e-9):
+    capacity_tolerance = max(
+        1e-9,
+        8.0 * math.ulp(initial_capacity),
+        8.0 * math.ulp(remaining_capacity),
+    )
+    if not math.isclose(
+        consumed,
+        filled_total,
+        rel_tol=0.0,
+        abs_tol=capacity_tolerance,
+    ):
         raise LiquidityAllocationError("symbol capacity accounting is inconsistent")
-    if filled_total > initial_capacity + _TOLERANCE:
+    if filled_total > initial_capacity + capacity_tolerance:
         raise LiquidityAllocationError("symbol capacity was over-allocated")
 
     evidence = SymbolCapacityEvidence(

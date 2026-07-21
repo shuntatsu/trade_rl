@@ -53,15 +53,25 @@ class StatefulExecutionResult:
     interval_borrow_cost: float
     interval_dividend: float
     interval_cash_interest: float
+    interval_gross_return: float
     interval_net_return: float
     interval_log_return: float
     requested_notional: float
     filled_notional: float
+    requested_turnover: float
+    filled_turnover: float
+    unfilled_turnover: float
+    fill_ratio: float
+    rebalance_events: int
     completed_fill_count: int
     rejected_count: int
     expired_count: int
     fill_count: int
     max_participation: float
+    requested_notional_by_symbol: np.ndarray
+    filled_notional_by_symbol: np.ndarray
+    participation_by_symbol: np.ndarray
+    cost_by_symbol: np.ndarray
     termination_reason: str | None
 
 
@@ -253,18 +263,25 @@ def execute_stateful_orders(
         )
 
     starting_value = result_book.portfolio_value
+    starting_rebalance_events = result_book.rebalance_events
     if not math.isfinite(starting_value) or starting_value <= 0.0:
         raise ValueError("stateful execution requires positive starting equity")
     result_multipliers = result_book.contract_multipliers
     if result_multipliers is None:
         raise ValueError("stateful execution requires contract multipliers")
     requested_notional = 0.0
+    requested_by_symbol = np.zeros(dataset.n_symbols, dtype=np.float64)
+    filled_by_symbol = np.zeros(dataset.n_symbols, dtype=np.float64)
+    participation_by_symbol = np.zeros(dataset.n_symbols, dtype=np.float64)
+    cost_by_symbol = np.zeros(dataset.n_symbols, dtype=np.float64)
     for order in state.active_orders:
-        requested_notional += (
+        order_notional = (
             abs(order.remaining_quantity)
             * order.intent.submission_reference_price
             * float(result_multipliers[order.intent.symbol_index])
         )
+        requested_notional += order_notional
+        requested_by_symbol[order.intent.symbol_index] += order_notional
     total_cost = 0.0
     total_funding = 0.0
     total_borrow = 0.0
@@ -276,6 +293,7 @@ def execute_stateful_orders(
     expired_count = 0
     fill_count = 0
     max_participation = 0.0
+    gross_factor = 1.0
 
     admission = OrderAdmissionPolicy(
         expected_dataset_id=dataset.dataset_id,
@@ -667,6 +685,12 @@ def execute_stateful_orders(
                     )
                     total_cost += cost_amount
                     filled_notional += allocation.filled_notional
+                    filled_by_symbol[symbol] += allocation.filled_notional
+                    participation_by_symbol[symbol] = max(
+                        participation_by_symbol[symbol],
+                        allocation.participation_rate,
+                    )
+                    cost_by_symbol[symbol] += cost_amount
                     fill_count += 1
                     max_participation = max(
                         max_participation, allocation.participation_rate
@@ -721,7 +745,11 @@ def execute_stateful_orders(
         intrabar_asset_returns = (
             dataset.resolved_array("mark_price")[processing_index] / open_prices - 1.0
         )
-        _ = gap_return + float(np.dot(result_book.weights, intrabar_asset_returns))
+        intrabar_return = float(np.dot(result_book.weights, intrabar_asset_returns))
+        gross_factor *= max(
+            (1.0 + gap_return) * (1.0 + intrabar_return),
+            _TOLERANCE,
+        )
         dividend_amount = result_book.apply_dividend(
             dataset.resolved_array("dividend")[processing_index]
         )
@@ -764,6 +792,14 @@ def execute_stateful_orders(
         ending_value / starting_value - 1.0,
         -1.0 + 1e-12,
     )
+    requested_turnover = requested_notional / max(starting_value, _TOLERANCE)
+    filled_turnover = filled_notional / max(starting_value, _TOLERANCE)
+    unfilled_turnover = max(0.0, requested_turnover - filled_turnover)
+    fill_ratio = (
+        1.0
+        if requested_notional <= _TOLERANCE
+        else min(1.0, filled_notional / requested_notional)
+    )
     reason = (
         None
         if result_book.termination_reason is None
@@ -781,14 +817,24 @@ def execute_stateful_orders(
         interval_borrow_cost=total_borrow,
         interval_dividend=total_dividend,
         interval_cash_interest=total_cash_interest,
+        interval_gross_return=gross_factor - 1.0,
         interval_net_return=interval_net_return,
         interval_log_return=math.log1p(interval_net_return),
         requested_notional=requested_notional,
         filled_notional=filled_notional,
+        requested_turnover=requested_turnover,
+        filled_turnover=filled_turnover,
+        unfilled_turnover=unfilled_turnover,
+        fill_ratio=fill_ratio,
+        rebalance_events=result_book.rebalance_events - starting_rebalance_events,
         completed_fill_count=completed_fills,
         rejected_count=rejected_count,
         expired_count=expired_count,
         fill_count=fill_count,
         max_participation=max_participation,
+        requested_notional_by_symbol=requested_by_symbol,
+        filled_notional_by_symbol=filled_by_symbol,
+        participation_by_symbol=participation_by_symbol,
+        cost_by_symbol=cost_by_symbol,
         termination_reason=reason,
     )

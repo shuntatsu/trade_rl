@@ -350,3 +350,22 @@ def test_same_inputs_replay_order_events_and_accounting_identically() -> None:
     assert [event.canonical_payload() for event in first.order_events] == [
         event.canonical_payload() for event in second.order_events
     ]
+
+
+def test_stateful_result_reports_symbol_level_execution_observation_fields() -> None:
+    volume = np.full((6, 1), 2.0)
+    dataset = _market(volume=volume)
+    executor = _executor(dataset, max_participation_rate=1.0)
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (_intent(executor, 3.0),),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.requested_notional_by_symbol.tolist() == pytest.approx([300.0])
+    assert result.filled_notional_by_symbol.tolist() == pytest.approx([200.0])
+    assert result.participation_by_symbol.tolist() == pytest.approx([1.0])
+    assert result.cost_by_symbol.tolist() == pytest.approx([0.0])
+    assert np.isfinite(result.interval_gross_return)

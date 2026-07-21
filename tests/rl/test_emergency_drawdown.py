@@ -5,6 +5,7 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -39,6 +40,17 @@ def crash_market(*, liquidation_volume: float = 1_000_000.0) -> MarketDataset:
         feature_names=("ret",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
+    )
+
+
+def positioned_crash_book(market: MarketDataset) -> BookState:
+    return BookState.from_weights(
+        weights=np.array((0.4, -0.4), dtype=np.float64),
+        capital=1_000.0,
+        prices=market.close[24],
+        peak_value=1_000.0,
+        max_gross=1.0,
+        contract_multipliers=market.resolved_array("contract_multipliers"),
     )
 
 
@@ -109,19 +121,33 @@ def test_drawdown_stop_includes_realized_liquidation_cost_in_growth() -> None:
 
 
 def test_drawdown_stop_fails_closed_when_emergency_exit_cannot_fill() -> None:
-    env = environment(market=crash_market(liquidation_volume=0.0))
-    env.reset(options={"start_idx": 24})
+    market = crash_market(liquidation_volume=0.0)
+    env = environment(market=market)
+    env.reset(
+        options={
+            "start_idx": 24,
+            "initial_state_mode": "restore",
+            "initial_book": positioned_crash_book(market),
+        }
+    )
 
     with pytest.raises(RuntimeError, match="hybrid liquidation"):
         env.step(np.zeros(2))
 
 
 def test_training_drawdown_stop_terminates_when_emergency_exit_is_partial() -> None:
+    market = crash_market(liquidation_volume=0.0)
     env = environment(
-        market=crash_market(liquidation_volume=0.0),
+        market=market,
         fail_on_incomplete_emergency_liquidation=False,
     )
-    env.reset(options={"start_idx": 24})
+    env.reset(
+        options={
+            "start_idx": 24,
+            "initial_state_mode": "restore",
+            "initial_book": positioned_crash_book(market),
+        }
+    )
 
     _, _, terminated, truncated, info = env.step(np.zeros(2))
 

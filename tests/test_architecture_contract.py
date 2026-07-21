@@ -15,7 +15,9 @@ def test_only_trade_rl_is_packaged() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert config["project"]["name"] == "trade-rl"
-    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == ["trade_rl*"]
+    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == [
+        "trade_rl*"
+    ]
     assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli:main"}
 
 
@@ -63,6 +65,41 @@ def test_maintained_docs_reference_reward_schema_v4() -> None:
         text = path.read_text(encoding="utf-8").lower()
         assert "reward schema v3" not in text
         assert "reward schema v4" in text
+
+
+def test_maintained_docs_reference_serving_bundle_v5() -> None:
+    for path in (
+        Path("README.md"),
+        Path("README.ja.md"),
+        Path("docs/ARCHITECTURE.md"),
+        Path("docs/RESEARCH_STATUS.md"),
+    ):
+        text = path.read_text(encoding="utf-8").lower()
+        assert "bundle v4" not in text, path
+        assert "bundle v5" in text, path
+
+
+def test_quickstart_installs_training_dependencies_before_training() -> None:
+    text = Path("START.md").read_text(encoding="utf-8")
+    assert "uv sync --extra dev --extra train-sb3" in text
+    assert "uv run trade-rl train run" in text
+
+
+def test_architecture_doc_names_every_enforced_layer() -> None:
+    architecture = Path("docs/ARCHITECTURE.md").read_text(encoding="utf-8")
+    import_linter = Path(".importlinter").read_text(encoding="utf-8")
+    layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
+        "[importlinter:contract:domain]", maxsplit=1
+    )[0]
+    enforced_layers = tuple(
+        line.strip().removeprefix("trade_rl.")
+        for line in layer_block.splitlines()
+        if line.strip().startswith("trade_rl.")
+    )
+
+    assert enforced_layers
+    for layer in enforced_layers:
+        assert layer in architecture, layer
 
 
 def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:

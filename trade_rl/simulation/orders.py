@@ -62,7 +62,9 @@ def _validate_positive(name: str, value: float) -> None:
 
 
 def _validate_digest(name: str, value: str) -> None:
-    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+    if len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
         raise OrderDomainError(f"{name} must be a lowercase SHA-256 digest")
 
 
@@ -116,11 +118,22 @@ class OrderIntent:
         if not target_identity:
             raise OrderDomainError("target_identity must be non-empty")
         _validate_digest("execution_policy_digest", execution_policy_digest)
-        if isinstance(symbol_index, bool) or not isinstance(symbol_index, int) or symbol_index < 0:
+        if (
+            isinstance(symbol_index, bool)
+            or not isinstance(symbol_index, int)
+            or symbol_index < 0
+        ):
             raise OrderDomainError("symbol_index must be a non-negative integer")
-        if not _is_finite(requested_quantity) or abs(requested_quantity) <= _QUANTITY_TOLERANCE:
+        if (
+            not _is_finite(requested_quantity)
+            or abs(requested_quantity) <= _QUANTITY_TOLERANCE
+        ):
             raise OrderDomainError("requested_quantity must be finite and non-zero")
-        if isinstance(submit_index, bool) or not isinstance(submit_index, int) or submit_index < 0:
+        if (
+            isinstance(submit_index, bool)
+            or not isinstance(submit_index, int)
+            or submit_index < 0
+        ):
             raise OrderDomainError("submit_index must be a non-negative integer")
         if (
             isinstance(eligible_index, bool)
@@ -141,7 +154,9 @@ class OrderIntent:
 
         if order_type is OrderType.MARKET:
             if limit_price is not None or stop_price is not None:
-                raise OrderDomainError("market orders may not define limit or stop prices")
+                raise OrderDomainError(
+                    "market orders may not define limit or stop prices"
+                )
         elif order_type is OrderType.LIMIT:
             if limit_price is None:
                 raise OrderDomainError("limit_price is required for limit orders")
@@ -232,7 +247,10 @@ class PendingOrder:
             ("remaining_quantity", self.remaining_quantity),
             ("cumulative_filled_quantity", self.cumulative_filled_quantity),
         ):
-            if abs(value) > _QUANTITY_TOLERANCE and math.copysign(1.0, value) != requested_sign:
+            if (
+                abs(value) > _QUANTITY_TOLERANCE
+                and math.copysign(1.0, value) != requested_sign
+            ):
                 raise OrderDomainError(f"{name} has the wrong direction")
         if self.cumulative_filled_notional < 0.0:
             raise OrderDomainError("cumulative_filled_notional must be non-negative")
@@ -264,7 +282,10 @@ class PendingOrder:
             raise OrderDomainError("processing_index must be an integer")
         if processing_index < self.intent.submit_index:
             raise OrderDomainError("processing_index precedes order submission")
-        if self.last_processed_index is not None and processing_index < self.last_processed_index:
+        if (
+            self.last_processed_index is not None
+            and processing_index < self.last_processed_index
+        ):
             raise OrderDomainError("processing_index must be monotonic")
 
     def _transition(
@@ -280,11 +301,15 @@ class PendingOrder:
         if status.terminal and not terminal_reason:
             raise OrderDomainError("terminal transitions require a reason")
         if not status.terminal and terminal_reason is not None:
-            raise OrderDomainError("active transitions may not define a terminal reason")
+            raise OrderDomainError(
+                "active transitions may not define a terminal reason"
+            )
         return replace(
             self,
             status=status,
-            trigger_index=self.trigger_index if trigger_index is None else trigger_index,
+            trigger_index=self.trigger_index
+            if trigger_index is None
+            else trigger_index,
             last_processed_index=processing_index,
             terminal_reason=terminal_reason,
             evidence_version=self.evidence_version + 1,
@@ -293,7 +318,9 @@ class PendingOrder:
     def mark_latency_wait(self, *, processing_index: int) -> PendingOrder:
         if self.status not in {OrderStatus.SUBMITTED, OrderStatus.LATENCY_WAIT}:
             raise OrderDomainError("invalid state transition to latency_wait")
-        return self._transition(status=OrderStatus.LATENCY_WAIT, processing_index=processing_index)
+        return self._transition(
+            status=OrderStatus.LATENCY_WAIT, processing_index=processing_index
+        )
 
     def mark_eligible(self, *, processing_index: int) -> PendingOrder:
         if processing_index < self.intent.eligible_index:
@@ -304,7 +331,9 @@ class PendingOrder:
             OrderStatus.ELIGIBLE,
         }:
             raise OrderDomainError("invalid state transition to eligible")
-        return self._transition(status=OrderStatus.ELIGIBLE, processing_index=processing_index)
+        return self._transition(
+            status=OrderStatus.ELIGIBLE, processing_index=processing_index
+        )
 
     def mark_triggered(self, *, processing_index: int) -> PendingOrder:
         if self.status not in {
@@ -313,7 +342,9 @@ class PendingOrder:
             OrderStatus.PARTIALLY_FILLED,
         }:
             raise OrderDomainError("invalid state transition to triggered")
-        trigger_index = self.trigger_index if self.trigger_index is not None else processing_index
+        trigger_index = (
+            self.trigger_index if self.trigger_index is not None else processing_index
+        )
         return self._transition(
             status=OrderStatus.TRIGGERED,
             processing_index=processing_index,
@@ -332,7 +363,9 @@ class PendingOrder:
         if not _is_finite(quantity) or abs(quantity) <= _QUANTITY_TOLERANCE:
             raise OrderDomainError("fill quantity must be finite and non-zero")
         if math.copysign(1.0, quantity) != math.copysign(1.0, self.remaining_quantity):
-            raise OrderDomainError("fill quantity direction does not match remaining quantity")
+            raise OrderDomainError(
+                "fill quantity direction does not match remaining quantity"
+            )
         if abs(quantity) > abs(self.remaining_quantity) + _QUANTITY_TOLERANCE:
             raise OrderDomainError("fill quantity exceeds remaining quantity")
         if not _is_finite(notional) or notional < 0.0:
@@ -401,11 +434,17 @@ class OrderBookState:
 
     def active_for_symbol(self, symbol_index: int) -> tuple[PendingOrder, ...]:
         return tuple(
-            order for order in self.active_orders if order.intent.symbol_index == symbol_index
+            order
+            for order in self.active_orders
+            if order.intent.symbol_index == symbol_index
         )
 
     def active_remaining_quantities(self, n_symbols: int) -> np.ndarray:
-        if isinstance(n_symbols, bool) or not isinstance(n_symbols, int) or n_symbols <= 0:
+        if (
+            isinstance(n_symbols, bool)
+            or not isinstance(n_symbols, int)
+            or n_symbols <= 0
+        ):
             raise OrderDomainError("n_symbols must be a positive integer")
         values = np.zeros(n_symbols, dtype=np.float64)
         for order in self.active_orders:
@@ -423,7 +462,11 @@ class OrderBookState:
         )
 
     def replace(self, updated: PendingOrder) -> OrderBookState:
-        matching = [index for index, order in enumerate(self.active_orders) if order.order_id == updated.order_id]
+        matching = [
+            index
+            for index, order in enumerate(self.active_orders)
+            if order.order_id == updated.order_id
+        ]
         if not matching:
             raise OrderDomainError("cannot replace unknown active order")
         index = matching[0]

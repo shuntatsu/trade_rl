@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -93,5 +94,5 @@ def test_package_rejects_nonhistorical_metadata_promotion(
             signal_digest="a" * 64,
             selection_digest="b" * 64,
             trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
-            trusted_now=training.completed_at,
+            trusted_now=training.completed_at + timedelta(days=30),
         )

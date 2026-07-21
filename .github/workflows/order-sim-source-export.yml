@@ -5,124 +5,31 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   export:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout PR branch
+      - name: Checkout exact PR head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          persist-credentials: true
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-        with:
-          python-version: "3.12"
-
-      - name: Apply Task 7 tests and product source
+      - name: Record and package exact source
         shell: bash
         run: |
           set -euo pipefail
-          for patch_name in task7-tests task7-product; do
-            base64 --decode ".github/order-sim-staging/${patch_name}.patch.gz.b64" \
-              | gzip --decompress \
-              > "${RUNNER_TEMP}/${patch_name}.patch"
-            git apply --check "${RUNNER_TEMP}/${patch_name}.patch"
-            git apply "${RUNNER_TEMP}/${patch_name}.patch"
-          done
-          git apply --check .github/order-sim-staging/task7-mypy-fix.patch
-          git apply .github/order-sim-staging/task7-mypy-fix.patch
+          git rev-parse HEAD > "${RUNNER_TEMP}/source-head-sha.txt"
+          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
 
-      - name: Format Task 7 source
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv sync --extra dev --extra train-sb3 --extra studio --frozen
-          files=(
-            trade_rl/evaluation/execution_promotion.py
-            trade_rl/simulation/execution.py
-            trade_rl/workflows/execution_sensitivity.py
-            trade_rl/workflows/training_run.py
-            trade_rl/serving/package.py
-            trade_rl/cli/extended.py
-            tests/evaluation/test_execution_promotion.py
-            tests/evaluation/test_execution_sensitivity_matrix.py
-            tests/serving/test_package.py
-            tests/workflows/test_training_run.py
-            tests/e2e/test_research_to_serving_v2.py
-          )
-          uv run ruff check --fix "${files[@]}"
-          uv run ruff format "${files[@]}"
-
-      - name: Verify Task 7 implementation
-        shell: bash
-        run: |
-          set +e
-          set -o pipefail
-          uv run ruff check \
-            trade_rl/evaluation/execution_promotion.py \
-            trade_rl/simulation/execution.py \
-            trade_rl/workflows/execution_sensitivity.py \
-            trade_rl/workflows/training_run.py \
-            trade_rl/serving/package.py \
-            trade_rl/cli/extended.py \
-            tests/evaluation/test_execution_promotion.py \
-            tests/evaluation/test_execution_sensitivity_matrix.py \
-            tests/serving/test_package.py \
-            tests/workflows/test_training_run.py \
-            tests/e2e/test_research_to_serving_v2.py \
-            2>&1 | tee task7-ruff.log
-          ruff_status=${PIPESTATUS[0]}
-          uv run mypy \
-            trade_rl/evaluation/execution_promotion.py \
-            trade_rl/simulation/execution.py \
-            trade_rl/workflows/execution_sensitivity.py \
-            trade_rl/workflows/training_run.py \
-            trade_rl/serving/package.py \
-            trade_rl/cli/extended.py \
-            2>&1 | tee task7-mypy.log
-          mypy_status=${PIPESTATUS[0]}
-          uv run pytest -q \
-            tests/evaluation/test_execution_promotion.py \
-            tests/evaluation/test_execution_sensitivity_matrix.py \
-            tests/serving/test_package.py \
-            tests/workflows/test_training_run.py \
-            tests/e2e/test_research_to_serving_v2.py \
-            2>&1 | tee task7-pytest.log
-          pytest_status=${PIPESTATUS[0]}
-          printf 'ruff=%s\nmypy=%s\npytest=%s\n' \
-            "$ruff_status" "$mypy_status" "$pytest_status" \
-            > task7-status.txt
-          if ((ruff_status != 0 || mypy_status != 0 || pytest_status != 0)); then
-            exit 1
-          fi
-
-      - name: Upload Task 7 diagnostics
-        if: always()
+      - name: Upload exact source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: execution-promotion-verification-${{ github.event.pull_request.head.sha }}
+          name: order-simulator-source-${{ github.event.pull_request.head.sha }}
           path: |
-            task7-ruff.log
-            task7-mypy.log
-            task7-pytest.log
-            task7-status.txt
-          if-no-files-found: warn
+            ${{ runner.temp }}/trade-rl-source.tar.gz
+            ${{ runner.temp }}/source-head-sha.txt
+          if-no-files-found: error
           retention-days: 1
-
-      - name: Commit and push verified Task 7 product source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git rm -r .github/order-sim-staging
-          git add trade_rl tests
-          git status --short
-          git diff --cached --stat
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "feat: enforce conservative execution promotion evidence"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"

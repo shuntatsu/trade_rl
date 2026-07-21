@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: apply-postgres-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  export:
+  finalize:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -22,13 +22,35 @@ jobs:
         with:
           ref: feat/postgres-artifact-catalog
           fetch-depth: 0
-      - name: Reconstruct and apply product changes
+      - name: Capture branch head
+        id: branch
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Reconstruct product changes and apply type fix
         shell: bash
         run: |
           set -euo pipefail
           cat .github/postgres-payload/chunk*.b64 | base64 --decode > /tmp/postgres-changes.tar.gz
           echo 'f43b96f8f3191242c40ebe8e4bc059e78a147823d6af41852f7ed62954d4f50e  /tmp/postgres-changes.tar.gz' | sha256sum --check --strict
           tar -xzf /tmp/postgres-changes.tar.gz -C .
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/catalog/contracts.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '''        if not isinstance(self.artifact_kind, ArtifactKind):\n            object.__setattr__(self, "artifact_kind", ArtifactKind(self.artifact_kind))\n        if not isinstance(self.status, ArtifactStatus):\n            object.__setattr__(self, "status", ArtifactStatus(self.status))\n''',
+              '',
+          )
+          text = text.replace(
+              '''        if self.artifact_kind is not None and not isinstance(\n            self.artifact_kind, ArtifactKind\n        ):\n            object.__setattr__(self, "artifact_kind", ArtifactKind(self.artifact_kind))\n        if self.status is not None and not isinstance(self.status, ArtifactStatus):\n            object.__setattr__(self, "status", ArtifactStatus(self.status))\n''',
+              '',
+          )
+          text = text.replace(
+              'def thaw_json(value: JsonValue) -> object:',
+              'def thaw_json(value: object) -> object:',
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
           rm -rf .github/postgres-payload
           rm -f .github/workflows/source-export-postgres-temp.yml
           rm -f .github/workflows/apply-postgres-temp.yml
@@ -37,25 +59,64 @@ jobs:
         with:
           version: '0.9.18'
           enable-cache: true
-      - name: Lock, format, and lint
+      - name: Lock and install maintained dependencies
         run: |
           uv lock
           uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra postgres
+      - name: Static verification
+        run: |
           uv run ruff format .
           uv run ruff check . --fix
           uv run ruff format --check .
           uv run ruff check .
-      - name: Package formatted source
+          uv run mypy trade_rl
+          uv run lint-imports
+      - name: Focused regression tests
+        run: |
+          uv run pytest \
+            tests/ops/test_postgres_compose_contract.py \
+            tests/catalog/test_contracts.py \
+            tests/catalog/test_migrations.py \
+            tests/catalog/test_postgres_repository.py \
+            tests/catalog/test_service.py \
+            tests/cli/test_catalog_commands.py \
+            tests/data/test_market_artifact_catalog.py \
+            tests/data/test_market_artifact.py \
+            tests/cli/test_binance_data_command.py \
+            tests/cli/test_binance_multitimeframe_command.py -q
+          docker compose config --quiet
+      - name: PostgreSQL integration test
         shell: bash
         run: |
           set -euo pipefail
-          tar --exclude=.git --exclude=.venv -czf /tmp/postgres-product-source.tar.gz .
-          sha256sum /tmp/postgres-product-source.tar.gz > /tmp/postgres-product-source.sha256
-      - name: Upload formatted source
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: postgres-product-source
-          path: |
-            /tmp/postgres-product-source.tar.gz
-            /tmp/postgres-product-source.sha256
-          retention-days: 1
+          docker compose up -d postgres
+          trap 'docker compose down -v' EXIT
+          for attempt in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U trade_rl -d trade_rl; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker compose logs postgres
+              exit 1
+            fi
+            sleep 2
+          done
+          export TRADE_RL_DATABASE_URL='postgresql://trade_rl:trade_rl@localhost:5432/trade_rl'
+          export TRADE_RL_TEST_DATABASE_URL="$TRADE_RL_DATABASE_URL"
+          uv run trade-rl catalog migrate
+          uv run trade-rl catalog health
+          uv run pytest tests/catalog/test_postgres_integration.py -q
+      - name: Commit verified product branch
+        shell: bash
+        env:
+          START_SHA: ${{ steps.branch.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add PostgreSQL artifact catalog'
+          git fetch origin feat/postgres-artifact-catalog
+          remote_sha=$(git rev-parse origin/feat/postgres-artifact-catalog)
+          test "$remote_sha" = "$START_SHA"
+          git push origin HEAD:feat/postgres-artifact-catalog

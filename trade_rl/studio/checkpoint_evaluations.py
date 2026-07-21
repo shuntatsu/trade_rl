@@ -17,9 +17,11 @@ from trade_rl.studio.settings import StudioSettings
 _SELECTION_NAME = "checkpoint-selection.json"
 _SELECTION_SCHEMA = "checkpoint_selection_v2_seed_aware"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_FOLD_DIRECTORY = re.compile(r"^fold-\d+$")
 
 
 class CheckpointEvaluationItemResponse(StudioModel):
+    fold: str
     configuration: str
     seed: int = Field(ge=0)
     policy_digest: str
@@ -134,6 +136,13 @@ class StudioCheckpointEvaluationReader:
             raise ArtifactInvalid("checkpoint evaluation range is empty")
         return start, stop
 
+    @staticmethod
+    def _fold(path: Path) -> str:
+        for part in reversed(path.parts):
+            if _FOLD_DIRECTORY.fullmatch(part) is not None:
+                return part
+        raise ArtifactInvalid("checkpoint evaluation fold identity is unavailable")
+
     def _items(self, path: Path) -> tuple[CheckpointEvaluationItemResponse, ...]:
         try:
             raw: object = json.loads(path.read_text(encoding="utf-8"))
@@ -169,6 +178,7 @@ class StudioCheckpointEvaluationReader:
                 finalist.get("checkpoint_score"),
                 field="finalist score",
             )
+        fold = self._fold(path)
         configuration = path.parent.name
         if not configuration:
             raise ArtifactInvalid("checkpoint configuration is unavailable")
@@ -201,6 +211,7 @@ class StudioCheckpointEvaluationReader:
                 )
             items.append(
                 CheckpointEvaluationItemResponse(
+                    fold=fold,
                     configuration=configuration,
                     seed=seed,
                     policy_digest=policy_digest,
@@ -223,9 +234,9 @@ class StudioCheckpointEvaluationReader:
                 items,
                 key=lambda item: (
                     item.seed,
+                    item.fold,
                     item.configuration,
                     not item.finalist,
-                    -item.score,
                     item.policy_digest,
                 ),
             )

@@ -57,6 +57,7 @@ class OrderAdmissionPolicy:
         self,
         intent: OrderIntent,
         *,
+        remaining_quantity: float | None = None,
         book: BookState,
         processing_index: int,
         asset_active: bool,
@@ -110,7 +111,21 @@ class OrderAdmissionPolicy:
         if not tradable:
             return self._reject("non_tradable_market")
 
-        requested = intent.requested_quantity
+        requested = (
+            intent.requested_quantity
+            if remaining_quantity is None
+            else remaining_quantity
+        )
+        if (
+            not math.isfinite(requested)
+            or abs(requested) <= _TOLERANCE
+            or math.copysign(1.0, requested)
+            != math.copysign(1.0, intent.requested_quantity)
+            or abs(requested) > abs(intent.requested_quantity) + _TOLERANCE
+        ):
+            raise OrderAdmissionError(
+                "remaining_quantity must preserve the order direction and bound"
+            )
         if requested > 0.0 and not buy_allowed:
             return self._reject("buy_disabled")
         if requested < 0.0 and not sell_allowed:

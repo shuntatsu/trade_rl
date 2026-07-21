@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv sync --extra dev --frozen
+          uv sync --extra dev --extra train-sb3 --frozen
           files=(
             trade_rl/rl/environment.py
             trade_rl/rl/normalization.py

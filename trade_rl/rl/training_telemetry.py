@@ -18,7 +18,7 @@ from trade_rl.telemetry.training import (
 
 _DEFAULT_SAMPLE_EVERY = 32
 _DEFAULT_POSITION_THRESHOLD = 0.02
-MarketSnapshotProvider = Callable[[int, int], dict[str, object]]
+MarketSnapshotProvider = Callable[[int, int, bool, bool], dict[str, object]]
 
 
 class _BookLike(Protocol):
@@ -69,17 +69,31 @@ def _execution_book(info: dict[str, object], name: str) -> _BookLike | None:
     return cast(_BookLike, book) if book is not None else None
 
 
+def _current_market_index(environment: object) -> int | None:
+    try:
+        unwrapped = getattr(environment, "unwrapped", environment)
+        value = int(getattr(unwrapped, "current_index"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
 def environment_market_snapshot(
     environment: object,
     *,
     bars_advanced: int,
+    market_index: int | None = None,
 ) -> dict[str, object]:
     """Return exact primary-symbol OHLC for the interval just executed."""
 
     try:
         unwrapped = getattr(environment, "unwrapped", environment)
         dataset = getattr(unwrapped, "dataset")
-        end_index = int(getattr(unwrapped, "current_index"))
+        end_index = (
+            int(market_index)
+            if market_index is not None
+            else int(getattr(unwrapped, "current_index"))
+        )
         n_bars = int(getattr(dataset, "n_bars"))
         resolved_bars = max(1, int(bars_advanced))
         start_index = max(0, end_index - resolved_bars + 1)
@@ -290,8 +304,7 @@ class TrainingTelemetrySampler:
                     reasons=reasons,
                 )
                 self._previous_weights[environment_id] = weights_after
-                if event_type is None:
-                    continue
+                snapshot: dict[str, object] = {}
                 if market_snapshot_provider is not None:
                     bars = info.get("bars_advanced", 1)
                     bars_advanced = (
@@ -303,9 +316,13 @@ class TrainingTelemetrySampler:
                     snapshot = market_snapshot_provider(
                         environment_id,
                         bars_advanced,
+                        done,
+                        event_type is not None,
                     )
-                    if snapshot:
-                        info = {**info, **snapshot}
+                if event_type is None:
+                    continue
+                if snapshot:
+                    info = {**info, **snapshot}
                 market = _market_values(
                     info,
                     previous_close=self._previous_close.get(environment_id),
@@ -419,27 +436,54 @@ def build_training_telemetry_callback(
         sample_every=sample_every,
     )
     environments: tuple[object, ...] = ()
+    market_indices: list[int | None] = []
 
     def snapshot_provider(
         environment_id: int,
         bars_advanced: int,
+        done: bool,
+        retain: bool,
     ) -> dict[str, object]:
         if not 0 <= environment_id < len(environments):
             return {}
-        return environment_market_snapshot(
-            environments[environment_id],
-            bars_advanced=bars_advanced,
+        previous_index = market_indices[environment_id]
+        if previous_index is None:
+            previous_index = _current_market_index(environments[environment_id])
+        if previous_index is None:
+            return {}
+        resolved_bars = max(1, int(bars_advanced))
+        end_index = previous_index + resolved_bars
+        snapshot = (
+            environment_market_snapshot(
+                environments[environment_id],
+                bars_advanced=resolved_bars,
+                market_index=end_index,
+            )
+            if retain
+            else {}
         )
+        market_indices[environment_id] = (
+            _current_market_index(environments[environment_id])
+            if done
+            else end_index
+        )
+        if market_indices[environment_id] is None:
+            market_indices[environment_id] = end_index
+        return snapshot
 
     class TrainingTelemetryCallback(BaseCallback):
         def __init__(self) -> None:
             super().__init__(verbose=0)
 
         def _on_training_start(self) -> None:
-            nonlocal environments
+            nonlocal environments, market_indices
             raw_environments = getattr(self.training_env, "envs", ())
             if isinstance(raw_environments, (tuple, list)):
                 environments = tuple(raw_environments)
+                market_indices = [
+                    _current_market_index(environment)
+                    for environment in environments
+                ]
 
         def _on_step(self) -> bool:
             sampler.consume(

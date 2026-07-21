@@ -32,6 +32,11 @@ from trade_rl.studio.evidence import inspect_run_evidence
 from trade_rl.studio.jobs import JobSupervisor
 from trade_rl.studio.serving_monitor import inspect_serving
 from trade_rl.studio.settings import StudioSettings
+from trade_rl.studio.telemetry import (
+    StudioTelemetryReader,
+    TelemetryEventsResponse,
+    TelemetryStatusResponse,
+)
 
 _ERROR_STATUS: tuple[tuple[type[StudioError], int], ...] = (
     (ResourceNotFound, 404),
@@ -62,10 +67,11 @@ def create_app(
         settings,
         catalog=resolved_catalog,
     )
+    telemetry_reader = StudioTelemetryReader(settings)
     app = FastAPI(
         title="Trade RL Studio API",
-        version="0.2.0",
-        description="Loopback-only research artifact and exploratory job API.",
+        version="0.3.0",
+        description="Loopback-only research artifact, job and replay telemetry API.",
     )
 
     @app.exception_handler(StudioError)
@@ -152,6 +158,28 @@ def create_app(
     ) -> JobLogResponse:
         lines, truncated = resolved_supervisor.tail_log(job_id, limit=limit)
         return JobLogResponse(job_id=job_id, lines=lines, truncated=truncated)
+
+    @app.get(
+        "/api/studio/jobs/{job_id}/telemetry/status",
+        response_model=TelemetryStatusResponse,
+    )
+    def telemetry_status(job_id: str) -> TelemetryStatusResponse:
+        return telemetry_reader.status(resolved_supervisor.get_job(job_id))
+
+    @app.get(
+        "/api/studio/jobs/{job_id}/telemetry/events",
+        response_model=TelemetryEventsResponse,
+    )
+    def telemetry_events(
+        job_id: str,
+        after_sequence: int = Query(default=0, ge=0),
+        limit: int = Query(default=512, ge=1, le=2_000),
+    ) -> TelemetryEventsResponse:
+        return telemetry_reader.events(
+            resolved_supervisor.get_job(job_id),
+            after_sequence=after_sequence,
+            limit=limit,
+        )
 
     @app.post(
         "/api/studio/jobs/training",

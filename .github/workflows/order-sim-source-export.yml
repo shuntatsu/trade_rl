@@ -21,15 +21,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rev-parse HEAD > source-head-sha.txt
-          tar --exclude=.git --exclude=trade-rl-source.tar.gz -czf trade-rl-source.tar.gz .
+          git rev-parse HEAD > "${RUNNER_TEMP}/source-head-sha.txt"
+          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
 
       - name: Upload exact source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: order-simulator-source-${{ github.event.pull_request.head.sha }}
           path: |
-            trade-rl-source.tar.gz
-            source-head-sha.txt
+            ${{ runner.temp }}/trade-rl-source.tar.gz
+            ${{ runner.temp }}/source-head-sha.txt
           if-no-files-found: error
           retention-days: 1

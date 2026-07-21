@@ -15,9 +15,7 @@ def test_only_trade_rl_is_packaged() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert config["project"]["name"] == "trade-rl"
-    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == [
-        "trade_rl*"
-    ]
+    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == ["trade_rl*"]
     assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli:main"}
 
 

@@ -74,9 +74,9 @@ class OrderAdmissionPolicy:
 
         prices = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
         quantities = np.asarray(book.quantities, dtype=np.float64).reshape(-1)
-        multipliers = np.asarray(
-            book.contract_multipliers, dtype=np.float64
-        ).reshape(-1)
+        multipliers = np.asarray(book.contract_multipliers, dtype=np.float64).reshape(
+            -1
+        )
         if (
             prices.shape != quantities.shape
             or multipliers.shape != quantities.shape
@@ -94,12 +94,9 @@ class OrderAdmissionPolicy:
             or not isinstance(processing_index, int)
             or processing_index < 0
         ):
-            raise OrderAdmissionError(
-                "processing_index must be a non-negative integer"
-            )
+            raise OrderAdmissionError("processing_index must be a non-negative integer")
         if intent.dataset_id != self.expected_dataset_id or (
-            intent.execution_policy_digest
-            != self.expected_execution_policy_digest
+            intent.execution_policy_digest != self.expected_execution_policy_digest
         ):
             return self._reject("identity_mismatch")
         if processing_index < intent.eligible_index:

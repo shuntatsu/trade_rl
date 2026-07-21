@@ -32,12 +32,18 @@ jobs:
             > trade_rl/simulation/stateful_execution.py
           git apply --check .github/order-sim-staging/execution.patch
           git apply .github/order-sim-staging/execution.patch
+          git apply --check .github/order-sim-staging/stateful-mypy.patch
+          git apply .github/order-sim-staging/stateful-mypy.patch
 
       - name: Prepare formatted source
         shell: bash
         run: |
           set -euo pipefail
           uv sync --extra dev --frozen
+          uv run ruff check --fix \
+            trade_rl/simulation/stateful_execution.py \
+            trade_rl/simulation/execution.py \
+            tests/simulation/test_stateful_execution.py
           uv run ruff format \
             trade_rl/simulation/stateful_execution.py \
             trade_rl/simulation/execution.py \

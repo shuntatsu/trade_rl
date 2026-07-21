@@ -369,3 +369,34 @@ def test_stateful_result_reports_symbol_level_execution_observation_fields() -> 
     assert result.participation_by_symbol.tolist() == pytest.approx([1.0])
     assert result.cost_by_symbol.tolist() == pytest.approx([0.0])
     assert np.isfinite(result.interval_gross_return)
+
+
+def test_open_gap_refreshes_peak_before_projected_book_clone() -> None:
+    open_price = np.full((6, 1), 100.0)
+    close = np.full((6, 1), 100.0)
+    open_price[1, 0] = 110.0
+    close[1, 0] = 110.0
+    dataset = _market(
+        open=open_price,
+        high=np.maximum(open_price, close) + 1.0,
+        low=np.minimum(open_price, close) - 1.0,
+        close=close,
+    )
+    executor = _executor(dataset)
+    book = BookState.from_weights(
+        weights=np.array((1.0,)),
+        capital=1_000.0,
+        prices=dataset.close[0],
+        peak_value=1_000.0,
+        max_gross=1.0,
+    )
+
+    result = executor.execute_orders(
+        book,
+        OrderBookState.empty(),
+        (),
+        start_index=0,
+        bars=1,
+    )
+
+    assert result.book.peak_value >= result.book.portfolio_value

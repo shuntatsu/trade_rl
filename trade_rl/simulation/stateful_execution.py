@@ -341,6 +341,7 @@ def execute_stateful_orders(
 
         open_prices = dataset.open[processing_index]
         result_book.revalue(open_prices)
+        result_book.refresh_drawdown()
         value_at_open = max(result_book.portfolio_value, 0.0)
         gap_return = value_at_open / period_start_value - 1.0
 

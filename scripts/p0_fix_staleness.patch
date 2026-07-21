@@ -1,0 +1,19 @@
+--- a/trade_rl/rl/observations.py
++++ b/trade_rl/rl/observations.py
+@@ -448,7 +448,7 @@
+         )
+         per_symbol[:, :n_features] = dataset.features[index]
+         per_symbol[:, n_features : 2 * n_features] = dataset.feature_available[index]
+-        per_symbol[:, 2 * n_features : 3 * n_features] = _feature_staleness(
++        per_symbol[:, 2 * n_features : 3 * n_features] = observation_feature_staleness(
+             dataset, index
+         )
+@@ -577,7 +577,7 @@
+         (
+             dataset.features[index],
+             dataset.feature_available[index].astype(np.float64, copy=False),
+-            _feature_staleness(dataset, index),
++            observation_feature_staleness(dataset, index),
+             dataset.resolved_array("feature_missing_reason")[index].astype(
+                 np.float64, copy=False
+             ),

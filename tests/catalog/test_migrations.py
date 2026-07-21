@@ -39,7 +39,7 @@ class Transaction:
     def __enter__(self) -> None:
         self.connection.transactions += 1
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+    def __exit__(self, _exc_type: object, exc: object, _tb: object) -> None:
         if exc is not None:
             self.connection.rollbacks += 1
 

@@ -1,0 +1,64 @@
+name: P0 Verify Validation Suite
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Format and verify validation suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format \
+            trade_rl/evaluation/execution_sensitivity.py \
+            trade_rl/evaluation/seed_robustness.py \
+            tests/simulation/test_independent_accounting_oracle.py \
+            tests/evaluation/test_execution_sensitivity_matrix.py \
+            tests/evaluation/test_seed_robustness.py
+          uv run ruff check \
+            trade_rl/evaluation/execution_sensitivity.py \
+            trade_rl/evaluation/seed_robustness.py \
+            tests/simulation/test_independent_accounting_oracle.py \
+            tests/evaluation/test_execution_sensitivity_matrix.py \
+            tests/evaluation/test_seed_robustness.py
+          uv run mypy \
+            trade_rl/evaluation/execution_sensitivity.py \
+            trade_rl/evaluation/seed_robustness.py
+          uv run pytest -q \
+            tests/simulation/test_independent_accounting_oracle.py \
+            tests/evaluation/test_execution_sensitivity_matrix.py \
+            tests/evaluation/test_seed_robustness.py
+          git diff --check
+
+      - name: Publish verified product commit
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/p0-verify-validation-suite.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test: add independent accounting and robustness evidence"
+          git push origin "HEAD:${HEAD_BRANCH}"

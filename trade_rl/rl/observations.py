@@ -50,7 +50,7 @@ def book_state_vector(book: BookState) -> np.ndarray:
         (
             book.quantities,
             book.mark_prices,
-            book.contract_multipliers,
+            np.asarray(book.contract_multipliers),
             book.weights,
             scalar,
         )

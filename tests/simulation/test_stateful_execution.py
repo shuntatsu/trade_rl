@@ -238,8 +238,7 @@ def test_day_order_expires_after_expiry_bar() -> None:
     )
     assert second.order_book.active_orders == ()
     assert (
-        second.order_book.terminal_orders[-1].terminal_reason
-        == "time_in_force_expired"
+        second.order_book.terminal_orders[-1].terminal_reason == "time_in_force_expired"
     )
 
 

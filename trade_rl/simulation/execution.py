@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Sequence
 
 import numpy as np
 
@@ -12,6 +13,17 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import (
     BookState,
     EconomicTerminationReason,
+)
+from trade_rl.simulation.orders import (
+    OrderBookState,
+    OrderIntent,
+)
+from trade_rl.simulation.orders import (
+    execution_policy_digest as calculate_execution_policy_digest,
+)
+from trade_rl.simulation.stateful_execution import (
+    StatefulExecutionResult,
+    execute_stateful_orders,
 )
 
 _TOLERANCE = 1e-12
@@ -85,6 +97,15 @@ class ExecutionCostConfig:
     order_latency_bars: int = 0
     order_type: str = "market"
     limit_offset_rate: float = 0.0005
+    path_mode: str = "conservative"
+    processing_bar_volume_capacity: bool = True
+    partial_fill_carry: bool = True
+    trigger_volume_fractions: tuple[float, float, float, float] = (
+        1.0,
+        0.5,
+        0.25,
+        0.0,
+    )
 
     def __post_init__(self) -> None:
         for field_name, value in (
@@ -150,12 +171,28 @@ class ExecutionCostConfig:
             or self.order_latency_bars < 0
         ):
             raise ValueError("order_latency_bars must be a non-negative integer")
-        if self.order_type not in {"market", "limit"}:
-            raise ValueError("order_type must be 'market' or 'limit'")
+        if self.order_type not in {"market", "limit", "stop_market"}:
+            raise ValueError("order_type must be 'market', 'limit' or 'stop_market'")
         if self.limit_offset_rate >= 1.0:
             raise ValueError("limit_offset_rate must be below one")
         if not isinstance(self.allow_short, bool):
             raise ValueError("allow_short must be a boolean")
+        if self.path_mode not in {"optimistic", "neutral", "conservative"}:
+            raise ValueError("path_mode must be optimistic, neutral or conservative")
+        if not isinstance(self.processing_bar_volume_capacity, bool):
+            raise ValueError("processing_bar_volume_capacity must be a boolean")
+        if not isinstance(self.partial_fill_carry, bool):
+            raise ValueError("partial_fill_carry must be a boolean")
+        fractions = self.trigger_volume_fractions
+        if (
+            len(fractions) != 4
+            or not all(math.isfinite(value) for value in fractions)
+            or not all(0.0 <= value <= 1.0 for value in fractions)
+            or not all(fractions[index] >= fractions[index + 1] for index in range(3))
+        ):
+            raise ValueError(
+                "trigger_volume_fractions must be four non-increasing rates"
+            )
 
     @property
     def rate_per_turnover(self) -> float:
@@ -686,6 +723,44 @@ class MarketExecutor:
         if borrow_amount > 0.0:
             book.charge_borrow(borrow_amount)
         return funding_amount, borrow_amount
+
+    @property
+    def execution_policy_digest(self) -> str:
+        return calculate_execution_policy_digest(
+            {
+                "allow_short": self.cost.allow_short,
+                "limit_offset_rate": self.cost.limit_offset_rate,
+                "max_leverage": self.cost.max_leverage,
+                "max_participation_rate": self.cost.max_participation_rate,
+                "order_latency_bars": self.cost.order_latency_bars,
+                "order_type": self.cost.order_type,
+                "partial_fill_carry": self.cost.partial_fill_carry,
+                "path_mode": self.cost.path_mode,
+                "processing_bar_volume_capacity": (
+                    self.cost.processing_bar_volume_capacity
+                ),
+                "schema_version": "execution_policy_v1",
+                "trigger_volume_fractions": list(self.cost.trigger_volume_fractions),
+            }
+        )
+
+    def execute_orders(
+        self,
+        book: BookState,
+        order_book: OrderBookState,
+        intents: Sequence[OrderIntent],
+        *,
+        start_index: int,
+        bars: int,
+    ) -> StatefulExecutionResult:
+        return execute_stateful_orders(
+            self,
+            book,
+            order_book,
+            intents,
+            start_index=start_index,
+            bars=bars,
+        )
 
     def execute_interval(
         self,

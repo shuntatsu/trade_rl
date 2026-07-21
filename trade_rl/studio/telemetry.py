@@ -102,9 +102,10 @@ class StudioTelemetryReader:
         return candidate
 
     @staticmethod
-    def _seed_from_path(path: Path) -> int | None:
-        for parent in path.parents:
-            match = _SEED_DIRECTORY.fullmatch(parent.name)
+    def _seed_from_path(path: Path, *, run_root: Path) -> int | None:
+        relative = path.relative_to(run_root)
+        for part in relative.parts:
+            match = _SEED_DIRECTORY.fullmatch(part)
             if match is not None:
                 return int(match.group(1))
         page = read_training_telemetry(path, limit=1)
@@ -128,10 +129,12 @@ class StudioTelemetryReader:
                 try:
                     resolved.relative_to(run_root)
                 except ValueError as error:
-                    raise ArtifactInvalid("telemetry file escapes artifact root") from error
+                    raise ArtifactInvalid(
+                        "telemetry file escapes artifact root"
+                    ) from error
                 if not resolved.is_file() or resolved.is_symlink():
                     continue
-                seed = self._seed_from_path(resolved)
+                seed = self._seed_from_path(resolved, run_root=run_root)
                 if seed is not None:
                     streams.setdefault(seed, resolved)
         return streams
@@ -146,8 +149,10 @@ class StudioTelemetryReader:
             selected_seed = min(streams) if streams else None
         else:
             selected_seed = seed if seed in streams else None
-        return streams, selected_seed, (
-            None if selected_seed is None else streams[selected_seed]
+        return (
+            streams,
+            selected_seed,
+            (None if selected_seed is None else streams[selected_seed]),
         )
 
     def _source(self, path: Path) -> str:
@@ -213,7 +218,9 @@ class StudioTelemetryReader:
         if selected_seed is None or any(
             item.seed != selected_seed for item in page.items
         ):
-            raise ArtifactInvalid("telemetry record seed does not match stream identity")
+            raise ArtifactInvalid(
+                "telemetry record seed does not match stream identity"
+            )
         return TelemetryEventsResponse(
             seed=selected_seed,
             items=tuple(_response(item) for item in page.items),

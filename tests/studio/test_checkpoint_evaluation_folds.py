@@ -34,9 +34,7 @@ def test_checkpoint_evaluations_keep_fold_identity_and_lexical_order(
         selection.parent.mkdir(parents=True)
         selection.write_text(json.dumps(checkpoint_payload()), encoding="utf-8")
 
-    response = api.get(
-        f"/api/studio/jobs/{created['id']}/checkpoint-evaluations"
-    )
+    response = api.get(f"/api/studio/jobs/{created['id']}/checkpoint-evaluations")
 
     assert response.status_code == 200
     seed_three = [item for item in response.json()["items"] if item["seed"] == 3]

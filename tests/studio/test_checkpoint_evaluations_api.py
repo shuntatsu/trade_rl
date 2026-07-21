@@ -62,9 +62,7 @@ def test_checkpoint_evaluations_are_identity_checked_and_seed_aware(
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(checkpoint_payload()), encoding="utf-8")
 
-    response = api.get(
-        f"/api/studio/jobs/{created['id']}/checkpoint-evaluations"
-    )
+    response = api.get(f"/api/studio/jobs/{created['id']}/checkpoint-evaluations")
 
     assert response.status_code == 200
     payload = response.json()
@@ -99,12 +97,8 @@ def test_checkpoint_evaluations_report_absent_and_reject_invalid_evidence(
     candidates[0]["evaluation_digest"] = "not-a-digest"
     invalid_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    absent = api.get(
-        f"/api/studio/jobs/{empty['id']}/checkpoint-evaluations"
-    )
-    rejected = api.get(
-        f"/api/studio/jobs/{invalid['id']}/checkpoint-evaluations"
-    )
+    absent = api.get(f"/api/studio/jobs/{empty['id']}/checkpoint-evaluations")
+    rejected = api.get(f"/api/studio/jobs/{invalid['id']}/checkpoint-evaluations")
 
     assert absent.status_code == 200
     assert absent.json() == {

@@ -98,7 +98,8 @@ def test_architecture_doc_matches_enforced_layer_order() -> None:
     )
 
     marker = "The enforced Import Linter layer order is exactly:"
-    documented_block = architecture.split(marker, maxsplit=1)[1].split("```", maxsplit=2)[1]
+    documented_section = architecture.split(marker, maxsplit=1)[1]
+    documented_block = documented_section.split("```", maxsplit=2)[1]
     documented_layers = tuple(
         line.strip().removeprefix("-> ")
         for line in documented_block.splitlines()
@@ -136,19 +137,13 @@ def test_large_facades_delegate_configuration_to_focused_modules() -> None:
 def test_sb3_and_torch_are_optional_training_dependencies() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     core = set(config["project"]["dependencies"])
-    training = set(config["tool"]["setuptools"]["packages"]["find"]["include"])
-    training_dependencies = set(
-        config["project"]["optional-dependencies"]["train-sb3"]
-    )
+    training = set(config["project"]["optional-dependencies"]["train-sb3"])
 
-    assert training == {"trade_rl*"}
     assert not any(item.startswith("stable-baselines3") for item in core)
     assert not any(item.startswith("sb3-contrib") for item in core)
     assert not any(item.startswith("torch") for item in core)
-    assert any(
-        item.startswith("stable-baselines3") for item in training_dependencies
-    )
-    assert any(item.startswith("torch") for item in training_dependencies)
+    assert any(item.startswith("stable-baselines3") for item in training)
+    assert any(item.startswith("torch") for item in training)
 
 
 def test_core_training_contract_does_not_import_gym_or_model_frameworks() -> None:

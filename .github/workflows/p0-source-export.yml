@@ -31,12 +31,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf trade-rl-source.tar.gz .
+          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
 
       - name: Upload exact source
         uses: actions/upload-artifact@v4
         with:
           name: p0-source-${{ github.event.pull_request.head.sha || github.sha }}
-          path: trade-rl-source.tar.gz
+          path: ${{ runner.temp }}/trade-rl-source.tar.gz
           if-no-files-found: error
           retention-days: 7

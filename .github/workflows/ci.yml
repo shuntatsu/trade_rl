@@ -193,6 +193,30 @@ jobs:
             --tag trade-rl-training:ci \
             .
 
+      - name: Record training image identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
+          repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"
+          {
+            printf 'commit_sha=%s\n' "$commit"
+            printf 'source_tree_digest=%s\n' "$source_digest"
+            printf 'lockfile_digest=%s\n' "$lock_digest"
+            printf 'image_id=%s\n' "$image_id"
+            printf 'repo_digests=%s\n' "$repo_digests"
+          } > training-image-evidence.txt
+
+      - name: Upload training image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: training-image-evidence
+          path: training-image-evidence.txt
+          if-no-files-found: error
+
       - name: Probe packaged non-root runtime
         shell: bash
         run: |

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.serving.test_observation_parity import _RecordingModel, _bundle, _dataset
+from tests.serving.test_observation_parity import _bundle, _dataset, _RecordingModel
 from trade_rl.integrations.sb3_serving import StableBaselines3PolicyLoader
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.environment_config import ResidualMarketEnvConfig
@@ -86,9 +86,7 @@ def _activated_runtime(tmp_path: Path):
         np.asarray((0.2, -0.4, 0.6), dtype=np.float32),
         np.asarray((0.4, 0.2, 0.0), dtype=np.float32),
     )
-    models = tuple(
-        _RecordingModel(action, normalizer.size) for action in actions
-    )
+    models = tuple(_RecordingModel(action, normalizer.size) for action in actions)
     iterator = iter(models)
     runtime = ServingRuntime(
         StableBaselines3PolicyLoader(
@@ -154,9 +152,7 @@ def test_snapshot_prediction_rejects_invalid_dataset_native_action(
     tmp_path: Path,
 ) -> None:
     dataset, snapshot, runtime = _activated_runtime(tmp_path)
-    runtime._policy = _DatasetPolicy(
-        np.asarray((0.1, -0.2, 1.5), dtype=np.float32)
-    )
+    runtime._policy = _DatasetPolicy(np.asarray((0.1, -0.2, 1.5), dtype=np.float32))
 
     with pytest.raises(ValueError, match="action schema"):
         runtime.predict_from_observation_snapshot(dataset, snapshot)

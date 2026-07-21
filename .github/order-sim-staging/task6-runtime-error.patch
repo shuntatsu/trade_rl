@@ -1,0 +1,11 @@
+diff --git a/trade_rl/serving/runtime.py b/trade_rl/serving/runtime.py
+--- a/trade_rl/serving/runtime.py
++++ b/trade_rl/serving/runtime.py
+@@ -453,7 +453,7 @@ class ServingRuntime:
+             snapshot.execution_policy_digest
+             != contract.execution_policy_digest
+         ):
+-            raise BundleValidationError(
++            raise ValueError(
+                 "observation snapshot execution policy identity mismatch"
+             )

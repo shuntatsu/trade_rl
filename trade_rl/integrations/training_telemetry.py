@@ -3,9 +3,11 @@
 from trade_rl.rl.training_telemetry import (
     TrainingTelemetrySampler,
     build_training_telemetry_callback,
+    environment_market_snapshot,
 )
 
 __all__ = [
     "TrainingTelemetrySampler",
     "build_training_telemetry_callback",
+    "environment_market_snapshot",
 ]

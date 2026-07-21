@@ -1,0 +1,380 @@
+--- a/trade_rl/rl/observations.py
++++ b/trade_rl/rl/observations.py
+@@ -7,11 +7,176 @@
+ import numpy as np
+ 
+ from trade_rl.artifacts.hashing import content_digest
++from trade_rl.data.identity import content_and_arrays_digest
+ from trade_rl.data.market import MarketDataset
++from trade_rl.domain.common import require_sha256
+ from trade_rl.simulation.accounting import BookState
+ from trade_rl.strategies.trend import TrendTargets
+ 
+ OBSERVATION_SCHEMA = "baseline_residual_observation_v4"
++OBSERVATION_SNAPSHOT_SCHEMA = "policy_observation_snapshot_v1"
++
++
++def _readonly_vector(value: np.ndarray, *, field: str) -> np.ndarray:
++    vector = np.asarray(value).reshape(-1).copy()
++    if vector.size == 0 or not np.isfinite(vector).all():
++        raise ValueError(f"{field} must be a non-empty finite vector")
++    vector.setflags(write=False)
++    return vector
++
++
++def book_state_vector(book: BookState) -> np.ndarray:
++    """Serialize all policy-relevant account fields without hidden ordering."""
++
++    scalar = np.asarray(
++        [
++            book.cash,
++            book.portfolio_value,
++            book.peak_value,
++            book.max_drawdown,
++            book.turnover_total,
++            book.total_cost,
++            book.funding_pnl,
++            book.borrow_cost,
++            book.margin_used,
++            book.maintenance_margin,
++            book.maintenance_requirement,
++            book.margin_deficit,
++            float(book.insolvent),
++        ],
++        dtype=np.float64,
++    )
++    return np.concatenate(
++        (
++            book.quantities,
++            book.mark_prices,
++            book.contract_multipliers,
++            book.weights,
++            scalar,
++        )
++    )
++
++
++def observation_feature_staleness(
++    dataset: MarketDataset, index: int
++) -> np.ndarray:
++    if not 0 <= index < dataset.n_bars:
++        raise ValueError("observation index is outside the dataset")
++    staleness = dataset.resolved_array("feature_staleness")[index].astype(
++        np.float64,
++        copy=False,
++    )
++    available = dataset.feature_available[index]
++    return np.where(available, staleness, np.maximum(staleness, 1.0))
++
++
++def observation_availability_mask(
++    dataset: MarketDataset, index: int
++) -> np.ndarray:
++    if not 0 <= index < dataset.n_bars:
++        raise ValueError("observation index is outside the dataset")
++    return np.concatenate(
++        (
++            dataset.feature_available[index].reshape(-1),
++            dataset.resolved_array("global_feature_available")[index].reshape(-1),
++        )
++    )
++
++
++def observation_staleness_vector(
++    dataset: MarketDataset, index: int
++) -> np.ndarray:
++    if not 0 <= index < dataset.n_bars:
++        raise ValueError("observation index is outside the dataset")
++    global_available = dataset.resolved_array("global_feature_available")[index]
++    global_staleness = dataset.resolved_array(
++        "global_feature_staleness_hours"
++    )[index].astype(np.float64, copy=False)
++    resolved_global = np.where(
++        global_available,
++        global_staleness,
++        np.maximum(global_staleness, 1.0),
++    )
++    return np.concatenate(
++        (observation_feature_staleness(dataset, index).reshape(-1), resolved_global)
++    )
++
++
++@dataclass(frozen=True, slots=True)
++class PolicyObservationSnapshot:
++    """Immutable training state exported for serving parity verification."""
++
++    dataset_id: str
++    index: int
++    symbols: tuple[str, ...]
++    feature_names: tuple[str, ...]
++    global_feature_names: tuple[str, ...]
++    availability_mask: np.ndarray
++    staleness: np.ndarray
++    hybrid_book_state: np.ndarray
++    shadow_book_state: np.ndarray
++    pending_target: np.ndarray
++    previous_action: np.ndarray
++    raw_observation: np.ndarray
++    normalized_observation: np.ndarray
++    snapshot_digest: str = ""
++    schema_version: str = OBSERVATION_SNAPSHOT_SCHEMA
++
++    def __post_init__(self) -> None:
++        require_sha256(self.dataset_id, field="dataset_id")
++        if self.index < 0:
++            raise ValueError("observation snapshot index must be non-negative")
++        if not self.symbols:
++            raise ValueError("observation snapshot symbols must not be empty")
++        if not self.feature_names:
++            raise ValueError("observation snapshot feature names must not be empty")
++        arrays: dict[str, np.ndarray] = {}
++        for name in (
++            "availability_mask",
++            "staleness",
++            "hybrid_book_state",
++            "shadow_book_state",
++            "pending_target",
++            "previous_action",
++            "raw_observation",
++            "normalized_observation",
++        ):
++            arrays[name] = _readonly_vector(getattr(self, name), field=name)
++            object.__setattr__(self, name, arrays[name])
++        if arrays["availability_mask"].shape != arrays["staleness"].shape:
++            raise ValueError("availability and staleness sizes must match")
++        if arrays["raw_observation"].shape != arrays["normalized_observation"].shape:
++            raise ValueError("raw and normalized observation sizes must match")
++        expected = content_and_arrays_digest(
++            {
++                "dataset_id": self.dataset_id,
++                "feature_names": self.feature_names,
++                "global_feature_names": self.global_feature_names,
++                "symbols": self.symbols,
++                "index": self.index,
++                "schema_version": self.schema_version,
++            },
++            tuple((name, value) for name, value in arrays.items()),
++        )
++        if self.snapshot_digest and self.snapshot_digest != expected:
++            raise ValueError("observation snapshot digest mismatch")
++        object.__setattr__(self, "snapshot_digest", expected)
++
++    def require_matches_dataset(self, dataset: MarketDataset) -> None:
++        if self.dataset_id != dataset.dataset_id or self.index >= dataset.n_bars:
++            raise ValueError("observation snapshot dataset or index mismatch")
++        if self.symbols != dataset.symbols:
++            raise ValueError("observation snapshot symbol order mismatch")
++        if self.feature_names != dataset.feature_names:
++            raise ValueError("observation snapshot feature order mismatch")
++        if self.global_feature_names != dataset.global_feature_names:
++            raise ValueError("observation snapshot global feature order mismatch")
++        expected_available = observation_availability_mask(dataset, self.index)
++        if not np.array_equal(self.availability_mask.astype(bool), expected_available):
++            raise ValueError("observation snapshot availability mask mismatch")
++        expected_staleness = observation_staleness_vector(dataset, self.index)
++        if not np.array_equal(self.staleness, expected_staleness):
++            raise ValueError("observation snapshot staleness mismatch")
+ 
+ 
+ @dataclass(frozen=True, slots=True)
+@@ -332,13 +497,6 @@
+         raise ValueError(f"{field_name} weights do not match dataset symbols")
+ 
+ 
+-def _feature_staleness(dataset: MarketDataset, index: int) -> np.ndarray:
+-    staleness = dataset.resolved_array("feature_staleness")[index].astype(
+-        np.float64,
+-        copy=False,
+-    )
+-    available = dataset.feature_available[index]
+-    return np.where(available, staleness, np.maximum(staleness, 1.0))
+ 
+ 
+ def build_observation(
+--- a/trade_rl/rl/environment.py
++++ b/trade_rl/rl/environment.py
+@@ -52,7 +52,11 @@
+     ObservationBuilder,
+     ObservationExecutionState,
+     ObservationInput,
++    PolicyObservationSnapshot,
++    book_state_vector,
++    observation_availability_mask,
+     observation_passthrough_indices,
++    observation_staleness_vector,
+ )
+ from trade_rl.rl.rewards import (
+     REWARD_SCHEMA,
+@@ -787,7 +791,7 @@
+             )
+         return trends, alpha, self._factor_basis_at(self.current_index)
+ 
+-    def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
++    def _flat_observation_pair(self) -> tuple[np.ndarray, np.ndarray]:
+         trends, alpha, factor_basis = self._market_inputs()
+         raw = self.observation_builder.build(
+             ObservationInput(
+@@ -813,6 +817,41 @@
+             )
+         )
+         current = raw if self.normalizer is None else self.normalizer.transform(raw)
++        return raw, current
++
++    def observation_snapshot(self) -> PolicyObservationSnapshot:
++        """Export the exact current training observation for serving parity."""
++
++        if not self._has_reset:
++            raise RuntimeError("environment must be reset before exporting observation")
++        raw, current = self._flat_observation_pair()
++        pending = (
++            np.zeros(self.dataset.n_symbols, dtype=np.float64)
++            if self._pending_hybrid_target is None
++            else self._pending_hybrid_target.copy()
++        )
++        return PolicyObservationSnapshot(
++            dataset_id=self.dataset.dataset_id,
++            index=self.current_index,
++            symbols=self.dataset.symbols,
++            feature_names=self.dataset.feature_names,
++            global_feature_names=self.dataset.global_feature_names,
++            availability_mask=observation_availability_mask(
++                self.dataset, self.current_index
++            ),
++            staleness=observation_staleness_vector(
++                self.dataset, self.current_index
++            ),
++            hybrid_book_state=book_state_vector(self.hybrid),
++            shadow_book_state=book_state_vector(self.shadow),
++            pending_target=pending,
++            previous_action=self._previous_action,
++            raw_observation=raw,
++            normalized_observation=current,
++        )
++
++    def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
++        _, current = self._flat_observation_pair()
+         if self.sequence_observation_builder is None:
+             return current
+         if self.sequence_policy_plane is not None:
+--- a/trade_rl/serving/runtime.py
++++ b/trade_rl/serving/runtime.py
+@@ -17,7 +17,7 @@
+ from trade_rl.release.attestation import ReleaseAttestation
+ from trade_rl.rl.actions import ACTION_SCHEMA
+ from trade_rl.rl.normalization import ObservationNormalizer
+-from trade_rl.rl.observations import OBSERVATION_SCHEMA
++from trade_rl.rl.observations import OBSERVATION_SCHEMA, PolicyObservationSnapshot
+ from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
+ from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
+ from trade_rl.serving.state import ServingStateGuard, ServingStateSnapshot
+@@ -435,3 +435,68 @@
+         ):
+             raise ValueError("policy output violates the residual action schema")
+         return raw.copy()
++
++    def predict_from_observation_snapshot(
++        self,
++        dataset: Any,
++        observation_snapshot: PolicyObservationSnapshot,
++    ) -> np.ndarray:
++        """Predict from an immutable state exported by the training environment."""
++
++        observation_snapshot.require_matches_dataset(dataset)
++        with self._lock:
++            policy = self._policy
++            snapshot = self._snapshot
++            normalizer = self._normalizer
++        if policy is None or snapshot is None:
++            raise RuntimeError("serving runtime has no active policy")
++        raw_observation = observation_snapshot.raw_observation
++        expected = (
++            raw_observation.astype(np.float32, copy=True)
++            if normalizer is None
++            else normalizer.transform(raw_observation)
++        )
++        if not np.allclose(
++            expected,
++            observation_snapshot.normalized_observation,
++            rtol=0.0,
++            atol=1e-7,
++        ):
++            raise ValueError("serving normalized observation parity mismatch")
++        state = ServingStateSnapshot.create(
++            dataset_id=observation_snapshot.dataset_id,
++            decision_index=observation_snapshot.index,
++            portfolio_state=observation_snapshot.hybrid_book_state,
++            pending_target=observation_snapshot.pending_target,
++            observation_digest=ServingStateSnapshot.observation_digest_for(
++                raw_observation
++            ),
++        )
++        with self._state_lock:
++            self._state_guard.require_fresh(state)
++            predictor = getattr(policy, "predict_from_dataset", None)
++            if callable(predictor):
++                action = np.asarray(
++                    predictor(
++                        dataset,
++                        index=observation_snapshot.index,
++                        current_flat=raw_observation,
++                    ),
++                    dtype=np.float32,
++                ).reshape(-1)
++            else:
++                action = self._predict_action(
++                    policy,
++                    snapshot,
++                    normalizer,
++                    raw_observation,
++                )
++            self._state_guard.accept(state)
++        if (
++            action.shape != (snapshot.action_size,)
++            or not np.isfinite(action).all()
++            or np.any(action < -1.0)
++            or np.any(action > 1.0)
++        ):
++            raise ValueError("policy output violates the residual action schema")
++        return action.copy()
+--- a/tests/serving/test_observation_parity.py
++++ b/tests/serving/test_observation_parity.py
+@@ -16,7 +16,9 @@
+ from trade_rl.rl.observations import (
+     OBSERVATION_SCHEMA,
+     ObservationBuilder,
++    observation_availability_mask,
+     observation_passthrough_indices,
++    observation_staleness_vector,
+ )
+ from trade_rl.serving.bundle import (
+     ServingBundleManifest,
+@@ -212,14 +214,16 @@
+ 
+     snapshot = env.observation_snapshot()
+     assert snapshot.index == 19
++    assert snapshot.symbols == dataset.symbols
+     assert snapshot.feature_names == dataset.feature_names
++    assert snapshot.global_feature_names == dataset.global_feature_names
+     np.testing.assert_array_equal(
+         snapshot.availability_mask.astype(bool),
+-        dataset.feature_available[19].reshape(-1),
++        observation_availability_mask(dataset, 19),
+     )
+     np.testing.assert_array_equal(
+         snapshot.staleness,
+-        dataset.resolved_array("feature_staleness")[19].reshape(-1),
++        observation_staleness_vector(dataset, 19),
+     )
+     np.testing.assert_allclose(snapshot.hybrid_book_state, _book_vector(env.hybrid))
+     np.testing.assert_allclose(snapshot.shadow_book_state, _book_vector(env.shadow))
+@@ -238,9 +242,7 @@
+         np.array((0.2, -0.4, 0.6), dtype=np.float32),
+         np.array((0.4, 0.2, 0.0), dtype=np.float32),
+     )
+-    models = tuple(
+-        _RecordingModel(action, layout.size) for action in member_actions
+-    )
++    models = tuple(_RecordingModel(action, layout.size) for action in member_actions)
+     iterator = iter(models)
+     loader = StableBaselines3PolicyLoader(
+         model_loader=lambda algorithm, path: next(iterator)

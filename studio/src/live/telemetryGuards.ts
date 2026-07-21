@@ -8,7 +8,7 @@ import { isRecord } from '../api/guards'
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 const isNonNegativeInteger = (value: unknown): value is number =>
-  Number.isInteger(value) && isFiniteNumber(value) && value >= 0
+  isFiniteNumber(value) && Number.isInteger(value) && value >= 0
 const isNullableNumber = (value: unknown): value is number | null =>
   value === null || isFiniteNumber(value)
 const isNumberArray = (value: unknown): value is number[] =>

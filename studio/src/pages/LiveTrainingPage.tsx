@@ -2,7 +2,11 @@ import { Activity, AlertTriangle, Database, Pause, Play, Radio, RotateCcw, SkipB
 import { useEffect, useMemo, useState } from 'react'
 
 import { studioApi, type StudioApi } from '../api/studioApi'
-import type { JobSummary, TrainingTelemetryRecord } from '../data/types'
+import type {
+  CheckpointEvaluationsResponse,
+  JobSummary,
+  TrainingTelemetryRecord,
+} from '../data/types'
 import { MarketReplayChart } from '../live/MarketReplayChart'
 import { useTrainingTelemetry } from '../live/useTrainingTelemetry'
 import '../liveTraining.css'
@@ -16,6 +20,10 @@ function signed(value: number | null, digits = 2): string {
   if (value === null || !Number.isFinite(value)) return '—'
   const sign = value >= 0 ? '+' : ''
   return `${sign}${value.toLocaleString('ja-JP', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
+}
+
+function shortDigest(value: string | null): string {
+  return value ? `${value.slice(0, 8)}…` : '—'
 }
 
 function eventLabel(record: TrainingTelemetryRecord): string {
@@ -65,13 +73,16 @@ function MetricCard({ label, value, values, tone = 'positive' }: {
 export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const [jobs, setJobs] = useState<JobSummary[]>([])
   const [jobId, setJobId] = useState<string | null>(null)
+  const [seed, setSeed] = useState<number | null>(null)
   const [jobsError, setJobsError] = useState<string | null>(null)
+  const [checkpointEvaluations, setCheckpointEvaluations] = useState<CheckpointEvaluationsResponse | null>(null)
+  const [checkpointError, setCheckpointError] = useState<string | null>(null)
   const [replayMode, setReplayMode] = useState<ReplayMode>('buffered')
   const [timelineMode, setTimelineMode] = useState<TimelineMode>('candles')
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState<Speed>(4)
   const [cursor, setCursor] = useState(0)
-  const telemetry = useTrainingTelemetry(jobId, api)
+  const telemetry = useTrainingTelemetry(jobId, api, seed)
 
   useEffect(() => {
     let active = true
@@ -87,6 +98,31 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
     })
     return () => { active = false }
   }, [api])
+
+  useEffect(() => {
+    setSeed(null)
+    setCheckpointEvaluations(null)
+    setCheckpointError(null)
+    if (!jobId || !api.loadCheckpointEvaluations) return undefined
+    let active = true
+    void api.loadCheckpointEvaluations(jobId).then((response) => {
+      if (!active) return
+      setCheckpointEvaluations(response)
+    }).catch((reason: unknown) => {
+      if (!active) return
+      setCheckpointError(reason instanceof Error ? reason.message : 'Checkpoint評価を取得できませんでした。')
+    })
+    return () => { active = false }
+  }, [api, jobId])
+
+  const seedKey = telemetry.status?.availableSeeds.join(',') ?? ''
+  useEffect(() => {
+    const available = telemetry.status?.availableSeeds ?? []
+    if (available.length === 0) return
+    if (seed === null || !available.includes(seed)) {
+      setSeed(telemetry.status?.selectedSeed ?? available[0])
+    }
+  }, [seed, seedKey, telemetry.status?.selectedSeed])
 
   useEffect(() => {
     if (telemetry.records.length === 0) {
@@ -109,11 +145,18 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const selectedJob = jobs.find((job) => job.id === jobId) ?? null
   const activeRecord = telemetry.records[Math.min(cursor, Math.max(0, telemetry.records.length - 1))] ?? null
   const latestRecord = telemetry.records.at(-1) ?? null
+  const effectiveSeed = seed ?? telemetry.status?.selectedSeed ?? null
+  const selectedCheckpoint = useMemo(() => {
+    if (effectiveSeed === null) return null
+    const candidates = checkpointEvaluations?.items.filter((item) => item.seed === effectiveSeed) ?? []
+    return [...candidates].sort((left, right) => Number(right.finalist) - Number(left.finalist) || right.score - left.score)[0] ?? null
+  }, [checkpointEvaluations, effectiveSeed])
   const firstPortfolio = telemetry.records.find((record) => record.portfolioValue !== null)?.portfolioValue ?? null
   const equity = activeRecord?.portfolioValue ?? null
   const baseline = activeRecord?.baselinePortfolioValue ?? null
   const pnl = equity !== null && firstPortfolio !== null ? equity - firstPortfolio : null
   const baselineDelta = equity !== null && baseline !== null ? equity - baseline : null
+  const checkpointReturn = selectedCheckpoint?.totalReturn ?? null
   const currentWeight = activeRecord?.weightsAfter[0] ?? 0
   const positionDirection = Math.abs(currentWeight) < 1e-9 ? 'フラット' : currentWeight > 0 ? 'ロング' : 'ショート'
   const positionTone = currentWeight > 0 ? 'live-positive' : currentWeight < 0 ? 'live-negative' : ''
@@ -124,7 +167,6 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   )
   const equityValues = telemetry.records.map((record) => record.portfolioValue)
   const baselineValues = telemetry.records.map((record) => record.baselinePortfolioValue)
-  const rewardValues = telemetry.records.map((record) => record.reward)
   const drawdownValues = telemetry.records.map((record) => record.drawdown === null ? null : -record.drawdown * 100)
   const connectionLabel = telemetry.connection === 'live' ? 'LIVE' : telemetry.connection === 'delayed' ? 'DELAYED' : telemetry.connection === 'connecting' ? 'CONNECTING' : 'OFFLINE'
 
@@ -142,13 +184,19 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             <span className={`live-connection live-connection--${telemetry.connection}`}><Radio size={12} aria-hidden="true" />{connectionLabel}</span>
           </div>
           <h1 id="live-training-title">Live Training</h1>
-          <p>学習中のエージェントが行う探索行動を、人間が理解できる速度の市場リプレイとして可視化します。</p>
+          <p>探索ロールアウトと決定論的Checkpoint評価を分離し、同じseed単位で確認します。</p>
         </div>
         <div className="live-header-controls">
           <label className="live-job-select">Run
             <select value={jobId ?? ''} onChange={(event) => setJobId(event.target.value || null)} aria-label="Live Training job">
               {jobs.length === 0 ? <option value="">実行中ジョブなし</option> : null}
               {jobs.map((job) => <option key={job.id} value={job.id}>{job.runId} · {job.status}</option>)}
+            </select>
+          </label>
+          <label className="live-job-select">Seed
+            <select value={effectiveSeed ?? ''} onChange={(event) => setSeed(event.target.value === '' ? null : Number(event.target.value))} aria-label="Live Training seed">
+              {(telemetry.status?.availableSeeds.length ?? 0) === 0 ? <option value="">seed待機中</option> : null}
+              {telemetry.status?.availableSeeds.map((value) => <option key={value} value={value}>Seed {value}</option>)}
             </select>
           </label>
           <div className="live-segment-group" aria-label="リプレイモード">
@@ -169,12 +217,12 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
         </div>
       </header>
 
-      {(jobsError || telemetry.error) ? <div className="live-alert"><AlertTriangle size={16} aria-hidden="true" />{jobsError ?? telemetry.error}</div> : null}
+      {(jobsError || telemetry.error || checkpointError) ? <div className="live-alert"><AlertTriangle size={16} aria-hidden="true" />{jobsError ?? telemetry.error ?? checkpointError}</div> : null}
 
       <div className="live-primary-grid">
         <article className="live-market-panel">
           <div className="live-panel-title">
-            <div><strong>{activeRecord?.symbol ?? latestRecord?.symbol ?? 'Market'} 市場リプレイ</strong><span>{selectedJob?.runId ?? 'ジョブ待機中'} · research only</span></div>
+            <div><strong>{activeRecord?.symbol ?? latestRecord?.symbol ?? 'Market'} 市場リプレイ</strong><span>{selectedJob?.runId ?? 'ジョブ待機中'} · Seed {effectiveSeed ?? '—'} · exploration</span></div>
             <span className="live-step-chip">Replay Step {activeRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</span>
           </div>
           <MarketReplayChart records={telemetry.records} cursorSequence={activeRecord?.sequence ?? null} compressed={compressed} />
@@ -197,7 +245,9 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             <div><dt>ベースライン超過</dt><dd className={(baselineDelta ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{signed(baselineDelta)} USDT</dd></div>
             <div><dt>報酬</dt><dd>{signed(activeRecord?.reward ?? null, 3)}</dd></div>
             <div><dt>ドローダウン</dt><dd className="live-negative">{activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`}</dd></div>
-            <div><dt>環境 / Seed</dt><dd>env {activeRecord?.environmentId ?? '—'} / {activeRecord?.seed ?? '—'}</dd></div>
+            <div><dt>Checkpoint評価</dt><dd className={(checkpointReturn ?? 0) >= 0 ? 'live-positive' : 'live-negative'}>{checkpointReturn === null ? '未生成' : `${signed(checkpointReturn * 100)}%${selectedCheckpoint?.finalist ? ' finalist' : ''}`}</dd></div>
+            <div><dt>評価range / digest</dt><dd>{selectedCheckpoint ? `[${selectedCheckpoint.checkpointRange[0]}, ${selectedCheckpoint.checkpointRange[1]}) · ${shortDigest(selectedCheckpoint.evaluationDigest)}` : '—'}</dd></div>
+            <div><dt>環境 / Seed</dt><dd>env {activeRecord?.environmentId ?? '—'} / {effectiveSeed ?? '—'}</dd></div>
             <div><dt>最新受信Step</dt><dd>{latestRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</dd></div>
           </dl>
           <div className="live-exposure">
@@ -205,19 +255,19 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             <div><i style={{ width: `${Math.min(100, Math.abs(currentWeight) * 100)}%` }} /></div>
             <strong>{currentWeight.toFixed(3)}</strong>
           </div>
-          <div className="live-research-note"><AlertTriangle size={15} aria-hidden="true" /><span>探索行動の可視化です。実運用・発注には使用しません。</span></div>
+          <div className="live-research-note"><AlertTriangle size={15} aria-hidden="true" /><span>探索とCheckpoint評価は異なる過程です。評価rangeとdigestを確認し、実運用・発注には使用しません。</span></div>
         </aside>
       </div>
 
       <div className="live-metric-grid">
-        <MetricCard label="再生区間損益（Equity）" value={`${signed(pnl)} USDT`} values={equityValues} tone={(pnl ?? 0) >= 0 ? 'positive' : 'negative'} />
-        <MetricCard label="ベースライン比較" value={`${signed(baselineDelta)} USDT`} values={baselineValues} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
-        <MetricCard label="報酬（Reward）" value={signed(activeRecord?.reward ?? null, 3)} values={rewardValues} tone="neutral" />
-        <MetricCard label="ドローダウン（Equity）" value={activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`} values={drawdownValues} tone="negative" />
+        <MetricCard label="探索リプレイ区間損益" value={`${signed(pnl)} USDT`} values={equityValues} tone={(pnl ?? 0) >= 0 ? 'positive' : 'negative'} />
+        <MetricCard label={`決定論Checkpoint · Seed ${effectiveSeed ?? '—'}`} value={checkpointReturn === null ? '未生成' : `${signed(checkpointReturn * 100)}%`} values={[checkpointReturn === null ? null : checkpointReturn * 100]} tone={checkpointReturn === null ? 'neutral' : checkpointReturn >= 0 ? 'positive' : 'negative'} />
+        <MetricCard label="探索中ベースライン比較" value={`${signed(baselineDelta)} USDT`} values={baselineValues} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
+        <MetricCard label="ドローダウン（探索）" value={activeRecord?.drawdown === null || activeRecord?.drawdown === undefined ? '—' : `-${(activeRecord.drawdown * 100).toFixed(2)}%`} values={drawdownValues} tone="negative" />
       </div>
 
       <article className="live-events-panel">
-        <div className="live-panel-title"><div><strong>イベント（最新）</strong><span>売買・リスク・Episode終了</span></div><span>{telemetry.status?.malformedLines ? `破損行 ${telemetry.status.malformedLines}` : 'sequence verified'}</span></div>
+        <div className="live-panel-title"><div><strong>イベント（最新）</strong><span>売買・リスク・Episode終了 · Seed {effectiveSeed ?? '—'}</span></div><span>{telemetry.status?.malformedLines ? `破損行 ${telemetry.status.malformedLines}` : 'sequence verified'}</span></div>
         <div className="live-event-list">
           {recentEvents.length === 0 ? <div className="live-empty-event">重要イベントを待っています。</div> : recentEvents.map((record) => {
             const label = eventLabel(record)

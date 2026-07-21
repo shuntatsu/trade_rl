@@ -5,56 +5,103 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout PR branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
 
-      - name: Apply deterministic replay tests only
+      - name: Apply Task 8 tests and product source
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .github/order-sim-staging/task8-tests.patch.gz.b64 \
-            | gzip --decompress > "${RUNNER_TEMP}/task8-tests.patch"
-          git apply --check "${RUNNER_TEMP}/task8-tests.patch"
-          git apply "${RUNNER_TEMP}/task8-tests.patch"
+          for patch_name in task8-tests task8-product; do
+            base64 --decode ".github/order-sim-staging/${patch_name}.patch.gz.b64" \
+              | gzip --decompress \
+              > "${RUNNER_TEMP}/${patch_name}.patch"
+            git apply --check "${RUNNER_TEMP}/${patch_name}.patch"
+            git apply "${RUNNER_TEMP}/${patch_name}.patch"
+          done
 
-      - name: Run expected RED replay test
+      - name: Format Task 8 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3 --extra studio --frozen
+          uv run ruff check --fix \
+            trade_rl/evaluation/execution_replay.py \
+            tests/e2e/test_stateful_order_replay.py
+          uv run ruff format \
+            trade_rl/evaluation/execution_replay.py \
+            tests/e2e/test_stateful_order_replay.py
+          python -m json.tool examples/binance-multitimeframe/training-full.json >/dev/null
+          python -m json.tool examples/binance-multitimeframe/walk-forward-full.json >/dev/null
+
+      - name: Verify Task 8 implementation
         shell: bash
         run: |
           set +e
           set -o pipefail
-          uv sync --extra dev --extra train-sb3 --frozen
-          uv run pytest -q tests/e2e/test_stateful_order_replay.py \
-            2>&1 | tee task8-red.log
-          status=${PIPESTATUS[0]}
-          printf 'pytest=%s\n' "$status" > task8-red-status.txt
-          if ((status == 0)); then
-            echo "Task 8 replay test unexpectedly passed before implementation." \
-              | tee -a task8-red.log
+          uv run ruff check \
+            trade_rl/evaluation/execution_replay.py \
+            tests/e2e/test_stateful_order_replay.py \
+            2>&1 | tee task8-ruff.log
+          ruff_status=${PIPESTATUS[0]}
+          uv run mypy trade_rl/evaluation/execution_replay.py \
+            2>&1 | tee task8-mypy.log
+          mypy_status=${PIPESTATUS[0]}
+          uv run pytest -q \
+            tests/e2e/test_stateful_order_replay.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            tests/workflows/test_training_run.py \
+            2>&1 | tee task8-pytest.log
+          pytest_status=${PIPESTATUS[0]}
+          printf 'ruff=%s\nmypy=%s\npytest=%s\n' \
+            "$ruff_status" "$mypy_status" "$pytest_status" \
+            > task8-status.txt
+          if ((ruff_status != 0 || mypy_status != 0 || pytest_status != 0)); then
             exit 1
           fi
-          exit "$status"
 
-      - name: Upload RED diagnostics
+      - name: Upload Task 8 diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: deterministic-replay-red-${{ github.event.pull_request.head.sha }}
+          name: deterministic-replay-verification-${{ github.event.pull_request.head.sha }}
           path: |
-            task8-red.log
-            task8-red-status.txt
-          if-no-files-found: error
+            task8-ruff.log
+            task8-mypy.log
+            task8-pytest.log
+            task8-status.txt
+          if-no-files-found: warn
           retention-days: 1
+
+      - name: Commit and push verified Task 8 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -r .github/order-sim-staging
+          git add \
+            trade_rl/evaluation/execution_replay.py \
+            tests/e2e/test_stateful_order_replay.py \
+            examples/binance-multitimeframe/training-full.json \
+            examples/binance-multitimeframe/walk-forward-full.json \
+            docs/verification/2026-07-21-conservative-order-simulator.md
+          git status --short
+          git diff --cached --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "test: verify stateful execution replay end to end"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"

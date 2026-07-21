@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  diagnose-cli:
+  diagnose-tests:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -50,14 +50,33 @@ jobs:
         run: |
           uv lock
           uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra postgres
-      - name: Catalog core tests
-        run: uv run pytest tests/ops/test_postgres_compose_contract.py tests/catalog/test_contracts.py tests/catalog/test_migrations.py tests/catalog/test_postgres_repository.py tests/catalog/test_service.py tests/data/test_market_artifact_catalog.py tests/data/test_market_artifact.py -q
-      - name: Catalog CLI tests
+      - name: Compose contract
+        continue-on-error: true
+        run: uv run pytest tests/ops/test_postgres_compose_contract.py -q
+      - name: Catalog contracts
+        continue-on-error: true
+        run: uv run pytest tests/catalog/test_contracts.py -q
+      - name: Catalog migrations
+        continue-on-error: true
+        run: uv run pytest tests/catalog/test_migrations.py -q
+      - name: PostgreSQL repository
+        continue-on-error: true
+        run: uv run pytest tests/catalog/test_postgres_repository.py -q
+      - name: Catalog service
+        continue-on-error: true
+        run: uv run pytest tests/catalog/test_service.py -q
+      - name: Market artifact catalog
+        continue-on-error: true
+        run: uv run pytest tests/data/test_market_artifact_catalog.py -q
+      - name: Existing market artifact
+        continue-on-error: true
+        run: uv run pytest tests/data/test_market_artifact.py -q
+      - name: Catalog CLI
         continue-on-error: true
         run: uv run pytest tests/cli/test_catalog_commands.py -q
-      - name: Binance data CLI regression
+      - name: Binance data CLI
         continue-on-error: true
         run: uv run pytest tests/cli/test_binance_data_command.py -q
-      - name: Binance multitimeframe CLI regression
+      - name: Binance multitimeframe CLI
         continue-on-error: true
         run: uv run pytest tests/cli/test_binance_multitimeframe_command.py -q

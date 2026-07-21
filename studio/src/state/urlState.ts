@@ -1,6 +1,6 @@
 import type { WorkspaceId } from '../components/Sidebar'
 
-const WORKSPACES: WorkspaceId[] = ['dashboard', 'data', 'experiments', 'runs', 'compare', 'evidence', 'serving', 'settings']
+const WORKSPACES: WorkspaceId[] = ['dashboard', 'data', 'experiments', 'runs', 'live', 'compare', 'evidence', 'serving', 'settings']
 
 export function readWorkspace(search: string): WorkspaceId {
   const value = new URLSearchParams(search).get('workspace')

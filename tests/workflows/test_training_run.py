@@ -8,7 +8,7 @@ import pytest
 
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.execution_promotion import load_execution_evidence
+from trade_rl.simulation.execution_promotion import load_execution_evidence
 from trade_rl.workflows.training_run import execute_training_run
 
 

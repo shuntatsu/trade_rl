@@ -5,14 +5,14 @@ from dataclasses import replace
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.execution_replay import (
-    StatefulReplayEvidence,
-    build_stateful_replay_evidence,
-)
 from trade_rl.rl.actions import ActionMode, ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution_replay import (
+    StatefulReplayEvidence,
+    build_stateful_replay_evidence,
+)
 from trade_rl.simulation.orders import OrderEvent
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 

@@ -17,17 +17,17 @@ from trade_rl.data.metadata_promotion import (
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.evaluation.confirmation import load_confirmation_evidence
-from trade_rl.evaluation.execution_promotion import (
-    EXECUTION_EVIDENCE_FILE_NAME,
-    load_execution_evidence,
-    validate_execution_promotion,
-)
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution_promotion import (
+    EXECUTION_EVIDENCE_FILE_NAME,
+    load_execution_evidence,
+    validate_execution_promotion,
+)
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:

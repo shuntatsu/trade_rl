@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.evaluation.execution_promotion import (
+from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_SCHEMA,
     ExecutionEvidence,
     ExecutionPromotionError,
@@ -90,8 +90,8 @@ def test_execution_evidence_round_trips_canonically(tmp_path: Path) -> None:
 
 
 def test_execution_evidence_uses_the_canonical_cost_policy_digest() -> None:
-    from trade_rl.evaluation.execution_promotion import execution_evidence_from_cost
     from trade_rl.simulation.execution import ExecutionCostConfig
+    from trade_rl.simulation.execution_promotion import execution_evidence_from_cost
     from trade_rl.simulation.orders import execution_policy_digest
 
     cost = ExecutionCostConfig(path_mode="conservative")

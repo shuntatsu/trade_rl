@@ -32,14 +32,6 @@ from trade_rl.data.metadata_promotion import (
 )
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest
-from trade_rl.evaluation.execution_promotion import (
-    EXECUTION_EVIDENCE_FILE_NAME,
-    ExecutionPromotionError,
-    execution_evidence_from_cost,
-    load_execution_evidence,
-    validate_execution_promotion,
-    write_execution_evidence,
-)
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
@@ -68,6 +60,14 @@ from trade_rl.rl.sequence_observations import (
 )
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution_promotion import (
+    EXECUTION_EVIDENCE_FILE_NAME,
+    ExecutionPromotionError,
+    execution_evidence_from_cost,
+    load_execution_evidence,
+    validate_execution_promotion,
+    write_execution_evidence,
+)
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,

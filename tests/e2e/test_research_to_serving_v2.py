@@ -23,10 +23,6 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
-from trade_rl.evaluation.execution_promotion import (
-    ExecutionEvidence,
-    write_execution_evidence,
-)
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.integrations.sb3_serving import StableBaselines3PolicyLoader
 from trade_rl.release.asymmetric import PublicVerificationKey
@@ -38,6 +34,10 @@ from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
+from trade_rl.simulation.execution_promotion import (
+    ExecutionEvidence,
+    write_execution_evidence,
+)
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
 from trade_rl.workflows.selection_authorization import (
     SelectionProposal,

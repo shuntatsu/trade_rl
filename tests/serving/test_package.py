@@ -17,16 +17,16 @@ from trade_rl.data.metadata_promotion import (
     write_metadata_promotion_evidence,
 )
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
-from trade_rl.evaluation.execution_promotion import (
-    ExecutionEvidence,
-    write_execution_evidence,
-)
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.bundle import load_serving_bundle
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution_promotion import (
+    ExecutionEvidence,
+    write_execution_evidence,
+)
 
 COMPLETED = datetime(2026, 7, 1, tzinfo=UTC)
 PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(b"\x44" * 32)

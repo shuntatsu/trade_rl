@@ -196,7 +196,9 @@ class StudioCheckpointEvaluationReader:
                 rel_tol=0.0,
                 abs_tol=1e-12,
             ):
-                raise ArtifactInvalid("checkpoint finalist score does not match candidate")
+                raise ArtifactInvalid(
+                    "checkpoint finalist score does not match candidate"
+                )
             items.append(
                 CheckpointEvaluationItemResponse(
                     configuration=configuration,
@@ -215,11 +217,7 @@ class StudioCheckpointEvaluationReader:
         return tuple(items)
 
     def inspect(self, job: JobSummary) -> CheckpointEvaluationsResponse:
-        items = tuple(
-            item
-            for path in self._paths(job)
-            for item in self._items(path)
-        )
+        items = tuple(item for path in self._paths(job) for item in self._items(path))
         ordered = tuple(
             sorted(
                 items,

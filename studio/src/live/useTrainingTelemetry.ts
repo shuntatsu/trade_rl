@@ -20,6 +20,7 @@ export interface TrainingTelemetryState {
 export function useTrainingTelemetry(
   jobId: string | null,
   api: StudioApi = studioApi,
+  seed: number | null = null,
 ): TrainingTelemetryState {
   const [records, setRecords] = useState<TrainingTelemetryRecord[]>([])
   const [status, setStatus] = useState<TelemetryStatusResponse | null>(null)
@@ -38,8 +39,8 @@ export function useTrainingTelemetry(
     const currentRequest = ++request.current
     try {
       const [nextStatus, page] = await Promise.all([
-        api.loadTelemetryStatus(jobId),
-        api.loadTelemetryEvents(jobId, sequence.current, 512),
+        api.loadTelemetryStatus(jobId, seed),
+        api.loadTelemetryEvents(jobId, sequence.current, 512, seed),
       ])
       if (currentRequest !== request.current) return
       setStatus(nextStatus)
@@ -65,7 +66,7 @@ export function useTrainingTelemetry(
     } finally {
       if (currentRequest === request.current) setLoading(false)
     }
-  }, [api, jobId])
+  }, [api, jobId, seed])
 
   useEffect(() => {
     request.current += 1
@@ -82,7 +83,7 @@ export function useTrainingTelemetry(
       window.clearInterval(timer)
       request.current += 1
     }
-  }, [jobId, refresh])
+  }, [jobId, refresh, seed])
 
   return { records, status, connection, loading, error, refresh }
 }

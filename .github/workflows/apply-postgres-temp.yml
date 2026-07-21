@@ -41,13 +41,18 @@ jobs:
         run: |
           uv lock
           uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra postgres
-      - name: Format and verify product changes
+      - name: Ruff format
         run: |
           uv run ruff format .
-          uv run ruff check .
           uv run ruff format --check .
-          uv run mypy trade_rl
-          uv run lint-imports
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Mypy
+        run: uv run mypy trade_rl
+      - name: Import architecture
+        run: uv run lint-imports
+      - name: Focused tests
+        run: |
           uv run pytest \
             tests/ops/test_postgres_compose_contract.py \
             tests/catalog/test_contracts.py \
@@ -59,7 +64,8 @@ jobs:
             tests/data/test_market_artifact.py \
             tests/cli/test_binance_data_command.py \
             tests/cli/test_binance_multitimeframe_command.py -q
-          docker compose config --quiet
+      - name: Compose validation
+        run: docker compose config --quiet
       - name: Commit verified implementation
         shell: bash
         run: |

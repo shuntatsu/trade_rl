@@ -5,31 +5,64 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout PR branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
 
-      - name: Record and package exact source
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Apply open-gap peak fix
         shell: bash
         run: |
           set -euo pipefail
-          git rev-parse HEAD > "${RUNNER_TEMP}/source-head-sha.txt"
-          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf "${RUNNER_TEMP}/trade-rl-source.tar.gz" .
+          git apply --check .github/order-sim-staging/task6-peak-fix.patch
+          git apply .github/order-sim-staging/task6-peak-fix.patch
+          uv sync --extra dev --extra train-sb3 --frozen
+          uv run ruff check --fix \
+            trade_rl/simulation/accounting.py \
+            trade_rl/simulation/stateful_execution.py \
+            tests/simulation/test_stateful_execution.py
+          uv run ruff format \
+            trade_rl/simulation/accounting.py \
+            trade_rl/simulation/stateful_execution.py \
+            tests/simulation/test_stateful_execution.py
 
-      - name: Upload exact source
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: order-simulator-source-${{ github.event.pull_request.head.sha }}
-          path: |
-            ${{ runner.temp }}/trade-rl-source.tar.gz
-            ${{ runner.temp }}/source-head-sha.txt
-          if-no-files-found: error
-          retention-days: 1
+      - name: Verify regression fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl/simulation tests/simulation
+          uv run mypy trade_rl/simulation
+          uv run pytest -q \
+            tests/simulation \
+            tests/workflows/test_training_run.py \
+            tests/workflows/test_market_walk_forward.py::test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once \
+            tests/workflows/test_market_walk_forward.py::test_structured_walk_forward_fits_flat_snapshot_normalizer_train_only \
+            tests/workflows/test_market_walk_forward.py::test_structured_walk_forward_trains_three_seed_ensemble_end_to_end \
+            tests/workflows/test_market_walk_forward.py::test_market_walk_forward_publishes_closed_loop_execution_sensitivity
+
+      - name: Commit and push verified fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/order-sim-staging/task6-peak-fix.patch
+          git add \
+            trade_rl/simulation/accounting.py \
+            trade_rl/simulation/stateful_execution.py \
+            tests/simulation/test_stateful_execution.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: refresh drawdown before projected execution"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"

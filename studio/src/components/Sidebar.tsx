@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   Beaker,
   Database,
@@ -14,6 +15,7 @@ export type WorkspaceId =
   | 'data'
   | 'experiments'
   | 'runs'
+  | 'live'
   | 'compare'
   | 'evidence'
   | 'serving'
@@ -24,6 +26,7 @@ const items = [
   { id: 'data' as const, label: 'Data Lab', compactLabel: 'Data', icon: Database },
   { id: 'experiments' as const, label: '実験', compactLabel: 'Exp', icon: Beaker },
   { id: 'runs' as const, label: 'Run Center', compactLabel: 'Runs', icon: BarChart3 },
+  { id: 'live' as const, label: 'Live Training', compactLabel: 'Live', icon: Activity },
   { id: 'compare' as const, label: '比較', compactLabel: 'Compare', icon: GitCompareArrows },
   { id: 'evidence' as const, label: 'Evidence Explorer', compactLabel: 'Evidence', icon: ScrollText },
   { id: 'serving' as const, label: 'Serving Monitor', compactLabel: 'Serving', icon: MonitorCog },

@@ -43,8 +43,11 @@ The execution container could not resolve `github.com`, so `uv` could not downlo
 ## P0-3 historical metadata promotion gate
 
 - RED test commit: `276bdf267e75f0d61561f544fc17a8a4e37f4f5d`
-- Formatted RED head: `b71d43e0b6d805f5575095006326b9e2c6a8661d`
-- RED workflow: pending on this evidence-refresh head.
+- RED head: `ce6d47c1c4a6a5ac96fc5efcf72c802cd08f2a65`
+- RED CI workflow: `29812672345`
+- RED evidence: 331 compatibility tests passed; only the two non-historical modes failed because packaging did not raise an error.
+- Implementation product commit: `9ff4167ce105a6ed151f3248c39d9c5b1a5c7d43`
+- GREEN workflow IDs: pending on this evidence-refresh head.
 
 ## Final verification
 

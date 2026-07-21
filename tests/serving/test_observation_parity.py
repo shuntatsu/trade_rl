@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 
-from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.integrations.sb3_serving import StableBaselines3PolicyLoader
@@ -14,7 +13,11 @@ from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 from trade_rl.rl.normalization import ObservationNormalizer
-from trade_rl.rl.observations import OBSERVATION_SCHEMA, ObservationBuilder
+from trade_rl.rl.observations import (
+    OBSERVATION_SCHEMA,
+    ObservationBuilder,
+    observation_passthrough_indices,
+)
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     load_serving_bundle,
@@ -177,6 +180,12 @@ def test_real_environment_observation_matches_serving_members_and_ensemble(
         dataset_id=dataset.dataset_id,
         source_dataset_id=dataset.dataset_id,
         observation_schema_digest=builder.schema_digest(dataset),
+        passthrough_indices=observation_passthrough_indices(
+            dataset,
+            action_size=3,
+            n_factors=0,
+            finite_horizon=False,
+        ),
     )
     env = ResidualMarketEnv(
         dataset,

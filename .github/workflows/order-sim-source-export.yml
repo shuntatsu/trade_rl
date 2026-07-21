@@ -5,94 +5,17 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   export:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout PR branch
+      - name: Checkout exact PR head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          persist-credentials: true
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-        with:
-          python-version: "3.12"
-
-      - name: Assemble stateful execution source
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat .github/order-sim-staging/stateful.b64.* \
-            | base64 --decode \
-            > trade_rl/simulation/stateful_execution.py
-          git apply --check .github/order-sim-staging/execution.patch
-          git apply .github/order-sim-staging/execution.patch
-          git apply --check .github/order-sim-staging/stateful-mypy.patch
-          git apply .github/order-sim-staging/stateful-mypy.patch
-
-      - name: Prepare formatted source
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv sync --extra dev --frozen
-          uv run ruff check --fix \
-            trade_rl/simulation/stateful_execution.py \
-            trade_rl/simulation/execution.py \
-            tests/simulation/test_stateful_execution.py
-          uv run ruff format \
-            trade_rl/simulation/stateful_execution.py \
-            trade_rl/simulation/execution.py \
-            tests/simulation/test_stateful_execution.py
-
-      - name: Verify stateful execution
-        shell: bash
-        run: |
-          set +e
-          set -o pipefail
-          uv run ruff check trade_rl/simulation tests/simulation 2>&1 | tee ruff-stateful.log
-          ruff_status=${PIPESTATUS[0]}
-          uv run mypy trade_rl/simulation 2>&1 | tee mypy-stateful.log
-          mypy_status=${PIPESTATUS[0]}
-          uv run pytest tests/simulation -q 2>&1 | tee pytest-stateful.log
-          pytest_status=${PIPESTATUS[0]}
-          printf 'ruff=%s\nmypy=%s\npytest=%s\n' \
-            "$ruff_status" "$mypy_status" "$pytest_status" \
-            > stateful-status.txt
-          if ((ruff_status != 0 || mypy_status != 0 || pytest_status != 0)); then
-            exit 1
-          fi
-
-      - name: Upload stateful diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: order-simulator-verification-${{ github.event.pull_request.head.sha }}
-          path: |
-            ruff-stateful.log
-            mypy-stateful.log
-            pytest-stateful.log
-            stateful-status.txt
-          if-no-files-found: warn
-          retention-days: 1
-
-      - name: Commit verified product source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git rm -r .github/order-sim-staging
-          git add \
-            trade_rl/simulation/stateful_execution.py \
-            trade_rl/simulation/execution.py \
-            tests/simulation/test_stateful_execution.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "feat: add stateful conservative execution engine"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Record and package exact source
         shell: bash

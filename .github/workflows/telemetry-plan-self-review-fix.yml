@@ -1,9 +1,9 @@
 name: Telemetry Plan Self Review Fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/bind-telemetry-cursor-generation-20260722
+      - main
     paths:
       - .github/workflows/telemetry-plan-self-review-fix.yml
 
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch

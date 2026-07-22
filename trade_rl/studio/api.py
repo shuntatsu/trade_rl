@@ -36,11 +36,10 @@ from trade_rl.studio.evidence import inspect_run_evidence
 from trade_rl.studio.jobs import JobSupervisor
 from trade_rl.studio.serving_monitor import inspect_serving
 from trade_rl.studio.settings import StudioSettings
-from trade_rl.studio.telemetry import (
-    StudioTelemetryReader,
-    TelemetryEventsResponse,
-    TelemetryStatusResponse,
+from trade_rl.studio.strict_telemetry import (
+    StrictStudioTelemetryReader as StudioTelemetryReader,
 )
+from trade_rl.studio.telemetry import TelemetryEventsResponse, TelemetryStatusResponse
 
 _ERROR_STATUS: tuple[tuple[type[StudioError], int], ...] = (
     (ResourceNotFound, 404),

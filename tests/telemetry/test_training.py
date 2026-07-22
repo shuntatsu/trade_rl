@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.telemetry.training import (
+from trade_rl.telemetry import (
     TrainingTelemetryRecord,
     TrainingTelemetryWriter,
     read_training_telemetry,

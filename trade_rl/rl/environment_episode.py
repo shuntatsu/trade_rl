@@ -137,7 +137,9 @@ class EpisodeContractSampler:
                 ]
                 candidate_starts = valid_starts[available]
                 if candidate_starts.size == 0:
-                    candidate_starts = valid_starts
+                    raise ValueError(
+                        "episode sampling feature is unavailable for every valid start"
+                    )
                 regime_values = self.dataset.global_features[
                     candidate_starts,
                     feature_index,

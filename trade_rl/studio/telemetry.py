@@ -11,7 +11,7 @@ from pydantic import Field
 from trade_rl.studio.contracts import JobSummary, StudioModel
 from trade_rl.studio.errors import ArtifactInvalid
 from trade_rl.studio.settings import StudioSettings
-from trade_rl.telemetry.training import (
+from trade_rl.telemetry import (
     TrainingTelemetryRecord,
     read_training_telemetry,
     training_telemetry_status,

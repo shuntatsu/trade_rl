@@ -10,14 +10,11 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.observations import ObservationExecutionState
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import (
-    ExecutionCostConfig,
-    ExecutionResult,
-    MarketExecutor,
-)
-from trade_rl.simulation.order_reconciliation import reconcile_target
-from trade_rl.simulation.orders import OrderBookState, OrderType, TimeInForce
+from trade_rl.simulation import MarketExecutor
+from trade_rl.simulation.execution import ExecutionCostConfig, ExecutionResult
+from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.stateful_execution import StatefulExecutionResult
+from trade_rl.simulation.target_execution import execute_target_statefully
 
 _LIQUIDATION_TOLERANCE = 1e-12
 
@@ -72,29 +69,14 @@ class EnvironmentExecutionCoordinator:
                 "schema_version": "environment_order_target_v1",
             }
         )
-        reconciliation = reconcile_target(
-            dataset_id=self.dataset.dataset_id,
-            target_identity=target_identity,
-            execution_policy_digest=executor.execution_policy_digest,
-            target_weights=target_vector,
-            book=book,
-            order_book=order_book,
-            reference_prices=self.dataset.close[request.start_index],
-            decision_equity=max(book.portfolio_value, _LIQUIDATION_TOLERANCE),
-            submit_index=request.start_index,
-            latency_bars=self.execution_cost.order_latency_bars,
-            order_type=OrderType(self.execution_cost.order_type),
-            time_in_force=TimeInForce.GTC,
-            expiry_index=None,
-            limit_offset_rate=self.execution_cost.limit_offset_rate,
-            maximum_gross=self.execution_cost.max_leverage,
-        )
-        return executor.execute_orders(
+        return execute_target_statefully(
+            executor,
             book,
-            reconciliation.order_book,
-            reconciliation.new_intents,
+            order_book,
+            target_vector,
             start_index=request.start_index,
             bars=request.bars,
+            target_identity=target_identity,
         )
 
     @staticmethod

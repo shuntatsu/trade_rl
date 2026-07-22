@@ -28,7 +28,8 @@ from trade_rl.serving.bundle import (
     write_serving_bundle_manifest,
 )
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation import MarketExecutor
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 ACTION_NAMES = ("fast_tilt", "slow_tilt", "risk_tilt")

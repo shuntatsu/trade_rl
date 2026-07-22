@@ -8,12 +8,8 @@ from trade_rl.telemetry.indexed_training import (
     read_indexed_training_telemetry,
 )
 
-setattr(_training, "TrainingTelemetryRecord", StrictTrainingTelemetryRecord)
-setattr(_training, "TrainingTelemetryWriter", IndexedTrainingTelemetryWriter)
-setattr(_training, "read_training_telemetry", read_indexed_training_telemetry)
-setattr(_training, "training_telemetry_status", indexed_training_telemetry_status)
-
 TELEMETRY_SCHEMA_VERSION = _training.TELEMETRY_SCHEMA_VERSION
+TelemetryEventType = _training.TelemetryEventType
 TrainingTelemetryPage = _training.TrainingTelemetryPage
 TrainingTelemetryRecord = StrictTrainingTelemetryRecord
 TrainingTelemetryStatus = _training.TrainingTelemetryStatus
@@ -23,6 +19,7 @@ training_telemetry_status = indexed_training_telemetry_status
 
 __all__ = [
     "TELEMETRY_SCHEMA_VERSION",
+    "TelemetryEventType",
     "TrainingTelemetryPage",
     "TrainingTelemetryRecord",
     "TrainingTelemetryStatus",

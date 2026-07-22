@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 from dataclasses import dataclass, field
@@ -11,6 +10,8 @@ from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Mapping, Protocol, TypeAlias
+
+from trade_rl.domain.canonical_json import canonical_json_bytes
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 JsonScalar: TypeAlias = str | int | float | bool | None
@@ -75,21 +76,6 @@ def thaw_json(value: object) -> object:
     if isinstance(value, tuple):
         return [thaw_json(item) for item in value]
     return value
-
-
-def canonical_json_bytes(
-    value: Mapping[str, JsonValue] | Mapping[str, object],
-) -> bytes:
-    frozen = _freeze_json(value, field_name="JSON payload")
-    if not isinstance(frozen, Mapping):
-        raise ValueError("JSON payload must be an object")
-    return json.dumps(
-        thaw_json(frozen),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
 
 
 def cache_key_digest(cache_key: Mapping[str, object]) -> str:

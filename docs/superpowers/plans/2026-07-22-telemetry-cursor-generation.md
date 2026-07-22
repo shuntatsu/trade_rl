@@ -836,14 +836,45 @@ print(f"covered={covered} total={total} percent={percent:.4f} minimum={minimum:.
 PY
 ```
 
-Set a new group in `pyproject.toml`:
+Update `pyproject.toml` automatically from the measured result:
 
-```toml
-[tool.trade_rl.critical_coverage.groups.telemetry_polling]
-minimum = <the printed minimum>
-paths = [
-    "trade_rl/telemetry/indexed_training.py",
-]
+```bash
+python - <<'PY'
+import json
+from math import floor
+from pathlib import Path
+
+coverage = json.loads(Path("coverage.json").read_text(encoding="utf-8"))
+summary = coverage["files"]["trade_rl/telemetry/indexed_training.py"]["summary"]
+covered = summary["covered_branches"]
+total = summary["num_branches"]
+percent = 100.0 if total == 0 else covered / total * 100.0
+minimum = floor(percent * 10.0) / 10.0
+
+path = Path("pyproject.toml")
+source = path.read_text(encoding="utf-8")
+header = "[tool.trade_rl.critical_coverage.groups.telemetry_polling]"
+block = (
+    f"\n{header}\n"
+    f"minimum = {minimum:.1f}\n"
+    "paths = [\n"
+    '    "trade_rl/telemetry/indexed_training.py",\n'
+    "]\n"
+)
+if header in source:
+    before, remainder = source.split(header, 1)
+    next_group = remainder.find("\n[tool.")
+    source = before.rstrip() + block + (
+        "" if next_group < 0 else remainder[next_group:]
+    )
+else:
+    source = source.rstrip() + "\n" + block
+path.write_text(source, encoding="utf-8")
+print(
+    f"telemetry_polling: covered={covered} total={total} "
+    f"percent={percent:.4f} minimum={minimum:.1f}"
+)
+PY
 ```
 
 Do not modify or lower any existing group.

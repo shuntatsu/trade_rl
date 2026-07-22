@@ -28,7 +28,7 @@ jobs:
           cache: npm
           cache-dependency-path: studio/package-lock.json
       - name: Install Python
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra studio --extra train-sb3
       - name: Install Studio
         run: npm ci --prefix studio
       - name: Apply reviewed core patch

@@ -168,7 +168,7 @@ paths = [
 ]
 
 [tool.trade_rl.critical_coverage.groups.stateful_execution_services]
-minimum = 88.8
+minimum = 93.0
 paths = [
     "trade_rl/simulation/stateful_runtime.py",
     "trade_rl/simulation/stateful_bar_lifecycle.py",

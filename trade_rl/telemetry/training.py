@@ -309,6 +309,7 @@ class TrainingTelemetryStatus:
     size_bytes: int
     stream_generation: str | None = None
 
+
 class TrainingTelemetryWriter(_IndexedTrainingTelemetryWriter):
     """Canonical process-safe append-only telemetry writer."""
 

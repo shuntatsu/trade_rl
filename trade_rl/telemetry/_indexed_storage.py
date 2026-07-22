@@ -34,10 +34,6 @@ _LOCK_RETRY_SECONDS = 0.01
 Pair = tuple[int, int]
 
 
-
-
-
-
 @dataclass(slots=True)
 class _TelemetryIndex:
     device: int

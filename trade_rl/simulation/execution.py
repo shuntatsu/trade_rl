@@ -295,8 +295,6 @@ class _FillResult:
     cost_by_symbol: np.ndarray
 
 
-
-
 class MarketExecutor:
     """Execute one decision target while holding filled quantities."""
 

@@ -48,7 +48,17 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl/telemetry/training.py trade_rl/rl/training_telemetry.py trade_rl/studio/telemetry.py
       - name: Mypy
-        run: uv run mypy .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy . 2>&1 | tee live-stream-core-mypy.txt
+      - name: Upload Mypy diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-stream-core-mypy
+          path: live-stream-core-mypy.txt
+          if-no-files-found: error
       - name: Python focused tests
         run: >-
           uv run pytest

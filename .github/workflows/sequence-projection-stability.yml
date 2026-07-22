@@ -1,0 +1,76 @@
+name: Sequence Projection Stability
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'trade_rl/rl/sequence_policy.py'
+      - 'tests/rl/test_sequence_policy_core.py'
+      - 'tests/architecture/test_sequence_projection_stability.py'
+      - '.github/workflows/sequence-projection-stability.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'trade_rl/rl/sequence_policy.py'
+      - 'tests/rl/test_sequence_policy_core.py'
+      - 'tests/architecture/test_sequence_projection_stability.py'
+      - '.github/workflows/sequence-projection-stability.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sequence-projection-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repeat:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Run focused contracts 10 times
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python - <<'PY' 2>&1 | tee sequence-projection-stability.log
+          import subprocess
+          import sys
+
+          command = [
+              sys.executable,
+              '-m',
+              'pytest',
+              'tests/architecture/test_sequence_projection_stability.py',
+              'tests/rl/test_sequence_policy_core.py',
+              '-k',
+              'sequence_projection_equivalence_uses_stable_contracts or projection_after_selection',
+              '-q',
+          ]
+          for iteration in range(1, 11):
+              print(f'iteration={iteration}', flush=True)
+              subprocess.run(command, check=True)
+          PY
+      - name: Upload stability diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sequence-projection-stability-${{ runner.os }}
+          path: sequence-projection-stability.log
+          if-no-files-found: error

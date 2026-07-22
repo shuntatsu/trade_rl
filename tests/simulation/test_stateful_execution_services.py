@@ -114,19 +114,25 @@ def test_runtime_owns_submission_event_sequence_and_result_aggregates() -> None:
     assert payload["order_events"] == tuple(runtime.events)
 
 
-def test_runtime_rejects_missing_contract_multipliers_fail_closed() -> None:
+def test_runtime_rejects_non_positive_starting_equity_fail_closed() -> None:
     dataset = _market()
     executor = _executor(dataset)
+    invalid_book = BookState(
+        quantities=np.zeros(1, dtype=np.float64),
+        cash=-1.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
     runtime = StatefulExecutionRuntime.create(
         executor,
-        _book(dataset),
+        invalid_book,
         OrderBookState.empty(),
     )
-    runtime.book.contract_multipliers = None
 
     with pytest.raises(
         ValueError,
-        match="stateful execution requires contract multipliers",
+        match="stateful execution requires positive starting equity",
     ):
         runtime.initialize_metrics()
 

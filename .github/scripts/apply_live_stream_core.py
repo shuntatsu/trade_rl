@@ -145,109 +145,122 @@ replace_once(
 )
 
 Path("studio/src/live/telemetryTracks.ts").write_text(
-    """import type { TrainingTelemetryRecord } from '../data/types'\n\n"
-    "export interface TelemetryTrack {\n"
-    "  key: string\n"
-    "  environmentId: number\n"
-    "  episodeId: number | null\n"
-    "  legacyOrdinal: number | null\n"
-    "  records: TrainingTelemetryRecord[]\n"
-    "  firstSequence: number\n"
-    "  lastSequence: number\n"
-    "  ended: boolean\n"
-    "  inferred: boolean\n"
-    "}\n\n"
-    "interface MutableTelemetryTrack {\n"
-    "  key: string\n"
-    "  environmentId: number\n"
-    "  episodeId: number | null\n"
-    "  legacyOrdinal: number | null\n"
-    "  records: TrainingTelemetryRecord[]\n"
-    "  inferred: boolean\n"
-    "}\n\n"
-    "interface LegacyState {\n"
-    "  key: string\n"
-    "  ordinal: number\n"
-    "  previous: TrainingTelemetryRecord\n"
-    "}\n\n"
-    "function ended(record: TrainingTelemetryRecord): boolean {\n"
-    "  return record.eventType === 'episode_end' || record.terminated || record.truncated\n"
-    "}\n\n"
-    "function legacyBoundary(\n"
-    "  previous: TrainingTelemetryRecord,\n"
-    "  current: TrainingTelemetryRecord,\n"
-    "): boolean {\n"
-    "  if (ended(previous)) return true\n"
-    "  if (current.environmentStep < previous.environmentStep) return true\n"
-    "  return previous.marketIndex !== null\n"
-    "    && current.marketIndex !== null\n"
-    "    && current.marketIndex < previous.marketIndex\n"
-    "}\n\n"
-    "export function deriveTelemetryTracks(\n"
-    "  records: TrainingTelemetryRecord[],\n"
-    "): TelemetryTrack[] {\n"
-    "  const ordered = [...records].sort((left, right) => left.sequence - right.sequence)\n"
-    "  const tracks = new Map<string, MutableTelemetryTrack>()\n"
-    "  const activeLegacy = new Map<number, LegacyState>()\n"
-    "  const nextLegacyOrdinal = new Map<number, number>()\n\n"
-    "  for (const record of ordered) {\n"
-    "    let key: string\n"
-    "    let legacyOrdinal: number | null = null\n"
-    "    let inferred = false\n\n"
-    "    if (record.episodeId !== null) {\n"
-    "      activeLegacy.delete(record.environmentId)\n"
-    "      key = `explicit:${record.environmentId}:${record.episodeId}`\n"
-    "    } else {\n"
-    "      inferred = true\n"
-    "      const active = activeLegacy.get(record.environmentId)\n"
-    "      if (!active || legacyBoundary(active.previous, record)) {\n"
-    "        legacyOrdinal = nextLegacyOrdinal.get(record.environmentId) ?? 0\n"
-    "        nextLegacyOrdinal.set(record.environmentId, legacyOrdinal + 1)\n"
-    "        key = `legacy:${record.environmentId}:${legacyOrdinal}`\n"
-    "      } else {\n"
-    "        key = active.key\n"
-    "        legacyOrdinal = active.ordinal\n"
-    "      }\n"
-    "      activeLegacy.set(record.environmentId, {\n"
-    "        key,\n"
-    "        ordinal: legacyOrdinal,\n"
-    "        previous: record,\n"
-    "      })\n"
-    "    }\n\n"
-    "    const existing = tracks.get(key)\n"
-    "    if (existing) {\n"
-    "      existing.records.push(record)\n"
-    "    } else {\n"
-    "      tracks.set(key, {\n"
-    "        key,\n"
-    "        environmentId: record.environmentId,\n"
-    "        episodeId: record.episodeId,\n"
-    "        legacyOrdinal,\n"
-    "        records: [record],\n"
-    "        inferred,\n"
-    "      })\n"
-    "    }\n"
-    "  }\n\n"
-    "  return [...tracks.values()]\n"
-    "    .map((track) => ({\n"
-    "      ...track,\n"
-    "      firstSequence: track.records[0].sequence,\n"
-    "      lastSequence: track.records.at(-1)?.sequence ?? track.records[0].sequence,\n"
-    "      ended: ended(track.records.at(-1) ?? track.records[0]),\n"
-    "    }))\n"
-    "    .sort((left, right) => left.lastSequence - right.lastSequence)\n"
-    "}\n\n"
-    "export function selectTelemetryTrack(\n"
-    "  records: TrainingTelemetryRecord[],\n"
-    "  cursorSequence: number | null,\n"
-    "): TelemetryTrack | null {\n"
-    "  const tracks = deriveTelemetryTracks(records)\n"
-    "  if (cursorSequence !== null) {\n"
-    "    const containing = tracks.find((track) =>\n"
-    "      track.records.some((record) => record.sequence === cursorSequence))\n"
-    "    if (containing) return containing\n"
-    "  }\n"
-    "  return tracks.at(-1) ?? null\n"
-    "}\n",
+    """import type { TrainingTelemetryRecord } from '../data/types'
+
+export interface TelemetryTrack {
+  key: string
+  environmentId: number
+  episodeId: number | null
+  legacyOrdinal: number | null
+  records: TrainingTelemetryRecord[]
+  firstSequence: number
+  lastSequence: number
+  ended: boolean
+  inferred: boolean
+}
+
+interface MutableTelemetryTrack {
+  key: string
+  environmentId: number
+  episodeId: number | null
+  legacyOrdinal: number | null
+  records: TrainingTelemetryRecord[]
+  inferred: boolean
+}
+
+interface LegacyState {
+  key: string
+  ordinal: number
+  previous: TrainingTelemetryRecord
+}
+
+function ended(record: TrainingTelemetryRecord): boolean {
+  return record.eventType === 'episode_end' || record.terminated || record.truncated
+}
+
+function legacyBoundary(
+  previous: TrainingTelemetryRecord,
+  current: TrainingTelemetryRecord,
+): boolean {
+  if (ended(previous)) return true
+  if (current.environmentStep < previous.environmentStep) return true
+  return previous.marketIndex !== null
+    && current.marketIndex !== null
+    && current.marketIndex < previous.marketIndex
+}
+
+export function deriveTelemetryTracks(
+  records: TrainingTelemetryRecord[],
+): TelemetryTrack[] {
+  const ordered = [...records].sort((left, right) => left.sequence - right.sequence)
+  const tracks = new Map<string, MutableTelemetryTrack>()
+  const activeLegacy = new Map<number, LegacyState>()
+  const nextLegacyOrdinal = new Map<number, number>()
+
+  for (const record of ordered) {
+    let key: string
+    let legacyOrdinal: number | null = null
+    let inferred = false
+
+    if (record.episodeId !== null) {
+      activeLegacy.delete(record.environmentId)
+      key = `explicit:${record.environmentId}:${record.episodeId}`
+    } else {
+      inferred = true
+      const active = activeLegacy.get(record.environmentId)
+      if (!active || legacyBoundary(active.previous, record)) {
+        const ordinal = nextLegacyOrdinal.get(record.environmentId) ?? 0
+        nextLegacyOrdinal.set(record.environmentId, ordinal + 1)
+        legacyOrdinal = ordinal
+        key = `legacy:${record.environmentId}:${ordinal}`
+      } else {
+        key = active.key
+        legacyOrdinal = active.ordinal
+      }
+      activeLegacy.set(record.environmentId, {
+        key,
+        ordinal: legacyOrdinal,
+        previous: record,
+      })
+    }
+
+    const existing = tracks.get(key)
+    if (existing) {
+      existing.records.push(record)
+    } else {
+      tracks.set(key, {
+        key,
+        environmentId: record.environmentId,
+        episodeId: record.episodeId,
+        legacyOrdinal,
+        records: [record],
+        inferred,
+      })
+    }
+  }
+
+  return [...tracks.values()]
+    .map((track) => ({
+      ...track,
+      firstSequence: track.records[0].sequence,
+      lastSequence: track.records.at(-1)?.sequence ?? track.records[0].sequence,
+      ended: ended(track.records.at(-1) ?? track.records[0]),
+    }))
+    .sort((left, right) => left.lastSequence - right.lastSequence)
+}
+
+export function selectTelemetryTrack(
+  records: TrainingTelemetryRecord[],
+  cursorSequence: number | null,
+): TelemetryTrack | null {
+  const tracks = deriveTelemetryTracks(records)
+  if (cursorSequence !== null) {
+    const containing = tracks.find((track) =>
+      track.records.some((record) => record.sequence === cursorSequence))
+    if (containing) return containing
+  }
+  return tracks.at(-1) ?? null
+}
+""",
     encoding="utf-8",
 )

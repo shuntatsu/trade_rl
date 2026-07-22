@@ -2,9 +2,11 @@
 
 Date: 2026-07-23
 
-Pull request: #100
+Merged pull request: #99
 
-Branch: `fix/bind-telemetry-cursor-generation-main-20260723`
+Merge commit: `7bf93eaa7775903fa9d08b65dd3b77c052313404`
+
+Verified implementation head: `1c96d0c4e85f7bc84027e586db2bbae8bbff2849`
 
 Replacement for stacked Draft PR #83, rebuilt directly on current `main` after the architecture, environment-runtime, Live Training, and process-concurrency remediations were merged independently.
 
@@ -97,11 +99,9 @@ The original branch was not merged because it contained the full unsquashed hist
 
 ## Clean current-main reconstruction
 
-PR #100 was created from current `main` at `c449f424d556bf7e7d4fe1f43625c786c0243dc0`, then synchronized with documentation merge `b51cd9e840da28d987c1056bbe2f7d7532ca932a` before verification.
+PR #99 was created directly from current `main` at `c449f424d556bf7e7d4fe1f43625c786c0243dc0`. During verification, main advanced by documentation-only PR #98 at `b51cd9e840da28d987c1056bbe2f7d7532ca932a`; that change did not overlap the 16-file implementation scope.
 
-A one-shot workflow applied only the audited 16-file delta from PR #81 head `2e56fd7b42f2677dc0440ff9ec3cc03a55e5c786` to PR #83 head `b2ac0df43c2b254653bdcd8089d23f37a28c70d9`, deleted itself, and pushed the resulting source commit.
-
-The final pull-request scope contains exactly:
+The effective pull-request scope contained exactly:
 
 - three design/plan/verification documents;
 - one measured coverage-ratchet change;
@@ -111,13 +111,11 @@ The final pull-request scope contains exactly:
 - two Python regression suites;
 - one existing Live Training test fixture update.
 
-No temporary workflow or patch file remains. No PR #79, #92, #95, or #98 implementation is repeated.
+No temporary workflow or patch file remained. No PR #79, #92, #95, or #98 implementation was repeated.
 
-## Current-main code-head verification
+## Clean exact-head verification
 
-Code head: `962579565f794cdc8bf1cd765a1b7dae0c7147b5`.
-
-GitHub Actions CI run `29957302097`: success.
+GitHub Actions CI run `29957142356`: success.
 
 - exact-head checkout: passed;
 - Studio Vitest, TypeScript, production build, and fixed viewport: passed;
@@ -133,21 +131,21 @@ GitHub Actions CI run `29957302097`: success.
 - indexed telemetry branch coverage: `76 / 110 = 69.09%`;
 - critical threshold: `69.09% >= 69.0%`;
 - CLI smoke: passed;
-- Ubuntu compatibility: passed;
-- Windows compatibility: passed;
+- Ubuntu compatibility and generation/process-concurrency regressions: passed;
+- Windows compatibility, native locking, and generation regressions: passed;
 - complete training-image build and packaged non-root runtime probe: passed.
 
-Exact code-head artifacts:
+Exact-head artifacts:
 
-- Pytest diagnostics `8544641992`, digest `sha256:86904dd68a0043a8056635492fe1044114382dfe29043eb69897b9cc905a8ba0`;
-- architecture diagnostics `8544592314`, digest `sha256:ee41e2e5f6c2d1357f49455d22762bd85abae614ff03531ae71f46de727b4ade`;
-- static diagnostics `8544591862`, digest `sha256:7e33b8548e5c084c832ccd543edfa0c866fe624bc5d7f5f6e2f7659077412ee4`;
-- training-image evidence `8544584480`, digest `sha256:1d312d6009e7085f79a80a9687f4e4ee3f8e7fdd3caea977b1e8f2ff12306b5a`;
-- Studio layout diagnostics `8544580962`, digest `sha256:f82205f528ed878c89962117a882cd931d5ef209743d7a4eb94ad4245e655a7d`;
-- Windows compatibility `8544571124`, digest `sha256:f45b550583ee7365ad60041c5d93302b661865ce4334bb1e2b652696c80f9063`;
-- Ubuntu compatibility `8544565215`, digest `sha256:4d5cd78cd41a62ce18e131fa00859445af53a0415e895a8b2ecfbe25f7808f51`.
+- Pytest diagnostics `8544561261`, digest `sha256:85df4d375e4c409e709df914e497385c14ffd9428ea20d2d63b8a3be8971fe83`;
+- architecture diagnostics `8544516089`, digest `sha256:fa87b745a44a7615edca253764b3054b017650127cf444c5e05dfb23d2b6d975`;
+- static diagnostics `8544515628`, digest `sha256:a98315d2d8c74b6c3c3180e59b3a7d40df4e97f2e42c6bb04015b4a56f344d1e`;
+- training-image evidence `8544510019`, digest `sha256:62cefb4020eecad1b2d1311dc24c34f4486eb124828696a077c3cc3ddc016596`;
+- Studio layout diagnostics `8544504573`, digest `sha256:dcbfc3f54835bb4ea98124a5022f9815589d1007b9d138cc6131edd7e5e6826d`;
+- Windows compatibility `8544500680`, digest `sha256:a05554f464e201a4ae35a3e6706b09ff49ec005da86b5307f847d4f580a94b9d`;
+- Ubuntu compatibility `8544494654`, digest `sha256:839bec87feacf897364d63f7b69257ec456a5fa7ec2256a431f7aa111374ccc8`.
 
-PostgreSQL Catalog run `29957301652`: success.
+PostgreSQL Catalog run `29957142448`: success.
 
 - exact-head checkout: passed;
 - Compose validation: passed;
@@ -162,10 +160,10 @@ PostgreSQL Catalog run `29957301652`: success.
 - replacement, truncation, invalid/lost index, stale cursor, and mixed-generation response paths are covered;
 - no-growth polling avoids unnecessary durable index writes;
 - page parsing no longer serializes append work after a bounded snapshot is captured;
-- current PR #95 process locking and obsolete-inode safeguards remain present;
-- current PR #85 Live Training environment/episode isolation tests remain present;
+- PR #95 process locking and obsolete-inode safeguards remain present;
+- PR #85 Live Training environment/episode isolation tests remain present;
 - public telemetry record schema identifier remains v1;
-- no unresolved critical or important review thread remains.
+- no unresolved critical or important review issue remained before merge.
 
 ## Safety boundary
 
@@ -175,4 +173,4 @@ PostgreSQL Catalog run `29957301652`: success.
 - malformed or truncated telemetry evidence is not automatically repaired;
 - no replacement-generation record is returned against an old-generation cursor;
 - the index remains rebuildable cache state rather than primary evidence;
-- this document commit creates a new exact head which must pass normal CI and PostgreSQL Catalog before merge.
+- this documentation-only head must pass normal CI before merge.

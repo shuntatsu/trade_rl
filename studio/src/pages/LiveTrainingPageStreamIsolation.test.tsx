@@ -141,22 +141,28 @@ describe('LiveTrainingPage stream isolation', () => {
     const environment = screen.getByLabelText('Live Training environment')
     const episode = screen.getByLabelText('Live Training episode')
 
-    await waitFor(() => expect(environment).toHaveValue('1'))
-    expect(episode).toHaveValue('explicit:1:20')
-    expect(screen.getByText('560 USDT')).toBeInTheDocument()
-    expect(screen.getAllByText('+600.00 USDT').length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(environment).toHaveValue('1')
+      expect(episode).toHaveValue('explicit:1:20')
+      expect(screen.getByText('560 USDT')).toBeInTheDocument()
+      expect(screen.getAllByText('+600.00 USDT').length).toBeGreaterThan(0)
+    })
     expect(screen.getByText('3 / 7 records')).toBeInTheDocument()
 
     await user.selectOptions(environment, '0')
-    await waitFor(() => expect(episode).toHaveValue('explicit:0:11'))
-    expect(screen.getByText('230 USDT')).toBeInTheDocument()
-    expect(screen.getAllByText('+300.00 USDT').length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(episode).toHaveValue('explicit:0:11')
+      expect(screen.getByText('230 USDT')).toBeInTheDocument()
+      expect(screen.getAllByText('+300.00 USDT').length).toBeGreaterThan(0)
+    })
     expect(screen.queryByText('env-one')).not.toBeInTheDocument()
     expect(screen.getByText('env-zero-new')).toBeInTheDocument()
 
     await user.selectOptions(episode, 'explicit:0:10')
-    await waitFor(() => expect(screen.getByText('110 USDT')).toBeInTheDocument())
-    expect(screen.getAllByText('+100.00 USDT').length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(screen.getByText('110 USDT')).toBeInTheDocument()
+      expect(screen.getAllByText('+100.00 USDT').length).toBeGreaterThan(0)
+    })
     expect(screen.getByText('env-zero-old')).toBeInTheDocument()
     expect(screen.queryByText('env-zero-new')).not.toBeInTheDocument()
     expect(screen.getByText('2 / 7 records')).toBeInTheDocument()

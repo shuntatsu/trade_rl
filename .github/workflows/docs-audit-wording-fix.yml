@@ -22,21 +22,135 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-      - name: Validate wording patch bytes
+      - name: Apply fail-closed wording corrections
         shell: bash
         run: |
-          sha256sum .github/docs-audit-staging/wording-fix.patch.b64 | tee "$RUNNER_TEMP/wording-fix-b64.sha256"
-          echo 'c15e6a1fd45e984fb5f8f890d858c7bee8a11b4e6a86218ddb57509d9e81dfca  .github/docs-audit-staging/wording-fix.patch.b64' | sha256sum --check --strict
-          base64 --decode .github/docs-audit-staging/wording-fix.patch.b64 > "$RUNNER_TEMP/wording-fix.patch"
-          git apply --check "$RUNNER_TEMP/wording-fix.patch"
-      - name: Apply wording patch
-        shell: bash
-        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('README.md'): (
+                  ('Serving bundle identity `serving_bundle_v5`', 'Serving bundle v5 identity `serving_bundle_v5`'),
+              ),
+              Path('README.ja.md'): (
+                  ('Candidate bundleのIdentityは`serving_bundle_v5`です。', 'Candidate bundle v5のIdentityは`serving_bundle_v5`です。'),
+              ),
+              Path('docs/RESEARCH_STATUS.md'): (
+                  ('Serving candidate bundle identity is `serving_bundle_v5`', 'Serving candidate bundle v5 identity is `serving_bundle_v5`'),
+              ),
+              Path('docs/operations/docker-gpu-full-training.md'): (
+                  ('Selected-final training forbids injected resume checkpoints by contract.', 'selected-final training forbids injected resume checkpoints by contract.'),
+              ),
+          }
+          for path, pairs in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  if text.count(old) != 1:
+                      raise SystemExit(f'{path}: expected one occurrence of {old!r}')
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8')
+
+          architecture = Path('docs/ARCHITECTURE.md')
+          text = architecture.read_text(encoding='utf-8')
+          old = '''```text
+          trade_rl.cli
+            -> trade_rl.studio
+            -> trade_rl.workflows
+            -> trade_rl.integrations
+            -> trade_rl.serving
+            -> trade_rl.learning
+            -> trade_rl.rl
+            -> trade_rl.risk
+            -> trade_rl.simulation
+            -> trade_rl.strategies
+            -> trade_rl.data
+            -> trade_rl.catalog
+            -> trade_rl.evaluation
+            -> trade_rl.release
+            -> trade_rl.artifacts
+            -> trade_rl.telemetry
+            -> trade_rl.domain
+          ```'''
+          new = '''```text
+          cli
+            -> studio
+            -> workflows
+            -> integrations
+            -> serving
+            -> learning
+            -> rl
+            -> risk
+            -> simulation
+            -> strategies
+            -> data
+            -> catalog
+            -> evaluation
+            -> release
+            -> artifacts
+            -> telemetry
+            -> domain
+          ```'''
+          if text.count(old) != 1:
+              raise SystemExit('docs/ARCHITECTURE.md: layer block mismatch')
+          text = text.replace(old, new)
+          old = 'Candidate bundle identity `serving_bundle_v5`'
+          new = 'Candidate bundle v5 identity `serving_bundle_v5`'
+          if text.count(old) != 1:
+              raise SystemExit('docs/ARCHITECTURE.md: bundle wording mismatch')
+          architecture.write_text(text.replace(old, new), encoding='utf-8')
+
+          contract = Path('tests/test_current_documentation_contract.py')
+          text = contract.read_text(encoding='utf-8')
+          old = '''def test_architecture_layer_order_matches_import_linter() -> None:
+              architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
+              configured = _configured_layers()
+              assert "trade_rl.telemetry" in configured
+              positions = tuple(architecture.index(layer) for layer in configured)
+              assert positions == tuple(sorted(positions))
+              telemetry_start = architecture.index("trade_rl.telemetry")
+              telemetry_context = architecture[telemetry_start : telemetry_start + 360].lower()
+              for stale in (
+                  "outside the enforced",
+                  "not listed in the enforced",
+                  "not currently governed",
+                  "missing enforcement",
+              ):
+                  assert stale not in telemetry_context
+          '''
+          new = '''def test_architecture_layer_order_matches_import_linter() -> None:
+              architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
+              configured = tuple(
+                  layer.removeprefix("trade_rl.") for layer in _configured_layers()
+              )
+              assert "telemetry" in configured
+              marker = "The enforced Import Linter layer order is exactly:"
+              documented_section = architecture.split(marker, maxsplit=1)[1]
+              documented_block = documented_section.split("```", maxsplit=2)[1]
+              documented = tuple(
+                  line.strip().removeprefix("-> ")
+                  for line in documented_block.splitlines()
+                  if line.strip() and line.strip() != "text"
+              )
+              assert documented == configured
+              telemetry_start = architecture.index("`telemetry` is explicitly placed")
+              telemetry_context = architecture[telemetry_start : telemetry_start + 360].lower()
+              for stale in (
+                  "outside the enforced",
+                  "not listed in the enforced",
+                  "not currently governed",
+                  "missing enforcement",
+              ):
+                  assert stale not in telemetry_context
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('documentation contract function mismatch')
+          contract.write_text(text.replace(old, new), encoding='utf-8')
+          PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git am "$RUNNER_TEMP/wording-fix.patch"
           git rm -r .github/docs-audit-staging
-          git commit --amend --no-edit
+          git add README.md README.ja.md docs/ARCHITECTURE.md docs/RESEARCH_STATUS.md docs/operations/docker-gpu-full-training.md tests/test_current_documentation_contract.py
+          git commit -m 'docs: align maintained wording contracts'
           git diff --check HEAD^
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -51,15 +165,6 @@ jobs:
           tests/test_current_documentation_contract.py
           tests/test_architecture_contract.py
           tests/examples/test_docker_training_assets.py::test_training_runbook_uses_generation_scoped_evidence_and_external_expectation
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: docs-wording-fix-${{ github.event.pull_request.head.sha }}
-          path: |
-            ${{ runner.temp }}/wording-fix-b64.sha256
-            ${{ runner.temp }}/wording-fix.patch
-          if-no-files-found: warn
       - name: Push verified fix
         if: success()
         run: git push origin HEAD:docs/current-architecture-sync-20260722

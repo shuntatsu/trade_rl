@@ -31,8 +31,12 @@ jobs:
         run: uv run python tools/apply_environment_step_decomposition.py
       - name: Format integration
         run: |
-          uv run ruff check --fix trade_rl/rl/environment.py
-          uv run ruff format trade_rl/rl/environment.py
+          uv run ruff check --fix \
+            trade_rl/rl/environment.py \
+            tests/architecture/test_environment_step_decomposition.py
+          uv run ruff format \
+            trade_rl/rl/environment.py \
+            tests/architecture/test_environment_step_decomposition.py
       - name: Verify static integration
         shell: bash
         run: |
@@ -76,7 +80,9 @@ jobs:
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/rl/environment.py
+          git add \
+            trade_rl/rl/environment.py \
+            tests/architecture/test_environment_step_decomposition.py
           git commit -m "refactor: delegate environment step responsibilities"
       - name: Push integration
         run: git push origin HEAD:agent/decompose-environment-runtime-20260722

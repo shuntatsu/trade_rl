@@ -149,6 +149,7 @@ export function loadTelemetryEvents(
   afterSequence = 0,
   limit = 512,
   seed: number | null = null,
+  streamGeneration: string | null = null,
   fetcher: typeof fetch = fetch,
 ): Promise<TelemetryEventsResponse> {
   const parameters = new URLSearchParams({
@@ -156,6 +157,9 @@ export function loadTelemetryEvents(
     limit: String(limit),
   })
   if (seed !== null) parameters.set('seed', String(seed))
+  if (streamGeneration !== null) {
+    parameters.set('stream_generation', streamGeneration)
+  }
   return requestJson(
     `/api/studio/jobs/${encodeURIComponent(jobId)}/telemetry/events?${parameters.toString()}`,
     fetcher,
@@ -200,7 +204,7 @@ export interface StudioApi {
   cancelJob: (jobId: string) => Promise<JobSummary>
   loadJobLog: (jobId: string) => Promise<JobLogResponse>
   loadTelemetryStatus: (jobId: string, seed?: number | null) => Promise<TelemetryStatusResponse>
-  loadTelemetryEvents: (jobId: string, afterSequence?: number, limit?: number, seed?: number | null) => Promise<TelemetryEventsResponse>
+  loadTelemetryEvents: (jobId: string, afterSequence?: number, limit?: number, seed?: number | null, streamGeneration?: string | null) => Promise<TelemetryEventsResponse>
   loadCheckpointEvaluations?: (jobId: string) => Promise<CheckpointEvaluationsResponse>
   loadRunComparison: (leftResourceId: string, rightResourceId: string) => Promise<RunComparison>
   loadEvidenceReport: (runResourceId: string) => Promise<EvidenceReport>

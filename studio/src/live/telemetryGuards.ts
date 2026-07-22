@@ -17,6 +17,9 @@ const isNumberArray = (value: unknown): value is number[] =>
   Array.isArray(value) && value.every(isFiniteNumber)
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string')
+const generationPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const isNullableGeneration = (value: unknown): value is string | null =>
+  value === null || (typeof value === 'string' && generationPattern.test(value))
 const eventTypes = new Set([
   'rollout',
   'position',
@@ -71,6 +74,7 @@ export function isTelemetryStatus(value: unknown): value is TelemetryStatusRespo
     && isNonNegativeInteger(value.malformedLines)
     && isNonNegativeInteger(value.sizeBytes)
     && (value.source === null || typeof value.source === 'string')
+    && isNullableGeneration(value.streamGeneration)
 }
 
 export function isTelemetryEvents(value: unknown): value is TelemetryEventsResponse {
@@ -88,6 +92,9 @@ export function isTelemetryEvents(value: unknown): value is TelemetryEventsRespo
     && typeof value.truncated === 'boolean'
     && isNonNegativeInteger(value.malformedLines)
     && Array.isArray(value.sequenceGaps)
+    && isNullableGeneration(value.streamGeneration)
+    && typeof value.resetRequired === 'boolean'
+    && (!value.resetRequired || (value.items.length === 0 && value.nextSequence === 0))
     && value.sequenceGaps.every((gap) =>
       Array.isArray(gap)
       && gap.length === 2

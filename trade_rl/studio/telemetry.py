@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field
 
 from trade_rl.studio.contracts import JobSummary, StudioModel
 from trade_rl.studio.errors import ArtifactInvalid
 from trade_rl.studio.settings import StudioSettings
-from trade_rl.telemetry.training import (
-    TrainingTelemetryRecord,
+from trade_rl.telemetry import (
     read_training_telemetry,
     training_telemetry_status,
 )
+
+if TYPE_CHECKING:
+    from trade_rl.telemetry.training import (
+        TrainingTelemetryRecord as TelemetryRecordInput,
+    )
 
 _TELEMETRY_NAME = "training-telemetry.jsonl"
 _SEED_DIRECTORY = re.compile(r"^seed-(\d+)$")
@@ -80,7 +84,7 @@ class TelemetryEventsResponse(StudioModel):
     sequence_gaps: tuple[tuple[int, int], ...]
 
 
-def _response(record: TrainingTelemetryRecord) -> TelemetryRecordResponse:
+def _response(record: TelemetryRecordInput) -> TelemetryRecordResponse:
     return TelemetryRecordResponse.model_validate(record.to_json_dict())
 
 

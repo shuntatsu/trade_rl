@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
+from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.execution import ExecutionCostConfig
 
 
 def test_borrow_and_cash_interest_use_actual_elapsed_time() -> None:

@@ -30,7 +30,8 @@ from trade_rl.rl.sequence_observations import (
     SequenceObservationBuilder,
     SequenceWindowSpec,
 )
-from trade_rl.simulation.execution import ExecutionRuleStress, MarketExecutor
+from trade_rl.simulation import MarketExecutor
+from trade_rl.simulation.execution import ExecutionRuleStress
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.training_run import TrainingRunConfig
 

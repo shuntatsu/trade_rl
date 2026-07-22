@@ -255,37 +255,14 @@ class PostgresArtifactCatalog:
         return tuple(_record_from_row(row) for row in rows)
 
     def reserve_sealed_test_access(self, record: SealedTestAccessRecord) -> None:
-        with self._connect() as connection:
-            with connection.transaction():
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        INSERT INTO catalog_sealed_test_access (
-                            experiment_plan_digest, dataset_id, fold_index,
-                            test_start, test_stop, selected_configuration,
-                            selected_policy_digest, access_digest
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (
-                            experiment_plan_digest, dataset_id, fold_index
-                        ) DO NOTHING
-                        RETURNING access_digest
-                        """,
-                        (
-                            record.experiment_plan_digest,
-                            record.dataset_id,
-                            record.fold_index,
-                            record.test_range.start,
-                            record.test_range.stop,
-                            record.selected_configuration,
-                            record.selected_policy_digest,
-                            record.access_digest,
-                        ),
-                    )
-                    if cursor.fetchone() is None:
-                        raise ValueError(
-                            "sealed outer test was already opened for this plan"
-                        )
+        from trade_rl.catalog.postgres_sealed_test import (
+            PostgresSealedTestReservationStore,
+        )
+
+        PostgresSealedTestReservationStore(
+            self._database_url,
+            connection_factory=self._connection_factory,
+        ).reserve_sealed_test_access(record)
 
     def add_dependency(self, parent_digest: str, child_digest: str, role: str) -> None:
         ArtifactRegistration(

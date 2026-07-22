@@ -77,11 +77,11 @@ from trade_rl.rl.sequence_observations import (
     SequenceWindowSpec,
     build_sequence_policy_plane,
 )
+from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
     ExecutionResult,
     ExecutionRuleStress,
-    MarketExecutor,
 )
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.stateful_execution import StatefulExecutionResult

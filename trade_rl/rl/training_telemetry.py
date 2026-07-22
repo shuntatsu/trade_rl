@@ -9,7 +9,7 @@ from typing import Any, Protocol, cast
 
 import numpy as np
 
-from trade_rl.telemetry.training import (
+from trade_rl.telemetry import (
     TelemetryEventType,
     TrainingTelemetryRecord,
     TrainingTelemetryWriter,

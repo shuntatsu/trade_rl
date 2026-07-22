@@ -22,6 +22,7 @@ function telemetry(sequence: number): TrainingTelemetryRecord {
     environmentStep: sequence,
     seed: 7,
     environmentId: 0,
+    episodeId: 1,
     eventType: 'rollout',
     marketIndex: 100 + sequence,
     marketTime: '2026-07-22T10:55:00.000000000',

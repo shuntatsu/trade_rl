@@ -108,6 +108,37 @@ def test_architecture_doc_matches_enforced_layer_order() -> None:
     assert documented_layers == enforced_layers
 
 
+def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
+    import_linter = Path(".importlinter").read_text(encoding="utf-8")
+    layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
+        "[importlinter:contract:domain]", maxsplit=1
+    )[0]
+    layers = tuple(
+        line.strip()
+        for line in layer_block.splitlines()
+        if line.strip().startswith("trade_rl.")
+    )
+
+    assert "trade_rl.telemetry" in layers
+    assert layers.index("trade_rl.artifacts") < layers.index("trade_rl.telemetry")
+    assert layers.index("trade_rl.telemetry") < layers.index("trade_rl.domain")
+    assert "[importlinter:contract:telemetry]" in import_linter
+    telemetry_contract = import_linter.split(
+        "[importlinter:contract:telemetry]", maxsplit=1
+    )[1]
+    for forbidden in (
+        "numpy",
+        "gymnasium",
+        "stable_baselines3",
+        "torch",
+        "psycopg",
+        "trade_rl.studio",
+        "trade_rl.workflows",
+        "trade_rl.integrations",
+    ):
+        assert forbidden in telemetry_contract
+
+
 def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:
     for path in (
         Path("trade_rl/rl/environment.py"),

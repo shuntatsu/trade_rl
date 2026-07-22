@@ -219,9 +219,7 @@ class StatefulExecutionRuntime:
         requested_turnover = self.requested_notional / max(
             self.starting_value, _TOLERANCE
         )
-        filled_turnover = self.filled_notional / max(
-            self.starting_value, _TOLERANCE
-        )
+        filled_turnover = self.filled_notional / max(self.starting_value, _TOLERANCE)
         reason = (
             None
             if self.book.termination_reason is None

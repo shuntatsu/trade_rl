@@ -89,9 +89,7 @@ class StatefulOrderTransitionProcessor:
                     dataset.resolved_array("sell_allowed")[processing_index, symbol]
                 ),
                 borrow_available=bool(
-                    dataset.resolved_array("borrow_available")[
-                        processing_index, symbol
-                    ]
+                    dataset.resolved_array("borrow_available")[processing_index, symbol]
                 ),
                 tick_size=float(context.tick_size[symbol]),
                 lot_size=float(context.lot_size[symbol]),
@@ -131,9 +129,7 @@ class StatefulOrderTransitionProcessor:
             if multipliers is None:
                 raise ValueError("projected order book requires contract multipliers")
             projected_book.cash -= (
-                admitted
-                * context.open_prices[symbol]
-                * float(multipliers[symbol])
+                admitted * context.open_prices[symbol] * float(multipliers[symbol])
             )
             projected_book.revalue(context.open_prices)
         return accepted

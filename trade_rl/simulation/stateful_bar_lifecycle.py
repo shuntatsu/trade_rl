@@ -105,8 +105,7 @@ class StatefulBarLifecycle:
             executor._flatten_after_termination(runtime.book, context.open_prices)
 
         intrabar_asset_returns = (
-            dataset.resolved_array("mark_price")[processing_index]
-            / context.open_prices
+            dataset.resolved_array("mark_price")[processing_index] / context.open_prices
             - 1.0
         )
         intrabar_return = float(np.dot(runtime.book.weights, intrabar_asset_returns))

@@ -124,8 +124,7 @@ class StatefulSymbolFillProcessor:
             if not symbol_orders:
                 continue
             directions = frozenset(
-                1 if order.remaining_quantity > 0.0 else -1
-                for order in symbol_orders
+                1 if order.remaining_quantity > 0.0 else -1 for order in symbol_orders
             )
             path = select_bar_path(
                 open_price=float(dataset.open[processing_index, symbol]),
@@ -162,9 +161,7 @@ class StatefulSymbolFillProcessor:
                         trigger_segment=(
                             None if trigger.segment is None else trigger.segment.value
                         ),
-                        available_volume_fraction=(
-                            trigger.available_volume_fraction
-                        ),
+                        available_volume_fraction=(trigger.available_volume_fraction),
                         path=path,
                     )
                     order = updated
@@ -199,9 +196,7 @@ class StatefulSymbolFillProcessor:
                         order_id=order.order_id,
                         remaining_quantity=order.remaining_quantity,
                         execution_price=rounded_price,
-                        available_volume_fraction=(
-                            trigger.available_volume_fraction
-                        ),
+                        available_volume_fraction=(trigger.available_volume_fraction),
                         priority=_priority(
                             order,
                             processing_index=processing_index,
@@ -241,9 +236,7 @@ class StatefulSymbolFillProcessor:
             )
             runtime.capacities.append(capacity)
             for allocation in allocations:
-                _, trigger, order_path, execution_price = metadata[
-                    allocation.order_id
-                ]
+                _, trigger, order_path, execution_price = metadata[allocation.order_id]
                 order = runtime.require_active_order(allocation.order_id)
                 if abs(allocation.filled_quantity) <= _TOLERANCE:
                     runtime.append_event(
@@ -256,9 +249,7 @@ class StatefulSymbolFillProcessor:
                         trigger_segment=(
                             None if trigger.segment is None else trigger.segment.value
                         ),
-                        available_volume_fraction=(
-                            trigger.available_volume_fraction
-                        ),
+                        available_volume_fraction=(trigger.available_volume_fraction),
                         reason=allocation.no_fill_reason,
                         path=order_path,
                     )
@@ -279,9 +270,7 @@ class StatefulSymbolFillProcessor:
                     fill_prices=fill_prices,
                     target_quantities=target_quantities,
                     cost_amount=cost_amount,
-                    turnover=(
-                        allocation.filled_notional / context.period_start_value
-                    ),
+                    turnover=(allocation.filled_notional / context.period_start_value),
                 )
                 executor._update_margin(runtime.book)
                 updated = order.apply_fill(
@@ -308,9 +297,7 @@ class StatefulSymbolFillProcessor:
                     trigger_segment=(
                         None if trigger.segment is None else trigger.segment.value
                     ),
-                    available_volume_fraction=(
-                        trigger.available_volume_fraction
-                    ),
+                    available_volume_fraction=(trigger.available_volume_fraction),
                     path=order_path,
                 )
                 runtime.total_cost += cost_amount

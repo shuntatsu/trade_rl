@@ -7,9 +7,10 @@ This document closes or reclassifies the findings recorded in
 independent remediation pull requests were integrated.
 
 The current source baseline is `main` merge commit
-`a661b8e222a1fa7bb3dd69ae2263195a9786755c`, which merged PR #107 after the
-sequence-projection guard, telemetry identity, stream-generation, process-lock,
-Live Training, environment-runtime, and architecture-boundary remediations.
+`53b124a46ce81f35db0bb37f1651f639fc4a6b6f`, which merged PR #111 after the
+stateful-execution decomposition, sequence-projection guard, telemetry identity,
+stream-generation, process-lock, Live Training, environment-runtime, and earlier
+architecture-boundary remediations.
 
 The 2026-07-22 report remains a historical record of what was observed at its
 audited commit. It must not be read as the current defect list. Current status is
@@ -25,7 +26,7 @@ direct exchange capability.
 | --- | --- | --- | --- |
 | `AUD-DOC-001` | P3 | RESOLVED | PR #82 and executable documentation contracts |
 | `AUD-STUDIO-001` | P1 | RESOLVED | PR #85 environment/current-episode isolation; PR #103 producer episode identity |
-| `AUD-ARCH-001` | P2 | RESOLVED | PR #79 explicit maintained imports and removal of initializer mutation |
+| `AUD-ARCH-001` | P2 | RESOLVED | PR #79 removed initializer mutation; PR #111 made public modules canonical maintained owners |
 | `AUD-SIM-001` | P2 | RESOLVED | PR #107 stateful execution phase decomposition |
 | `AUD-CI-002` | P2 | RESOLVED | PR #88 stable numerical contract; PR #106 permanent cross-platform guard |
 | `AUD-RL-001` | P2 risk | OPEN RISK, REDUCED | PR #92 extracted environment runtime/step services; facade-size risk remains |
@@ -45,8 +46,8 @@ contracts derived from source constants and Import Linter boundaries.
 
 The remediation prevents the specific observation-v3, bundle-v4, stale-layer, and
 closed-finding drift reproduced by the audit. This closeout additionally updates
-the architecture description for Live Training episode isolation and the
-stateful-execution phase services.
+the architecture description for Live Training episode isolation, the
+stateful-execution phase services, and canonical public-contract ownership.
 
 Documentation can drift again as code evolves, so the executable contract remains
 the control. This is not retained as an open finding.
@@ -80,17 +81,42 @@ routing.
 ### AUD-ARCH-001 — RESOLVED
 
 PR #79 removed import-time `setattr` replacement from simulation, telemetry,
-Studio, and catalog package initializers. Maintained consumers now import explicit
-facades/readers, and public compatibility aliases are ordinary declarations rather
-than runtime mutation.
+Studio, and catalog package initializers. Maintained consumers moved to explicit
+facades/readers, and architecture contracts prohibited restoration of runtime
+class mutation.
 
-For example, `trade_rl.simulation.__init__` now explicitly binds
-`MarketExecutor = StatefulCompatibilityMarketExecutor`; no package-import side
-effect rewrites a class defined in another public module. Architecture contracts
-forbid restoration of the prior mutation pattern.
+PR #111 completed the ownership boundary rather than stopping at explicit aliases:
 
-The public compatibility surface remains intentional, but its ownership is now
-locally discoverable and statically testable.
+- `trade_rl.simulation.execution.MarketExecutor` now directly owns the maintained
+  stateful compatibility chain, target identity, persistent order-book state,
+  reset behavior, stateful target execution, and `ExecutionResult` projection;
+- `trade_rl.telemetry.training` now directly owns strict record parsing,
+  process-safe indexed writing, indexed reads, status, and stream-generation
+  contracts, while standard-library-only `_indexed_storage.py` owns private sparse
+  index and OS-lock mechanics;
+- `trade_rl.studio.telemetry.StudioTelemetryReader` now directly owns duplicate
+  seed-stream and candidate-symlink rejection.
+
+The former compatibility modules are behavior-free identity aliases:
+
+- `StatefulCompatibilityMarketExecutor is MarketExecutor`;
+- `StrictTrainingTelemetryRecord is TrainingTelemetryRecord`;
+- `IndexedTrainingTelemetryWriter is TrainingTelemetryWriter`;
+- `StrictStudioTelemetryReader is StudioTelemetryReader`.
+
+Package imports and direct-module imports therefore resolve to the same canonical
+objects and canonical `__module__` identities. Static review of the declared public
+module can no longer see a superseded implementation while package import selects
+a different one.
+
+The implementation exact head passed `1,236` tests with `83.78%` total coverage
+and `70.74%` total branch coverage. The moved indexed-storage implementation
+retained the existing `69.0%` ratchet and measured `75 / 104 = 72.12%` branch
+coverage. Ubuntu, Windows-native telemetry locking, training-image, Import Linter,
+CLI, and PostgreSQL verification all passed.
+
+The public compatibility surface remains intentional, but behavior ownership is
+now local, direct, identity-tested, and statically discoverable.
 
 ### AUD-SIM-001 — RESOLVED
 
@@ -153,10 +179,10 @@ assembly, and termination coordination. `step()` is now an orchestration facade
 which delegates those responsibilities while retaining mutable Gymnasium state.
 
 The remaining risk is construction and wiring density. `trade_rl/rl/environment.py`
-is currently 1,503 source lines, and `ResidualMarketEnv.__init__` still owns a
-large amount of provider validation, identity binding, builder construction, and
-runtime wiring. A mechanical split is not justified without a behavior-preserving
-seam.
+is currently approximately 1,500 source lines, and `ResidualMarketEnv.__init__`
+still owns a large amount of provider validation, identity binding, builder
+construction, and runtime wiring. A mechanical split is not justified without a
+behavior-preserving seam.
 
 Control:
 
@@ -171,10 +197,10 @@ maintenance watchpoint.
 
 ## 4. Current architecture judgment
 
-The remediated core now has explicit maintained imports, bounded stateful execution
-phases, typed environment step services, generation-bound and process-safe
-telemetry, producer-issued environment episode identity, and a permanent
-cross-platform numerical stability guard.
+The remediated core now has direct canonical public-contract ownership, bounded
+stateful execution phases, typed environment step services, generation-bound and
+process-safe telemetry, producer-issued environment episode identity, and a
+permanent cross-platform numerical stability guard.
 
 The original audit's P0 non-findings remain supported by the maintained regression
 suite: no future-data observation path, accounting conservation break, sealed-test

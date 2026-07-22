@@ -7,19 +7,16 @@ on:
     paths:
       - tools/apply_architecture_followup.py
       - .github/workflows/architecture-followup-patch.yml
-  pull_request:
-    branches:
-      - main
-    paths:
-      - tools/apply_architecture_followup.py
-      - .github/workflows/architecture-followup-patch.yml
 
 permissions:
   contents: write
 
+concurrency:
+  group: architecture-followup-patcher
+  cancel-in-progress: false
+
 jobs:
   patch:
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout patch branch
@@ -49,15 +46,13 @@ jobs:
           tests/telemetry/test_training.py
           tests/studio/test_telemetry_api.py
           tests/catalog
-      - name: Remove temporary patch tooling
-        run: |
-          rm tools/apply_architecture_followup.py
-          rm .github/workflows/architecture-followup-patch.yml
       - name: Commit patched sources
         run: |
           git diff --check
+          git status --short
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add trade_rl tests .github/workflows/postgres-catalog.yml
           git commit -m "fix: remove runtime architecture indirection"
-          git push origin HEAD:agent/fix-architecture-followup-20260722
+      - name: Push patched sources
+        run: git push origin HEAD:agent/fix-architecture-followup-20260722

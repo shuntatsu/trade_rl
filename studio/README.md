@@ -1,37 +1,39 @@
 # Trade RL Studio
 
-ローカル優先の `trade_rl` 研究コンソールです。Vite、React、strict TypeScript と FastAPI を使い、既存の正本artifactとworkflowを操作します。
+ローカル優先の`trade_rl`研究コンソールです。Vite、React、Strict TypeScript、FastAPIを使い、既存の正本ArtifactとWorkflowを操作します。
+
+> Studioは探索を理解し、証拠を読み取るための画面です。Checkpoint選択、Sealed-test、Release承認、Bundle activation、取引所注文は実行しません。Production statusは常に`NO-GO`です。
 
 ## 実装済み
 
-- 固定トップバー、サイドバー、ワークスペース、ステータスバー
-- 1536×1024／1440×900でブラウザページ全体の縦スクロールなし
-- システム、dataset、job、run、baseline、fold安定性、`NO-GO`を集約したダッシュボード
-- Data Labで正本dataset artifactを検証して一覧・詳細表示
-- 実験画面から検証済みconfigとdatasetを選び、exploratory trainingを開始
-- Run Centerで永続job状態、PID、終了コード、ログを表示し、所有プロセスを安全停止
-- Live Trainingで学習中の探索行動をseed単位の市場リプレイとして表示
-- Live Trainingの「ほぼライブ」／「バッファ再生」と「ローソク足ごと」／「イベント圧縮」の切替
-- 価格チャート、position変更マーカー、再生カーソル、現在weight、探索区間損益、reward、drawdown、最新イベントの同期表示
-- 複数seedのストリームを独立選択し、カーソルとブラウザバッファを混在させずに再生
-- 既存の決定論的`checkpoint-selection.json`から、選択seed・明示foldの評価return、評価range、digest、finalist状態を読み取り表示
-- Compareで検証済みrunの指標、設定差、fold、累積wealthを比較
-- Evidence Explorerでrun manifest、identity、authorization、artifact file closureを監査
-- Serving Monitorでactive bundleとpaper推論スナップショットを読み取り専用表示
-- FastAPIによるdataset・run・config・job・training telemetry・checkpoint評価証拠の型付きAPI
-- API未起動時は明示的な`DEMO DATA`へフォールバック
-- 直接取引所注文、APIキー入力、ライブ資金操作は未実装
+- 固定Top bar、Sidebar、Workspace、Status bar
+- 1536×1024／1440×900でBrowser page全体の縦Scrollなし
+- System、Dataset、Job、Run、Baseline、Fold安定性、`NO-GO`を集約したDashboard
+- Data Labで正本Dataset artifactを検証して一覧・詳細表示
+- 実験画面から検証済みConfigとDatasetを選び、Exploratory trainingを開始
+- Run Centerで永続Job状態、PID、終了Code、Logを表示し、所有Processを安全停止
+- Live Trainingで学習中の探索行動をSeed単位の市場Replayとして表示
+- 「ほぼライブ」／「バッファ再生」と「ローソク足ごと」／「イベント圧縮」の切替
+- Price chart、Position変更Marker、再生Cursor、現在Weight、探索区間PnL、Reward、Drawdown、Risk eventの同期表示
+- 複数SeedのStreamを独立選択し、CursorとBrowser bufferを混在させず再生
+- 決定論的`checkpoint-selection.json`から、選択Seed、明示Fold、評価Return、Range、Digest、Finalist状態を表示
+- Compareで検証済みRunの指標、設定差、Fold、累積Wealthを比較
+- Evidence ExplorerでRun manifest、Identity、Authorization、Artifact file closureを監査
+- Serving MonitorでActive bundleとPaper inference snapshotをRead-only表示
+- FastAPIによるDataset、Run、Config、Job、Training telemetry、Checkpoint評価証拠の型付きAPI
+- API未起動時は明示的な`DEMO DATA`へFallback
+- 直接取引所注文、API key入力、Live資金操作は未実装
 
 ## 起動
 
-リポジトリ直下でPython APIを起動します。
+Repository rootでPython APIを起動します。
 
 ```bash
 uv sync --extra studio --extra train-sb3
 uv run trade-rl studio start --project-root .
 ```
 
-別ターミナルでReactを起動します。
+別TerminalでReactを起動します。
 
 ```bash
 npm ci --prefix studio
@@ -42,35 +44,35 @@ npm run dev --prefix studio
 
 ## Live Training
 
-1. `実験`ワークスペースからexploratory training jobを開始します。
-2. サイドバーの`Live Training`を開きます。
-3. 実行中または保存済みジョブを選択します。
-4. 複数seedがある場合は`Seed`セレクタで表示対象を選びます。seed変更時は受信カーソルとブラウザバッファを初期化し、別seedのレコードを混ぜません。
-5. 初期状態の`バッファ再生`では、受信を継続しながら人間が追える速度でリプレイします。
+1. `実験`WorkspaceからExploratory training jobを開始します。
+2. Sidebarの`Live Training`を開きます。
+3. 実行中または保存済みJobを選択します。
+4. 複数Seedがある場合は`Seed`Selectorで表示対象を選びます。Seed変更時は受信CursorとBrowser bufferを初期化し、別SeedのRecordを混ぜません。
+5. 初期状態の`バッファ再生`では、受信を継続しながら人間が追える速度でReplayします。
 6. `ほぼライブ`へ切り替えると、最新受信位置へ追従します。
-7. `ローソク足ごと`と`イベント圧縮`を切り替え、通常サンプルまたは重要なposition・risk・episodeイベントを観察します。
-8. 同じseedの決定論的Checkpoint評価証拠が存在する場合、`Checkpoint evidence`セレクタで確認するfoldを明示的に選択します。
-9. 選択したfoldの評価return、`checkpoint_range`、evaluation digest、finalist状態を探索リプレイとは別枠で確認します。
+7. `ローソク足ごと`と`イベント圧縮`を切り替え、通常Sampleまたは重要なPosition、Risk、Episode eventを観察します。
+8. 同じSeedの決定論的Checkpoint評価証拠がある場合、`Checkpoint evidence`SelectorでFoldを明示選択します。
+9. 選択Foldの評価Return、`checkpoint_range`、Evaluation digest、Finalist状態を探索Replayとは別枠で確認します。
 
-再生中に一時停止しても、ブラウザはバックエンドからの受信を継続します。`最新へ`を押すと最新位置へ戻ります。受信済みレコードは選択seedごとにブラウザ内で最大2,048件に制限されます。
+一時停止中もBackendからの受信を継続します。`最新へ`で最新位置へ戻ります。Browser内Recordは選択Seedごとに最大2,048件です。
 
-Stable-Baselines3の学習コールバックは、通常区間を既定32 decisionごとに間引き、position変化、risk、emergency deleverage、episode終了を優先して保存します。保存対象イベントでは、vector environmentから実際のprimary symbol、時刻、判断区間OHLCを取得します。自動reset後のterminal eventでも旧episodeの明示market indexからOHLCを復元します。学習再開時は既存JSONLの最終sequenceを引き継ぎます。テレメトリ書き込みで例外が発生した場合、可視化だけを停止し、学習自体は停止しません。
+Stable-Baselines3 Callbackは通常区間を既定32 decisionごとに間引き、Position変化、Risk、Emergency deleverage、Episode終了を優先して保存します。保存EventではVector environmentからPrimary symbol、時刻、判断区間OHLCを取得します。Auto-reset後のTerminal eventでも旧Episodeの明示Market indexからOHLCを復元します。学習再開時は既存JSONLの最終Sequenceを引き継ぎます。Telemetry書込例外は可視化だけを停止し、学習自体を停止しません。
 
-各seedのストリームは、学習中は次の場所へappend-only JSON Linesとして作成されます。
+各SeedのStreamは学習中に次の場所へAppend-only JSONLとして作成されます。
 
 ```text
 <run-root>/.staging/<run-id>/seed-<seed>/telemetry/training-telemetry.jsonl
 ```
 
-runが公開または失敗隔離された後は、同じrunディレクトリとともに`runs/`または`failed/`配下へ移動します。Studio APIは既知のjobと宣言済みartifact rootを経由してのみ読み取り、プロジェクト外へのパス、symlink、未知のjob、stream identityとrecord seedの不一致を拒否します。
+Runが公開または失敗隔離された後は、同じRun directoryとともに`runs/`または`failed/`へ移動します。Studio APIは既知Jobと宣言済みArtifact rootを経由してのみ読み取り、Project外Path、Symlink、未知Job、Stream identityとRecord seedの不一致を拒否します。
 
-Checkpoint比較は、maintained walk-forward workflowが既に生成した次の証拠を読み取ります。Studio自身はCheckpoint評価、candidate ranking、seed finalist選択、fold間ranking、再学習を実行しません。
+Checkpoint比較は、維持対象Walk-forward workflowが生成した次の証拠を読み取ります。Studio自身はCheckpoint評価、Candidate ranking、Seed finalist選択、Fold間Ranking、再学習を実行しません。
 
 ```text
 <run-root>/{.staging,runs,failed}/<run-id>/**/checkpoint-selection.json
 ```
 
-readerは`checkpoint_selection_v2_seed_aware`、fold identity、評価range、有限score、policy/evaluation digest、candidateとfinalistのidentity、重複、finalist score一致を検証します。UIは最高scoreのfoldを自動選択せず、foldを辞書順で提示して明示選択させます。不正な証拠は推測表示せず、`artifact_invalid`としてfail closedします。証拠がまだなければ`未生成`と表示します。
+Readerは`checkpoint_selection_v2_seed_aware`、Fold identity、評価Range、有限Score、Policy/Evaluation digest、Candidate/Finalist identity、重複、Finalist score一致を検証します。UIは最高ScoreのFoldを自動選択せず、明示選択させます。不正な証拠は推測表示せず、`artifact_invalid`としてFail closedします。
 
 主なAPI:
 
@@ -80,20 +82,33 @@ GET /api/studio/jobs/{job_id}/telemetry/events?seed=7&after_sequence=0&limit=512
 GET /api/studio/jobs/{job_id}/checkpoint-evaluations
 ```
 
-Live Trainingは学習中の探索行動を理解するための画面です。表示されたBUY／SELLはweight変化を視覚化したもので、取引所注文ではありません。探索区間の損益と決定論的Checkpoint評価は異なる過程・rangeの証拠であり、どちらも本番性能や収益性を保証しません。production statusは常に`NO-GO`です。
+Live Trainingは学習中の探索を理解する画面です。BUY／SELLはWeight変化の可視化であり、取引所注文ではありません。探索区間PnLと決定論的Checkpoint評価は異なるRangeと過程の証拠であり、どちらも本番性能を保証しません。
 
-## artifact探索範囲
+## Telemetryの信頼境界と既知制約
 
-既定では次を探索します。
+Telemetryは診断用で、Model selection、Run identity、Serving approval、Release、Order executionから明示的に除外します。表示が停止または遅延しても、学習Artifactの正当性をTelemetryから推測しません。
 
-- dataset: `artifacts/datasets`, `var/quickstart/dataset`
-- run store: `artifacts/research`, `var/quickstart/artifacts`
-- training config: `configs`, `examples`
-- job state: `var/studio/jobs`
-- serving registry: `var/serving`
-- paper inference snapshot: `var/studio/paper-inference.json`
+2026-07-22時点の既知制約:
 
-環境変数`TRADE_RL_STUDIO_DATASET_ROOTS`、`TRADE_RL_STUDIO_RUN_ROOTS`、`TRADE_RL_STUDIO_CONFIG_ROOTS`、`TRADE_RL_STUDIO_JOB_ROOT`、`TRADE_RL_STUDIO_SERVING_ROOT`、`TRADE_RL_STUDIO_PAPER_SNAPSHOT`で、プロジェクト配下の相対パスに変更できます。プロジェクト外へのパスは拒否されます。
+- BackendのStatus/Event readerはJSONLを先頭から走査するため、長時間Runの高頻度Pollingでは総File sizeに比例してRead costが増えます。
+- Boolean fieldのParserは、Artifact境界としてより厳格な型検証へ変更する余地があります。
+- 同一Seedへ複数Streamが見つかった場合、現在はDiscovery順の最初を使用します。将来はAmbiguous artifactとして拒否する方針です。
+- `trade_rl.telemetry`は現在のImport Linter layer stackへ明示配置されていません。
+
+これらは[2026-07-22アーキテクチャ監査](../docs/verification/2026-07-22-documentation-and-architecture-audit.md)で優先度と修正方向を記録しています。
+
+## Artifact探索範囲
+
+既定:
+
+- Dataset: `artifacts/datasets`, `var/quickstart/dataset`
+- Run store: `artifacts/research`, `var/quickstart/artifacts`
+- Training config: `configs`, `examples`
+- Job state: `var/studio/jobs`
+- Serving registry: `var/serving`
+- Paper inference snapshot: `var/studio/paper-inference.json`
+
+環境変数`TRADE_RL_STUDIO_DATASET_ROOTS`、`TRADE_RL_STUDIO_RUN_ROOTS`、`TRADE_RL_STUDIO_CONFIG_ROOTS`、`TRADE_RL_STUDIO_JOB_ROOT`、`TRADE_RL_STUDIO_SERVING_ROOT`、`TRADE_RL_STUDIO_PAPER_SNAPSHOT`でProject配下の相対Pathへ変更できます。Project外Pathは拒否されます。
 
 ## 検証
 
@@ -106,6 +121,7 @@ npm run check:layout --prefix studio
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
+uv run lint-imports
 ```
 
-Studioは常に研究状態を`NO-GO`として表示します。UIから開始できるのは既存の`trade-rl train run`を使うexploratory trainingだけです。Serving Monitorは読み取り専用で、bundle activation、取引所注文、APIキー入力、ライブ資金操作を行いません。
+UIから開始できるのは既存の`trade-rl train run`を使うExploratory trainingだけです。Serving MonitorはRead-onlyで、Bundle activation、取引所注文、API key入力、Live資金操作を行いません。

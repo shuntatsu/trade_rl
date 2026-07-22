@@ -46,6 +46,11 @@ def test_execution_rule_stress_rejects_empty_name() -> None:
         ExecutionRuleStress(name="")
 
 
+def test_execution_rule_stress_rejects_factor_below_one() -> None:
+    with pytest.raises(ValueError, match="tick_size_factor"):
+        ExecutionRuleStress(tick_size_factor=0.5)
+
+
 def test_execution_rule_stress_rejects_non_boolean_rounding_flag() -> None:
     with pytest.raises(ValueError, match="adverse_tick_rounding must be a boolean"):
         ExecutionRuleStress(adverse_tick_rounding=1)  # type: ignore[arg-type]
@@ -98,13 +103,13 @@ def test_sensitivity_only_tick_rounding_is_adverse_to_trade_direction() -> None:
     )
     nominal_result = nominal.execute_interval(
         BookState.zero(1, 1_000.0, dataset.close[0]),
-        np.array([1.0]),
+        np.array([0.9]),
         start_index=0,
         bars=1,
     )
     stressed_result = stressed.execute_interval(
         BookState.zero(1, 1_000.0, dataset.close[0]),
-        np.array([1.0]),
+        np.array([0.9]),
         start_index=0,
         bars=1,
     )
@@ -125,10 +130,15 @@ def test_rule_burden_reports_declared_ratio_percentiles() -> None:
             adverse_tick_rounding=True,
         ),
     )
-
     burden = executor.rule_burden_percentiles(start=1, stop=3)
 
-    assert burden["tick_size_ratio"]["p50"] == pytest.approx(5.0)
-    assert burden["lot_size_ratio"]["p95"] == pytest.approx(5.0)
-    assert burden["minimum_notional_ratio"]["max"] == pytest.approx(5.0)
+    assert burden["tick_size_ratio"] == pytest.approx(
+        {"p50": 5.0, "p95": 5.0, "max": 5.0}
+    )
+    assert burden["lot_size_ratio"] == pytest.approx(
+        {"p50": 5.0, "p95": 5.0, "max": 5.0}
+    )
+    assert burden["minimum_notional_ratio"] == pytest.approx(
+        {"p50": 5.0, "p95": 5.0, "max": 5.0}
+    )
     assert burden["adverse_tick_rounding"] is True

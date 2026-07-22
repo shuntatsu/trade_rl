@@ -41,11 +41,17 @@ def record(sequence: int, *, seed: int = 7) -> TrainingTelemetryRecord:
     )
 
 
-def stream_path(tmp_path: Path, run_id: str, seed: int) -> Path:
+def stream_path(
+    tmp_path: Path,
+    run_id: str,
+    seed: int,
+    *,
+    namespace: str = ".staging",
+) -> Path:
     return (
         tmp_path
         / "research"
-        / ".staging"
+        / namespace
         / run_id
         / f"seed-{seed}"
         / "telemetry"
@@ -142,3 +148,22 @@ def test_telemetry_reports_unavailable_and_rejects_unknown_job(tmp_path: Path) -
     assert unavailable.json()["source"] is None
     assert missing.status_code == 404
     assert missing.json()["detail"]["code"] == "resource_not_found"
+
+
+def test_telemetry_rejects_multiple_streams_for_one_seed(tmp_path: Path) -> None:
+    api, _, catalog, _ = client(tmp_path)
+    created = api.post(
+        "/api/studio/jobs/training",
+        json=request(catalog, run_id="live-duplicate").model_dump(by_alias=True),
+    ).json()
+    for namespace in (".staging", "runs"):
+        with TrainingTelemetryWriter(
+            stream_path(tmp_path, "live-duplicate", 7, namespace=namespace),
+            flush_every=1,
+        ) as writer:
+            writer.append(record(1))
+
+    response = api.get(f"/api/studio/jobs/{created['id']}/telemetry/status")
+
+    assert response.status_code != 200
+    assert response.json()["detail"]["code"] == "artifact_invalid"

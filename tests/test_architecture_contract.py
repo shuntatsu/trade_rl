@@ -65,6 +65,80 @@ def test_maintained_docs_reference_reward_schema_v4() -> None:
         assert "reward schema v4" in text
 
 
+def test_maintained_docs_reference_serving_bundle_v5() -> None:
+    for path in (
+        Path("README.md"),
+        Path("README.ja.md"),
+        Path("docs/ARCHITECTURE.md"),
+        Path("docs/RESEARCH_STATUS.md"),
+    ):
+        text = path.read_text(encoding="utf-8").lower()
+        assert "bundle v4" not in text, path
+        assert "bundle v5" in text or "bundle schema is **v5**" in text, path
+
+
+def test_quickstart_installs_training_dependencies_before_training() -> None:
+    text = Path("START.md").read_text(encoding="utf-8")
+    assert "uv sync --extra dev --extra train-sb3" in text
+    assert "uv run trade-rl train run" in text
+
+
+def test_architecture_doc_matches_enforced_layer_order() -> None:
+    architecture = Path("docs/ARCHITECTURE.md").read_text(encoding="utf-8")
+    import_linter = Path(".importlinter").read_text(encoding="utf-8")
+    layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
+        "[importlinter:contract:domain]", maxsplit=1
+    )[0]
+    enforced_layers = tuple(
+        line.strip().removeprefix("trade_rl.")
+        for line in layer_block.splitlines()
+        if line.strip().startswith("trade_rl.")
+    )
+
+    marker = "The enforced Import Linter layer order is exactly:"
+    documented_section = architecture.split(marker, maxsplit=1)[1]
+    documented_block = documented_section.split("```", maxsplit=2)[1]
+    documented_layers = tuple(
+        line.strip().removeprefix("-> ")
+        for line in documented_block.splitlines()
+        if line.strip() and line.strip() != "text"
+    )
+
+    assert enforced_layers
+    assert documented_layers == enforced_layers
+
+
+def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
+    import_linter = Path(".importlinter").read_text(encoding="utf-8")
+    layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
+        "[importlinter:contract:domain]", maxsplit=1
+    )[0]
+    layers = tuple(
+        line.strip()
+        for line in layer_block.splitlines()
+        if line.strip().startswith("trade_rl.")
+    )
+
+    assert "trade_rl.telemetry" in layers
+    assert layers.index("trade_rl.artifacts") < layers.index("trade_rl.telemetry")
+    assert layers.index("trade_rl.telemetry") < layers.index("trade_rl.domain")
+    assert "[importlinter:contract:telemetry]" in import_linter
+    telemetry_contract = import_linter.split(
+        "[importlinter:contract:telemetry]", maxsplit=1
+    )[1]
+    for forbidden in (
+        "numpy",
+        "gymnasium",
+        "stable_baselines3",
+        "torch",
+        "psycopg",
+        "trade_rl.studio",
+        "trade_rl.workflows",
+        "trade_rl.integrations",
+    ):
+        assert forbidden in telemetry_contract
+
+
 def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:
     for path in (
         Path("trade_rl/rl/environment.py"),

@@ -1,0 +1,87 @@
+name: Telemetry Stream Identity Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/telemetry-identity-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/harden-telemetry-process-concurrency-20260722
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3 --extra studio
+      - name: Reject replaced stream identity
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/telemetry/indexed_training.py")
+          source = path.read_text(encoding="utf-8")
+          anchor = '''                if index is None:
+                      raise RuntimeError("telemetry stream is unavailable")
+                  if self.path.stat().st_size != index.indexed_size:
+          '''
+          replacement = '''                if index is None:
+                      raise RuntimeError("telemetry stream is unavailable")
+                  path_stat = self.path.stat()
+                  descriptor_stat = os.fstat(descriptor)
+                  if (
+                      int(descriptor_stat.st_dev),
+                      int(descriptor_stat.st_ino),
+                  ) != (int(path_stat.st_dev), int(path_stat.st_ino)):
+                      raise RuntimeError("telemetry stream identity changed")
+                  if path_stat.st_size != index.indexed_size:
+          '''
+          if source.count(anchor) != 1:
+              raise RuntimeError("telemetry append identity anchor changed")
+          source = source.replace(anchor, replacement, 1)
+          unused = '''
+
+          def _refresh_index(path: Path) -> _TelemetryIndex | None:
+              resolved = Path(path)
+              with _telemetry_process_lock(resolved):
+                  return _refresh_index_unlocked(resolved)
+          '''
+          if source.count(unused) != 1:
+              raise RuntimeError("unused refresh wrapper anchor changed")
+          path.write_text(source.replace(unused, "", 1), encoding="utf-8")
+          PY
+      - name: Format and verify
+        run: |
+          uv run ruff check --fix \
+            trade_rl/telemetry/indexed_training.py \
+            tests/telemetry/test_indexed_process_concurrency.py
+          uv run ruff format \
+            trade_rl/telemetry/indexed_training.py \
+            tests/telemetry/test_indexed_process_concurrency.py
+          uv run mypy .
+          uv run pytest -q \
+            tests/telemetry/test_indexed_process_concurrency.py \
+            tests/telemetry/test_training.py \
+            tests/integrations/test_training_telemetry.py \
+            tests/studio/test_telemetry_api.py
+      - name: Commit fix
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/telemetry/indexed_training.py tests/telemetry/test_indexed_process_concurrency.py
+          git commit -m "fix: reject telemetry stream identity drift"
+      - name: Push fix
+        run: git push origin HEAD:agent/harden-telemetry-process-concurrency-20260722

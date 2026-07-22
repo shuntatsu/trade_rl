@@ -27,7 +27,7 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3 --extra studio
-      - name: Align emergency risk dependency
+      - name: Align concrete risk dependencies
         run: |
           python - <<'PY'
           import re
@@ -38,12 +38,23 @@ jobs:
           import_anchor = "import numpy as np\n\n"
           import_replacement = (
               "import numpy as np\n\n"
+              "from trade_rl.data.market import MarketDataset\n"
               "from trade_rl.risk.emergency import CausalEmergencyRiskMonitor\n"
           )
           if source.count(import_anchor) != 1:
-              raise RuntimeError("risk emergency import anchor changed")
+              raise RuntimeError("risk imports anchor changed")
           source = source.replace(import_anchor, import_replacement, 1)
-          source, count = re.subn(
+          source, dataset_count = re.subn(
+              r"\nclass RiskDataset\(Protocol\):.*?"
+              r"(?=\nclass EmergencyRiskAssessmentLike\(Protocol\):)",
+              "\n",
+              source,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if dataset_count != 1:
+              raise RuntimeError("risk dataset protocol block changed")
+          source, monitor_count = re.subn(
               r"\nclass EmergencyRiskAssessmentLike\(Protocol\):.*?"
               r"(?=\n@dataclass\(frozen=True, slots=True\)\nclass EnvironmentRiskRequest)",
               "\n",
@@ -51,16 +62,22 @@ jobs:
               count=1,
               flags=re.DOTALL,
           )
-          if count != 1:
+          if monitor_count != 1:
               raise RuntimeError("risk monitor protocol block changed")
-          annotation = "        emergency_risk_monitor: EmergencyRiskMonitor,\n"
-          if source.count(annotation) != 1:
-              raise RuntimeError("risk monitor constructor anchor changed")
-          source = source.replace(
-              annotation,
-              "        emergency_risk_monitor: CausalEmergencyRiskMonitor,\n",
-              1,
+          replacements = (
+              (
+                  "        dataset: RiskDataset,\n",
+                  "        dataset: MarketDataset,\n",
+              ),
+              (
+                  "        emergency_risk_monitor: EmergencyRiskMonitor,\n",
+                  "        emergency_risk_monitor: CausalEmergencyRiskMonitor,\n",
+              ),
           )
+          for old, new in replacements:
+              if source.count(old) != 1:
+                  raise RuntimeError(f"risk constructor anchor changed: {old!r}")
+              source = source.replace(old, new, 1)
           path.write_text(source, encoding="utf-8")
           PY
       - name: Apply decomposition

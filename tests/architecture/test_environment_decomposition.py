@@ -13,9 +13,18 @@ def test_residual_market_env_delegates_cross_cutting_runtime_responsibilities() 
     source = inspect.getsource(ResidualMarketEnv)
 
     assert EpisodeContractSampler.__module__ == "trade_rl.rl.environment_episode"
-    assert EnvironmentExecutionCoordinator.__module__ == "trade_rl.rl.environment_execution"
-    assert EnvironmentObservationAssembler.__module__ == "trade_rl.rl.environment_observation"
-    assert EnvironmentTerminationCoordinator.__module__ == "trade_rl.rl.environment_transition"
+    assert (
+        EnvironmentExecutionCoordinator.__module__
+        == "trade_rl.rl.environment_execution"
+    )
+    assert (
+        EnvironmentObservationAssembler.__module__
+        == "trade_rl.rl.environment_observation"
+    )
+    assert (
+        EnvironmentTerminationCoordinator.__module__
+        == "trade_rl.rl.environment_transition"
+    )
 
     assert "self._episode_sampler.sample" in source
     assert "self._execution_coordinator.execute_target" in source

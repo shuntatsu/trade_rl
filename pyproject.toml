@@ -166,3 +166,12 @@ paths = [
     "trade_rl/rl/environment_reward.py",
     "trade_rl/rl/environment_info.py",
 ]
+
+[tool.trade_rl.critical_coverage.groups.stateful_execution_services]
+minimum = 88.8
+paths = [
+    "trade_rl/simulation/stateful_runtime.py",
+    "trade_rl/simulation/stateful_bar_lifecycle.py",
+    "trade_rl/simulation/stateful_order_transitions.py",
+    "trade_rl/simulation/stateful_symbol_fills.py",
+]

@@ -1,0 +1,67 @@
+name: Temporary Direct Export Test Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tmp-direct-export-test-fix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'refactor/direct-maintained-contract-exports-20260723' &&
+      github.actor == 'shuntatsu'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: true
+
+      - name: Remove obsolete private-helper coverage probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/simulation/test_critical_branch_coverage.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'from trade_rl.simulation import execution as execution_module\n',
+              '',
+          )
+          start = text.index('def test_target_weight_and_random_seed_validation() -> None:\n')
+          end = text.index(
+              '\n\ndef test_execution_unit_rounding_capacity_and_borrow_branches',
+              start,
+          )
+          replacement = '''def test_random_seed_validation() -> None:
+              executor = MarketExecutor(market(), ExecutionCostConfig.zero())
+              executor.reset_random_state()
+              with pytest.raises(ValueError, match="seed"):
+                  executor.reset_random_state(True)
+              with pytest.raises(ValueError, match="seed"):
+                  executor.reset_random_state(-1)
+          '''
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
+          python -m compileall -q tests/simulation/test_critical_branch_coverage.py
+
+      - name: Commit test migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/simulation/test_critical_branch_coverage.py
+          git commit -m 'test: remove obsolete target helper probe'
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"

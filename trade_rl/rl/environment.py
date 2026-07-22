@@ -41,10 +41,6 @@ from trade_rl.rl.environment_config import (
 from trade_rl.rl.environment_config import (
     ResidualMarketEnvConfig,
 )
-from trade_rl.rl.episode import (
-    complete_reward_history_steps,
-    minimum_reward_start_index,
-)
 from trade_rl.rl.environment_episode import EpisodeContractSampler
 from trade_rl.rl.environment_execution import (
     EnvironmentExecutionCoordinator,
@@ -55,6 +51,10 @@ from trade_rl.rl.environment_observation import (
     EnvironmentObservationRuntime,
 )
 from trade_rl.rl.environment_transition import EnvironmentTerminationCoordinator
+from trade_rl.rl.episode import (
+    complete_reward_history_steps,
+    minimum_reward_start_index,
+)
 from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
@@ -77,7 +77,7 @@ from trade_rl.rl.sequence_observations import (
     SequenceWindowSpec,
     build_sequence_policy_plane,
 )
-from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
     ExecutionResult,
     ExecutionRuleStress,
@@ -86,7 +86,6 @@ from trade_rl.simulation.execution import (
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.stateful_execution import StatefulExecutionResult
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
-
 
 
 class AlphaProvider(Protocol):

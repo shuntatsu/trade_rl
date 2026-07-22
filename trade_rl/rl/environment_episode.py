@@ -91,7 +91,9 @@ class EpisodeContractSampler:
                     continue
                 viable_hours.append(float(choice))
             if not viable_hours:
-                raise ValueError("none of the configured episode durations fit the dataset")
+                raise ValueError(
+                    "none of the configured episode durations fit the dataset"
+                )
             hours = float(rng.choice(viable_hours))
         else:
             hours = self.config.episode_hours

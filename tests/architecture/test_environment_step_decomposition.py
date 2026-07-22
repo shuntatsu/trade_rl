@@ -11,6 +11,12 @@ SERVICE_PATHS = (
     ROOT / "trade_rl" / "rl" / "environment_reward.py",
     ROOT / "trade_rl" / "rl" / "environment_info.py",
 )
+SERVICE_ATTRIBUTES = (
+    ("EnvironmentDecisionPlanner", "self._decision_planner"),
+    ("EnvironmentRiskProjector", "self._risk_projector"),
+    ("EnvironmentRewardCoordinator", "self._reward_coordinator"),
+    ("EnvironmentInfoBuilder", "self._info_builder"),
+)
 
 
 def _source(path: Path) -> str:
@@ -18,7 +24,11 @@ def _source(path: Path) -> str:
 
 
 def test_environment_step_services_have_dedicated_modules() -> None:
-    missing = [path.relative_to(ROOT).as_posix() for path in SERVICE_PATHS if not path.is_file()]
+    missing = [
+        path.relative_to(ROOT).as_posix()
+        for path in SERVICE_PATHS
+        if not path.is_file()
+    ]
 
     assert missing == []
 
@@ -26,14 +36,9 @@ def test_environment_step_services_have_dedicated_modules() -> None:
 def test_environment_constructs_all_step_services() -> None:
     source = _source(ENVIRONMENT)
 
-    for symbol in (
-        "EnvironmentDecisionPlanner",
-        "EnvironmentRiskProjector",
-        "EnvironmentRewardCoordinator",
-        "EnvironmentInfoBuilder",
-    ):
-        assert f"self._{symbol.removeprefix('Environment').removesuffix('Planner').removesuffix('Projector').removesuffix('Coordinator').removesuffix('Builder').lower()}" in source
+    for symbol, attribute in SERVICE_ATTRIBUTES:
         assert symbol in source
+        assert attribute in source
 
 
 def test_environment_step_delegates_action_risk_reward_and_info() -> None:

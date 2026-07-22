@@ -110,6 +110,7 @@ function api(): StudioApi {
         malformedLines: 0,
         sizeBytes: 2048,
         source: items.length > 0 ? `research/.staging/btc-live-001/seed-${selected}/telemetry/training-telemetry.jsonl` : null,
+        streamGeneration: items.length > 0 ? '33333333-3333-4333-8333-333333333333' : null,
       })
     }),
     loadTelemetryEvents: vi.fn().mockImplementation((
@@ -127,6 +128,8 @@ function api(): StudioApi {
         truncated: false,
         malformedLines: 0,
         sequenceGaps: [],
+        streamGeneration: '33333333-3333-4333-8333-333333333333',
+        resetRequired: false,
       })
     }),
     loadCheckpointEvaluations: vi.fn().mockResolvedValue({

@@ -1,0 +1,49 @@
+name: Telemetry Generation RED
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/telemetry-generation-red.yml
+      - tests/telemetry/test_training.py
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Run RED contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/telemetry/test_training.py::test_generation_remains_stable_across_normal_append \
+            tests/telemetry/test_training.py::test_old_generation_requests_reset_after_stream_replacement \
+            tests/telemetry/test_training.py::test_index_loss_rotates_generation_and_invalidates_cursor \
+            tests/telemetry/test_training.py::test_expected_generation_requires_canonical_uuid \
+            tests/telemetry/test_training.py::test_no_growth_polls_do_not_rewrite_index \
+            tests/telemetry/test_training.py::test_page_parsing_does_not_hold_append_process_lock \
+            tests/telemetry/test_training.py::test_near_tail_page_parses_at_most_one_checkpoint_stride \
+            2>&1 | tee telemetry-generation-red.log
+      - name: Upload RED diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: telemetry-generation-red
+          path: telemetry-generation-red.log
+          if-no-files-found: error

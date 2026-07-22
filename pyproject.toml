@@ -146,3 +146,12 @@ paths = [
     "trade_rl/serving/registry.py",
     "trade_rl/serving/runtime.py",
 ]
+
+[tool.trade_rl.critical_coverage.groups.environment_runtime]
+minimum = 64.0
+paths = [
+    "trade_rl/rl/environment_episode.py",
+    "trade_rl/rl/environment_execution.py",
+    "trade_rl/rl/environment_observation.py",
+    "trade_rl/rl/environment_transition.py",
+]

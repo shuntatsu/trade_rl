@@ -216,4 +216,51 @@ describe('LiveTrainingPage', () => {
     expect(screen.getByText('Replay Step 64')).toBeInTheDocument()
     await waitFor(() => expect(runtimeApi.loadTelemetryEvents).toHaveBeenCalled())
   })
+
+  it('isolates replay metrics by environment and current episode', async () => {
+    const user = userEvent.setup()
+    const runtimeApi = api()
+    const mixed = [
+      { ...telemetry(1, 101, 0.1), environmentId: 0, portfolioValue: 1_000 },
+      { ...telemetry(2, 102, 0.2), environmentId: 0, portfolioValue: 1_010, eventType: 'episode_end' as const, terminated: true },
+      { ...telemetry(3, 201, 0.3), environmentId: 0, portfolioValue: 2_000 },
+      { ...telemetry(4, 202, 0.4), environmentId: 0, portfolioValue: 2_025 },
+      { ...telemetry(5, 601, -0.1), environmentId: 1, portfolioValue: 1_500 },
+      { ...telemetry(6, 602, -0.2), environmentId: 1, portfolioValue: 1_490 },
+    ]
+    runtimeApi.loadTelemetryStatus = vi.fn().mockResolvedValue({
+      available: true,
+      selectedSeed: 7,
+      availableSeeds: [7],
+      recordCount: mixed.length,
+      lastSequence: 6,
+      malformedLines: 0,
+      sizeBytes: 4096,
+      source: 'research/.staging/btc-live-001/seed-7/telemetry/training-telemetry.jsonl',
+    })
+    runtimeApi.loadTelemetryEvents = vi.fn().mockImplementation((
+      _jobId: string,
+      afterSequence = 0,
+    ) => Promise.resolve({
+      seed: 7,
+      items: mixed.filter((item) => item.sequence > afterSequence),
+      nextSequence: 6,
+      truncated: false,
+      malformedLines: 0,
+      sequenceGaps: [],
+    }))
+
+    render(<LiveTrainingPage api={runtimeApi} />)
+
+    const environment = await screen.findByLabelText('Live Training environment')
+    await waitFor(() => expect(environment).toHaveDisplayValue('Env 1'))
+    expect(screen.getByText('602 USDT')).toBeInTheDocument()
+    expect(screen.getAllByText('-10.00 USDT').length).toBeGreaterThan(0)
+
+    await user.selectOptions(environment, '0')
+
+    expect(await screen.findByText('202 USDT')).toBeInTheDocument()
+    expect(screen.getAllByText('+25.00 USDT').length).toBeGreaterThan(0)
+    expect(screen.queryByText('+1,025.00 USDT')).not.toBeInTheDocument()
+  })
 })

@@ -160,3 +160,42 @@ def test_terminal_transition_clears_visual_fallback_state_for_next_episode(
     assert second.open == 600.0
     assert second.close == 600.0
     assert second.weights_before == (0.0,)
+
+
+def test_sampler_restart_does_not_reuse_existing_stream_episode_id(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    first_sampler = TrainingTelemetrySampler(path, seed=9, sample_every=1)
+
+    assert (
+        first_sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]], dtype=np.float32),
+            rewards=np.asarray([0.0], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(_info(1),),
+        )
+        == 1
+    )
+    first_sampler.close()
+
+    resumed_sampler = TrainingTelemetrySampler(path, seed=9, sample_every=1)
+    assert (
+        resumed_sampler.consume(
+            global_step=2,
+            actions=np.asarray([[0.2]], dtype=np.float32),
+            rewards=np.asarray([0.0], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(_info(2, price=101.0),),
+        )
+        == 1
+    )
+    resumed_sampler.close()
+
+    first, resumed = read_training_telemetry(path, limit=10).items
+
+    assert first.episode_id is not None
+    assert resumed.episode_id is not None
+    assert resumed.episode_id > first.episode_id
+    assert resumed.sequence == first.sequence + 1

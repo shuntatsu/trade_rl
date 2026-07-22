@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
+from enum import Enum
 from typing import Any
 
 import numpy as np
@@ -19,6 +20,16 @@ from trade_rl.simulation.orders import (
 
 
 def normalize(value: Any) -> Any:
+    canonical_payload = getattr(value, "canonical_payload", None)
+    if callable(canonical_payload):
+        return normalize(canonical_payload())
+    if is_dataclass(value):
+        return {
+            field.name: normalize(getattr(value, field.name))
+            for field in fields(value)
+        }
+    if isinstance(value, Enum):
+        return normalize(value.value)
     if isinstance(value, np.ndarray):
         return value.tolist()
     if isinstance(value, np.generic):
@@ -134,14 +145,12 @@ def main() -> None:
         bars=3,
     )
     payload = {
-        "book": result.book.canonical_payload(),
-        "order_book": result.order_book.canonical_payload(),
+        "book": result.book,
+        "order_book": result.order_book,
         "next_index": result.next_index,
         "bars_advanced": result.bars_advanced,
-        "order_events": [event.canonical_payload() for event in result.order_events],
-        "capacity_evidence": [
-            item.canonical_payload() for item in result.capacity_evidence
-        ],
+        "order_events": result.order_events,
+        "capacity_evidence": result.capacity_evidence,
         "interval_cost": result.interval_cost,
         "interval_funding": result.interval_funding,
         "interval_borrow_cost": result.interval_borrow_cost,

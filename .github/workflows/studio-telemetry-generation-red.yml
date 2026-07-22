@@ -1,0 +1,45 @@
+name: Studio Telemetry Generation RED
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/studio-telemetry-generation-red.yml
+      - tests/studio/test_telemetry_api.py
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra studio
+      - name: Run Studio RED contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/studio/test_telemetry_api.py::test_telemetry_status_and_cursor_page_are_scoped_to_known_job \
+            tests/studio/test_telemetry_api.py::test_old_stream_generation_requests_reset_without_returning_records \
+            tests/studio/test_telemetry_api.py::test_telemetry_events_reject_invalid_stream_generation \
+            2>&1 | tee studio-telemetry-generation-red.log
+      - name: Upload RED diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-telemetry-generation-red
+          path: studio-telemetry-generation-red.log
+          if-no-files-found: error

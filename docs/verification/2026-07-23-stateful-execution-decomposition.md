@@ -4,11 +4,11 @@ Date: 2026-07-23
 
 ## Scope
 
-This record verifies Draft PR #107, the `AUD-SIM-001` remediation which replaces the approximately 614-line `execute_stateful_orders()` policy monolith with bounded orchestration and four focused runtime boundaries:
+This record verifies PR #107, the `AUD-SIM-001` remediation which replaces the 614-line `execute_stateful_orders()` policy monolith with a bounded orchestration function and four focused runtime boundaries:
 
 - `StatefulExecutionRuntime` for invocation-local mutable state, ordered evidence, accumulators, and final result construction;
-- `StatefulBarLifecycle` for split/inactive handling, open revaluation, carry, mark-to-market, margin, and insolvency phases;
-- `StatefulOrderTransitionProcessor` for expiry, latency, admission, eligibility, projected reservation, and post-attempt expiry;
+- `StatefulBarLifecycle` for split and inactive-asset handling, open revaluation, carry, mark-to-market, margin, and insolvency phases;
+- `StatefulOrderTransitionProcessor` for expiry, latency, admission, eligibility, projected reservation, and post-attempt remainder expiry;
 - `StatefulSymbolFillProcessor` for OHLC path selection, trigger evaluation, shared symbol capacity, fill application, costs, and fill evidence.
 
 The public `StatefulExecutionResult` remains in `trade_rl.simulation.stateful_execution`, and `MarketExecutor.execute_orders()` keeps its existing public contract.
@@ -23,27 +23,54 @@ The maintained orchestration now:
 4. applies the existing per-bar order of lifecycle begin, transition preparation, symbol fills, remainder expiry, and lifecycle finish;
 5. constructs the unchanged public result type from the runtime payload.
 
-The architecture contract requires all four service modules, limits `execute_stateful_orders()` to at most 180 source lines, forbids low-level admission/path/capacity/accounting calls in the orchestration function, and keeps the public result class in the orchestration module.
+The architecture contract requires all four service modules, limits `execute_stateful_orders()` to at most 180 source lines, forbids low-level admission, path, capacity, dividend, and cash-interest calls in the orchestration function, and keeps the public result class in the orchestration module.
 
-## RED evidence
+The resulting function spans 111 source lines, down from 614.
 
-The architecture contract was committed before the four production service modules existed. At that state it required missing module files and a bounded orchestration function while the maintained implementation still contained the original monolith.
+## TDD RED evidence
 
-The synchronized RED head was:
+The formatted architecture contract was executed against the pre-service implementation on temporary PR #109.
 
-- `68d17ad3b6d12176b07eb8d6ce062ca8b441145a`
+RED head:
 
-GitHub Actions run `29960213066` was started for that head but was cancelled automatically when implementation commits advanced the branch. Therefore it is not represented as a completed failing workflow. The source state itself retains the fail-first contract, and the later exact-head runs demonstrate the same contract turning GREEN without weakening its assertions.
+- `3ee45c164261b7d663c919ca356212221c7c638a`
 
-## Characterization evidence
+GitHub Actions CI run `29962113726`: expected failure.
 
-A mixed three-bar scenario fixes the complete result payload behind SHA-256:
+The run passed Studio, fixed viewport, workflow security, Ruff, format, Mypy, Import Linter, dead-code analysis, Serving smoke, Ubuntu compatibility, Windows compatibility, and the complete training-image probe. The full suite failed only in the new architecture contract:
 
-- `3856e696c998e727c78690222d418e070c71eeb56f7f747f0932a17eb8ff2cc2`
+- `stateful_runtime.py` did not exist;
+- `execute_stateful_orders()` spanned lines 228–841, or 614 source lines, exceeding the 180-line orchestration bound.
 
-The fixture includes market, delayed limit, and stop-market orders, constrained processing-bar volume, non-zero fees/spread/impact, partial-fill carry, ordered events, capacity evidence, accounting values, per-symbol arrays, and final books.
+Result:
 
-The expected event sequence is:
+- `2 failed, 1207 passed, 2 skipped, 11 warnings`;
+- total coverage remained above the repository minimum at `83.45%`.
+
+RED artifact:
+
+- Pytest diagnostics ID `8546443797`;
+- digest `sha256:03dac7b42c0cb5945f9d936d174cf335f35cdacfd57696cfaeef866f1e23e12f`.
+
+The temporary RED PR was closed without merge.
+
+## Pre-refactor characterization evidence
+
+The complete result payload was captured from unchanged `main` execution code before the decomposition. The temporary capture branch added only a diagnostic script and workflow; it did not modify any simulation module.
+
+Capture run:
+
+- run `29961814877`: success;
+- artifact ID `8546269274`;
+- artifact digest `sha256:9e541690648694bf6b138a959d3b60350493b6ba963836c9b32fdb509d3912c8`.
+
+The canonical payload contains the final `BookState`, `OrderBookState`, all 13 ordered `OrderEvent` payloads, all three `SymbolCapacityEvidence` payloads, scalar interval metrics, counters, and per-symbol arrays. Its permanent regression digest is:
+
+- `sha256:3856e696c998e727c78690222d418e070c71eeb56f7f747f0932a17eb8ff2cc2`.
+
+The scenario includes market, delayed limit, and stop-market orders, constrained processing-bar volume, non-zero fees, spread and impact, latency, stop triggering, capacity contention, partial-fill carry, and a later below-lot-size no-fill.
+
+The fixed event sequence is:
 
 ```text
 submitted, submitted, submitted,
@@ -52,13 +79,15 @@ triggered, filled, no_fill,
 eligible, filled, partial_fill, no_fill
 ```
 
-Focused service regressions additionally cover cloned caller-book ownership, ordered submission evidence, non-positive-equity fail-closed behavior, partial-fill carry disabled expiry, and zero-capacity no-fill preservation.
+Focused service regressions additionally cover cloned caller-book ownership, ordered submission evidence, non-positive-equity fail-closed behavior, partial-fill carry-disabled expiry, and zero-capacity no-fill preservation.
+
+The temporary capture PR was closed without merge.
 
 ## Implementation exact-head verification
 
-Implementation and measured-coverage head:
+Strengthened implementation-and-test head:
 
-- `b4411caf2025238c71dd52f6661c20d4ab1cfa05`
+- `b4411caf2025238c71dd52f6661c20d4ab1cfa05`.
 
 GitHub Actions CI run `29962031316`: success.
 
@@ -74,8 +103,7 @@ GitHub Actions CI run `29962031316`: success.
 - total coverage: `83.56%`;
 - total branch coverage: `4872 / 6916 = 70.45%`;
 - stateful execution service branches: `67 / 72 = 93.06%`;
-- measured service-group threshold: `93.0%`;
-- all other critical branch-coverage ratchets: passed;
+- all critical branch-coverage ratchets: passed;
 - CLI smoke: passed;
 - Ubuntu compatibility: passed;
 - Windows compatibility: passed;
@@ -90,7 +118,7 @@ PostgreSQL Catalog run `29962031311`: success.
 - unit and integration tests: passed;
 - shutdown and cleanup: passed.
 
-## Exact-head artifacts
+## Implementation artifacts
 
 - Pytest diagnostics: ID `8546418509`, digest `sha256:7ab119a4231d308bf370cfde347cafae8ceeba53f4f7e8fed66f7a0469eb0bac`;
 - architecture diagnostics: ID `8546383047`, digest `sha256:576698ecb0985d4f43c090bc0d0527193f16bde8b59643c5e4b0157ce7aeaadc`;
@@ -100,13 +128,31 @@ PostgreSQL Catalog run `29962031311`: success.
 - Windows compatibility: ID `8546368470`, digest `sha256:0edf98daaa535e1d365f99f160421d84d3cf83a1589ba77bc59fe2ae93ef7a75`;
 - Ubuntu compatibility: ID `8546364752`, digest `sha256:41d028025c67028605e288a05dd6b3551ce0547526f9d12533ae8bcd6d6647b3`.
 
+## Coverage ratchet
+
+The initial implementation run measured `64 / 72 = 88.89%` aggregate branch coverage for the four services. Additional service and complete-payload characterization tests increased the measured result to `67 / 72 = 93.06%`.
+
+The configured `stateful_execution_services` threshold is therefore `93.0%`, the observed percentage rounded down to one decimal place. No existing threshold was reduced.
+
 ## Review result
 
-The effective implementation diff preserves exception messages, event and capacity ordering, OHLC path semantics, processing-bar capacity, rounding, costs, corporate actions, carry, margin, insolvency, and all public result fields. Mutable execution state is centralized in the invocation-local runtime; phase services do not introduce global or cross-invocation state.
+The effective implementation diff preserves:
+
+- validation exception messages;
+- caller intent order and active-order stable sorting;
+- every event sequence and event field;
+- OHLC path and trigger semantics;
+- shared processing-bar capacity and allocation order;
+- tick, lot, minimum-notional, fee, spread, impact, and slippage behavior;
+- split, inactive asset, dividend, cash interest, funding, borrow, mark-to-market, margin, and insolvency order;
+- final books, interval metrics, counters, and per-symbol arrays;
+- public result and evidence schema identities.
+
+Mutable execution state is centralized in the invocation-local runtime. The phase services introduce no global, persisted, or cross-invocation state. No temporary workflow, capture script, generated fixture file, or duplicate legacy implementation is present in PR #107.
 
 No critical or important review issue remains at the implementation head.
 
-This verification note and the tightened `93.0%` threshold are documentation/configuration-only follow-up changes. The final PR head must pass exact-head CI and PostgreSQL verification again before merge.
+This verification note and the tightened `93.0%` threshold create a later exact head. Normal CI and PostgreSQL Catalog must pass again on that documentation-complete head before merge.
 
 ## Safety boundary
 

@@ -1,0 +1,72 @@
+name: Apply Live Stream Core
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/apply_live_stream_core.py'
+      - '.github/workflows/tmp-apply-live-stream-core.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-core:
+    if: github.event.pull_request.head.sha == '426eca40519ab16c7098e44d7860ac660962e7aa'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/isolate-live-training-streams-20260722
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Install Python
+        run: uv sync --extra dev
+      - name: Install Studio
+        run: npm ci --prefix studio
+      - name: Apply reviewed core patch
+        run: uv run python .github/scripts/apply_live_stream_core.py
+      - name: Format Python
+        run: uv run ruff format trade_rl/telemetry/training.py trade_rl/rl/training_telemetry.py trade_rl/studio/telemetry.py
+      - name: Ruff
+        run: uv run ruff check trade_rl/telemetry/training.py trade_rl/rl/training_telemetry.py trade_rl/studio/telemetry.py
+      - name: Mypy
+        run: uv run mypy .
+      - name: Python focused tests
+        run: >-
+          uv run pytest
+          tests/telemetry/test_episode_identity_contract.py
+          tests/integrations/test_training_telemetry_episode_identity.py
+          tests/telemetry/test_training.py
+          tests/integrations/test_training_telemetry.py
+          tests/studio/test_telemetry_api.py
+          -q
+      - name: Track tests
+        run: npm --prefix studio test -- --run src/live/telemetryTracks.test.ts
+      - name: Frontend typecheck
+        run: npm --prefix studio run typecheck
+      - name: Commit verified core implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            trade_rl/telemetry/training.py \
+            trade_rl/rl/training_telemetry.py \
+            trade_rl/studio/telemetry.py \
+            studio/src/data/types.ts \
+            studio/src/live/telemetryGuards.ts \
+            studio/src/live/useTrainingTelemetry.test.tsx \
+            studio/src/pages/LiveTrainingPage.test.tsx \
+            studio/src/live/telemetryTracks.ts
+          git diff --cached --check
+          git commit -m 'fix: isolate telemetry episode identity'
+          git push origin HEAD:agent/isolate-live-training-streams-20260722

@@ -82,6 +82,7 @@ def test_regime_episode_sampling_fails_when_feature_is_never_available(
         ResidualMarketEnvConfig(
             episode_bars=2,
             decision_every=1,
+            initial_capital=1_000.0,
             episode_sampling_mode=mode,
             regime_feature_index=0,
         ),

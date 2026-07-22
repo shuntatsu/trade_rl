@@ -33,18 +33,20 @@ jobs:
 
           path = Path("trade_rl/studio/telemetry.py")
           source = path.read_text(encoding="utf-8")
+          import_anchor = "from typing import Literal\n"
+          if source.count(import_anchor) != 1:
+              raise RuntimeError("telemetry typing import anchor changed")
           source = source.replace(
-              "from typing import Literal\n",
+              import_anchor,
               "from typing import Literal, Protocol\n",
               1,
           )
-          anchor = "\n\ndef _response(record: TrainingTelemetryRecord) -> TelemetryRecordResponse:\n"
-          replacement = '''\n\nclass _TelemetryRecordLike(Protocol):
-              def to_json_dict(self) -> dict[str, object]: ...
-
-
-          def _response(record: _TelemetryRecordLike) -> TelemetryRecordResponse:
-          '''
+          anchor = "def _response(record: TrainingTelemetryRecord) -> TelemetryRecordResponse:\n"
+          replacement = (
+              "class _TelemetryRecordLike(Protocol):\n"
+              "    def to_json_dict(self) -> dict[str, object]: ...\n\n\n"
+              "def _response(record: _TelemetryRecordLike) -> TelemetryRecordResponse:\n"
+          )
           if source.count(anchor) != 1:
               raise RuntimeError("telemetry response anchor changed")
           source = source.replace(anchor, replacement, 1)

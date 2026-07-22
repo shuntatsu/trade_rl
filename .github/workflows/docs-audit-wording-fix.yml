@@ -22,10 +22,16 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+      - name: Validate wording patch bytes
+        shell: bash
+        run: |
+          sha256sum .github/docs-audit-staging/wording-fix.patch.b64 | tee "$RUNNER_TEMP/wording-fix-b64.sha256"
+          echo 'c15e6a1fd45e984fb5f8f890d858c7bee8a11b4e6a86218ddb57509d9e81dfca  .github/docs-audit-staging/wording-fix.patch.b64' | sha256sum --check --strict
+          base64 --decode .github/docs-audit-staging/wording-fix.patch.b64 > "$RUNNER_TEMP/wording-fix.patch"
+          git apply --check "$RUNNER_TEMP/wording-fix.patch"
       - name: Apply wording patch
         shell: bash
         run: |
-          base64 --decode .github/docs-audit-staging/wording-fix.patch.b64 > "$RUNNER_TEMP/wording-fix.patch"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git am "$RUNNER_TEMP/wording-fix.patch"
@@ -45,5 +51,15 @@ jobs:
           tests/test_current_documentation_contract.py
           tests/test_architecture_contract.py
           tests/examples/test_docker_training_assets.py::test_training_runbook_uses_generation_scoped_evidence_and_external_expectation
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: docs-wording-fix-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/wording-fix-b64.sha256
+            ${{ runner.temp }}/wording-fix.patch
+          if-no-files-found: warn
       - name: Push verified fix
+        if: success()
         run: git push origin HEAD:docs/current-architecture-sync-20260722

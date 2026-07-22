@@ -1,273 +1,176 @@
 # Generation-Bound Telemetry Polling Verification
 
-Date: 2026-07-22
+Date: 2026-07-23
+
+Merged pull request: #99
+
+Merge commit: `7bf93eaa7775903fa9d08b65dd3b77c052313404`
+
+Verified implementation head: `1c96d0c4e85f7bc84027e586db2bbae8bbff2849`
+
+Replacement for stacked Draft PR #83, rebuilt directly on current `main` after the architecture, environment-runtime, Live Training, and process-concurrency remediations were merged independently.
 
 ## Scope
 
-This verification covers the generation-bound telemetry polling change implemented in Draft PR #83.
+This change binds telemetry sequence cursors to an opaque stream generation so Studio cannot silently reuse an old cursor after the JSONL path is replaced, truncated, or re-indexed.
 
-Design:
+Implemented contracts:
 
-- `docs/superpowers/specs/2026-07-22-telemetry-cursor-generation-design.md`
+- the rebuildable sidecar index schema is `training_telemetry_index_v2`;
+- primary telemetry JSONL evidence remains `training_telemetry_v1`;
+- every valid sidecar index contains a canonical lower-case UUID generation;
+- normal append and no-growth polling preserve the generation;
+- path replacement, truncation, invalid index state, or index loss creates a new generation;
+- a stale expected generation returns no records, `next_sequence=0`, and `reset_required=true`;
+- unchanged status and event polls do not rewrite or `fsync` the sidecar index;
+- the reader captures an identity-verified, size-bounded file snapshot under the per-stream process lock;
+- page-body parsing occurs after the append serialization lock is released;
+- Studio API responses expose `streamGeneration` and `resetRequired`;
+- the endpoint accepts only canonical lower-case UUID generation queries;
+- the frontend clears its buffer and sequence cursor before replaying a replacement generation;
+- Status and Events responses from different generations are discarded and retried once before records are published;
+- the existing connection-state contract, 2,048-record cap, stale-request cancellation, OS file locking, append-only evidence, and fail-closed corruption behavior remain intact.
 
-Implementation plan:
+## Architecture boundary
 
-- `docs/superpowers/plans/2026-07-22-telemetry-cursor-generation.md`
+The generation is cursor/cache identity, not business or evidentiary identity.
 
-The branch starts from PR #81 exact head:
+- JSONL remains the primary append-only telemetry evidence.
+- The sidecar index may be rebuilt and may rotate generation without rewriting JSONL.
+- An open snapshot may finish reading its bounded old-generation inode after replacement; the next Status/Events comparison detects the new generation before mixed records are published.
+- No generation field is used by training, checkpoint selection, sealed evaluation, promotion, release, Serving, or execution.
 
-- `2e56fd7b42f2677dc0440ff9ec3cc03a55e5c786`
+## TDD RED evidence
 
-## Implemented contract
+### Python telemetry
 
-- The internal sidecar index schema is `training_telemetry_index_v2`.
-- The telemetry JSONL record schema remains `training_telemetry_v1`.
-- Every valid index has a canonical lower-case UUID stream generation.
-- A normal append preserves the generation.
-- Stream replacement, truncation, invalid index state, or index loss creates a new generation.
-- A request with a stale expected generation receives no records, `next_sequence=0`, and `reset_required=True`.
-- No-growth status and event polls do not rewrite or `fsync` the sidecar index.
-- The process lock is released after an identity-verified bounded snapshot is captured; page-body parsing occurs outside the append serialization lock.
-- Studio API responses expose `streamGeneration` and `resetRequired`.
-- The frontend clears its in-memory buffer and sequence cursor before replaying a replacement generation.
-- Status and Events responses from different generations are discarded and retried once rather than published as a mixed snapshot.
-- The existing frontend `connection` contract, 2,048-record buffer cap, and stale-request cancellation behavior remain intact.
+RED head: `6407c5496e402dce36c71375a7f64de05e379771`
 
-## TDD evidence
+Workflow run `29915043603`: expected failure.
 
-### Python telemetry RED
+- artifact: `8527504146`
+- digest: `sha256:c6c97b601316a984bfad1092a0f2f2a38a2628e550515d8622ecd60c35871dc6`
 
-Exact head:
+The run reproduced missing generation/reset contracts, unchanged-poll index rewrites, and page parsing that held the append process lock. The near-tail bounded-parse contract already passed and was retained.
 
-- `6407c5496e402dce36c71375a7f64de05e379771`
+### Studio backend
 
-Workflow:
+Workflow run `29915513524`: expected failure.
 
-- Run `29915043603`
-- Conclusion: expected failure
+- artifact: `8527690750`
+- digest: `sha256:1e08ab17ac5482b763f1dc24777d20058f7a5c9c9f5a2670e13b7cc1a8372896`
 
-Artifact:
+The endpoint did not expose generation/reset fields, ignored stale generation queries, and did not reject invalid generation syntax.
 
-- ID `8527504146`
-- Digest `sha256:c6c97b601316a984bfad1092a0f2f2a38a2628e550515d8622ecd60c35871dc6`
+### Frontend
 
-Observed failures before implementation:
+Workflow run `29916129060`: expected failure.
 
-- telemetry status and pages had no generation fields;
-- the reader accepted no expected-generation cursor;
-- stream replacement and index loss could not request an explicit reset;
-- unchanged polls rewrote the index;
-- page parsing held the process lock and blocked an append.
+- artifact: `8527945463`
+- digest: `sha256:78b78936309483c08bea9bc37c6b48210860f5456d83a1dd6085495072dd6987`
 
-The deterministic near-tail bounded-parse test already passed and was retained as a regression contract.
+The hook did not reset and replay a replacement generation, could publish mixed Status/Events generations, and accepted malformed generation/reset values.
 
-### Python telemetry GREEN
+## Focused GREEN evidence
 
-Implementation head:
+Python implementation head `c04f4084375e6e56b91ffe415ed69026fa4d6389` passed workflow run `29915319097`, including Ruff, format, repository-wide Mypy, telemetry tests, spawn process-concurrency tests, and training integration tests.
 
-- `c04f4084375e6e56b91ffe415ed69026fa4d6389`
+Studio backend implementation head `ec6f7cdc76bdb355dadcaf6d717ab7d113887ce7` passed workflow run `29915833168`.
 
-Workflow:
+Frontend implementation head `69ff12afa4672b810bc4a74b775b49596e753967` passed workflow run `29917535977`, including focused hook tests, complete Vitest, TypeScript, and production build.
 
-- Run `29915319097`
-- Conclusion: success
+Cross-platform workflow run `29917703239` passed on Linux and Windows:
 
-Verification included:
+- Linux artifact `8528622708`, digest `sha256:95065be9c178d7942bff925ea464033e33e645729f21505f1fdbad727b695575`;
+- Windows artifact `8528621179`, digest `sha256:9d36bfb92bc44ae85a20bedc164450e266566702a9d20375af05ce1dbca844bc`.
 
-- Ruff formatting and linting;
-- Mypy across the Python project;
-- telemetry unit tests;
-- spawn-based process-concurrency tests;
-- training telemetry integration tests.
+Windows exercised native `msvcrt.locking`.
 
-### Studio backend RED
+## Original stacked-head verification
 
-Workflow:
+Original PR #83 final head: `b2ac0df43c2b254653bdcd8089d23f37a28c70d9`.
 
-- Run `29915513524`
-- Conclusion: expected failure
+- CI run `29918835669`: success;
+- PostgreSQL Catalog run `29918835603`: success;
+- final Pytest artifact `8529103393`;
+- digest `sha256:219adb2987dcd4a6b4caf310113099269bd2c14953a2584e4565311e1cae9873`.
 
-Artifact:
+The original branch was not merged because it contained the full unsquashed histories of its dependency PRs.
 
-- ID `8527690750`
-- Digest `sha256:1e08ab17ac5482b763f1dc24777d20058f7a5c9c9f5a2670e13b7cc1a8372896`
+## Clean current-main reconstruction
 
-Observed failures before implementation:
+PR #99 was created directly from current `main` at `c449f424d556bf7e7d4fe1f43625c786c0243dc0`. During verification, main advanced by documentation-only PR #98 at `b51cd9e840da28d987c1056bbe2f7d7532ca932a`; that change did not overlap the 16-file implementation scope.
 
-- status and event responses did not expose a stream generation;
-- stale generation queries were ignored;
-- invalid generation queries were not rejected by the endpoint contract.
+The effective pull-request scope contained exactly:
 
-### Studio backend GREEN
+- three design/plan/verification documents;
+- one measured coverage-ratchet change;
+- five Studio frontend API/type/guard/hook/test changes;
+- two Studio backend API/reader changes;
+- two Python telemetry record/index changes;
+- two Python regression suites;
+- one existing Live Training test fixture update.
 
-Implementation head:
+No temporary workflow or patch file remained. No PR #79, #92, #95, or #98 implementation was repeated.
 
-- `ec6f7cdc76bdb355dadcaf6d717ab7d113887ce7`
-
-Workflow:
-
-- Run `29915833168`
-- Conclusion: success
-
-Verification included Studio API tests, telemetry tests, process tests, integration tests, Ruff, formatting, and Mypy.
-
-### Frontend RED
-
-Workflow:
-
-- Run `29916129060`
-- Conclusion: expected failure
-
-Artifact:
-
-- ID `8527945463`
-- Digest `sha256:78b78936309483c08bea9bc37c6b48210860f5456d83a1dd6085495072dd6987`
-
-Observed failures before implementation:
-
-- stale generation responses did not trigger a replay from sequence zero;
-- mixed Status and Events generations were published instead of retried;
-- malformed generation values were accepted by guards;
-- non-boolean reset flags were accepted by guards.
-
-### Frontend GREEN
-
-Implementation head:
-
-- `69ff12afa4672b810bc4a74b775b49596e753967`
-
-Workflow:
-
-- Run `29917535977`
-- Conclusion: success
-
-Verification included:
-
-- focused generation-reset hook tests;
-- the complete Vitest suite;
-- TypeScript type checking;
-- production frontend build.
-
-## Cross-platform verification
-
-Focused cross-platform workflow:
-
-- Run `29917703239`
-- Conclusion: success
-
-Linux artifact:
-
-- ID `8528622708`
-- Digest `sha256:95065be9c178d7942bff925ea464033e33e645729f21505f1fdbad727b695575`
-
-Windows artifact:
-
-- ID `8528621179`
-- Digest `sha256:9d36bfb92bc44ae85a20bedc164450e266566702a9d20375af05ce1dbca844bc`
-
-Both platforms passed the telemetry generation, process-concurrency, integration, and Studio API focused suites. Linux additionally passed Ruff, format checking, and Mypy. The Windows run exercised the native `msvcrt.locking` path.
-
-## Full-suite verification and flaky-test disposition
-
-Cleanup head:
-
-- `dc66ac1558a4b317ef3f02b26d7fbc352966ec3b`
-
-The first Core attempt reached the full test suite and produced:
-
-- `1196 passed, 1 failed, 2 skipped, 11 warnings`;
-- total coverage `83.45%`.
-
-The single failure was the existing Torch gradient comparison:
-
-- `tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_outputs_and_gradients`
-- observed maximum absolute difference `4.112720489501953e-06` against tolerance `1e-06`.
-
-That same test had previously shown the same non-deterministic behavior outside this telemetry change. The failed Core job was rerun without changing source or tests.
-
-Same-head rerun:
-
-- CI run `29917834673`
-- Rerun Core job `88916816325`
-- Conclusion: success
-
-The rerun produced:
-
-- `1197 passed, 2 skipped, 11 warnings`;
-- total coverage `83.45%`;
-- total branch coverage `70.35%`;
-- `trade_rl/telemetry/indexed_training.py`: `76/110 = 69.09%` branch coverage.
-
-Successful rerun artifact:
-
-- ID `8528843820`
-- Digest `sha256:270768dc6ea6e5f4a0d609d34af38d3b56fe9ca2088f187d21c9e31ce95e0496`
-
-Because the failure did not reproduce on the identical head and the telemetry-focused Linux/Windows suites were already green, no unrelated Torch test tolerance change was included in this PR.
-
-## Coverage ratchet verification
-
-Ratchet head:
-
-- `664e8cd956a3d9ef62139a46cbdc5f62376807ec`
-
-The per-file critical branch threshold for `trade_rl/telemetry/indexed_training.py` was raised from `68.0%` to `69.0%`. No existing threshold was reduced.
-
-GitHub Actions:
-
-- CI run `29918540093`: success
-- PostgreSQL Catalog run `29918540139`: success
-
-Core checks:
-
-- Studio frontend tests: success
-- fixed viewport verification: success
-- workflow security: success
-- Ruff: success
-- Ruff format check: success
-- Mypy: success
-- import architecture: success
-- dead-code report: success
-- recovery and structured serving smoke: success
-- full tests and coverage: success
-- critical branch coverage: success
-- CLI smoke: success
-- Ubuntu compatibility: success
-- Windows compatibility: success
-- training image build and non-root packaged runtime probe: success
-
-Full-suite result:
-
-- `1197 passed, 2 skipped, 11 warnings`
-- total coverage `83.45%`
-- total branch coverage `70.35%`
-- indexed telemetry branch coverage `69.09%`
-- critical telemetry threshold `69.09% >= 69.0%`
-
-Pytest artifact:
-
-- ID `8528980253`
-- Digest `sha256:48d40000ee917171166d47297567af2ded2db20cddc49ba831403b1f2f26949c`
-
-PostgreSQL steps passed:
-
-- Compose validation;
-- PostgreSQL startup and readiness;
-- dependency installation;
-- migrations;
-- unit and integration tests;
-- clean shutdown.
+## Clean exact-head verification
+
+GitHub Actions CI run `29957142356`: success.
+
+- exact-head checkout: passed;
+- Studio Vitest, TypeScript, production build, and fixed viewport: passed;
+- workflow security: passed;
+- Ruff and format: passed;
+- Mypy: passed;
+- Import Linter architecture contracts: passed;
+- dead-code report: passed;
+- recovery and structured Serving smoke: passed;
+- full Pytest: `1206 passed, 2 skipped, 11 warnings`;
+- total coverage: `83.45%`;
+- total branch coverage: `70.35%`;
+- indexed telemetry branch coverage: `76 / 110 = 69.09%`;
+- critical threshold: `69.09% >= 69.0%`;
+- CLI smoke: passed;
+- Ubuntu compatibility and generation/process-concurrency regressions: passed;
+- Windows compatibility, native locking, and generation regressions: passed;
+- complete training-image build and packaged non-root runtime probe: passed.
+
+Exact-head artifacts:
+
+- Pytest diagnostics `8544561261`, digest `sha256:85df4d375e4c409e709df914e497385c14ffd9428ea20d2d63b8a3be8971fe83`;
+- architecture diagnostics `8544516089`, digest `sha256:fa87b745a44a7615edca253764b3054b017650127cf444c5e05dfb23d2b6d975`;
+- static diagnostics `8544515628`, digest `sha256:a98315d2d8c74b6c3c3180e59b3a7d40df4e97f2e42c6bb04015b4a56f344d1e`;
+- training-image evidence `8544510019`, digest `sha256:62cefb4020eecad1b2d1311dc24c34f4486eb124828696a077c3cc3ddc016596`;
+- Studio layout diagnostics `8544504573`, digest `sha256:dcbfc3f54835bb4ea98124a5022f9815589d1007b9d138cc6131edd7e5e6826d`;
+- Windows compatibility `8544500680`, digest `sha256:a05554f464e201a4ae35a3e6706b09ff49ec005da86b5307f847d4f580a94b9d`;
+- Ubuntu compatibility `8544494654`, digest `sha256:839bec87feacf897364d63f7b69257ec456a5fa7ec2256a431f7aa111374ccc8`.
+
+PostgreSQL Catalog run `29957142448`: success.
+
+- exact-head checkout: passed;
+- Compose validation: passed;
+- PostgreSQL startup/readiness: passed;
+- installation and migration: passed;
+- unit and integration tests: passed;
+- shutdown and cleanup: passed.
+
+## Review result
+
+- the sidecar generation is validated canonically in Python and at the HTTP boundary;
+- replacement, truncation, invalid/lost index, stale cursor, and mixed-generation response paths are covered;
+- no-growth polling avoids unnecessary durable index writes;
+- page parsing no longer serializes append work after a bounded snapshot is captured;
+- PR #95 process locking and obsolete-inode safeguards remain present;
+- PR #85 Live Training environment/episode isolation tests remain present;
+- public telemetry record schema identifier remains v1;
+- no unresolved critical or important review issue remained before merge.
 
 ## Safety boundary
 
-- Production remains `NO-GO`.
-- Direct exchange routing is not implemented.
-- The telemetry JSONL evidence schema remains v1.
-- The index is still a rebuildable cache and is not treated as primary evidence.
-- No malformed or truncated telemetry evidence is automatically repaired.
-- No record from a replacement generation is returned against an old generation cursor.
-- PR #83 remains Draft and is not merged.
-
-## Final-head requirement
-
-This document commit creates a new exact head. Normal CI and PostgreSQL Catalog must both report `completed/success` for that documentation head before the PR is described as fully verified.
+- production remains `NO-GO`;
+- direct exchange routing is not implemented;
+- no profitability or exchange-equivalent fill claim is introduced;
+- malformed or truncated telemetry evidence is not automatically repaired;
+- no replacement-generation record is returned against an old-generation cursor;
+- the index remains rebuildable cache state rather than primary evidence;
+- this documentation-only head must pass normal CI before merge.

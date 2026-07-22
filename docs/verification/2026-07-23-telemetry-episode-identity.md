@@ -24,6 +24,7 @@ The implementation intentionally does not import the alternate Live Training pag
 - The same environment episode retains one ID across retained records.
 - A terminal or truncated record is emitted with the current ID.
 - The next retained record for that environment receives a new ID.
+- Reopening an existing telemetry stream starts allocation above the existing sequence/episode range and does not reuse an earlier producer-issued ID.
 - Producer fallback state for previous close and previous weights is cleared when the episode ends.
 - Studio normalizes the field to `episodeId`.
 - Python, Studio, and browser guards reject boolean, negative, and non-integer explicit values.
@@ -52,6 +53,7 @@ The implementation adds:
 
 - nullable record serialization and strict parsing;
 - per-environment producer allocation and post-terminal rotation;
+- restart-safe stream-local allocation which remains above existing IDs;
 - Studio API normalization;
 - TypeScript type and runtime guard support;
 - explicit-ID-first current-episode selection;
@@ -63,11 +65,11 @@ No production training, checkpoint selection, sealed evaluation, promotion, rele
 
 ## Exact-head verification
 
-Final verified head before this documentation-only commit:
+Final verified implementation-and-test head before this documentation-only commit:
 
-- `91423b49724bf740fb9c9e60d354d82b7def06a3`
+- `9e806f5fd5ceac751fa77e25a1b72b140de1e6a7`
 
-GitHub Actions CI run `29958406026`: success.
+GitHub Actions CI run `29958798560`: success.
 
 - exact-head checkout: passed;
 - complete Studio Vitest suite: passed;
@@ -80,7 +82,7 @@ GitHub Actions CI run `29958406026`: success.
 - Import Linter architecture contracts: passed;
 - dead-code report: passed;
 - recovery and structured Serving smoke: passed;
-- full Pytest: `1213 passed, 2 skipped, 11 warnings`;
+- full Pytest: `1214 passed, 2 skipped, 11 warnings`;
 - total coverage: `83.47%`;
 - total branch coverage: `4868 / 6916 = 70.39%`;
 - sampler branch coverage: `55 / 70 = 78.57% >= 78.5%`;
@@ -91,7 +93,7 @@ GitHub Actions CI run `29958406026`: success.
 - Windows compatibility: passed;
 - complete training-image build and packaged non-root runtime probe: passed.
 
-PostgreSQL Catalog run `29958406465`: success.
+PostgreSQL Catalog run `29958798616`: success.
 
 - exact-head checkout: passed;
 - Compose validation: passed;
@@ -102,19 +104,21 @@ PostgreSQL Catalog run `29958406465`: success.
 
 ## Exact-head artifacts
 
-- Pytest diagnostics: ID `8545059144`, digest `sha256:8813e4d595ae24db8251b779c94230d6056ebd1b33c732af4d00c7204cf4033d`;
-- architecture diagnostics: ID `8545012315`, digest `sha256:1435db92243ebbd517506ac0c2cc7c6ebcba52019f7881888ffc9e0da4416c5e`;
-- static diagnostics: ID `8545011652`, digest `sha256:ec2e4f1c6471803bcebe0784c0054017dfd38ad371a24c1445c388b57f7908f1`;
-- training-image evidence: ID `8545004825`, digest `sha256:fbf8fb80597d8ece373f4dce4039f3f0b58cc98c385fd039dcda236f61666606`;
-- Studio layout diagnostics: ID `8545000826`, digest `sha256:2ccaae7ec835fb3e714f96a3406969a3a68e488759c3bed38909419fc44ef292`;
-- Windows compatibility: ID `8544993849`, digest `sha256:dad4657b1d505fa579aceda304775f8c230ffd43a1730d198760b6a40bcd0432`;
-- Ubuntu compatibility: ID `8544991093`, digest `sha256:9185352e617f3721bdb9f7a37aaf6cf02dc6dd173a3cc8d178db5f2a1c3f20fb`.
+- Pytest diagnostics: ID `8545202616`, digest `sha256:208ccbe2158aed8d08f60c36f92af1e3bcc0e96a5da3728c859211bdb2157db2`;
+- architecture diagnostics: ID `8545161810`, digest `sha256:ea475021bd459ac56700141adfe4f5ddec2436309ce8fa3da939fa0ddf5391bc`;
+- static diagnostics: ID `8545161251`, digest `sha256:67442ae066d7a71180a7ac3a04c7797c612a0b471b4890ecefc7b9d7d9bf5eeb`;
+- training-image evidence: ID `8545154614`, digest `sha256:cb13c90ecaba02860ceffaea829b2fb762afc69f39a875a19649c67c905ba474`;
+- Studio layout diagnostics: ID `8545151953`, digest `sha256:6b580c8a33aee11623e1938d85899e172a0ad5b2963e411bb515014134ed6291`;
+- Windows compatibility: ID `8545146264`, digest `sha256:4ec32c60a6b5fdbd188cf2d65336b9f2816907d748ad3b4735c5199ffbf2d6da`;
+- Ubuntu compatibility: ID `8545143616`, digest `sha256:1756aefbb47f6b54f74fa033aec117708964a597cd3c303154128716f954d520`.
 
 This verification file is documentation-only. The final PR head must pass exact-head CI again before merge.
 
 ## Review result
 
 The effective comparison from current `main` contains exactly 16 implementation/test/design files before this verification note. It does not include the alternate page and track implementation from old PR #84. The current Live Training environment and episode-isolation tests remain intact.
+
+The restart regression closes the remaining stream-local allocation ambiguity: a newly constructed sampler reading an existing JSONL continues both sequence and episode identity monotonically instead of reusing the first episode ID.
 
 No critical or important review issue remains.
 

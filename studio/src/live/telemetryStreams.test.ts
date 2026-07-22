@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { TrainingTelemetryRecord } from '../data/types'
 import { currentEnvironmentEpisode, telemetryEnvironmentIds } from './telemetryStreams'
 
-type RecordOverrides = Partial<TrainingTelemetryRecord> & {
-  episodeId?: number | null
-}
+type RecordOverrides = Partial<TrainingTelemetryRecord>
 
 function record(
   sequence: number,
@@ -20,6 +18,7 @@ function record(
     environmentStep: sequence,
     seed: 7,
     environmentId,
+    episodeId: null,
     eventType: 'rollout',
     marketIndex: 100 + sequence,
     marketTime: `2026-07-23T00:00:${String(sequence).padStart(2, '0')}.000000000`,

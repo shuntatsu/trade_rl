@@ -204,6 +204,22 @@ class TrainingTelemetrySampler:
         self.disabled = False
         self._previous_weights: dict[int, tuple[float, ...]] = {}
         self._previous_close: dict[int, float] = {}
+        self._episode_ids: dict[int, int] = {}
+        self._next_episode_id = self.sequence + 1
+
+    def _episode_id(self, environment_id: int) -> int:
+        current = self._episode_ids.get(environment_id)
+        if current is not None:
+            return current
+        assigned = self._next_episode_id
+        self._next_episode_id += 1
+        self._episode_ids[environment_id] = assigned
+        return assigned
+
+    def _finish_episode(self, environment_id: int) -> None:
+        self._episode_ids.pop(environment_id, None)
+        self._previous_weights.pop(environment_id, None)
+        self._previous_close.pop(environment_id, None)
 
     def _weights(
         self,
@@ -363,6 +379,7 @@ class TrainingTelemetrySampler:
                     if environment_id < reward_rows.size
                     else None
                 )
+                episode_id = self._episode_id(environment_id)
                 self.writer.append(
                     TrainingTelemetryRecord(
                         sequence=self.sequence,
@@ -399,9 +416,16 @@ class TrainingTelemetrySampler:
                         emergency_deleverage=bool(info.get("emergency_deleverage")),
                         terminated=bool(info.get("hybrid_terminated")) or done,
                         truncated=bool(info.get("TimeLimit.truncated")),
+                        episode_id=episode_id,
                     )
                 )
                 emitted += 1
+                if (
+                    done
+                    or bool(info.get("hybrid_terminated"))
+                    or bool(info.get("TimeLimit.truncated"))
+                ):
+                    self._finish_episode(environment_id)
             return emitted
         except Exception:
             self.close()

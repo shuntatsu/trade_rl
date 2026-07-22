@@ -33,6 +33,7 @@ class TelemetryRecordResponse(StudioModel):
     environment_step: int = Field(ge=0)
     seed: int = Field(ge=0)
     environment_id: int = Field(ge=0)
+    episode_id: int | None = Field(default=None, ge=0)
     event_type: Literal[
         "rollout",
         "position",

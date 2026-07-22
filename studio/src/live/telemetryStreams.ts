@@ -29,6 +29,11 @@ export function currentEnvironmentEpisode(
     .sort((left, right) => left.sequence - right.sequence)
   if (environmentRecords.length === 0) return []
 
+  const latestEpisodeId = environmentRecords.at(-1)?.episodeId ?? null
+  if (latestEpisodeId !== null) {
+    return environmentRecords.filter((record) => record.episodeId === latestEpisodeId)
+  }
+
   let episodeStart = 0
   for (let index = 1; index < environmentRecords.length; index += 1) {
     if (crossesEpisodeBoundary(environmentRecords[index - 1], environmentRecords[index])) {

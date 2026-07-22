@@ -123,6 +123,7 @@ export interface TrainingTelemetryRecord {
   environmentStep: number
   seed: number
   environmentId: number
+  episodeId: number | null
   eventType: TelemetryEventType
   marketIndex: number | null
   marketTime: string | null

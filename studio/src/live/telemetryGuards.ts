@@ -38,6 +38,7 @@ export function isTrainingTelemetryRecord(value: unknown): value is TrainingTele
     && isNonNegativeInteger(value.environmentStep)
     && isNonNegativeInteger(value.seed)
     && isNonNegativeInteger(value.environmentId)
+    && (value.episodeId === null || isNonNegativeInteger(value.episodeId))
     && typeof value.eventType === 'string' && eventTypes.has(value.eventType)
     && (value.marketIndex === null || isNonNegativeInteger(value.marketIndex))
     && (value.marketTime === null || typeof value.marketTime === 'string')

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, BinaryIO, Self
+from typing import TYPE_CHECKING, BinaryIO, Self
 from uuid import UUID, uuid4
 
 if TYPE_CHECKING:

@@ -1,0 +1,60 @@
+name: Transplant environment runtime decomposition
+
+on:
+  push:
+    branches:
+      - fix/environment-runtime-decomposition-current-main-20260723
+
+permissions:
+  contents: write
+
+jobs:
+  transplant:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply audited PR 80 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_base=edaa6930ffb0b351ae5a8aa9afa6c80d47ca5e27
+          source_head=88f7e486b6db56fdc16ab89db5a77ef599c8f48f
+          paths=(
+            docs/superpowers/plans/2026-07-22-environment-runtime-decomposition.md
+            docs/superpowers/specs/2026-07-22-environment-runtime-decomposition-design.md
+            docs/verification/2026-07-22-environment-runtime-decomposition.md
+            pyproject.toml
+            tests/architecture/test_environment_step_decomposition.py
+            tests/rl/test_environment_decision_service.py
+            tests/rl/test_environment_info_service.py
+            tests/rl/test_environment_reward_service.py
+            tests/rl/test_environment_risk_service.py
+            trade_rl/rl/environment.py
+            trade_rl/rl/environment_decision.py
+            trade_rl/rl/environment_info.py
+            trade_rl/rl/environment_reward.py
+            trade_rl/rl/environment_risk.py
+          )
+
+          git fetch --no-tags origin "$source_base" "$source_head"
+          printf '%s\n' "${paths[@]}" | sort > /tmp/expected-paths.txt
+          git diff --name-only "$source_base" "$source_head" -- "${paths[@]}" | sort > /tmp/actual-paths.txt
+          diff -u /tmp/expected-paths.txt /tmp/actual-paths.txt
+          git diff --binary "$source_base" "$source_head" -- "${paths[@]}" > /tmp/environment-runtime.patch
+          test -s /tmp/environment-runtime.patch
+          git apply --3way /tmp/environment-runtime.patch
+
+          rm .github/workflows/transplant-environment-runtime.yml
+          git add -A
+          git diff --cached --check
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "refactor: transplant environment runtime decomposition"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

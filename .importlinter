@@ -21,6 +21,7 @@ layers =
     trade_rl.evaluation
     trade_rl.release
     trade_rl.artifacts
+    trade_rl.telemetry
     trade_rl.domain
 
 [importlinter:contract:domain]
@@ -33,9 +34,38 @@ forbidden_modules =
     gymnasium
     stable_baselines3
     torch
+    trade_rl.telemetry
     trade_rl.artifacts
     trade_rl.release
     trade_rl.evaluation
+    trade_rl.data
+    trade_rl.strategies
+    trade_rl.simulation
+    trade_rl.risk
+    trade_rl.rl
+    trade_rl.learning
+    trade_rl.serving
+    trade_rl.integrations
+    trade_rl.workflows
+    trade_rl.studio
+    trade_rl.cli
+
+[importlinter:contract:telemetry]
+name = Telemetry remains diagnostic and standard-library only
+type = forbidden
+source_modules =
+    trade_rl.telemetry
+forbidden_modules =
+    numpy
+    gymnasium
+    stable_baselines3
+    sb3_contrib
+    torch
+    psycopg
+    trade_rl.artifacts
+    trade_rl.release
+    trade_rl.evaluation
+    trade_rl.catalog
     trade_rl.data
     trade_rl.strategies
     trade_rl.simulation

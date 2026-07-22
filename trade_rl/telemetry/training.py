@@ -278,6 +278,8 @@ class TrainingTelemetryPage:
     truncated: bool
     malformed_lines: int
     sequence_gaps: tuple[tuple[int, int], ...]
+    stream_generation: str | None = None
+    reset_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +289,7 @@ class TrainingTelemetryStatus:
     last_sequence: int
     malformed_lines: int
     size_bytes: int
+    stream_generation: str | None = None
 
 
 class TrainingTelemetryWriter:

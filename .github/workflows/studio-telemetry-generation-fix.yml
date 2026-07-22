@@ -1,0 +1,204 @@
+name: Studio Telemetry Generation Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/studio-telemetry-generation-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/bind-telemetry-cursor-generation-20260722
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra studio --extra train-sb3
+      - name: Apply Studio generation contract
+        run: |
+          python - <<'PYTHON_PATCH'
+          from pathlib import Path
+
+          telemetry_path = Path("trade_rl/studio/telemetry.py")
+          source = telemetry_path.read_text(encoding="utf-8")
+
+          model_old = '''class TelemetryStatusResponse(StudioModel):
+              available: bool
+              selected_seed: int | None = Field(default=None, ge=0)
+              available_seeds: tuple[int, ...]
+              record_count: int = Field(ge=0)
+              last_sequence: int = Field(ge=0)
+              malformed_lines: int = Field(ge=0)
+              size_bytes: int = Field(ge=0)
+              source: str | None = None
+
+
+          class TelemetryEventsResponse(StudioModel):
+              seed: int | None = Field(default=None, ge=0)
+              items: tuple[TelemetryRecordResponse, ...]
+              next_sequence: int = Field(ge=0)
+              truncated: bool
+              malformed_lines: int = Field(ge=0)
+              sequence_gaps: tuple[tuple[int, int], ...]
+          '''
+          model_new = '''class TelemetryStatusResponse(StudioModel):
+              available: bool
+              selected_seed: int | None = Field(default=None, ge=0)
+              available_seeds: tuple[int, ...]
+              record_count: int = Field(ge=0)
+              last_sequence: int = Field(ge=0)
+              malformed_lines: int = Field(ge=0)
+              size_bytes: int = Field(ge=0)
+              source: str | None = None
+              stream_generation: str | None = None
+
+
+          class TelemetryEventsResponse(StudioModel):
+              seed: int | None = Field(default=None, ge=0)
+              items: tuple[TelemetryRecordResponse, ...]
+              next_sequence: int = Field(ge=0)
+              truncated: bool
+              malformed_lines: int = Field(ge=0)
+              sequence_gaps: tuple[tuple[int, int], ...]
+              stream_generation: str | None = None
+              reset_required: bool = False
+          '''
+          if source.count(model_old) != 1:
+              raise RuntimeError("Studio telemetry model anchor changed")
+          source = source.replace(model_old, model_new, 1)
+
+          status_old = '''            size_bytes=status.size_bytes,
+              source=self._source(path),
+          )
+          '''
+          status_new = '''            size_bytes=status.size_bytes,
+              source=self._source(path),
+              stream_generation=status.stream_generation,
+          )
+          '''
+          if source.count(status_old) != 1:
+              raise RuntimeError("Studio telemetry status mapping anchor changed")
+          source = source.replace(status_old, status_new, 1)
+
+          signature_old = '''        seed: int | None = None,
+              after_sequence: int,
+              limit: int,
+          ) -> TelemetryEventsResponse:
+          '''
+          signature_new = '''        seed: int | None = None,
+              after_sequence: int,
+              limit: int,
+              stream_generation: str | None = None,
+          ) -> TelemetryEventsResponse:
+          '''
+          if source.count(signature_old) != 1:
+              raise RuntimeError("Studio telemetry events signature anchor changed")
+          source = source.replace(signature_old, signature_new, 1)
+
+          read_old = '''        page = read_training_telemetry(
+              path,
+              after_sequence=after_sequence,
+              limit=limit,
+          )
+          '''
+          read_new = '''        page = read_training_telemetry(
+              path,
+              after_sequence=after_sequence,
+              limit=limit,
+              expected_generation=stream_generation,
+          )
+          '''
+          if source.count(read_old) != 1:
+              raise RuntimeError("Studio telemetry read anchor changed")
+          source = source.replace(read_old, read_new, 1)
+
+          response_old = '''            malformed_lines=page.malformed_lines,
+              sequence_gaps=page.sequence_gaps,
+          )
+          '''
+          response_new = '''            malformed_lines=page.malformed_lines,
+              sequence_gaps=page.sequence_gaps,
+              stream_generation=page.stream_generation,
+              reset_required=page.reset_required,
+          )
+          '''
+          if source.count(response_old) != 1:
+              raise RuntimeError("Studio telemetry page mapping anchor changed")
+          telemetry_path.write_text(
+              source.replace(response_old, response_new, 1), encoding="utf-8"
+          )
+
+          api_path = Path("trade_rl/studio/api.py")
+          api_source = api_path.read_text(encoding="utf-8")
+          api_old = '''        after_sequence: int = Query(default=0, ge=0),
+              limit: int = Query(default=512, ge=1, le=2_000),
+          ) -> TelemetryEventsResponse:
+              return telemetry_reader.events(
+                  resolved_supervisor.get_job(job_id),
+                  seed=seed,
+                  after_sequence=after_sequence,
+                  limit=limit,
+              )
+          '''
+          api_new = '''        after_sequence: int = Query(default=0, ge=0),
+              limit: int = Query(default=512, ge=1, le=2_000),
+              stream_generation: str | None = Query(
+                  default=None,
+                  pattern=(
+                      r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                      r"[0-9a-f]{4}-[0-9a-f]{12}$"
+                  ),
+              ),
+          ) -> TelemetryEventsResponse:
+              return telemetry_reader.events(
+                  resolved_supervisor.get_job(job_id),
+                  seed=seed,
+                  after_sequence=after_sequence,
+                  limit=limit,
+                  stream_generation=stream_generation,
+              )
+          '''
+          if api_source.count(api_old) != 1:
+              raise RuntimeError("Studio API telemetry events anchor changed")
+          api_path.write_text(api_source.replace(api_old, api_new, 1), encoding="utf-8")
+          PYTHON_PATCH
+      - name: Format and verify Studio backend
+        run: |
+          uv run ruff check --fix \
+            trade_rl/studio/telemetry.py \
+            trade_rl/studio/api.py \
+            tests/studio/test_telemetry_api.py
+          uv run ruff format \
+            trade_rl/studio/telemetry.py \
+            trade_rl/studio/api.py \
+            tests/studio/test_telemetry_api.py
+          uv run mypy .
+          uv run pytest -q \
+            tests/studio/test_telemetry_api.py \
+            tests/telemetry/test_training.py \
+            tests/telemetry/test_indexed_process_concurrency.py \
+            tests/integrations/test_training_telemetry.py
+      - name: Commit Studio backend
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/studio/telemetry.py \
+            trade_rl/studio/api.py \
+            tests/studio/test_telemetry_api.py
+          git commit -m "feat: expose telemetry stream generation in Studio"
+      - name: Push Studio backend
+        run: git push origin HEAD:agent/bind-telemetry-cursor-generation-20260722

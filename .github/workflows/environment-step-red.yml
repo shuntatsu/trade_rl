@@ -7,6 +7,10 @@ on:
     paths:
       - .github/workflows/environment-step-red.yml
       - tests/architecture/test_environment_step_decomposition.py
+      - tests/rl/test_environment_decision_service.py
+      - tests/rl/test_environment_risk_service.py
+      - tests/rl/test_environment_reward_service.py
+      - tests/rl/test_environment_info_service.py
 
 permissions:
   contents: read
@@ -27,11 +31,17 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3
-      - name: Verify RED contract
+      - name: Verify RED contracts
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q tests/architecture/test_environment_step_decomposition.py 2>&1 | tee environment-step-red.log
+          uv run pytest -q \
+            tests/architecture/test_environment_step_decomposition.py \
+            tests/rl/test_environment_decision_service.py \
+            tests/rl/test_environment_risk_service.py \
+            tests/rl/test_environment_reward_service.py \
+            tests/rl/test_environment_info_service.py \
+            2>&1 | tee environment-step-red.log
       - name: Upload RED diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

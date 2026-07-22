@@ -18,8 +18,7 @@ def _execute_node() -> ast.FunctionDef:
     return next(
         node
         for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "execute_stateful_orders"
+        if isinstance(node, ast.FunctionDef) and node.name == "execute_stateful_orders"
     )
 
 
@@ -51,9 +50,5 @@ def test_execute_stateful_orders_is_bounded_orchestration() -> None:
 
 def test_stateful_execution_result_remains_public_in_orchestration_module() -> None:
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
-    result_classes = {
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.ClassDef)
-    }
+    result_classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
     assert "StatefulExecutionResult" in result_classes

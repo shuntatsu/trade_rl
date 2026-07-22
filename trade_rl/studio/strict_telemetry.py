@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from trade_rl.studio.contracts import JobSummary
 from trade_rl.studio.errors import ArtifactInvalid
 from trade_rl.studio.telemetry import StudioTelemetryReader as _BaseTelemetryReader
 
@@ -13,11 +14,11 @@ _TELEMETRY_NAME = "training-telemetry.jsonl"
 class StrictStudioTelemetryReader(_BaseTelemetryReader):
     """Reject multiple distinct telemetry files that claim one seed identity."""
 
-    def _paths(self, job: object) -> dict[int, Path]:
-        root = self._artifact_root(job)  # type: ignore[arg-type]
+    def _paths(self, job: JobSummary) -> dict[int, Path]:
+        root = self._artifact_root(job)
         streams: dict[int, Path] = {}
         for namespace in (".staging", "runs", "failed"):
-            run_root = (root / namespace / job.run_id).resolve()  # type: ignore[attr-defined]
+            run_root = (root / namespace / job.run_id).resolve()
             try:
                 run_root.relative_to(root)
             except ValueError as error:

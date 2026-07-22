@@ -111,14 +111,6 @@ branch = true
 show_missing = true
 skip_covered = true
 fail_under = 80
-# These two clauses belong to the pre-stateful implementation hidden behind the
-# maintained StatefulCompatibilityMarketExecutor facade. They remain temporarily
-# for source-compatible subclassing, but are unreachable through the public API.
-exclude_also = [
-    '^def _target_weights\(',
-    '(?s:^    def execute_interval\(\n        self,\n        book: BookState,\n        target: np.ndarray,\n        \*,\n        start_index: int,\n        bars: int,\n    \) -> ExecutionResult:)',
-]
-
 [tool.trade_rl.critical_coverage]
 metric = "branch"
 target = 90.0
@@ -129,7 +121,7 @@ target = 90.0
 "trade_rl/risk/pretrade.py" = 90.0
 "trade_rl/rl/rewards.py" = 97.0
 "trade_rl/evaluation/gates.py" = 100.0
-"trade_rl/telemetry/indexed_training.py" = 69.0
+"trade_rl/telemetry/_indexed_storage.py" = 72.1
 "trade_rl/rl/training_telemetry.py" = 78.5
 
 [tool.trade_rl.critical_coverage.groups.artifacts]

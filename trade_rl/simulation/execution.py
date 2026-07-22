@@ -8,6 +8,7 @@ from typing import Sequence
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import (
@@ -25,8 +26,12 @@ from trade_rl.simulation.stateful_execution import (
     StatefulExecutionResult,
     execute_stateful_orders,
 )
+from trade_rl.simulation.target_execution import execute_target_statefully
 
 _TOLERANCE = 1e-12
+_ATTEMPT_EVENT_TYPES = frozenset(
+    {"eligible", "triggered", "no_fill", "partial_fill", "filled", "rejected"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,25 +295,6 @@ class _FillResult:
     cost_by_symbol: np.ndarray
 
 
-def _target_weights(
-    value: np.ndarray,
-    *,
-    n_symbols: int,
-    maximum_gross: float,
-) -> np.ndarray:
-    if not math.isfinite(maximum_gross) or maximum_gross <= 0.0:
-        raise ValueError("maximum_gross must be finite and positive")
-    target = np.asarray(value, dtype=np.float64).reshape(-1).copy()
-    if target.shape != (n_symbols,):
-        raise ValueError("target weights shape does not match market symbols")
-    if not np.isfinite(target).all():
-        raise ValueError("target weights must be finite")
-    gross = float(np.abs(target).sum())
-    if gross > maximum_gross + _TOLERANCE:
-        raise ValueError("target gross exposure exceeds configured leverage")
-    return target
-
-
 class MarketExecutor:
     """Execute one decision target while holding filled quantities."""
 
@@ -324,6 +310,8 @@ class MarketExecutor:
         self.rule_stress = rule_stress or ExecutionRuleStress()
         self._validate_rule_stress()
         self._rng = np.random.default_rng(self.cost.random_seed)
+        self._compatibility_order_book = OrderBookState.empty()
+        self._compatibility_last_book: BookState | None = None
 
     def _base_rule_array(self, field_name: str, *, floor: float) -> np.ndarray:
         return np.maximum(self.dataset.resolved_array(field_name), floor)
@@ -398,11 +386,20 @@ class MarketExecutor:
             ),
         }
 
+    @property
+    def compatibility_order_book(self) -> OrderBookState:
+        return self._compatibility_order_book
+
+    def _reset_compatibility_chain(self) -> None:
+        self._compatibility_order_book = OrderBookState.empty()
+        self._compatibility_last_book = None
+
     def reset_random_state(self, seed: int | None = None) -> None:
         resolved = self.cost.random_seed if seed is None else seed
         if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
             raise ValueError("seed must be a non-negative integer")
         self._rng = np.random.default_rng(resolved)
+        self._reset_compatibility_chain()
 
     def _slippage_rates(self, size: int) -> np.ndarray:
         if self.cost.slippage_std == 0.0 or size == 0:
@@ -773,194 +770,69 @@ class MarketExecutor:
         start_index: int,
         bars: int,
     ) -> ExecutionResult:
-        if bars <= 0:
-            raise ValueError("bars must be positive")
-        if start_index < 0 or start_index + bars >= self.dataset.n_bars:
-            raise ValueError("execution interval is outside the dataset")
-        if book.weights.shape != (self.dataset.n_symbols,):
-            raise ValueError("book weights shape does not match market symbols")
-        if not np.array_equal(
-            np.asarray(book.contract_multipliers),
-            self.dataset.resolved_array("contract_multipliers"),
-        ):
-            raise ValueError("book contract multipliers do not match market dataset")
-
-        resolved_target = _target_weights(
-            target,
-            n_symbols=self.dataset.n_symbols,
-            maximum_gross=self.cost.max_leverage,
+        state = (
+            self._compatibility_order_book
+            if book is self._compatibility_last_book
+            else OrderBookState.empty()
         )
-        result_book = book.clone()
-        starting_value = result_book.portfolio_value
-        if starting_value <= 0.0:
-            raise ValueError("execution requires positive starting equity")
-        decision_equity = 0.0
-        initial_requested_notional = 0.0
-        filled_notional_total = 0.0
-        total_cost = 0.0
-        total_funding = 0.0
-        total_borrow = 0.0
-        total_dividend = 0.0
-        total_cash_interest = 0.0
-        total_fills = 0
-        total_events = 0
-        max_participation = 0.0
-        requested_by_symbol = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        filled_by_symbol = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        participation_by_symbol = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        cost_by_symbol = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        gross_factor = 1.0
-        desired_quantities: np.ndarray | None = None
-
-        for offset in range(bars):
-            close_index = start_index + offset
-            next_index = close_index + 1
-            period_start_value = max(result_book.portfolio_value, _TOLERANCE)
-            result_book.apply_split(
-                self.dataset.resolved_array("split_factor")[next_index]
-            )
-            inactive = ~self.dataset.resolved_array("asset_active")[next_index]
-            if np.any(inactive & (np.abs(result_book.quantities) > _TOLERANCE)):
-                result_book.settle_positions(
-                    mask=inactive,
-                    prices=self.dataset.open[next_index],
-                    recovery=self.dataset.resolved_array("delisting_recovery")[
-                        next_index
-                    ],
-                )
-            result_book.revalue(self.dataset.open[next_index])
-            value_at_open = max(result_book.portfolio_value, 0.0)
-            gap_return = value_at_open / period_start_value - 1.0
-
-            latency_elapsed = offset >= self.cost.order_latency_bars
-            if desired_quantities is None and latency_elapsed:
-                decision_equity = max(value_at_open, _TOLERANCE)
-                desired_quantities = self.dataset.notional_to_quantity(
-                    next_index,
-                    resolved_target * decision_equity,
-                    self.dataset.open[next_index],
-                )
-                requested_by_symbol = np.abs(
-                    self.dataset.quantity_notional(
-                        next_index,
-                        desired_quantities - result_book.quantities,
-                        self.dataset.open[next_index],
-                    )
-                )
-                initial_requested_notional = float(requested_by_symbol.sum())
-
-            if desired_quantities is not None and not result_book.insolvent:
-                fill = self._fill_toward_quantities(
-                    result_book,
-                    desired_quantities,
-                    prices=self.dataset.open[next_index],
-                    capacity_volume=self.dataset.volume[close_index],
-                    tradable=self.dataset.tradable[next_index],
-                    turnover_denominator=decision_equity,
-                    market_index=next_index,
-                )
-                filled_notional_total += fill.filled_notional
-                total_cost += fill.cost_amount
-                total_fills += fill.fill_count
-                total_events += fill.rebalance_events
-                max_participation = max(max_participation, fill.max_participation)
-                filled_by_symbol += fill.filled_notional_by_symbol
-                participation_by_symbol = np.maximum(
-                    participation_by_symbol,
-                    fill.participation_by_symbol,
-                )
-                cost_by_symbol += fill.cost_by_symbol
-
-            if result_book.insolvent:
-                self._flatten_after_termination(
-                    result_book,
-                    self.dataset.open[next_index],
-                )
-
-            intrabar_asset_returns = (
-                self.dataset.resolved_array("mark_price")[next_index]
-                / self.dataset.open[next_index]
-                - 1.0
-            )
-            intrabar_return = float(np.dot(result_book.weights, intrabar_asset_returns))
-            gross_factor *= max(
-                (1.0 + gap_return) * (1.0 + intrabar_return),
-                _TOLERANCE,
-            )
-            dividend_amount = result_book.apply_dividend(
-                self.dataset.resolved_array("dividend")[next_index]
-            )
-            cash_interest = result_book.apply_cash_interest(
-                float(self.dataset.resolved_array("cash_rate")[next_index]),
-                year_fraction=self.dataset.elapsed_year_fraction(
-                    close_index,
-                    next_index,
-                ),
-            )
-            total_dividend += dividend_amount
-            total_cash_interest += cash_interest
-            funding_amount, borrow_amount = self._charge_carry(
-                result_book,
-                index=next_index,
-            )
-            total_funding += funding_amount
-            total_borrow += borrow_amount
-            result_book.mark_to_market(
-                mark_prices=self.dataset.resolved_array("mark_price")[next_index],
-                funding_amount=funding_amount,
-                period_start_value=period_start_value,
-            )
-            self._update_margin(result_book)
-            if result_book.insolvent:
-                self._flatten_after_termination(
-                    result_book,
-                    self.dataset.resolved_array("mark_price")[next_index],
-                )
-
-        ending_value = max(result_book.portfolio_value, 0.0)
-        interval_net_return = max(
-            ending_value / starting_value - 1.0,
-            -1.0 + 1e-12,
+        target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
+        target_identity = content_digest(
+            {
+                "bars": bars,
+                "dataset_id": self.dataset.dataset_id,
+                "schema_version": "compatibility_target_execution_v1",
+                "start_index": start_index,
+                "target": tuple(float(value) for value in target_vector),
+            }
         )
-        denominator = max(decision_equity, starting_value, _TOLERANCE)
-        requested_turnover = initial_requested_notional / denominator
-        filled_turnover = filled_notional_total / denominator
-        unfilled_turnover = max(0.0, requested_turnover - filled_turnover)
-        fill_ratio = (
-            1.0
-            if initial_requested_notional <= _TOLERANCE
-            else min(1.0, filled_notional_total / initial_requested_notional)
+        stateful = execute_target_statefully(
+            self,
+            book,
+            state,
+            target_vector,
+            start_index=start_index,
+            bars=bars,
+            target_identity=target_identity,
         )
-        reason = (
-            None
-            if result_book.termination_reason is None
-            else EconomicTerminationReason(result_book.termination_reason).value
+        self._compatibility_order_book = stateful.order_book
+        self._compatibility_last_book = stateful.book
+
+        attempted = any(
+            event.event_type in _ATTEMPT_EVENT_TYPES for event in stateful.order_events
         )
+        requested_turnover = stateful.requested_turnover if attempted else 0.0
+        unfilled_turnover = stateful.unfilled_turnover if attempted else 0.0
+        requested_by_symbol = (
+            stateful.requested_notional_by_symbol
+            if attempted
+            else np.zeros_like(stateful.requested_notional_by_symbol)
+        )
+        fill_ratio = stateful.fill_ratio if attempted else 1.0
         return ExecutionResult(
-            book=result_book,
-            next_index=start_index + bars,
-            bars_advanced=bars,
-            interval_gross_return=gross_factor - 1.0,
-            interval_cost=total_cost,
-            interval_funding=total_funding,
-            interval_net_return=interval_net_return,
-            interval_log_return=math.log1p(interval_net_return),
+            book=stateful.book,
+            next_index=stateful.next_index,
+            bars_advanced=stateful.bars_advanced,
+            interval_gross_return=stateful.interval_gross_return,
+            interval_cost=stateful.interval_cost,
+            interval_funding=stateful.interval_funding,
+            interval_net_return=stateful.interval_net_return,
+            interval_log_return=stateful.interval_log_return,
             requested_turnover=requested_turnover,
-            filled_turnover=filled_turnover,
+            filled_turnover=stateful.filled_turnover,
             unfilled_turnover=unfilled_turnover,
-            fill_count=total_fills,
-            rebalance_events=total_events,
+            fill_count=stateful.fill_count,
+            rebalance_events=stateful.rebalance_events,
             fill_ratio=fill_ratio,
-            max_participation=max_participation,
-            interval_borrow_cost=total_borrow,
-            interval_dividend=total_dividend,
-            interval_cash_interest=total_cash_interest,
-            margin_utilization=result_book.margin_utilization,
-            termination_reason=reason,
+            max_participation=stateful.max_participation,
+            interval_borrow_cost=stateful.interval_borrow_cost,
+            interval_dividend=stateful.interval_dividend,
+            interval_cash_interest=stateful.interval_cash_interest,
+            margin_utilization=stateful.book.margin_utilization,
+            termination_reason=stateful.termination_reason,
             requested_notional_by_symbol=requested_by_symbol,
-            filled_notional_by_symbol=filled_by_symbol,
-            participation_by_symbol=participation_by_symbol,
-            cost_by_symbol=cost_by_symbol,
+            filled_notional_by_symbol=stateful.filled_notional_by_symbol,
+            participation_by_symbol=stateful.participation_by_symbol,
+            cost_by_symbol=stateful.cost_by_symbol,
         )
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:

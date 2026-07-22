@@ -9,7 +9,6 @@ import pytest
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
-from trade_rl.simulation import execution as execution_module
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 
@@ -90,20 +89,7 @@ def test_accounting_explicit_multiplier_and_termination_paths() -> None:
     assert weighted.quantities.tolist() == pytest.approx([1.0])
 
 
-def test_target_weight_and_random_seed_validation() -> None:
-    with pytest.raises(ValueError, match="maximum_gross"):
-        execution_module._target_weights(np.array([0.0]), n_symbols=1, maximum_gross=0)
-    with pytest.raises(ValueError, match="shape"):
-        execution_module._target_weights(
-            np.array([0.0, 0.0]), n_symbols=1, maximum_gross=1
-        )
-    with pytest.raises(ValueError, match="finite"):
-        execution_module._target_weights(
-            np.array([np.nan]), n_symbols=1, maximum_gross=1
-        )
-    with pytest.raises(ValueError, match="gross"):
-        execution_module._target_weights(np.array([2.0]), n_symbols=1, maximum_gross=1)
-
+def test_random_seed_validation() -> None:
     executor = MarketExecutor(market(), ExecutionCostConfig.zero())
     executor.reset_random_state()
     with pytest.raises(ValueError, match="seed"):

@@ -1,0 +1,46 @@
+name: Telemetry Process Concurrency RED
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/telemetry-process-red.yml
+      - tests/telemetry/test_indexed_process_concurrency.py
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3 --extra studio
+      - name: Verify RED contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/telemetry/test_indexed_process_concurrency.py \
+            2>&1 | tee telemetry-process-red-${{ runner.os }}.log
+      - name: Upload RED diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: telemetry-process-red-${{ runner.os }}
+          path: telemetry-process-red-${{ runner.os }}.log
+          if-no-files-found: error

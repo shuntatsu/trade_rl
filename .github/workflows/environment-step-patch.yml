@@ -27,15 +27,53 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3 --extra studio
+      - name: Align emergency risk dependency
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/environment_risk.py")
+          source = path.read_text(encoding="utf-8")
+          import_anchor = "import numpy as np\n\n"
+          import_replacement = (
+              "import numpy as np\n\n"
+              "from trade_rl.risk.emergency import CausalEmergencyRiskMonitor\n"
+          )
+          if source.count(import_anchor) != 1:
+              raise RuntimeError("risk emergency import anchor changed")
+          source = source.replace(import_anchor, import_replacement, 1)
+          source, count = re.subn(
+              r"\nclass EmergencyRiskAssessmentLike\(Protocol\):.*?"
+              r"(?=\n@dataclass\(frozen=True, slots=True\)\nclass EnvironmentRiskRequest)",
+              "\n",
+              source,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise RuntimeError("risk monitor protocol block changed")
+          annotation = "        emergency_risk_monitor: EmergencyRiskMonitor,\n"
+          if source.count(annotation) != 1:
+              raise RuntimeError("risk monitor constructor anchor changed")
+          source = source.replace(
+              annotation,
+              "        emergency_risk_monitor: CausalEmergencyRiskMonitor,\n",
+              1,
+          )
+          path.write_text(source, encoding="utf-8")
+          PY
       - name: Apply decomposition
         run: uv run python tools/apply_environment_step_decomposition.py
       - name: Format integration
         run: |
           uv run ruff check --fix \
             trade_rl/rl/environment.py \
+            trade_rl/rl/environment_risk.py \
             tests/architecture/test_environment_step_decomposition.py
           uv run ruff format \
             trade_rl/rl/environment.py \
+            trade_rl/rl/environment_risk.py \
             tests/architecture/test_environment_step_decomposition.py
       - name: Verify static integration
         shell: bash
@@ -82,6 +120,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             trade_rl/rl/environment.py \
+            trade_rl/rl/environment_risk.py \
             tests/architecture/test_environment_step_decomposition.py
           git commit -m "refactor: delegate environment step responsibilities"
       - name: Push integration

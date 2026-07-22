@@ -171,12 +171,12 @@ class EnvironmentDecisionPlanner:
             factor_basis=request.factor_basis,
             max_gross=self.max_gross,
         )
-        submitted_hybrid = np.asarray(
-            composition.proposal, dtype=np.float64
-        ).reshape(-1).copy()
-        submitted_shadow = np.asarray(
-            request.trends.base, dtype=np.float64
-        ).reshape(-1).copy()
+        submitted_hybrid = (
+            np.asarray(composition.proposal, dtype=np.float64).reshape(-1).copy()
+        )
+        submitted_shadow = (
+            np.asarray(request.trends.base, dtype=np.float64).reshape(-1).copy()
+        )
         execution_delay_warmup = False
         next_pending_hybrid: np.ndarray | None = None
         next_pending_shadow: np.ndarray | None = None
@@ -188,16 +188,16 @@ class EnvironmentDecisionPlanner:
             executed_hybrid = (
                 np.asarray(request.hybrid_weights, dtype=np.float64).reshape(-1).copy()
                 if request.pending_hybrid_target is None
-                else np.asarray(
-                    request.pending_hybrid_target, dtype=np.float64
-                ).reshape(-1).copy()
+                else np.asarray(request.pending_hybrid_target, dtype=np.float64)
+                .reshape(-1)
+                .copy()
             )
             executed_shadow = (
                 np.asarray(request.shadow_weights, dtype=np.float64).reshape(-1).copy()
                 if request.pending_shadow_target is None
-                else np.asarray(
-                    request.pending_shadow_target, dtype=np.float64
-                ).reshape(-1).copy()
+                else np.asarray(request.pending_shadow_target, dtype=np.float64)
+                .reshape(-1)
+                .copy()
             )
             next_pending_hybrid = submitted_hybrid.copy()
             next_pending_shadow = submitted_shadow.copy()

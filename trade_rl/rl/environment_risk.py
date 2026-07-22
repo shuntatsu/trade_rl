@@ -15,7 +15,13 @@ from trade_rl.simulation.accounting import BookState
 
 class RiskDataset(Protocol):
     @property
+    def n_bars(self) -> int: ...
+
+    @property
     def n_symbols(self) -> int: ...
+
+    @property
+    def periods_per_year(self) -> int: ...
 
     @property
     def close(self) -> np.ndarray: ...
@@ -131,9 +137,7 @@ class EnvironmentRiskProjector:
             stress_losses=None if risk_inputs is None else risk_inputs.stress_losses,
         )
         final_weights = np.asarray(portfolio.weights, dtype=np.float64)
-        constrained_turnover = float(
-            np.abs(final_weights - request.book.weights).sum()
-        )
+        constrained_turnover = float(np.abs(final_weights - request.book.weights).sum())
         reasons = tuple(
             dict.fromkeys(
                 (

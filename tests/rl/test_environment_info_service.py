@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from trade_rl.rl.environment_info import (
     EnvironmentInfoBuilder,
@@ -165,7 +166,7 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "pending_target_discarded",
     }
     assert info["reward_baseline_penalty_delta"] == 0.02
-    assert info["rolling_growth_gap"] == 0.005
+    assert info["rolling_growth_gap"] == pytest.approx(0.005)
 
 
 def test_step_info_copies_targets_and_adds_optional_fields() -> None:

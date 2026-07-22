@@ -76,7 +76,7 @@ def test_reward_coordinator_maps_books_to_tracker_inputs() -> None:
             "hybrid_log_return": 0.01,
             "shadow_log_return": 0.005,
             "hybrid_drawdown": 0.5,
-            "shadow_drawdown": 0.2,
+            "shadow_drawdown": pytest.approx(0.2),
             "projection_distance": 0.2,
             "hybrid_margin_deficit_fraction": 0.05,
             "hybrid_equity_fraction": 0.5,

@@ -95,9 +95,7 @@ def test_projection_preserves_reason_order_and_projection_distance() -> None:
                 max_turnover=2.0,
             )
         ),
-        portfolio_risk=PortfolioRiskModel(
-            PortfolioRiskConfig(max_net_exposure=0.2)
-        ),
+        portfolio_risk=PortfolioRiskModel(PortfolioRiskConfig(max_net_exposure=0.2)),
         portfolio_risk_inputs_provider=None,
     )
 
@@ -149,9 +147,7 @@ def test_advanced_risk_fails_closed_without_causal_provider() -> None:
         _Dataset(),
         emergency_risk_monitor=_EmergencyMonitor(flatten=(False, False), reasons=()),
         pre_trade_risk=PreTradeRisk(),
-        portfolio_risk=PortfolioRiskModel(
-            PortfolioRiskConfig(volatility_target=0.1)
-        ),
+        portfolio_risk=PortfolioRiskModel(PortfolioRiskConfig(volatility_target=0.1)),
         portfolio_risk_inputs_provider=None,
     )
 

@@ -43,9 +43,7 @@ def _market(*, global_available: bool) -> MarketDataset:
         funding_rate=np.zeros((n_bars, 1)),
         tradable=np.ones((n_bars, 1), dtype=np.bool_),
         feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
-        global_feature_available=np.full(
-            (n_bars, 1), global_available, dtype=np.bool_
-        ),
+        global_feature_available=np.full((n_bars, 1), global_available, dtype=np.bool_),
         feature_names=("ret",),
         global_feature_names=("regime",),
         periods_per_year=8_760,

@@ -1,0 +1,55 @@
+name: Apply Sequence Projection Test
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/scripts/apply_sequence_projection_test.py'
+      - '.github/workflows/tmp-apply-sequence-projection-test.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: test/stabilize-sequence-projection-equivalence-20260723
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+      - name: Apply reviewed test patch
+        run: uv run python .github/scripts/apply_sequence_projection_test.py
+      - name: Format test
+        run: uv run ruff format tests/rl/test_sequence_policy_core.py
+      - name: Ruff
+        run: uv run ruff check tests/rl/test_sequence_policy_core.py tests/architecture/test_sequence_projection_stability.py
+      - name: Mypy
+        run: uv run mypy .
+      - name: Focused tests
+        run: >-
+          uv run pytest
+          tests/architecture/test_sequence_projection_stability.py
+          tests/rl/test_sequence_policy_core.py
+          -k 'sequence_projection_equivalence_uses_stable_contracts or projection_after_selection'
+          -q
+      - name: Commit verified test
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/rl/test_sequence_policy_core.py
+          git diff --cached --check
+          git commit -m 'test: stabilize sequence projection equivalence'
+          git push origin HEAD:test/stabilize-sequence-projection-equivalence-20260723

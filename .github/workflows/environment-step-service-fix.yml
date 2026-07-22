@@ -25,7 +25,38 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - name: Install
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev --extra train-sb3 --extra studio
+      - name: Complete risk dataset protocol
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/environment_risk.py")
+          source = path.read_text(encoding="utf-8")
+          anchor = '''class RiskDataset(Protocol):
+              @property
+              def n_symbols(self) -> int: ...
+
+              @property
+              def close(self) -> np.ndarray: ...
+          '''
+          replacement = '''class RiskDataset(Protocol):
+              @property
+              def n_bars(self) -> int: ...
+
+              @property
+              def n_symbols(self) -> int: ...
+
+              @property
+              def periods_per_year(self) -> int: ...
+
+              @property
+              def close(self) -> np.ndarray: ...
+          '''
+          if source.count(anchor) != 1:
+              raise RuntimeError("risk dataset protocol anchor changed")
+          path.write_text(source.replace(anchor, replacement, 1), encoding="utf-8")
+          PY
       - name: Format services
         run: |
           uv run ruff check --fix \

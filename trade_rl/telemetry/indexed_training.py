@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self, cast
 
@@ -14,6 +14,7 @@ _INDEX_SCHEMA = "training_telemetry_index_v1"
 _INDEX_STRIDE = 64
 _BaseRecord = _training.TrainingTelemetryRecord
 _BaseWriter = _training.TrainingTelemetryWriter
+Pair = tuple[int, int]
 
 
 def _required_bool(raw: dict[str, Any], name: str) -> bool:
@@ -44,14 +45,8 @@ class _TelemetryIndex:
     record_count: int = 0
     last_sequence: int = 0
     malformed_lines: int = 0
-    sequence_gaps: list[list[int]] | None = None
-    checkpoints: list[list[int]] | None = None
-
-    def __post_init__(self) -> None:
-        if self.sequence_gaps is None:
-            self.sequence_gaps = []
-        if self.checkpoints is None:
-            self.checkpoints = []
+    sequence_gaps: list[Pair] = field(default_factory=list)
+    checkpoints: list[Pair] = field(default_factory=list)
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -72,20 +67,16 @@ def _index_path(path: Path) -> Path:
     return path.with_name(f"{path.name}.index.json")
 
 
-def _new_index(stat: os.stat_result) -> _TelemetryIndex:
-    return _TelemetryIndex(device=int(stat.st_dev), inode=int(stat.st_ino))
-
-
-def _non_negative_int(value: object, *, field: str) -> int:
+def _non_negative_int(value: object, *, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"telemetry index {field} is invalid")
+        raise ValueError(f"telemetry index {field_name} is invalid")
     return value
 
 
-def _pairs(value: object, *, field: str) -> list[list[int]]:
+def _pairs(value: object, *, field_name: str) -> list[Pair]:
     if not isinstance(value, list):
-        raise ValueError(f"telemetry index {field} is invalid")
-    pairs: list[list[int]] = []
+        raise ValueError(f"telemetry index {field_name} is invalid")
+    result: list[Pair] = []
     for item in value:
         if (
             not isinstance(item, list)
@@ -93,9 +84,9 @@ def _pairs(value: object, *, field: str) -> list[list[int]]:
             or any(isinstance(part, bool) or not isinstance(part, int) for part in item)
             or any(part < 0 for part in item)
         ):
-            raise ValueError(f"telemetry index {field} is invalid")
-        pairs.append([int(item[0]), int(item[1])])
-    return pairs
+            raise ValueError(f"telemetry index {field_name} is invalid")
+        result.append((int(item[0]), int(item[1])))
+    return result
 
 
 def _load_index(path: Path) -> _TelemetryIndex | None:
@@ -107,25 +98,27 @@ def _load_index(path: Path) -> _TelemetryIndex | None:
         if not isinstance(raw, dict) or raw.get("schema_version") != _INDEX_SCHEMA:
             return None
         return _TelemetryIndex(
-            device=_non_negative_int(raw.get("device"), field="device"),
-            inode=_non_negative_int(raw.get("inode"), field="inode"),
+            device=_non_negative_int(raw.get("device"), field_name="device"),
+            inode=_non_negative_int(raw.get("inode"), field_name="inode"),
             indexed_size=_non_negative_int(
-                raw.get("indexed_size"), field="indexed_size"
+                raw.get("indexed_size"), field_name="indexed_size"
             ),
             last_scan_start=_non_negative_int(
-                raw.get("last_scan_start"), field="last_scan_start"
+                raw.get("last_scan_start"), field_name="last_scan_start"
             ),
             record_count=_non_negative_int(
-                raw.get("record_count"), field="record_count"
+                raw.get("record_count"), field_name="record_count"
             ),
             last_sequence=_non_negative_int(
-                raw.get("last_sequence"), field="last_sequence"
+                raw.get("last_sequence"), field_name="last_sequence"
             ),
             malformed_lines=_non_negative_int(
-                raw.get("malformed_lines"), field="malformed_lines"
+                raw.get("malformed_lines"), field_name="malformed_lines"
             ),
-            sequence_gaps=_pairs(raw.get("sequence_gaps"), field="sequence_gaps"),
-            checkpoints=_pairs(raw.get("checkpoints"), field="checkpoints"),
+            sequence_gaps=_pairs(
+                raw.get("sequence_gaps"), field_name="sequence_gaps"
+            ),
+            checkpoints=_pairs(raw.get("checkpoints"), field_name="checkpoints"),
         )
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
         return None
@@ -146,8 +139,9 @@ def _write_index(path: Path, index: _TelemetryIndex) -> None:
 
 
 def _parse_record(raw_line: bytes) -> StrictTrainingTelemetryRecord:
-    value = json.loads(raw_line.decode("utf-8"))
-    return StrictTrainingTelemetryRecord.from_json_dict(value)
+    return StrictTrainingTelemetryRecord.from_json_dict(
+        json.loads(raw_line.decode("utf-8"))
+    )
 
 
 def _refresh_index(path: Path) -> _TelemetryIndex | None:
@@ -162,7 +156,7 @@ def _refresh_index(path: Path) -> _TelemetryIndex | None:
         or existing.inode != int(stat.st_ino)
         or stat.st_size < existing.indexed_size
     ):
-        index = _new_index(stat)
+        index = _TelemetryIndex(device=int(stat.st_dev), inode=int(stat.st_ino))
     else:
         index = existing
     index.last_scan_start = index.indexed_size
@@ -171,13 +165,11 @@ def _refresh_index(path: Path) -> _TelemetryIndex | None:
         handle.seek(index.indexed_size)
         while True:
             raw_line = handle.readline()
-            if not raw_line:
-                break
-            if not raw_line.endswith(b"\n"):
+            if not raw_line or not raw_line.endswith(b"\n"):
                 break
             end_offset = handle.tell()
-            line = raw_line.strip()
             index.indexed_size = end_offset
+            line = raw_line.strip()
             if not line:
                 continue
             try:
@@ -189,29 +181,24 @@ def _refresh_index(path: Path) -> _TelemetryIndex | None:
                 index.malformed_lines += 1
                 continue
             if index.last_sequence and record.sequence > index.last_sequence + 1:
-                assert index.sequence_gaps is not None
                 index.sequence_gaps.append(
-                    [index.last_sequence + 1, record.sequence - 1]
+                    (index.last_sequence + 1, record.sequence - 1)
                 )
             index.record_count += 1
             index.last_sequence = record.sequence
             if index.record_count == 1 or index.record_count % _INDEX_STRIDE == 0:
-                assert index.checkpoints is not None
-                index.checkpoints.append([record.sequence, end_offset])
+                index.checkpoints.append((record.sequence, end_offset))
     _write_index(resolved, index)
     return index
 
 
-def _seek_offset(index: _TelemetryIndex, after_sequence: int) -> tuple[int, int]:
-    selected_sequence = 0
-    selected_offset = 0
-    assert index.checkpoints is not None
+def _seek_offset(index: _TelemetryIndex, after_sequence: int) -> Pair:
+    selected: Pair = (0, 0)
     for sequence, offset in index.checkpoints:
         if sequence > after_sequence:
             break
-        selected_sequence = sequence
-        selected_offset = offset
-    return selected_sequence, selected_offset
+        selected = (sequence, offset)
+    return selected
 
 
 def read_indexed_training_telemetry(
@@ -256,13 +243,12 @@ def read_indexed_training_telemetry(
                 break
             items.append(record)
     next_sequence = items[-1].sequence if items else after_sequence
-    gaps = tuple(tuple(pair) for pair in (index.sequence_gaps or []))
     return _training.TrainingTelemetryPage(
         items=tuple(items),
         next_sequence=next_sequence,
         truncated=truncated,
         malformed_lines=index.malformed_lines,
-        sequence_gaps=gaps,
+        sequence_gaps=tuple(index.sequence_gaps),
     )
 
 

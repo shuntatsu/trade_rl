@@ -1,6 +1,6 @@
 # Docker GPU Full-Research Operations
 
-Production status remains `NO-GO`. These workflows generate research evidence only.
+Production status remains `NO-GO`. These workflows generate software and research evidence only; successful execution is not profitability evidence, release approval, or permission to deploy capital.
 
 ## Required repository and runner configuration
 
@@ -18,7 +18,7 @@ The training image is tagged by the exact Git commit and binds:
 - actual Docker image ID;
 - pinned Python base-image digest.
 
-The image build and runtime both recompute source and lock identities. A caller-supplied commit string alone is never accepted as provenance.
+The image build and runtime both recompute source and lock identities. A caller-supplied commit string alone is never accepted as provenance. The process also records generation identity, phase, runtime/container identity, heartbeat, terminal state, and retained evidence paths before cleanup.
 
 ## Evidence and public keys
 
@@ -33,7 +33,7 @@ fresh-confirmation.json
 confirmation-public-keys.json
 ```
 
-Private Ed25519 keys must never be stored in Actions secrets, Docker environment variables, images, volumes or the repository. Trainer and runtime receive public keys only. Generate signed artifacts with the offline CLI commands documented in `README.md`.
+Private Ed25519 keys must never be stored in Actions secrets, Docker environment variables, images, volumes or the repository. Trainer and runtime receive public keys only. Generate signed artifacts with the offline CLI commands documented in `README.md`. Numerical datasets, arrays, checkpoints, models, and evidence remain immutable filesystem artifacts; an optional PostgreSQL service may index metadata, provenance, dependency, lifecycle, cache, and sealed-reservation records but is not payload storage.
 
 ## Start a phase
 
@@ -79,4 +79,4 @@ Logs are never requested after container removal.
 
 ## Failure handling
 
-Do not reuse a failed generation as if it were clean. Preserve its artifact and logs, diagnose the exact failing boundary, then start a new generation or continue the same phase only when its state contract explicitly permits it. Selected-final training forbids injected resume checkpoints; selected-final training forbids injected resume checkpoints by contract.
+Do not reuse a failed generation as if it were clean. Preserve its artifact and logs, diagnose the exact failing boundary, then start a new generation or continue the same phase only when its persisted state contract explicitly permits it. A fresh retry uses a new generation identity. A phase continuation reuses the same generation only from an allowed waiting state. selected-final training forbids injected resume checkpoints by contract.

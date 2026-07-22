@@ -69,6 +69,12 @@ function telemetry(
   }
 }
 
+function metricRow(label: string): HTMLElement {
+  const row = screen.getByText(label).parentElement
+  if (row === null) throw new Error(`metric row missing: ${label}`)
+  return row
+}
+
 function api(): StudioApi {
   const bySeed: Record<number, TrainingTelemetryRecord[]> = {
     7: [
@@ -195,7 +201,7 @@ describe('LiveTrainingPage', () => {
     expect(await screen.findByText(/ショート 20.0%/)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Checkpoint evaluation evidence')).toHaveDisplayValue('fold-000 · residual · finalist'))
     expect(screen.getByText(/-2.00% finalist/)).toBeInTheDocument()
-    expect(screen.getByText(/Seed 11 · exploration/)).toBeInTheDocument()
+    expect(screen.getByText(/Seed 11 · Env 0 · current episode/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'ほぼライブ' }))
     await user.click(screen.getByRole('button', { name: 'イベント圧縮' }))
@@ -215,5 +221,52 @@ describe('LiveTrainingPage', () => {
 
     expect(screen.getByText('Replay Step 64')).toBeInTheDocument()
     await waitFor(() => expect(runtimeApi.loadTelemetryEvents).toHaveBeenCalled())
+  })
+
+  it('isolates replay metrics by environment and current episode', async () => {
+    const user = userEvent.setup()
+    const runtimeApi = api()
+    const mixed = [
+      { ...telemetry(1, 101, 0.1), environmentId: 0, portfolioValue: 1_000 },
+      { ...telemetry(2, 102, 0.2), environmentId: 0, portfolioValue: 1_010, eventType: 'episode_end' as const, terminated: true },
+      { ...telemetry(3, 201, 0.3), environmentId: 0, portfolioValue: 2_000 },
+      { ...telemetry(4, 202, 0.4), environmentId: 0, portfolioValue: 2_025 },
+      { ...telemetry(5, 601, -0.1), environmentId: 1, portfolioValue: 1_500 },
+      { ...telemetry(6, 602, -0.2), environmentId: 1, portfolioValue: 1_490 },
+    ]
+    runtimeApi.loadTelemetryStatus = vi.fn().mockResolvedValue({
+      available: true,
+      selectedSeed: 7,
+      availableSeeds: [7],
+      recordCount: mixed.length,
+      lastSequence: 6,
+      malformedLines: 0,
+      sizeBytes: 4096,
+      source: 'research/.staging/btc-live-001/seed-7/telemetry/training-telemetry.jsonl',
+    })
+    runtimeApi.loadTelemetryEvents = vi.fn().mockImplementation((
+      _jobId: string,
+      afterSequence = 0,
+    ) => Promise.resolve({
+      seed: 7,
+      items: mixed.filter((item) => item.sequence > afterSequence),
+      nextSequence: 6,
+      truncated: false,
+      malformedLines: 0,
+      sequenceGaps: [],
+    }))
+
+    render(<LiveTrainingPage api={runtimeApi} />)
+
+    const environment = await screen.findByLabelText('Live Training environment')
+    await waitFor(() => expect(environment).toHaveDisplayValue('Env 1'))
+    await waitFor(() => expect(metricRow('現在価格')).toHaveTextContent('602 USDT'))
+    expect(metricRow('再生区間損益')).toHaveTextContent('-10.00 USDT')
+
+    await user.selectOptions(environment, '0')
+
+    await waitFor(() => expect(metricRow('現在価格')).toHaveTextContent('202 USDT'))
+    expect(metricRow('再生区間損益')).toHaveTextContent('+25.00 USDT')
+    expect(metricRow('再生区間損益')).not.toHaveTextContent('+1,025.00 USDT')
   })
 })

@@ -35,7 +35,7 @@ uv run trade-rl data binance \
   --output var/binance/dataset
 ```
 
-The command publishes canonical `manifest.json` and `arrays.npz` files and prints one JSON result. Timestamps are exact bar-close boundaries, incomplete bars are excluded, kline quote-asset volume is stored as `quote_notional`, and every funding event is aggregated into its containing completed native bar with an explicit event count.
+The command publishes canonical `manifest.json` and `arrays.npz` files and prints one JSON result. Timestamps are exact bar-close boundaries, incomplete bars are excluded, kline quote-asset volume is stored as `quote_notional`, and every funding event is aggregated into its containing completed native bar with an explicit event count. Volume semantics are identity-bound per instrument: base-asset quantity is converted with price, contract quantity is converted with its contract multiplier and price, while quote-notional volume is already denominated in quote currency and must not be multiplied by price again.
 
 `--transport` accepts:
 
@@ -57,9 +57,9 @@ The full runner accepts `--metadata-mode` and the equivalent `TRADE_RL_METADATA_
 
 ## Conservative closed-loop execution sensitivity
 
-When the walk-forward configuration declares execution sensitivity, replay occurs only after model and seed-ensemble selection. The selected policy and the shadow baseline are rerun on the same sealed OOS folds with unchanged normalizers under nominal, each-rule 2x, joint 2x and joint 5x conditions. This is a closed-loop replay: changed tick, lot and minimum-notional constraints affect fills, positions and later observations; returns are not adjusted after evaluation.
+When the walk-forward configuration declares execution sensitivity, replay occurs only after model and seed-ensemble selection. The selected policy and the shadow baseline are rerun on the same sealed OOS folds with unchanged normalizers under nominal, each-rule 2x, joint 2x and joint 5x conditions. This is a stateful closed-loop replay: changed tick, lot, minimum-notional, spread, fee, impact, and participation rules change order admission, latency/eligibility outcomes, shared processing-bar capacity, partial fills, carried residual orders, positions, costs, and later observations. Returns are never adjusted after evaluation.
 
-The immutable `execution-sensitivity.json` artifact is bound to the dataset identity, experiment-plan digest, scenario-pack digest and base sealed-test access evidence. Joint 2x must retain positive selected return, nonnegative uplift over baseline and maximum independently reset fold drawdown no greater than 20%. Joint 5x is report-only until calibrated. Sensitivity never participates in recipe selection, and all results remain research-only with production status `NO-GO`.
+The immutable `execution-sensitivity.json` artifact is bound to the dataset identity, experiment-plan digest, scenario-pack digest and base sealed-test access evidence. Joint 2x must retain positive selected return, nonnegative uplift over baseline and maximum independently reset fold drawdown no greater than 20%. Joint 5x is report-only until calibrated. Promotion evidence must use the conservative OHLC path and a matching execution-policy digest; neutral and optimistic paths are sensitivity diagnostics only. Sensitivity never participates in recipe selection, and all results remain research-only with production status `NO-GO`.
 
 ## Run the verified end-to-end smoke
 
@@ -76,7 +76,7 @@ uv run python examples/binance/run_e2e_smoke.py \
   --work-root var/binance-live-smoke
 ```
 
-The smoke is a pipeline and integrity check, not a profitability benchmark. The maintained smoke intentionally uses only 64 PPO timesteps, so its selected policy and return must not be used to judge deployability.
+The smoke is a pipeline, data-integrity, and artifact-integrity check. It is not model-selection evidence, conservative execution-promotion evidence, profitability evidence, release approval, or a deployability benchmark. The maintained smoke intentionally uses only 64 PPO timesteps.
 
 ## Multi-symbol usage
 

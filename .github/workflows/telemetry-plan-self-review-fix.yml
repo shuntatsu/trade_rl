@@ -21,7 +21,7 @@ jobs:
           ref: agent/bind-telemetry-cursor-generation-20260722
       - name: Replace measured-value placeholder
         run: |
-          python - <<'PY'
+          python - <<'PYTHON_PLAN_FIX'
           from pathlib import Path
 
           path = Path("docs/superpowers/plans/2026-07-22-telemetry-cursor-generation.md")
@@ -80,7 +80,7 @@ jobs:
           if source.count(old) != 1:
               raise RuntimeError("coverage placeholder block changed")
           path.write_text(source.replace(old, new, 1), encoding="utf-8")
-          PY
+          PYTHON_PLAN_FIX
       - name: Verify plan has no placeholder
         run: |
           ! grep -R -n -E 'TBD|TODO|<the printed minimum>|implement later|fill in details' \

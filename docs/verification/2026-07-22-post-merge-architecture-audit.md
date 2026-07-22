@@ -19,6 +19,39 @@ Workflow security checker: passed
 
 Collection of Gymnasium-dependent E2E and structured-serving tests failed locally only because `gymnasium` is not installed. That environmental limitation is not recorded as a product failure.
 
+
+### Verification candidate head
+
+A code-identical CI rerun was made at head `a4d0959dac089c6c3afd98065ca97d797bad1caf`; the only additional file was the inert `.github/ci-rerun-marker.txt`. GitHub Actions CI run `29916374600` completed successfully:
+
+```text
+Full pytest: 1163 passed, 2 skipped, 11 warnings
+Total coverage: 83.16%
+Critical branch-coverage ratchet: passed
+CLI smoke: passed
+Studio tests, TypeScript, build, and fixed viewport: passed
+Workflow security, Ruff, format, Mypy, Import Linter, dead code: passed
+Recovery and structured Serving smoke: passed
+Ubuntu and Windows compatibility: passed
+Training image build, identity capture, and non-root probe: passed
+```
+
+Evidence artifacts:
+
+```text
+pytest diagnostics: 8528112948
+pytest digest: sha256:4b7ca85c3df94d347de9366d6dedb24221455cc321466d0ad4e1179e7bb64ae0
+architecture diagnostics: 8528071873
+architecture digest: sha256:a75c326f9b1c0230d97dd0cc1a1086ae1826dbc4b226df4cd429f6b2554e1477
+static diagnostics: 8528071373
+static digest: sha256:891392eb6ea79813217bc79a8670b124ccce60c5c6c7e6590ab3218fe86f3536
+training image evidence: 8528069570
+training image digest: sha256:47f916488bccb9d7d0814a83ba1e36484332ea5a13f16ed2b69d908cf50ce582
+image id: sha256:48b331ebb3e01b68e4d3876536e4a406e12d78016a0e31222605d694f2a6050b
+source tree digest: 430c6dd7aaebb9aeb9104990899613a120e6432f466d6a743dd6bf5da8fb6d18
+lockfile digest: d2fb04f4bca12cb1b0702033aa46db27dc6a821764aad864f373bc490b012c79
+```
+
 ## 2. Capability boundary
 
 The repository is research-ready and can build externally attested, read-only paper-serving bundles for eligible selected-final runs. It does not implement authenticated account access, direct exchange order routing, broker reconciliation, venue kill switches, production secret distribution, or operational alerting.
@@ -152,7 +185,7 @@ Canonical datasets, arrays, checkpoints, policy archives, manifests, evidence, a
 
 PR #78 separated evaluation-specific reservation SQL into `PostgresSealedTestReservationStore`; `PostgresArtifactCatalog.reserve_sealed_test_access()` remains a compatibility delegate. Canonical JSON bytes are centralized in `trade_rl.domain.canonical_json` and shared by artifact and catalog identity paths.
 
-The local catalog contract/service and offline-key tests passed. Real PostgreSQL migrations and concurrency behavior must pass the final PostgreSQL workflow.
+The local catalog contract/service and offline-key tests passed. This documentation-only PR does not match the PostgreSQL workflow path filter. The same product baseline was verified by PR #78 PostgreSQL Catalog run `29891993502`: Compose validation, PostgreSQL 16 startup/readiness, migrations, and unit/integration tests all passed.
 
 No model/dataset BLOB authority, circular release hash, runtime private-key use, or catalog-driven identity mutation was found.
 
@@ -190,7 +223,7 @@ PR CI runs on GitHub-hosted Ubuntu/Windows jobs and checks exact pull-request he
 
 Self-hosted GPU workflows are restricted to `main`, repository-owner controls, and the protected `gpu-full-training` environment. External Actions in audited workflows are pinned to immutable SHAs. The hourly monitor is read-only and does not use the protected environment. Logs and inspect evidence are captured before retained-container deletion.
 
-The local workflow-security checker passed. Docker/Compose are unavailable on the local audit host, so Compose rendering, PostgreSQL 16, image identity, and non-root probes are final-CI requirements rather than local assertions.
+The local workflow-security checker passed. Docker/Compose are unavailable on the local audit host. GitHub Actions run `29916374600` supplied the training-image identity and non-root evidence; PR #78 PostgreSQL run `29891993502` supplied the unchanged product baseline's PostgreSQL 16 service evidence.
 
 No pull-request-controlled self-hosted execution or unpinned external Action was found in the audited maintained workflows.
 
@@ -282,6 +315,26 @@ Recommended boundary: extract processing-bar context, order-transition processor
 Independent remediation PR: refactor/stateful-execution-phase-services-20260722.
 ```
 
+### AUD-CI-002 — sequence projection equivalence has a numerical CI flake
+
+```text
+Status: CONFIRMED
+Priority: P2
+Affected: tests/rl/test_sequence_policy_core.py::
+          test_projection_after_selection_matches_legacy_outputs_and_gradients
+Observed fact: CI run 29915846436 failed the equivalence assertion once with maximum
+               absolute difference 4.112720489501953e-06 against atol=1e-6. A rerun
+               with unchanged Python/TypeScript/product/document content passed the
+               complete suite in run 29916374600.
+Invariant: deterministic equivalence tests should distinguish meaningful policy drift
+           from backend-level floating-point ordering noise.
+Impact: an otherwise valid exact-head verification can fail transiently and block review.
+Reproduction: compare runs 29915846436 and 29916374600; local repetition also passed.
+Recommended boundary: stabilize the tested computation or use a dtype/backend-justified
+                      tolerance while retaining a separate stronger semantic invariant.
+Independent remediation PR: test/stabilize-sequence-projection-equivalence-20260722.
+```
+
 ### AUD-RL-001 — environment facade remains a large orchestration surface
 
 ```text
@@ -304,9 +357,10 @@ Independent remediation PR: defer until a behavior change provides a testable se
 Priority order after this documentation/audit PR:
 
 1. `fix/live-training-stream-isolation-20260722` — P1; add episode identity, environment/episode API selection, discontinuity handling, and frontend tests.
-2. `refactor/direct-maintained-contract-exports-20260722` — P2; remove package-initializer `setattr` replacement from simulation, telemetry, and Studio while preserving public imports.
-3. `refactor/stateful-execution-phase-services-20260722` — P2; split the stateful executor by lifecycle, liquidity, settlement, and evidence responsibility with parity/property tests.
-4. `ResidualMarketEnv` follow-up — P2 risk; only when a concrete action/risk/reward change supplies a behavior-preserving extraction seam.
+2. `test/stabilize-sequence-projection-equivalence-20260722` — P2; remove backend-sensitive numerical flakiness without weakening semantic parity.
+3. `refactor/direct-maintained-contract-exports-20260722` — P2; remove package-initializer `setattr` replacement from simulation, telemetry, and Studio while preserving public imports.
+4. `refactor/stateful-execution-phase-services-20260722` — P2; split the stateful executor by lifecycle, liquidity, settlement, and evidence responsibility with parity/property tests.
+5. `ResidualMarketEnv` follow-up — P2 risk; only when a concrete action/risk/reward change supplies a behavior-preserving extraction seam.
 
 No P0 remediation branch is required from this audit because no leakage, accounting corruption, sealed-test contamination, private-key exposure, or fail-open promotion path was found.
 
@@ -316,4 +370,4 @@ The architecture remediation closed the earlier P0/P1 economic-parity and teleme
 
 The repository remains suitable for research workflows and eligible attested paper serving, subject to the explicit OHLCV limitations and production gates. It is not production-ready and makes no profitability claim.
 
-The highest remaining issue is diagnostic rather than economic: Live Training can combine multiple vector environments and reset episodes into one apparent path. The main structural debt is non-local public-symbol replacement and a monolithic stateful execution coordinator. These should be addressed in independent PRs, not hidden inside the documentation update.
+The highest remaining issue is diagnostic rather than economic: Live Training can combine multiple vector environments and reset episodes into one apparent path. The main structural debt is non-local public-symbol replacement and a monolithic stateful execution coordinator. CI also has one confirmed backend-sensitive sequence-equivalence flake. These should be addressed in independent PRs, not hidden inside the documentation update.

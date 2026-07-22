@@ -35,7 +35,7 @@ def market(**overrides: object) -> MarketDataset:
     return MarketDataset(**values)
 
 
-def test_next_open_execution_and_partial_fill_use_causal_closed_bar_volume() -> None:
+def test_next_open_execution_uses_processing_bar_volume() -> None:
     volume = np.array([[1.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]])
     dataset = market(volume=volume)
     result = MarketExecutor(dataset, ExecutionCostConfig.zero()).execute_interval(
@@ -44,8 +44,8 @@ def test_next_open_execution_and_partial_fill_use_causal_closed_bar_volume() -> 
         start_index=0,
         bars=1,
     )
-    assert result.filled_turnover == pytest.approx(0.1)
-    assert result.unfilled_turnover == pytest.approx(0.9)
+    assert result.filled_turnover == pytest.approx(1.0)
+    assert result.unfilled_turnover == pytest.approx(0.0)
 
 
 def test_minimum_notional_lot_tick_and_borrow_constraints_are_enforced() -> None:

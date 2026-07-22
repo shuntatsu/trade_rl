@@ -102,3 +102,9 @@ def test_direct_studio_reader_rejects_duplicate_seed_streams() -> None:
     source = inspect.getsource(StudioTelemetryReader._paths)
     assert "multiple telemetry streams claim seed" in source
     assert "candidate.is_symlink()" in source
+
+
+def test_critical_coverage_tracks_private_indexed_storage() -> None:
+    source = _source("pyproject.toml")
+    assert '"trade_rl/telemetry/_indexed_storage.py"' in source
+    assert '"trade_rl/telemetry/indexed_training.py"' not in source

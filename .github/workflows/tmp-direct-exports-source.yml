@@ -1,0 +1,33 @@
+name: Temporary Direct Contract Source Export
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tmp-direct-contract-source-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Package exact source
+        run: tar --exclude=.git -czf direct-contract-source.tar.gz .
+
+      - name: Upload exact source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: direct-contract-source-${{ github.event.pull_request.head.sha }}
+          path: direct-contract-source.tar.gz
+          if-no-files-found: error

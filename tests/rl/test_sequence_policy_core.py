@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 
 from trade_rl.rl.sequence_policy import (
@@ -143,7 +145,17 @@ def test_timeframe_projection_runs_only_after_causal_timestep_selection() -> Non
     assert projection_input_shapes == [torch.Size((3, 8))]
 
 
-def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> None:
+@dataclass(frozen=True)
+class _ProjectionEquivalenceCase:
+    legacy: torch.Tensor
+    optimized: torch.Tensor
+    legacy_input_gradient: torch.Tensor
+    optimized_input_gradient: torch.Tensor
+    legacy_parameter_gradients: dict[str, torch.Tensor]
+    optimized_parameter_gradients: dict[str, torch.Tensor]
+
+
+def _projection_equivalence_case(dtype: torch.dtype) -> _ProjectionEquivalenceCase:
     from trade_rl.rl.sequence_policy import CausalTimeframeEncoder
 
     torch.manual_seed(23)
@@ -153,7 +165,7 @@ def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> No
         window_length=12,
         widths=(8, 8, 8, 8),
         dropout=0.0,
-    )
+    ).to(dtype=dtype)
     available = torch.tensor(
         [
             [True] * 12,
@@ -161,7 +173,7 @@ def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> No
             [False] * 12,
         ]
     )
-    legacy_input = torch.randn(3, 12, 4, requires_grad=True)
+    legacy_input = torch.randn(3, 12, 4, dtype=dtype, requires_grad=True)
     optimized_input = legacy_input.detach().clone().requires_grad_(True)
 
     legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))
@@ -175,6 +187,8 @@ def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> No
         torch.zeros_like(legacy_selected),
     )
     legacy.square().sum().backward()
+    assert legacy_input.grad is not None
+    legacy_input_gradient = legacy_input.grad.detach().clone()
     legacy_parameter_gradients = {
         name: parameter.grad.detach().clone()
         for name, parameter in encoder.named_parameters()
@@ -184,19 +198,90 @@ def test_projection_after_selection_matches_legacy_outputs_and_gradients() -> No
     encoder.zero_grad(set_to_none=True)
     optimized = encoder(optimized_input, available)
     optimized.square().sum().backward()
+    assert optimized_input.grad is not None
+    optimized_input_gradient = optimized_input.grad.detach().clone()
+    optimized_parameter_gradients = {
+        name: parameter.grad.detach().clone()
+        for name, parameter in encoder.named_parameters()
+        if parameter.grad is not None
+    }
 
-    torch.testing.assert_close(optimized, legacy, rtol=1e-5, atol=1e-6)
-    torch.testing.assert_close(
-        optimized_input.grad, legacy_input.grad, rtol=1e-5, atol=1e-6
+    return _ProjectionEquivalenceCase(
+        legacy=legacy.detach().clone(),
+        optimized=optimized.detach().clone(),
+        legacy_input_gradient=legacy_input_gradient,
+        optimized_input_gradient=optimized_input_gradient,
+        legacy_parameter_gradients=legacy_parameter_gradients,
+        optimized_parameter_gradients=optimized_parameter_gradients,
     )
-    for name, parameter in encoder.named_parameters():
-        assert parameter.grad is not None
+
+
+def _relative_l2(left: torch.Tensor, right: torch.Tensor) -> float:
+    denominator = max(
+        float(torch.linalg.vector_norm(left)),
+        float(torch.linalg.vector_norm(right)),
+        1e-12,
+    )
+    return float(torch.linalg.vector_norm(left - right)) / denominator
+
+
+def _assert_gradient_semantics(left: torch.Tensor, right: torch.Tensor) -> None:
+    assert left.shape == right.shape
+    assert left.dtype == right.dtype
+    assert torch.isfinite(left).all()
+    assert torch.isfinite(right).all()
+    left_flat = left.reshape(-1)
+    right_flat = right.reshape(-1)
+    left_norm = float(torch.linalg.vector_norm(left_flat))
+    right_norm = float(torch.linalg.vector_norm(right_flat))
+    if left_norm == 0.0 or right_norm == 0.0:
+        assert left_norm == right_norm == 0.0
+        return
+    cosine = float(torch.nn.functional.cosine_similarity(left_flat, right_flat, dim=0))
+    assert cosine >= 0.999999
+    assert _relative_l2(left, right) <= 2e-5
+
+
+def test_projection_after_selection_matches_legacy_in_float64() -> None:
+    case = _projection_equivalence_case(torch.float64)
+
+    torch.testing.assert_close(case.optimized, case.legacy, rtol=1e-9, atol=1e-10)
+    torch.testing.assert_close(
+        case.optimized_input_gradient,
+        case.legacy_input_gradient,
+        rtol=1e-9,
+        atol=1e-10,
+    )
+    assert case.optimized_parameter_gradients.keys() == (
+        case.legacy_parameter_gradients.keys()
+    )
+    for name, gradient in case.optimized_parameter_gradients.items():
         torch.testing.assert_close(
-            parameter.grad,
-            legacy_parameter_gradients[name],
-            rtol=1e-5,
-            atol=1e-6,
+            gradient,
+            case.legacy_parameter_gradients[name],
+            rtol=1e-9,
+            atol=1e-10,
         )
+    assert torch.count_nonzero(case.optimized[2]) == 0
+    assert torch.count_nonzero(case.optimized_input_gradient[2]) == 0
+
+
+def test_projection_after_selection_preserves_float32_gradient_semantics() -> None:
+    case = _projection_equivalence_case(torch.float32)
+
+    torch.testing.assert_close(case.optimized, case.legacy, rtol=1e-5, atol=2e-6)
+    _assert_gradient_semantics(
+        case.optimized_input_gradient,
+        case.legacy_input_gradient,
+    )
+    assert case.optimized_parameter_gradients.keys() == (
+        case.legacy_parameter_gradients.keys()
+    )
+    for name, gradient in case.optimized_parameter_gradients.items():
+        _assert_gradient_semantics(gradient, case.legacy_parameter_gradients[name])
+    assert torch.count_nonzero(case.optimized[2]) == 0
+    assert torch.count_nonzero(case.optimized_input_gradient[2]) == 0
+    assert torch.count_nonzero(case.optimized_input_gradient[:2]) > 0
 
 
 def test_oldest_declared_history_can_influence_final_timeframe_latent() -> None:

@@ -1,0 +1,60 @@
+name: Frontend Telemetry Generation Apply
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/frontend-telemetry-generation-apply.yml
+      - scripts/apply_frontend_telemetry_generation.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/bind-telemetry-cursor-generation-20260722
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Install frontend
+        working-directory: studio
+        run: npm ci
+      - name: Apply frontend telemetry generation patch
+        run: python scripts/apply_frontend_telemetry_generation.py
+      - name: Verify focused generation contracts
+        working-directory: studio
+        run: npm test -- --run src/live/useTrainingTelemetry.test.tsx
+      - name: Verify all frontend tests
+        working-directory: studio
+        run: npm test -- --run
+      - name: Verify typecheck
+        working-directory: studio
+        run: npm run typecheck
+      - name: Verify production build
+        working-directory: studio
+        run: npm run build
+      - name: Commit frontend
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            studio/src/data/types.ts \
+            studio/src/live/telemetryGuards.ts \
+            studio/src/api/studioApi.ts \
+            studio/src/live/useTrainingTelemetry.ts \
+            studio/src/live/useTrainingTelemetry.test.tsx \
+            studio/src/pages/LiveTrainingPage.test.tsx
+          git commit -m "fix: reset live telemetry on generation change"
+      - name: Push frontend
+        run: git push origin HEAD:agent/bind-telemetry-cursor-generation-20260722

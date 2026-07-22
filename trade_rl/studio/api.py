@@ -185,12 +185,20 @@ def create_app(
         seed: int | None = Query(default=None, ge=0),
         after_sequence: int = Query(default=0, ge=0),
         limit: int = Query(default=512, ge=1, le=2_000),
+        stream_generation: str | None = Query(
+            default=None,
+            pattern=(
+                r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                r"[0-9a-f]{4}-[0-9a-f]{12}$"
+            ),
+        ),
     ) -> TelemetryEventsResponse:
         return telemetry_reader.events(
             resolved_supervisor.get_job(job_id),
             seed=seed,
             after_sequence=after_sequence,
             limit=limit,
+            stream_generation=stream_generation,
         )
 
     @app.get(

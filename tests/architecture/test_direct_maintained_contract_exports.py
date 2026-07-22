@@ -93,7 +93,8 @@ def test_direct_training_module_owns_strict_indexed_contract() -> None:
     source = _source("trade_rl/telemetry/training.py")
     assert "expected_generation" in source
     assert "_IndexedTrainingTelemetryWriter" in source
-    assert "telemetry emergency_deleverage must be a boolean" in source
+    assert "def _required_bool(" in source
+    assert "must be a boolean" in source
     assert "self._handle: IO[str]" not in source
 
 

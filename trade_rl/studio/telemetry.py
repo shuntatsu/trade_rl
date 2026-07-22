@@ -140,11 +140,17 @@ class StudioTelemetryReader:
                     raise ArtifactInvalid(
                         "telemetry file escapes artifact root"
                     ) from error
-                if not resolved.is_file() or resolved.is_symlink():
+                if not resolved.is_file() or candidate.is_symlink():
                     continue
                 seed = self._seed_from_path(resolved, run_root=run_root)
-                if seed is not None:
-                    streams.setdefault(seed, resolved)
+                if seed is None:
+                    continue
+                previous = streams.get(seed)
+                if previous is not None and previous != resolved:
+                    raise ArtifactInvalid(
+                        f"multiple telemetry streams claim seed {seed}"
+                    )
+                streams[seed] = resolved
         return streams
 
     def _selection(

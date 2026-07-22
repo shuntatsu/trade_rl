@@ -13,7 +13,7 @@ from trade_rl.telemetry import (
     read_training_telemetry,
     training_telemetry_status,
 )
-from trade_rl.telemetry import indexed_training as indexed
+from trade_rl.telemetry import _indexed_storage as indexed
 
 
 def record(sequence: int, *, event_type: str = "rollout") -> TrainingTelemetryRecord:

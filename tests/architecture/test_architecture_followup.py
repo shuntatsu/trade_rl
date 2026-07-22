@@ -59,9 +59,25 @@ def test_package_initializers_do_not_replace_runtime_symbols() -> None:
     ):
         assert "setattr(" not in _source(path), path
 
-    assert MarketExecutor is StatefulCompatibilityMarketExecutor
-    assert TrainingTelemetryRecord is StrictTrainingTelemetryRecord
-    assert TrainingTelemetryWriter is IndexedTrainingTelemetryWriter
+    from trade_rl.simulation.execution import MarketExecutor as DirectMarketExecutor
+    from trade_rl.telemetry.training import (
+        TrainingTelemetryRecord as DirectTrainingTelemetryRecord,
+    )
+    from trade_rl.telemetry.training import (
+        TrainingTelemetryWriter as DirectTrainingTelemetryWriter,
+    )
+
+    assert MarketExecutor is DirectMarketExecutor is StatefulCompatibilityMarketExecutor
+    assert (
+        TrainingTelemetryRecord
+        is DirectTrainingTelemetryRecord
+        is StrictTrainingTelemetryRecord
+    )
+    assert (
+        TrainingTelemetryWriter
+        is DirectTrainingTelemetryWriter
+        is IndexedTrainingTelemetryWriter
+    )
 
 
 def test_environment_execution_delegates_to_shared_target_helper() -> None:

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import math
-import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from types import TracebackType
-from typing import IO, Any, Literal, Self, cast
+from typing import Any, Literal, Self, cast
+
+from trade_rl.telemetry._indexed_storage import (
+    _IndexedTrainingTelemetryWriter,
+    _read_training_telemetry,
+    _training_telemetry_status,
+)
 
 TELEMETRY_SCHEMA_VERSION = "training_telemetry_v1"
 TelemetryEventType = Literal[
@@ -39,6 +42,12 @@ def _finite(value: float | None, *, field: str) -> None:
 def _finite_tuple(values: tuple[float, ...], *, field: str) -> None:
     if any(not math.isfinite(value) for value in values):
         raise ValueError(f"{field} values must be finite")
+
+
+def _required_bool(raw: dict[str, Any], name: str) -> bool:
+    if name not in raw or not isinstance(raw[name], bool):
+        raise ValueError(f"telemetry {name} must be a boolean")
+    return raw[name]
 
 
 def _required_int(raw: dict[str, Any], name: str, *, minimum: int = 0) -> int:
@@ -274,9 +283,9 @@ class TrainingTelemetryRecord:
             interval_cost=_optional_float(raw, "interval_cost"),
             interval_return=_optional_float(raw, "interval_return"),
             risk_reasons=_string_tuple(raw, "risk_reasons"),
-            emergency_deleverage=bool(raw.get("emergency_deleverage", False)),
-            terminated=bool(raw.get("terminated", False)),
-            truncated=bool(raw.get("truncated", False)),
+            emergency_deleverage=_required_bool(raw, "emergency_deleverage"),
+            terminated=_required_bool(raw, "terminated"),
+            truncated=_required_bool(raw, "truncated"),
         )
 
 
@@ -300,68 +309,8 @@ class TrainingTelemetryStatus:
     size_bytes: int
     stream_generation: str | None = None
 
-
-class TrainingTelemetryWriter:
-    """Thread-safe append-only JSONL writer with monotonic sequence checks."""
-
-    def __init__(self, path: Path, *, flush_every: int = 32) -> None:
-        if isinstance(flush_every, bool) or flush_every <= 0:
-            raise ValueError("flush_every must be positive")
-        self.path = Path(path)
-        self.flush_every = int(flush_every)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._handle: IO[str] | None = self.path.open(
-            "a", encoding="utf-8", newline="\n"
-        )
-        self._lock = threading.Lock()
-        self._pending = 0
-        self._last_sequence = training_telemetry_status(self.path).last_sequence
-
-    def append(self, record: TrainingTelemetryRecord) -> None:
-        with self._lock:
-            if self._handle is None:
-                raise RuntimeError("telemetry writer is closed")
-            if record.sequence <= self._last_sequence:
-                raise ValueError("telemetry sequence must strictly increase")
-            payload = json.dumps(
-                record.to_json_dict(),
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-                allow_nan=False,
-            )
-            self._handle.write(payload + "\n")
-            self._last_sequence = record.sequence
-            self._pending += 1
-            if self._pending >= self.flush_every:
-                self._handle.flush()
-                self._pending = 0
-
-    def flush(self) -> None:
-        with self._lock:
-            if self._handle is not None:
-                self._handle.flush()
-                self._pending = 0
-
-    def close(self) -> None:
-        with self._lock:
-            if self._handle is None:
-                return
-            self._handle.flush()
-            self._handle.close()
-            self._handle = None
-            self._pending = 0
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        _exc_type: type[BaseException] | None,
-        _exc_value: BaseException | None,
-        _traceback: TracebackType | None,
-    ) -> None:
-        self.close()
+class TrainingTelemetryWriter(_IndexedTrainingTelemetryWriter):
+    """Canonical process-safe append-only telemetry writer."""
 
 
 def read_training_telemetry(
@@ -369,83 +318,18 @@ def read_training_telemetry(
     *,
     after_sequence: int = 0,
     limit: int = 512,
+    expected_generation: str | None = None,
 ) -> TrainingTelemetryPage:
-    if isinstance(after_sequence, bool) or after_sequence < 0:
-        raise ValueError("after_sequence must be non-negative")
-    if isinstance(limit, bool) or limit <= 0 or limit > _MAX_READ_LIMIT:
-        raise ValueError(f"limit must be between 1 and {_MAX_READ_LIMIT}")
-    resolved = Path(path)
-    if not resolved.is_file():
-        return TrainingTelemetryPage((), after_sequence, False, 0, ())
-
-    items: list[TrainingTelemetryRecord] = []
-    malformed_lines = 0
-    sequence_gaps: list[tuple[int, int]] = []
-    previous_sequence: int | None = None
-    truncated = False
-    with resolved.open("r", encoding="utf-8", errors="strict") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                record = TrainingTelemetryRecord.from_json_dict(json.loads(line))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                malformed_lines += 1
-                continue
-            if previous_sequence is not None:
-                if record.sequence <= previous_sequence:
-                    malformed_lines += 1
-                    continue
-                if record.sequence > previous_sequence + 1:
-                    sequence_gaps.append((previous_sequence + 1, record.sequence - 1))
-            previous_sequence = record.sequence
-            if record.sequence <= after_sequence:
-                continue
-            if len(items) >= limit:
-                truncated = True
-                break
-            items.append(record)
-
-    next_sequence = items[-1].sequence if items else after_sequence
-    return TrainingTelemetryPage(
-        items=tuple(items),
-        next_sequence=next_sequence,
-        truncated=truncated,
-        malformed_lines=malformed_lines,
-        sequence_gaps=tuple(sequence_gaps),
+    return _read_training_telemetry(
+        path,
+        after_sequence=after_sequence,
+        limit=limit,
+        expected_generation=expected_generation,
     )
 
 
 def training_telemetry_status(path: Path) -> TrainingTelemetryStatus:
-    resolved = Path(path)
-    if not resolved.is_file():
-        return TrainingTelemetryStatus(False, 0, 0, 0, 0)
-    record_count = 0
-    malformed_lines = 0
-    last_sequence = 0
-    with resolved.open("r", encoding="utf-8", errors="strict") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                record = TrainingTelemetryRecord.from_json_dict(json.loads(line))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                malformed_lines += 1
-                continue
-            if record.sequence <= last_sequence:
-                malformed_lines += 1
-                continue
-            last_sequence = record.sequence
-            record_count += 1
-    return TrainingTelemetryStatus(
-        available=True,
-        record_count=record_count,
-        last_sequence=last_sequence,
-        malformed_lines=malformed_lines,
-        size_bytes=resolved.stat().st_size,
-    )
+    return _training_telemetry_status(path)
 
 
 __all__ = [

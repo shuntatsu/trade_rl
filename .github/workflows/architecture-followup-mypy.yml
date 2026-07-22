@@ -1,0 +1,67 @@
+name: Architecture Follow-up Mypy Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/architecture-followup-mypy.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/fix-architecture-followup-20260722
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra studio
+      - name: Apply telemetry response protocol
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/studio/telemetry.py")
+          source = path.read_text(encoding="utf-8")
+          source = source.replace(
+              "from typing import Literal\n",
+              "from typing import Literal, Protocol\n",
+              1,
+          )
+          anchor = "\n\ndef _response(record: TrainingTelemetryRecord) -> TelemetryRecordResponse:\n"
+          replacement = '''\n\nclass _TelemetryRecordLike(Protocol):
+              def to_json_dict(self) -> dict[str, object]: ...
+
+
+          def _response(record: _TelemetryRecordLike) -> TelemetryRecordResponse:
+          '''
+          if source.count(anchor) != 1:
+              raise RuntimeError("telemetry response anchor changed")
+          source = source.replace(anchor, replacement, 1)
+          path.write_text(source, encoding="utf-8")
+          PY
+      - name: Format and verify
+        run: |
+          uv run ruff check --fix trade_rl/studio/telemetry.py
+          uv run ruff format trade_rl/studio/telemetry.py
+          uv run mypy .
+          uv run pytest -q tests/studio/test_telemetry_api.py tests/telemetry/test_training.py
+      - name: Commit fix
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/studio/telemetry.py
+          git commit -m "fix: type telemetry response records structurally"
+      - name: Push fix
+        run: git push origin HEAD:agent/fix-architecture-followup-20260722

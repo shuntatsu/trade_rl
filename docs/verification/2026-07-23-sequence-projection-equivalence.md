@@ -150,6 +150,21 @@ Digest: sha256:8f8df03dce221201c922f96138acf9856d5b4dd5b0997de4ce97cc2a7b781019
 
 No automatic rerun was used in this stability matrix.
 
+## Permanent targeted guard
+
+`.github/workflows/sequence-projection-stability.yml` runs only when one of these paths changes:
+
+```text
+trade_rl/rl/sequence_policy.py
+tests/rl/test_sequence_policy_core.py
+tests/architecture/test_sequence_projection_stability.py
+.github/workflows/sequence-projection-stability.yml
+```
+
+It executes both focused contracts 10 times on Ubuntu and Windows. This avoids charging unrelated pull requests while retaining cross-platform regression protection for the exact numerical boundary.
+
+`tests/architecture/test_sequence_projection_stability.py` also prevents the old backend-sensitive test name from being restored and requires both stable contracts to remain present.
+
 ## Cleanup-head exact verification
 
 Cleanup head:
@@ -199,15 +214,18 @@ Digest: sha256:6f35d5a2ef41e25d6ba9ea79d8c2c48e8850d5f08112f376055ca6fac3a5c955
 
 ## Effective diff review
 
-Comparison from PR #84 head `703427cb162694a8b4990fe4e2ef17ea59a77f7a` to cleanup head contains only:
+The final effective comparison from PR #84 head `703427cb162694a8b4990fe4e2ef17ea59a77f7a` contains:
 
 ```text
+.github/workflows/sequence-projection-stability.yml
 docs/superpowers/specs/2026-07-23-sequence-projection-equivalence-design.md
 docs/superpowers/plans/2026-07-23-sequence-projection-equivalence.md
+docs/verification/2026-07-23-sequence-projection-equivalence.md
+tests/architecture/test_sequence_projection_stability.py
 tests/rl/test_sequence_policy_core.py
 ```
 
-This verification record is the only change after the cleanup head. No temporary workflow, test-contract script, or patch script remains. No file under `trade_rl/` changed.
+No temporary workflow, test-contract script, or patch script remains. No file under `trade_rl/` changed.
 
 ## Safety boundary
 

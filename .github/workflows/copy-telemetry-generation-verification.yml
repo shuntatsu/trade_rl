@@ -1,0 +1,37 @@
+name: Copy telemetry generation verification
+
+on:
+  push:
+    branches:
+      - docs/telemetry-generation-verification-20260723
+
+permissions:
+  contents: write
+
+jobs:
+  copy-document:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Copy verified document only
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_head=47789b5d34502c850d6374199b00ec44379c862e
+          path=docs/verification/2026-07-22-telemetry-cursor-generation.md
+          git fetch --no-tags origin "$source_head"
+          git show "$source_head:$path" > "$path"
+          rm .github/workflows/copy-telemetry-generation-verification.yml
+          git add -A
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l)" -eq 2
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "docs: update telemetry generation verification"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

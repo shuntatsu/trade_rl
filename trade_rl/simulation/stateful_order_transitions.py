@@ -9,7 +9,6 @@ from trade_rl.simulation.orders import OrderStatus, PendingOrder, TimeInForce
 from trade_rl.simulation.stateful_bar_lifecycle import StatefulBarContext
 from trade_rl.simulation.stateful_runtime import StatefulExecutionRuntime
 
-
 if TYPE_CHECKING:
     from trade_rl.simulation.execution import MarketExecutor
 

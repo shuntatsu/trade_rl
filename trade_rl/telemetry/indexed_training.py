@@ -161,13 +161,16 @@ def _write_index(path: Path, index: _TelemetryIndex) -> None:
     temporary = destination.with_name(
         f".{destination.name}.{os.getpid()}.{uuid4().hex}.tmp"
     )
-    payload = json.dumps(
-        index.to_json_dict(),
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8") + b"\n"
+    payload = (
+        json.dumps(
+            index.to_json_dict(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
     try:
         with temporary.open("xb") as handle:
             handle.write(payload)
@@ -329,7 +332,10 @@ def read_indexed_training_telemetry(
                     record = _parse_record(line)
                 except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                     continue
-                if previous_sequence is not None and record.sequence <= previous_sequence:
+                if (
+                    previous_sequence is not None
+                    and record.sequence <= previous_sequence
+                ):
                     continue
                 previous_sequence = record.sequence
                 if record.sequence <= after_sequence:
@@ -419,7 +425,9 @@ class IndexedTrainingTelemetryWriter(_BaseWriter):
                 if index is None:
                     raise RuntimeError("telemetry stream is unavailable")
                 if self.path.stat().st_size != index.indexed_size:
-                    raise RuntimeError("telemetry file has an incomplete trailing record")
+                    raise RuntimeError(
+                        "telemetry file has an incomplete trailing record"
+                    )
                 if record.sequence <= index.last_sequence:
                     raise ValueError("telemetry sequence must strictly increase")
                 _write_all(descriptor, payload)

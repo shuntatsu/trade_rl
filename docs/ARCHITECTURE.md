@@ -94,6 +94,8 @@ Final promotion requires conservative primary path mode, processing-bar volume c
 
 The compatibility `MarketExecutor.execute_interval` API is a facade over the same target reconciliation and stateful order engine. A residual order is carried only when the caller chains the exact returned `BookState` through the same executor; an unrelated book starts a fresh compatibility order state. The compact `ExecutionResult` retains legacy aggregate fields and does not expose the detailed `OrderEvent` sequence, so release evidence still uses the explicit stateful API.
 
+`execute_stateful_orders()` is a bounded orchestration protocol over four invocation-local services. `StatefulExecutionRuntime` owns books, order state, evidence, and aggregate result construction; `StatefulBarLifecycle` owns corporate actions, open revaluation, carry, mark-to-market, margin, and insolvency phases; `StatefulOrderTransitionProcessor` owns expiry, latency, admission, eligibility, and remainder expiry; and `StatefulSymbolFillProcessor` owns paths, triggers, shared capacity, rounding, cost, and fill evidence. The public result and evidence schemas remain in the maintained orchestration module.
+
 ## Risk ordering
 
 Turnover is a soft operational constraint. Concentration, gross leverage, portfolio risk, and emergency drawdown limits are hard constraints applied afterward and validated again. A hard deleveraging requirement may override turnover, and each projection exposes reasons and L1 distance.
@@ -146,7 +148,9 @@ Telemetry JSON booleans are parsed strictly rather than by truthiness. Status an
 
 Studio reads telemetry only beneath a known job's declared artifact root and run namespaces. It rejects project-root escapes, symlinks, unknown jobs, records whose seed differs from the selected stream, and multiple distinct files that claim the same seed. Studio never ranks checkpoints from replay data, retrains a policy, activates a bundle, or submits an exchange order.
 
-A seed stream can currently contain records from multiple vector `environment_id` values and from successive auto-reset episodes. The Live Training page displays the environment ID on the active record but does not filter or segment the chart, PnL, or sparkline series by environment or episode. The post-remediation audit therefore treats the page as an exploratory event viewer, not proof of one continuous account trajectory.
+A seed stream may contain records from multiple vector `environment_id` values and successive auto-reset episodes, but each new record can also carry a nullable producer-issued `episode_id`. Live Training selects one environment and its current episode before deriving the chart, cursor, price, PnL, baseline, drawdown, events, playback, and jump state. Explicit producer identity is preferred; historical null-ID records retain terminal and counter-rollback segmentation.
+
+Telemetry writers and readers coordinate through short OS-locked append/read/index transactions. Cursors are bound to an opaque sidecar-index generation, and mixed Status/Events generations are discarded before records are published. JSONL remains the append-only source of truth and telemetry remains exploratory rather than fitting, selection, release, Serving-activation, or exchange evidence.
 
 ## Export, serving, and release
 
@@ -162,4 +166,4 @@ Direct exchange websocket ingestion, order submit/cancel/replace, broker reconci
 
 Production remains `NO-GO` until the maintained GPU verification, at least 180 OOS days, a strictly positive paired block-bootstrap lower bound on RL-minus-baseline daily log excess, signed fresh confirmation, conservative complete execution evidence, and paper-trading reconciliation all pass. Passing repository CI proves code and artifact integrity at one source head; it does not prove profitability or authorize capital deployment.
 
-See [Research Status](RESEARCH_STATUS.md), the original [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md), and the dated [post-remediation architecture audit](verification/2026-07-22-post-merge-architecture-audit.md).
+See [Research Status](RESEARCH_STATUS.md), the original [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md), the historical [post-remediation architecture audit](verification/2026-07-22-post-merge-architecture-audit.md), and the current [2026-07-23 architecture-audit closeout](verification/2026-07-23-architecture-audit-closeout.md).

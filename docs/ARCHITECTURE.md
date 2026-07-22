@@ -11,6 +11,7 @@ The current maintained system uses causal market artifacts, baseline-anchored or
 ```text
 trade_rl/
   domain/        immutable dataset, policy, selection, and release identities
+  telemetry/     append-only standard-library diagnostic event contracts
   artifacts/     canonical serialization, hashing, file closure, atomic publication
   release/       external attestation verification and offline approval contracts
   evaluation/    metrics, paired inference, folds, gates, and AUM capacity
@@ -25,7 +26,6 @@ trade_rl/
   integrations/  Stable-Baselines3 and external-system adapters
   workflows/     typed training, walk-forward, sensitivity, and publication orchestration
   studio/        local research read models, job control, and typed API surfaces
-  telemetry/     append-only diagnostic training-event contracts
   cli/           single authoritative configuration and execution entry point
 ```
 
@@ -47,12 +47,11 @@ cli
   -> evaluation
   -> release
   -> artifacts
+  -> telemetry
   -> domain
 ```
 
-`domain` is standard-library only. `release` cannot depend on evaluation, data, simulation, RL, serving, integrations, workflows, Studio, or model frameworks. `learning` and the core training protocol cannot depend on Stable-Baselines3, sb3-contrib, or Torch. `workflows` may use integration interfaces but may not directly import model frameworks. Serving cannot import training workflows or Stable-Baselines3. Runtime, training, and Studio paths cannot import offline signing modules. Catalog contracts cannot depend on NumPy, model frameworks, psycopg, data, RL, learning, integrations, workflows, or CLI.
-
-`trade_rl.telemetry` was added after the current layer stack and is not yet explicitly placed in `.importlinter`. Its current implementation is standard-library only and is consumed by integrations and Studio, but this is a convention rather than an enforced dependency boundary. The latest architecture audit records this as a remediation item.
+`domain` is standard-library only. `telemetry` is explicitly placed below artifacts and is forbidden from importing NumPy, Gymnasium, model frameworks, psycopg, numerical/research layers, or upper application layers. `release` cannot depend on evaluation, data, simulation, RL, serving, integrations, workflows, Studio, or model frameworks. `learning` and the core training protocol cannot depend on Stable-Baselines3, sb3-contrib, or Torch. `workflows` may use integration interfaces but may not directly import model frameworks. Serving cannot import training workflows or Stable-Baselines3. Runtime, training, and Studio paths cannot import offline signing modules. Catalog contracts cannot depend on NumPy, model frameworks, psycopg, data, RL, learning, integrations, workflows, or CLI.
 
 ## Privileged GPU boundary
 
@@ -93,7 +92,7 @@ The simulator supports market, limit, and stop-market instructions; latency; IOC
 
 Final promotion requires conservative primary path mode, processing-bar volume capacity, partial-fill carry, complete order-event evidence, conservative trigger-volume fractions, and an execution-policy digest matching the experiment plan. Optimistic and neutral modes are sensitivity tools only. OHLCV cannot recover queue position, hidden liquidity, auctions, or L2 depth.
 
-The compatibility `MarketExecutor.execute_interval` path remains in the codebase for older callers and selected utilities. It currently retains its own target-filling implementation rather than being a thin adapter over the stateful engine. The maintained RL step path is stateful, but any compatibility caller must not be described as producing complete stateful order evidence. The latest audit identifies remaining maintained call sites that require convergence.
+The compatibility `MarketExecutor.execute_interval` API is now a facade over the same target reconciliation and stateful order engine. A residual order is carried only when the caller chains the exact returned `BookState` through the same executor; an unrelated book starts a fresh compatibility order state. The compact `ExecutionResult` retains legacy aggregate fields and does not expose the detailed `OrderEvent` sequence, so release evidence still uses the explicit stateful API.
 
 ## Risk ordering
 
@@ -115,7 +114,7 @@ Training–Serving observation parity includes symbol and feature order, availab
 
 Reward schema v4 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on newly worsening excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance, and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
 
-Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed evaluation use liquidation-at-close terminal accounting. The baseline reward pre-roll is intended to represent the same economics as the main environment, but it currently calls the compatibility `execute_interval` path. Because normal transitions use persistent orders, latency and partial residuals can diverge between pre-roll and episode execution. This is a confirmed architecture/correctness gap pending migration to the stateful reconciliation path.
+Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed evaluation use liquidation-at-close terminal accounting. Baseline reward pre-roll and normal episode transitions now share decision-time target sizing, stateful reconciliation, processing-bar capacity, latency, partial residual carry, costs, carry, and `BookState` accounting. The pre-roll creates an isolated executor and chains only its returned books, so its pending state cannot leak into the episode proper.
 
 ## Artifact store and PostgreSQL catalog
 

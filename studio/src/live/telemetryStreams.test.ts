@@ -3,10 +3,14 @@ import { describe, expect, it } from 'vitest'
 import type { TrainingTelemetryRecord } from '../data/types'
 import { currentEnvironmentEpisode, telemetryEnvironmentIds } from './telemetryStreams'
 
+type RecordOverrides = Partial<TrainingTelemetryRecord> & {
+  episodeId?: number | null
+}
+
 function record(
   sequence: number,
   environmentId: number,
-  overrides: Partial<TrainingTelemetryRecord> = {},
+  overrides: RecordOverrides = {},
 ): TrainingTelemetryRecord {
   return {
     schemaVersion: 'training_telemetry_v1',
@@ -64,6 +68,17 @@ describe('telemetry stream selection', () => {
 
     expect(currentEnvironmentEpisode(records, 0).map((item) => item.sequence)).toEqual([5, 6])
     expect(currentEnvironmentEpisode(records, 1).map((item) => item.sequence)).toEqual([2, 4])
+  })
+
+  it('prefers producer episode identity when counters remain monotonic', () => {
+    const records = [
+      record(1, 0, { episodeId: 41, environmentStep: 10, marketIndex: 110 }),
+      record(2, 0, { episodeId: 41, environmentStep: 11, marketIndex: 111 }),
+      record(3, 0, { episodeId: 42, environmentStep: 12, marketIndex: 112 }),
+      record(4, 0, { episodeId: 42, environmentStep: 13, marketIndex: 113 }),
+    ]
+
+    expect(currentEnvironmentEpisode(records, 0).map((item) => item.sequence)).toEqual([3, 4])
   })
 
   it('starts a new episode when environment counters roll back', () => {

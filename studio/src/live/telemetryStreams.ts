@@ -4,6 +4,17 @@ function closesEpisode(record: TrainingTelemetryRecord): boolean {
   return record.eventType === 'episode_end' || record.terminated || record.truncated
 }
 
+function crossesEpisodeBoundary(
+  previous: TrainingTelemetryRecord,
+  current: TrainingTelemetryRecord,
+): boolean {
+  if (closesEpisode(previous)) return true
+  if (current.environmentStep < previous.environmentStep) return true
+  return previous.marketIndex !== null
+    && current.marketIndex !== null
+    && current.marketIndex < previous.marketIndex
+}
+
 export function telemetryEnvironmentIds(records: TrainingTelemetryRecord[]): number[] {
   return [...new Set(records.map((record) => record.environmentId))].sort((left, right) => left - right)
 }
@@ -19,8 +30,10 @@ export function currentEnvironmentEpisode(
   if (environmentRecords.length === 0) return []
 
   let episodeStart = 0
-  for (let index = 0; index < environmentRecords.length - 1; index += 1) {
-    if (closesEpisode(environmentRecords[index])) episodeStart = index + 1
+  for (let index = 1; index < environmentRecords.length; index += 1) {
+    if (crossesEpisodeBoundary(environmentRecords[index - 1], environmentRecords[index])) {
+      episodeStart = index
+    }
   }
   return environmentRecords.slice(episodeStart)
 }

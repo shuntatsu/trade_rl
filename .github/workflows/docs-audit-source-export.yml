@@ -4,24 +4,34 @@ on:
   push:
     branches:
       - docs/current-architecture-sync-20260722
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
+
+concurrency:
+  group: docs-audit-source-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   export-source:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - name: Export exact source
         run: |
           git archive --format=tar.gz --output="$RUNNER_TEMP/trade-rl-source.tar.gz" HEAD
           git rev-parse HEAD > "$RUNNER_TEMP/source-head-sha.txt"
-      - uses: actions/upload-artifact@v4
+      - name: Upload exact source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: docs-audit-source-${{ github.sha }}
+          name: docs-audit-source-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             ${{ runner.temp }}/trade-rl-source.tar.gz
             ${{ runner.temp }}/source-head-sha.txt

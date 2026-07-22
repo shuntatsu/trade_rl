@@ -7,13 +7,8 @@ from typing import Any
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.simulation import execution as _execution
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import (
-    MarketExecutor as _BaseMarketExecutor,
-)
-from trade_rl.simulation.execution import (
-    ExecutionResult,
-)
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.target_execution import execute_target_statefully
 
@@ -22,7 +17,7 @@ _ATTEMPT_EVENT_TYPES = frozenset(
 )
 
 
-class StatefulCompatibilityMarketExecutor(_BaseMarketExecutor):
+class StatefulCompatibilityMarketExecutor(_execution.MarketExecutor):
     """Preserve the legacy API while sharing stateful execution semantics.
 
     A compatibility chain is continued only when the caller passes the exact
@@ -54,7 +49,7 @@ class StatefulCompatibilityMarketExecutor(_BaseMarketExecutor):
         *,
         start_index: int,
         bars: int,
-    ) -> ExecutionResult:
+    ) -> _execution.ExecutionResult:
         state = (
             self._compatibility_order_book
             if book is self._compatibility_last_book
@@ -93,7 +88,7 @@ class StatefulCompatibilityMarketExecutor(_BaseMarketExecutor):
             else np.zeros_like(stateful.requested_notional_by_symbol)
         )
         fill_ratio = stateful.fill_ratio if attempted else 1.0
-        return ExecutionResult(
+        return _execution.ExecutionResult(
             book=stateful.book,
             next_index=stateful.next_index,
             bars_advanced=stateful.bars_advanced,

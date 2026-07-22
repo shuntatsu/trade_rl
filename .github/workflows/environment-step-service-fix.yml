@@ -26,21 +26,21 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3 --extra studio
-      - name: Complete risk dataset protocol
+      - name: Complete service contracts
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("trade_rl/rl/environment_risk.py")
-          source = path.read_text(encoding="utf-8")
-          anchor = '''class RiskDataset(Protocol):
+          risk_path = Path("trade_rl/rl/environment_risk.py")
+          risk_source = risk_path.read_text(encoding="utf-8")
+          risk_anchor = '''class RiskDataset(Protocol):
               @property
               def n_symbols(self) -> int: ...
 
               @property
               def close(self) -> np.ndarray: ...
           '''
-          replacement = '''class RiskDataset(Protocol):
+          risk_replacement = '''class RiskDataset(Protocol):
               @property
               def n_bars(self) -> int: ...
 
@@ -53,9 +53,44 @@ jobs:
               @property
               def close(self) -> np.ndarray: ...
           '''
-          if source.count(anchor) != 1:
+          if risk_source.count(risk_anchor) != 1:
               raise RuntimeError("risk dataset protocol anchor changed")
-          path.write_text(source.replace(anchor, replacement, 1), encoding="utf-8")
+          risk_path.write_text(
+              risk_source.replace(risk_anchor, risk_replacement, 1),
+              encoding="utf-8",
+          )
+
+          reward_test = Path("tests/rl/test_environment_reward_service.py")
+          reward_source = reward_test.read_text(encoding="utf-8")
+          reward_anchor = '            "shadow_drawdown": 0.2,\n'
+          reward_replacement = '            "shadow_drawdown": pytest.approx(0.2),\n'
+          if reward_source.count(reward_anchor) != 1:
+              raise RuntimeError("reward float assertion anchor changed")
+          reward_test.write_text(
+              reward_source.replace(reward_anchor, reward_replacement, 1),
+              encoding="utf-8",
+          )
+
+          info_test = Path("tests/rl/test_environment_info_service.py")
+          info_source = info_test.read_text(encoding="utf-8")
+          import_anchor = "import numpy as np\n"
+          if info_source.count(import_anchor) != 1:
+              raise RuntimeError("info pytest import anchor changed")
+          info_source = info_source.replace(
+              import_anchor,
+              "import numpy as np\nimport pytest\n",
+              1,
+          )
+          gap_anchor = '    assert info["rolling_growth_gap"] == 0.005\n'
+          gap_replacement = (
+              '    assert info["rolling_growth_gap"] == pytest.approx(0.005)\n'
+          )
+          if info_source.count(gap_anchor) != 1:
+              raise RuntimeError("info float assertion anchor changed")
+          info_test.write_text(
+              info_source.replace(gap_anchor, gap_replacement, 1),
+              encoding="utf-8",
+          )
           PY
       - name: Format services
         run: |

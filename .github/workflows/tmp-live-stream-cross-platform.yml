@@ -1,0 +1,65 @@
+name: Live Stream Cross Platform
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tmp-live-stream-cross-platform.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  live-stream:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Install Python
+        run: uv sync --extra dev --extra studio --extra train-sb3
+      - name: Install Studio
+        run: npm ci --prefix studio
+      - name: Python telemetry isolation contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/telemetry/test_episode_identity_contract.py \
+            tests/integrations/test_training_telemetry_episode_identity.py \
+            tests/studio/test_telemetry_episode_api.py \
+            2>&1 | tee live-stream-python.log
+      - name: Frontend telemetry isolation contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          npm --prefix studio test -- --run \
+            src/live/telemetryGuards.test.ts \
+            src/live/telemetryTracks.test.ts \
+            src/live/MarketReplayChart.test.tsx \
+            src/pages/LiveTrainingPageStreamIsolation.test.tsx \
+            2>&1 | tee live-stream-frontend.log
+      - name: Upload cross-platform diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-stream-${{ matrix.os }}
+          path: |
+            live-stream-python.log
+            live-stream-frontend.log
+          if-no-files-found: error

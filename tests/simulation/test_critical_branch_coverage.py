@@ -8,9 +8,9 @@ import pytest
 
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
+from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation import execution as execution_module
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
-from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 

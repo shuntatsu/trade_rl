@@ -9,8 +9,8 @@ from enum import StrEnum
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation import MarketExecutor
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 

@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
-from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation import MarketExecutor
+from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 

@@ -1,4 +1,4 @@
-name: Temporary Direct Contract Source Export
+name: Temporary Direct Contract Patch Apply
 
 on:
   pull_request:
@@ -6,28 +6,43 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: tmp-direct-contract-source-${{ github.event.pull_request.number }}
+  group: tmp-direct-contract-apply-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  export:
+  apply:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'refactor/direct-maintained-contract-exports-20260723' &&
+      github.actor == 'shuntatsu'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          persist-credentials: true
 
-      - name: Package exact source
-        run: tar --exclude=.git -czf /tmp/direct-contract-source.tar.gz .
+      - name: Apply verified implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/tmp/direct-contract.patch.xz.b64 \
+            | xz --decompress > /tmp/direct-contract.patch
+          git apply --check /tmp/direct-contract.patch
+          git apply /tmp/direct-contract.patch
+          rm .github/tmp/direct-contract.patch.xz.b64
+          git status --short
 
-      - name: Upload exact source
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: direct-contract-source-${{ github.event.pull_request.head.sha }}
-          path: /tmp/direct-contract-source.tar.gz
-          if-no-files-found: error
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: make public modules own maintained contracts'
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"

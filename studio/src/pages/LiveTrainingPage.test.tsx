@@ -69,6 +69,12 @@ function telemetry(
   }
 }
 
+function metricRow(label: string): HTMLElement {
+  const row = screen.getByText(label).parentElement
+  if (row === null) throw new Error(`metric row missing: ${label}`)
+  return row
+}
+
 function api(): StudioApi {
   const bySeed: Record<number, TrainingTelemetryRecord[]> = {
     7: [
@@ -195,7 +201,7 @@ describe('LiveTrainingPage', () => {
     expect(await screen.findByText(/ショート 20.0%/)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Checkpoint evaluation evidence')).toHaveDisplayValue('fold-000 · residual · finalist'))
     expect(screen.getByText(/-2.00% finalist/)).toBeInTheDocument()
-    expect(screen.getByText(/Seed 11 · exploration/)).toBeInTheDocument()
+    expect(screen.getByText(/Seed 11 · Env 0 · current episode/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'ほぼライブ' }))
     await user.click(screen.getByRole('button', { name: 'イベント圧縮' }))
@@ -254,13 +260,13 @@ describe('LiveTrainingPage', () => {
 
     const environment = await screen.findByLabelText('Live Training environment')
     await waitFor(() => expect(environment).toHaveDisplayValue('Env 1'))
-    expect(screen.getByText('602 USDT')).toBeInTheDocument()
-    expect(screen.getAllByText('-10.00 USDT').length).toBeGreaterThan(0)
+    await waitFor(() => expect(metricRow('現在価格')).toHaveTextContent('602 USDT'))
+    expect(metricRow('再生区間損益')).toHaveTextContent('-10.00 USDT')
 
     await user.selectOptions(environment, '0')
 
-    expect(await screen.findByText('202 USDT')).toBeInTheDocument()
-    expect(screen.getAllByText('+25.00 USDT').length).toBeGreaterThan(0)
-    expect(screen.queryByText('+1,025.00 USDT')).not.toBeInTheDocument()
+    await waitFor(() => expect(metricRow('現在価格')).toHaveTextContent('202 USDT'))
+    expect(metricRow('再生区間損益')).toHaveTextContent('+25.00 USDT')
+    expect(metricRow('再生区間損益')).not.toHaveTextContent('+1,025.00 USDT')
   })
 })

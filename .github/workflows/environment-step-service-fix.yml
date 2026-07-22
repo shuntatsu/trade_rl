@@ -47,14 +47,29 @@ jobs:
             tests/rl/test_environment_reward_service.py \
             tests/rl/test_environment_info_service.py
       - name: Verify Mypy
-        run: uv run mypy .
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy . 2>&1 | tee environment-step-mypy.log
       - name: Verify service tests
-        run: >-
-          uv run pytest -q
-          tests/rl/test_environment_decision_service.py
-          tests/rl/test_environment_risk_service.py
-          tests/rl/test_environment_reward_service.py
-          tests/rl/test_environment_info_service.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/rl/test_environment_decision_service.py \
+            tests/rl/test_environment_risk_service.py \
+            tests/rl/test_environment_reward_service.py \
+            tests/rl/test_environment_info_service.py \
+            2>&1 | tee environment-step-services.log
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: environment-step-service-fix
+          path: |
+            environment-step-mypy.log
+            environment-step-services.log
+          if-no-files-found: ignore
       - name: Commit service fixes
         run: |
           git diff --check

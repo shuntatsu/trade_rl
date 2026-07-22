@@ -36,7 +36,7 @@ jobs:
             echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Assemble and inspect patch
+      - name: Assemble patch bytes
         if: steps.staged.outputs.present == 'true'
         shell: bash
         run: |
@@ -45,6 +45,11 @@ jobs:
             | xargs -0 cat > "$RUNNER_TEMP/product.patch.gz.b64"
           sha256sum "$RUNNER_TEMP/product.patch.gz.b64" \
             | tee "$RUNNER_TEMP/product.patch.sha256"
+
+      - name: Decode and inspect patch
+        if: steps.staged.outputs.present == 'true'
+        shell: bash
+        run: |
           base64 --decode "$RUNNER_TEMP/product.patch.gz.b64" \
             | gzip --decompress > "$RUNNER_TEMP/product.patch"
           test "$(grep -c '^diff --git ' "$RUNNER_TEMP/product.patch")" -eq 12
@@ -103,6 +108,8 @@ jobs:
           path: |
             ${{ runner.temp }}/docs-audit-verification.log
             ${{ runner.temp }}/product.patch.sha256
+            ${{ runner.temp }}/product.patch.gz.b64
+            ${{ runner.temp }}/product.patch
           if-no-files-found: warn
 
       - name: Push verified product commit

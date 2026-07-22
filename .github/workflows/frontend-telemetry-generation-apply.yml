@@ -8,6 +8,7 @@ on:
       - .github/workflows/frontend-telemetry-generation-apply.yml
       - scripts/apply_frontend_telemetry_generation.py
       - scripts/apply_frontend_telemetry_generation_v2.py
+      - scripts/apply_frontend_telemetry_generation_v3.py
 
 permissions:
   contents: write
@@ -31,7 +32,7 @@ jobs:
         working-directory: studio
         run: npm ci
       - name: Apply frontend telemetry generation patch
-        run: python scripts/apply_frontend_telemetry_generation_v2.py
+        run: python scripts/apply_frontend_telemetry_generation_v3.py
       - name: Verify focused generation contracts
         working-directory: studio
         run: npm test -- --run src/live/useTrainingTelemetry.test.tsx

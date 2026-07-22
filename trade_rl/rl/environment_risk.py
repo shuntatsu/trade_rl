@@ -3,52 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
 import numpy as np
 
+from trade_rl.data.market import MarketDataset
+from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
 from trade_rl.risk.inputs import PortfolioRiskInputsProvider
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.simulation.accounting import BookState
-
-
-class RiskDataset(Protocol):
-    @property
-    def n_bars(self) -> int: ...
-
-    @property
-    def n_symbols(self) -> int: ...
-
-    @property
-    def periods_per_year(self) -> int: ...
-
-    @property
-    def close(self) -> np.ndarray: ...
-
-    @property
-    def volume(self) -> np.ndarray: ...
-
-    @property
-    def volume_units(self) -> tuple[object, ...]: ...
-
-
-class EmergencyRiskAssessmentLike(Protocol):
-    @property
-    def flatten_mask(self) -> np.ndarray: ...
-
-    @property
-    def reasons(self) -> tuple[str, ...]: ...
-
-
-class EmergencyRiskMonitor(Protocol):
-    def assess(
-        self,
-        dataset: RiskDataset,
-        *,
-        index: int,
-        weights: np.ndarray,
-    ) -> EmergencyRiskAssessmentLike: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,9 +26,9 @@ class EnvironmentRiskProjector:
 
     def __init__(
         self,
-        dataset: RiskDataset,
+        dataset: MarketDataset,
         *,
-        emergency_risk_monitor: EmergencyRiskMonitor,
+        emergency_risk_monitor: CausalEmergencyRiskMonitor,
         pre_trade_risk: PreTradeRisk,
         portfolio_risk: PortfolioRiskModel,
         portfolio_risk_inputs_provider: PortfolioRiskInputsProvider | None,

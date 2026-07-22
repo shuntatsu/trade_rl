@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 ENVIRONMENT = ROOT / "trade_rl" / "rl" / "environment.py"
 SERVICE_PATHS = (
@@ -58,7 +57,7 @@ def test_environment_step_no_longer_owns_extracted_policy_logic() -> None:
     assert "self.composer.compose(" not in step_source
     assert "self.reward_tracker.step(" not in step_source
     assert "self.emergency_risk_monitor.assess(" not in step_source
-    assert 'info: dict[str, object] = {' not in step_source
+    assert "info: dict[str, object] = {" not in step_source
 
 
 def test_terminal_information_is_built_by_info_service() -> None:

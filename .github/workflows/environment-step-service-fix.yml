@@ -1,0 +1,66 @@
+name: Environment Step Service Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/environment-step-service-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/decompose-environment-runtime-20260722
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format services
+        run: |
+          uv run ruff check --fix \
+            trade_rl/rl/environment_decision.py \
+            trade_rl/rl/environment_risk.py \
+            trade_rl/rl/environment_reward.py \
+            trade_rl/rl/environment_info.py \
+            tests/rl/test_environment_decision_service.py \
+            tests/rl/test_environment_risk_service.py \
+            tests/rl/test_environment_reward_service.py \
+            tests/rl/test_environment_info_service.py
+          uv run ruff format \
+            trade_rl/rl/environment_decision.py \
+            trade_rl/rl/environment_risk.py \
+            trade_rl/rl/environment_reward.py \
+            trade_rl/rl/environment_info.py \
+            tests/rl/test_environment_decision_service.py \
+            tests/rl/test_environment_risk_service.py \
+            tests/rl/test_environment_reward_service.py \
+            tests/rl/test_environment_info_service.py
+      - name: Verify Mypy
+        run: uv run mypy .
+      - name: Verify service tests
+        run: >-
+          uv run pytest -q
+          tests/rl/test_environment_decision_service.py
+          tests/rl/test_environment_risk_service.py
+          tests/rl/test_environment_reward_service.py
+          tests/rl/test_environment_info_service.py
+      - name: Commit service fixes
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/rl/environment_*.py tests/rl/test_environment_*_service.py
+          git commit -m "test: verify environment step services"
+      - name: Push service fixes
+        run: git push origin HEAD:agent/decompose-environment-runtime-20260722

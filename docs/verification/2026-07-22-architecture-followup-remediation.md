@@ -67,6 +67,46 @@ Pytest diagnostics:
 - catalog unit and integration tests: passed
 - cleanup: passed
 
+## Current-main exact-head verification
+
+The remediation branch was synchronized with `main` after documentation refresh PR #82 and Live Training isolation PR #85 had merged. The resulting exact head was:
+
+`d0118b52d21230de02507678658e70bb7c25a693`
+
+### GitHub Actions CI
+
+- run: `29954800893`
+- conclusion: success
+- exact-head checkout: passed
+- Studio tests, TypeScript checking, production build, and fixed-viewport layout: passed
+- workflow-security validation: passed
+- Ruff and format: passed
+- Mypy: passed
+- Import Linter architecture contracts: passed
+- dead-code report: passed
+- recovery and structured Serving smoke: passed
+- full pytest: `1169 passed, 2 skipped, 11 warnings`
+- total coverage: `83.43%`
+- total branch coverage: `70.40%`
+- critical branch-coverage ratchet: passed
+- CLI smoke: passed
+- Ubuntu and Windows compatibility: passed
+- complete training-image build and packaged non-root runtime probe: passed
+
+Final-head artifacts:
+
+- Studio diagnostics: `8543605378`, digest `sha256:9383e35f88e81a53d9407607f0cceb0204f0440420c8b84f77dee06494991c67`
+- static diagnostics: `8543616037`, digest `sha256:09b2d302268e4b69b4a6d0dee6e993ec47d8cf4a63fd2eee498388ce240c4536`
+- architecture diagnostics: `8543616682`, digest `sha256:3577acd736b53f20e6e3aa31c3d946b8a0bba56ff16eee9f287ca1b1d57951ca`
+- pytest diagnostics: `8543661174`, digest `sha256:a09251bd1718b5a8d28d62d24bf9685a71d8cb7c1bf61572b4758fe9cb63d615`
+- training-image evidence: `8543605285`, digest `sha256:38d9019b774f947d98171985f4a3b7094c37d2bdf790f078e04d2d0cb6104e77`
+
+### PostgreSQL Catalog
+
+- run: `29954800806`
+- conclusion: success
+- exact-head checkout, Compose validation, PostgreSQL startup and readiness, installation, migrations, unit and integration tests, and shutdown: passed
+
 ## Coverage rationale
 
 The environment runtime group starts at the exact measured aggregate branch coverage rather than excluding untested branches or claiming a higher threshold than the suite proves. The ratchet prevents regression while allowing later PRs to raise the minimum with targeted branch tests.
@@ -78,3 +118,4 @@ The environment runtime group starts at the exact measured aggregate branch cove
 - Studio continues to use the strict duplicate-seed reader explicitly.
 - Existing PostgreSQL catalog callers retain the compatibility reservation method.
 - Action, observation, reward, execution-evidence, and artifact schema versions are unchanged.
+- Production remains `NO-GO`; direct exchange routing is not implemented.

@@ -61,7 +61,17 @@ jobs:
           path: live-stream-ui-tests.txt
           if-no-files-found: error
       - name: Complete Vitest suite
-        run: npm --prefix studio test -- --run
+        shell: bash
+        run: |
+          set -o pipefail
+          npm --prefix studio test -- --run 2>&1 | tee live-stream-ui-full-suite.txt
+      - name: Upload full-suite diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-stream-ui-full-suite
+          path: live-stream-ui-full-suite.txt
+          if-no-files-found: error
       - name: Typecheck
         run: npm --prefix studio run typecheck
       - name: Production build

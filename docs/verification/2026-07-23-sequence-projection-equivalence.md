@@ -207,7 +207,7 @@ docs/superpowers/plans/2026-07-23-sequence-projection-equivalence.md
 tests/rl/test_sequence_policy_core.py
 ```
 
-The final document commit adds only this verification record. No temporary workflow, test-contract script, or patch script remains. No file under `trade_rl/` changed.
+This verification record is the only change after the cleanup head. No temporary workflow, test-contract script, or patch script remains. No file under `trade_rl/` changed.
 
 ## Safety boundary
 

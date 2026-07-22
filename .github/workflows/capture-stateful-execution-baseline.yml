@@ -35,10 +35,13 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra train-sb3
       - name: Capture baseline payload
-        run: uv run python scripts/capture_stateful_execution_baseline.py > stateful-execution-baseline.json
-      - name: Upload baseline
+        run: uv run python scripts/capture_stateful_execution_baseline.py > stateful-execution-baseline.json 2> stateful-execution-baseline-error.log
+      - name: Upload baseline diagnostics
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: stateful-execution-baseline
-          path: stateful-execution-baseline.json
+          path: |
+            stateful-execution-baseline.json
+            stateful-execution-baseline-error.log
           if-no-files-found: error

@@ -45,7 +45,7 @@ Loading an old or malformed index returns `None`, causing a full rebuild and a n
 - the refreshed index or `None`;
 - whether durable index state changed;
 - snapshot file size;
-- an open binary snapshot handle whose identity was verified against the index.
+- an open binary snapshot handle whose identity was verified against the index when a page read requires one.
 
 The index is written only when it was created, rebuilt, or advanced through at least one complete appended line. A no-growth poll does not create a temporary file, call `fsync`, replace the index, or sync the directory.
 
@@ -67,14 +67,14 @@ Status polling completes entirely under the short metadata lock and returns inde
 
 ## Public telemetry contracts
 
-`TrainingTelemetryStatus` adds:
+`TrainingTelemetryStatus` adds the following final field with a default of `None` so existing positional construction remains compatible:
 
-- `stream_generation: str | None`.
+- `stream_generation: str | None = None`.
 
-`TrainingTelemetryPage` adds:
+`TrainingTelemetryPage` adds the following final fields with defaults so existing five-argument positional construction remains compatible:
 
-- `stream_generation: str | None`;
-- `reset_required: bool`.
+- `stream_generation: str | None = None`;
+- `reset_required: bool = False`.
 
 `read_training_telemetry()` adds an optional keyword-only `expected_generation: str | None = None`.
 
@@ -84,6 +84,7 @@ Behavior:
 - Initial request without an expected generation: return the current generation and normal records.
 - Matching expected generation: return normal records.
 - Mismatched expected generation: return no records, `next_sequence=0`, the current generation, and `reset_required=true`.
+- A non-UUID expected generation is rejected as invalid input rather than treated as a legitimate old cursor.
 
 No records are returned on a generation mismatch. The caller must reset before replaying the new stream.
 
@@ -96,7 +97,7 @@ No records are returned on a generation mismatch. The caller must reset before r
 - `streamGeneration`;
 - `resetRequired`.
 
-The events endpoint accepts optional `stream_generation` and passes it as `expected_generation` to the telemetry reader.
+The events endpoint accepts optional `stream_generation` and passes it as `expected_generation` to the telemetry reader. The query value is validated as a canonical UUID string.
 
 Studio preserves the existing camel-case response convention.
 
@@ -110,9 +111,10 @@ Polling behavior:
 2. If `resetRequired` is true, clear buffered records, set sequence to zero, adopt the returned generation, and immediately issue one replacement-generation poll.
 3. If no generation is stored yet, adopt the page generation before accepting records.
 4. Reject a page whose generation unexpectedly differs without `resetRequired`.
-5. On job or seed change, clear generation, sequence, records, and status together.
+5. Compare the status and event page generations returned by the parallel requests. If both are non-null and differ, discard the responses and retry once rather than publishing a mixed snapshot.
+6. On job or seed change, clear generation, sequence, records, and status together.
 
-A single refresh performs at most one automatic reset retry to prevent loops if the stream changes continuously.
+A single refresh performs at most one automatic reset or generation-race retry to prevent loops if the stream changes continuously.
 
 ## Error handling
 
@@ -130,6 +132,7 @@ A single refresh performs at most one automatic reset retry to prevent loops if 
 3. Instrument `_write_index`; repeated no-growth status/events polls must currently rewrite the index.
 4. Block record parsing in a reader thread; a writer append must currently remain blocked because parsing holds the process lock.
 5. Frontend receives `resetRequired`; current hook must fail to clear records and replay from zero.
+6. Status and Events return different generations during one parallel refresh; the current hook must fail to discard the mixed snapshot.
 
 ### GREEN contracts
 
@@ -139,18 +142,20 @@ A single refresh performs at most one automatic reset retry to prevent loops if 
 - Reset replay returns only the new generation.
 - No-growth polls perform zero durable index writes.
 - Writer append completes while an already-snapshotted page is being parsed.
+- Status and Events generation races are retried once without publishing either response.
 - Linux and Windows compatibility tests pass.
 - Existing strict parsing, duplicate seed, process-concurrency, Studio, and integration tests remain green.
 - Add a deterministic large-stream test proving a near-tail page parses at most one checkpoint stride plus the requested page, rather than the whole file.
 
 ## Compatibility and migration
 
-The sidecar index is a cache and may be rebuilt, so the v1-to-v2 transition requires no migration command. Existing telemetry JSONL files remain readable. Python and Studio response models gain additive fields. Existing internal call sites that do not pass an expected generation retain initial-request behavior.
+The sidecar index is a cache and may be rebuilt, so the v1-to-v2 transition requires no migration command. Existing telemetry JSONL files remain readable. Python and Studio response models gain additive fields with backward-compatible defaults where direct construction exists. Existing internal call sites that do not pass an expected generation retain initial-request behavior.
 
 ## Acceptance criteria
 
 - Old cursor plus changed generation cannot return telemetry records.
 - Studio never combines two generations in one in-memory record buffer.
+- A status/events race cannot publish a mixed generation snapshot.
 - Repeated unchanged polls do not rewrite the index.
 - Page parsing does not hold the append serialization lock.
 - All exact-head CI, PostgreSQL, Ubuntu/Windows compatibility, frontend tests/build, and critical coverage checks pass without lowering existing thresholds.

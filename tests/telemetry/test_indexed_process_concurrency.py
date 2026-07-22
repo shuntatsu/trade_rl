@@ -60,7 +60,7 @@ def _duplicate_writer_worker(
     writer: TrainingTelemetryWriter | None = None
     try:
         writer = TrainingTelemetryWriter(Path(path_value), flush_every=1)
-        ready.put(os.getpid())
+        ready.put(("ready", os.getpid()))
         if not start.wait(timeout=20.0):
             results.put(("error", "TimeoutError", "start event was not released"))
             return
@@ -163,7 +163,8 @@ def test_duplicate_sequence_race_allows_exactly_one_process_append(
 
     for process in processes:
         process.start()
-    _queue_items(ready, 2)
+    ready_items = _queue_items(ready, 2)
+    assert all(item[0] == "ready" for item in ready_items)
     start.set()
     _join(processes)
     outcomes = _queue_items(results, 2)

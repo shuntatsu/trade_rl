@@ -114,9 +114,7 @@ def _load_index(path: Path) -> _TelemetryIndex | None:
             malformed_lines=_non_negative_int(
                 raw.get("malformed_lines"), field_name="malformed_lines"
             ),
-            sequence_gaps=_pairs(
-                raw.get("sequence_gaps"), field_name="sequence_gaps"
-            ),
+            sequence_gaps=_pairs(raw.get("sequence_gaps"), field_name="sequence_gaps"),
             checkpoints=_pairs(raw.get("checkpoints"), field_name="checkpoints"),
         )
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):

@@ -33,10 +33,19 @@ def execute_target_statefully(
 
     if not isinstance(target_identity, str) or not target_identity:
         raise ValueError("target_identity must be non-empty")
-    if not 0 <= start_index < executor.dataset.n_bars:
-        raise ValueError("target execution start index is outside the dataset")
-    if bars <= 0 or start_index + bars >= executor.dataset.n_bars:
+    if bars <= 0:
+        raise ValueError("bars must be positive")
+    if start_index < 0 or start_index + bars >= executor.dataset.n_bars:
         raise ValueError("target execution interval is outside the dataset")
+    if book.weights.shape != (executor.dataset.n_symbols,):
+        raise ValueError("book weights shape does not match market symbols")
+    if not np.array_equal(
+        np.asarray(book.contract_multipliers),
+        executor.dataset.resolved_array("contract_multipliers"),
+    ):
+        raise ValueError("book contract multipliers do not match market dataset")
+    if not np.isfinite(book.portfolio_value) or book.portfolio_value <= 0.0:
+        raise ValueError("stateful execution requires positive starting equity")
 
     target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
     reconciliation = reconcile_target(

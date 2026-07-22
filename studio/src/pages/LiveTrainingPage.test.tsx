@@ -44,6 +44,7 @@ function telemetry(
     environmentStep: sequence,
     seed,
     environmentId: 0,
+    episodeId: null,
     eventType: sequence === 2 ? 'position' : 'rollout',
     marketIndex: 100 + sequence,
     marketTime: `2026-07-21T08:0${sequence}:00.000000000`,

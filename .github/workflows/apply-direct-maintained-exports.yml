@@ -1,0 +1,549 @@
+name: Apply direct maintained exports
+
+on:
+  push:
+    branches:
+      - refactor/direct-maintained-contract-exports-20260723
+    paths:
+      - '.github/workflows/apply-direct-maintained-exports.yml'
+      - '.github/direct-maintained-exports-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Promote canonical public ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+
+          execution = root / 'trade_rl/simulation/execution.py'
+          text = execution.read_text(encoding='utf-8')
+          text = text.replace('from typing import Sequence\n', 'from typing import Any, Sequence\n')
+          text = text.replace(
+              'from trade_rl.data.contracts import VolumeUnit\n',
+              'from trade_rl.artifacts.hashing import content_digest\n'
+              'from trade_rl.data.contracts import VolumeUnit\n',
+          )
+          text = text.replace(
+              'from trade_rl.simulation.stateful_execution import (\n'
+              '    StatefulExecutionResult,\n'
+              '    execute_stateful_orders,\n'
+              ')\n',
+              'from trade_rl.simulation.stateful_execution import (\n'
+              '    StatefulExecutionResult,\n'
+              '    execute_stateful_orders,\n'
+              ')\n'
+              'from trade_rl.simulation.target_execution import execute_target_statefully\n',
+          )
+          text = text.replace(
+              '_TOLERANCE = 1e-12\n',
+              '_TOLERANCE = 1e-12\n'
+              '_ATTEMPT_EVENT_TYPES = frozenset(\n'
+              '    {"eligible", "triggered", "no_fill", "partial_fill", "filled", "rejected"}\n'
+              ')\n',
+              1,
+          )
+          text = re.sub(
+              r'\n\ndef _target_weights\(.*?\n    return target\n',
+              '\n',
+              text,
+              flags=re.S,
+          )
+          constructor_old = (
+              '        self._validate_rule_stress()\n'
+              '        self._rng = np.random.default_rng(self.cost.random_seed)\n'
+          )
+          constructor_new = constructor_old + (
+              '        self._compatibility_order_book = OrderBookState.empty()\n'
+              '        self._compatibility_last_book: BookState | None = None\n'
+          )
+          if constructor_old not in text:
+              raise SystemExit('execution constructor anchor missing')
+          text = text.replace(constructor_old, constructor_new, 1)
+          reset_old = '''    def reset_random_state(self, seed: int | None = None) -> None:
+        resolved = self.cost.random_seed if seed is None else seed
+        if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
+            raise ValueError("seed must be a non-negative integer")
+        self._rng = np.random.default_rng(resolved)
+'''
+          reset_new = '''    @property
+    def compatibility_order_book(self) -> OrderBookState:
+        return self._compatibility_order_book
+
+    def _reset_compatibility_chain(self) -> None:
+        self._compatibility_order_book = OrderBookState.empty()
+        self._compatibility_last_book = None
+
+    def reset_random_state(self, seed: int | None = None) -> None:
+        resolved = self.cost.random_seed if seed is None else seed
+        if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
+            raise ValueError("seed must be a non-negative integer")
+        self._rng = np.random.default_rng(resolved)
+        self._reset_compatibility_chain()
+'''
+          if reset_old not in text:
+              raise SystemExit('execution reset anchor missing')
+          text = text.replace(reset_old, reset_new, 1)
+          start = text.index('    def execute_interval(\n')
+          end = text.index('    def liquidate_at_close(', start)
+          maintained = '''    def execute_interval(
+        self,
+        book: BookState,
+        target: np.ndarray,
+        *,
+        start_index: int,
+        bars: int,
+    ) -> ExecutionResult:
+        state = (
+            self._compatibility_order_book
+            if book is self._compatibility_last_book
+            else OrderBookState.empty()
+        )
+        target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
+        target_identity = content_digest(
+            {
+                "bars": bars,
+                "dataset_id": self.dataset.dataset_id,
+                "schema_version": "compatibility_target_execution_v1",
+                "start_index": start_index,
+                "target": tuple(float(value) for value in target_vector),
+            }
+        )
+        stateful = execute_target_statefully(
+            self,
+            book,
+            state,
+            target_vector,
+            start_index=start_index,
+            bars=bars,
+            target_identity=target_identity,
+        )
+        self._compatibility_order_book = stateful.order_book
+        self._compatibility_last_book = stateful.book
+
+        attempted = any(
+            event.event_type in _ATTEMPT_EVENT_TYPES for event in stateful.order_events
+        )
+        requested_turnover = stateful.requested_turnover if attempted else 0.0
+        unfilled_turnover = stateful.unfilled_turnover if attempted else 0.0
+        requested_by_symbol = (
+            stateful.requested_notional_by_symbol
+            if attempted
+            else np.zeros_like(stateful.requested_notional_by_symbol)
+        )
+        fill_ratio = stateful.fill_ratio if attempted else 1.0
+        return ExecutionResult(
+            book=stateful.book,
+            next_index=stateful.next_index,
+            bars_advanced=stateful.bars_advanced,
+            interval_gross_return=stateful.interval_gross_return,
+            interval_cost=stateful.interval_cost,
+            interval_funding=stateful.interval_funding,
+            interval_net_return=stateful.interval_net_return,
+            interval_log_return=stateful.interval_log_return,
+            requested_turnover=requested_turnover,
+            filled_turnover=stateful.filled_turnover,
+            unfilled_turnover=unfilled_turnover,
+            fill_count=stateful.fill_count,
+            rebalance_events=stateful.rebalance_events,
+            fill_ratio=fill_ratio,
+            max_participation=stateful.max_participation,
+            interval_borrow_cost=stateful.interval_borrow_cost,
+            interval_dividend=stateful.interval_dividend,
+            interval_cash_interest=stateful.interval_cash_interest,
+            margin_utilization=stateful.book.margin_utilization,
+            termination_reason=stateful.termination_reason,
+            requested_notional_by_symbol=requested_by_symbol,
+            filled_notional_by_symbol=stateful.filled_notional_by_symbol,
+            participation_by_symbol=stateful.participation_by_symbol,
+            cost_by_symbol=stateful.cost_by_symbol,
+        )
+
+'''
+          text = text[:start] + maintained + text[end:]
+          execution.write_text(text, encoding='utf-8')
+
+          (root / 'trade_rl/simulation/execution_adapter.py').write_text(
+              '''"""Compatibility import for the canonical maintained executor."""
+
+from trade_rl.simulation.execution import MarketExecutor
+
+StatefulCompatibilityMarketExecutor = MarketExecutor
+
+__all__ = ["StatefulCompatibilityMarketExecutor"]
+''',
+              encoding='utf-8',
+          )
+          (root / 'trade_rl/simulation/__init__.py').write_text(
+              '''"""Portfolio execution and accounting simulation."""
+
+from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
+from trade_rl.simulation.execution import (
+    ExecutionCostConfig,
+    ExecutionResult,
+    MarketExecutor,
+)
+
+__all__ = [
+    "BookState",
+    "EconomicTerminationReason",
+    "ExecutionCostConfig",
+    "ExecutionResult",
+    "MarketExecutor",
+]
+''',
+              encoding='utf-8',
+          )
+
+          pyproject = root / 'pyproject.toml'
+          project_text = pyproject.read_text(encoding='utf-8')
+          project_text = re.sub(
+              r'\n# These two clauses belong.*?exclude_also = \[.*?\n\]\n',
+              '\n',
+              project_text,
+              flags=re.S,
+          )
+          pyproject.write_text(project_text, encoding='utf-8')
+
+          indexed = (root / 'trade_rl/telemetry/indexed_training.py').read_text(
+              encoding='utf-8'
+          )
+          indexed = indexed.replace(
+              '"""Strict append-only telemetry parsing with an identity-bound sparse index."""',
+              '"""Private process-safe indexed storage for training telemetry."""',
+          )
+          indexed = indexed.replace(
+              'from typing import Any, BinaryIO, Self, cast\n',
+              'from typing import BinaryIO, Self\n',
+          )
+          indexed = indexed.replace(
+              '_BaseRecord = _training.TrainingTelemetryRecord\n'
+              '_BaseWriter = _training.TrainingTelemetryWriter\n',
+              '_BaseRecord = _training.TrainingTelemetryRecord\n',
+          )
+          indexed = re.sub(
+              r'\n\ndef _required_bool\(.*?\n\n\nclass StrictTrainingTelemetryRecord\(_BaseRecord\):.*?return super\(\)\.from_json_dict\(value\)\n',
+              '\n',
+              indexed,
+              flags=re.S,
+          )
+          indexed = indexed.replace(
+              'def _parse_record(raw_line: bytes) -> StrictTrainingTelemetryRecord:\n'
+              '    return StrictTrainingTelemetryRecord.from_json_dict(',
+              'def _parse_record(raw_line: bytes) -> _training.TrainingTelemetryRecord:\n'
+              '    return _training.TrainingTelemetryRecord.from_json_dict(',
+          )
+          indexed = indexed.replace(
+              'items: list[StrictTrainingTelemetryRecord] = []',
+              'items: list[_training.TrainingTelemetryRecord] = []',
+          )
+          indexed = indexed.replace(
+              'def read_indexed_training_telemetry(',
+              'def _read_training_telemetry(',
+          )
+          indexed = indexed.replace(
+              'def indexed_training_telemetry_status(',
+              'def _training_telemetry_status(',
+          )
+          indexed = indexed.replace(
+              'class IndexedTrainingTelemetryWriter(_BaseWriter):',
+              'class _IndexedTrainingTelemetryWriter:',
+          )
+          indexed = re.sub(
+              r'\n\n__all__ = \[.*?\n\]\n?$',
+              '\n\n__all__ = [\n'
+              '    "_IndexedTrainingTelemetryWriter",\n'
+              '    "_read_training_telemetry",\n'
+              '    "_training_telemetry_status",\n'
+              ']\n',
+              indexed,
+              flags=re.S,
+          )
+          (root / 'trade_rl/telemetry/_indexed_storage.py').write_text(
+              indexed, encoding='utf-8'
+          )
+
+          training_path = root / 'trade_rl/telemetry/training.py'
+          training = training_path.read_text(encoding='utf-8')
+          training = training.replace('import json\n', '')
+          training = training.replace('import threading\n', '')
+          training = training.replace('from types import TracebackType\n', '')
+          training = training.replace(
+              'from typing import IO, Any, Literal, Self, cast\n',
+              'from typing import Any, Literal, Self, cast\n',
+          )
+          required_bool = '''
+
+_BOOLEAN_ERRORS = {
+    "emergency_deleverage": "telemetry emergency_deleverage must be a boolean",
+    "terminated": "telemetry terminated must be a boolean",
+    "truncated": "telemetry truncated must be a boolean",
+}
+
+
+def _required_bool(raw: dict[str, Any], name: str) -> bool:
+    if name not in raw or not isinstance(raw[name], bool):
+        raise ValueError(_BOOLEAN_ERRORS[name])
+    return cast(bool, raw[name])
+'''
+          int_anchor = 'def _required_int(raw: dict[str, Any], name: str, *, minimum: int = 0) -> int:\n'
+          if int_anchor not in training:
+              raise SystemExit('telemetry integer anchor missing')
+          training = training.replace('\n\n' + int_anchor, required_bool + '\n\n' + int_anchor, 1)
+          training = training.replace(
+              '            emergency_deleverage=bool(raw.get("emergency_deleverage", False)),\n'
+              '            terminated=bool(raw.get("terminated", False)),\n'
+              '            truncated=bool(raw.get("truncated", False)),\n',
+              '            emergency_deleverage=_required_bool(raw, "emergency_deleverage"),\n'
+              '            terminated=_required_bool(raw, "terminated"),\n'
+              '            truncated=_required_bool(raw, "truncated"),\n',
+          )
+          public_start = training.index('\n\nclass TrainingTelemetryWriter:')
+          public_end = training.index('\n\n__all__ = [', public_start)
+          public_storage = '''
+
+from trade_rl.telemetry._indexed_storage import (  # noqa: E402
+    _IndexedTrainingTelemetryWriter,
+    _read_training_telemetry,
+    _training_telemetry_status,
+)
+
+
+class TrainingTelemetryWriter(_IndexedTrainingTelemetryWriter):
+    """Canonical process-safe append-only telemetry writer."""
+
+
+def read_training_telemetry(
+    path: Path,
+    *,
+    after_sequence: int = 0,
+    limit: int = 512,
+    expected_generation: str | None = None,
+) -> TrainingTelemetryPage:
+    return _read_training_telemetry(
+        path,
+        after_sequence=after_sequence,
+        limit=limit,
+        expected_generation=expected_generation,
+    )
+
+
+def training_telemetry_status(path: Path) -> TrainingTelemetryStatus:
+    return _training_telemetry_status(path)
+'''
+          training = training[:public_start] + public_storage + training[public_end:]
+          training_path.write_text(training, encoding='utf-8')
+
+          (root / 'trade_rl/telemetry/indexed_training.py').write_text(
+              '''"""Compatibility imports for canonical training telemetry contracts."""
+
+from trade_rl.telemetry.training import (
+    TrainingTelemetryRecord,
+    TrainingTelemetryWriter,
+    read_training_telemetry,
+    training_telemetry_status,
+)
+
+StrictTrainingTelemetryRecord = TrainingTelemetryRecord
+IndexedTrainingTelemetryWriter = TrainingTelemetryWriter
+read_indexed_training_telemetry = read_training_telemetry
+indexed_training_telemetry_status = training_telemetry_status
+
+__all__ = [
+    "IndexedTrainingTelemetryWriter",
+    "StrictTrainingTelemetryRecord",
+    "indexed_training_telemetry_status",
+    "read_indexed_training_telemetry",
+]
+''',
+              encoding='utf-8',
+          )
+          (root / 'trade_rl/telemetry/__init__.py').write_text(
+              '''"""Training telemetry contracts and append-only indexed storage."""
+
+from trade_rl.telemetry.training import (
+    TELEMETRY_SCHEMA_VERSION,
+    TelemetryEventType,
+    TrainingTelemetryPage,
+    TrainingTelemetryRecord,
+    TrainingTelemetryStatus,
+    TrainingTelemetryWriter,
+    read_training_telemetry,
+    training_telemetry_status,
+)
+
+__all__ = [
+    "TELEMETRY_SCHEMA_VERSION",
+    "TelemetryEventType",
+    "TrainingTelemetryPage",
+    "TrainingTelemetryRecord",
+    "TrainingTelemetryStatus",
+    "TrainingTelemetryWriter",
+    "read_training_telemetry",
+    "training_telemetry_status",
+]
+''',
+              encoding='utf-8',
+          )
+
+          studio_path = root / 'trade_rl/studio/telemetry.py'
+          studio = studio_path.read_text(encoding='utf-8')
+          studio_old = '''            for candidate in sorted(run_root.rglob(_TELEMETRY_NAME)):
+                resolved = candidate.resolve()
+                try:
+                    resolved.relative_to(run_root)
+                except ValueError as error:
+                    raise ArtifactInvalid(
+                        "telemetry file escapes artifact root"
+                    ) from error
+                if not resolved.is_file() or resolved.is_symlink():
+                    continue
+                seed = self._seed_from_path(resolved, run_root=run_root)
+                if seed is not None:
+                    streams.setdefault(seed, resolved)
+'''
+          studio_new = '''            for candidate in sorted(run_root.rglob(_TELEMETRY_NAME)):
+                resolved = candidate.resolve()
+                try:
+                    resolved.relative_to(run_root)
+                except ValueError as error:
+                    raise ArtifactInvalid(
+                        "telemetry file escapes artifact root"
+                    ) from error
+                if not resolved.is_file() or candidate.is_symlink():
+                    continue
+                seed = self._seed_from_path(resolved, run_root=run_root)
+                if seed is None:
+                    continue
+                previous = streams.get(seed)
+                if previous is not None and previous != resolved:
+                    raise ArtifactInvalid(
+                        f"multiple telemetry streams claim seed {seed}"
+                    )
+                streams[seed] = resolved
+'''
+          if studio_old not in studio:
+              raise SystemExit('studio telemetry discovery anchor missing')
+          studio_path.write_text(studio.replace(studio_old, studio_new, 1), encoding='utf-8')
+          (root / 'trade_rl/studio/strict_telemetry.py').write_text(
+              '''"""Compatibility import for canonical Studio telemetry discovery."""
+
+from trade_rl.studio.telemetry import StudioTelemetryReader
+
+StrictStudioTelemetryReader = StudioTelemetryReader
+
+__all__ = ["StrictStudioTelemetryReader"]
+''',
+              encoding='utf-8',
+          )
+          api_path = root / 'trade_rl/studio/api.py'
+          api = api_path.read_text(encoding='utf-8')
+          api = api.replace(
+              'from trade_rl.studio.strict_telemetry import (\n'
+              '    StrictStudioTelemetryReader as StudioTelemetryReader,\n'
+              ')\n'
+              'from trade_rl.studio.telemetry import TelemetryEventsResponse, TelemetryStatusResponse\n',
+              'from trade_rl.studio.telemetry import (\n'
+              '    StudioTelemetryReader,\n'
+              '    TelemetryEventsResponse,\n'
+              '    TelemetryStatusResponse,\n'
+              ')\n',
+          )
+          api_path.write_text(api, encoding='utf-8')
+
+          telemetry_test = root / 'tests/telemetry/test_training.py'
+          test_text = telemetry_test.read_text(encoding='utf-8').replace(
+              'from trade_rl.telemetry import indexed_training as indexed\n',
+              'from trade_rl.telemetry import _indexed_storage as indexed\n',
+          )
+          telemetry_test.write_text(test_text, encoding='utf-8')
+
+          coverage_test = root / 'tests/simulation/test_critical_branch_coverage.py'
+          coverage = coverage_test.read_text(encoding='utf-8')
+          obsolete = '''def test_target_weight_and_random_seed_validation() -> None:
+    with pytest.raises(ValueError, match="maximum_gross"):
+        execution_module._target_weights(np.array([0.0]), n_symbols=1, maximum_gross=0)
+    with pytest.raises(ValueError, match="shape"):
+        execution_module._target_weights(
+            np.array([0.0, 0.0]), n_symbols=1, maximum_gross=1
+        )
+    with pytest.raises(ValueError, match="finite"):
+        execution_module._target_weights(
+            np.array([np.nan]), n_symbols=1, maximum_gross=1
+        )
+    with pytest.raises(ValueError, match="gross"):
+        execution_module._target_weights(np.array([2.0]), n_symbols=1, maximum_gross=1)
+
+    executor = MarketExecutor(market(), ExecutionCostConfig.zero())
+'''
+          replacement = '''def test_random_seed_validation() -> None:
+    executor = MarketExecutor(market(), ExecutionCostConfig.zero())
+'''
+          if obsolete not in coverage:
+              raise SystemExit('obsolete target coverage anchor missing')
+          coverage_test.write_text(coverage.replace(obsolete, replacement, 1), encoding='utf-8')
+          PY
+
+      - name: Format and verify focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/simulation \
+            trade_rl/telemetry \
+            trade_rl/studio \
+            tests/simulation/test_critical_branch_coverage.py \
+            tests/telemetry/test_training.py
+          uv run ruff check \
+            trade_rl/simulation \
+            trade_rl/telemetry \
+            trade_rl/studio \
+            tests/simulation/test_critical_branch_coverage.py \
+            tests/telemetry/test_training.py \
+            tests/architecture/test_direct_maintained_contract_exports.py
+          uv run mypy .
+          uv run pytest -q \
+            tests/architecture/test_direct_maintained_contract_exports.py \
+            tests/architecture/test_architecture_followup.py \
+            tests/simulation \
+            tests/telemetry \
+            tests/studio/test_telemetry_api.py \
+            tests/integrations/test_training_telemetry.py
+
+      - name: Commit canonical ownership migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-direct-maintained-exports.yml
+          rm .github/direct-maintained-exports-trigger
+          rm -f .github/workflows/tmp-direct-exports-source.yml
+          git add -A
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "refactor: make public modules own maintained contracts"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

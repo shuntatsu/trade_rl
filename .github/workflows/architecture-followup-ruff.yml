@@ -1,0 +1,50 @@
+name: Architecture Follow-up Ruff Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/architecture-followup-ruff.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-followup-ruff
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/fix-architecture-followup-20260722
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3 --extra studio
+      - name: Sort imports
+        run: uv run ruff check --fix trade_rl tests
+      - name: Format
+        run: uv run ruff format trade_rl tests
+      - name: Verify static checks and focused tests
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -q tests/architecture/test_architecture_followup.py tests/simulation/test_stateful_execution_adapter.py tests/telemetry/test_training.py tests/studio/test_telemetry_api.py tests/catalog
+      - name: Commit fixes
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl tests
+          git commit -m "style: sort explicit facade imports"
+      - name: Push fixes
+        run: git push origin HEAD:agent/fix-architecture-followup-20260722

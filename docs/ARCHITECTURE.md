@@ -32,23 +32,23 @@ trade_rl/
 The enforced Import Linter layer order is exactly:
 
 ```text
-trade_rl.cli
-  -> trade_rl.studio
-  -> trade_rl.workflows
-  -> trade_rl.integrations
-  -> trade_rl.serving
-  -> trade_rl.learning
-  -> trade_rl.rl
-  -> trade_rl.risk
-  -> trade_rl.simulation
-  -> trade_rl.strategies
-  -> trade_rl.data
-  -> trade_rl.catalog
-  -> trade_rl.evaluation
-  -> trade_rl.release
-  -> trade_rl.artifacts
-  -> trade_rl.telemetry
-  -> trade_rl.domain
+cli
+  -> studio
+  -> workflows
+  -> integrations
+  -> serving
+  -> learning
+  -> rl
+  -> risk
+  -> simulation
+  -> strategies
+  -> data
+  -> catalog
+  -> evaluation
+  -> release
+  -> artifacts
+  -> telemetry
+  -> domain
 ```
 
 `domain` is standard-library only. `telemetry` is explicitly placed below artifacts and is forbidden from importing NumPy, Gymnasium, model frameworks, psycopg, numerical/research layers, or upper application layers. `release` cannot depend on evaluation, data, simulation, RL, serving, integrations, workflows, Studio, or model frameworks. `learning` and the core training protocol cannot depend on Stable-Baselines3, sb3-contrib, or Torch. `workflows` may use integration interfaces but may not directly import model frameworks. Serving cannot import training workflows or Stable-Baselines3. Runtime, training, and Studio paths cannot import offline signing modules. Catalog contracts cannot depend on NumPy, model frameworks, psycopg, data, RL, learning, integrations, workflows, or CLI.
@@ -152,7 +152,7 @@ A seed stream can currently contain records from multiple vector `environment_id
 
 ONNX and TorchScript export a deterministic actor wrapper rather than optimizer state. Each export is compared with Stable-Baselines3 deterministic predictions on a fixed finite corpus. Requested ONNX failure rejects the run. TorchScript is best-effort and records an explicit unsupported reason when conversion cannot be proven safe.
 
-Candidate bundle identity `serving_bundle_v5` binds action size/names/spec digest, observation schema/size, environment, normalizers, alpha/factor artifacts, selected-final run, selection proposal and authorization, walk-forward/gate evidence, fresh confirmation, execution evidence, and policy-loader contract. Approval remains detached from bundle identity. An offline Ed25519 signer creates a purpose-bound `ReleaseAttestation`; registry and runtime load public verification keys only.
+Candidate bundle v5 identity `serving_bundle_v5` binds action size/names/spec digest, observation schema/size, environment, normalizers, alpha/factor artifacts, selected-final run, selection proposal and authorization, walk-forward/gate evidence, fresh confirmation, execution evidence, and policy-loader contract. Approval remains detached from bundle identity. An offline Ed25519 signer creates a purpose-bound `ReleaseAttestation`; registry and runtime load public verification keys only.
 
 `StableBaselines3PolicyLoader` lives in the integration layer. It verifies `policy-loader.json`, loads every PPO, SAC, TD3, or TQC member, and executes deterministic probe observations before runtime activation. Every member must return a finite dynamic action vector inside `[-1, 1]`; the ensemble is averaged only when all members succeed. Structured prediction requires a monotonic identity-bound `ServingStateSnapshot`.
 

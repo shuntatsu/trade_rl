@@ -93,7 +93,7 @@ Independent folds are summarized as a distribution with median, weighted mean, w
 
 ## Serving and activation contract
 
-Serving candidate bundle identity is `serving_bundle_v5`. The bundle binds runtime contracts and declared files but contains no private approval material. A detached `ReleaseAttestation` binds the immutable bundle to verified dataset, selection/evaluation/gate evidence, fresh confirmation, conservative execution evidence, selected policy, source commit, dependency provenance, approver, approval time, and expiry.
+Serving candidate bundle v5 identity is `serving_bundle_v5`. The bundle binds runtime contracts and declared files but contains no private approval material. A detached `ReleaseAttestation` binds the immutable bundle to verified dataset, selection/evaluation/gate evidence, fresh confirmation, conservative execution evidence, selected policy, source commit, dependency provenance, approver, approval time, and expiry.
 
 Registry and runtime require a purpose-bound trusted public key. Unknown-key, unsigned, expired, or tampered attestations fail closed. Before activation, the runtime verifies file closure, rejects symlinks, loads shared normalizers and adapters, and executes deterministic probe observations through every policy member. Structured predictions require a monotonic identity-bound `ServingStateSnapshot` including persistent execution state.
 

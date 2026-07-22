@@ -71,11 +71,20 @@ def test_current_schema_contracts_are_documented() -> None:
 
 def test_architecture_layer_order_matches_import_linter() -> None:
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
-    configured = _configured_layers()
-    assert "trade_rl.telemetry" in configured
-    positions = tuple(architecture.index(layer) for layer in configured)
-    assert positions == tuple(sorted(positions))
-    telemetry_start = architecture.index("trade_rl.telemetry")
+    configured = tuple(
+        layer.removeprefix("trade_rl.") for layer in _configured_layers()
+    )
+    assert "telemetry" in configured
+    marker = "The enforced Import Linter layer order is exactly:"
+    documented_section = architecture.split(marker, maxsplit=1)[1]
+    documented_block = documented_section.split("```", maxsplit=2)[1]
+    documented = tuple(
+        line.strip().removeprefix("-> ")
+        for line in documented_block.splitlines()
+        if line.strip() and line.strip() != "text"
+    )
+    assert documented == configured
+    telemetry_start = architecture.index("`telemetry` is explicitly placed")
     telemetry_context = architecture[telemetry_start : telemetry_start + 360].lower()
     for stale in (
         "outside the enforced",

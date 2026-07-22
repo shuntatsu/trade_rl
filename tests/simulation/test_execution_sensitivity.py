@@ -46,6 +46,11 @@ def test_execution_rule_stress_rejects_empty_name() -> None:
         ExecutionRuleStress(name="")
 
 
+def test_execution_rule_stress_rejects_factor_below_one() -> None:
+    with pytest.raises(ValueError, match="tick_size_factor"):
+        ExecutionRuleStress(tick_size_factor=0.5)
+
+
 def test_execution_rule_stress_rejects_non_boolean_rounding_flag() -> None:
     with pytest.raises(ValueError, match="adverse_tick_rounding must be a boolean"):
         ExecutionRuleStress(adverse_tick_rounding=1)  # type: ignore[arg-type]

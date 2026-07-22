@@ -1,13 +1,12 @@
 # Environment Runtime Decomposition Verification
 
-Date: 2026-07-22
+Date: 2026-07-23
 
-Branch: `agent/decompose-environment-runtime-20260722`
+Merged pull request: #92
 
-Pull request: #80
+Merge commit: `6cf23b98698f5d53ec40629dd723efc4bd4cfbb6`
 
-Dependency base: PR #79 head
-`edaa6930ffb0b351ae5a8aa9afa6c80d47ca5e27`
+Verified implementation head: `86874d7122beef9247c67f89d41a3266a1164492`
 
 ## Scope
 
@@ -62,70 +61,95 @@ Service implementation verification:
 - workflow run: `29908220862`
 - job: `88884667478`
 - Ruff formatting: passed
-- Mypy across the repository: passed
+- repository-wide Mypy: passed
 - focused service tests: 18 passed
-- source and tests committed and pushed by the verified job
 
 Facade integration verification:
 
 - workflow run: `29909051489`, rerun attempt
 - job: `88887782701`
 - strict source transformation anchors: passed
-- Ruff/static integration: passed
+- Ruff and static integration: passed
 - Mypy: passed
-- environment, serving-parity, and stateful-replay regression tests: passed
-- integration commit and push: passed
+- environment, Serving-parity, and stateful-replay regression tests: passed
 
 The first integration attempt exposed a pre-existing nondeterministic Torch
 gradient comparison outside the modified environment code. The exact same job was
 rerun without code changes and passed. No production tolerance or test threshold
 was changed.
 
-## Exact-head full verification
+## Clean current-main reconstruction
 
-Code and coverage-ratchet head:
+The original PR #80 was stacked on the unsquashed PR #79 history. After PR #79 was
+squash-merged, the history could not be synchronized cleanly without repeating
+already-merged files.
 
-`549e5b9870931364caabb5d0ad00ffdfcd653c92`
+PR #92 therefore recreated the already-verified decomposition directly from
+current `main` at `464c14669bd2355b6922e6813870030bcf6cc745`.
 
-GitHub Actions CI run `29909971144`: success.
+The effective change contained exactly 14 files:
+
+- four new environment runtime service modules;
+- `ResidualMarketEnv` orchestration changes;
+- one architecture ownership contract;
+- four focused service test modules;
+- one measured branch-coverage group;
+- design, implementation-plan, and verification documentation.
+
+No PR #79 implementation file was repeated. No temporary transplant workflow,
+patch script, or generated file remained in the merged diff.
+
+## Exact-head verification
+
+GitHub Actions CI run `29955899116`: success.
 
 - exact-head checkout: passed
-- Studio tests, TypeScript checking, production build, and fixed-viewport layout:
+- Studio Vitest, TypeScript, production build, and fixed-viewport validation:
   passed
 - workflow-security validation: passed
-- Ruff and format check: passed
+- Ruff and format: passed
 - Mypy: passed
 - Import Linter architecture contracts: passed
 - dead-code report: passed
 - recovery and structured Serving smoke: passed
-- full Pytest: `1184 passed, 2 skipped, 11 warnings`
-- full-suite duration: 89.61 seconds
+- full Pytest: `1193 passed, 2 skipped, 11 warnings`
 - total coverage: `83.55%`
 - total branch coverage: `70.46%`
-- critical branch-coverage checker: passed
+- critical branch-coverage ratchets: passed
 - CLI smoke: passed
 - Ubuntu compatibility: passed
 - Windows compatibility: passed
 - complete training-image build and packaged non-root runtime probe: passed
 
-Pytest diagnostics artifact:
+Exact-head artifacts:
 
-- artifact: `8525525728`
-- digest:
-  `sha256:ecf7e7f8e362927aca7fd018602328c83865ff260fb6c65121643a7a227ef738`
+- Pytest diagnostics: `8544086297`, digest
+  `sha256:f44664ca5384e1d7335e5501b9d6aa84fb58397778d1dca1637f954dd8e1a0e9`
+- architecture diagnostics: `8544044684`, digest
+  `sha256:08af2ea2c1e9e3ba1d7ad77845ddff083d8e15191979126fe89f41e1886050b2`
+- static diagnostics: `8544044262`, digest
+  `sha256:fed4e3ed151393f7e2950916761bdbc9a03a37a966f290fbf9c08a2b274d6b91`
+- training-image evidence: `8544037302`, digest
+  `sha256:e4311e0ef41c348d88b764c40a205b2ee554c4cb3c66f0c6ddf4feeeaa42589c`
+- Studio layout diagnostics: `8544033273`, digest
+  `sha256:a6c369cd0ffd0617d1154cff2a92f7f23a4a18b8a1e47c3f6e9aae465f4c7cdf`
+- Windows compatibility: `8544028938`, digest
+  `sha256:9a68f30cc46cf0c84a3d37056c79a9ae43e0df8f5b1b22ee49f3c6160bc6185e`
+- Ubuntu compatibility: `8544024734`, digest
+  `sha256:6f87cfa29f825a4a6c13c626ae54e1f9dcd2d2b5bf42f44d41c248c97f9cbaa4`
 
-PostgreSQL Catalog run `29909971171`: success.
+PostgreSQL Catalog run `29955899222`: success.
 
 - exact-head checkout: passed
 - Compose validation: passed
 - PostgreSQL startup and readiness: passed
-- migration: passed
+- installation and migration: passed
 - unit and integration tests: passed
-- volume cleanup: passed
+- shutdown and cleanup: passed
 
 ## Coverage ratchet
 
-The new service group contains:
+The environment-step service group contains:
 
 - `trade_rl/rl/environment_decision.py`
 - `trade_rl/rl/environment_risk.py`
@@ -139,36 +163,28 @@ Observed aggregate branch coverage:
 - observed: `86.8421%`
 - configured minimum: `86.8%`
 
-The existing `environment_runtime` minimum remains `64.0%`; it was not reduced.
+The existing `environment_runtime` minimum remains unchanged at `64.0%`.
 
-## Compatibility review
+## Architecture review
 
-A commit comparison from PR #79 head to the ratchet head showed the P2-specific
-change is limited to the four service modules, `ResidualMarketEnv`, focused tests,
-coverage configuration, and design/plan documentation.
-
-Review conclusions:
-
-- books, order books, pending targets, indices, position age, previous action, and
-  diagnostics remain mutable only in `ResidualMarketEnv`;
-- services return new dataclass results or dictionaries and do not mutate facade
-  state;
+- books, order books, pending targets, indices, position ages, previous action,
+  and diagnostics remain mutable only in `ResidualMarketEnv`;
+- the extracted services consume explicit request dataclasses and return results
+  which the facade applies in the previous order;
 - legacy two-value residual action migration is preserved;
 - zero-delay and one-decision-delay target semantics are preserved;
 - emergency, pre-trade, and portfolio-risk reason ordering is preserved;
-- reward inputs remain numerically identical to the previous facade code;
+- reward inputs remain numerically equivalent to the previous facade mapping;
 - optional discarded-target and liquidation information conditions are
   preserved;
-- terminal performance metrics use the same return-series and evaluation
-  functions as before;
-- no temporary patch script or temporary verification workflow remains in the
-  pull-request diff.
-
-No critical or important review issue remained at this checkpoint.
+- terminal performance metrics retain the same return-series and evaluation
+  functions;
+- no unresolved critical or important review issue remained before merge.
 
 ## Safety boundary
 
 - production remains `NO-GO`;
 - direct exchange routing is not implemented;
 - no profitability or exchange-equivalent fill claim is introduced;
-- PR #80 remains Draft and is not merged.
+- this verification records an architecture and regression result, not production
+  authorization.

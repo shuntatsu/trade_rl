@@ -26,7 +26,7 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra studio --extra train-sb3
-      - name: Align telemetry and policy typing
+      - name: Align telemetry response typing
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -70,30 +70,13 @@ jobs:
               raise RuntimeError("telemetry response anchor changed")
           source = source.replace(response_anchor, response_replacement, 1)
           telemetry.write_text(source, encoding="utf-8")
-
-          policies = Path("trade_rl/rl/policies.py")
-          policy_source = policies.read_text(encoding="utf-8")
-          for old, new in (
-              (
-                  "self.mlp_extractor = SharedAssetActorCriticExtractor(  # type: ignore[assignment]",
-                  "self.mlp_extractor = SharedAssetActorCriticExtractor(",
-              ),
-              (
-                  "self.optimizer = self.optimizer_class(  # type: ignore[call-arg]",
-                  "self.optimizer = self.optimizer_class(",
-              ),
-          ):
-              if policy_source.count(old) != 1:
-                  raise RuntimeError(f"policy typing anchor changed: {old}")
-              policy_source = policy_source.replace(old, new, 1)
-          policies.write_text(policy_source, encoding="utf-8")
           PY
       - name: Ruff and format
         shell: bash
         run: |
           set -o pipefail
-          uv run ruff check --fix trade_rl/studio/telemetry.py trade_rl/rl/policies.py 2>&1 | tee ruff-fix.log
-          uv run ruff format trade_rl/studio/telemetry.py trade_rl/rl/policies.py 2>&1 | tee format-fix.log
+          uv run ruff check --fix trade_rl/studio/telemetry.py 2>&1 | tee ruff-fix.log
+          uv run ruff format trade_rl/studio/telemetry.py 2>&1 | tee format-fix.log
       - name: Mypy
         shell: bash
         run: |
@@ -103,7 +86,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q tests/studio/test_telemetry_api.py tests/telemetry/test_training.py tests/rl/test_shared_asset_policy.py 2>&1 | tee pytest-fix.log
+          uv run pytest -q tests/studio/test_telemetry_api.py tests/telemetry/test_training.py 2>&1 | tee pytest-fix.log
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -120,7 +103,7 @@ jobs:
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/studio/telemetry.py trade_rl/rl/policies.py
-          git commit -m "fix: align explicit facade typing"
+          git add trade_rl/studio/telemetry.py
+          git commit -m "fix: align telemetry page response typing"
       - name: Push fix
         run: git push origin HEAD:agent/fix-architecture-followup-20260722

@@ -102,7 +102,9 @@ def test_catalog_has_single_canonical_json_and_sealed_test_sql_owners() -> None:
     postgres = _source("trade_rl/catalog/postgres.py")
     sealed_store = _source("trade_rl/catalog/postgres_sealed_test.py")
 
-    assert "from trade_rl.domain.canonical_json import canonical_json_bytes" in contracts
+    assert (
+        "from trade_rl.domain.canonical_json import canonical_json_bytes" in contracts
+    )
     assert "def canonical_json_bytes(" not in contracts
     assert "INSERT INTO catalog_sealed_test_access" not in postgres
     assert "PostgresSealedTestReservationStore" in postgres

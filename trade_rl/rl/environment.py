@@ -45,19 +45,25 @@ from trade_rl.rl.episode import (
     complete_reward_history_steps,
     minimum_reward_start_index,
 )
+from trade_rl.rl.environment_episode import EpisodeContractSampler
+from trade_rl.rl.environment_execution import (
+    EnvironmentExecutionCoordinator,
+    TargetExecutionRequest,
+)
+from trade_rl.rl.environment_observation import (
+    EnvironmentObservationAssembler,
+    EnvironmentObservationRuntime,
+)
+from trade_rl.rl.environment_transition import EnvironmentTerminationCoordinator
 from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
     OBSERVATION_SCHEMA,
     ObservationBuilder,
     ObservationExecutionState,
-    ObservationInput,
     PendingOrderObservationState,
     PolicyObservationSnapshot,
-    book_state_vector,
-    observation_availability_mask,
     observation_passthrough_indices,
-    observation_staleness_vector,
 )
 from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
@@ -70,22 +76,17 @@ from trade_rl.rl.sequence_observations import (
     SequencePolicyPlane,
     SequenceWindowSpec,
     build_sequence_policy_plane,
-    build_structured_current_observation,
-    build_structured_policy_observation,
 )
-from trade_rl.rl.transition import classify_economic_transition
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
     ExecutionResult,
     ExecutionRuleStress,
     MarketExecutor,
 )
-from trade_rl.simulation.order_reconciliation import reconcile_target
-from trade_rl.simulation.orders import OrderBookState, OrderType, TimeInForce
+from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.stateful_execution import StatefulExecutionResult
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
 
-_LIQUIDATION_TOLERANCE = 1e-12
 
 
 class AlphaProvider(Protocol):
@@ -533,6 +534,36 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             shape=(self.action_spec.size,),
             dtype=np.float32,
         )
+        self._episode_sampler = EpisodeContractSampler(
+            dataset,
+            self.config,
+            minimum_start_index=self._minimum_start_index,
+        )
+        self._execution_coordinator = EnvironmentExecutionCoordinator(
+            dataset,
+            self.config.execution_cost,
+            initial_capital=self.config.initial_capital,
+        )
+        self._observation_assembler = EnvironmentObservationAssembler(
+            dataset,
+            observation_builder=self.observation_builder,
+            layout=self.layout,
+            normalizer=self.normalizer,
+            sequence_observation_builder=self.sequence_observation_builder,
+            sequence_policy_plane=self.sequence_policy_plane,
+            sequence_normalizer=self.sequence_normalizer,
+            action_size=self.action_spec.size,
+            n_factors=self.action_spec.n_factors,
+            finite_horizon=self.config.finite_horizon_observation,
+        )
+        self._termination_coordinator = EnvironmentTerminationCoordinator(
+            config=self.config,
+            reward_tracker=self.reward_tracker,
+            pre_trade_risk=self.pre_trade_risk,
+            hybrid_executor=self.hybrid_executor,
+            shadow_executor=self.shadow_executor,
+            execution_coordinator=self._execution_coordinator,
+        )
         self._environment_digest = content_digest(self._digest_payload())
 
         self.start_index = self._minimum_start_index
@@ -559,7 +590,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
         self._action_diagnostics = ActionDiagnosticsAccumulator()
         self._has_reset = False
-        self._valid_start_cache: dict[tuple[float, int | None], np.ndarray] = {}
 
     @staticmethod
     def _resolve_provider_digest(
@@ -809,251 +839,71 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
         return trends, alpha, self._factor_basis_at(self.current_index)
 
-    def _pending_order_observation_state(self) -> PendingOrderObservationState:
-        multipliers = self.hybrid.contract_multipliers
-        if multipliers is None:
-            raise RuntimeError("hybrid book is missing contract multipliers")
-        return PendingOrderObservationState.from_order_book(
-            self._hybrid_order_book,
-            n_symbols=self.dataset.n_symbols,
+    def _observation_runtime(self) -> EnvironmentObservationRuntime:
+        return EnvironmentObservationRuntime(
             current_index=self.current_index,
-            reference_prices=self.dataset.resolved_array("mark_price")[
-                self.current_index
-            ],
-            contract_multipliers=multipliers,
-            portfolio_value=max(self.hybrid.portfolio_value, _LIQUIDATION_TOLERANCE),
+            start_index=self.start_index,
+            end_index=self.end_index,
+            hybrid=self.hybrid,
+            shadow=self.shadow,
+            hybrid_order_book=self._hybrid_order_book,
+            execution_state=self._execution_state,
+            previous_action=self._previous_action,
+            pending_hybrid_target=self._pending_hybrid_target,
+        )
+
+    def _pending_order_observation_state(self) -> PendingOrderObservationState:
+        return self._observation_assembler.pending_order_state(
+            self._observation_runtime()
         )
 
     def _flat_observation_pair(self) -> tuple[np.ndarray, np.ndarray]:
         trends, alpha, factor_basis = self._market_inputs()
-        raw = self.observation_builder.build(
-            ObservationInput(
-                dataset=self.dataset,
-                index=self.current_index,
-                trends=trends,
-                alpha=alpha,
-                factor_basis=factor_basis,
-                hybrid=self.hybrid,
-                shadow=self.shadow,
-                start_index=self.start_index,
-                end_index=self.end_index,
-                hybrid_risk_scale=self.pre_trade_risk.risk_scale(
-                    self._drawdown(self.hybrid)
-                ),
-                shadow_risk_scale=self.pre_trade_risk.risk_scale(
-                    self._drawdown(self.shadow)
-                ),
-                execution_state=self._execution_state,
-                pending_order_state=self._pending_order_observation_state(),
-                previous_action=self._previous_action,
-                action_size=self.action_spec.size,
-                finite_horizon=self.config.finite_horizon_observation,
-            )
+        return self._observation_assembler.flat_pair(
+            self._observation_runtime(),
+            trends=trends,
+            alpha=alpha,
+            factor_basis=factor_basis,
+            pre_trade_risk=self.pre_trade_risk,
         )
-        current = raw if self.normalizer is None else self.normalizer.transform(raw)
-        return raw, current
 
     def observation_snapshot(self) -> PolicyObservationSnapshot:
         """Export the exact current training observation for serving parity."""
 
         if not self._has_reset:
             raise RuntimeError("environment must be reset before exporting observation")
-        raw, current = self._flat_observation_pair()
-        pending = (
-            np.zeros(self.dataset.n_symbols, dtype=np.float64)
-            if self._pending_hybrid_target is None
-            else self._pending_hybrid_target.copy()
-        )
-        order_state = self._pending_order_observation_state()
-        return PolicyObservationSnapshot(
-            dataset_id=self.dataset.dataset_id,
-            index=self.current_index,
-            symbols=self.dataset.symbols,
-            feature_names=self.dataset.feature_names,
-            global_feature_names=self.dataset.global_feature_names,
-            availability_mask=observation_availability_mask(
-                self.dataset, self.current_index
-            ),
-            staleness=observation_staleness_vector(self.dataset, self.current_index),
-            hybrid_book_state=book_state_vector(self.hybrid),
-            shadow_book_state=book_state_vector(self.shadow),
-            pending_target=pending,
-            previous_action=self._previous_action,
-            pending_order_remaining=order_state.remaining_notional_ratio,
-            pending_order_type=order_state.order_type_code,
-            pending_order_status=order_state.status_code,
-            pending_order_age_bars=order_state.age_bars,
-            pending_order_eligible_delay=order_state.eligible_delay_bars,
-            pending_order_triggered=order_state.triggered,
-            pending_order_expiry_distance=order_state.expiry_distance_bars,
+        trends, alpha, factor_basis = self._market_inputs()
+        return self._observation_assembler.snapshot(
+            self._observation_runtime(),
+            trends=trends,
+            alpha=alpha,
+            factor_basis=factor_basis,
+            pre_trade_risk=self.pre_trade_risk,
             execution_policy_digest=self.execution_policy_digest,
-            raw_observation=raw,
-            normalized_observation=current,
         )
 
     def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
-        _, current = self._flat_observation_pair()
-        if self.sequence_observation_builder is None:
-            return current
-        if self.sequence_policy_plane is not None:
-            structured = build_structured_current_observation(
-                current_flat=current,
-                layout=self.layout,
-                n_features=self.dataset.n_features,
-            )
-            structured.update(self.sequence_policy_plane.components(self.current_index))
-            structured["decision_index"] = np.asarray(
-                [self.current_index], dtype=np.int64
-            )
-            return structured
-        sequence = self.sequence_observation_builder.build(
-            self.dataset, index=self.current_index
+        trends, alpha, factor_basis = self._market_inputs()
+        return self._observation_assembler.observation(
+            self._observation_runtime(),
+            trends=trends,
+            alpha=alpha,
+            factor_basis=factor_basis,
+            pre_trade_risk=self.pre_trade_risk,
         )
-        structured = build_structured_policy_observation(
-            sequence=sequence,
-            current_flat=current,
-            layout=self.layout,
-            n_features=self.dataset.n_features,
-            sequence_normalizer=self.sequence_normalizer,
-        )
-        structured["decision_index"] = np.asarray([self.current_index], dtype=np.int64)
-        return structured
 
     def _episode_end(self, start: int, *, hours: float, bars: int | None) -> int:
-        if bars is not None:
-            end = start + bars
-            if end >= self.dataset.n_bars:
-                raise ValueError("episode does not fit inside the dataset")
-            return end
-        end = self.dataset.forward_index(start, hours)
-        if self.dataset.elapsed_hours(start, end) + 1e-9 < hours:
-            raise ValueError("episode duration does not fit inside the dataset")
-        return end
+        return self._episode_sampler.episode_end(start, hours=hours, bars=bars)
 
     def _valid_starts(self, *, hours: float, bars: int | None) -> np.ndarray:
-        key = (float(hours), bars)
-        cached = self._valid_start_cache.get(key)
-        if cached is not None:
-            return cached.copy()
-        minimum = self._minimum_start_index
-        valid: list[int] = []
-        for start in range(minimum, self.dataset.n_bars - 1):
-            try:
-                self._episode_end(start, hours=hours, bars=bars)
-            except ValueError:
-                continue
-            valid.append(start)
-        if not valid:
-            raise ValueError("dataset is too short for the configured episode")
-        resolved = np.asarray(valid, dtype=np.int64)
-        self._valid_start_cache[key] = resolved
-        return resolved.copy()
+        return self._episode_sampler.valid_starts(hours=hours, bars=bars)
 
     def _sample_episode_contract(
         self,
         options: dict[str, object],
     ) -> tuple[int, int, float]:
-        raw_hours = options.get("episode_hours")
-        raw_bars = options.get("episode_bars", self.config.episode_bars)
-        if raw_hours is not None and raw_bars is not None:
-            raise ValueError(
-                "episode_hours and episode_bars reset options are mutually exclusive"
-            )
-        if raw_hours is not None:
-            if isinstance(raw_hours, bool) or not isinstance(raw_hours, int | float):
-                raise ValueError("episode_hours option must be numeric")
-            hours = float(raw_hours)
-        elif self.config.episode_hour_choices:
-            viable_hours: list[float] = []
-            for choice in self.config.episode_hour_choices:
-                try:
-                    self._valid_starts(hours=float(choice), bars=None)
-                except ValueError:
-                    continue
-                viable_hours.append(float(choice))
-            if not viable_hours:
-                raise ValueError(
-                    "none of the configured episode durations fit the dataset"
-                )
-            hours = float(self.np_random.choice(viable_hours))
-        else:
-            hours = self.config.episode_hours
-        if not math.isfinite(hours) or hours <= 0.0:
-            raise ValueError("episode_hours option must be finite and positive")
-        bars: int | None
-        if raw_bars is None:
-            bars = None
-        else:
-            if (
-                isinstance(raw_bars, bool)
-                or not isinstance(raw_bars, int)
-                or raw_bars <= 0
-            ):
-                raise ValueError("episode_bars option must be a positive integer")
-            bars = raw_bars
-
-        if "start_idx" in options:
-            raw_start = options["start_idx"]
-            if isinstance(raw_start, bool) or not isinstance(raw_start, int):
-                raise ValueError("start_idx must be an integer")
-            start = raw_start
-            minimum = self._minimum_start_index
-            if start < minimum:
-                raise ValueError(
-                    "start_idx does not have sufficient causal or signal history"
-                )
-            end = self._episode_end(start, hours=hours, bars=bars)
-        else:
-            valid_starts = self._valid_starts(hours=hours, bars=bars)
-            if self.config.episode_sampling_mode in {
-                "regime_balanced",
-                "stress_tail",
-            }:
-                feature_index = self.config.regime_feature_index
-                if feature_index >= len(self.dataset.global_feature_names):
-                    raise ValueError("regime_feature_index is outside global features")
-                available = self.dataset.resolved_array("global_feature_available")[
-                    valid_starts,
-                    feature_index,
-                ]
-                candidate_starts = valid_starts[available]
-                if candidate_starts.size == 0:
-                    candidate_starts = valid_starts
-                regime_values = self.dataset.global_features[
-                    candidate_starts,
-                    feature_index,
-                ]
-                if self.config.episode_sampling_mode == "stress_tail":
-                    threshold = float(
-                        np.quantile(
-                            np.abs(regime_values),
-                            self.config.stress_quantile,
-                        )
-                    )
-                    stressed = candidate_starts[np.abs(regime_values) >= threshold]
-                    if stressed.size:
-                        candidate_starts = stressed
-                else:
-                    quantiles = np.unique(
-                        np.quantile(
-                            regime_values,
-                            np.linspace(0.0, 1.0, self.config.regime_bins + 1),
-                        )
-                    )
-                    if quantiles.size > 2:
-                        bins = np.digitize(
-                            regime_values,
-                            quantiles[1:-1],
-                            right=True,
-                        )
-                        chosen_bin = int(self.np_random.choice(np.unique(bins)))
-                        candidate_starts = candidate_starts[bins == chosen_bin]
-                start = int(self.np_random.choice(candidate_starts))
-            else:
-                start = int(self.np_random.choice(valid_starts))
-            end = self._episode_end(start, hours=hours, bars=bars)
-        resolved_hours = self.dataset.elapsed_hours(start, end)
-        return start, end, resolved_hours
+        contract = self._episode_sampler.sample(options, self.np_random)
+        return contract.start_index, contract.end_index, contract.hours
 
     def _initial_weights(self, *, mode: str, start: int) -> tuple[np.ndarray, float]:
         trends = self.trend_strategy.targets(self.dataset, start)
@@ -1471,29 +1321,11 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
 
     @staticmethod
     def _merge_liquidation_return(liquidation: ExecutionResult) -> BookState:
-        result = liquidation.book
-        if abs(liquidation.interval_net_return) <= 1e-15:
-            return result
-        if result.returns_history:
-            previous = result.returns_history[-1]
-            result.returns_history[-1] = (1.0 + previous) * (
-                1.0 + liquidation.interval_net_return
-            ) - 1.0
-        else:
-            result.returns_history.append(liquidation.interval_net_return)
-        result.peak_value = max(result.peak_value, result.portfolio_value)
-        result.max_drawdown = max(
-            result.max_drawdown,
-            1.0 - max(result.portfolio_value, 0.0) / max(result.peak_value, 1e-12),
-        )
-        return result
+        return EnvironmentExecutionCoordinator.merge_liquidation_return(liquidation)
 
     @staticmethod
     def _liquidation_complete(liquidation: ExecutionResult) -> bool:
-        return bool(
-            liquidation.unfilled_turnover <= _LIQUIDATION_TOLERANCE
-            and np.all(np.abs(liquidation.book.quantities) <= _LIQUIDATION_TOLERANCE)
-        )
+        return EnvironmentExecutionCoordinator.liquidation_complete(liquidation)
 
     def _execution_observation_state(
         self,
@@ -1502,46 +1334,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         result: ExecutionResult | StatefulExecutionResult,
         previous_weights: np.ndarray,
     ) -> ObservationExecutionState:
-        requested = np.asarray(requested_weights, dtype=np.float64).reshape(-1)
-        requested_notional = result.requested_notional_by_symbol
-        filled_notional = result.filled_notional_by_symbol
-        if requested_notional.shape != (self.dataset.n_symbols,):
-            requested_notional = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        if filled_notional.shape != (self.dataset.n_symbols,):
-            filled_notional = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        fill_ratio = np.ones(self.dataset.n_symbols, dtype=np.float64)
-        positive = requested_notional > 1e-12
-        fill_ratio[positive] = np.minimum(
-            1.0,
-            filled_notional[positive] / requested_notional[positive],
+        state, position_age = self._execution_coordinator.execution_observation_state(
+            position_age=self._position_age,
+            requested_weights=requested_weights,
+            result=result,
+            previous_weights=previous_weights,
         )
-        total_requested = max(float(requested_notional.sum()), 1e-12)
-        unfilled = (
-            np.maximum(requested_notional - filled_notional, 0.0) / total_requested
-        )
-        participation = result.participation_by_symbol
-        if participation.shape != (self.dataset.n_symbols,):
-            participation = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        cost = result.cost_by_symbol
-        if cost.shape != (self.dataset.n_symbols,):
-            cost = np.zeros(self.dataset.n_symbols, dtype=np.float64)
-        cost = cost / max(self.config.initial_capital, 1e-12)
-        current_weights = result.book.weights
-        changed = np.abs(current_weights - previous_weights) > 1e-10
-        held = np.abs(current_weights) > 1e-10
-        self._position_age = np.where(
-            held,
-            np.where(changed, 0.0, self._position_age + result.bars_advanced),
-            0.0,
-        )
-        return ObservationExecutionState(
-            requested_weights=requested,
-            fill_ratio=fill_ratio,
-            unfilled_turnover=unfilled,
-            participation=participation,
-            execution_cost=cost,
-            position_age=self._position_age.copy(),
-        )
+        self._position_age = position_age
+        return state
 
     def _execute_stateful_target(
         self,
@@ -1553,40 +1353,17 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         bars: int,
         book_kind: str,
     ) -> StatefulExecutionResult:
-        target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
-        target_identity = content_digest(
-            {
-                "book_kind": book_kind,
-                "dataset_id": self.dataset.dataset_id,
-                "decision_step_index": self._decision_step_index,
-                "submit_index": self.current_index,
-                "target": tuple(float(value) for value in target_vector),
-                "schema_version": "environment_order_target_v1",
-            }
-        )
-        reconciliation = reconcile_target(
-            dataset_id=self.dataset.dataset_id,
-            target_identity=target_identity,
-            execution_policy_digest=executor.execution_policy_digest,
-            target_weights=target_vector,
+        return self._execution_coordinator.execute_target(
+            executor=executor,
             book=book,
             order_book=order_book,
-            reference_prices=self.dataset.close[self.current_index],
-            decision_equity=max(book.portfolio_value, _LIQUIDATION_TOLERANCE),
-            submit_index=self.current_index,
-            latency_bars=self.config.execution_cost.order_latency_bars,
-            order_type=OrderType(self.config.execution_cost.order_type),
-            time_in_force=TimeInForce.GTC,
-            expiry_index=None,
-            limit_offset_rate=self.config.execution_cost.limit_offset_rate,
-            maximum_gross=self.config.execution_cost.max_leverage,
-        )
-        return executor.execute_orders(
-            book,
-            reconciliation.order_book,
-            reconciliation.new_intents,
-            start_index=self.current_index,
-            bars=bars,
+            request=TargetExecutionRequest(
+                target=target,
+                start_index=self.current_index,
+                decision_step_index=self._decision_step_index,
+                bars=bars,
+                book_kind=book_kind,
+            ),
         )
 
     def step(
@@ -1673,73 +1450,26 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         if time_limit_reached:
             self._pending_hybrid_target = None
             self._pending_shadow_target = None
-        hybrid_log_return = hybrid_execution.interval_log_return
-        shadow_log_return = shadow_execution.interval_log_return
-        hybrid_liquidation: ExecutionResult | None = None
-        shadow_liquidation: ExecutionResult | None = None
-        liquidation_complete = True
-        emergency_deleverage = False
-        drawdown_after_execution = self._drawdown(self.hybrid)
-        drawdown_stop = min(
-            self.reward_tracker.config.drawdown_stop,
-            self.pre_trade_risk.config.drawdown_stop,
-        )
-        if (
-            not self.hybrid.insolvent
-            and drawdown_after_execution + 1e-12 >= drawdown_stop
-        ):
-            emergency_deleverage = True
-            hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
-                self.hybrid,
-                index=self.current_index,
-            )
-            liquidation_complete = self._liquidation_complete(hybrid_liquidation)
-            if (
-                not liquidation_complete
-                and self.config.fail_on_incomplete_emergency_liquidation
-            ):
-                raise RuntimeError(
-                    "hybrid liquidation could not fully exit at drawdown stop"
-                )
-            self.hybrid = self._merge_liquidation_return(hybrid_liquidation)
-            hybrid_log_return += hybrid_liquidation.interval_log_return
-            self.hybrid.terminate(EconomicTerminationReason.DRAWDOWN_STOP)
-        liquidation_terminal = (
-            time_limit_reached
-            and self.config.liquidate_on_end
-            and not emergency_deleverage
-        )
-        if liquidation_terminal:
-            hybrid_liquidation = self.hybrid_executor.liquidate_at_close(
-                self.hybrid,
-                index=self.current_index,
-            )
-            shadow_liquidation = self.shadow_executor.liquidate_at_close(
-                self.shadow,
-                index=self.current_index,
-            )
-            liquidation_complete = self._liquidation_complete(
-                hybrid_liquidation
-            ) and self._liquidation_complete(shadow_liquidation)
-            self.hybrid = self._merge_liquidation_return(hybrid_liquidation)
-            self.shadow = self._merge_liquidation_return(shadow_liquidation)
-            hybrid_log_return += hybrid_liquidation.interval_log_return
-            shadow_log_return += shadow_liquidation.interval_log_return
-
-        threshold = self.config.initial_capital * self.config.minimum_equity_fraction
-        if self.hybrid.portfolio_value <= threshold and not self.hybrid.insolvent:
-            self.hybrid.terminate(EconomicTerminationReason.MINIMUM_EQUITY)
-        if self.shadow.portfolio_value <= threshold and not self.shadow.insolvent:
-            self.shadow.terminate(EconomicTerminationReason.MINIMUM_EQUITY)
-        hybrid_terminated = self.hybrid.insolvent
-        shadow_terminated = self.shadow.insolvent
-        economic_transition = classify_economic_transition(
+        transition = self._termination_coordinator.resolve(
             hybrid=self.hybrid,
             shadow=self.shadow,
+            current_index=self.current_index,
             time_limit_reached=time_limit_reached,
-            liquidation_terminal=liquidation_terminal,
-            liquidation_complete=liquidation_complete,
+            hybrid_log_return=hybrid_execution.interval_log_return,
+            shadow_log_return=shadow_execution.interval_log_return,
         )
+        self.hybrid = transition.hybrid
+        self.shadow = transition.shadow
+        hybrid_log_return = transition.hybrid_log_return
+        shadow_log_return = transition.shadow_log_return
+        hybrid_liquidation = transition.hybrid_liquidation
+        shadow_liquidation = transition.shadow_liquidation
+        liquidation_complete = transition.liquidation_complete
+        liquidation_terminal = transition.liquidation_terminal
+        emergency_deleverage = transition.emergency_deleverage
+        hybrid_terminated = transition.hybrid_terminated
+        shadow_terminated = transition.shadow_terminated
+        economic_transition = transition.economic_transition
         terminated = economic_transition.terminated
         truncated = economic_transition.truncated
         action_delta_l1 = float(np.abs(maintained_action - self._previous_action).sum())

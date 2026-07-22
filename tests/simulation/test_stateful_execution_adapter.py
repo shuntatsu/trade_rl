@@ -1,3 +1,5 @@
+"""Stateful compatibility execution contracts introduced test-first."""
+
 from __future__ import annotations
 
 import numpy as np

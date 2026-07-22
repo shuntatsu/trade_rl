@@ -26,30 +26,49 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra studio
-      - name: Apply telemetry response protocol
+      - name: Align telemetry response typing
         run: |
           python - <<'PY'
           from pathlib import Path
 
           path = Path("trade_rl/studio/telemetry.py")
           source = path.read_text(encoding="utf-8")
-          import_anchor = "from typing import Literal\n"
-          if source.count(import_anchor) != 1:
+          typing_anchor = "from typing import Literal\n"
+          if source.count(typing_anchor) != 1:
               raise RuntimeError("telemetry typing import anchor changed")
           source = source.replace(
-              import_anchor,
-              "from typing import Literal, Protocol\n",
+              typing_anchor,
+              "from typing import TYPE_CHECKING, Literal\n",
               1,
           )
-          anchor = "def _response(record: TrainingTelemetryRecord) -> TelemetryRecordResponse:\n"
-          replacement = (
-              "class _TelemetryRecordLike(Protocol):\n"
-              "    def to_json_dict(self) -> dict[str, object]: ...\n\n\n"
-              "def _response(record: _TelemetryRecordLike) -> TelemetryRecordResponse:\n"
+          import_anchor = '''from trade_rl.telemetry import (
+              TrainingTelemetryRecord,
+              read_training_telemetry,
+              training_telemetry_status,
           )
-          if source.count(anchor) != 1:
+          '''
+          import_replacement = '''from trade_rl.telemetry import (
+              read_training_telemetry,
+              training_telemetry_status,
+          )
+
+          if TYPE_CHECKING:
+              from trade_rl.telemetry.training import (
+                  TrainingTelemetryRecord as TelemetryRecordInput,
+              )
+          '''
+          if source.count(import_anchor) != 1:
+              raise RuntimeError("telemetry runtime import anchor changed")
+          source = source.replace(import_anchor, import_replacement, 1)
+          response_anchor = (
+              "def _response(record: TrainingTelemetryRecord) -> TelemetryRecordResponse:\n"
+          )
+          response_replacement = (
+              "def _response(record: TelemetryRecordInput) -> TelemetryRecordResponse:\n"
+          )
+          if source.count(response_anchor) != 1:
               raise RuntimeError("telemetry response anchor changed")
-          source = source.replace(anchor, replacement, 1)
+          source = source.replace(response_anchor, response_replacement, 1)
           path.write_text(source, encoding="utf-8")
           PY
       - name: Format and verify
@@ -64,6 +83,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trade_rl/studio/telemetry.py
-          git commit -m "fix: type telemetry response records structurally"
+          git commit -m "fix: align telemetry page response typing"
       - name: Push fix
         run: git push origin HEAD:agent/fix-architecture-followup-20260722

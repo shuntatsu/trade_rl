@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/frontend-telemetry-generation-apply.yml
       - scripts/apply_frontend_telemetry_generation.py
+      - scripts/apply_frontend_telemetry_generation_v2.py
 
 permissions:
   contents: write
@@ -29,88 +30,8 @@ jobs:
       - name: Install frontend
         working-directory: studio
         run: npm ci
-      - name: Align temporary patch script with current API source
-        run: |
-          python - <<'PYTHON_REPAIR'
-          from pathlib import Path
-
-          path = Path("scripts/apply_frontend_telemetry_generation.py")
-          source = path.read_text(encoding="utf-8")
-          replacements = (
-              (
-                  'lambda line: line == "export async function loadTelemetryEvents(",',
-                  'lambda line: line == "export function loadTelemetryEvents(",',
-              ),
-              (
-                  'if lines[index].startswith("export async function ")',
-                  'if lines[index].startswith("export function ")',
-              ),
-              (
-                  'seed_query = "  if (seed !== null) params.set(\'seed\', String(seed))"',
-                  'seed_query = "  if (seed !== null) parameters.set(\'seed\', String(seed))"',
-              ),
-              (
-                  '            "    params.set(\'stream_generation\', streamGeneration)",',
-                  '            "    parameters.set(\'stream_generation\', streamGeneration)",',
-              ),
-          )
-          for old, new in replacements:
-              if source.count(old) != 1:
-                  raise RuntimeError(f"temporary script API anchor mismatch: {old}")
-              source = source.replace(old, new, 1)
-
-          old_interface = '''    interface_start = unique_index(
-              lines,
-              lambda line: line == "export interface StudioApi {",
-              "StudioApi interface",
-          )
-              method_start = next(
-              index
-              for index in range(interface_start, len(lines))
-              if lines[index] == "  loadTelemetryEvents: ("
-          )
-              method_end = next(
-              index
-              for index in range(method_start + 1, len(lines))
-              if lines[index] == "  ) => Promise<TelemetryEventsResponse>"
-          )
-              interface_generation = "    streamGeneration?: string | null,"
-              if interface_generation not in lines[method_start:method_end]:
-              seed_line = "    seed?: number | null,"
-              seed_matches = [
-                  index
-                  for index in range(method_start, method_end)
-                  if lines[index] == seed_line
-              ]
-              if len(seed_matches) != 1:
-                  raise RuntimeError(
-                      f"StudioApi seed argument: expected one match, found {len(seed_matches)}"
-                  )
-              lines.insert(seed_matches[0] + 1, interface_generation)
-              write_lines(path, lines)
-          '''
-          new_interface = '''    interface_line = (
-              "  loadTelemetryEvents: (jobId: string, afterSequence?: number, "
-              "limit?: number, seed?: number | null) => Promise<TelemetryEventsResponse>"
-          )
-              interface_index = unique_index(
-              lines,
-              lambda line: line == interface_line,
-              "StudioApi loadTelemetryEvents signature",
-          )
-              lines[interface_index] = (
-              "  loadTelemetryEvents: (jobId: string, afterSequence?: number, "
-              "limit?: number, seed?: number | null, streamGeneration?: string | null) "
-              "=> Promise<TelemetryEventsResponse>"
-          )
-              write_lines(path, lines)
-          '''
-          if source.count(old_interface) != 1:
-              raise RuntimeError("temporary script StudioApi interface block mismatch")
-          path.write_text(source.replace(old_interface, new_interface, 1), encoding="utf-8")
-          PYTHON_REPAIR
       - name: Apply frontend telemetry generation patch
-        run: python scripts/apply_frontend_telemetry_generation.py
+        run: python scripts/apply_frontend_telemetry_generation_v2.py
       - name: Verify focused generation contracts
         working-directory: studio
         run: npm test -- --run src/live/useTrainingTelemetry.test.tsx

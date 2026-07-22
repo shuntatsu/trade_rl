@@ -32,23 +32,23 @@ trade_rl/
 The enforced Import Linter layer order is exactly:
 
 ```text
-cli
-  -> studio
-  -> workflows
-  -> integrations
-  -> serving
-  -> learning
-  -> rl
-  -> risk
-  -> simulation
-  -> strategies
-  -> data
-  -> catalog
-  -> evaluation
-  -> release
-  -> artifacts
-  -> telemetry
-  -> domain
+trade_rl.cli
+  -> trade_rl.studio
+  -> trade_rl.workflows
+  -> trade_rl.integrations
+  -> trade_rl.serving
+  -> trade_rl.learning
+  -> trade_rl.rl
+  -> trade_rl.risk
+  -> trade_rl.simulation
+  -> trade_rl.strategies
+  -> trade_rl.data
+  -> trade_rl.catalog
+  -> trade_rl.evaluation
+  -> trade_rl.release
+  -> trade_rl.artifacts
+  -> trade_rl.telemetry
+  -> trade_rl.domain
 ```
 
 `domain` is standard-library only. `telemetry` is explicitly placed below artifacts and is forbidden from importing NumPy, Gymnasium, model frameworks, psycopg, numerical/research layers, or upper application layers. `release` cannot depend on evaluation, data, simulation, RL, serving, integrations, workflows, Studio, or model frameworks. `learning` and the core training protocol cannot depend on Stable-Baselines3, sb3-contrib, or Torch. `workflows` may use integration interfaces but may not directly import model frameworks. Serving cannot import training workflows or Stable-Baselines3. Runtime, training, and Studio paths cannot import offline signing modules. Catalog contracts cannot depend on NumPy, model frameworks, psycopg, data, RL, learning, integrations, workflows, or CLI.
@@ -100,7 +100,7 @@ Turnover is a soft operational constraint. Concentration, gross leverage, portfo
 
 ## Observation and normalization
 
-Observation schema v3 carries feature values, feature-level availability/staleness/reasons, active/tradable state, baseline and factor inputs, current/requested portfolios, fill/cost/capacity state, persistent pending-order state, cash/net/gross/margin state, and previous action. Remaining time appears only for an explicitly finite-horizon MDP. Normalization statistics are fitted on an explicit train capability, frozen elsewhere, content-addressed, and preserve mask/categorical coordinates exactly.
+The maintained flat observation identity is `baseline_residual_observation_v5`. It carries feature values, feature-level availability/staleness/reasons, active/tradable state, baseline and factor inputs, current/requested portfolios, fill/cost/capacity state, cash/net/gross/margin state, previous action, and seven causal pending-order coordinates per symbol: remaining-notional ratio, order type, order status, age, eligible delay, trigger state, and expiry distance. Remaining time appears only for an explicitly finite-horizon MDP. Normalization statistics are fitted on an explicit train capability, frozen elsewhere, content-addressed, and preserve mask/categorical coordinates exactly.
 
 The maintained multi-timeframe policy uses a structured Dict observation. Completed native sequences are 15m=96 bars, 1h=168, 4h=120, and 1d=60. Each clock has ordered values, availability, and staleness tensors. Timeframe-specific left-padded residual TCNs use per-timestep LayerNorm and dilation schedules whose receptive fields cover the declared window without reading future timesteps.
 
@@ -146,11 +146,13 @@ Telemetry JSON booleans are parsed strictly rather than by truthiness. Status an
 
 Studio reads telemetry only beneath a known job's declared artifact root and run namespaces. It rejects project-root escapes, symlinks, unknown jobs, records whose seed differs from the selected stream, and multiple distinct files that claim the same seed. Studio never ranks checkpoints from replay data, retrains a policy, activates a bundle, or submits an exchange order.
 
+A seed stream can currently contain records from multiple vector `environment_id` values and from successive auto-reset episodes. The Live Training page displays the environment ID on the active record but does not filter or segment the chart, PnL, or sparkline series by environment or episode. The post-remediation audit therefore treats the page as an exploratory event viewer, not proof of one continuous account trajectory.
+
 ## Export, serving, and release
 
 ONNX and TorchScript export a deterministic actor wrapper rather than optimizer state. Each export is compared with Stable-Baselines3 deterministic predictions on a fixed finite corpus. Requested ONNX failure rejects the run. TorchScript is best-effort and records an explicit unsupported reason when conversion cannot be proven safe.
 
-Candidate bundle v5 binds action size/names/spec digest, observation schema/size, environment, normalizers, alpha/factor artifacts, selected-final run, selection proposal and authorization, walk-forward/gate evidence, fresh confirmation, execution evidence, and policy-loader contract. Approval remains detached from bundle identity. An offline Ed25519 signer creates a purpose-bound `ReleaseAttestation`; registry and runtime load public verification keys only.
+Candidate bundle identity `serving_bundle_v5` binds action size/names/spec digest, observation schema/size, environment, normalizers, alpha/factor artifacts, selected-final run, selection proposal and authorization, walk-forward/gate evidence, fresh confirmation, execution evidence, and policy-loader contract. Approval remains detached from bundle identity. An offline Ed25519 signer creates a purpose-bound `ReleaseAttestation`; registry and runtime load public verification keys only.
 
 `StableBaselines3PolicyLoader` lives in the integration layer. It verifies `policy-loader.json`, loads every PPO, SAC, TD3, or TQC member, and executes deterministic probe observations before runtime activation. Every member must return a finite dynamic action vector inside `[-1, 1]`; the ensemble is averaged only when all members succeed. Structured prediction requires a monotonic identity-bound `ServingStateSnapshot`.
 
@@ -160,4 +162,4 @@ Direct exchange websocket ingestion, order submit/cancel/replace, broker reconci
 
 Production remains `NO-GO` until the maintained GPU verification, at least 180 OOS days, a strictly positive paired block-bootstrap lower bound on RL-minus-baseline daily log excess, signed fresh confirmation, conservative complete execution evidence, and paper-trading reconciliation all pass. Passing repository CI proves code and artifact integrity at one source head; it does not prove profitability or authorize capital deployment.
 
-See [Research Status](RESEARCH_STATUS.md) and the [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md).
+See [Research Status](RESEARCH_STATUS.md), the original [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md), and the dated [post-remediation architecture audit](verification/2026-07-22-post-merge-architecture-audit.md).

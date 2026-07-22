@@ -35,6 +35,13 @@ docs/verification/2026-07-22-post-merge-architecture-audit.md
 
 Historical files under `docs/superpowers/specs/` and `docs/superpowers/plans/` remain immutable records of decisions made at their original dates. They are not rewritten to describe later implementations.
 
+
+## Post-rebase baseline correction
+
+Before implementation began, `main` advanced to `6bec98e43599c98fb4b86a1522ab455f5acd396b` through PR #78. That change already unified compatibility execution with the stateful engine, added `trade_rl.telemetry` as an enforced standard-library-only layer, added indexed strict telemetry reading, rejected duplicate seed streams, centralized canonical JSON, split PostgreSQL sealed-test reservations, and decomposed `ResidualMarketEnv`.
+
+This documentation branch therefore audits the post-remediation state. It must remove stale descriptions of those findings as current, verify the remediations, and identify only remaining reproducible issues. The primary remaining audit target discovered during rebase is whether Live Training combines records from different vector environments or reset episodes into one apparent continuous market/equity series.
+
 ## Current confirmed documentation drift
 
 The documentation update must correct at least these confirmed mismatches:
@@ -46,7 +53,7 @@ The documentation update must correct at least these confirmed mismatches:
 5. Conservative execution promotion requires explicit execution evidence and execution-policy identity. Optimistic and neutral path modes remain sensitivity-only.
 6. The old statement that next-open execution capacity is always based on the previous completed bar's volume is no longer the maintained general contract. Capacity semantics depend on order type and the stateful execution policy; current-bar realized volume may be used only for completed-bar intrabar replay, while open-eligible market liquidity remains causal.
 7. The actual dependency-layer configuration includes `studio` and `catalog`; the Architecture responsibility map must match `.importlinter` exactly.
-8. `trade_rl.telemetry` is currently outside the enforced layer list and must be reported as an ungoverned dependency boundary rather than silently treated as resolved.
+8. `trade_rl.telemetry` is now an enforced layer below `artifacts` and above `domain`; maintained documents must remove the superseded ungoverned-layer claim.
 9. PostgreSQL is a searchable artifact metadata, provenance, cache-identity, dependency, and lifecycle catalog. Immutable datasets, arrays, checkpoints, models, evidence, and run payloads remain filesystem artifacts.
 10. Live Training telemetry is exploratory visualization evidence. It is not exchange-order evidence, selection evidence, checkpoint evaluation, sealed-test evidence, profitability evidence, or production authorization.
 
@@ -85,6 +92,7 @@ catalog
 evaluation
 release
 artifacts
+telemetry
 domain
 ```
 
@@ -97,7 +105,7 @@ The audit must verify both direct and indirect import constraints, including:
 - runtime and training paths cannot import offline signer/private-key modules;
 - catalog contracts remain independent of PostgreSQL adapters, NumPy, model frameworks, and higher application layers.
 
-`trade_rl.telemetry` must be inspected as a separate architectural question. The documentation PR records the missing enforcement. A later behavioral PR either adds it as a formal layer with an explicit dependency direction or relocates its contracts under an existing layer. The documentation PR does not guess the final placement.
+`trade_rl.telemetry` must be verified as an enforced standard-library-only layer. The audit also reviews the current package-initializer replacement pattern used to install indexed/strict implementations and records any maintainability risk without changing behavior in this documentation PR.
 
 ## Audit paths
 
@@ -175,10 +183,9 @@ A finding is `CONFIRMED` only when code, a failing test, an invariant proof, or 
 
 The documentation/audit PR does not bundle behavioral fixes. Confirmed behavioral findings are split by responsibility, beginning with:
 
-1. telemetry identity and stream isolation;
-2. telemetry indexed reading and bounded polling cost;
-3. telemetry dependency-layer enforcement;
-4. additional independently testable P0/P1 findings discovered by the audit.
+1. Live Training vector-environment and reset-episode stream isolation;
+2. direct telemetry exports that remove hidden package-initializer replacement, if the audit confirms the indirection risk;
+3. additional independently testable P0/P1 findings discovered by the post-remediation audit.
 
 A confirmed P0 starts immediately on a separate branch and does not wait for the documentation PR to merge. P1 and lower findings normally reference the merged audit ID before implementation.
 

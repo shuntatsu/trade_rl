@@ -8,6 +8,11 @@
 
 **Tech Stack:** Markdown, Python 3.12, pytest, pathlib, import-linter, Ruff, Mypy, npm/Vitest/TypeScript/Vite, Docker Compose, PostgreSQL 16, GitHub Actions.
 
+
+## Post-rebase execution note
+
+The branch was rebased conceptually against `main` commit `6bec98e43599c98fb4b86a1522ab455f5acd396b` before Task 1 execution. PR #78 already completed the compatibility-execution migration, telemetry layer enforcement, indexed strict telemetry parsing, duplicate-stream rejection, canonical JSON unification, PostgreSQL responsibility split, and `ResidualMarketEnv` decomposition. Steps below that describe those items as open findings are superseded by this note. The executable documentation test derives schema constants and the complete layer list from source instead of hard-coding the pre-#78 baseline.
+
 ## Global Constraints
 
 - Work only on branch `docs/current-architecture-sync-20260722` until the documentation/audit PR is reviewed.
@@ -20,7 +25,7 @@
 - Do not retain the obsolete universal statement that all next-open capacity always uses the previous completed bar volume.
 - Describe PostgreSQL as a metadata/provenance/cache/dependency/lifecycle catalog; immutable numerical and model payloads remain filesystem artifacts.
 - Describe Live Training telemetry as exploratory visualization only, never as exchange activity, selection evidence, sealed evaluation, profitability evidence, or production authorization.
-- Match the Architecture responsibility order to `.importlinter` exactly and explicitly record that `trade_rl.telemetry` is not currently governed by that layer contract.
+- Match the Architecture responsibility order to `.importlinter` exactly, including the enforced `trade_rl.telemetry` layer below artifacts and above domain.
 - Every audit finding must use `CONFIRMED`, `RISK`, or `NOT_FOUND`, plus priority `P0`, `P1`, `P2`, or `P3`.
 - Record volatile test counts, workflow run IDs, artifact IDs, commit SHAs, and image IDs only in the dated verification report.
 - Every commit must remain independently reviewable and pass its focused validation before the next task.
@@ -77,58 +82,74 @@ MAINTAINED_DOCUMENTS = (
     ROOT / "studio" / "README.md",
 )
 
-EXPECTED_LAYERS = (
-    "trade_rl.cli",
-    "trade_rl.studio",
-    "trade_rl.workflows",
-    "trade_rl.integrations",
-    "trade_rl.serving",
-    "trade_rl.learning",
-    "trade_rl.rl",
-    "trade_rl.risk",
-    "trade_rl.simulation",
-    "trade_rl.strategies",
-    "trade_rl.data",
-    "trade_rl.catalog",
-    "trade_rl.evaluation",
-    "trade_rl.release",
-    "trade_rl.artifacts",
-    "trade_rl.domain",
-)
-
 
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _constant(path: Path, name: str) -> str:
+    match = re.search(rf'^{name}\s*=\s*"([^"]+)"', _text(path), flags=re.MULTILINE)
+    assert match is not None, f"missing {name} in {path.relative_to(ROOT)}"
+    return match.group(1)
+
+
+def _configured_layers() -> tuple[str, ...]:
+    text = _text(ROOT / ".importlinter")
+    pattern = (
+        r"\[importlinter:contract:layers\].*?^layers\s*=\s*\n"
+        r"(?P<body>(?:    trade_rl\.[^\n]+\n)+)"
+    )
+    match = re.search(pattern, text, flags=re.MULTILINE | re.DOTALL)
+    assert match is not None
+    return tuple(line.strip() for line in match.group("body").splitlines())
+
+
 def test_maintained_documents_exist() -> None:
-    missing = [path.relative_to(ROOT).as_posix() for path in MAINTAINED_DOCUMENTS if not path.is_file()]
+    missing = [
+        path.relative_to(ROOT).as_posix()
+        for path in MAINTAINED_DOCUMENTS
+        if not path.is_file()
+    ]
     assert missing == []
 
 
 def test_current_schema_contracts_are_documented() -> None:
+    observation_schema = _constant(
+        ROOT / "trade_rl" / "rl" / "observations.py", "OBSERVATION_SCHEMA"
+    )
+    bundle_schema = _constant(
+        ROOT / "trade_rl" / "serving" / "bundle.py", "SERVING_BUNDLE_SCHEMA"
+    )
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
+    readme = _text(ROOT / "README.md")
     readme_ja = _text(ROOT / "README.ja.md")
-    assert "baseline_residual_observation_v5" in architecture
-    assert "pending-order" in architecture.lower() or "pending order" in architecture.lower()
-    assert "bundle v5" in architecture.lower()
-    assert "bundle v5" in readme_ja.lower()
-    assert "bundle v4" not in readme_ja.lower()
+    for document in (architecture, readme, readme_ja):
+        assert observation_schema in document
+        assert bundle_schema in document
+    assert (
+        "pending-order" in architecture.lower()
+        or "pending order" in architecture.lower()
+    )
+    assert "observation schema v3" not in readme.lower()
+    assert "observation schema v3" not in readme_ja.lower()
+    assert "observation schema v3" not in architecture.lower()
 
 
 def test_architecture_layer_order_matches_import_linter() -> None:
-    import_linter = _text(ROOT / ".importlinter")
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
-    configured = tuple(
-        line.strip()
-        for line in import_linter.splitlines()
-        if line.startswith("    trade_rl.")
-    )[: len(EXPECTED_LAYERS)]
-    assert configured == EXPECTED_LAYERS
-    positions = tuple(architecture.index(layer) for layer in EXPECTED_LAYERS)
+    configured = _configured_layers()
+    assert "trade_rl.telemetry" in configured
+    positions = tuple(architecture.index(layer) for layer in configured)
     assert positions == tuple(sorted(positions))
-    assert "trade_rl.telemetry" in architecture
-    assert "not" in architecture[architecture.index("trade_rl.telemetry") : architecture.index("trade_rl.telemetry") + 240].lower()
+    telemetry_start = architecture.index("trade_rl.telemetry")
+    telemetry_context = architecture[telemetry_start : telemetry_start + 360].lower()
+    for stale in (
+        "outside the enforced",
+        "not listed in the enforced",
+        "not currently governed",
+        "missing enforcement",
+    ):
+        assert stale not in telemetry_context
 
 
 def test_obsolete_universal_capacity_statement_is_absent() -> None:
@@ -144,30 +165,67 @@ def test_obsolete_universal_capacity_statement_is_absent() -> None:
 
 
 def test_postgres_is_not_described_as_payload_storage() -> None:
-    readme_ja = _text(ROOT / "README.ja.md")
-    architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
-    combined = f"{readme_ja}\n{architecture}".lower()
+    combined = "\n".join(
+        _text(path)
+        for path in (
+            ROOT / "README.md",
+            ROOT / "README.ja.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+        )
+    ).lower()
     for phrase in ("metadata catalog", "filesystem artifact"):
         assert phrase in combined
-    assert "model blob" not in combined
-    assert "checkpoint blob" not in combined
+    forbidden_phrases = (
+        "model blob",
+        "checkpoint blob",
+        "postgresql is the numerical source",
+    )
+    for forbidden in forbidden_phrases:
+        assert forbidden not in combined
 
 
 def test_live_training_boundary_is_explicit() -> None:
     studio = _text(ROOT / "studio" / "README.md")
     readme = _text(ROOT / "README.md")
-    combined = f"{studio}\n{readme}".lower()
-    for phrase in (
-        "not exchange",
-        "not selection",
-        "not sealed",
-        "no-go",
+    assert "not exchange activity" in readme.lower()
+    assert "not model-selection evidence" in readme.lower()
+    assert "not sealed evaluation" in readme.lower()
+    assert "not profitability evidence" in readme.lower()
+    assert "取引所注文ではありません" in studio
+    assert "モデル選択" in studio
+    assert "Sealed" in studio
+    assert "収益性" in studio
+    assert "NO-GO" in studio
+
+
+def test_remediated_findings_are_not_described_as_current() -> None:
+    current_documents = "\n".join(
+        _text(path)
+        for path in (
+            ROOT / "README.md",
+            ROOT / "README.ja.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+            ROOT / "docs" / "RESEARCH_STATUS.md",
+            ROOT / "studio" / "README.md",
+        )
+    ).lower()
+    for stale in (
+        "telemetry is not yet placed",
+        "telemetry` is not yet placed",
+        "outside the enforced layer stack",
+        "scan the jsonl file from the beginning",
+        "coerced with python truthiness",
+        "discovery order instead of being rejected",
+        "execute_interval` remains a separate compatibility",
+        "baseline reward pre-roll currently uses the compatibility execution path",
     ):
-        assert phrase in combined
+        assert stale not in current_documents
 
 
 def test_internal_markdown_links_resolve() -> None:
-    link_pattern = re.compile(r"\[[^\]]+\]\((?!https?://|#|mailto:)([^)#]+)(?:#[^)]+)?\)")
+    link_pattern = re.compile(
+        r"\[[^\]]+\]\((?!https?://|#|mailto:)([^)#]+)(?:#[^)]+)?\)"
+    )
     broken: list[str] = []
     for document in MAINTAINED_DOCUMENTS:
         text = _text(document)
@@ -186,7 +244,7 @@ Run:
 uv run pytest -q tests/test_current_documentation_contract.py
 ```
 
-Expected: failures for observation v5 wording, bundle v5 wording, layer ordering/telemetry disclosure, obsolete capacity wording, and Live Training boundary wording. A collection or syntax failure is not an acceptable RED state.
+Expected: failures for stale observation/bundle wording, explicit Live Training boundaries, and findings already remediated by PR #78. The layer test derives the current order from `.importlinter`; a collection or syntax failure is not an acceptable RED state.
 
 - [ ] **Step 3: Commit the RED test**
 
@@ -351,14 +409,11 @@ trade_rl.catalog
 trade_rl.evaluation
 trade_rl.release
 trade_rl.artifacts
+trade_rl.telemetry
 trade_rl.domain
 ```
 
-Immediately after the list, add this explicit gap statement:
-
-```markdown
-`trade_rl.telemetry` currently provides framework-light training-telemetry contracts consumed by RL sampling and Studio reading, but it is not listed in the enforced layer contract. This is an acknowledged architecture gap, not an approved implicit dependency. The dated architecture audit assigns remediation separately.
-```
+Immediately after the list, document that `trade_rl.telemetry` is an enforced standard-library-only diagnostic layer below artifacts and above domain. Record the package-initializer replacement pattern separately if confirmed by the post-remediation audit.
 
 - [ ] **Step 2: Update the Architecture market/execution and observation contracts**
 
@@ -390,7 +445,7 @@ Add three focused sections:
 Filesystem artifacts are canonical. PostgreSQL stores searchable metadata, provenance, dependency edges, cache identities, lifecycle state, and locations. Catalog failure cannot rewrite artifact identity.
 
 ## Training telemetry boundary
-Telemetry is append-only exploratory visualization data. It is excluded from dataset identity, model selection, sealed evaluation, promotion, bundle approval, and execution. Its current unenforced package-layer placement is tracked as an audit finding.
+Telemetry is append-only exploratory visualization data. It is excluded from dataset identity, model selection, sealed evaluation, promotion, bundle approval, and execution. It is an enforced standard-library-only layer; the package-initializer replacement pattern and stream identity remain separate audit questions.
 
 ## Studio boundary
 Studio invokes maintained workflows and reads validated artifacts. It does not independently rank candidates, open sealed ranges, sign approvals, activate bundles, route exchange orders, or handle private keys.
@@ -473,7 +528,7 @@ Add or correct these contracts:
 - Live Training telemetry is not exchange activity, selection evidence, sealed evaluation, profitability evidence, or production authorization.
 - `environment_id` and episode identity are part of the stream semantics; the current UI must not be described as proving a single continuous portfolio when multiple environments or resets are present.
 - Checkpoint evidence is read-only and separately validated; Studio never computes ranking or opens sealed ranges.
-- Telemetry JSONL polling and stream isolation are explicitly listed as architecture-audit follow-ups when the audit confirms them.
+- Strict indexed JSONL polling and duplicate-stream rejection are documented as remediated; vector-environment and episode isolation are listed as audit follow-ups only when confirmed.
 - Serving Monitor remains read-only and has no activation/private-key/order-routing capability.
 ```
 
@@ -665,8 +720,8 @@ Use code plus focused tests to classify these hypotheses:
 
 ```text
 AUD-TEL-001: records from multiple `environment_id` values or reset episodes can be combined into one misleading Live Training market/equity series.
-AUD-TEL-002: repeated telemetry status/event polling rescans JSONL from byte zero and has unbounded cumulative cost as a run grows.
-AUD-TEL-003: `trade_rl.telemetry` is omitted from `.importlinter` layer enforcement.
+AUD-TEL-002: strict/indexed telemetry behavior is installed through package-initializer `setattr` replacement instead of direct module exports.
+AUD-TEL-003: records from distinct reset episodes lack an explicit episode identity and can be presented as one continuous series.
 ```
 
 For each item, write one complete finding block:
@@ -684,7 +739,7 @@ For each item, write one complete finding block:
 - Independent remediation PR: ...
 ```
 
-Do not label `AUD-TEL-001` or `AUD-TEL-002` confirmed solely from visual code review; add a minimal reproduction command or cite an existing test that proves the behavior.
+Do not label `AUD-TEL-001` or `AUD-TEL-003` confirmed solely from visual code review; add a minimal reproduction or a source-level invariant proof plus a missing-test statement. `AUD-TEL-002` may be confirmed from the explicit `setattr` replacement in package initializers.
 
 - [ ] **Step 8: Record important negative findings**
 
@@ -768,9 +823,8 @@ Use link text that makes clear the report is dated evidence, not a continuously 
 Where the audit confirmed the initial telemetry items, link their IDs to these independent follow-ups:
 
 ```text
-telemetry identity and stream isolation;
-telemetry indexed reading and bounded polling cost;
-telemetry dependency-layer enforcement.
+Live Training environment/episode stream isolation;
+direct telemetry exports that remove package-initializer replacement, if retained as a finding.
 ```
 
 Do not claim those fixes are implemented in this documentation PR.

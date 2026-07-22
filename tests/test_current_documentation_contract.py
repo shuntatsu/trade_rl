@@ -16,28 +16,26 @@ MAINTAINED_DOCUMENTS = (
     ROOT / "studio" / "README.md",
 )
 
-EXPECTED_LAYERS = (
-    "trade_rl.cli",
-    "trade_rl.studio",
-    "trade_rl.workflows",
-    "trade_rl.integrations",
-    "trade_rl.serving",
-    "trade_rl.learning",
-    "trade_rl.rl",
-    "trade_rl.risk",
-    "trade_rl.simulation",
-    "trade_rl.strategies",
-    "trade_rl.data",
-    "trade_rl.catalog",
-    "trade_rl.evaluation",
-    "trade_rl.release",
-    "trade_rl.artifacts",
-    "trade_rl.domain",
-)
-
 
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _constant(path: Path, name: str) -> str:
+    match = re.search(rf'^{name}\s*=\s*"([^"]+)"', _text(path), flags=re.MULTILINE)
+    assert match is not None, f"missing {name} in {path.relative_to(ROOT)}"
+    return match.group(1)
+
+
+def _configured_layers() -> tuple[str, ...]:
+    text = _text(ROOT / ".importlinter")
+    pattern = (
+        r"\[importlinter:contract:layers\].*?^layers\s*=\s*\n"
+        r"(?P<body>(?:    trade_rl\.[^\n]+\n)+)"
+    )
+    match = re.search(pattern, text, flags=re.MULTILINE | re.DOTALL)
+    assert match is not None
+    return tuple(line.strip() for line in match.group("body").splitlines())
 
 
 def test_maintained_documents_exist() -> None:
@@ -50,32 +48,42 @@ def test_maintained_documents_exist() -> None:
 
 
 def test_current_schema_contracts_are_documented() -> None:
+    observation_schema = _constant(
+        ROOT / "trade_rl" / "rl" / "observations.py", "OBSERVATION_SCHEMA"
+    )
+    bundle_schema = _constant(
+        ROOT / "trade_rl" / "serving" / "bundle.py", "SERVING_BUNDLE_SCHEMA"
+    )
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
+    readme = _text(ROOT / "README.md")
     readme_ja = _text(ROOT / "README.ja.md")
-    assert "baseline_residual_observation_v5" in architecture
-    assert "pending-order" in architecture.lower() or "pending order" in architecture.lower()
-    assert "bundle v5" in architecture.lower()
-    assert "bundle v5" in readme_ja.lower()
-    assert "bundle v4" not in readme_ja.lower()
+    for document in (architecture, readme, readme_ja):
+        assert observation_schema in document
+        assert bundle_schema in document
+    assert (
+        "pending-order" in architecture.lower()
+        or "pending order" in architecture.lower()
+    )
+    assert "observation schema v3" not in readme.lower()
+    assert "observation schema v3" not in readme_ja.lower()
+    assert "observation schema v3" not in architecture.lower()
 
 
 def test_architecture_layer_order_matches_import_linter() -> None:
-    import_linter = _text(ROOT / ".importlinter")
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
-    configured = tuple(
-        line.strip()
-        for line in import_linter.splitlines()
-        if line.startswith("    trade_rl.")
-    )[: len(EXPECTED_LAYERS)]
-    assert configured == EXPECTED_LAYERS
-    positions = tuple(architecture.index(layer) for layer in EXPECTED_LAYERS)
+    configured = _configured_layers()
+    assert "trade_rl.telemetry" in configured
+    positions = tuple(architecture.index(layer) for layer in configured)
     assert positions == tuple(sorted(positions))
-    assert "trade_rl.telemetry" in architecture
-    telemetry_context = architecture[
-        architecture.index("trade_rl.telemetry") : architecture.index("trade_rl.telemetry")
-        + 240
-    ].lower()
-    assert "not" in telemetry_context or "not listed" in telemetry_context
+    telemetry_start = architecture.index("trade_rl.telemetry")
+    telemetry_context = architecture[telemetry_start : telemetry_start + 360].lower()
+    for stale in (
+        "outside the enforced",
+        "not listed in the enforced",
+        "not currently governed",
+        "missing enforcement",
+    ):
+        assert stale not in telemetry_context
 
 
 def test_obsolete_universal_capacity_statement_is_absent() -> None:
@@ -91,26 +99,61 @@ def test_obsolete_universal_capacity_statement_is_absent() -> None:
 
 
 def test_postgres_is_not_described_as_payload_storage() -> None:
-    readme_ja = _text(ROOT / "README.ja.md")
-    architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
-    combined = f"{readme_ja}\n{architecture}".lower()
+    combined = "\n".join(
+        _text(path)
+        for path in (
+            ROOT / "README.md",
+            ROOT / "README.ja.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+        )
+    ).lower()
     for phrase in ("metadata catalog", "filesystem artifact"):
         assert phrase in combined
-    assert "model blob" not in combined
-    assert "checkpoint blob" not in combined
+    forbidden_phrases = (
+        "model blob",
+        "checkpoint blob",
+        "postgresql is the numerical source",
+    )
+    for forbidden in forbidden_phrases:
+        assert forbidden not in combined
 
 
 def test_live_training_boundary_is_explicit() -> None:
     studio = _text(ROOT / "studio" / "README.md")
     readme = _text(ROOT / "README.md")
-    combined = f"{studio}\n{readme}".lower()
-    for phrase in (
-        "not exchange",
-        "not selection",
-        "not sealed",
-        "no-go",
+    assert "not exchange activity" in readme.lower()
+    assert "not model-selection evidence" in readme.lower()
+    assert "not sealed evaluation" in readme.lower()
+    assert "not profitability evidence" in readme.lower()
+    assert "取引所注文ではありません" in studio
+    assert "モデル選択" in studio
+    assert "Sealed" in studio
+    assert "収益性" in studio
+    assert "NO-GO" in studio
+
+
+def test_remediated_findings_are_not_described_as_current() -> None:
+    current_documents = "\n".join(
+        _text(path)
+        for path in (
+            ROOT / "README.md",
+            ROOT / "README.ja.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+            ROOT / "docs" / "RESEARCH_STATUS.md",
+            ROOT / "studio" / "README.md",
+        )
+    ).lower()
+    for stale in (
+        "telemetry is not yet placed",
+        "telemetry` is not yet placed",
+        "outside the enforced layer stack",
+        "scan the jsonl file from the beginning",
+        "coerced with python truthiness",
+        "discovery order instead of being rejected",
+        "execute_interval` remains a separate compatibility",
+        "baseline reward pre-roll currently uses the compatibility execution path",
     ):
-        assert phrase in combined
+        assert stale not in current_documents
 
 
 def test_internal_markdown_links_resolve() -> None:

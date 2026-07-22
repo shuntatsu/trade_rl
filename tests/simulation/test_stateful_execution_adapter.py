@@ -92,7 +92,9 @@ def test_compatibility_execution_matches_shared_stateful_target_path() -> None:
         direct.book.portfolio_value
     )
     assert compatibility.book.quantities == pytest.approx(direct.book.quantities)
-    assert compatibility.interval_net_return == pytest.approx(direct.interval_net_return)
+    assert compatibility.interval_net_return == pytest.approx(
+        direct.interval_net_return
+    )
     assert compatibility.filled_turnover == pytest.approx(direct.filled_turnover)
 
 

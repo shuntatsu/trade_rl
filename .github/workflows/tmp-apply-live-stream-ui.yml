@@ -44,12 +44,22 @@ jobs:
           path: live-stream-ui-patch.txt
           if-no-files-found: error
       - name: Focused UI tests
-        run: >-
-          npm --prefix studio test -- --run
-          src/live/telemetryTracks.test.ts
-          src/live/MarketReplayChart.test.tsx
-          src/pages/LiveTrainingPageStreamIsolation.test.tsx
-          src/pages/LiveTrainingPage.test.tsx
+        shell: bash
+        run: |
+          set -o pipefail
+          npm --prefix studio test -- --run \
+            src/live/telemetryTracks.test.ts \
+            src/live/MarketReplayChart.test.tsx \
+            src/pages/LiveTrainingPageStreamIsolation.test.tsx \
+            src/pages/LiveTrainingPage.test.tsx \
+            2>&1 | tee live-stream-ui-tests.txt
+      - name: Upload focused test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-stream-ui-tests
+          path: live-stream-ui-tests.txt
+          if-no-files-found: error
       - name: Complete Vitest suite
         run: npm --prefix studio test -- --run
       - name: Typecheck

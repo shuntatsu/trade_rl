@@ -9,8 +9,10 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
-    ExecutionResult,
     MarketExecutor as _BaseMarketExecutor,
+)
+from trade_rl.simulation.execution import (
+    ExecutionResult,
 )
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.target_execution import execute_target_statefully

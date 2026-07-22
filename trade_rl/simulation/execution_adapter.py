@@ -15,6 +15,10 @@ from trade_rl.simulation.execution import (
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.target_execution import execute_target_statefully
 
+_ATTEMPT_EVENT_TYPES = frozenset(
+    {"eligible", "triggered", "no_fill", "partial_fill", "filled", "rejected"}
+)
+
 
 class StatefulCompatibilityMarketExecutor(_BaseMarketExecutor):
     """Preserve the legacy API while sharing stateful execution semantics.
@@ -75,6 +79,18 @@ class StatefulCompatibilityMarketExecutor(_BaseMarketExecutor):
         )
         self._compatibility_order_book = stateful.order_book
         self._compatibility_last_book = stateful.book
+
+        attempted = any(
+            event.event_type in _ATTEMPT_EVENT_TYPES for event in stateful.order_events
+        )
+        requested_turnover = stateful.requested_turnover if attempted else 0.0
+        unfilled_turnover = stateful.unfilled_turnover if attempted else 0.0
+        requested_by_symbol = (
+            stateful.requested_notional_by_symbol
+            if attempted
+            else np.zeros_like(stateful.requested_notional_by_symbol)
+        )
+        fill_ratio = stateful.fill_ratio if attempted else 1.0
         return ExecutionResult(
             book=stateful.book,
             next_index=stateful.next_index,
@@ -84,19 +100,19 @@ class StatefulCompatibilityMarketExecutor(_BaseMarketExecutor):
             interval_funding=stateful.interval_funding,
             interval_net_return=stateful.interval_net_return,
             interval_log_return=stateful.interval_log_return,
-            requested_turnover=stateful.requested_turnover,
+            requested_turnover=requested_turnover,
             filled_turnover=stateful.filled_turnover,
-            unfilled_turnover=stateful.unfilled_turnover,
+            unfilled_turnover=unfilled_turnover,
             fill_count=stateful.fill_count,
             rebalance_events=stateful.rebalance_events,
-            fill_ratio=stateful.fill_ratio,
+            fill_ratio=fill_ratio,
             max_participation=stateful.max_participation,
             interval_borrow_cost=stateful.interval_borrow_cost,
             interval_dividend=stateful.interval_dividend,
             interval_cash_interest=stateful.interval_cash_interest,
             margin_utilization=stateful.book.margin_utilization,
             termination_reason=stateful.termination_reason,
-            requested_notional_by_symbol=stateful.requested_notional_by_symbol,
+            requested_notional_by_symbol=requested_by_symbol,
             filled_notional_by_symbol=stateful.filled_notional_by_symbol,
             participation_by_symbol=stateful.participation_by_symbol,
             cost_by_symbol=stateful.cost_by_symbol,

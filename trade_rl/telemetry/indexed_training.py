@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO, Self, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from trade_rl.telemetry import training as _training
 
@@ -23,7 +23,7 @@ if sys.platform == "win32":
 else:
     import fcntl
 
-_INDEX_SCHEMA = "training_telemetry_index_v1"
+_INDEX_SCHEMA = "training_telemetry_index_v2"
 _INDEX_STRIDE = 64
 _LOCK_RETRY_SECONDS = 0.01
 _BaseRecord = _training.TrainingTelemetryRecord
@@ -54,6 +54,7 @@ class StrictTrainingTelemetryRecord(_BaseRecord):
 class _TelemetryIndex:
     device: int
     inode: int
+    generation: str
     indexed_size: int = 0
     last_scan_start: int = 0
     record_count: int = 0
@@ -67,6 +68,7 @@ class _TelemetryIndex:
             "schema_version": _INDEX_SCHEMA,
             "device": self.device,
             "inode": self.inode,
+            "generation": self.generation,
             "indexed_size": self.indexed_size,
             "last_scan_start": self.last_scan_start,
             "record_count": self.record_count,
@@ -75,6 +77,22 @@ class _TelemetryIndex:
             "sequence_gaps": self.sequence_gaps,
             "checkpoints": self.checkpoints,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class _IndexRefresh:
+    index: _TelemetryIndex | None
+    changed: bool
+
+
+@dataclass(slots=True)
+class _TelemetrySnapshot:
+    handle: BinaryIO
+    size: int
+    index: _TelemetryIndex
+
+    def close(self) -> None:
+        self.handle.close()
 
 
 def _index_path(path: Path) -> Path:
@@ -89,6 +107,27 @@ def _non_negative_int(value: object, *, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"telemetry index {field_name} is invalid")
     return value
+
+
+def _canonical_generation(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"telemetry index {field_name} is invalid")
+    try:
+        resolved = str(UUID(value))
+    except (AttributeError, ValueError) as error:
+        raise ValueError(f"telemetry index {field_name} is invalid") from error
+    if resolved != value:
+        raise ValueError(f"telemetry index {field_name} is invalid")
+    return resolved
+
+
+def _expected_generation(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return _canonical_generation(value, field_name="expected_generation")
+    except ValueError as error:
+        raise ValueError("expected_generation must be a canonical UUID") from error
 
 
 def _pairs(value: object, *, field_name: str) -> list[Pair]:
@@ -118,6 +157,9 @@ def _load_index(path: Path) -> _TelemetryIndex | None:
         return _TelemetryIndex(
             device=_non_negative_int(raw.get("device"), field_name="device"),
             inode=_non_negative_int(raw.get("inode"), field_name="inode"),
+            generation=_canonical_generation(
+                raw.get("generation"), field_name="generation"
+            ),
             indexed_size=_non_negative_int(
                 raw.get("indexed_size"), field_name="indexed_size"
             ),
@@ -199,7 +241,11 @@ def _acquire_process_lock(handle: BinaryIO) -> None:
                 msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
                 return
             except OSError as error:
-                if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                if error.errno not in (
+                    errno.EACCES,
+                    errno.EAGAIN,
+                    errno.EDEADLK,
+                ):
                     raise
                 time.sleep(_LOCK_RETRY_SECONDS)
     else:
@@ -234,29 +280,43 @@ def _parse_record(raw_line: bytes) -> StrictTrainingTelemetryRecord:
     )
 
 
-def _refresh_index_unlocked(path: Path) -> _TelemetryIndex | None:
+def _new_index(stat: os.stat_result) -> _TelemetryIndex:
+    return _TelemetryIndex(
+        device=int(stat.st_dev),
+        inode=int(stat.st_ino),
+        generation=str(uuid4()),
+    )
+
+
+def _refresh_index_unlocked(path: Path) -> _IndexRefresh:
     resolved = Path(path)
     if not resolved.is_file() or resolved.is_symlink():
-        return None
+        return _IndexRefresh(None, False)
     stat = resolved.stat()
     existing = _load_index(resolved)
-    if (
+    rebuilt = (
         existing is None
         or existing.device != int(stat.st_dev)
         or existing.inode != int(stat.st_ino)
         or stat.st_size < existing.indexed_size
-    ):
-        index = _TelemetryIndex(device=int(stat.st_dev), inode=int(stat.st_ino))
-    else:
-        index = existing
-    index.last_scan_start = index.indexed_size
+    )
+    index = _new_index(stat) if rebuilt else existing
+    if index is None:
+        raise RuntimeError("telemetry index refresh failed")
+    changed = rebuilt
+    scan_start = index.indexed_size
+    advanced = False
 
     with resolved.open("rb") as handle:
-        handle.seek(index.indexed_size)
+        handle.seek(scan_start)
         while True:
             raw_line = handle.readline()
             if not raw_line or not raw_line.endswith(b"\n"):
                 break
+            if not advanced:
+                index.last_scan_start = scan_start
+                advanced = True
+            changed = True
             end_offset = handle.tell()
             index.indexed_size = end_offset
             line = raw_line.strip()
@@ -264,7 +324,12 @@ def _refresh_index_unlocked(path: Path) -> _TelemetryIndex | None:
                 continue
             try:
                 record = _parse_record(line)
-            except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+            except (
+                UnicodeError,
+                json.JSONDecodeError,
+                TypeError,
+                ValueError,
+            ):
                 index.malformed_lines += 1
                 continue
             if record.sequence <= index.last_sequence:
@@ -278,8 +343,33 @@ def _refresh_index_unlocked(path: Path) -> _TelemetryIndex | None:
             index.last_sequence = record.sequence
             if index.record_count == 1 or index.record_count % _INDEX_STRIDE == 0:
                 index.checkpoints.append((record.sequence, end_offset))
-    _write_index(resolved, index)
-    return index
+    if changed:
+        _write_index(resolved, index)
+    return _IndexRefresh(index, changed)
+
+
+def _open_snapshot_unlocked(
+    path: Path,
+    index: _TelemetryIndex,
+) -> _TelemetrySnapshot:
+    handle = path.open("rb")
+    try:
+        stat = os.fstat(handle.fileno())
+        if (int(stat.st_dev), int(stat.st_ino)) != (
+            index.device,
+            index.inode,
+        ):
+            raise RuntimeError("telemetry stream identity changed")
+        if stat.st_size < index.indexed_size:
+            raise RuntimeError("telemetry stream size regressed")
+        return _TelemetrySnapshot(
+            handle=handle,
+            size=index.indexed_size,
+            index=index,
+        )
+    except BaseException:
+        handle.close()
+        raise
 
 
 def _seek_offset(index: _TelemetryIndex, after_sequence: int) -> Pair:
@@ -296,56 +386,75 @@ def read_indexed_training_telemetry(
     *,
     after_sequence: int = 0,
     limit: int = 512,
+    expected_generation: str | None = None,
 ) -> _training.TrainingTelemetryPage:
     if isinstance(after_sequence, bool) or after_sequence < 0:
         raise ValueError("after_sequence must be non-negative")
     if isinstance(limit, bool) or limit <= 0 or limit > 2_000:
         raise ValueError("limit must be between 1 and 2000")
+    expected = _expected_generation(expected_generation)
     resolved = Path(path)
     with _telemetry_process_lock(resolved):
-        index = _refresh_index_unlocked(resolved)
+        refresh = _refresh_index_unlocked(resolved)
+        index = refresh.index
         if index is None:
             return _training.TrainingTelemetryPage((), after_sequence, False, 0, ())
-
+        if expected is not None and expected != index.generation:
+            return _training.TrainingTelemetryPage(
+                items=(),
+                next_sequence=0,
+                truncated=False,
+                malformed_lines=index.malformed_lines,
+                sequence_gaps=tuple(index.sequence_gaps),
+                stream_generation=index.generation,
+                reset_required=True,
+            )
         checkpoint_sequence, offset = _seek_offset(index, after_sequence)
-        previous_sequence = checkpoint_sequence or None
-        items: list[StrictTrainingTelemetryRecord] = []
-        truncated = False
-        snapshot_size = index.indexed_size
-        with resolved.open("rb") as handle:
-            handle.seek(offset)
-            while handle.tell() < snapshot_size:
-                remaining = snapshot_size - handle.tell()
-                raw_line = handle.readline(remaining)
-                if not raw_line or not raw_line.endswith(b"\n"):
-                    break
-                line = raw_line.strip()
-                if not line:
-                    continue
-                try:
-                    record = _parse_record(line)
-                except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
-                    continue
-                if (
-                    previous_sequence is not None
-                    and record.sequence <= previous_sequence
-                ):
-                    continue
-                previous_sequence = record.sequence
-                if record.sequence <= after_sequence:
-                    continue
-                if len(items) >= limit:
-                    truncated = True
-                    break
-                items.append(record)
-        next_sequence = items[-1].sequence if items else after_sequence
-        return _training.TrainingTelemetryPage(
-            items=tuple(items),
-            next_sequence=next_sequence,
-            truncated=truncated,
-            malformed_lines=index.malformed_lines,
-            sequence_gaps=tuple(index.sequence_gaps),
-        )
+        snapshot = _open_snapshot_unlocked(resolved, index)
+
+    previous_sequence = checkpoint_sequence or None
+    items: list[StrictTrainingTelemetryRecord] = []
+    truncated = False
+    try:
+        snapshot.handle.seek(offset)
+        while snapshot.handle.tell() < snapshot.size:
+            remaining = snapshot.size - snapshot.handle.tell()
+            raw_line = snapshot.handle.readline(remaining)
+            if not raw_line or not raw_line.endswith(b"\n"):
+                break
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                record = _parse_record(line)
+            except (
+                UnicodeError,
+                json.JSONDecodeError,
+                TypeError,
+                ValueError,
+            ):
+                continue
+            if previous_sequence is not None and record.sequence <= previous_sequence:
+                continue
+            previous_sequence = record.sequence
+            if record.sequence <= after_sequence:
+                continue
+            if len(items) >= limit:
+                truncated = True
+                break
+            items.append(record)
+    finally:
+        snapshot.close()
+    next_sequence = items[-1].sequence if items else after_sequence
+    return _training.TrainingTelemetryPage(
+        items=tuple(items),
+        next_sequence=next_sequence,
+        truncated=truncated,
+        malformed_lines=snapshot.index.malformed_lines,
+        sequence_gaps=tuple(snapshot.index.sequence_gaps),
+        stream_generation=snapshot.index.generation,
+        reset_required=False,
+    )
 
 
 def indexed_training_telemetry_status(
@@ -353,15 +462,22 @@ def indexed_training_telemetry_status(
 ) -> _training.TrainingTelemetryStatus:
     resolved = Path(path)
     with _telemetry_process_lock(resolved):
-        index = _refresh_index_unlocked(resolved)
+        refresh = _refresh_index_unlocked(resolved)
+        index = refresh.index
         if index is None:
             return _training.TrainingTelemetryStatus(False, 0, 0, 0, 0)
+        snapshot = _open_snapshot_unlocked(resolved, index)
+        try:
+            size_bytes = int(os.fstat(snapshot.handle.fileno()).st_size)
+        finally:
+            snapshot.close()
         return _training.TrainingTelemetryStatus(
             available=True,
             record_count=index.record_count,
             last_sequence=index.last_sequence,
             malformed_lines=index.malformed_lines,
-            size_bytes=resolved.stat().st_size,
+            size_bytes=size_bytes,
+            stream_generation=index.generation,
         )
 
 
@@ -392,7 +508,7 @@ class IndexedTrainingTelemetryWriter(_BaseWriter):
         self._fd: int | None = descriptor
         try:
             with _telemetry_process_lock(self.path):
-                index = _refresh_index_unlocked(self.path)
+                index = _refresh_index_unlocked(self.path).index
                 self._last_sequence = 0 if index is None else index.last_sequence
         except BaseException:
             os.close(descriptor)
@@ -415,7 +531,7 @@ class IndexedTrainingTelemetryWriter(_BaseWriter):
             if descriptor is None:
                 raise RuntimeError("telemetry writer is closed")
             with _telemetry_process_lock(self.path):
-                index = _refresh_index_unlocked(self.path)
+                index = _refresh_index_unlocked(self.path).index
                 if index is None:
                     raise RuntimeError("telemetry stream is unavailable")
                 path_stat = self.path.stat()

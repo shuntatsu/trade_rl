@@ -176,7 +176,7 @@ def test_index_rebuilds_after_stream_replacement(tmp_path: Path) -> None:
     assert status.last_sequence == 1
     assert rebuilt_payload["last_scan_start"] == 0
     assert [item.sequence for item in page.items] == [1]
-    assert next_payload["last_scan_start"] == path.stat().st_size
+    assert next_payload == rebuilt_payload
 
 
 def _required_generation(value: str | None) -> str:

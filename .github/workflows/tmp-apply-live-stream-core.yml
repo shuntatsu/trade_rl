@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   apply-core:
-    if: github.event.pull_request.head.sha == '426eca40519ab16c7098e44d7860ac660962e7aa'
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch head

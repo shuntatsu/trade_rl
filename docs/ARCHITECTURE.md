@@ -10,12 +10,12 @@ The current maintained system uses causal market artifacts, baseline-anchored or
 
 ```text
 trade_rl/
-  domain/        immutable dataset, policy, selection, and release identities
+  domain/        immutable identities and standard-library canonical primitives
   telemetry/     append-only standard-library diagnostic event contracts
-  artifacts/     canonical serialization, hashing, file closure, atomic publication
+  artifacts/     hashing, file closure, and atomic publication
   release/       external attestation verification and offline approval contracts
   evaluation/    metrics, paired inference, folds, gates, and AUM capacity
-  catalog/       framework-independent artifact metadata contracts and PostgreSQL adapter
+  catalog/       framework-independent artifact metadata contracts and PostgreSQL adapters
   data/          market calendar, causal features, execution-data contracts, datasets
   strategies/    deterministic causal baselines
   simulation/    orders, bar paths, liquidity, execution, carry, margin, accounting
@@ -92,7 +92,7 @@ The simulator supports market, limit, and stop-market instructions; latency; IOC
 
 Final promotion requires conservative primary path mode, processing-bar volume capacity, partial-fill carry, complete order-event evidence, conservative trigger-volume fractions, and an execution-policy digest matching the experiment plan. Optimistic and neutral modes are sensitivity tools only. OHLCV cannot recover queue position, hidden liquidity, auctions, or L2 depth.
 
-The compatibility `MarketExecutor.execute_interval` API is now a facade over the same target reconciliation and stateful order engine. A residual order is carried only when the caller chains the exact returned `BookState` through the same executor; an unrelated book starts a fresh compatibility order state. The compact `ExecutionResult` retains legacy aggregate fields and does not expose the detailed `OrderEvent` sequence, so release evidence still uses the explicit stateful API.
+The compatibility `MarketExecutor.execute_interval` API is a facade over the same target reconciliation and stateful order engine. A residual order is carried only when the caller chains the exact returned `BookState` through the same executor; an unrelated book starts a fresh compatibility order state. The compact `ExecutionResult` retains legacy aggregate fields and does not expose the detailed `OrderEvent` sequence, so release evidence still uses the explicit stateful API.
 
 ## Risk ordering
 
@@ -114,13 +114,15 @@ Training–Serving observation parity includes symbol and feature order, availab
 
 Reward schema v4 prioritizes absolute log-wealth growth. Baseline-relative growth is secondary. Drawdown is penalized only on newly worsening excess drawdown beyond a dead zone. Baseline underperformance uses a fixed real-time rolling window, tolerance, and progressive hinge. Terminal penalties are continuous in equity shortfall rather than fixed jackpots. Every component is returned for audit.
 
-Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed evaluation use liquidation-at-close terminal accounting. Baseline reward pre-roll and normal episode transitions now share decision-time target sizing, stateful reconciliation, processing-bar capacity, latency, partial residual carry, costs, carry, and `BookState` accounting. The pre-roll creates an isolated executor and chains only its returned books, so its pending state cannot leak into the episode proper.
+Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, and sealed evaluation use liquidation-at-close terminal accounting. Baseline reward pre-roll and normal episode transitions share decision-time target sizing, stateful reconciliation, processing-bar capacity, latency, partial residual carry, costs, carry, and `BookState` accounting. The pre-roll creates an isolated executor and chains only its returned books, so its pending state cannot leak into the episode proper.
 
 ## Artifact store and PostgreSQL catalog
 
 Training output is first written to `ArtifactStore/.staging/<run-id>`. `run.json` binds each declared file by relative path, byte size, and SHA-256 together with dataset, environment, training-config, ensemble, execution, and evidence identities. Only a fully validated run moves atomically to `runs/<run-id>` and updates `latest.json`; partial failures move to `failed/<run-id>`.
 
-The optional PostgreSQL catalog stores reusable artifact metadata, canonical cache keys, dependencies, lifecycle status, and persistent sealed-test reservations. Catalog registration is idempotent for an identical artifact and fails on digest/cache-key conflicts. The filesystem artifact remains authoritative: the catalog stores its verified location and identity, not mutable numerical payloads.
+Canonical JSON conversion now has one standard-library implementation in `trade_rl.domain.canonical_json`. Artifact serialization and catalog cache-key hashing use the same byte representation, preventing identity drift between the filesystem and PostgreSQL metadata paths.
+
+The optional PostgreSQL catalog stores reusable artifact metadata, canonical cache keys, dependencies, and lifecycle status. A dedicated `PostgresSealedTestReservationStore` owns the evaluation-specific one-time reservation SQL. `PostgresArtifactCatalog.reserve_sealed_test_access()` remains a temporary compatibility delegate, so existing workflow construction stays stable while responsibilities are separated. The filesystem artifact remains authoritative: the catalog stores its verified location and identity, not mutable numerical payloads.
 
 A PostgreSQL uniqueness boundary prevents separate workflow processes from opening the same `(experiment_plan_digest, dataset_id, fold_index)` sealed test twice. When PostgreSQL is not configured, workflows retain filesystem behavior, but cross-process sealed-test uniqueness is not provided by an in-memory object alone.
 
@@ -140,9 +142,9 @@ Independent folds expose distribution summaries rather than synthetic continuous
 
 Exploratory SB3 training emits seed-scoped, append-only `training_telemetry_v1` JSONL. Normal intervals are sampled; position, risk, emergency, and terminal events are retained. Telemetry is best-effort diagnostics: a telemetry write failure may disable visualization but must not stop learning.
 
-Studio reads telemetry only beneath a known job's declared artifact root and run namespaces. It rejects project-root escapes, symlinks, unknown jobs, and records whose seed differs from the selected stream. Studio never ranks checkpoints from replay data, retrains a policy, activates a bundle, or submits an exchange order.
+Telemetry JSON booleans are parsed strictly rather than by truthiness. Status and cursor reads maintain an atomic sparse sidecar index bound to device, inode, and indexed byte size. Unchanged streams seek from a stored checkpoint; appends scan only newly written complete lines; replacement, truncation, malformed sidecar data, or identity mismatch triggers a full rebuild from byte zero. JSONL remains the source of truth.
 
-Telemetry currently uses whole-file scans for status and paged reads. Repeated polling therefore scales with total file size rather than only newly appended bytes. It also requires stricter boolean parsing and duplicate-seed stream rejection. These are audit findings, not claims that telemetry participates in the research evidence chain.
+Studio reads telemetry only beneath a known job's declared artifact root and run namespaces. It rejects project-root escapes, symlinks, unknown jobs, records whose seed differs from the selected stream, and multiple distinct files that claim the same seed. Studio never ranks checkpoints from replay data, retrains a policy, activates a bundle, or submits an exchange order.
 
 ## Export, serving, and release
 

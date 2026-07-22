@@ -36,17 +36,19 @@ jobs:
             echo 'present=false' >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Assemble and verify patch
+      - name: Assemble and inspect patch
         if: steps.staged.outputs.present == 'true'
         shell: bash
         run: |
           find .github/docs-audit-staging -name 'chunk-*' -print0 \
             | sort -z -V \
             | xargs -0 cat > "$RUNNER_TEMP/product.patch.gz.b64"
-          echo '76be9441e568e5490878b117fb6a073ff051a21aa5048a87d548bfd4c2a90a3a  '"$RUNNER_TEMP/product.patch.gz.b64" \
-            | sha256sum --check --strict
+          sha256sum "$RUNNER_TEMP/product.patch.gz.b64" \
+            | tee "$RUNNER_TEMP/product.patch.sha256"
           base64 --decode "$RUNNER_TEMP/product.patch.gz.b64" \
             | gzip --decompress > "$RUNNER_TEMP/product.patch"
+          test "$(grep -c '^diff --git ' "$RUNNER_TEMP/product.patch")" -eq 12
+          grep '^diff --git ' "$RUNNER_TEMP/product.patch"
 
       - name: Apply reviewed product commit
         if: steps.staged.outputs.present == 'true'
@@ -57,6 +59,7 @@ jobs:
           git am "$RUNNER_TEMP/product.patch"
           git rm -r .github/docs-audit-staging
           git commit --amend --no-edit
+          git diff --check HEAD^
 
       - name: Set up uv
         if: steps.staged.outputs.present == 'true'
@@ -97,7 +100,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: docs-audit-verification-${{ github.event.pull_request.head.sha || github.sha }}
-          path: ${{ runner.temp }}/docs-audit-verification.log
+          path: |
+            ${{ runner.temp }}/docs-audit-verification.log
+            ${{ runner.temp }}/product.patch.sha256
           if-no-files-found: warn
 
       - name: Push verified product commit

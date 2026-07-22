@@ -121,7 +121,7 @@ target = 90.0
 "trade_rl/risk/pretrade.py" = 90.0
 "trade_rl/rl/rewards.py" = 97.0
 "trade_rl/evaluation/gates.py" = 100.0
-"trade_rl/telemetry/indexed_training.py" = 69.0
+"trade_rl/telemetry/_indexed_storage.py" = 69.0
 "trade_rl/rl/training_telemetry.py" = 78.5
 
 [tool.trade_rl.critical_coverage.groups.artifacts]

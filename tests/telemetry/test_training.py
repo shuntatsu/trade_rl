@@ -151,6 +151,7 @@ def test_second_poll_indexes_only_appended_bytes(tmp_path: Path) -> None:
 
 def test_index_rebuilds_after_stream_replacement(tmp_path: Path) -> None:
     path = tmp_path / "training-telemetry.jsonl"
+    index_path = path.with_name(f"{path.name}.index.json")
     with TrainingTelemetryWriter(path, flush_every=1) as writer:
         writer.append(record(1))
         writer.append(record(2))
@@ -164,12 +165,12 @@ def test_index_rebuilds_after_stream_replacement(tmp_path: Path) -> None:
     replacement.replace(path)
 
     status = training_telemetry_status(path)
+    rebuilt_payload = json.loads(index_path.read_text(encoding="utf-8"))
     page = read_training_telemetry(path, after_sequence=0, limit=10)
-    index_payload = json.loads(
-        path.with_name(f"{path.name}.index.json").read_text(encoding="utf-8")
-    )
+    next_payload = json.loads(index_path.read_text(encoding="utf-8"))
 
     assert status.record_count == 1
     assert status.last_sequence == 1
+    assert rebuilt_payload["last_scan_start"] == 0
     assert [item.sequence for item in page.items] == [1]
-    assert index_payload["last_scan_start"] == 0
+    assert next_payload["last_scan_start"] == path.stat().st_size

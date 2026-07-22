@@ -33,6 +33,7 @@ class TelemetryRecordResponse(StudioModel):
     environment_step: int = Field(ge=0)
     seed: int = Field(ge=0)
     environment_id: int = Field(ge=0)
+    episode_id: int | None = Field(default=None, ge=0)
     event_type: Literal[
         "rollout",
         "position",
@@ -73,6 +74,7 @@ class TelemetryStatusResponse(StudioModel):
     malformed_lines: int = Field(ge=0)
     size_bytes: int = Field(ge=0)
     source: str | None = None
+    stream_generation: str | None = None
 
 
 class TelemetryEventsResponse(StudioModel):
@@ -82,6 +84,8 @@ class TelemetryEventsResponse(StudioModel):
     truncated: bool
     malformed_lines: int = Field(ge=0)
     sequence_gaps: tuple[tuple[int, int], ...]
+    stream_generation: str | None = None
+    reset_required: bool = False
 
 
 def _response(record: TelemetryRecordInput) -> TelemetryRecordResponse:
@@ -194,6 +198,7 @@ class StudioTelemetryReader:
             malformed_lines=status.malformed_lines,
             size_bytes=status.size_bytes,
             source=self._source(path),
+            stream_generation=status.stream_generation,
         )
 
     def events(
@@ -203,6 +208,7 @@ class StudioTelemetryReader:
         seed: int | None = None,
         after_sequence: int,
         limit: int,
+        stream_generation: str | None = None,
     ) -> TelemetryEventsResponse:
         _, selected_seed, path = self._selection(job, seed)
         if path is None:
@@ -218,6 +224,7 @@ class StudioTelemetryReader:
             path,
             after_sequence=after_sequence,
             limit=limit,
+            expected_generation=stream_generation,
         )
         if selected_seed is None or any(
             item.seed != selected_seed for item in page.items
@@ -232,6 +239,8 @@ class StudioTelemetryReader:
             truncated=page.truncated,
             malformed_lines=page.malformed_lines,
             sequence_gaps=page.sequence_gaps,
+            stream_generation=page.stream_generation,
+            reset_required=page.reset_required,
         )
 
 

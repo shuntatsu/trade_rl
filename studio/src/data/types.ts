@@ -123,6 +123,7 @@ export interface TrainingTelemetryRecord {
   environmentStep: number
   seed: number
   environmentId: number
+  episodeId: number | null
   eventType: TelemetryEventType
   marketIndex: number | null
   marketTime: string | null
@@ -156,6 +157,7 @@ export interface TelemetryStatusResponse {
   malformedLines: number
   sizeBytes: number
   source: string | null
+  streamGeneration: string | null
 }
 
 export interface TelemetryEventsResponse {
@@ -165,6 +167,8 @@ export interface TelemetryEventsResponse {
   truncated: boolean
   malformedLines: number
   sequenceGaps: [number, number][]
+  streamGeneration: string | null
+  resetRequired: boolean
 }
 
 export interface CheckpointEvaluationItem {

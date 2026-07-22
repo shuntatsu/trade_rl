@@ -129,6 +129,8 @@ target = 90.0
 "trade_rl/risk/pretrade.py" = 90.0
 "trade_rl/rl/rewards.py" = 97.0
 "trade_rl/evaluation/gates.py" = 100.0
+"trade_rl/telemetry/indexed_training.py" = 69.0
+"trade_rl/rl/training_telemetry.py" = 78.5
 
 [tool.trade_rl.critical_coverage.groups.artifacts]
 minimum = 90.0
@@ -154,4 +156,13 @@ paths = [
     "trade_rl/rl/environment_execution.py",
     "trade_rl/rl/environment_observation.py",
     "trade_rl/rl/environment_transition.py",
+]
+
+[tool.trade_rl.critical_coverage.groups.environment_step_services]
+minimum = 86.8
+paths = [
+    "trade_rl/rl/environment_decision.py",
+    "trade_rl/rl/environment_risk.py",
+    "trade_rl/rl/environment_reward.py",
+    "trade_rl/rl/environment_info.py",
 ]

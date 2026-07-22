@@ -44,6 +44,7 @@ function telemetry(
     environmentStep: sequence,
     seed,
     environmentId: 0,
+    episodeId: null,
     eventType: sequence === 2 ? 'position' : 'rollout',
     marketIndex: 100 + sequence,
     marketTime: `2026-07-21T08:0${sequence}:00.000000000`,
@@ -110,6 +111,7 @@ function api(): StudioApi {
         malformedLines: 0,
         sizeBytes: 2048,
         source: items.length > 0 ? `research/.staging/btc-live-001/seed-${selected}/telemetry/training-telemetry.jsonl` : null,
+        streamGeneration: items.length > 0 ? '33333333-3333-4333-8333-333333333333' : null,
       })
     }),
     loadTelemetryEvents: vi.fn().mockImplementation((
@@ -127,6 +129,8 @@ function api(): StudioApi {
         truncated: false,
         malformedLines: 0,
         sequenceGaps: [],
+        streamGeneration: '33333333-3333-4333-8333-333333333333',
+        resetRequired: false,
       })
     }),
     loadCheckpointEvaluations: vi.fn().mockResolvedValue({
@@ -243,6 +247,7 @@ describe('LiveTrainingPage', () => {
       malformedLines: 0,
       sizeBytes: 4096,
       source: 'research/.staging/btc-live-001/seed-7/telemetry/training-telemetry.jsonl',
+      streamGeneration: '33333333-3333-4333-8333-333333333333',
     })
     runtimeApi.loadTelemetryEvents = vi.fn().mockImplementation((
       _jobId: string,
@@ -254,6 +259,8 @@ describe('LiveTrainingPage', () => {
       truncated: false,
       malformedLines: 0,
       sequenceGaps: [],
+      streamGeneration: '33333333-3333-4333-8333-333333333333',
+      resetRequired: false,
     }))
 
     render(<LiveTrainingPage api={runtimeApi} />)

@@ -137,6 +137,7 @@ class TrainingTelemetryRecord:
     emergency_deleverage: bool
     terminated: bool
     truncated: bool
+    episode_id: int | None = None
     schema_version: str = TELEMETRY_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -161,6 +162,12 @@ class TrainingTelemetryRecord:
             or self.market_index < 0
         ):
             raise ValueError("market_index is invalid")
+        if self.episode_id is not None and (
+            isinstance(self.episode_id, bool)
+            or not isinstance(self.episode_id, int)
+            or self.episode_id < 0
+        ):
+            raise ValueError("episode_id is invalid")
         try:
             recorded = datetime.fromisoformat(self.recorded_at.replace("Z", "+00:00"))
         except ValueError as error:
@@ -205,6 +212,7 @@ class TrainingTelemetryRecord:
             "environment_step": self.environment_step,
             "seed": self.seed,
             "environment_id": self.environment_id,
+            "episode_id": self.episode_id,
             "event_type": self.event_type,
             "market_index": self.market_index,
             "market_time": self.market_time,
@@ -246,6 +254,7 @@ class TrainingTelemetryRecord:
             environment_step=_required_int(raw, "environment_step"),
             seed=_required_int(raw, "seed"),
             environment_id=_required_int(raw, "environment_id"),
+            episode_id=_optional_int(raw, "episode_id"),
             event_type=cast(TelemetryEventType, event_type),
             market_index=_optional_int(raw, "market_index"),
             market_time=_optional_string(raw, "market_time"),
@@ -278,6 +287,8 @@ class TrainingTelemetryPage:
     truncated: bool
     malformed_lines: int
     sequence_gaps: tuple[tuple[int, int], ...]
+    stream_generation: str | None = None
+    reset_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +298,7 @@ class TrainingTelemetryStatus:
     last_sequence: int
     malformed_lines: int
     size_bytes: int
+    stream_generation: str | None = None
 
 
 class TrainingTelemetryWriter:

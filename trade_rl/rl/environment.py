@@ -14,8 +14,6 @@ from gymnasium import spaces
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
 from trade_rl.domain.common import require_sha256
-from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
 from trade_rl.risk.inputs import (
     PortfolioRiskInputsProvider,
@@ -41,14 +39,31 @@ from trade_rl.rl.environment_config import (
 from trade_rl.rl.environment_config import (
     ResidualMarketEnvConfig,
 )
+from trade_rl.rl.environment_decision import (
+    EnvironmentDecisionPlanner,
+    EnvironmentDecisionRequest,
+)
 from trade_rl.rl.environment_episode import EpisodeContractSampler
 from trade_rl.rl.environment_execution import (
     EnvironmentExecutionCoordinator,
     TargetExecutionRequest,
 )
+from trade_rl.rl.environment_info import (
+    EnvironmentInfoBuilder,
+    EnvironmentStepInfoRequest,
+    EnvironmentTerminalInfoRequest,
+)
 from trade_rl.rl.environment_observation import (
     EnvironmentObservationAssembler,
     EnvironmentObservationRuntime,
+)
+from trade_rl.rl.environment_reward import (
+    EnvironmentRewardCoordinator,
+    EnvironmentRewardRequest,
+)
+from trade_rl.rl.environment_risk import (
+    EnvironmentRiskProjector,
+    EnvironmentRiskRequest,
 )
 from trade_rl.rl.environment_transition import EnvironmentTerminationCoordinator
 from trade_rl.rl.episode import (
@@ -554,6 +569,32 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             action_size=self.action_spec.size,
             n_factors=self.action_spec.n_factors,
             finite_horizon=self.config.finite_horizon_observation,
+        )
+        self._decision_planner = EnvironmentDecisionPlanner(
+            dataset,
+            action_spec=self.action_spec,
+            composer=self.composer,
+            max_gross=self.pre_trade_risk.config.max_gross,
+            alpha_enabled=self.alpha_enabled,
+            accept_legacy_actions=self.config.accept_legacy_actions,
+            signal_delay_decisions=self.config.signal_delay_decisions,
+            decision_every=self.config.decision_every,
+            decision_hours=self.config.decision_hours,
+        )
+        self._risk_projector = EnvironmentRiskProjector(
+            dataset,
+            emergency_risk_monitor=self.emergency_risk_monitor,
+            pre_trade_risk=self.pre_trade_risk,
+            portfolio_risk=self.portfolio_risk,
+            portfolio_risk_inputs_provider=(self.portfolio_risk_inputs_provider),
+        )
+        self._reward_coordinator = EnvironmentRewardCoordinator(
+            self.reward_tracker,
+            initial_capital=self.config.initial_capital,
+        )
+        self._info_builder = EnvironmentInfoBuilder(
+            dataset,
+            self.reward_tracker,
         )
         self._termination_coordinator = EnvironmentTerminationCoordinator(
             config=self.config,
@@ -1184,75 +1225,19 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         }
 
     def _market_notional(self, index: int) -> np.ndarray:
-        prices = self.dataset.close[index]
-        volume = self.dataset.volume[index]
-        return np.asarray(
-            [
-                float(value)
-                if str(getattr(unit, "value", unit)) == "quote_notional"
-                else float(price * value)
-                for price, value, unit in zip(
-                    prices, volume, self.dataset.volume_units, strict=True
-                )
-            ],
-            dtype=np.float64,
-        )
+        return self._risk_projector.market_notional(index)
 
     def _constrain_target(
         self,
         proposal: np.ndarray,
         book: BookState,
     ) -> RiskConstrainedTarget:
-        target = np.asarray(proposal, dtype=np.float64).reshape(-1).copy()
-        if target.shape != (self.dataset.n_symbols,) or not np.isfinite(target).all():
-            raise ValueError("proposal does not match dataset symbols")
-        assessment = self.emergency_risk_monitor.assess(
-            self.dataset,
-            index=self.current_index,
-            weights=book.weights,
-        )
-        pretrade = self.pre_trade_risk.constrain(
-            target,
-            current=book.weights,
-            drawdown=self._drawdown(book),
-            emergency_flatten_mask=assessment.flatten_mask,
-        )
-        risk_inputs = None
-        if self.portfolio_risk.requires_advanced_inputs:
-            provider = self.portfolio_risk_inputs_provider
-            if provider is None:
-                raise RuntimeError(
-                    "advanced portfolio risk requires a causal input provider"
-                )
-            risk_inputs = provider.inputs(self.dataset, index=self.current_index)
-        portfolio = self.portfolio_risk.constrain(
-            pretrade.weights,
-            portfolio_value=max(book.portfolio_value, 1e-12),
-            market_notional=self._market_notional(self.current_index),
-            covariance=None if risk_inputs is None else risk_inputs.covariance,
-            beta=None if risk_inputs is None else risk_inputs.beta,
-            stress_losses=None if risk_inputs is None else risk_inputs.stress_losses,
-        )
-        final_weights = np.asarray(portfolio.weights, dtype=np.float64)
-        constrained_turnover = float(np.abs(final_weights - book.weights).sum())
-        reasons = tuple(
-            dict.fromkeys(
-                (
-                    *pretrade.reasons,
-                    *assessment.reasons,
-                    *(f"portfolio:{item}" for item in portfolio.reasons),
-                )
+        return self._risk_projector.project(
+            EnvironmentRiskRequest(
+                proposal=proposal,
+                book=book,
+                current_index=self.current_index,
             )
-        )
-        return RiskConstrainedTarget(
-            weights=final_weights,
-            requested_turnover=pretrade.requested_turnover,
-            constrained_turnover=constrained_turnover,
-            was_constrained=bool(reasons),
-            reasons=reasons,
-            risk_scale=pretrade.risk_scale,
-            projection_l1=float(np.abs(target - final_weights).sum()),
-            turnover_overridden=pretrade.turnover_overridden,
         )
 
     def _parse_action(
@@ -1264,58 +1249,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         int,
         float,
     ]:
-        vector = np.asarray(value, dtype=np.float64).reshape(-1)
-        if (
-            self.action_spec.mode is ActionMode.RESIDUAL
-            and vector.shape == (2,)
-            and self.config.accept_legacy_actions
-        ):
-            legacy = ResidualAction.from_array(vector)
-            migrated = np.zeros(self.action_spec.size, dtype=np.float32)
-            if legacy.trend_mix >= 0.0:
-                migrated[0] = legacy.trend_mix
-            else:
-                migrated[1] = -legacy.trend_mix
-            if self.alpha_enabled:
-                migrated[self.action_spec.names.index("alpha_scale")] = (
-                    legacy.alpha_budget
-                )
-            saturated = int(np.count_nonzero(np.abs(vector) > 1.0))
-            return (
-                legacy,
-                migrated,
-                saturated,
-                float(np.max(np.abs(vector), initial=0.0)),
-            )
-        parsed = self.action_spec.parse(value)
-        if isinstance(parsed, TargetWeightAction):
-            maintained = parsed.as_array()
-        else:
-            maintained = parsed.as_array(
-                alpha_enabled=self.alpha_enabled,
-                risk_tilt_enabled=self.action_spec.risk_tilt_enabled,
-            )
-        return (
-            parsed,
-            maintained,
-            parsed.saturated_count,
-            parsed.raw_max_abs,
-        )
+        return self._decision_planner.parse_action(value)
 
     def _decision_bar_count(self) -> int:
-        remaining = self.end_index - self.current_index
-        if remaining <= 0:
-            raise RuntimeError("step called after the episode ended")
-        if self.config.decision_every is not None:
-            return min(self.config.decision_every, remaining)
-        if self.dataset.regular_cadence:
-            return min(
-                self.dataset.bars_for_hours(self.config.decision_hours), remaining
-            )
-        return self.dataset.bars_until(
-            self.current_index,
-            self.config.decision_hours,
-            maximum_index=self.end_index,
+        return self._decision_planner.decision_bar_count(
+            current_index=self.current_index,
+            end_index=self.end_index,
         )
 
     @staticmethod
@@ -1372,49 +1311,43 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         if self.current_index >= self.end_index:
             raise RuntimeError("step called after the episode ended")
         trends, alpha, factor_basis = self._market_inputs()
-        parsed_action, maintained_action, saturated_count, raw_max_abs = (
-            self._parse_action(action)
-        )
-        composition = self.composer.compose(
-            parsed_action,
-            trends,
-            alpha,
-            alpha_enabled=self.alpha_enabled,
-            factor_basis=factor_basis,
-            max_gross=self.pre_trade_risk.config.max_gross,
-        )
-        submitted_hybrid_target = np.asarray(
-            composition.proposal, dtype=np.float64
-        ).copy()
-        submitted_shadow_target = np.asarray(trends.base, dtype=np.float64).copy()
-        execution_delay_warmup = False
-        if self.config.signal_delay_decisions == 0:
-            executed_hybrid_target = submitted_hybrid_target
-            executed_shadow_target = submitted_shadow_target
-        else:
-            execution_delay_warmup = self._pending_hybrid_target is None
-            executed_hybrid_target = (
-                self.hybrid.weights.copy()
-                if self._pending_hybrid_target is None
-                else self._pending_hybrid_target.copy()
+        decision = self._decision_planner.plan(
+            EnvironmentDecisionRequest(
+                action=action,
+                trends=trends,
+                alpha=alpha,
+                factor_basis=factor_basis,
+                hybrid_weights=self.hybrid.weights,
+                shadow_weights=self.shadow.weights,
+                pending_hybrid_target=self._pending_hybrid_target,
+                pending_shadow_target=self._pending_shadow_target,
+                current_index=self.current_index,
+                end_index=self.end_index,
             )
-            executed_shadow_target = (
-                self.shadow.weights.copy()
-                if self._pending_shadow_target is None
-                else self._pending_shadow_target.copy()
+        )
+        self._pending_hybrid_target = decision.next_pending_hybrid_target
+        self._pending_shadow_target = decision.next_pending_shadow_target
+        hybrid_risk = self._risk_projector.project(
+            EnvironmentRiskRequest(
+                proposal=decision.executed_hybrid_target,
+                book=self.hybrid,
+                current_index=self.current_index,
             )
-            self._pending_hybrid_target = submitted_hybrid_target
-            self._pending_shadow_target = submitted_shadow_target
-        hybrid_risk = self._constrain_target(executed_hybrid_target, self.hybrid)
-        shadow_risk = self._constrain_target(executed_shadow_target, self.shadow)
-        bars = self._decision_bar_count()
+        )
+        shadow_risk = self._risk_projector.project(
+            EnvironmentRiskRequest(
+                proposal=decision.executed_shadow_target,
+                book=self.shadow,
+                current_index=self.current_index,
+            )
+        )
         previous_hybrid_weights = self.hybrid.weights.copy()
         hybrid_execution = self._execute_stateful_target(
             executor=self.hybrid_executor,
             book=self.hybrid,
             order_book=self._hybrid_order_book,
             target=hybrid_risk.weights,
-            bars=bars,
+            bars=decision.bars,
             book_kind="hybrid",
         )
         shadow_execution = self._execute_stateful_target(
@@ -1422,7 +1355,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             book=self.shadow,
             order_book=self._shadow_order_book,
             target=shadow_risk.weights,
-            bars=bars,
+            bars=decision.bars,
             book_kind="shadow",
         )
         if hybrid_execution.bars_advanced != shadow_execution.bars_advanced:
@@ -1471,33 +1404,30 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         economic_transition = transition.economic_transition
         terminated = economic_transition.terminated
         truncated = economic_transition.truncated
-        action_delta_l1 = float(np.abs(maintained_action - self._previous_action).sum())
+        action_delta_l1 = float(
+            np.abs(decision.maintained_action - self._previous_action).sum()
+        )
         projection_distance = hybrid_risk.projection_l1
-        reward_breakdown = self.reward_tracker.step(
-            hybrid_log_return=hybrid_log_return,
-            shadow_log_return=shadow_log_return,
-            hybrid_drawdown=self._drawdown(self.hybrid),
-            shadow_drawdown=self._drawdown(self.shadow),
-            projection_distance=projection_distance,
-            hybrid_margin_deficit_fraction=(
-                self.hybrid.margin_deficit / self.config.initial_capital
-            ),
-            hybrid_equity_fraction=max(self.hybrid.portfolio_value, 0.0)
-            / self.config.initial_capital,
-            shadow_equity_fraction=max(self.shadow.portfolio_value, 0.0)
-            / self.config.initial_capital,
-            hybrid_terminated=hybrid_terminated,
-            shadow_terminated=shadow_terminated,
+        reward_breakdown = self._reward_coordinator.step(
+            EnvironmentRewardRequest(
+                hybrid_log_return=hybrid_log_return,
+                shadow_log_return=shadow_log_return,
+                hybrid=self.hybrid,
+                shadow=self.shadow,
+                projection_distance=projection_distance,
+                hybrid_terminated=hybrid_terminated,
+                shadow_terminated=shadow_terminated,
+            )
         )
         self._execution_state = self._execution_observation_state(
             requested_weights=hybrid_risk.weights,
             result=hybrid_execution,
             previous_weights=previous_hybrid_weights,
         )
-        self._previous_action = maintained_action.copy()
+        self._previous_action = decision.maintained_action.copy()
         self._action_diagnostics.update(
-            action=maintained_action,
-            saturated_count=saturated_count,
+            action=decision.maintained_action,
+            saturated_count=decision.saturated_count,
             action_delta_l1=action_delta_l1,
             projection_l1=projection_distance,
             constrained=hybrid_risk.was_constrained,
@@ -1516,69 +1446,38 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             if liquidation_terminal and hybrid_liquidation is not None
             else 0.0
         )
-        info: dict[str, object] = {
-            "action_delta_l1": action_delta_l1,
-            "action_raw_max_abs": raw_max_abs,
-            "action_saturated_count": saturated_count,
-            "bars_advanced": hybrid_execution.bars_advanced,
-            "composition": composition,
-            "decision_step_index": self._decision_step_index,
-            "excess_log_return": hybrid_log_return - shadow_log_return,
-            "emergency_deleverage": emergency_deleverage,
-            "execution_delay_warmup": execution_delay_warmup,
-            "submitted_target": submitted_hybrid_target.copy(),
-            "executed_target": executed_hybrid_target.copy(),
-            "drawdown_after": self._drawdown(self.hybrid),
-            "portfolio_value_after": self.hybrid.portfolio_value,
-            "reward_growth_raw": reward_breakdown.absolute_log_growth,
-            "reward_baseline_penalty_delta": (
-                0.0
-                if self.reward_tracker.config.baseline_underperformance_weight == 0.0
-                else reward_breakdown.baseline_penalty
-                / self.reward_tracker.config.baseline_underperformance_weight
-            ),
-            "reward_baseline_penalty_weighted": reward_breakdown.baseline_penalty,
-            "reward_drawdown_penalty_delta": reward_breakdown.incremental_drawdown,
-            "reward_drawdown_penalty_weighted": reward_breakdown.drawdown_penalty,
-            "reward_total_raw": reward_breakdown.unscaled_total,
-            "reward_total_scaled": reward_breakdown.scaled_total,
-            "reward_context_before": self.reward_tracker.last_context_before,
-            "reward_context_after": self.reward_tracker.last_context_after,
-            "rolling_hybrid_log_growth": (
-                self.reward_tracker.last_context_after.rolling_hybrid_log_growth
-            ),
-            "rolling_baseline_log_growth": (
-                self.reward_tracker.last_context_after.rolling_shadow_log_growth
-            ),
-            "rolling_growth_gap": (
-                self.reward_tracker.last_context_after.rolling_growth_gap
-            ),
-            "hybrid_execution": hybrid_execution,
-            "hybrid_risk": hybrid_risk,
-            "hybrid_terminated": hybrid_terminated,
-            "interval_cost": hybrid_execution.interval_cost,
-            "interval_funding": hybrid_execution.interval_funding,
-            "interval_gross_return": hybrid_execution.interval_gross_return,
-            "interval_net_return": hybrid_execution.interval_net_return,
-            "liquidation_complete": liquidation_complete,
-            "liquidation_terminal": liquidation_terminal,
-            "projection_distance_l1": projection_distance,
-            "reward_breakdown": reward_breakdown,
-            "shadow_execution": shadow_execution,
-            "shadow_interval_net_return": shadow_execution.interval_net_return,
-            "shadow_risk": shadow_risk,
-            "shadow_terminated": shadow_terminated,
-            "termination_reason": termination_reason,
-            "terminal_accounting_mode": terminal_accounting_mode,
-            "terminal_liquidation_cost": terminal_liquidation_cost,
-            "pending_target_discarded": pending_target_discarded,
-        }
-        if discarded_pending_target is not None:
-            info["discarded_pending_target"] = discarded_pending_target
-        if hybrid_liquidation is not None:
-            info["hybrid_liquidation"] = hybrid_liquidation
-        if shadow_liquidation is not None:
-            info["shadow_liquidation"] = shadow_liquidation
+        info = self._info_builder.step_info(
+            EnvironmentStepInfoRequest(
+                action_delta_l1=action_delta_l1,
+                raw_max_abs=decision.raw_max_abs,
+                saturated_count=decision.saturated_count,
+                composition=decision.composition,
+                decision_step_index=self._decision_step_index,
+                hybrid_log_return=hybrid_log_return,
+                shadow_log_return=shadow_log_return,
+                emergency_deleverage=emergency_deleverage,
+                execution_delay_warmup=decision.execution_delay_warmup,
+                submitted_target=decision.submitted_hybrid_target,
+                executed_target=decision.executed_hybrid_target,
+                hybrid=self.hybrid,
+                reward_breakdown=reward_breakdown,
+                hybrid_execution=hybrid_execution,
+                hybrid_risk=hybrid_risk,
+                hybrid_terminated=hybrid_terminated,
+                shadow_execution=shadow_execution,
+                shadow_risk=shadow_risk,
+                shadow_terminated=shadow_terminated,
+                liquidation_complete=liquidation_complete,
+                liquidation_terminal=liquidation_terminal,
+                termination_reason=termination_reason,
+                terminal_accounting_mode=terminal_accounting_mode,
+                terminal_liquidation_cost=terminal_liquidation_cost,
+                pending_target_discarded=pending_target_discarded,
+                discarded_pending_target=discarded_pending_target,
+                hybrid_liquidation=hybrid_liquidation,
+                shadow_liquidation=shadow_liquidation,
+            )
+        )
         if terminated or truncated:
             info.update(self._terminal_info())
         return (
@@ -1589,32 +1488,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             info,
         )
 
-    def _book_metrics(self, book: BookState) -> PerformanceMetrics:
-        return evaluate_performance(
-            ReturnSeries(
-                values=tuple(book.returns_history),
-                kind=ReturnKind.BASE_BAR,
-                periods_per_year=self.dataset.periods_per_year,
-            ),
-            turnover_total=book.turnover_total,
-            total_cost=book.total_cost,
-            funding_pnl=book.funding_pnl - book.borrow_cost,
-            n_trades=book.fill_count,
-        )
-
     def _terminal_info(self) -> dict[str, object]:
-        hybrid_metrics = self._book_metrics(self.hybrid)
-        shadow_metrics = self._book_metrics(self.shadow)
-        return {
-            "episode_hours": self._episode_hours,
-            "episode_seed": self._episode_seed,
-            "action_diagnostics": self._action_diagnostics.snapshot(),
-            "hybrid_metrics": hybrid_metrics,
-            "hybrid_rebalance_events": self.hybrid.rebalance_events,
-            "initial_state_mode": self._initial_state_mode,
-            "shadow_metrics": shadow_metrics,
-            "shadow_rebalance_events": self.shadow.rebalance_events,
-            "excess_total_return": (
-                hybrid_metrics.total_return - shadow_metrics.total_return
-            ),
-        }
+        return self._info_builder.terminal_info(
+            EnvironmentTerminalInfoRequest(
+                episode_hours=self._episode_hours,
+                episode_seed=self._episode_seed,
+                action_diagnostics=self._action_diagnostics.snapshot(),
+                hybrid=self.hybrid,
+                shadow=self.shadow,
+                initial_state_mode=self._initial_state_mode,
+            )
+        )

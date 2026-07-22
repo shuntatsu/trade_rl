@@ -53,7 +53,7 @@
 .live-connection--delayed, .live-connection--connecting { color: var(--live-amber); }
 .live-connection--offline { color: var(--live-red); }
 
-.live-header-controls { display: flex; align-items: end; justify-content: flex-end; gap: 10px; min-width: 0; }
+.live-header-controls { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 6px 10px; min-width: 0; }
 .live-job-select, .live-segment-group { display: grid; gap: 4px; color: var(--live-muted); font-size: 10px; font-weight: 700; }
 .live-job-select select {
   height: 34px;

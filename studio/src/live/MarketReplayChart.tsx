@@ -1,4 +1,5 @@
 import type { TrainingTelemetryRecord } from '../data/types'
+import { selectTelemetryTrack } from './telemetryTracks'
 
 interface MarketReplayChartProps {
   records: TrainingTelemetryRecord[]
@@ -24,7 +25,9 @@ function formatPrice(value: number): string {
 }
 
 export function MarketReplayChart({ records, cursorSequence, compressed }: MarketReplayChartProps) {
-  const selected = (compressed ? records.filter((record) => record.eventType !== 'rollout') : records)
+  const track = selectTelemetryTrack(records, cursorSequence)
+  const trackRecords = track?.records ?? []
+  const selected = (compressed ? trackRecords.filter((record) => record.eventType !== 'rollout') : trackRecords)
     .filter((record) => record.close !== null)
     .slice(-96)
   if (selected.length === 0) {
@@ -78,7 +81,11 @@ export function MarketReplayChart({ records, cursorSequence, compressed }: Marke
           const delta = weightDelta(record)
           const markerY = delta >= 0 ? y(recordLow) + 18 : y(recordHigh) - 18
           return (
-            <g key={`${record.sequence}-${record.environmentId}`}>
+            <g
+              key={`${record.sequence}-${record.environmentId}`}
+              data-sequence={record.sequence}
+              data-track-key={track?.key ?? ''}
+            >
               <line x1={candleX} x2={candleX} y1={y(recordHigh)} y2={y(recordLow)} className={rising ? 'live-candle live-candle--up' : 'live-candle live-candle--down'} />
               <rect x={candleX - candleWidth / 2} y={bodyTop} width={candleWidth} height={bodyHeight} rx="1" className={rising ? 'live-candle live-candle--up' : 'live-candle live-candle--down'} />
               {record.eventType === 'position' ? (

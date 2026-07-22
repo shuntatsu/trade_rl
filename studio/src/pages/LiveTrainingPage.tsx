@@ -9,6 +9,7 @@ import type {
   TrainingTelemetryRecord,
 } from '../data/types'
 import { MarketReplayChart } from '../live/MarketReplayChart'
+import { deriveTelemetryTracks } from '../live/telemetryTracks'
 import { useTrainingTelemetry } from '../live/useTrainingTelemetry'
 import '../liveTraining.css'
 
@@ -83,6 +84,8 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const [jobs, setJobs] = useState<JobSummary[]>([])
   const [jobId, setJobId] = useState<string | null>(null)
   const [seed, setSeed] = useState<number | null>(null)
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<number | null>(null)
+  const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(null)
   const [checkpointEvidenceId, setCheckpointEvidenceId] = useState<string | null>(null)
   const [jobsError, setJobsError] = useState<string | null>(null)
   const [checkpointEvaluations, setCheckpointEvaluations] = useState<CheckpointEvaluationsResponse | null>(null)
@@ -135,27 +138,59 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
     }
   }, [seed, seedKey, telemetry.status?.selectedSeed])
 
+  const tracks = useMemo(
+    () => deriveTelemetryTracks(telemetry.records),
+    [telemetry.records],
+  )
+  const environmentIds = useMemo(
+    () => [...new Set(tracks.map((track) => track.environmentId))].sort((left, right) => left - right),
+    [tracks],
+  )
+  const selectedTrack = tracks.find((track) => track.key === selectedTrackKey) ?? null
+  const selectedRecords = selectedTrack?.records ?? []
+
   useEffect(() => {
-    if (telemetry.records.length === 0) {
+    if (tracks.length === 0) {
+      setSelectedEnvironmentId(null)
+      setSelectedTrackKey(null)
+      return
+    }
+    const current = tracks.find((track) => track.key === selectedTrackKey)
+    if (current) {
+      if (selectedEnvironmentId !== current.environmentId) {
+        setSelectedEnvironmentId(current.environmentId)
+      }
+      return
+    }
+    const environmentTracks = selectedEnvironmentId === null
+      ? []
+      : tracks.filter((track) => track.environmentId === selectedEnvironmentId)
+    const fallback = environmentTracks.at(-1) ?? tracks.at(-1) ?? null
+    setSelectedEnvironmentId(fallback?.environmentId ?? null)
+    setSelectedTrackKey(fallback?.key ?? null)
+  }, [selectedEnvironmentId, selectedTrackKey, tracks])
+
+  useEffect(() => {
+    if (selectedRecords.length === 0) {
       setCursor(0)
       return
     }
     setCursor((current) => replayMode === 'live' || current === 0
-      ? telemetry.records.length - 1
-      : Math.min(current, telemetry.records.length - 1))
-  }, [replayMode, telemetry.records.length])
+      ? selectedRecords.length - 1
+      : Math.min(current, selectedRecords.length - 1))
+  }, [replayMode, selectedRecords.length, selectedTrackKey])
 
   useEffect(() => {
-    if (!playing || replayMode === 'live' || telemetry.records.length < 2) return undefined
+    if (!playing || replayMode === 'live' || selectedRecords.length < 2) return undefined
     const timer = window.setInterval(() => {
-      setCursor((current) => current >= telemetry.records.length - 1 ? 0 : current + 1)
+      setCursor((current) => current >= selectedRecords.length - 1 ? 0 : current + 1)
     }, Math.max(90, 700 / speed))
     return () => window.clearInterval(timer)
-  }, [playing, replayMode, speed, telemetry.records.length])
+  }, [playing, replayMode, selectedRecords.length, selectedTrackKey, speed])
 
   const selectedJob = jobs.find((job) => job.id === jobId) ?? null
-  const activeRecord = telemetry.records[Math.min(cursor, Math.max(0, telemetry.records.length - 1))] ?? null
-  const latestRecord = telemetry.records.at(-1) ?? null
+  const activeRecord = selectedRecords[Math.min(cursor, Math.max(0, selectedRecords.length - 1))] ?? null
+  const latestRecord = selectedRecords.at(-1) ?? null
   const effectiveSeed = seed ?? telemetry.status?.selectedSeed ?? null
   const checkpointOptions = useMemo(() => {
     if (effectiveSeed === null) return []
@@ -182,7 +217,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const selectedCheckpoint = checkpointOptions.find(
     (item) => checkpointIdentity(item) === checkpointEvidenceId,
   ) ?? checkpointOptions[0] ?? null
-  const firstPortfolio = telemetry.records.find((record) => record.portfolioValue !== null)?.portfolioValue ?? null
+  const firstPortfolio = selectedRecords.find((record) => record.portfolioValue !== null)?.portfolioValue ?? null
   const equity = activeRecord?.portfolioValue ?? null
   const baseline = activeRecord?.baselinePortfolioValue ?? null
   const pnl = equity !== null && firstPortfolio !== null ? equity - firstPortfolio : null
@@ -193,17 +228,25 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const positionTone = currentWeight > 0 ? 'live-positive' : currentWeight < 0 ? 'live-negative' : ''
   const compressed = timelineMode === 'events'
   const recentEvents = useMemo(
-    () => telemetry.records.filter((record) => record.eventType !== 'rollout').slice(-8).reverse(),
-    [telemetry.records],
+    () => selectedRecords.filter((record) => record.eventType !== 'rollout').slice(-8).reverse(),
+    [selectedRecords],
   )
-  const equityValues = telemetry.records.map((record) => record.portfolioValue)
-  const baselineValues = telemetry.records.map((record) => record.baselinePortfolioValue)
-  const drawdownValues = telemetry.records.map((record) => record.drawdown === null ? null : -record.drawdown * 100)
+  const equityValues = selectedRecords.map((record) => record.portfolioValue)
+  const baselineValues = selectedRecords.map((record) => record.baselinePortfolioValue)
+  const drawdownValues = selectedRecords.map((record) => record.drawdown === null ? null : -record.drawdown * 100)
   const connectionLabel = telemetry.connection === 'live' ? 'LIVE' : telemetry.connection === 'delayed' ? 'DELAYED' : telemetry.connection === 'connecting' ? 'CONNECTING' : 'OFFLINE'
+
+  const chooseEnvironment = (environmentId: number | null) => {
+    setSelectedEnvironmentId(environmentId)
+    const latest = environmentId === null
+      ? tracks.at(-1) ?? null
+      : tracks.filter((track) => track.environmentId === environmentId).at(-1) ?? null
+    setSelectedTrackKey(latest?.key ?? null)
+  }
 
   const jump = (amount: number) => {
     setPlaying(false)
-    setCursor((current) => Math.max(0, Math.min(telemetry.records.length - 1, current + amount)))
+    setCursor((current) => Math.max(0, Math.min(selectedRecords.length - 1, current + amount)))
   }
 
   return (
@@ -230,6 +273,30 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
               {telemetry.status?.availableSeeds.map((value) => <option key={value} value={value}>Seed {value}</option>)}
             </select>
           </label>
+          <label className="live-job-select">Environment
+            <select
+              value={selectedEnvironmentId ?? ''}
+              onChange={(event) => chooseEnvironment(event.target.value === '' ? null : Number(event.target.value))}
+              aria-label="Live Training environment"
+            >
+              {environmentIds.length === 0 ? <option value="">env待機中</option> : null}
+              {environmentIds.map((value) => <option key={value} value={value}>Env {value}</option>)}
+            </select>
+          </label>
+          <label className="live-job-select">Episode
+            <select
+              value={selectedTrack?.key ?? ''}
+              onChange={(event) => setSelectedTrackKey(event.target.value || null)}
+              aria-label="Live Training episode"
+            >
+              {selectedEnvironmentId === null ? <option value="">episode待機中</option> : null}
+              {tracks.filter((track) => track.environmentId === selectedEnvironmentId).map((track) => (
+                <option key={track.key} value={track.key}>
+                  {track.inferred ? `Legacy inferred ${track.legacyOrdinal}` : `Episode ${track.episodeId}`}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="live-segment-group" aria-label="リプレイモード">
             <span>リプレイモード</span>
             <div className="live-segment">
@@ -237,7 +304,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
               <button type="button" aria-pressed={replayMode === 'buffered'} onClick={() => setReplayMode('buffered')}>バッファ再生</button>
             </div>
           </div>
-          <div className="live-buffer"><Database size={14} aria-hidden="true" /><strong>{telemetry.records.length}</strong> steps buffered</div>
+          <div className="live-buffer"><Database size={14} aria-hidden="true" /><span>{selectedRecords.length} / {telemetry.records.length} records</span></div>
           <div className="live-segment-group" aria-label="タイム軸">
             <span>タイム軸（切替可能）</span>
             <div className="live-segment">
@@ -256,14 +323,14 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             <div><strong>{activeRecord?.symbol ?? latestRecord?.symbol ?? 'Market'} 市場リプレイ</strong><span>{selectedJob?.runId ?? 'ジョブ待機中'} · Seed {effectiveSeed ?? '—'} · exploration</span></div>
             <span className="live-step-chip">Replay Step {activeRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</span>
           </div>
-          <MarketReplayChart records={telemetry.records} cursorSequence={activeRecord?.sequence ?? null} compressed={compressed} />
+          <MarketReplayChart records={selectedRecords} cursorSequence={activeRecord?.sequence ?? null} compressed={compressed} />
           <div className="live-transport" aria-label="リプレイ操作">
             <button type="button" className="live-icon-button live-icon-button--primary" aria-label={playing ? '一時停止' : '再生'} onClick={() => setPlaying((current) => !current)}>{playing ? <Pause size={17} /> : <Play size={17} />}</button>
             <button type="button" className="live-icon-button" aria-label="先頭へ戻る" onClick={() => { setPlaying(false); setCursor(0) }}><RotateCcw size={16} /></button>
             <div className="live-speed" aria-label="再生速度">{([1, 4, 8] as Speed[]).map((value) => <button type="button" key={value} aria-pressed={speed === value} onClick={() => setSpeed(value)}>{value}x</button>)}</div>
             <span className="live-sampling">一定ステップごとに表示 <strong>Adaptive / 32 steps</strong></span>
             <div className="live-jump"><button type="button" onClick={() => jump(-10)}><SkipBack size={14} />−10</button><button type="button" onClick={() => jump(10)}>+10<SkipForward size={14} /></button></div>
-            <button type="button" className="live-latest" onClick={() => { setCursor(Math.max(0, telemetry.records.length - 1)); setReplayMode('live') }}>最新へ</button>
+            <button type="button" className="live-latest" onClick={() => { setCursor(Math.max(0, selectedRecords.length - 1)); setReplayMode('live') }}>最新へ</button>
           </div>
         </article>
 
@@ -315,7 +382,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
           {recentEvents.length === 0 ? <div className="live-empty-event">重要イベントを待っています。</div> : recentEvents.map((record) => {
             const label = eventLabel(record)
             return (
-              <button type="button" key={`${record.sequence}-${record.environmentId}`} aria-label={`Step ${record.globalStep} ${label}`} onClick={() => { setPlaying(false); setCursor(Math.max(0, telemetry.records.findIndex((item) => item.sequence === record.sequence))) }}>
+              <button type="button" key={`${record.sequence}-${record.environmentId}`} aria-label={`Step ${record.globalStep} ${label}`} onClick={() => { setPlaying(false); setCursor(Math.max(0, selectedRecords.findIndex((item) => item.sequence === record.sequence))) }}>
                 <time>{record.marketTime?.slice(11, 19) ?? record.recordedAt.slice(11, 19)}</time>
                 <span className={`live-event-tag live-event-tag--${label.toLowerCase()}`}>{label}</span>
                 <strong>{record.symbol}</strong>

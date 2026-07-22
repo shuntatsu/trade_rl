@@ -32,7 +32,17 @@ jobs:
       - name: Install Studio
         run: npm ci --prefix studio
       - name: Apply reviewed core patch
-        run: uv run python .github/scripts/apply_live_stream_core.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python .github/scripts/apply_live_stream_core.py 2>&1 | tee live-stream-core-patch.txt
+      - name: Upload patch diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-stream-core-patch
+          path: live-stream-core-patch.txt
+          if-no-files-found: error
       - name: Format Python
         run: uv run ruff format trade_rl/telemetry/training.py trade_rl/rl/training_telemetry.py trade_rl/studio/telemetry.py
       - name: Ruff

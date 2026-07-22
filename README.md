@@ -31,13 +31,13 @@ npm ci --prefix studio
 npm run dev --prefix studio
 ```
 
-Studio does not submit exchange orders. BUY/SELL markers visualize changes in learned target exposure, not real orders. Training telemetry is diagnostic, seed-scoped, append-only, and excluded from selection, artifact identity, release approval, and execution. See [`studio/README.md`](studio/README.md).
+Studio does not submit exchange orders. BUY/SELL markers visualize changes in learned target exposure, not real orders. Live Training is not exchange activity, not model-selection evidence, not sealed evaluation, not profitability evidence, and not production authorization. Training telemetry is diagnostic, seed-scoped, append-only, and excluded from selection, artifact identity, release approval, and execution. See [`studio/README.md`](studio/README.md).
 
 ## Start here
 
 For a copy-paste first training run, including deterministic demo-data generation, a maintained PPO configuration, artifact inspection, real-data replacement, GPU settings, and troubleshooting, read [START.md](START.md). For the maintained public Binance ingestion and live-smoke path, read [Binance Public Data Workflow](docs/BINANCE.md).
 
-## Action and environment v3
+## Action, observation, and execution contracts
 
 The maintained environment provides:
 
@@ -51,7 +51,7 @@ The maintained environment provides:
 - hard risk limits that override soft turnover throttles during concentration, leverage, or emergency drawdown violations;
 - economic terminal states for insolvency, minimum equity, execution-cost exhaustion, margin call, liquidation, and drawdown stop instead of training-process crashes;
 - cash, baseline, random, stressed, partial-fill, and restored causal reset states, duration curricula, and regime/stress episode sampling;
-- observation schema v3 with per-feature masks and staleness, factor loadings, requested and realized execution state, pending-order state, cash/net/gross/margin state, previous action, and optional finite-horizon time;
+- flat observation identity `baseline_residual_observation_v5`, including per-feature masks/staleness and seven causal pending-order coordinates per symbol: remaining-notional ratio, order type, order status, age, eligible delay, trigger state, and expiry distance;
 - fold-fitted, frozen, content-addressed observation normalization that preserves categorical masks exactly;
 - reward schema v4 prioritizing absolute log-wealth growth, then excess growth, with incremental drawdown and rolling baseline-underperformance progressive hinges;
 - PPO exploration/network controls plus sealed-comparison support for SAC, TD3, and TQC;
@@ -63,7 +63,7 @@ Dataset identity v6 is recomputed from every observation, eligibility, execution
 
 Environment identity includes the verified dataset, calendar, action specification, content-addressed fold-local alpha/factor artifacts, semantic normalizer, episode curriculum, trend, reward, portfolio risk, execution policy, AUM, and sequence-policy architecture. Signal filesystem paths are diagnostics only and never change experiment identity.
 
-Serving bundle v5 contains the complete selected-final evidence chain but no approval material. A detached Ed25519 `ReleaseAttestation` binds the immutable bundle digest to the training run, selection proposal and authorization, walk-forward and gate evidence, fresh confirmation, selected policy, source commit, dependency provenance, approver, and expiry. Runtime and registry processes receive purpose-bound public keys only; private keys are accepted exclusively by explicit offline CLI commands. Exploratory runs, unsigned bundles, legacy release sidecars, wrong-purpose keys, incomplete evidence chains, and incompatible execution evidence fail closed before activation.
+Serving bundle v5 identity `serving_bundle_v5` contains the complete selected-final evidence chain but no approval material. A detached Ed25519 `ReleaseAttestation` binds the immutable bundle digest to the training run, selection proposal and authorization, walk-forward and gate evidence, fresh confirmation, selected policy, source commit, dependency provenance, approver, and expiry. Runtime and registry processes receive purpose-bound public keys only; private keys are accepted exclusively by explicit offline CLI commands. Exploratory runs, unsigned bundles, legacy release sidecars, wrong-purpose keys, incomplete evidence chains, and incompatible execution evidence fail closed before activation.
 
 The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3, and TQC ensemble bundles. Stable-Baselines3 and PyTorch are installed only with the `train-sb3` extra.
 
@@ -200,4 +200,4 @@ npm run check:layout --prefix studio
 
 Install export verification dependencies with `uv sync --extra dev --extra train-sb3 --extra export`.
 
-See [Architecture](docs/ARCHITECTURE.md), [Research Status](docs/RESEARCH_STATUS.md), [Binance Public Data Workflow](docs/BINANCE.md), and the latest [documentation and architecture audit](docs/verification/2026-07-22-documentation-and-architecture-audit.md).
+See [Architecture](docs/ARCHITECTURE.md), [Research Status](docs/RESEARCH_STATUS.md), [Binance Public Data Workflow](docs/BINANCE.md), the original [documentation and architecture audit](docs/verification/2026-07-22-documentation-and-architecture-audit.md), and the dated [post-remediation architecture audit](docs/verification/2026-07-22-post-merge-architecture-audit.md).

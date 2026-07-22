@@ -118,13 +118,23 @@ var/quickstart/artifacts/
 - `run.json`: 宣言済み成果物のPath、Size、SHA-256を束ねる最終Manifest
 - `training-config.json`: 解決後の学習設定
 - `dataset-reference.json`: 学習対象DatasetのIdentity
-- `environment.json`: Action、Risk、Reward、Trend、Execution設定
+- `environment.json`: Action、`baseline_residual_observation_v5`、Pending-order、Risk、Reward、Trend、Execution-policy Identity
 - `ensemble.json`: Seed memberを束ねるManifest
 - `policy.zip`: Stable-Baselines3の正式なRecovery/再学習形式
 - `training-telemetry.jsonl`: Studio用のSeed単位・Append-only診断Telemetry
 - `latest.json`: 最後に正常PublishされたRunへのPointer
 
 Telemetryは探索観察用で、Checkpoint選択、Outer-test、Artifact identity、Serving承認、注文実行には使いません。
+
+### 結果を正しく読む
+
+- `train run`成功: 学習とArtifact publishのPipelineが完走したことを示します。
+- Candidate選択: 複数Seedと宣言済み選択RangeのGateを通過した場合だけ成立します。
+- Sealed evaluation: 選択完了後に未使用Rangeを一度だけ開いた評価です。
+- Execution promotion: `execution_policy_digest`が一致する保守的なStateful order evidenceが必要です。
+- Production release: Fresh confirmation、外部Attestation、Paper reconciliationなど別の承認Gateが必要です。
+
+これらは独立した段階です。短時間Quickstart、Studio表示、CI成功だけでは収益性やProduction readinessを示しません。
 
 ## 5. Studioで学習中の探索を見る
 
@@ -215,6 +225,8 @@ my-dataset/
 - Tick、Lot、Minimum notional、Fee、Spread、ParticipationなどのExecution metadataをIdentityへ含める
 - Slow lookback、Sequence window、Reward pre-roll、Episode、評価Rangeより十分長い期間を用意する
 
+注文数量はDecision時点で利用可能な価格と資産状態から固定され、将来のEligible openで再計算されません。注文は設定したLatency後にのみEligibleとなり、処理対象BarのOHLCVはTransitionの約定計算にだけ使われ、Action決定前のObservationへは入りません。未約定残数量はTime in Forceに従って残り、Target変更時は明示的なReconcile／Cancel／Replaceを行います。
+
 公開Binance経路は[docs/BINANCE.md](docs/BINANCE.md)を参照してください。
 
 ## 9. PostgreSQL catalogを使う
@@ -274,4 +286,4 @@ uv run trade-rl walk-forward run \
   --run-id btc-usdt-wf-001
 ```
 
-最終判断には、複数Seed、複数Fold、複数AUM、Fee/Spread/Impact/Funding/Borrow、Conservative stateful execution、未使用Outer test、Fresh confirmation、Paper reconciliationが必要です。詳細は[Architecture](docs/ARCHITECTURE.md)、[Research Status](docs/RESEARCH_STATUS.md)、[最新監査](docs/verification/2026-07-22-documentation-and-architecture-audit.md)を参照してください。
+最終判断には、複数Seed、複数Fold、複数AUM、Fee/Spread/Impact/Funding/Borrow、Conservative stateful execution、未使用Outer test、Fresh confirmation、Paper reconciliationが必要です。詳細は[Architecture](docs/ARCHITECTURE.md)、[Research Status](docs/RESEARCH_STATUS.md)、[初回監査](docs/verification/2026-07-22-documentation-and-architecture-audit.md)と[Post-remediation監査](docs/verification/2026-07-22-post-merge-architecture-audit.md)を参照してください。

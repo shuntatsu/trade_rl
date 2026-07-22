@@ -82,20 +82,15 @@ GET /api/studio/jobs/{job_id}/telemetry/events?seed=7&after_sequence=0&limit=512
 GET /api/studio/jobs/{job_id}/checkpoint-evaluations
 ```
 
-Live Trainingは学習中の探索を理解する画面です。BUY／SELLはWeight変化の可視化であり、取引所注文ではありません。探索区間PnLと決定論的Checkpoint評価は異なるRangeと過程の証拠であり、どちらも本番性能を保証しません。
+Live Trainingは学習中の探索を理解する画面です。BUY／SELLはWeight変化の可視化であり、取引所注文ではありません。探索Telemetryはモデル選択、Sealed evaluation、収益性証拠、Release承認、Production authorizationではありません。探索区間PnLと決定論的Checkpoint評価は異なるRangeと過程の証拠であり、どちらも本番性能を保証しません。Production statusは`NO-GO`です。
 
 ## Telemetryの信頼境界と既知制約
 
-Telemetryは診断用で、Model selection、Run identity、Serving approval、Release、Order executionから明示的に除外します。表示が停止または遅延しても、学習Artifactの正当性をTelemetryから推測しません。
+Telemetryは診断用で、Model selection、Run identity、Sealed evaluation、Execution promotion、Serving approval、Release、Order executionから明示的に除外します。表示が停止または遅延しても、学習Artifactの正当性をTelemetryから推測しません。
 
-2026-07-22時点の既知制約:
+現在のBackendはBooleanを厳密に解析し、Sparse indexを使ってJSONLをPage readし、同一Seedの重複StreamをAmbiguous artifactとして拒否します。`trade_rl.telemetry`はImport Linterで標準ライブラリ専用の正式Layerとして強制されています。
 
-- BackendのStatus/Event readerはJSONLを先頭から走査するため、長時間Runの高頻度Pollingでは総File sizeに比例してRead costが増えます。
-- Boolean fieldのParserは、Artifact境界としてより厳格な型検証へ変更する余地があります。
-- 同一Seedへ複数Streamが見つかった場合、現在はDiscovery順の最初を使用します。将来はAmbiguous artifactとして拒否する方針です。
-- `trade_rl.telemetry`は現在のImport Linter layer stackへ明示配置されていません。
-
-これらは[2026-07-22アーキテクチャ監査](../docs/verification/2026-07-22-documentation-and-architecture-audit.md)で優先度と修正方向を記録しています。
+一方、1つのSeed Streamには複数Vector environmentのRecordが入り、Auto-reset後も明示Episode IDはありません。現在のUIは`environment_id`やEpisode境界で系列を選択・分割せず、Buffer全体を1本のPrice/Equity/PnL系列として表示します。そのため複数EnvironmentまたはResetをまたぐ表示は、単一の連続Portfolioを証明しません。この診断系列分離は[Post-remediation architecture audit](../docs/verification/2026-07-22-post-merge-architecture-audit.md)の独立修正項目です。
 
 ## Artifact探索範囲
 

@@ -33,13 +33,18 @@ jobs:
         run: |
           uv run ruff check --fix trade_rl/rl/environment.py
           uv run ruff format trade_rl/rl/environment.py
+      - name: Verify static integration
+        shell: bash
+        run: |
+          set -o pipefail
           uv run ruff check \
             trade_rl/rl/environment.py \
             trade_rl/rl/environment_decision.py \
             trade_rl/rl/environment_risk.py \
             trade_rl/rl/environment_reward.py \
             trade_rl/rl/environment_info.py \
-            tests/architecture/test_environment_step_decomposition.py
+            tests/architecture/test_environment_step_decomposition.py \
+            2>&1 | tee environment-step-integration-static.log
       - name: Verify Mypy
         shell: bash
         run: |
@@ -62,6 +67,7 @@ jobs:
         with:
           name: environment-step-integration
           path: |
+            environment-step-integration-static.log
             environment-step-integration-mypy.log
             environment-step-integration-pytest.log
           if-no-files-found: ignore

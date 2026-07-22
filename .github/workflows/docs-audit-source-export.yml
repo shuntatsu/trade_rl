@@ -4,22 +4,26 @@ on:
   push:
     branches:
       - docs/current-architecture-sync-20260722
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 concurrency:
-  group: docs-audit-apply-${{ github.ref }}
+  group: docs-audit-apply-${{ github.event.pull_request.head.ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
   apply-and-verify:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Detect staged patch
@@ -92,7 +96,7 @@ jobs:
         if: always() && steps.staged.outputs.present == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: docs-audit-verification-${{ github.sha }}
+          name: docs-audit-verification-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/docs-audit-verification.log
           if-no-files-found: warn
 

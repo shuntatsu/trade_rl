@@ -23,11 +23,11 @@ jobs:
           persist-credentials: false
 
       - name: Package exact source
-        run: tar --exclude=.git -czf direct-contract-source.tar.gz .
+        run: tar --exclude=.git -czf /tmp/direct-contract-source.tar.gz .
 
       - name: Upload exact source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: direct-contract-source-${{ github.event.pull_request.head.sha }}
-          path: direct-contract-source.tar.gz
+          path: /tmp/direct-contract-source.tar.gz
           if-no-files-found: error

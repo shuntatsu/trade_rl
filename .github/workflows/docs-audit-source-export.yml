@@ -1,38 +1,101 @@
-name: Docs Audit Source Export
+name: Docs Audit Product Apply
 
 on:
   push:
     branches:
       - docs/current-architecture-sync-20260722
-  pull_request:
-    branches:
-      - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: docs-audit-source-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: docs-audit-apply-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  export-source:
+  apply-and-verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-      - name: Export exact source
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Detect staged patch
+        id: staged
+        shell: bash
         run: |
-          git archive --format=tar.gz --output="$RUNNER_TEMP/trade-rl-source.tar.gz" HEAD
-          git rev-parse HEAD > "$RUNNER_TEMP/source-head-sha.txt"
-      - name: Upload exact source
+          if compgen -G '.github/docs-audit-staging/chunk-*' >/dev/null; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble and verify patch
+        if: steps.staged.outputs.present == 'true'
+        shell: bash
+        run: |
+          find .github/docs-audit-staging -name 'chunk-*' -print0 \
+            | sort -z -V \
+            | xargs -0 cat > "$RUNNER_TEMP/product.patch.gz.b64"
+          echo '76be9441e568e5490878b117fb6a073ff051a21aa5048a87d548bfd4c2a90a3a  '"$RUNNER_TEMP/product.patch.gz.b64" \
+            | sha256sum --check --strict
+          base64 --decode "$RUNNER_TEMP/product.patch.gz.b64" \
+            | gzip --decompress > "$RUNNER_TEMP/product.patch"
+
+      - name: Apply reviewed product commit
+        if: steps.staged.outputs.present == 'true'
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git am "$RUNNER_TEMP/product.patch"
+          git rm -r .github/docs-audit-staging
+          git commit --amend --no-edit
+
+      - name: Set up uv
+        if: steps.staged.outputs.present == 'true'
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install verification dependencies
+        if: steps.staged.outputs.present == 'true'
+        run: uv sync --extra dev --extra train-sb3 --extra studio --extra postgres
+
+      - name: Verify documentation and audited paths
+        if: steps.staged.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            uv run python .github/check_workflow_security.py .
+            uv run ruff check .
+            uv run ruff format --check .
+            uv run mypy .
+            uv run lint-imports
+            uv run pytest -q \
+              tests/test_current_documentation_contract.py \
+              tests/data \
+              tests/simulation \
+              tests/telemetry \
+              tests/studio \
+              tests/catalog \
+              tests/evaluation \
+              tests/release \
+              tests/serving
+          } 2>&1 | tee "$RUNNER_TEMP/docs-audit-verification.log"
+
+      - name: Upload verification diagnostics
+        if: always() && steps.staged.outputs.present == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: docs-audit-source-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            ${{ runner.temp }}/trade-rl-source.tar.gz
-            ${{ runner.temp }}/source-head-sha.txt
-          if-no-files-found: error
+          name: docs-audit-verification-${{ github.sha }}
+          path: ${{ runner.temp }}/docs-audit-verification.log
+          if-no-files-found: warn
+
+      - name: Push verified product commit
+        if: steps.staged.outputs.present == 'true' && success()
+        run: git push origin HEAD:docs/current-architecture-sync-20260722

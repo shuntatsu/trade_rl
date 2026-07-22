@@ -42,7 +42,7 @@ jobs:
           PY
 
       - name: Install focused dependencies
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev --extra train-sb3 --extra studio
 
       - name: Verify focused contracts
         shell: bash

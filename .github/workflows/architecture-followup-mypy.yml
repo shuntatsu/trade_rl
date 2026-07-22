@@ -71,12 +71,33 @@ jobs:
           source = source.replace(response_anchor, response_replacement, 1)
           path.write_text(source, encoding="utf-8")
           PY
-      - name: Format and verify
+      - name: Ruff and format
+        shell: bash
         run: |
-          uv run ruff check --fix trade_rl/studio/telemetry.py
-          uv run ruff format trade_rl/studio/telemetry.py
-          uv run mypy .
-          uv run pytest -q tests/studio/test_telemetry_api.py tests/telemetry/test_training.py
+          set -o pipefail
+          uv run ruff check --fix trade_rl/studio/telemetry.py 2>&1 | tee ruff-fix.log
+          uv run ruff format trade_rl/studio/telemetry.py 2>&1 | tee format-fix.log
+      - name: Mypy
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy . 2>&1 | tee mypy-fix.log
+      - name: Focused tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/studio/test_telemetry_api.py tests/telemetry/test_training.py 2>&1 | tee pytest-fix.log
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-followup-mypy-diagnostics
+          path: |
+            ruff-fix.log
+            format-fix.log
+            mypy-fix.log
+            pytest-fix.log
+          if-no-files-found: ignore
       - name: Commit fix
         run: |
           git diff --check

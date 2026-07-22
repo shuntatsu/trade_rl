@@ -7,12 +7,19 @@ on:
     paths:
       - tools/apply_architecture_followup.py
       - .github/workflows/architecture-followup-patch.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/apply_architecture_followup.py
+      - .github/workflows/architecture-followup-patch.yml
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout patch branch

@@ -282,12 +282,6 @@ def _refresh_index_unlocked(path: Path) -> _TelemetryIndex | None:
     return index
 
 
-def _refresh_index(path: Path) -> _TelemetryIndex | None:
-    resolved = Path(path)
-    with _telemetry_process_lock(resolved):
-        return _refresh_index_unlocked(resolved)
-
-
 def _seek_offset(index: _TelemetryIndex, after_sequence: int) -> Pair:
     selected: Pair = (0, 0)
     for sequence, offset in index.checkpoints:
@@ -424,7 +418,14 @@ class IndexedTrainingTelemetryWriter(_BaseWriter):
                 index = _refresh_index_unlocked(self.path)
                 if index is None:
                     raise RuntimeError("telemetry stream is unavailable")
-                if self.path.stat().st_size != index.indexed_size:
+                path_stat = self.path.stat()
+                descriptor_stat = os.fstat(descriptor)
+                if (
+                    int(descriptor_stat.st_dev),
+                    int(descriptor_stat.st_ino),
+                ) != (int(path_stat.st_dev), int(path_stat.st_ino)):
+                    raise RuntimeError("telemetry stream identity changed")
+                if path_stat.st_size != index.indexed_size:
                     raise RuntimeError(
                         "telemetry file has an incomplete trailing record"
                     )

@@ -8,7 +8,7 @@ from trade_rl.simulation.execution_adapter import StatefulCompatibilityMarketExe
 # Direct imports of ``trade_rl.simulation.execution.MarketExecutor`` occur only
 # after this package initializer completes. Replace the compatibility facade
 # while retaining the original implementation as its base class.
-_execution.MarketExecutor = StatefulCompatibilityMarketExecutor
+setattr(_execution, "MarketExecutor", StatefulCompatibilityMarketExecutor)
 MarketExecutor = StatefulCompatibilityMarketExecutor
 
 __all__ = [

@@ -31,148 +31,102 @@ jobs:
           python - <<'PYTHON_PATCH'
           from pathlib import Path
 
+          def replace_once(source: str, old: str, new: str, name: str) -> str:
+              count = source.count(old)
+              print(f"{name}: matches={count}")
+              if count != 1:
+                  raise RuntimeError(f"{name} anchor changed")
+              return source.replace(old, new, 1)
+
           telemetry_path = Path("trade_rl/studio/telemetry.py")
           source = telemetry_path.read_text(encoding="utf-8")
-
-          model_old = '''class TelemetryStatusResponse(StudioModel):
-              available: bool
-              selected_seed: int | None = Field(default=None, ge=0)
-              available_seeds: tuple[int, ...]
-              record_count: int = Field(ge=0)
-              last_sequence: int = Field(ge=0)
-              malformed_lines: int = Field(ge=0)
-              size_bytes: int = Field(ge=0)
-              source: str | None = None
-
-
-          class TelemetryEventsResponse(StudioModel):
-              seed: int | None = Field(default=None, ge=0)
-              items: tuple[TelemetryRecordResponse, ...]
-              next_sequence: int = Field(ge=0)
-              truncated: bool
-              malformed_lines: int = Field(ge=0)
-              sequence_gaps: tuple[tuple[int, int], ...]
-          '''
-          model_new = '''class TelemetryStatusResponse(StudioModel):
-              available: bool
-              selected_seed: int | None = Field(default=None, ge=0)
-              available_seeds: tuple[int, ...]
-              record_count: int = Field(ge=0)
-              last_sequence: int = Field(ge=0)
-              malformed_lines: int = Field(ge=0)
-              size_bytes: int = Field(ge=0)
-              source: str | None = None
-              stream_generation: str | None = None
-
-
-          class TelemetryEventsResponse(StudioModel):
-              seed: int | None = Field(default=None, ge=0)
-              items: tuple[TelemetryRecordResponse, ...]
-              next_sequence: int = Field(ge=0)
-              truncated: bool
-              malformed_lines: int = Field(ge=0)
-              sequence_gaps: tuple[tuple[int, int], ...]
-              stream_generation: str | None = None
-              reset_required: bool = False
-          '''
-          if source.count(model_old) != 1:
-              raise RuntimeError("Studio telemetry model anchor changed")
-          source = source.replace(model_old, model_new, 1)
-
-          status_old = '''            size_bytes=status.size_bytes,
-              source=self._source(path),
+          source = replace_once(
+              source,
+              "    source: str | None = None\n\n\nclass TelemetryEventsResponse",
+              "    source: str | None = None\n"
+              "    stream_generation: str | None = None\n\n\n"
+              "class TelemetryEventsResponse",
+              "status model",
           )
-          '''
-          status_new = '''            size_bytes=status.size_bytes,
-              source=self._source(path),
-              stream_generation=status.stream_generation,
+          source = replace_once(
+              source,
+              "    sequence_gaps: tuple[tuple[int, int], ...]\n\n\ndef _response",
+              "    sequence_gaps: tuple[tuple[int, int], ...]\n"
+              "    stream_generation: str | None = None\n"
+              "    reset_required: bool = False\n\n\ndef _response",
+              "events model",
           )
-          '''
-          if source.count(status_old) != 1:
-              raise RuntimeError("Studio telemetry status mapping anchor changed")
-          source = source.replace(status_old, status_new, 1)
-
-          signature_old = '''        seed: int | None = None,
-              after_sequence: int,
-              limit: int,
-          ) -> TelemetryEventsResponse:
-          '''
-          signature_new = '''        seed: int | None = None,
-              after_sequence: int,
-              limit: int,
-              stream_generation: str | None = None,
-          ) -> TelemetryEventsResponse:
-          '''
-          if source.count(signature_old) != 1:
-              raise RuntimeError("Studio telemetry events signature anchor changed")
-          source = source.replace(signature_old, signature_new, 1)
-
-          read_old = '''        page = read_training_telemetry(
-              path,
-              after_sequence=after_sequence,
-              limit=limit,
+          source = replace_once(
+              source,
+              "            source=self._source(path),\n        )",
+              "            source=self._source(path),\n"
+              "            stream_generation=status.stream_generation,\n"
+              "        )",
+              "status mapping",
           )
-          '''
-          read_new = '''        page = read_training_telemetry(
-              path,
-              after_sequence=after_sequence,
-              limit=limit,
-              expected_generation=stream_generation,
+          source = replace_once(
+              source,
+              "        limit: int,\n    ) -> TelemetryEventsResponse:",
+              "        limit: int,\n"
+              "        stream_generation: str | None = None,\n"
+              "    ) -> TelemetryEventsResponse:",
+              "events signature",
           )
-          '''
-          if source.count(read_old) != 1:
-              raise RuntimeError("Studio telemetry read anchor changed")
-          source = source.replace(read_old, read_new, 1)
-
-          response_old = '''            malformed_lines=page.malformed_lines,
-              sequence_gaps=page.sequence_gaps,
+          source = replace_once(
+              source,
+              "        page = read_training_telemetry(\n"
+              "            path,\n"
+              "            after_sequence=after_sequence,\n"
+              "            limit=limit,\n"
+              "        )",
+              "        page = read_training_telemetry(\n"
+              "            path,\n"
+              "            after_sequence=after_sequence,\n"
+              "            limit=limit,\n"
+              "            expected_generation=stream_generation,\n"
+              "        )",
+              "generation-bound read",
           )
-          '''
-          response_new = '''            malformed_lines=page.malformed_lines,
-              sequence_gaps=page.sequence_gaps,
-              stream_generation=page.stream_generation,
-              reset_required=page.reset_required,
+          source = replace_once(
+              source,
+              "            sequence_gaps=page.sequence_gaps,\n        )",
+              "            sequence_gaps=page.sequence_gaps,\n"
+              "            stream_generation=page.stream_generation,\n"
+              "            reset_required=page.reset_required,\n"
+              "        )",
+              "events mapping",
           )
-          '''
-          if source.count(response_old) != 1:
-              raise RuntimeError("Studio telemetry page mapping anchor changed")
-          telemetry_path.write_text(
-              source.replace(response_old, response_new, 1), encoding="utf-8"
-          )
+          telemetry_path.write_text(source, encoding="utf-8")
 
           api_path = Path("trade_rl/studio/api.py")
           api_source = api_path.read_text(encoding="utf-8")
-          api_old = '''        after_sequence: int = Query(default=0, ge=0),
-              limit: int = Query(default=512, ge=1, le=2_000),
-          ) -> TelemetryEventsResponse:
-              return telemetry_reader.events(
-                  resolved_supervisor.get_job(job_id),
-                  seed=seed,
-                  after_sequence=after_sequence,
-                  limit=limit,
-              )
-          '''
-          api_new = '''        after_sequence: int = Query(default=0, ge=0),
-              limit: int = Query(default=512, ge=1, le=2_000),
-              stream_generation: str | None = Query(
-                  default=None,
-                  pattern=(
-                      r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
-                      r"[0-9a-f]{4}-[0-9a-f]{12}$"
-                  ),
-              ),
-          ) -> TelemetryEventsResponse:
-              return telemetry_reader.events(
-                  resolved_supervisor.get_job(job_id),
-                  seed=seed,
-                  after_sequence=after_sequence,
-                  limit=limit,
-                  stream_generation=stream_generation,
-              )
-          '''
-          if api_source.count(api_old) != 1:
-              raise RuntimeError("Studio API telemetry events anchor changed")
-          api_path.write_text(api_source.replace(api_old, api_new, 1), encoding="utf-8")
+          api_source = replace_once(
+              api_source,
+              "        limit: int = Query(default=512, ge=1, le=2_000),\n"
+              "    ) -> TelemetryEventsResponse:",
+              "        limit: int = Query(default=512, ge=1, le=2_000),\n"
+              "        stream_generation: str | None = Query(\n"
+              "            default=None,\n"
+              "            pattern=(\n"
+              "                r\"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-\"\n"
+              "                r\"[0-9a-f]{4}-[0-9a-f]{12}$\"\n"
+              "            ),\n"
+              "        ),\n"
+              "    ) -> TelemetryEventsResponse:",
+              "API query",
+          )
+          api_source = replace_once(
+              api_source,
+              "            after_sequence=after_sequence,\n"
+              "            limit=limit,\n"
+              "        )",
+              "            after_sequence=after_sequence,\n"
+              "            limit=limit,\n"
+              "            stream_generation=stream_generation,\n"
+              "        )",
+              "API mapping",
+          )
+          api_path.write_text(api_source, encoding="utf-8")
           PYTHON_PATCH
       - name: Format and verify Studio backend
         run: |

@@ -1,4 +1,4 @@
-name: Telemetry Process Concurrency RED
+name: Telemetry Process Concurrency
 
 on:
   pull_request:
@@ -6,13 +6,17 @@ on:
       - main
     paths:
       - .github/workflows/telemetry-process-red.yml
+      - trade_rl/telemetry/indexed_training.py
       - tests/telemetry/test_indexed_process_concurrency.py
+      - tests/telemetry/test_training.py
+      - tests/integrations/test_training_telemetry.py
+      - tests/studio/test_telemetry_api.py
 
 permissions:
   contents: read
 
 jobs:
-  red:
+  verify:
     strategy:
       fail-fast: false
       matrix:
@@ -31,16 +35,33 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3 --extra studio
-      - name: Verify RED contracts
+      - name: Ruff
+        run: >-
+          uv run ruff check
+          trade_rl/telemetry/indexed_training.py
+          tests/telemetry/test_indexed_process_concurrency.py
+      - name: Format
+        run: >-
+          uv run ruff format --check
+          trade_rl/telemetry/indexed_training.py
+          tests/telemetry/test_indexed_process_concurrency.py
+      - name: Mypy
+        if: runner.os == 'Linux'
+        run: uv run mypy .
+      - name: Verify telemetry contracts
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q tests/telemetry/test_indexed_process_concurrency.py \
-            2>&1 | tee telemetry-process-red-${{ runner.os }}.log
-      - name: Upload RED diagnostics
+          uv run pytest -q \
+            tests/telemetry/test_indexed_process_concurrency.py \
+            tests/telemetry/test_training.py \
+            tests/integrations/test_training_telemetry.py \
+            tests/studio/test_telemetry_api.py \
+            2>&1 | tee telemetry-process-${{ runner.os }}.log
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: telemetry-process-red-${{ runner.os }}
-          path: telemetry-process-red-${{ runner.os }}.log
-          if-no-files-found: error
+          name: telemetry-process-${{ runner.os }}
+          path: telemetry-process-${{ runner.os }}.log
+          if-no-files-found: ignore

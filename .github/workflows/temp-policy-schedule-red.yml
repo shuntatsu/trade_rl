@@ -1,12 +1,13 @@
 name: Temporary Policy Schedule Implementation
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - refactor/extract-environment-policy-schedule-contract-20260723
     paths:
       - '.github/workflows/temp-policy-schedule-red.yml'
       - '.github/policy-schedule-red-trigger'
+      - '.github/policy-schedule-sync-marker*'
       - 'trade_rl/rl/environment_policy_schedule_contract.py'
 
 permissions:
@@ -19,7 +20,7 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: true
           fetch-depth: 0
       - name: Delegate policy and schedule construction
@@ -108,25 +109,20 @@ jobs:
       - name: Focused behavior verification
         run: >-
           uv run pytest -q
+          tests/rl
           tests/architecture/test_environment_policy_schedule_contract_decomposition.py
-          tests/rl/test_environment_policy_schedule_contract.py
-          tests/rl/test_environment.py
-          tests/rl/test_environment_identity.py
-          tests/rl/test_environment_config.py
-          tests/rl/test_environment_observation_contract.py
       - name: Commit verified implementation and remove temporary material
         shell: bash
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           rm -f \
             .github/workflows/temp-policy-schedule-red.yml \
             .github/policy-schedule-red-trigger \
-            .github/policy-schedule-red-proof
+            .github/policy-schedule-red-proof \
+            .github/policy-schedule-sync-marker*
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'refactor: delegate environment policy schedule construction'
-          git push origin "HEAD:${HEAD_REF}"
+          git push origin HEAD:refactor/extract-environment-policy-schedule-contract-20260723

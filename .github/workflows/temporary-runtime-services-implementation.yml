@@ -1,10 +1,11 @@
 name: Temporary Runtime Services Implementation
 
 on:
-  push:
+  pull_request:
     branches:
-      - refactor/extract-environment-runtime-services-20260723
+      - main
     paths:
+      - .github/workflows/temporary-runtime-services-implementation.yml
       - .github/runtime-services-implementation-trigger
 
 permissions:
@@ -12,13 +13,14 @@ permissions:
 
 jobs:
   implement:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout branch
+      - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: refactor/extract-environment-runtime-services-20260723
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: true
+          fetch-depth: 0
 
       - name: Delegate runtime service wiring
         shell: bash
@@ -128,7 +130,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
-          python-version: "3.12"
+          python-version: '3.12'
           enable-cache: true
 
       - name: Install
@@ -170,14 +172,16 @@ jobs:
 
       - name: Commit verified implementation and remove temporary job
         shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           rm -f \
             .github/workflows/temporary-runtime-services-implementation.yml \
             .github/runtime-services-implementation-trigger
           git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m "refactor: delegate environment runtime service wiring"
-          git push origin HEAD:refactor/extract-environment-runtime-services-20260723
+          git commit -m 'refactor: delegate environment runtime service wiring'
+          git push origin "HEAD:${HEAD_REF}"

@@ -38,7 +38,9 @@ class FactorBasisProvider(Protocol):
 
 
 AlphaProviderInput = AlphaProvider | Callable[[MarketDataset, int], np.ndarray]
-FactorBasisProviderInput = FactorBasisProvider | Callable[[MarketDataset, int], np.ndarray]
+FactorBasisProviderInput = (
+    FactorBasisProvider | Callable[[MarketDataset, int], np.ndarray]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,8 +151,7 @@ class EnvironmentProviderContractBuilder:
                 None
                 if static_factor_basis is None
                 else tuple(
-                    tuple(float(value) for value in row)
-                    for row in static_factor_basis
+                    tuple(float(value) for value in row) for row in static_factor_basis
                 )
             ),
         )

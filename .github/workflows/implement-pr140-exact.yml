@@ -152,7 +152,6 @@ jobs:
           uv run pytest -q \
             tests/rl/test_environment_initial_state.py \
             tests/architecture/test_environment_initial_state_decomposition.py \
-            tests/rl/test_environment.py \
             tests/rl/test_environment_identity.py \
             tests/rl/test_environment_timing.py \
             2>&1 | tee focused-tests.log

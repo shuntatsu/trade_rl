@@ -20,52 +20,28 @@ jobs:
           ref: refactor/extract-environment-observation-contract-20260723
           persist-credentials: true
 
-      - name: Fix indentation and push
+      - name: Fix module formatting and push
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("trade_rl/rl/environment.py")
+          path = Path("trade_rl/rl/environment_observation_contract.py")
           text = path.read_text()
-          start = text.index("        observation_contract = EnvironmentObservationContractBuilder(\n")
-          end = text.index("        self._episode_sampler = EpisodeContractSampler(\n", start)
-          lines = [
-              "observation_contract = EnvironmentObservationContractBuilder(",
-              "    dataset,",
-              "    self.config,",
-              "    action_spec=self.action_spec,",
-              "    normalizer=self.normalizer,",
-              "    sequence_normalizer=self.sequence_normalizer,",
-              "    alpha_artifact_digest=self.alpha_artifact_digest,",
-              "    factor_artifact_digest=self.factor_artifact_digest,",
-              "    action_spec_digest=self.action_spec_digest,",
-              ").build(minimum_start_index=self._minimum_start_index)",
-              "self.observation_builder = observation_contract.observation_builder",
-              "self.layout = observation_contract.layout",
-              "self.asset_active_column = observation_contract.asset_active_column",
-              "self.sequence_observation_builder = (",
-              "    observation_contract.sequence_observation_builder",
-              ")",
-              "self.sequence_policy_plane = observation_contract.sequence_policy_plane",
-              "self.sequence_layout_metadata = (",
-              "    observation_contract.sequence_layout_metadata",
-              ")",
-              "self._observation_schema = observation_contract.observation_schema",
-              "self._observation_contract_digest = (",
-              "    observation_contract.observation_contract_digest",
-              ")",
-              "self.observation_space = observation_contract.observation_space",
-              "self.action_space = observation_contract.action_space",
-              "self._minimum_start_index = observation_contract.minimum_start_index",
-          ]
-          replacement = "\n".join(f"        {line}" for line in lines) + "\n"
-          path.write_text(text[:start] + replacement + text[end:])
+          text = text.replace(
+              "            observation_contract_digest = observation_builder.schema_digest(\n    self.dataset\n)\n",
+              "            observation_contract_digest = observation_builder.schema_digest(\n                self.dataset\n            )\n",
+          )
+          text = text.replace(
+              "            raise ValueError(\n                \"normalizer observation schema does not match environment\"\n            )\n",
+              "            raise ValueError(\"normalizer observation schema does not match environment\")\n",
+          )
+          path.write_text(text)
           PY
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/rl/environment.py
-          git commit -m "fix: indent environment observation delegation"
+          git add trade_rl/rl/environment_observation_contract.py
+          git commit -m "style: normalize observation contract formatting"
           git push origin HEAD:refactor/extract-environment-observation-contract-20260723

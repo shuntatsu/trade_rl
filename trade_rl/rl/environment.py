@@ -12,7 +12,6 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
-from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
 from trade_rl.risk.inputs import PortfolioRiskInputsProvider
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
@@ -46,6 +45,9 @@ from trade_rl.rl.environment_info import (
 from trade_rl.rl.environment_observation import EnvironmentObservationRuntime
 from trade_rl.rl.environment_observation_contract import (
     EnvironmentObservationContractBuilder,
+)
+from trade_rl.rl.environment_policy_schedule_contract import (
+    EnvironmentPolicyScheduleContractBuilder,
 )
 from trade_rl.rl.environment_portfolio_risk_contract import (
     EnvironmentPortfolioRiskContractBuilder,
@@ -159,57 +161,25 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.normalizer = normalizer
         self.sequence_normalizer = sequence_normalizer
         self.execution_rule_stress = execution_rule_stress
-        self.config = config or ResidualMarketEnvConfig()
-        self.emergency_risk_monitor = CausalEmergencyRiskMonitor(
-            self.config.emergency_risk
-        )
-        if (
-            self.pre_trade_risk.config.max_gross
-            > self.config.execution_cost.max_leverage
-        ):
-            raise ValueError("pre-trade max_gross cannot exceed execution max_leverage")
-        if self.config.random_initial_gross > self.pre_trade_risk.config.max_gross:
-            raise ValueError("random_initial_gross cannot exceed pre-trade max_gross")
-        if action_spec is None:
-            action_spec = ActionSpec(
-                alpha_enabled=self.alpha_enabled,
-                n_factors=resolved_factor_count,
-                validation_mode=self.config.action_validation_mode,
-            )
-        if action_spec.alpha_enabled != self.alpha_enabled:
-            raise ValueError("action_spec alpha mode does not match environment")
-        if action_spec.n_factors != resolved_factor_count:
-            raise ValueError("action_spec factor count does not match environment")
-        if (
-            action_spec.mode is ActionMode.TARGET_WEIGHT
-            and action_spec.target_weight_count != dataset.n_symbols
-        ):
-            raise ValueError("target weight count does not match dataset symbols")
-        self.action_spec = action_spec
-        self._action_names = action_spec.names_for_symbols(dataset.symbols)
-        self._nominal_episode_bars = self.config.resolve_nominal_episode_bars(dataset)
-        self._nominal_decision_bars = self.config.resolve_nominal_decision_bars(dataset)
-        if self._nominal_decision_bars > self._nominal_episode_bars:
-            raise ValueError("decision interval cannot exceed episode duration")
-
-        reward_config = self.config.resolved_reward_config()
-        resolved_decision_hours = (
-            self._nominal_decision_bars * dataset.bar_hours
-            if self.config.decision_every is not None
-            else self.config.decision_hours
-        )
-        if self.config.episode_hour_choices and any(
-            choice + 1e-12 < resolved_decision_hours
-            for choice in self.config.episode_hour_choices
-        ):
-            raise ValueError(
-                "episode_hour_choices cannot be shorter than the resolved "
-                "decision interval"
-            )
-        self._resolved_decision_hours = resolved_decision_hours
+        policy_schedule = EnvironmentPolicyScheduleContractBuilder(
+            dataset,
+            pre_trade_risk=self.pre_trade_risk,
+            alpha_enabled=self.alpha_enabled,
+            factor_count=resolved_factor_count,
+            action_spec=action_spec,
+            config=config,
+        ).build()
+        self.config = policy_schedule.config
+        self.emergency_risk_monitor = policy_schedule.emergency_risk_monitor
+        self.action_spec = policy_schedule.action_spec
+        self._action_names = policy_schedule.action_names
+        self._nominal_episode_bars = policy_schedule.nominal_episode_bars
+        self._nominal_decision_bars = policy_schedule.nominal_decision_bars
+        reward_config = policy_schedule.reward_config
+        self._resolved_decision_hours = policy_schedule.resolved_decision_hours
         self.reward_tracker = RewardTracker(
             reward_config,
-            decision_hours=resolved_decision_hours,
+            decision_hours=self._resolved_decision_hours,
         )
         if (
             self.config.require_full_reward_preroll

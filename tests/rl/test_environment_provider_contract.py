@@ -70,6 +70,10 @@ class FactorProvider:
         return np.eye(self.n_factors, dataset.n_symbols, dtype=np.float64)
 
 
+def callable_alpha_provider(dataset: MarketDataset, index: int) -> np.ndarray:
+    return np.zeros(dataset.n_symbols, dtype=np.float64)
+
+
 def build_contract(
     *,
     dataset: MarketDataset | None = None,
@@ -234,13 +238,11 @@ def test_enabled_alpha_without_any_provider_preserves_error() -> None:
 
 
 def test_enabled_alpha_without_digest_preserves_error() -> None:
-    provider = lambda dataset, index: np.zeros(dataset.n_symbols)
-
     with pytest.raises(
         ValueError,
         match="alpha_artifact_digest is required when the component is enabled",
     ):
-        build_contract(alpha_provider=provider, alpha_enabled=True)
+        build_contract(alpha_provider=callable_alpha_provider, alpha_enabled=True)
 
 
 def test_invalid_alpha_digest_is_rejected() -> None:

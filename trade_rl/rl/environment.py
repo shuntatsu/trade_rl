@@ -62,14 +62,15 @@ from trade_rl.rl.environment_provider_contract import (
     FactorBasisProvider,
 )
 from trade_rl.rl.environment_reward import EnvironmentRewardRequest
+from trade_rl.rl.environment_reward_execution_resources import (
+    EnvironmentRewardExecutionResources,
+    EnvironmentRewardExecutionResourcesBuilder,
+)
 from trade_rl.rl.environment_risk import EnvironmentRiskRequest
 from trade_rl.rl.environment_runtime_services import (
     EnvironmentRuntimeServicesBuilder,
 )
-from trade_rl.rl.episode import (
-    complete_reward_history_steps,
-    minimum_reward_start_index,
-)
+from trade_rl.rl.episode import complete_reward_history_steps
 from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
@@ -77,10 +78,7 @@ from trade_rl.rl.observations import (
     PendingOrderObservationState,
     PolicyObservationSnapshot,
 )
-from trade_rl.rl.rewards import (
-    REWARD_SCHEMA,
-    RewardTracker,
-)
+from trade_rl.rl.rewards import REWARD_SCHEMA
 from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
@@ -181,32 +179,15 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._nominal_decision_bars = policy_schedule.nominal_decision_bars
         reward_config = policy_schedule.reward_config
         self._resolved_decision_hours = policy_schedule.resolved_decision_hours
-        self.reward_tracker = RewardTracker(
-            reward_config,
-            decision_hours=self._resolved_decision_hours,
-        )
-        if (
-            self.config.require_full_reward_preroll
-            and reward_config.baseline_underperformance_weight > 0.0
-        ):
-            self._minimum_start_index = minimum_reward_start_index(
-                dataset,
-                signal_minimum=self._minimum_start_index,
-                window_hours=reward_config.baseline_window_hours,
-            )
-        self.hybrid_executor = MarketExecutor(
+        resources = EnvironmentRewardExecutionResourcesBuilder(
             dataset,
-            self.config.execution_cost,
-            rule_stress=self.execution_rule_stress,
-        )
-        self.shadow_executor = MarketExecutor(
-            dataset,
-            self.config.execution_cost,
-            rule_stress=self.execution_rule_stress,
-        )
-        self.executor = self.hybrid_executor
-        self._reward_history_cache: dict[int, tuple[float, ...]] = {}
-
+            config=self.config,
+            reward_config=reward_config,
+            resolved_decision_hours=self._resolved_decision_hours,
+            minimum_start_index=self._minimum_start_index,
+            execution_rule_stress=self.execution_rule_stress,
+        ).build()
+        self._install_reward_execution_resources(resources)
         observation_contract = EnvironmentObservationContractBuilder(
             dataset,
             self.config,
@@ -259,13 +240,22 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._info_builder = runtime_services.info_builder
         self._termination_coordinator = runtime_services.termination_coordinator
         self._environment_digest = content_digest(self._digest_payload())
-
         initial_state = EnvironmentInitialStateFactory.create(
             EnvironmentInitialStateRequest(
                 dataset, self.config, self.action_spec, self._minimum_start_index
             )
         )
         self._install_initial_state(initial_state)
+
+    def _install_reward_execution_resources(
+        self, resources: EnvironmentRewardExecutionResources
+    ) -> None:
+        self.reward_tracker = resources.reward_tracker
+        self._minimum_start_index = resources.minimum_start_index
+        self.hybrid_executor = resources.hybrid_executor
+        self.shadow_executor = resources.shadow_executor
+        self.executor = resources.executor
+        self._reward_history_cache = resources.reward_history_cache
 
     def _install_initial_state(
         self,

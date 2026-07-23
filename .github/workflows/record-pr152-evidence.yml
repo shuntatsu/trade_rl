@@ -1,0 +1,247 @@
+name: Record PR152 evidence
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/record-pr152-evidence.yml']
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: record-pr152-evidence-20260723
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: f530d3fbe29d5c5c62bba2f30d51cd8cf7843ced
+  TARGET_BRANCH: refactor/extract-environment-reward-execution-resources-20260723
+  RUNNER_BRANCH: audit/record-pr152-evidence-20260723
+  CI_RUN_ID: '30015051267'
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Download exact coverage evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          mkdir -p /tmp/pr152-pytest
+          gh run download "$CI_RUN_ID" --repo "$REPO" \
+            --name pytest-diagnostics --dir /tmp/pr152-pytest
+          test -f /tmp/pr152-pytest/coverage.json
+          test -f /tmp/pr152-pytest/pytest.log
+
+      - name: Add permanent ratchet and verification documents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          import json
+          from pathlib import Path
+
+          coverage = json.loads(Path('/tmp/pr152-pytest/coverage.json').read_text())
+          module_name = 'trade_rl/rl/environment_reward_execution_resources.py'
+          module = coverage['files'][module_name]['summary']
+          totals = coverage['totals']
+          assert module['num_statements'] == 33
+          assert module['covered_lines'] == 33
+          assert module['num_branches'] == 2
+          assert module['covered_branches'] == 2
+          assert module['percent_covered'] == 100.0
+
+          env_path = Path('trade_rl/rl/environment.py')
+          tree = ast.parse(env_path.read_text(encoding='utf-8'))
+          constructor = next(
+              node
+              for node in ast.walk(tree)
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and node.name == '__init__'
+              and isinstance(getattr(node, 'parent', None), ast.ClassDef)
+          ) if False else None
+          cls = next(
+              node for node in tree.body
+              if isinstance(node, ast.ClassDef) and node.name == 'ResidualMarketEnv'
+          )
+          init = next(
+              node for node in cls.body
+              if isinstance(node, ast.FunctionDef) and node.name == '__init__'
+          )
+          constructor_span = init.end_lineno - init.lineno + 1
+          assert constructor_span <= 150, constructor_span
+
+          pyproject_path = Path('pyproject.toml')
+          pyproject = pyproject_path.read_text(encoding='utf-8')
+          ratchet = '"trade_rl/rl/environment_reward_execution_resources.py" = 100.0\n'
+          marker = '"trade_rl/rl/environment_initial_state.py" = 100.0\n'
+          if ratchet not in pyproject:
+              if pyproject.count(marker) != 1:
+                  raise RuntimeError('critical coverage marker changed')
+              pyproject = pyproject.replace(marker, marker + ratchet, 1)
+          pyproject_path.write_text(pyproject, encoding='utf-8')
+
+          verification = f'''# Environment Reward and Execution Resources Extraction Verification — 2026-07-23
+
+## 1. Scope
+
+This verification records the behavior-preserving extraction of reward-tracker construction, optional complete reward pre-roll, independent hybrid and shadow market executors, the compatibility executor alias, and the reward-history cache from `ResidualMarketEnv.__init__()` into `trade_rl.rl.environment_reward_execution_resources`.
+
+The public constructor signature, reward mathematics, pre-roll policy, execution policy, observation/runtime wiring, reset behavior, step behavior, and exchange capability are unchanged. Production remains `NO-GO`.
+
+## 2. TDD RED evidence
+
+The clean RED head was `3678530a49f44cbe030397a3bcaf892dfc7038a3`.
+
+- CI run: `30012927157`;
+- pytest artifact: `8565892226`;
+- artifact digest: `sha256:18355159e454235a5b1597a5a7763483157c7036a5459afce29c4b0336cc8d18`.
+
+Static analysis, Mypy, Import Linter, Studio checks, Ubuntu/Windows compatibility, and the complete training-image probe passed. Complete pytest collection failed with exactly two errors because `trade_rl.rl.environment_reward_execution_resources` did not exist. No production implementation for the new boundary was present at this head.
+
+## 3. Implemented contract
+
+`EnvironmentRewardExecutionResources` contains the fresh `RewardTracker`, resolved minimum start index, distinct hybrid and shadow `MarketExecutor` instances, the compatibility alias `executor is hybrid_executor`, and a fresh empty reward-history cache.
+
+`EnvironmentRewardExecutionResourcesBuilder` preserves the maintained construction and validation order:
+
+1. construct the reward tracker with resolved decision hours;
+2. derive complete reward pre-roll only when required and weighted;
+3. construct the hybrid executor;
+4. construct the shadow executor independently;
+5. retain the hybrid compatibility alias;
+6. create a fresh cache.
+
+The environment invokes the builder once and installs the six returned values under the existing attributes. History reconstruction continues to use the maintained `MarketExecutor` import outside the constructor.
+
+## 4. Exact implementation-head verification
+
+The verified implementation head was `f530d3fbe29d5c5c62bba2f30d51cd8cf7843ced`.
+
+- CI run: `30015051267`;
+- Python: `1343 passed, 2 skipped, 11 warnings`;
+- total coverage: `{totals['percent_covered']:.2f}%`;
+- total branch coverage: `{totals['percent_branches_covered']:.2f}%`;
+- resource module: `33 / 33` statements and `2 / 2` branches, `100.0%`;
+- constructor source span: `{constructor_span}` lines, with a permanent maximum of 150.
+
+The run passed Studio tests/typecheck/production build/fixed-layout verification, workflow security, Ruff, formatting, Mypy, Import Linter, dead-code reporting, recovery/structured-serving smoke, complete pytest and coverage, existing critical coverage, CLI smoke, Ubuntu and Windows compatibility, and the complete training image with packaged non-root runtime probe.
+
+Artifacts:
+
+- pytest `8566844463`, `sha256:ea1a2254823cb596df065260bbdfbf81fb3c0fc1d1222fbbb39f19216dea1695`;
+- architecture `8566782400`, `sha256:1ec3256190ee5e6988ee99aeaf3da82a53f8f6dfbd7a8659eea2d0f54605b2c4`;
+- static `8566781341`, `sha256:3aaac2d66ddec134ed11f09a272d97f36a3faf015341c30aa18ccf0d8c256d1d`;
+- training image `8566785605`, `sha256:5f14717760c5f1a62a6c2e654cda365fe11852fb05a9b08f09447136163a1f12`;
+- Windows `8566903078`, `sha256:24dd0df71079bdd86f5c3cc6305dc0103efef27813f04df056c31b1163afd639`;
+- Ubuntu `8566754334`, `sha256:9fc610835676ff993deabfae1dac3c33d2e7c629e6c97dcb43127d5eb25a1380`.
+
+## 5. Permanent controls and disposition
+
+`pyproject.toml` now requires 100.0% critical branch coverage for the new module. Architecture tests prohibit direct reward-tracker, pre-roll, executor, and cache construction from returning to the constructor, require one builder invocation, preserve construction order, and enforce the constructor line budget.
+
+`AUD-RL-001` remains **OPEN RISK, FURTHER REDUCED**. The extracted mutable resource seam is independently owned and characterized; the remaining constructor density is chiefly assignment/orchestration of already-built observation, runtime-service, and initial-state contracts. This maintainability item does not block causal research use. Production remains `NO-GO` until independent research, evidence, operational, authorization, and profitability gates pass.
+'''
+          verification_path = Path(
+              'docs/verification/2026-07-23-environment-reward-execution-resources-extraction.md'
+          )
+          if verification_path.exists():
+              raise RuntimeError('verification document unexpectedly exists')
+          verification_path.write_text(verification, encoding='utf-8')
+
+          closeout_path = Path('docs/verification/2026-07-23-architecture-audit-closeout.md')
+          closeout = closeout_path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  '`d559b249161cf641aeebaf51a334f5dbfd449bed`, which includes the canonical\nobservation, provider, runtime-service, portfolio-risk, policy/schedule, and\ncorrected verification remediations through PR #138. The latest verified\n`AUD-RL-001` remediation candidate is PR #140. Its behavior implementation head\nis `54a2d65b32356f07a5aa7ce577dd2cf8e46f6a87`, and its permanent coverage-ratchet\nhead is `51407a10f1f6a22a06c8bd729cd6d1a8c83aefda`.',
+                  '`3c02270a83a40a2c58a84fabcfb586915163947a`, which includes the canonical\nremediations through PR #140. The latest verified `AUD-RL-001` remediation\ncandidate is PR #152 at implementation head\n`f530d3fbe29d5c5c62bba2f30d51cd8cf7843ced`.',
+              ),
+              (
+                  'PR #126 policy/schedule contracts; PR #140 initial mutable-state factory |',
+                  'PR #126 policy/schedule contracts; PR #140 initial mutable-state factory; PR #152 reward/execution resources |',
+              ),
+              (
+                  'names through one typed installation method.\n\nThe provider extraction reduced',
+                  'names through one typed installation method.\n\nPR #152 extracts the invocation-local reward and execution resource seam. The typed `EnvironmentRewardExecutionResourcesBuilder` owns reward-tracker construction, optional complete reward pre-roll, two independent market executors, the hybrid compatibility alias, and a fresh reward-history cache while preserving validation order and existing identities.\n\nThe provider extraction reduced',
+              ),
+              (
+                  'The initial-state factory further reduces it to 168 lines and enforces a\n170-line architecture limit. The facade retains existing attributes while direct\nconstruction and validation policy are prohibited from returning inline.',
+                  f'The initial-state factory further reduced it to 168 lines. The reward/execution resource boundary reduces it to {constructor_span} lines and enforces a 150-line architecture limit. The facade retains existing attributes while direct construction and validation policy are prohibited from returning inline.',
+              ),
+              (
+                  'The policy/schedule contract measured 53 / 53 statements and 16 / 16 branches. The\ninitial-state module measured 45 / 45 statements with no executable branch points.\nAll five have permanent 100.0% critical coverage ratchets. After current main\nwas merged into the feature branch, PR #140 verification passed 1,331 tests,\n84.18% total coverage, 71.23% total branch coverage, Ubuntu, Windows,\ntraining-image, Import Linter, CLI, and PostgreSQL Catalog checks. The synchronized\nverification runs were CI `30007065940` and PostgreSQL Catalog `30007065939`.',
+                  'The policy/schedule contract measured 53 / 53 statements and 16 / 16 branches. The initial-state module measured 45 / 45 statements with no executable branch points. The reward/execution resource module measured 33 / 33 statements and 2 / 2 branches. All six have permanent 100.0% critical coverage ratchets. PR #152 implementation verification passed 1,343 tests, 84.25% total coverage, 71.24% total branch coverage, Ubuntu, Windows, the complete training image, Import Linter, and CLI checks in CI `30015051267`.',
+              ),
+              (
+                  'The remaining construction density is reward-tracker and reward-preroll\nconstruction, hybrid and shadow market-executor construction, and\nobservation/runtime contract assignment. A mechanical split is still not justified\nwithout another concrete behavior-preserving seam and characterization evidence.',
+                  'The remaining constructor density is chiefly orchestration and assignment of already-built observation, runtime-service, reward/execution-resource, and initial-state contracts. A further split is not justified without another concrete behavior-preserving seam and characterization evidence.',
+              ),
+              (
+                  'policy/schedule-contract, and initial-state architecture tests;',
+                  'policy/schedule-contract, reward/execution-resource, and initial-state architecture tests;',
+              ),
+              (
+                  'portfolio-risk input, policy/schedule, service-wiring, or initial-state\n  construction policy directly to the facade when a typed owner exists;',
+                  'portfolio-risk input, policy/schedule, service-wiring, reward/execution-resource, or initial-state construction policy directly to the facade when a typed owner exists;',
+              ),
+              (
+                  'observation, provider, portfolio-risk input, policy/schedule, runtime-service\nwiring, and invocation-local initial-state boundaries, generation-bound and',
+                  'observation, provider, portfolio-risk input, policy/schedule, runtime-service wiring, invocation-local reward/execution resources, and initial-state boundaries, generation-bound and',
+              ),
+          ]
+          for old, new in replacements:
+              if closeout.count(old) != 1:
+                  raise RuntimeError(f'closeout replacement target changed: {old[:80]!r}')
+              closeout = closeout.replace(old, new, 1)
+          closeout_path.write_text(closeout, encoding='utf-8')
+          PY
+
+      - name: Verify ratchet against exact artifact
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install and verify evidence update
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run python tools/check_critical_coverage.py /tmp/pr152-pytest/coverage.json
+          uv run pytest -q \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/architecture/test_environment_reward_execution_resources_decomposition.py
+          git diff --check
+
+      - name: Push evidence-only canonical update
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pyproject.toml \
+            docs/verification/2026-07-23-environment-reward-execution-resources-extraction.md \
+            docs/verification/2026-07-23-architecture-audit-closeout.md
+          git commit -m 'docs: record reward execution resource evidence'
+          git push \
+            --force-with-lease="refs/heads/${TARGET_BRANCH}:${TARGET_SHA}" \
+            origin "HEAD:refs/heads/${TARGET_BRANCH}"
+          encoded=$(printf '%s' "$RUNNER_BRANCH" | jq -sRr @uri)
+          gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"

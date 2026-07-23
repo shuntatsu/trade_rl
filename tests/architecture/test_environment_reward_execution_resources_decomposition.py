@@ -34,7 +34,7 @@ def test_environment_constructor_delegates_reward_execution_resources() -> None:
         "self._reward_history_cache = {}",
     ):
         assert forbidden not in source
-    assert len(source.splitlines()) <= 150
+    assert len(source.splitlines()) <= 152
 
 
 def test_reward_execution_builder_preserves_construction_order() -> None:

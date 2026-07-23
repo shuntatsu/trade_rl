@@ -87,6 +87,20 @@ def test_execution_cost_rejects_unknown_canonical_field(tmp_path: Path) -> None:
         serving_package._execution_cost(root)
 
 
+def test_execution_cost_rejects_non_sequence_trigger_fractions(tmp_path: Path) -> None:
+    root = tmp_path / "training"
+    payload = _payload()
+    environment = payload["environment"]
+    assert isinstance(environment, dict)
+    execution = environment["execution_cost"]
+    assert isinstance(execution, dict)
+    execution["trigger_volume_fractions"] = 1.0
+    _write_environment(root, payload)
+
+    with pytest.raises(ValueError, match="trigger_volume_fractions"):
+        serving_package._execution_cost(root)
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [

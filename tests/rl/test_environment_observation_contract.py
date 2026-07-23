@@ -57,9 +57,7 @@ def _market() -> MarketDataset:
         volume=np.full((n_bars, n_symbols), 1_000.0),
         funding_rate=np.zeros((n_bars, n_symbols)),
         tradable=np.ones((n_bars, n_symbols), dtype=np.bool_),
-        feature_available=np.ones(
-            (n_bars, n_symbols, n_features), dtype=np.bool_
-        ),
+        feature_available=np.ones((n_bars, n_symbols, n_features), dtype=np.bool_),
         feature_names=("15m__ret", "1h__ret", "4h__ret", "1d__ret"),
         global_feature_names=("regime",),
         periods_per_year=35_040,
@@ -71,9 +69,7 @@ def _config(*, structured: bool = False) -> ResidualMarketEnvConfig:
         initial_capital=100_000.0,
         structured_sequence_observation=structured,
         sequence_windows=(
-            (("15m", 2), ("1h", 2), ("4h", 2), ("1d", 2))
-            if structured
-            else ()
+            (("15m", 2), ("1h", 2), ("4h", 2), ("1d", 2)) if structured else ()
         ),
     )
 
@@ -165,8 +161,7 @@ def _sequence_normalizer(
         )
     )
     names = {
-        timeframe: (f"{timeframe}__ret",)
-        for timeframe in ("15m", "1h", "4h", "1d")
+        timeframe: (f"{timeframe}__ret",) for timeframe in ("15m", "1h", "4h", "1d")
     }
     return SequenceFeatureNormalizer(
         feature_names=names,
@@ -191,8 +186,9 @@ def test_flat_contract_preserves_layout_spaces_and_identity() -> None:
     contract = _builder(dataset).build(minimum_start_index=7)
 
     assert contract.observation_schema == OBSERVATION_SCHEMA
-    assert contract.observation_contract_digest == contract.observation_builder.schema_digest(
-        dataset
+    assert (
+        contract.observation_contract_digest
+        == contract.observation_builder.schema_digest(dataset)
     )
     assert contract.asset_active_column == 4 * dataset.n_features
     assert contract.minimum_start_index == 7
@@ -223,8 +219,7 @@ def test_structured_contract_preserves_components_and_minimum_index() -> None:
         "feature_counts": {"15m": 1, "1h": 1, "4h": 1, "1d": 1},
         "window_lengths": {"15m": 2, "1h": 2, "4h": 2, "1d": 2},
         "snapshot_width": 4 * dataset.n_features,
-        "asset_state_width": contract.layout.per_symbol_width
-        - 4 * dataset.n_features,
+        "asset_state_width": contract.layout.per_symbol_width - 4 * dataset.n_features,
         "global_width": contract.layout.global_width,
         "n_symbols": dataset.n_symbols,
     }
@@ -236,18 +231,15 @@ def test_structured_contract_preserves_components_and_minimum_index() -> None:
             contract.observation_space[f"sequence_{timeframe}_values"].shape
             == expected_shape
         )
-        assert (
-            contract.observation_space[f"sequence_{timeframe}_values"].dtype
-            == np.dtype(np.float16)
-        )
-        assert (
-            contract.observation_space[f"sequence_{timeframe}_available"].dtype
-            == np.dtype(np.uint8)
-        )
-        assert (
-            contract.observation_space[f"sequence_{timeframe}_staleness"].dtype
-            == np.dtype(np.float16)
-        )
+        assert contract.observation_space[
+            f"sequence_{timeframe}_values"
+        ].dtype == np.dtype(np.float16)
+        assert contract.observation_space[
+            f"sequence_{timeframe}_available"
+        ].dtype == np.dtype(np.uint8)
+        assert contract.observation_space[
+            f"sequence_{timeframe}_staleness"
+        ].dtype == np.dtype(np.float16)
 
 
 @pytest.mark.parametrize(
@@ -263,9 +255,7 @@ def test_structured_contract_preserves_components_and_minimum_index() -> None:
             "normalizer observation schema does not match environment",
         ),
         (
-            lambda dataset: _normalizer(
-                dataset, observation_schema_digest="c" * 64
-            ),
+            lambda dataset: _normalizer(dataset, observation_schema_digest="c" * 64),
             "normalizer observation schema digest does not match environment",
         ),
         (
@@ -273,15 +263,11 @@ def test_structured_contract_preserves_components_and_minimum_index() -> None:
             "normalizer action identity does not match environment",
         ),
         (
-            lambda dataset: _normalizer(
-                dataset, alpha_artifact_digest="c" * 64
-            ),
+            lambda dataset: _normalizer(dataset, alpha_artifact_digest="c" * 64),
             "normalizer alpha artifact identity does not match environment",
         ),
         (
-            lambda dataset: _normalizer(
-                dataset, factor_artifact_digest="c" * 64
-            ),
+            lambda dataset: _normalizer(dataset, factor_artifact_digest="c" * 64),
             "normalizer factor artifact identity does not match environment",
         ),
         (
@@ -355,9 +341,7 @@ def test_sequence_window_length_type_error_is_preserved(
 
     monkeypatch.setattr(SequenceObservationBuilder, "schema_payload", invalid_payload)
     with pytest.raises(ValueError, match="sequence window length must be an integer"):
-        _builder(dataset, config=_config(structured=True)).build(
-            minimum_start_index=0
-        )
+        _builder(dataset, config=_config(structured=True)).build(minimum_start_index=0)
 
 
 def test_sequence_feature_order_error_is_preserved(
@@ -381,6 +365,4 @@ def test_sequence_feature_order_error_is_preserved(
 
     monkeypatch.setattr(SequenceObservationBuilder, "schema_payload", invalid_payload)
     with pytest.raises(ValueError, match="sequence feature names must be ordered"):
-        _builder(dataset, config=_config(structured=True)).build(
-            minimum_start_index=0
-        )
+        _builder(dataset, config=_config(structured=True)).build(minimum_start_index=0)

@@ -20,7 +20,7 @@ jobs:
           ref: refactor/extract-environment-provider-contract-20260723
           persist-credentials: true
 
-      - name: Patch environment delegation
+      - name: Patch and commit environment delegation
         shell: bash
         run: |
           set -euo pipefail
@@ -43,10 +43,7 @@ jobs:
           )
           """
           if provider_import not in text:
-              text = text.replace(
-                  observation_import,
-                  observation_import + provider_import,
-              )
+              text = text.replace(observation_import, observation_import + provider_import)
 
           protocol_start = text.index("class AlphaProvider(Protocol):\n")
           facade_start = text.index("class ResidualMarketEnv(", protocol_start)
@@ -57,32 +54,34 @@ jobs:
               "        self.composer = composer or BaselineResidualComposer()\n",
               provider_start,
           )
-          replacement = """        self.dataset = dataset
-              provider_contract = EnvironmentProviderContractBuilder(
-                  dataset,
-                  trend_strategy=trend_strategy,
-                  market_input_resolver=market_input_resolver,
-                  alpha_provider=alpha_provider,
-                  alpha_enabled=alpha_enabled,
-                  alpha_artifact_digest=alpha_artifact_digest,
-                  alpha_contract=alpha_contract,
-                  factor_basis=factor_basis,
-                  factor_basis_provider=factor_basis_provider,
-                  factor_artifact_digest=factor_artifact_digest,
-                  factor_count=factor_count,
-              ).build()
-              self.market_input_resolver = provider_contract.market_input_resolver
-              self.trend_strategy = provider_contract.trend_strategy
-              self.alpha_provider = provider_contract.alpha_provider
-              self.alpha_enabled = provider_contract.alpha_enabled
-              self.alpha_contract = provider_contract.alpha_contract
-              self.alpha_artifact_digest = provider_contract.alpha_artifact_digest
-              self._static_factor_basis = provider_contract.static_factor_basis
-              self.factor_basis_provider = provider_contract.factor_basis_provider
-              self.factor_artifact_digest = provider_contract.factor_artifact_digest
-              resolved_factor_count = provider_contract.factor_count
-              self._minimum_start_index = provider_contract.minimum_start_index
-          """
+          lines = [
+              "self.dataset = dataset",
+              "provider_contract = EnvironmentProviderContractBuilder(",
+              "    dataset,",
+              "    trend_strategy=trend_strategy,",
+              "    market_input_resolver=market_input_resolver,",
+              "    alpha_provider=alpha_provider,",
+              "    alpha_enabled=alpha_enabled,",
+              "    alpha_artifact_digest=alpha_artifact_digest,",
+              "    alpha_contract=alpha_contract,",
+              "    factor_basis=factor_basis,",
+              "    factor_basis_provider=factor_basis_provider,",
+              "    factor_artifact_digest=factor_artifact_digest,",
+              "    factor_count=factor_count,",
+              ").build()",
+              "self.market_input_resolver = provider_contract.market_input_resolver",
+              "self.trend_strategy = provider_contract.trend_strategy",
+              "self.alpha_provider = provider_contract.alpha_provider",
+              "self.alpha_enabled = provider_contract.alpha_enabled",
+              "self.alpha_contract = provider_contract.alpha_contract",
+              "self.alpha_artifact_digest = provider_contract.alpha_artifact_digest",
+              "self._static_factor_basis = provider_contract.static_factor_basis",
+              "self.factor_basis_provider = provider_contract.factor_basis_provider",
+              "self.factor_artifact_digest = provider_contract.factor_artifact_digest",
+              "resolved_factor_count = provider_contract.factor_count",
+              "self._minimum_start_index = provider_contract.minimum_start_index",
+          ]
+          replacement = "\n".join(f"        {line}" for line in lines) + "\n"
           text = text[:provider_start] + replacement + text[provider_end:]
 
           helper_start = text.index(
@@ -95,12 +94,12 @@ jobs:
           architecture_path = Path(
               "tests/architecture/test_environment_provider_contract_decomposition.py"
           )
-          architecture = architecture_path.read_text().replace(
-              "len(source.splitlines()) <= 245",
-              "len(source.splitlines()) <= 270",
+          architecture_path.write_text(
+              architecture_path.read_text().replace(
+                  "len(source.splitlines()) <= 245",
+                  "len(source.splitlines()) <= 270",
+              )
           )
-          architecture_path.write_text(architecture)
-
           for path in (
               Path(
                   "docs/superpowers/specs/2026-07-23-environment-provider-contract-extraction-design.md"
@@ -111,6 +110,16 @@ jobs:
           ):
               path.write_text(path.read_text().replace("245 lines", "270 lines"))
           PY
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/rl/environment.py \
+            tests/architecture/test_environment_provider_contract_decomposition.py \
+            docs/superpowers/specs/2026-07-23-environment-provider-contract-extraction-design.md \
+            docs/superpowers/plans/2026-07-23-environment-provider-contract-extraction.md
+          git commit -m "refactor: delegate environment provider contract"
+          git push origin HEAD:refactor/extract-environment-provider-contract-20260723
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -154,7 +163,7 @@ jobs:
           tests/rl/test_environment_identity.py
           tests/rl/test_environment_risk_service.py
 
-      - name: Commit implementation and remove temporary job
+      - name: Commit formatting and remove temporary job
         shell: bash
         run: |
           set -euo pipefail
@@ -165,5 +174,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "refactor: delegate environment provider contract"
+          git commit -m "test: verify environment provider contract extraction"
           git push origin HEAD:refactor/extract-environment-provider-contract-20260723

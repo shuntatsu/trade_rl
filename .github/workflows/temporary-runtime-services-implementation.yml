@@ -147,11 +147,7 @@ jobs:
           set +e
           uv run pytest -q \
             tests/architecture/test_environment_runtime_services_decomposition.py \
-            tests/rl/test_environment_runtime_services.py \
-            tests/rl/test_environment.py \
-            tests/rl/test_environment_identity.py \
-            tests/rl/test_environment_risk_service.py \
-            tests/rl/test_environment_observation_contract.py \
+            tests/rl \
             2>&1 | tee .github/runtime-services-pytest-diagnostic.txt
           status=${PIPESTATUS[0]}
           set -e
@@ -172,6 +168,7 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/workflows/temporary-runtime-services-implementation.yml \
+            .github/workflows/temporary-runtime-services-ruff-diagnosis.yml \
             .github/runtime-services-implementation-trigger \
             .github/runtime-services-pytest-diagnostic.txt
           git diff --check

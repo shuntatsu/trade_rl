@@ -12,7 +12,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.rl.actions import AlphaContract
-from trade_rl.rl.market_inputs import CausalAlphaProvider, MarketInputResolver
+from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.strategies.trend import TrendStrategy
 
 
@@ -37,11 +37,7 @@ class FactorBasisProvider(Protocol):
     def basis_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
 
 
-AlphaProviderInput = (
-    AlphaProvider
-    | CausalAlphaProvider
-    | Callable[[MarketDataset, int], np.ndarray]
-)
+AlphaProviderInput = AlphaProvider | Callable[[MarketDataset, int], np.ndarray]
 FactorBasisProviderInput = FactorBasisProvider | Callable[[MarketDataset, int], np.ndarray]
 
 

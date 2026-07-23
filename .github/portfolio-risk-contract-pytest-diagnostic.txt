@@ -1,0 +1,35 @@
+..F..................................................................... [ 25%]
+........................................................................ [ 50%]
+..........................................s............................. [ 75%]
+........................................................................ [100%]
+=================================== FAILURES ===================================
+____________ test_portfolio_risk_builder_preserves_validation_order ____________
+
+    def test_portfolio_risk_builder_preserves_validation_order() -> None:
+        source = inspect.getsource(EnvironmentPortfolioRiskContractBuilder.build)
+    
+        digest_position = source.index("require_sha256(")
+        minimum_position = source.index("provider.minimum_index")
+>       aggregation_position = source.index("max(minimum_start_index, provider_minimum)")
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ValueError: substring not found
+
+tests/architecture/test_environment_portfolio_risk_contract_decomposition.py:39: ValueError
+=============================== warnings summary ===============================
+tests/rl/test_policy_export.py::test_torchscript_actor_export_matches_sb3_prediction
+  /home/runner/work/trade_rl/trade_rl/.venv/lib/python3.12/site-packages/torch/distributions/distribution.py:67: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+    if not valid.all():
+
+tests/rl/test_sequence_policy_core.py::test_multitimeframe_encoder_shapes_and_parameter_budget
+tests/rl/test_sequence_policy_core.py::test_timeframe_receptive_fields_cover_declared_windows
+tests/rl/test_sequence_policy_core.py::test_asset_tokens_retain_symbol_specific_context
+tests/rl/test_sequence_policy_core.py::test_shared_sequence_policy_installs_shared_actor_and_portfolio_critic
+tests/rl/test_sequence_policy_core.py::test_partial_feature_availability_keeps_latest_timestep_usable
+tests/rl/test_sequence_policy_core.py::test_shared_sequence_policy_uses_squashed_target_weight_distribution
+  /home/runner/work/trade_rl/trade_rl/.venv/lib/python3.12/site-packages/torch/nn/modules/transformer.py:306: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+    warnings.warn(f"enable_nested_tensor is True, but self.use_nested_tensor is False because {why_not_sparsity_fast_path}")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/architecture/test_environment_portfolio_risk_contract_decomposition.py::test_portfolio_risk_builder_preserves_validation_order - ValueError: substring not found
+1 failed, 286 passed, 1 skipped, 7 warnings in 10.69s

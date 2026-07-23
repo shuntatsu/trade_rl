@@ -144,13 +144,27 @@ jobs:
       - name: Import architecture
         run: uv run lint-imports
       - name: Focused behavior verification
-        run: >-
-          uv run pytest -q
-          tests/rl/test_environment_initial_state.py
-          tests/architecture/test_environment_initial_state_decomposition.py
-          tests/rl/test_environment.py
-          tests/rl/test_environment_identity.py
-          tests/rl/test_environment_timing.py
+        id: focused
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/rl/test_environment_initial_state.py \
+            tests/architecture/test_environment_initial_state_decomposition.py \
+            tests/rl/test_environment.py \
+            tests/rl/test_environment_identity.py \
+            tests/rl/test_environment_timing.py \
+            2>&1 | tee focused-tests.log
+      - name: Upload focused test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr140-focused-test-diagnostics
+          path: focused-tests.log
+          if-no-files-found: error
+      - name: Require focused tests
+        run: test "${{ steps.focused.outcome }}" = success
       - name: Commit verified implementation
         shell: bash
         run: |

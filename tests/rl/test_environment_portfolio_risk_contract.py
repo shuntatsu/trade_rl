@@ -129,7 +129,9 @@ def test_builder_keeps_larger_existing_minimum_index() -> None:
 def test_builder_validates_digest_before_reading_minimum_index() -> None:
     provider = _InvalidDigestProvider(4)
 
-    with pytest.raises(ValueError, match="portfolio_risk_inputs_provider.identity_digest"):
+    with pytest.raises(
+        ValueError, match="portfolio_risk_inputs_provider.identity_digest"
+    ):
         EnvironmentPortfolioRiskContractBuilder(
             _Dataset(),
             portfolio_risk=PortfolioRiskModel(),
@@ -172,7 +174,9 @@ def test_environment_uses_the_portfolio_risk_contract_for_advanced_inputs() -> N
     )
 
     assert env.portfolio_risk is model
-    assert isinstance(env.portfolio_risk_inputs_provider, RollingPortfolioRiskInputsProvider)
+    assert isinstance(
+        env.portfolio_risk_inputs_provider, RollingPortfolioRiskInputsProvider
+    )
     assert env.minimum_start_index >= env.portfolio_risk_inputs_provider.minimum_index
     assert env._digest_payload()["portfolio_risk_inputs_digest"] == (
         env.portfolio_risk_inputs_provider.identity_digest

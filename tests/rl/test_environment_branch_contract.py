@@ -95,10 +95,14 @@ def test_environment_provider_branches_are_explicitly_exercised() -> None:
         alpha_enabled=True,
         action_spec=ActionSpec(alpha_enabled=True),
     )
-    np.testing.assert_allclose(legacy._alpha_at(legacy.minimum_start_index), [0.25, -0.25])
+    np.testing.assert_allclose(
+        legacy._alpha_at(legacy.minimum_start_index), [0.25, -0.25]
+    )
 
     callable_alpha = _env(
-        alpha_provider=lambda dataset, index: np.array([index, -index], dtype=np.float64),
+        alpha_provider=lambda dataset, index: np.array(
+            [index, -index], dtype=np.float64
+        ),
         alpha_enabled=True,
         alpha_artifact_digest="3" * 64,
         action_spec=ActionSpec(alpha_enabled=True),
@@ -127,7 +131,9 @@ def test_environment_provider_branches_are_explicitly_exercised() -> None:
         factor_count=1,
         action_spec=ActionSpec(n_factors=1),
     )
-    assert callable_provider._factor_basis_at(callable_provider.minimum_start_index).shape == (
+    assert callable_provider._factor_basis_at(
+        callable_provider.minimum_start_index
+    ).shape == (
         1,
         2,
     )

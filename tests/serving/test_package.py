@@ -155,7 +155,7 @@ def _paper_reconciliation(
         "training_run_digest": manifest.digest,
         "start_time": manifest.completed_at,
         "end_time": manifest.completed_at + timedelta(days=30),
-        "created_at": manifest.completed_at + timedelta(days=30, minutes=1),
+        "created_at": manifest.completed_at + timedelta(days=30),
         "order_log_digest": "7" * 64,
         "fill_log_digest": "8" * 64,
         "submitted_order_count": 120,
@@ -292,6 +292,54 @@ def test_package_rejects_failed_paper_reconciliation(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="did not pass"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_reconciliation_created_after_confirmation(
+    tmp_path: Path,
+) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(training_root, run_kind="research_selected_final")
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(
+        confirmation_path,
+        training,
+        reconciliation_overrides={
+            "created_at": training.completed_at + timedelta(days=30, minutes=1)
+        },
+    )
+
+    with pytest.raises(ValueError, match="created after confirmation"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_reconciliation_identity_mismatch(tmp_path: Path) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(training_root, run_kind="research_selected_final")
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(
+        confirmation_path,
+        training,
+        reconciliation_overrides={"dataset_id": "0" * 64},
+    )
+
+    with pytest.raises(ValueError, match="dataset identity"):
         package_selected_training_run(
             training_root=training_root,
             confirmation_path=confirmation_path,

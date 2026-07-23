@@ -567,6 +567,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         elif mode == "stress":
             weights = trends.base.copy()
             peak = self.config.initial_capital / (
+                1.0 - self.config.stress_drawdown_fraction
             )
         elif mode == "partial_fill":
             weights = trends.base * self.config.partial_fill_fraction

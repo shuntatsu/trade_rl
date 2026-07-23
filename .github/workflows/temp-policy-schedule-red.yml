@@ -1,0 +1,41 @@
+name: Temporary Policy Schedule RED
+
+on:
+  push:
+    branches:
+      - refactor/extract-environment-policy-schedule-contract-20260723
+    paths:
+      - .github/workflows/temp-policy-schedule-red.yml
+      - .github/policy-schedule-red-trigger
+      - tests/rl/test_environment_policy_schedule_contract.py
+      - tests/architecture/test_environment_policy_schedule_contract_decomposition.py
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy .
+      - name: Import architecture
+        run: uv run lint-imports
+      - name: Expected RED pytest collection
+        run: uv run pytest -q

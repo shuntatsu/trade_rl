@@ -1,0 +1,140 @@
+name: Implement PR126 exact head
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/implement-pr126-exact.yml'
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: 52e4a0a2616cee2cc5c14c2caa24b57f0c55ab17
+  TARGET_BRANCH: refactor/extract-environment-policy-schedule-contract-20260723
+
+jobs:
+  implement:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Verify exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Delegate policy and schedule construction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/environment.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace(
+              "from trade_rl.risk.emergency import CausalEmergencyRiskMonitor\n",
+              "",
+              1,
+          )
+          marker = (
+              "from trade_rl.rl.environment_portfolio_risk_contract import (\n"
+              "    EnvironmentPortfolioRiskContractBuilder,\n"
+              ")\n"
+          )
+          policy_import = (
+              "from trade_rl.rl.environment_policy_schedule_contract import (\n"
+              "    EnvironmentPolicyScheduleContractBuilder,\n"
+              ")\n"
+          )
+          if policy_import not in text:
+              if marker not in text:
+                  raise RuntimeError("portfolio-risk contract import marker missing")
+              text = text.replace(marker, marker + policy_import, 1)
+
+          start_marker = "        self.config = config or ResidualMarketEnvConfig()\n"
+          end_marker = "        self.reward_tracker = RewardTracker(\n"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = """        policy_schedule = EnvironmentPolicyScheduleContractBuilder(
+              dataset,
+              pre_trade_risk=self.pre_trade_risk,
+              alpha_enabled=self.alpha_enabled,
+              factor_count=resolved_factor_count,
+              action_spec=action_spec,
+              config=config,
+          ).build()
+          self.config = policy_schedule.config
+          self.emergency_risk_monitor = policy_schedule.emergency_risk_monitor
+          self.action_spec = policy_schedule.action_spec
+          self._action_names = policy_schedule.action_names
+          self._nominal_episode_bars = policy_schedule.nominal_episode_bars
+          self._nominal_decision_bars = policy_schedule.nominal_decision_bars
+          reward_config = policy_schedule.reward_config
+          self._resolved_decision_hours = policy_schedule.resolved_decision_hours
+"""
+          text = text[:start] + replacement + text[end:]
+          text = text.replace(
+              "            decision_hours=resolved_decision_hours,\n",
+              "            decision_hours=self._resolved_decision_hours,\n",
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Normalize changed Python
+        run: |
+          uv run ruff check --fix \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_policy_schedule_contract.py \
+            tests/rl/test_environment_policy_schedule_contract.py \
+            tests/architecture/test_environment_policy_schedule_contract_decomposition.py
+          uv run ruff format \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_policy_schedule_contract.py \
+            tests/rl/test_environment_policy_schedule_contract.py \
+            tests/architecture/test_environment_policy_schedule_contract_decomposition.py
+      - name: Static verification
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run lint-imports
+      - name: Focused behavior verification
+        run: >-
+          uv run pytest -q
+          tests/architecture/test_environment_policy_schedule_contract_decomposition.py
+          tests/rl/test_environment_policy_schedule_contract.py
+          tests/rl/test_environment.py
+          tests/rl/test_environment_identity.py
+          tests/rl/test_environment_config.py
+          tests/rl/test_environment_observation_contract.py
+      - name: Remove temporary material and push verified implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/temp-policy-schedule-red.yml \
+            .github/policy-schedule-red-trigger \
+            .github/policy-schedule-red-proof \
+            .github/policy-schedule-sync-marker \
+            .github/policy-schedule-sync-marker-2 \
+            .github/policy-schedule-sync-marker-3 \
+            .github/policy-schedule-sync-marker-4 \
+            .github/policy-schedule-sync-marker-5 \
+            .github/policy-schedule-sync-marker-6
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: delegate environment policy schedule construction'
+          git push origin "HEAD:${TARGET_BRANCH}"

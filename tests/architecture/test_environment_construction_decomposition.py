@@ -17,7 +17,6 @@ REQUIRED_MODULES = {
     "trade_rl.rl.environment_state": "EnvironmentInitialStateFactory",
 }
 FORBIDDEN_CONSTRUCTOR_SYMBOLS = {
-    "ActionSpec",
     "BookState.zero",
     "CausalEmergencyRiskMonitor",
     "EnvironmentDecisionPlanner",

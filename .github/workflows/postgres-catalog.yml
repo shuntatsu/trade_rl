@@ -1,4 +1,5 @@
 name: PostgreSQL Catalog
+# Temporary PR165 exact-head validation trigger; never merge this branch.
 
 on:
   push:

@@ -16,6 +16,9 @@ def test_policy_schedule_contract_module_owns_maintained_boundary() -> None:
     assert EnvironmentPolicyScheduleContractBuilder.__module__ == (
         "trade_rl.rl.environment_policy_schedule_contract"
     )
+    assert EnvironmentPolicyScheduleContractBuilder.__name__ == (
+        "EnvironmentPolicyScheduleContractBuilder"
+    )
 
 
 def test_environment_constructor_delegates_policy_schedule_contract() -> None:

@@ -22,10 +22,12 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
       - name: Restore stress peak calculation
+        id: repair
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          python - <<'PY'
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee stress-peak-repair.log
           from pathlib import Path
 
           path = Path('trade_rl/rl/environment.py')
@@ -42,36 +44,81 @@ jobs:
           path.write_text(text.replace(broken, fixed, 1), encoding='utf-8')
           PY
       - name: Set up uv
+        id: setup_uv
+        continue-on-error: true
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: '3.12'
           enable-cache: true
       - name: Install
-        run: uv sync --extra dev --extra train-sb3
+        id: install
+        continue-on-error: true
+        shell: bash
+        run: uv sync --extra dev --extra train-sb3 2>&1 | tee stress-peak-install.log
       - name: Static verification
-        run: |
-          uv run ruff format trade_rl/rl/environment.py
-          uv run ruff check .
-          uv run ruff format --check .
-          uv run mypy .
-          uv run lint-imports
-      - name: Focused regression verification
-        run: >-
-          uv run pytest -q
-          tests/rl/test_environment_timing.py::test_hard_drawdown_stop_overrides_turnover_inside_environment
-          tests/rl/test_environment_policy_schedule_contract.py
-          tests/architecture/test_environment_policy_schedule_contract_decomposition.py
-          tests/rl/test_environment_identity.py
-      - name: Remove temporary material and push verified repair
+        id: static
+        continue-on-error: true
         shell: bash
         run: |
+          set -o pipefail
+          {
+            uv run ruff format trade_rl/rl/environment.py
+            uv run ruff check .
+            uv run ruff format --check .
+            uv run mypy .
+            uv run lint-imports
+          } 2>&1 | tee stress-peak-static.log
+      - name: Focused regression verification
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/rl/test_environment_timing.py::test_hard_drawdown_stop_overrides_turnover_inside_environment \
+            tests/rl/test_environment_policy_schedule_contract.py \
+            tests/architecture/test_environment_policy_schedule_contract_decomposition.py \
+            tests/rl/test_environment_identity.py \
+            2>&1 | tee stress-peak-tests.log
+      - name: Commit result
+        if: always()
+        shell: bash
+        env:
+          REPAIR_OUTCOME: ${{ steps.repair.outcome }}
+          SETUP_OUTCOME: ${{ steps.setup_uv.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          STATIC_OUTCOME: ${{ steps.static.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
           set -euo pipefail
-          rm -f \
-            .github/workflows/temp-restore-stress-peak-pr126.yml \
-            .github/restore-stress-peak-pr126-trigger
-          git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'fix: restore stress initial-state peak calculation'
+          if [ "$REPAIR_OUTCOME" = success ] \
+            && [ "$SETUP_OUTCOME" = success ] \
+            && [ "$INSTALL_OUTCOME" = success ] \
+            && [ "$STATIC_OUTCOME" = success ] \
+            && [ "$TESTS_OUTCOME" = success ]; then
+            rm -f \
+              .github/workflows/temp-restore-stress-peak-pr126.yml \
+              .github/restore-stress-peak-pr126-trigger \
+              .github/stress-peak-repair-status \
+              stress-peak-repair.log \
+              stress-peak-install.log \
+              stress-peak-static.log \
+              stress-peak-tests.log
+            git diff --check
+            git add -A
+            git commit -m 'fix: restore stress initial-state peak calculation'
+            git push origin HEAD:refactor/extract-environment-policy-schedule-contract-20260723
+            exit 0
+          fi
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd
+          printf 'repair=%s\nsetup_uv=%s\ninstall=%s\nstatic=%s\ntests=%s\nrun_id=%s\n' \
+            "$REPAIR_OUTCOME" "$SETUP_OUTCOME" "$INSTALL_OUTCOME" \
+            "$STATIC_OUTCOME" "$TESTS_OUTCOME" "$GITHUB_RUN_ID" \
+            > .github/stress-peak-repair-status
+          git add .github/stress-peak-repair-status
+          git commit -m 'test: record stress peak repair failure'
           git push origin HEAD:refactor/extract-environment-policy-schedule-contract-20260723
+          exit 1

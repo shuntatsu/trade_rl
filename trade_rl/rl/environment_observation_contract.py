@@ -113,7 +113,9 @@ class EnvironmentObservationContractBuilder:
             observation_schema = SEQUENCE_OBSERVATION_SCHEMA
         else:
             observation_schema = OBSERVATION_SCHEMA
-            observation_contract_digest = observation_builder.schema_digest(self.dataset)
+            observation_contract_digest = observation_builder.schema_digest(
+    self.dataset
+)
             observation_space = spaces.Box(
                 low=-np.inf,
                 high=np.inf,

@@ -5,11 +5,10 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 import gymnasium as gym
 import numpy as np
-from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
@@ -57,6 +56,9 @@ from trade_rl.rl.environment_observation import (
     EnvironmentObservationAssembler,
     EnvironmentObservationRuntime,
 )
+from trade_rl.rl.environment_observation_contract import (
+    EnvironmentObservationContractBuilder,
+)
 from trade_rl.rl.environment_reward import (
     EnvironmentRewardCoordinator,
     EnvironmentRewardRequest,
@@ -73,25 +75,15 @@ from trade_rl.rl.episode import (
 from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
-    OBSERVATION_SCHEMA,
-    ObservationBuilder,
     ObservationExecutionState,
     PendingOrderObservationState,
     PolicyObservationSnapshot,
-    observation_passthrough_indices,
 )
 from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
     RewardTracker,
 )
 from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
-from trade_rl.rl.sequence_observations import (
-    SEQUENCE_OBSERVATION_SCHEMA,
-    SequenceObservationBuilder,
-    SequencePolicyPlane,
-    SequenceWindowSpec,
-    build_sequence_policy_plane,
-)
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
@@ -339,215 +331,33 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.executor = self.hybrid_executor
         self._reward_history_cache: dict[int, tuple[float, ...]] = {}
 
-        self.observation_builder = ObservationBuilder(
-            action_size=self.action_spec.size,
-            n_factors=self.action_spec.n_factors,
-            finite_horizon=self.config.finite_horizon_observation,
-        )
-        layout = self.observation_builder.layout(dataset)
-        if normalizer is not None:
-            if normalizer.size != layout.size:
-                raise ValueError("normalizer size does not match observation layout")
-            bound_dataset_ids = {
-                identity
-                for identity in (normalizer.dataset_id, normalizer.source_dataset_id)
-                if identity is not None
-            }
-            if bound_dataset_ids and dataset.dataset_id not in bound_dataset_ids:
-                raise ValueError(
-                    "normalizer dataset identity does not match environment"
-                )
-            if normalizer.observation_schema != OBSERVATION_SCHEMA:
-                raise ValueError(
-                    "normalizer observation schema does not match environment"
-                )
-            observation_schema_digest = self.observation_builder.schema_digest(dataset)
-            if (
-                normalizer.observation_schema_digest is not None
-                and normalizer.observation_schema_digest != observation_schema_digest
-            ):
-                raise ValueError(
-                    "normalizer observation schema digest does not match environment"
-                )
-            if (
-                normalizer.action_spec_digest is not None
-                and normalizer.action_spec_digest != self.action_spec_digest
-            ):
-                raise ValueError(
-                    "normalizer action identity does not match environment"
-                )
-            for field_name, expected, observed in (
-                (
-                    "alpha artifact",
-                    self.alpha_artifact_digest,
-                    normalizer.alpha_artifact_digest,
-                ),
-                (
-                    "factor artifact",
-                    self.factor_artifact_digest,
-                    normalizer.factor_artifact_digest,
-                ),
-            ):
-                if observed is not None and observed != expected:
-                    raise ValueError(
-                        f"normalizer {field_name} identity does not match environment"
-                    )
-            required_passthrough = set(
-                observation_passthrough_indices(
-                    dataset,
-                    action_size=self.action_spec.size,
-                    n_factors=self.action_spec.n_factors,
-                    finite_horizon=self.config.finite_horizon_observation,
-                )
-            )
-            if not required_passthrough.issubset(normalizer.passthrough_indices):
-                raise ValueError(
-                    "normalizer must preserve observation mask and activity indices"
-                )
-        self.layout = layout
-        self.asset_active_column = 4 * dataset.n_features
-        self.sequence_observation_builder: SequenceObservationBuilder | None = None
-        self.sequence_policy_plane: SequencePolicyPlane | None = None
-        self.sequence_layout_metadata: dict[str, object] | None = None
-        if self.config.structured_sequence_observation:
-            self.sequence_observation_builder = SequenceObservationBuilder(
-                windows=tuple(
-                    SequenceWindowSpec(timeframe, length)
-                    for timeframe, length in self.config.resolved_sequence_windows
-                )
-            )
-            if sequence_normalizer is not None:
-                if dataset.dataset_id not in {
-                    sequence_normalizer.dataset_id,
-                    sequence_normalizer.source_dataset_id,
-                }:
-                    raise ValueError(
-                        "sequence normalizer dataset identity does not match environment"
-                    )
-                if (
-                    sequence_normalizer.sequence_schema_digest
-                    != self.sequence_observation_builder.layout_digest(dataset)
-                ):
-                    raise ValueError(
-                        "sequence normalizer schema does not match environment"
-                    )
-            self.sequence_policy_plane = build_sequence_policy_plane(
-                dataset,
-                self.sequence_observation_builder,
-                sequence_normalizer,
-            )
-            self._minimum_start_index = max(
-                self._minimum_start_index,
-                self.sequence_observation_builder.minimum_index(dataset),
-            )
-            sequence_payload = self.sequence_observation_builder.schema_payload(dataset)
-            sequence_spaces: dict[str, spaces.Space[np.ndarray]] = {
-                "decision_index": spaces.Box(
-                    low=0,
-                    high=dataset.n_bars - 1,
-                    shape=(1,),
-                    dtype=np.int64,
-                ),
-                "current_snapshot": spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(dataset.n_symbols, 4 * dataset.n_features),
-                    dtype=np.float32,
-                ),
-                "asset_state": spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(
-                        dataset.n_symbols,
-                        layout.per_symbol_width - 4 * dataset.n_features,
-                    ),
-                    dtype=np.float32,
-                ),
-                "global_state": spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(layout.global_width,),
-                    dtype=np.float32,
-                ),
-                "active": spaces.Box(
-                    low=0.0,
-                    high=1.0,
-                    shape=(dataset.n_symbols,),
-                    dtype=np.float32,
-                ),
-            }
-            feature_counts: dict[str, int] = {}
-            window_lengths: dict[str, int] = {}
-            sequence_windows = cast(
-                tuple[dict[str, object], ...], sequence_payload["windows"]
-            )
-            for window in sequence_windows:
-                item = dict(window)
-                timeframe = str(item["timeframe"])
-                raw_length = item["length"]
-                if isinstance(raw_length, bool) or not isinstance(raw_length, int):
-                    raise ValueError("sequence window length must be an integer")
-                raw_feature_names = item["feature_names"]
-                if not isinstance(raw_feature_names, (tuple, list)):
-                    raise ValueError("sequence feature names must be ordered")
-                length = raw_length
-                feature_count = len(raw_feature_names)
-                feature_counts[timeframe] = feature_count
-                window_lengths[timeframe] = length
-                base_shape = (dataset.n_symbols, length, feature_count)
-                sequence_spaces[f"sequence_{timeframe}_values"] = spaces.Box(
-                    low=-np.inf, high=np.inf, shape=base_shape, dtype=np.float16
-                )
-                sequence_spaces[f"sequence_{timeframe}_available"] = spaces.Box(
-                    low=0, high=1, shape=base_shape, dtype=np.uint8
-                )
-                sequence_spaces[f"sequence_{timeframe}_staleness"] = spaces.Box(
-                    low=0.0, high=np.inf, shape=base_shape, dtype=np.float16
-                )
-            self.sequence_layout_metadata = {
-                "feature_counts": feature_counts,
-                "window_lengths": window_lengths,
-                "snapshot_width": 4 * dataset.n_features,
-                "asset_state_width": layout.per_symbol_width - 4 * dataset.n_features,
-                "global_width": layout.global_width,
-                "n_symbols": dataset.n_symbols,
-            }
-            self._observation_schema = SEQUENCE_OBSERVATION_SCHEMA
-            component_dtypes = {
-                key: str(np.dtype(space.dtype))
-                for key, space in sorted(sequence_spaces.items())
-            }
-            self._observation_contract_digest = content_digest(
-                {
-                    "component_dtypes": component_dtypes,
-                    "current_schema_digest": self.observation_builder.schema_digest(
-                        dataset
-                    ),
-                    "sequence_schema_digest": self.sequence_observation_builder.schema_digest(
-                        dataset
-                    ),
-                    "layout": self.sequence_layout_metadata,
-                    "schema_version": SEQUENCE_OBSERVATION_SCHEMA,
-                }
-            )
-            self.observation_space = spaces.Dict(sequence_spaces)
-        else:
-            self._observation_schema = OBSERVATION_SCHEMA
-            self._observation_contract_digest = self.observation_builder.schema_digest(
-                dataset
-            )
-            self.observation_space = spaces.Box(
-                low=-np.inf,
-                high=np.inf,
-                shape=(layout.size,),
-                dtype=np.float32,
-            )
-        self.action_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(self.action_spec.size,),
-            dtype=np.float32,
-        )
+        observation_contract = EnvironmentObservationContractBuilder(
+    dataset,
+    self.config,
+    action_spec=self.action_spec,
+    normalizer=self.normalizer,
+    sequence_normalizer=self.sequence_normalizer,
+    alpha_artifact_digest=self.alpha_artifact_digest,
+    factor_artifact_digest=self.factor_artifact_digest,
+    action_spec_digest=self.action_spec_digest,
+).build(minimum_start_index=self._minimum_start_index)
+self.observation_builder = observation_contract.observation_builder
+self.layout = observation_contract.layout
+self.asset_active_column = observation_contract.asset_active_column
+self.sequence_observation_builder = (
+    observation_contract.sequence_observation_builder
+)
+self.sequence_policy_plane = observation_contract.sequence_policy_plane
+self.sequence_layout_metadata = (
+    observation_contract.sequence_layout_metadata
+)
+self._observation_schema = observation_contract.observation_schema
+self._observation_contract_digest = (
+    observation_contract.observation_contract_digest
+)
+self.observation_space = observation_contract.observation_space
+self.action_space = observation_contract.action_space
+self._minimum_start_index = observation_contract.minimum_start_index
         self._episode_sampler = EpisodeContractSampler(
             dataset,
             self.config,

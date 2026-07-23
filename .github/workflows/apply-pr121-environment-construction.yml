@@ -36,8 +36,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          {
+            wc -c .github/pr121-patch/*.b64
+            sha256sum .github/pr121-patch/*.b64
+          } | tee pr121-patch-diagnostics.txt
           cat .github/pr121-patch/*.b64 | base64 --decode > /tmp/pr121-implementation.patch
           actual="$(sha256sum /tmp/pr121-implementation.patch | cut -d' ' -f1)"
+          printf 'decoded_patch_sha256=%s\n' "$actual" | tee -a pr121-patch-diagnostics.txt
+          printf 'expected_patch_sha256=%s\n' '32f1d0fead1786b0449c4e2dcecdaa6d2b067ec3b8f45a95fac2616777c44015' | tee -a pr121-patch-diagnostics.txt
           test "$actual" = "32f1d0fead1786b0449c4e2dcecdaa6d2b067ec3b8f45a95fac2616777c44015"
           git apply --check /tmp/pr121-implementation.patch
           git apply /tmp/pr121-implementation.patch
@@ -92,7 +98,7 @@ jobs:
           rm -rf .github/pr121-patch
           rm -f .github/pr121-apply-trigger
           rm -f .github/workflows/apply-pr121-environment-construction.yml
-          rm -f pr121-static.log pr121-focused-pytest.log
+          rm -f pr121-patch-diagnostics.txt pr121-static.log pr121-focused-pytest.log
           test ! -e .github/pr121-patch
           test ! -e .github/pr121-apply-trigger
           test ! -e .github/workflows/apply-pr121-environment-construction.yml
@@ -108,6 +114,7 @@ jobs:
         with:
           name: pr121-focused-diagnostics
           path: |
+            pr121-patch-diagnostics.txt
             pr121-static.log
             pr121-focused-pytest.log
           if-no-files-found: ignore

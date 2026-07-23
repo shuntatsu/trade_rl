@@ -129,17 +129,34 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Fix and format changed Python
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          uv run ruff check --fix \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_runtime_services.py \
-            tests/architecture/test_environment_runtime_services_decomposition.py \
+          set +e
+          targets=(
+            trade_rl/rl/environment.py
+            trade_rl/rl/environment_runtime_services.py
+            tests/architecture/test_environment_runtime_services_decomposition.py
             tests/rl/test_environment_runtime_services.py
-          uv run ruff format \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_runtime_services.py \
-            tests/architecture/test_environment_runtime_services_decomposition.py \
-            tests/rl/test_environment_runtime_services.py
+          )
+          {
+            uv run ruff check --fix "${targets[@]}"
+            ruff_status=$?
+            uv run ruff format "${targets[@]}"
+            format_status=$?
+            printf 'ruff_status=%s\nformat_status=%s\n' "$ruff_status" "$format_status"
+          } 2>&1 | tee .github/runtime-services-fix-diagnostic.txt
+          pipeline_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$pipeline_status" -ne 0 ]] || grep -Eq 'ruff_status=[1-9]|format_status=[1-9]' .github/runtime-services-fix-diagnostic.txt; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .github/runtime-services-fix-diagnostic.txt
+            git commit -m 'ci: capture runtime services formatting failure'
+            git push origin "HEAD:${HEAD_REF}"
+            exit 1
+          fi
 
       - name: Ruff verification
         run: >-
@@ -181,7 +198,8 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/workflows/temporary-runtime-services-implementation.yml \
-            .github/runtime-services-implementation-trigger
+            .github/runtime-services-implementation-trigger \
+            .github/runtime-services-fix-diagnostic.txt
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

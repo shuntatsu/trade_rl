@@ -1,0 +1,66 @@
+name: Finalize PR140 architecture closeout
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/finalize-pr140-closeout.yml'
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: 437e8862d4354958a473bebffa022079a047fe02
+  TARGET_BRANCH: refactor/extract-environment-initial-state-20260723
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Verify exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Finalize synchronized evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/verification/2026-07-23-architecture-audit-closeout.md')
+          text = path.read_text(encoding='utf-8')
+          old = '''All five have permanent 100.0% critical coverage ratchets. PR #140 exact-head
+          verification passed 1,321 tests, 84.21% total coverage, 71.28% total branch
+          coverage, Ubuntu, Windows, training-image, Import Linter, and CLI checks. The final
+          ratchet head is also subject to the maintained PostgreSQL Catalog workflow because
+          `pyproject.toml` changed.
+          '''
+          new = '''All five have permanent 100.0% critical coverage ratchets. After current main
+          was merged into the feature branch, PR #140 verification passed 1,331 tests,
+          84.18% total coverage, 71.23% total branch coverage, Ubuntu, Windows,
+          training-image, Import Linter, CLI, and PostgreSQL Catalog checks. The synchronized
+          verification runs were CI `30007065940` and PostgreSQL Catalog `30007065939`.
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError('expected exactly one pre-sync PR140 evidence paragraph')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Verify diff
+        run: |
+          git diff --check
+          test "$(git diff --name-only)" = 'docs/verification/2026-07-23-architecture-audit-closeout.md'
+      - name: Commit closeout update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/verification/2026-07-23-architecture-audit-closeout.md
+          git commit -m 'docs: finalize synchronized initial state evidence'
+          git push origin "HEAD:${TARGET_BRANCH}"

@@ -348,9 +348,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             observation_contract.sequence_observation_builder
         )
         self.sequence_policy_plane = observation_contract.sequence_policy_plane
-        self.sequence_layout_metadata = (
-            observation_contract.sequence_layout_metadata
-        )
+        self.sequence_layout_metadata = observation_contract.sequence_layout_metadata
         self._observation_schema = observation_contract.observation_schema
         self._observation_contract_digest = (
             observation_contract.observation_contract_digest

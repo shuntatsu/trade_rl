@@ -1,0 +1,237 @@
+name: Finalize PR165 exact RED head
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/finalize-pr165-exact.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-pr165-exact-20260723
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: e9be30ce1a10d7695d8a5a00d682c5a0a655bc23
+  TARGET_BRANCH: docs/resolve-environment-facade-audit-20260723
+  RUNNER_BRANCH: audit/finalize-pr165-exact-20260723
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify RED head and record resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          python - <<'PY'
+          from pathlib import Path
+
+          closeout_path = Path(
+              "docs/verification/2026-07-23-architecture-audit-closeout.md"
+          )
+          text = closeout_path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  "The current integrated source baseline is `main` merge commit\n"
+                  "`3c02270a83a40a2c58a84fabcfb586915163947a`, which includes the canonical\n"
+                  "observation, provider, runtime-service, portfolio-risk, policy/schedule,\n"
+                  "initial-state, and corrected verification remediations through PR #140. The\n"
+                  "latest verified `AUD-RL-001` remediation candidate is PR #152 exact\n"
+                  "implementation and coverage-ratchet head\n"
+                  "`5856752aa085e16fd7133059ef3878db072eded5`.",
+                  "The current integrated source baseline is `main` merge commit\n"
+                  "`9d7790f8d570d94220b40c903a32e43ae5fad5a7`, which includes the canonical\n"
+                  "observation, provider, runtime-service, portfolio-risk, policy/schedule,\n"
+                  "initial-state, reward/execution-resource, and corrected verification\n"
+                  "remediations through PR #152. The final PR #152 exact head was\n"
+                  "`7553eb66b8797a0e3529070ca18af7e15063e098`.",
+              ),
+              (
+                  "| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts; PR #126 policy/schedule contracts; PR #140 initial mutable-state factory; PR #152 reward/execution resources |",
+                  "| `AUD-RL-001` | P2 risk | RESOLVED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts; PR #126 policy/schedule contracts; PR #140 initial mutable-state factory; PR #152 reward/execution resources |",
+              ),
+              (
+                  "No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.\n"
+                  "The only open item is a maintainability risk without a reproduced behavioral\n"
+                  "failure.",
+                  "No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.\n"
+                  "No architecture-audit finding remains open. Capability, evidence, operational,\n"
+                  "authorization, and profitability gates remain separate from this closeout.",
+              ),
+              (
+                  "### AUD-RL-001 — OPEN RISK, FURTHER REDUCED",
+                  "### AUD-RL-001 — RESOLVED",
+              ),
+              (
+                  "No behavior defect was reproduced in the original audit, so this remains a risk\n"
+                  "rather than a confirmed bug.",
+                  "The original audit recorded a P2 maintainability risk rather than a reproduced\n"
+                  "behavior defect. Its deferred-remediation condition is now satisfied: concrete\n"
+                  "feature seams were extracted under characterization tests, while the stable\n"
+                  "Gymnasium facade and public behavior were preserved.",
+              ),
+              (
+                  "work also separated episode sampling, stateful target execution, observation\n"
+                  "assembly, and termination coordination. `step()` is now an orchestration facade\n"
+                  "which delegates those responsibilities while retaining mutable Gymnasium state.",
+                  "work also separated episode sampling, stateful target execution, observation\n"
+                  "assembly, and termination coordination. `step()` remains an orchestration facade\n"
+                  "which delegates those responsibilities without re-owning their policy.",
+              ),
+              (
+                  "inputs are preserved.\n\nThe provider extraction reduced",
+                  "inputs are preserved. `reset()` retains mutable Gymnasium state ownership and\n"
+                  "applies fresh invocation-local state to the maintained environment attributes;\n"
+                  "that is an intentional facade responsibility rather than unextracted policy.\n\n"
+                  "The provider extraction reduced",
+              ),
+              (
+                  "resource boundary further reduces it to 150 lines and enforces a 150-line\n"
+                  "architecture limit. The facade retains existing attributes while direct construction\n"
+                  "and validation policy are prohibited from returning inline.",
+                  "resource boundary further reduces it to 150 lines and enforces a maintained\n"
+                  "150-line architecture limit. The facade retains existing attributes while direct\n"
+                  "construction and validation policy are prohibited from returning inline.",
+              ),
+              (
+                  "The remaining construction density is validated contract assignment and\n"
+                  "observation/runtime orchestration. A mechanical split is still not justified without\n"
+                  "another concrete behavior-preserving seam and characterization evidence.",
+                  "The remaining constructor statements are validated typed-contract assignment and\n"
+                  "orchestration. They are the intended facade boundary, not a deferred construction\n"
+                  "owner awaiting extraction.",
+              ),
+              (
+                  "This risk does not block research use, but it remains the next architecture\n"
+                  "maintenance watchpoint.",
+                  "The original deferred condition is therefore closed. Architecture tests prohibit\n"
+                  "extracted action, risk, reward, execution, observation, provider, service-wiring,\n"
+                  "initial-state, and resource policy from returning inline, and the extracted typed\n"
+                  "owners retain permanent 100.0% critical coverage ratchets. `step()` remains an\n"
+                  "orchestration facade, `reset()` retains mutable Gymnasium state, and no further\n"
+                  "mechanical split is required without a newly reproduced responsibility or behavior\n"
+                  "defect. Production remains `NO-GO`.",
+              ),
+          ]
+
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise RuntimeError(f"closeout replacement marker changed: {old[:96]!r}")
+              text = text.replace(old, new, 1)
+
+          closeout_path.write_text(text, encoding="utf-8")
+
+          verification_path = Path(
+              "docs/verification/2026-07-23-environment-facade-audit-resolution.md"
+          )
+          if verification_path.exists():
+              raise RuntimeError("resolution verification document unexpectedly exists")
+          verification_path.write_text(
+              """# Environment Facade Audit Resolution — 2026-07-23
+
+## 1. Finding and resolution boundary
+
+`AUD-RL-001` was a P2 maintainability risk, not a reproduced behavioral defect. The original audit observed a 1,620-line `environment.py`, a 479-line `ResidualMarketEnv.__init__()`, and a 223-line `step()`. It protected the public Gymnasium API and mutable episode-state ownership, and deferred remediation until concrete feature seams could be characterized instead of splitting the facade mechanically.
+
+The resolution changes documentation and its executable contract only. It makes no Python production-code, public-API, reward, observation, risk, execution, reset, step, Serving, exchange, or authorization change.
+
+## 2. RED documentation contract
+
+The clean RED head was `e9be30ce1a10d7695d8a5a00d682c5a0a655bc23`.
+
+- CI run: `30017876462`;
+- pytest artifact: `8568032136`;
+- artifact digest: `sha256:6663569694cdc228f727a1e70f5aef15f9a05149344c22175a96b25408c5700c`;
+- result: `1 failed, 1343 passed, 2 skipped, 11 warnings`.
+
+The only failure was `test_environment_facade_audit_is_resolved_with_protected_state_boundary`: the closeout summary still classified `AUD-RL-001` as `OPEN RISK, FURTHER REDUCED`. Studio verification, workflow security, Ruff, formatting, Mypy, Import Linter, dead-code reporting, Ubuntu, Windows, and the complete training-image/non-root probe passed.
+
+## 3. Satisfied deferred-remediation condition
+
+The maintained architecture now has typed, independently tested owners for:
+
+- decision planning, risk projection, reward coordination, information assembly, episode sampling, execution coordination, observation assembly, and termination;
+- observation contracts and Gymnasium spaces;
+- provider and artifact-identity resolution;
+- portfolio-risk input resolution;
+- policy and schedule validation;
+- runtime-service construction;
+- invocation-local initial mutable state;
+- reward and execution resources.
+
+The constructor fell from the audited 479 lines to a maintained 150-line architecture limit. Architecture tests prohibit extracted construction and policy responsibilities from returning inline. The six extracted constructor contract/wiring modules retain permanent 100.0% critical coverage ratchets.
+
+`step()` remains the stable orchestration facade. `reset()` retains mutable Gymnasium state ownership and applies fresh state under the existing maintained attributes. These are intentional framework-facing responsibilities, not unowned policy seams.
+
+## 4. Implementation evidence inherited from PR #152
+
+The final source-changing remediation head was `7553eb66b8797a0e3529070ca18af7e15063e098`, squash-merged as main commit `9d7790f8d570d94220b40c903a32e43ae5fad5a7`.
+
+- CI run `30016488539`: success;
+- PostgreSQL Catalog run `30016490046`: success;
+- `1343 passed, 2 skipped, 11 warnings`;
+- total coverage `84.25%`;
+- total branch coverage `71.24%`;
+- reward/execution resource module `33/33` statements and `2/2` branches, `100.0%`;
+- Ubuntu, Windows, Studio, training image/non-root runtime, Import Linter, critical coverage, CLI, Compose, migrations, and PostgreSQL unit/integration checks passed.
+
+The tested PR head and the squash-merged main commit have identical blobs for `environment.py`, the reward/execution resource module, the architecture contract, and `pyproject.toml`.
+
+## 5. Permanent control and status
+
+The executable documentation contract requires the closeout summary and finding section to remain `RESOLVED`, requires the protected `step()` and `reset()` responsibilities, the 150-line limit, typed ownership, architecture tests, permanent ratchets, and the absence of any demand for a further mechanical split.
+
+The resolution PR itself must pass exact-head CI and PostgreSQL verification before integration. Production remains `NO-GO`. This resolution makes no profitability, exchange-equivalent execution, authorization, paper/live evidence, or direct-routing claim.
+""",
+              encoding="utf-8",
+          )
+          PY
+          git diff --check
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install and verify focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff check tests/test_current_documentation_contract.py
+          uv run ruff format --check tests/test_current_documentation_contract.py
+          uv run pytest -q \
+            tests/test_current_documentation_contract.py \
+            tests/architecture/test_environment*.py
+
+      - name: Push only verified documentation changes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            docs/verification/2026-07-23-architecture-audit-closeout.md \
+            docs/verification/2026-07-23-environment-facade-audit-resolution.md
+          git commit -m 'docs: resolve environment facade architecture risk'
+          git push \
+            --force-with-lease="refs/heads/${TARGET_BRANCH}:${TARGET_SHA}" \
+            origin "HEAD:refs/heads/${TARGET_BRANCH}"
+          encoded=$(printf '%s' "$RUNNER_BRANCH" | jq -sRr @uri)
+          gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"

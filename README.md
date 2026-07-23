@@ -1,206 +1,305 @@
 # Trade RL
 
-Trade RL is a research-grade, baseline-anchored residual reinforcement-learning core for portfolio allocation. The maintained policy can adjust a deterministic causal baseline through a bounded residual action specification or emit explicitly identified per-symbol target weights. An independent shadow book supplies the comparison path.
+Trade RLは、暗号資産を中心としたポートフォリオ配分を、**因果性・再現性・実行現実性・証拠保存**を重視して研究するための強化学習基盤です。
 
-> Capability status: **research-ready** and **attested paper-serving-ready**. Direct exchange order routing remains **NO-GO**. The repository does not claim profitability or authorize live capital deployment.
+決定論的なベースライン戦略に制約付きResidual行動を加える方式と、銘柄ごとのTarget Weightを直接出力する方式を扱います。学習方策とは独立したShadow baseline bookを維持し、候補方策が本当にベースラインを上回ったかを比較できるようにしています。
 
-## Current maintained system
+> **現在の状態**
+>
+> - 研究ワークフロー: 利用可能
+> - 保守的な状態付きOHLCV約定シミュレーション: 利用可能
+> - Trade RL Studioによる学習中の探索観察: 利用可能
+> - 適格なSelected-final bundleのRead-only Paper Serving: 利用可能
+> - 取引所への直接注文送信: **未実装**
+> - Production status: **NO-GO**
+> - 収益性の主張: **なし**
 
-The current repository combines six distinct capabilities that must not be conflated:
+CI、学習、Studio表示、Paper Servingが成功しても、利益、本番資金の投入、実取引所と同等の約定、運用認可を保証しません。
 
-1. causal market-data and multi-timeframe feature artifacts;
-2. exploratory and selected-final reinforcement-learning workflows;
-3. nested walk-forward selection with persistent sealed-test access;
-4. conservative, stateful OHLCV order simulation with auditable order events;
-5. local research visualization through Trade RL Studio;
-6. attested, read-only paper-serving bundles.
+## まず動かす
 
-PostgreSQL is an optional metadata catalog for reusable artifact identities, provenance, dependencies, lifecycle state, and sealed-test reservations. Large arrays, datasets, checkpoints, models, and run evidence remain immutable filesystem artifacts; PostgreSQL is not the numerical source of truth.
+Pythonは`>=3.12,<3.13`です。最短の動作確認では、決定論的なデモ相場を生成し、小規模なPPO学習を実行します。
 
-Normal environment transitions use persistent market, limit, or stop-market orders. Orders carry latency, time-in-force, remaining quantity, trigger state, replacement linkage, and deterministic evidence across decision boundaries. Fills use the processing bar's capacity under an explicit OHLC path assumption. Selected-final promotion requires conservative path mode, processing-bar capacity, partial-fill carry, complete order evidence, and the expected execution-policy digest. OHLCV simulation is not an order-book reconstruction or a guarantee of exchange-equivalent fills.
+```bash
+python -m pip install uv
+uv sync --extra dev --extra train-sb3
+
+uv run python examples/quickstart/create_demo_dataset.py \
+  --output var/quickstart/dataset
+
+uv run trade-rl train run \
+  --config examples/quickstart/training.json \
+  --dataset var/quickstart/dataset \
+  --output var/quickstart/artifacts \
+  --run-id quickstart-001
+```
+
+このQuickstartはPipelineの確認用です。デモデータや短時間学習を収益性評価には使用できません。
+
+詳しい手順、成果物の見方、GPU設定、実データへの置換方法は[START.md](START.md)を参照してください。
+
+## このリポジトリで扱うもの
+
+Trade RLは、次の機能を一つの研究基盤として提供します。
+
+1. 因果的な市場データとMulti-Timeframe特徴量artifact
+2. Exploratory学習とSelected-final学習
+3. Nested walk-forward、Checkpoint選択、永続Sealed-test ledger
+4. Market・Limit・Stop-market注文を扱う状態付き約定シミュレータ
+5. 学習中の探索行動を観察するTrade RL Studio
+6. 外部署名と証拠Chainで検証するRead-only Paper Serving
+7. Artifact metadataと依存関係を管理する任意のPostgreSQL catalog
+
+## 重要な設計原則
+
+### 因果性とリーク防止
+
+行`t`の判断には、行`t`のBar closeまでに利用可能な情報だけを使います。注文は最短でも`t + 1`のOpen以降で処理されます。
+
+Datasetは、価格や特徴量だけでなく、次の情報もIdentityへ含めます。
+
+- Feature availabilityとstaleness
+- Fee、Maker/Taker fee、Spread、Impact
+- Participation、Volume unit、Contract multiplier
+- Tick size、Lot size、Minimum notional
+- Borrow、Funding、Cash rate
+- Mark price、Index price
+- Corporate action、上場・廃止、売買制限
+
+Published artifactは任意ID、Symlink、Root escape、未宣言ファイルを拒否します。
+
+### 再現可能なArtifact
+
+Market datasetは、検証済みの不変Directoryとして保存されます。
+
+```text
+my-dataset/
+├── manifest.json
+└── arrays.npz
+```
+
+正式APIは次の3つです。
+
+- `write_market_dataset_files`: 決定論的なStaging fileを作成
+- `publish_market_dataset_artifact`: 排他的にAtomic publish
+- `load_market_dataset_artifact`: IdentityとFile closureを検証して読込
+
+学習Run、Walk-forward結果、Checkpoint、Model、Evaluation evidenceも不変Artifactとして公開されます。失敗Runは`failed/<run-id>`へ隔離され、正常な`latest.json`を上書きしません。
+
+### ベースライン比較
+
+学習方策とShadow baseline bookを独立して更新します。ゼロResidual行動はベースラインと同じPortfolioになりますが、Rewardはゼロではなく、そのベースライン戦略の絶対資産成長を反映します。
+
+候補方策の選択と評価では、Servingが実際に読み込む決定論的Mean ensembleを使用します。
+
+## Action・Observation・Reward
+
+### Action
+
+維持対象のEnvironmentは、次のAction modeを扱います。
+
+- Fast、Slow、Risk controlを持つResidual action
+- 任意のAlpha scaleと因果Factor residual
+- 銘柄順序をIdentityへ固定した`target_weight:<symbol>`直接出力
+
+Alphaが無効な場合は、意味のないAlpha actionをAction spaceへ残しません。Action名とActionSpec digestは、学習ArtifactとServing bundleへ結合されます。
+
+### Observation
+
+Flat observationの正本は`baseline_residual_observation_v5`です。
+
+主な内容:
+
+- Feature、Availability、Staleness
+- Baseline、Factor、現在Portfolio、要求Portfolio
+- Cash、Net/Gross exposure、Margin、Drawdown
+- Fill、Fee、Capacity、Previous action
+- Persistent pending order state
+
+Pending orderは銘柄ごとに、残Notional比率、Order type、Status、Age、Eligible delay、Trigger状態、Expiry距離の7座標を持ちます。
+
+NormalizerはFoldのTrain capabilityだけでFitし、その後Freezeします。Categorical maskは連続値として変形せず、厳密に保持します。
+
+### Reward
+
+維持対象は**Reward schema v4**です。
+
+主目的はHybrid bookの絶対対数資産成長です。Baseline-relative growthは補助的な非劣後判定として使い、独立した第二の主目的にはしません。
+
+DrawdownとBaseline劣後は、許容幅を超えて悪化した増分だけを段階的に罰します。
+
+## 約定シミュレーション
+
+通常のEnvironment遷移、Baseline reward pre-roll、Compatibility target execution、Sensitivity replay、Deterministic replayは、同じ状態付き注文Engineを使用します。
+
+扱う要素:
+
+- Market、Limit、Stop-market
+- LatencyとEligible delay
+- GTCなどのTime in Force
+- Partial-fill carry
+- Cancel-and-replace
+- Trigger状態とExpiry
+- Shared processing-bar capacity
+- Maker/Taker cost、Spread、Impact、Slippage
+- Lot/Tick rounding、Minimum notional
+- Borrow、Funding、Margin、Liquidation
+- Corporate actionとDelisting settlement
+
+Selected-finalへの昇格には、保守的なOHLC path、処理バー容量、Partial-fill carry、完全なOrder evidence、期待する`execution_policy_digest`が必要です。
+
+ただしOHLCVから、真のIntrabar順序、Queue position、Hidden liquidity、Auction、Adverse selection、L2 depthを復元することはできません。このSimulatorは保守的な研究近似であり、実取引所と同等の約定を証明するものではありません。
+
+## 学習と評価
+
+対応Algorithm:
+
+```text
+ppo
+sac
+td3
+tqc
+```
+
+Nested walk-forwardは、次の段階を分離します。
+
+1. Fold-local training
+2. Checkpoint validation
+3. Configuration selection
+4. 一度だけ開くSealed outer test
+5. Execution sensitivity
+6. Release gate
+
+Independent foldは、Median、Weighted mean、Win rate、Worst foldなどの分布として報告します。連続期間と検証済みAccount-state handoffがない限り、複数Foldを一つの連続Portfolio returnやDrawdownとして扱いません。
+
+Production statusは、十分なOOS期間、正のPaired block-bootstrap下限、署名済みFresh confirmation、完全な保守的Execution evidence、実Paper reconciliationなどの必須Gateが揃うまで`NO-GO`です。
 
 ## Trade RL Studio
 
-The local GUI lives in `studio/`. Its fixed-layout React + Vite + TypeScript interface operates on validated datasets, training configs, exploratory training jobs, run artifacts, comparisons, evidence, and read-only paper-serving state. Live Training presents sampled exploration as a chart-first market replay with near-live or buffered playback, candle or event-compressed views, position/risk markers, PnL, reward, and drawdown.
+`studio/`にはReact + Vite + TypeScript製のローカル研究画面があります。
+
+主な用途:
+
+- 検証済みDatasetの確認
+- Training configとJob管理
+- Run artifact、比較結果、Evidence chainの確認
+- Read-only Paper Serving状態の確認
+- Live Trainingによる探索行動の観察
+
+起動方法:
 
 ```bash
 uv sync --extra studio --extra train-sb3
 uv run trade-rl studio start --project-root .
-# In another terminal
+
+# 別ターミナル
 npm ci --prefix studio
 npm run dev --prefix studio
 ```
 
-Studio does not submit exchange orders. BUY/SELL markers visualize changes in learned target exposure, not real orders. Live Training is not exchange activity, not model-selection evidence, not sealed evaluation, not profitability evidence, and not production authorization. Training telemetry is diagnostic, seed-scoped, append-only, and excluded from selection, artifact identity, release approval, and execution. See [`studio/README.md`](studio/README.md).
+Live Trainingでは、学習中の探索をSeed単位・Episode単位の市場リプレイとして表示します。BUY／SELL MarkerはTarget exposureの変化であり、取引所注文ではありません。
 
-## Start here
+契約上、Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。Telemetryは診断専用で、Checkpoint選択、Artifact identity、Serving承認、注文実行には使用しません。
 
-For a copy-paste first training run, including deterministic demo-data generation, a maintained PPO configuration, artifact inspection, real-data replacement, GPU settings, and troubleshooting, read [START.md](START.md). For the maintained public Binance ingestion and live-smoke path, read [Binance Public Data Workflow](docs/BINANCE.md).
+詳細は[studio/README.md](studio/README.md)を参照してください。
 
-## Action, observation, and execution contracts
+## ServingとRelease
 
-The maintained environment provides:
+Serving bundle v5の正本は`serving_bundle_v5`です。
 
-- a dynamic residual action contract with independent fast, slow, and risk controls, optional alpha scale, and optional causal factor residuals;
-- an explicit direct `target_weight:<symbol>` mode whose symbol order is identity-bound;
-- no dead alpha action when alpha is disabled, with exact action names and an ActionSpec digest bound into training and serving artifacts;
-- time-series, cross-sectional, long-only, market-neutral, and cash-or-trend deterministic baselines, including a nonzero one-symbol mode;
-- continuous 24/7 and irregular session-calendar datasets with feature-level availability, staleness, and execution metadata;
-- next-open execution with fees, maker/taker costs, spread, impact, paired stochastic slippage, participation limits, minimum notional, lot/tick rounding, borrow, funding schedules, latency, margin, corporate actions, and delisting settlement;
-- persistent market, limit, and stop-market order state with partial-fill carry, cancel-and-replace, deterministic OHLC path assumptions, and shared processing-bar capacity;
-- hard risk limits that override soft turnover throttles during concentration, leverage, or emergency drawdown violations;
-- economic terminal states for insolvency, minimum equity, execution-cost exhaustion, margin call, liquidation, and drawdown stop instead of training-process crashes;
-- cash, baseline, random, stressed, partial-fill, and restored causal reset states, duration curricula, and regime/stress episode sampling;
-- flat observation identity `baseline_residual_observation_v5`, including per-feature masks/staleness and seven causal pending-order coordinates per symbol: remaining-notional ratio, order type, order status, age, eligible delay, trigger state, and expiry distance;
-- fold-fitted, frozen, content-addressed observation normalization that preserves categorical masks exactly;
-- reward schema v4 prioritizing absolute log-wealth growth, then excess growth, with incremental drawdown and rolling baseline-underperformance progressive hinges;
-- PPO exploration/network controls plus sealed-comparison support for SAC, TD3, and TQC;
-- AUM capacity curves, action saturation/projection diagnostics, and permutation-aware shared per-asset encoding.
+Bundleは、選択済みPolicy、Dataset、Environment、Normalizer、Execution policy、Training run、Evaluation evidenceなどを不変Identityへ結合します。Approval秘密情報はBundle内へ埋め込まず、別のEd25519 `ReleaseAttestation`で次を結合します。
 
-## Identity and serving
+- Bundle digest
+- Training run
+- Selection proposalとAuthorization
+- Walk-forwardとGate evidence
+- Fresh confirmation
+- Paper reconciliation
+- Selected policy
+- Source commit
+- Dependency provenance
+- ApproverとExpiry
 
-Dataset identity v6 is recomputed from every observation, eligibility, execution, and accounting field, including effective-dated tick/lot/minimum-notional rules, aggregated funding-event counts, fees, spread, participation, borrow/funding schedules, mark/index prices, corporate actions, cash rates, volume-unit semantics, contract multipliers, and feature availability/age. Published dataset artifacts reject arbitrary identities, symlinks, root escapes, and undeclared files.
+RuntimeとRegistryには目的別Public keyだけを渡します。Private keyはOffline CLIでのみ使用します。
 
-Environment identity includes the verified dataset, calendar, action specification, content-addressed fold-local alpha/factor artifacts, semantic normalizer, episode curriculum, trend, reward, portfolio risk, execution policy, AUM, and sequence-policy architecture. Signal filesystem paths are diagnostics only and never change experiment identity.
+Unsigned、期限切れ、Unknown key、改変済み、Evidence不足、Execution identity不一致は、Activation前にFail closedします。
 
-Serving bundle v5 identity `serving_bundle_v5` contains the complete selected-final evidence chain but no approval material. A detached Ed25519 `ReleaseAttestation` binds the immutable bundle digest to the training run, selection proposal and authorization, walk-forward and gate evidence, fresh confirmation, selected policy, source commit, dependency provenance, approver, and expiry. Runtime and registry processes receive purpose-bound public keys only; private keys are accepted exclusively by explicit offline CLI commands. Exploratory runs, unsigned bundles, legacy release sidecars, wrong-purpose keys, incomplete evidence chains, and incompatible execution evidence fail closed before activation.
+Framework非依存Serving層は`PolicyLoader`を受け取り、Stable-Baselines3向けの正式Adapterとして`trade_rl.integrations.StableBaselines3PolicyLoader`を提供します。
 
-The framework-independent serving layer accepts a `PolicyLoader`. `trade_rl.integrations.StableBaselines3PolicyLoader` is the maintained concrete adapter for PPO, SAC, TD3, and TQC ensemble bundles. Stable-Baselines3 and PyTorch are installed only with the `train-sb3` extra.
+## PostgreSQL artifact catalog
 
-## Training artifacts and evidence
+PostgreSQLは任意の**metadata catalog**です。
 
-A market dataset artifact is a validated directory containing canonical `manifest.json` and deterministic `arrays.npz`. The maintained API is `write_market_dataset_files` for deterministic staging files, `publish_market_dataset_artifact` for exclusive atomic publication, and `load_market_dataset_artifact` for verified loading. Training and walk-forward runs are staged, validated, and atomically published under `runs/<run-id>`; incomplete runs are isolated under `failed/<run-id>` and never replace `latest.json`.
+保存するもの:
 
-A published training run contains the source dataset identity, resolved training/environment configuration, ensemble manifest, one authoritative `policy.zip` per seed, content-addressed intermediate checkpoints selected only on checkpoint-validation data, a `policy-loader.json`, optional verified ONNX/TorchScript actors, execution evidence, and a content-addressed `run.json`. `policy.zip` remains the authoritative recovery and retraining format.
+- Artifact identityとDigest
+- Canonical cache key
+- LocationとSize
+- Dependency edge
+- Lifecycle status
+- Persistent sealed-test reservation
 
-Exploratory Stable-Baselines3 training emits sampled `training_telemetry_v1` JSON Lines beneath each seed's `telemetry/` directory. Normal rollout transitions are sampled, while material position changes, risk events, and episode termination are retained. Telemetry is diagnostic and does not participate in model selection, artifact identity, serving approval, or order execution.
+NumPy配列、Dataset、Checkpoint、Model、Run evidenceは不変の**filesystem artifact**として保存し、PostgreSQLを数値計算の正本にはしません。
 
-Nested walk-forward execution builds fold-local causal signals, fits normalization only on each train capability, records one-shot sealed-test access, and evaluates the exact deterministic mean seed ensemble used by serving on the outer test range only after selection. Independent folds retain complete execution evidence and are reported as a distribution; continuous return and drawdown require verified contiguous account-state handoff. An optional identity-bound execution-sensitivity pack replays the selected ensemble and baseline under declared rule stresses without participating in selection.
-
-## Commands
-
-```bash
-uv sync --extra dev --extra train-sb3
-uv run trade-rl train config \
-  --timesteps 102400 --decision-hours 4 --discount-half-life-hours 168 \
-  --n-steps 2048 --batch-size 64 --log-std-init -0.5 --target-kl 0.02 \
-  --policy-net-arch 128 --policy-net-arch 128 --seed 0 --seed 1 --seed 2
-uv run trade-rl environment config \
-  --initial-capital 100000 --calendar-kind continuous_24_7 \
-  --episode-hour-choice 168 --episode-hour-choice 720 \
-  --initial-state-mode cash --initial-state-mode stress
-```
-
-Execute actual training and atomic artifact publication:
-
-```bash
-uv run trade-rl train run \
-  --config configs/train.json \
-  --dataset artifacts/datasets/btc-eth \
-  --output artifacts/research \
-  --run-id btc-eth-ppo-001
-```
-
-Execute real-data nested walk-forward research:
-
-```bash
-uv run trade-rl walk-forward run \
-  --config configs/walk-forward.json \
-  --dataset artifacts/datasets/btc-eth \
-  --output artifacts/research \
-  --run-id btc-eth-wf-001
-```
-
-Start the optional PostgreSQL catalog:
+起動方法:
 
 ```bash
 cp .env.example .env
 docker compose up -d postgres
+
 uv sync --extra postgres
 export TRADE_RL_DATABASE_URL=postgresql://trade_rl:trade_rl@localhost:5432/trade_rl
 uv run trade-rl catalog migrate
 uv run trade-rl catalog health
 ```
 
-Build a deterministic public Binance USDⓈ-M dataset:
+DBを設定しなくても、通常のFilesystem運用は可能です。ただし、Processを跨ぐSealed-testの一意性保証には永続Ledgerが必要です。
+
+## Binance Public Data
+
+Public Binance dataから決定論的Datasetを構築できます。
 
 ```bash
 uv run trade-rl data binance \
-  --market usds-m --symbol BTCUSDT --interval 1h \
+  --market usds-m \
+  --symbol BTCUSDT \
+  --interval 1h \
   --start-time 2026-06-01T00:00:00Z \
   --end-time 2026-06-29T00:00:00Z \
   --transport vision \
-  --tick-size 0.1 --lot-size 0.001 --minimum-notional 5 \
+  --tick-size 0.1 \
+  --lot-size 0.001 \
+  --minimum-notional 5 \
   --listed-at 2019-09-08T00:00:00Z \
   --output artifacts/datasets/binance-btcusdt
 ```
 
-Spot and USDⓈ-M are supported linear products. COIN-M inverse futures fail closed because the current accounting model is linear. See [docs/BINANCE.md](docs/BINANCE.md).
+SpotとUSDⓈ-MのLinear productを扱います。現行Accounting modelがLinearであるため、COIN-M inverse futuresはFail closedします。
 
-Both execution commands print one machine-readable JSON result. Exploratory training cannot be packaged or released. A selected-final run requires an externally signed selection authorization before model construction, at least 30 days of Ed25519-signed post-training confirmation, deterministic bundle packaging, matching conservative execution evidence, a verified paper-reconciliation artifact, and a separate offline release approval. Direct exchange connectivity is not implemented.
+Metadata mode:
 
-### Offline evidence and release commands
+- `historical_signed`: 署名済みPoint-in-time metadataを使う最高Integrity mode
+- `frozen_snapshot`: Current official payloadをByte単位で固定し、非Point-in-time証拠であることを明示
+- `conservative_static`: Versioned static payloadを使う保守的近似
 
-Private Ed25519 key files use schema `ed25519_private_key_v1`, must be purpose-bound, and on POSIX must have mode `0600`. They are used only on an offline approval host.
+Current値を過去の真実として暗黙に遡及適用することはありません。
 
-The reconciliation request contains externally normalized paper-order, fill, and accounting measurements. `reconciliation create` validates the strict request and derives the artifact's pass state, but it does not independently prove the source of those measurements. The resulting digest must be referenced by the fresh-confirmation request and is then covered by the confirmation signature.
+詳細は[docs/BINANCE.md](docs/BINANCE.md)を参照してください。
 
-```bash
-uv run trade-rl selection authorize \
-  --proposal var/research/selection-proposal.json \
-  --private-key /secure/selection-key.json \
-  --approver research-committee \
-  --approved-at 2026-07-18T03:00:00Z \
-  --expires-at 2026-07-25T03:00:00Z \
-  --output /secure/selection-authorization.json
+## Docker GPU完全リサーチ実行
 
-uv run trade-rl reconciliation create \
-  --request /secure/paper-reconciliation-request.json \
-  --output /secure/paper-reconciliation.json
-
-uv run trade-rl confirmation create \
-  --request /secure/fresh-confirmation-request.json \
-  --private-key /secure/confirmation-key.json \
-  --output /secure/fresh-confirmation.json
-
-uv run trade-rl serving package \
-  --training-run var/research/selected-final \
-  --confirmation /secure/fresh-confirmation.json \
-  --paper-reconciliation /secure/paper-reconciliation.json \
-  --confirmation-public-keys /secure/confirmation-public-keys.json \
-  --output var/serving/candidate \
-  --signal-digest <signal-sha256> \
-  --selection-digest <selection-sha256> \
-  --trusted-now 2026-08-18T03:00:00Z
-
-uv run trade-rl release approve \
-  --bundle var/serving/candidate \
-  --private-key /secure/release-key.json \
-  --git-commit <40-character-commit> \
-  --dependency-digest <uv-lock-sha256> \
-  --approver release-committee \
-  --approved-at 2026-08-18T03:00:00Z \
-  --expires-at 2026-09-18T03:00:00Z
-```
-
-The authorization, reconciliation, confirmation, and release files are immutable and remain external to the candidate bundle until verification and packaging.
-
-## Docker GPU full research run
-
-The maintained container requires CUDA, stores runtime data in the `trade-rl-training-data` Docker volume, and runs the complete Binance multi-timeframe research workflow:
+CUDA対応環境では、Binance Multi-Timeframe研究WorkflowをContainerで実行できます。
 
 ```bash
 docker compose -f compose.training.yaml build trainer
 docker compose -f compose.training.yaml run --rm trainer
 ```
 
-The run exits nonzero when CUDA preflight, training, evaluation, or the research gate fails. A successful process is research evidence only; it is not a profitability guarantee and production status remains `NO-GO`.
+CUDA preflight、学習、評価、Research gateのいずれかが失敗すると非ゼロ終了します。正常終了はPipelineとResearch evidenceであり、収益性やProduction readinessを意味しません。
 
-The Docker workflow defaults to `TRADE_RL_METADATA_MODE=frozen_snapshot`: one official current `exchangeInfo` payload is preserved byte-for-byte, identity-bound, and disclosed as unauthenticated, non-point-in-time evidence. `historical_signed` is the highest-integrity opt-in and requires a signed point-in-time document plus a read-only Ed25519 public-key store. `conservative_static` requires a versioned payload path. No mode silently projects current values backward as historical truth.
+運用手順は[Docker GPU完全学習](docs/operations/docker-gpu-full-training.md)を参照してください。
 
-See [Docker GPU full-training operations](docs/operations/docker-gpu-full-training.md) for detached start, status, logs, volume inspection, artifact extraction, retry, and cleanup commands.
-
-## Verification
+## 品質確認
 
 ```bash
 uv run ruff check .
@@ -214,6 +313,57 @@ npm run build --prefix studio
 npm run check:layout --prefix studio
 ```
 
-Install export verification dependencies with `uv sync --extra dev --extra train-sb3 --extra export`.
+Export検証を含める場合:
 
-See [Architecture](docs/ARCHITECTURE.md), [Research Status](docs/RESEARCH_STATUS.md), [Binance Public Data Workflow](docs/BINANCE.md), the original [documentation and architecture audit](docs/verification/2026-07-22-documentation-and-architecture-audit.md), and the dated [post-remediation architecture audit](docs/verification/2026-07-22-post-merge-architecture-audit.md).
+```bash
+uv sync --extra dev --extra train-sb3 --extra export
+```
+
+## リポジトリ構成
+
+```text
+trade_rl/
+├── artifacts/      # Serialization、Hash、Staging、Atomic publish
+├── catalog/        # Artifact catalog契約とPostgreSQL adapter
+├── cli/            # trade-rlコマンド
+├── data/           # Market data、Calendar、Feature、Dataset検証
+├── domain/         # 不変IdentityとDomain contract
+├── evaluation/     # Metrics、Walk-forward、Gate、Paired inference
+├── integrations/   # Stable-Baselines3などの外部Adapter
+├── learning/       # Teacher、Behavior cloning、Supervised contract
+├── release/        # Offline署名とAttestation
+├── risk/           # Pre-trade riskとEmergency deleverage
+├── rl/             # Action、Observation、Reward、Environment、Training
+├── serving/        # Bundle、Registry、Fail-closed runtime
+├── simulation/     # Order lifecycle、Fill、Cost、Accounting
+├── strategies/     # 決定論的な因果Baseline
+├── studio/         # Local GUIとTyped read model
+├── telemetry/      # Append-only診断Event
+└── workflows/      # TrainingとEvaluationのApplication orchestration
+```
+
+依存方向の正本は`.importlinter`です。
+
+## 関連ドキュメント
+
+- [学習クイックスタート](START.md)
+- [アーキテクチャ](docs/ARCHITECTURE.md)
+- [研究状態とProduction gate](docs/RESEARCH_STATUS.md)
+- [Binance Public Data Workflow](docs/BINANCE.md)
+- [Docker GPU完全学習](docs/operations/docker-gpu-full-training.md)
+- [Trade RL Studio](studio/README.md)
+- [2026-07-23 Architecture Audit Closeout](docs/verification/2026-07-23-architecture-audit-closeout.md)
+
+## 現在の非対応範囲
+
+このリポジトリには、次の本番取引機能はありません。
+
+- 取引所WebSocketによる常時接続
+- 認証済みAccount access
+- 注文送信、取消、訂正
+- Broker reconciliationの実運用Connector
+- Production secret管理
+- Venue kill switch
+- Operational alerting
+
+これらを実装するまで、また実証的なGateを通過するまで、Production statusは**NO-GO**です。

@@ -160,6 +160,14 @@ paths = [
     "trade_rl/rl/environment_info.py",
 ]
 
+[tool.trade_rl.critical_coverage.groups.environment_construction_support]
+minimum = 63.2
+paths = [
+    "trade_rl/rl/environment_dependencies.py",
+    "trade_rl/rl/environment_assembly.py",
+    "trade_rl/rl/environment_state.py",
+]
+
 [tool.trade_rl.critical_coverage.groups.stateful_execution_services]
 minimum = 93.0
 paths = [

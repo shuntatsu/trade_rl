@@ -12,11 +12,8 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
-from trade_rl.domain.common import require_sha256
-from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
 from trade_rl.risk.inputs import (
     PortfolioRiskInputsProvider,
-    RollingPortfolioRiskInputsProvider,
 )
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
@@ -31,7 +28,10 @@ from trade_rl.rl.actions import (
     ResidualActionV2,
     TargetWeightAction,
 )
-from trade_rl.rl.diagnostics import ActionDiagnosticsAccumulator
+from trade_rl.rl.environment_assembly import (
+    EnvironmentServiceAssembler,
+    EnvironmentServiceAssemblyRequest,
+)
 from trade_rl.rl.environment_config import (
     RESET_STATE_MODES as _RESET_STATE_MODES,
 )
@@ -39,38 +39,38 @@ from trade_rl.rl.environment_config import (
     ResidualMarketEnvConfig,
 )
 from trade_rl.rl.environment_decision import (
-    EnvironmentDecisionPlanner,
     EnvironmentDecisionRequest,
 )
-from trade_rl.rl.environment_episode import EpisodeContractSampler
+from trade_rl.rl.environment_dependencies import (
+    EnvironmentDependencyRequest,
+    EnvironmentDependencyResolver,
+)
 from trade_rl.rl.environment_execution import (
     EnvironmentExecutionCoordinator,
     TargetExecutionRequest,
 )
 from trade_rl.rl.environment_info import (
-    EnvironmentInfoBuilder,
     EnvironmentStepInfoRequest,
     EnvironmentTerminalInfoRequest,
 )
 from trade_rl.rl.environment_observation import (
-    EnvironmentObservationAssembler,
     EnvironmentObservationRuntime,
 )
 from trade_rl.rl.environment_observation_contract import (
     EnvironmentObservationContractBuilder,
 )
 from trade_rl.rl.environment_reward import (
-    EnvironmentRewardCoordinator,
     EnvironmentRewardRequest,
 )
 from trade_rl.rl.environment_risk import (
-    EnvironmentRiskProjector,
     EnvironmentRiskRequest,
 )
-from trade_rl.rl.environment_transition import EnvironmentTerminationCoordinator
+from trade_rl.rl.environment_state import (
+    EnvironmentInitialStateFactory,
+    EnvironmentInitialStateRequest,
+)
 from trade_rl.rl.episode import (
     complete_reward_history_steps,
-    minimum_reward_start_index,
 )
 from trade_rl.rl.market_inputs import MarketInputResolver
 from trade_rl.rl.normalization import ObservationNormalizer
@@ -81,7 +81,6 @@ from trade_rl.rl.observations import (
 )
 from trade_rl.rl.rewards import (
     REWARD_SCHEMA,
-    RewardTracker,
 )
 from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
 from trade_rl.simulation import MarketExecutor
@@ -147,189 +146,54 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
     ) -> None:
         super().__init__()
         self.dataset = dataset
-        resolved_trend = trend_strategy or (
-            market_input_resolver.trend_strategy
-            if market_input_resolver is not None
-            else TrendStrategy()
-        )
-        if (
-            market_input_resolver is None
-            and alpha_provider is not None
-            and hasattr(alpha_provider, "predict")
-            and hasattr(alpha_provider, "identity_digest")
-        ):
-            market_input_resolver = MarketInputResolver(
-                trend_strategy=resolved_trend,
-                alpha_provider=alpha_provider,  # type: ignore[arg-type]
-                alpha_enabled=bool(alpha_enabled),
-            )
-        if market_input_resolver is not None and trend_strategy is not None:
-            if market_input_resolver.trend_strategy != trend_strategy:
-                raise ValueError(
-                    "market_input_resolver trend differs from trend_strategy"
-                )
-        self.market_input_resolver = market_input_resolver
-        self.trend_strategy = resolved_trend
         self.alpha_provider = alpha_provider
-        self.alpha_enabled = (
-            market_input_resolver.alpha_enabled
-            if market_input_resolver is not None
-            else bool(alpha_enabled)
-        )
-        if (
-            self.alpha_enabled
-            and self.alpha_provider is None
-            and market_input_resolver is None
-        ):
-            raise ValueError("alpha_enabled requires an alpha_provider")
-        self.alpha_contract = alpha_contract or AlphaContract()
-        self.alpha_artifact_digest = self._resolve_provider_digest(
-            enabled=self.alpha_enabled,
-            provider=alpha_provider,
-            explicit=alpha_artifact_digest,
-            field_name="alpha_artifact_digest",
-        )
-        self._static_factor_basis = self._validated_static_basis(factor_basis)
-        self.factor_basis_provider = factor_basis_provider
-        resolved_factor_count = self._resolve_factor_count(
-            factor_count=factor_count,
-            provider=factor_basis_provider,
-        )
-        if self._static_factor_basis is not None:
-            if resolved_factor_count not in (0, self._static_factor_basis.shape[0]):
-                raise ValueError("factor_count does not match factor_basis")
-            resolved_factor_count = self._static_factor_basis.shape[0]
-        self.factor_artifact_digest = self._resolve_provider_digest(
-            enabled=resolved_factor_count > 0,
-            provider=factor_basis_provider,
-            explicit=factor_artifact_digest,
-            field_name="factor_artifact_digest",
-            static_payload=(
-                None
-                if self._static_factor_basis is None
-                else tuple(
-                    tuple(float(value) for value in row)
-                    for row in self._static_factor_basis
-                )
-            ),
-        )
-        provider_minimums = [self.trend_strategy.minimum_history_for(dataset)]
-        for provider_name, provider in (
-            ("alpha_provider", alpha_provider),
-            ("factor_basis_provider", factor_basis_provider),
-        ):
-            if provider is None:
-                continue
-            minimum_index = getattr(provider, "minimum_index", 0)
-            if (
-                isinstance(minimum_index, bool)
-                or not isinstance(minimum_index, int)
-                or minimum_index < 0
-                or minimum_index >= dataset.n_bars
-            ):
-                raise ValueError(f"{provider_name} minimum_index is invalid")
-            provider_minimums.append(minimum_index)
-        self._minimum_start_index = max(provider_minimums)
-        self.composer = composer or BaselineResidualComposer()
-        self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
-        self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
-        resolved_risk_provider = portfolio_risk_inputs_provider
-        if (
-            self.portfolio_risk.requires_advanced_inputs
-            and resolved_risk_provider is None
-        ):
-            resolved_risk_provider = RollingPortfolioRiskInputsProvider()
-        self.portfolio_risk_inputs_provider = resolved_risk_provider
-        if resolved_risk_provider is not None:
-            require_sha256(
-                resolved_risk_provider.identity_digest,
-                field="portfolio_risk_inputs_provider.identity_digest",
-            )
-            minimum_index = resolved_risk_provider.minimum_index
-            if (
-                isinstance(minimum_index, bool)
-                or not isinstance(minimum_index, int)
-                or minimum_index < 0
-                or minimum_index >= dataset.n_bars
-            ):
-                raise ValueError("portfolio risk inputs minimum_index is invalid")
-            self._minimum_start_index = max(self._minimum_start_index, minimum_index)
         self.normalizer = normalizer
         self.sequence_normalizer = sequence_normalizer
         self.execution_rule_stress = execution_rule_stress
-        self.config = config or ResidualMarketEnvConfig()
-        self.emergency_risk_monitor = CausalEmergencyRiskMonitor(
-            self.config.emergency_risk
-        )
-        if (
-            self.pre_trade_risk.config.max_gross
-            > self.config.execution_cost.max_leverage
-        ):
-            raise ValueError("pre-trade max_gross cannot exceed execution max_leverage")
-        if self.config.random_initial_gross > self.pre_trade_risk.config.max_gross:
-            raise ValueError("random_initial_gross cannot exceed pre-trade max_gross")
-        if action_spec is None:
-            action_spec = ActionSpec(
-                alpha_enabled=self.alpha_enabled,
-                n_factors=resolved_factor_count,
-                validation_mode=self.config.action_validation_mode,
-            )
-        if action_spec.alpha_enabled != self.alpha_enabled:
-            raise ValueError("action_spec alpha mode does not match environment")
-        if action_spec.n_factors != resolved_factor_count:
-            raise ValueError("action_spec factor count does not match environment")
-        if (
-            action_spec.mode is ActionMode.TARGET_WEIGHT
-            and action_spec.target_weight_count != dataset.n_symbols
-        ):
-            raise ValueError("target weight count does not match dataset symbols")
-        self.action_spec = action_spec
-        self._action_names = action_spec.names_for_symbols(dataset.symbols)
-        self._nominal_episode_bars = self.config.resolve_nominal_episode_bars(dataset)
-        self._nominal_decision_bars = self.config.resolve_nominal_decision_bars(dataset)
-        if self._nominal_decision_bars > self._nominal_episode_bars:
-            raise ValueError("decision interval cannot exceed episode duration")
 
-        reward_config = self.config.resolved_reward_config()
-        resolved_decision_hours = (
-            self._nominal_decision_bars * dataset.bar_hours
-            if self.config.decision_every is not None
-            else self.config.decision_hours
-        )
-        if self.config.episode_hour_choices and any(
-            choice + 1e-12 < resolved_decision_hours
-            for choice in self.config.episode_hour_choices
-        ):
-            raise ValueError(
-                "episode_hour_choices cannot be shorter than the resolved "
-                "decision interval"
+        dependencies = EnvironmentDependencyResolver.resolve(
+            EnvironmentDependencyRequest(
+                dataset=dataset,
+                trend_strategy=trend_strategy,
+                market_input_resolver=market_input_resolver,
+                alpha_provider=alpha_provider,
+                alpha_enabled=alpha_enabled,
+                alpha_artifact_digest=alpha_artifact_digest,
+                alpha_contract=alpha_contract,
+                factor_basis=factor_basis,
+                factor_basis_provider=factor_basis_provider,
+                factor_artifact_digest=factor_artifact_digest,
+                factor_count=factor_count,
+                action_spec=action_spec,
+                composer=composer,
+                pre_trade_risk=pre_trade_risk,
+                portfolio_risk=portfolio_risk,
+                portfolio_risk_inputs_provider=portfolio_risk_inputs_provider,
+                config=config,
             )
-        self._resolved_decision_hours = resolved_decision_hours
-        self.reward_tracker = RewardTracker(
-            reward_config,
-            decision_hours=resolved_decision_hours,
         )
-        if (
-            self.config.require_full_reward_preroll
-            and reward_config.baseline_underperformance_weight > 0.0
-        ):
-            self._minimum_start_index = minimum_reward_start_index(
-                dataset,
-                signal_minimum=self._minimum_start_index,
-                window_hours=reward_config.baseline_window_hours,
-            )
-        self.hybrid_executor = MarketExecutor(
-            dataset,
-            self.config.execution_cost,
-            rule_stress=self.execution_rule_stress,
+        self.market_input_resolver = dependencies.market_input_resolver
+        self.trend_strategy = dependencies.trend_strategy
+        self.alpha_enabled = dependencies.alpha_enabled
+        self.alpha_contract = dependencies.alpha_contract
+        self.alpha_artifact_digest = dependencies.alpha_artifact_digest
+        self._static_factor_basis = dependencies.static_factor_basis
+        self.factor_basis_provider = factor_basis_provider
+        self.factor_artifact_digest = dependencies.factor_artifact_digest
+        self.composer = dependencies.composer
+        self.pre_trade_risk = dependencies.pre_trade_risk
+        self.portfolio_risk = dependencies.portfolio_risk
+        self.portfolio_risk_inputs_provider = (
+            dependencies.portfolio_risk_inputs_provider
         )
-        self.shadow_executor = MarketExecutor(
-            dataset,
-            self.config.execution_cost,
-            rule_stress=self.execution_rule_stress,
-        )
-        self.executor = self.hybrid_executor
-        self._reward_history_cache: dict[int, tuple[float, ...]] = {}
+        self.config = dependencies.config
+        self.action_spec = dependencies.action_spec
+        self._action_names = dependencies.action_names
+        self._nominal_episode_bars = dependencies.nominal_episode_bars
+        self._nominal_decision_bars = dependencies.nominal_decision_bars
+        self._resolved_decision_hours = dependencies.resolved_decision_hours
+        self.reward_tracker = dependencies.reward_tracker
+        self._minimum_start_index = dependencies.minimum_start_index
 
         observation_contract = EnvironmentObservationContractBuilder(
             dataset,
@@ -356,142 +220,69 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.observation_space = observation_contract.observation_space
         self.action_space = observation_contract.action_space
         self._minimum_start_index = observation_contract.minimum_start_index
-        self._episode_sampler = EpisodeContractSampler(
-            dataset,
-            self.config,
-            minimum_start_index=self._minimum_start_index,
+
+        assembly = EnvironmentServiceAssembler.assemble(
+            EnvironmentServiceAssemblyRequest(
+                dataset=dataset,
+                config=self.config,
+                execution_rule_stress=self.execution_rule_stress,
+                minimum_start_index=self._minimum_start_index,
+                action_spec=self.action_spec,
+                composer=self.composer,
+                pre_trade_risk=self.pre_trade_risk,
+                portfolio_risk=self.portfolio_risk,
+                portfolio_risk_inputs_provider=self.portfolio_risk_inputs_provider,
+                alpha_enabled=self.alpha_enabled,
+                reward_tracker=self.reward_tracker,
+                observation_builder=self.observation_builder,
+                layout=self.layout,
+                normalizer=self.normalizer,
+                sequence_observation_builder=self.sequence_observation_builder,
+                sequence_policy_plane=self.sequence_policy_plane,
+                sequence_normalizer=self.sequence_normalizer,
+            )
         )
-        self._execution_coordinator = EnvironmentExecutionCoordinator(
-            dataset,
-            self.config.execution_cost,
-            initial_capital=self.config.initial_capital,
-        )
-        self._observation_assembler = EnvironmentObservationAssembler(
-            dataset,
-            observation_builder=self.observation_builder,
-            layout=self.layout,
-            normalizer=self.normalizer,
-            sequence_observation_builder=self.sequence_observation_builder,
-            sequence_policy_plane=self.sequence_policy_plane,
-            sequence_normalizer=self.sequence_normalizer,
-            action_size=self.action_spec.size,
-            n_factors=self.action_spec.n_factors,
-            finite_horizon=self.config.finite_horizon_observation,
-        )
-        self._decision_planner = EnvironmentDecisionPlanner(
-            dataset,
-            action_spec=self.action_spec,
-            composer=self.composer,
-            max_gross=self.pre_trade_risk.config.max_gross,
-            alpha_enabled=self.alpha_enabled,
-            accept_legacy_actions=self.config.accept_legacy_actions,
-            signal_delay_decisions=self.config.signal_delay_decisions,
-            decision_every=self.config.decision_every,
-            decision_hours=self.config.decision_hours,
-        )
-        self._risk_projector = EnvironmentRiskProjector(
-            dataset,
-            emergency_risk_monitor=self.emergency_risk_monitor,
-            pre_trade_risk=self.pre_trade_risk,
-            portfolio_risk=self.portfolio_risk,
-            portfolio_risk_inputs_provider=(self.portfolio_risk_inputs_provider),
-        )
-        self._reward_coordinator = EnvironmentRewardCoordinator(
-            self.reward_tracker,
-            initial_capital=self.config.initial_capital,
-        )
-        self._info_builder = EnvironmentInfoBuilder(
-            dataset,
-            self.reward_tracker,
-        )
-        self._termination_coordinator = EnvironmentTerminationCoordinator(
-            config=self.config,
-            reward_tracker=self.reward_tracker,
-            pre_trade_risk=self.pre_trade_risk,
-            hybrid_executor=self.hybrid_executor,
-            shadow_executor=self.shadow_executor,
-            execution_coordinator=self._execution_coordinator,
-        )
+        self.emergency_risk_monitor = assembly.emergency_risk_monitor
+        self.hybrid_executor = assembly.hybrid_executor
+        self.shadow_executor = assembly.shadow_executor
+        self.executor = self.hybrid_executor
+        self._episode_sampler = assembly.episode_sampler
+        self._execution_coordinator = assembly.execution_coordinator
+        self._observation_assembler = assembly.observation_assembler
+        self._decision_planner = assembly.decision_planner
+        self._risk_projector = assembly.risk_projector
+        self._reward_coordinator = assembly.reward_coordinator
+        self._info_builder = assembly.info_builder
+        self._termination_coordinator = assembly.termination_coordinator
         self._environment_digest = content_digest(self._digest_payload())
 
-        self.start_index = self._minimum_start_index
-        self.end_index = self.start_index + 1
-        self.current_index = self.start_index
-        initial_prices = dataset.close[self.start_index]
-        self.hybrid = BookState.zero(
-            dataset.n_symbols,
-            self.config.initial_capital,
-            initial_prices,
-            contract_multipliers=dataset.resolved_array("contract_multipliers"),
-        )
-        self.shadow = self.hybrid.clone()
-        self._decision_step_index = 0
-        self._episode_seed = self.config.execution_cost.random_seed
-        self._episode_hours = self.config.episode_hours
-        self._initial_state_mode = "cash"
-        self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
-        self._pending_hybrid_target: np.ndarray | None = None
-        self._pending_shadow_target: np.ndarray | None = None
-        self._hybrid_order_book = OrderBookState.empty()
-        self._shadow_order_book = OrderBookState.empty()
-        self._position_age = np.zeros(dataset.n_symbols, dtype=np.float64)
-        self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
-        self._action_diagnostics = ActionDiagnosticsAccumulator()
-        self._has_reset = False
-
-    @staticmethod
-    def _resolve_provider_digest(
-        *,
-        enabled: bool,
-        provider: object | None,
-        explicit: str | None,
-        field_name: str,
-        static_payload: object | None = None,
-    ) -> str | None:
-        if not enabled:
-            return None
-        resolved = explicit
-        if resolved is None and provider is not None:
-            candidate = getattr(provider, "artifact_digest", None)
-            if not isinstance(candidate, str):
-                candidate = getattr(provider, "identity_digest", None)
-            if isinstance(candidate, str):
-                resolved = candidate
-        if resolved is None and static_payload is not None:
-            resolved = content_digest(
-                {"schema_version": "static_factor_basis_v1", "value": static_payload}
+        initial = EnvironmentInitialStateFactory.create(
+            EnvironmentInitialStateRequest(
+                dataset=dataset,
+                config=self.config,
+                action_spec=self.action_spec,
+                minimum_start_index=self._minimum_start_index,
             )
-        if resolved is None:
-            raise ValueError(f"{field_name} is required when the component is enabled")
-        require_sha256(resolved, field=field_name)
-        return resolved
-
-    def _validated_static_basis(self, value: np.ndarray | None) -> np.ndarray | None:
-        if value is None:
-            return None
-        basis = np.asarray(value, dtype=np.float64)
-        if basis.ndim != 2 or basis.shape[1] != self.dataset.n_symbols:
-            raise ValueError("factor_basis must have shape (n_factors, n_symbols)")
-        if not np.isfinite(basis).all():
-            raise ValueError("factor_basis must be finite")
-        return basis.copy()
-
-    @staticmethod
-    def _resolve_factor_count(
-        *,
-        factor_count: int | None,
-        provider: object | None,
-    ) -> int:
-        resolved = factor_count
-        if resolved is None and provider is not None:
-            candidate = getattr(provider, "n_factors", None)
-            if isinstance(candidate, int) and not isinstance(candidate, bool):
-                resolved = candidate
-        if resolved is None:
-            return 0
-        if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
-            raise ValueError("factor_count must be a non-negative integer")
-        return resolved
+        )
+        self.start_index = initial.start_index
+        self.end_index = initial.end_index
+        self.current_index = initial.current_index
+        self.hybrid = initial.hybrid
+        self.shadow = initial.shadow
+        self._decision_step_index = initial.decision_step_index
+        self._episode_seed = initial.episode_seed
+        self._episode_hours = initial.episode_hours
+        self._initial_state_mode = initial.initial_state_mode
+        self._previous_action = initial.previous_action
+        self._pending_hybrid_target = initial.pending_hybrid_target
+        self._pending_shadow_target = initial.pending_shadow_target
+        self._hybrid_order_book = initial.hybrid_order_book
+        self._shadow_order_book = initial.shadow_order_book
+        self._position_age = initial.position_age
+        self._execution_state = initial.execution_state
+        self._action_diagnostics = initial.action_diagnostics
+        self._reward_history_cache = initial.reward_history_cache
+        self._has_reset = initial.has_reset
 
     def _digest_payload(self) -> dict[str, object]:
         return {

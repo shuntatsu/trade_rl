@@ -130,8 +130,10 @@ def test_package_optional_string_accepts_none_and_rejects_other_types() -> None:
 def test_package_rejects_metadata_dataset_mismatch(tmp_path: Path) -> None:
     root = tmp_path / "training"
     manifest = _training_run(root, run_kind="research_selected_final")
+    metadata_path = root / "metadata-promotion.json"
+    metadata_path.unlink()
     write_metadata_promotion_evidence(
-        root / "metadata-promotion.json",
+        metadata_path,
         MetadataPromotionEvidence(
             dataset_id="0" * 64,
             mode="historical_signed",
@@ -155,8 +157,10 @@ def test_package_rejects_metadata_dataset_mismatch(tmp_path: Path) -> None:
 def test_package_rejects_execution_evidence_dataset_mismatch(tmp_path: Path) -> None:
     root = tmp_path / "training"
     manifest = _training_run(root, run_kind="research_selected_final")
+    execution_path = root / "execution-evidence.json"
+    execution_path.unlink()
     write_execution_evidence(
-        root / "execution-evidence.json",
+        execution_path,
         ExecutionEvidence(
             dataset_id="0" * 64,
             execution_policy_digest=serving_package._execution_cost(
@@ -240,7 +244,13 @@ def test_package_rejects_confirmation_identity_mismatch(
         ({"environment_digest": "0" * 64}, "environment identity"),
         ({"policy_digest": "0" * 64}, "policy identity"),
         ({"start_time": COMPLETED + timedelta(hours=1)}, "start time"),
-        ({"end_time": COMPLETED + timedelta(days=30, hours=1)}, "end time"),
+        (
+            {
+                "end_time": COMPLETED + timedelta(days=30, hours=1),
+                "created_at": COMPLETED + timedelta(days=30, hours=1),
+            },
+            "end time",
+        ),
     ],
 )
 def test_package_rejects_reconciliation_binding_mismatch(

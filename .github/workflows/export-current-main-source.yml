@@ -27,11 +27,11 @@ jobs:
 
       - name: Package source
         shell: bash
-        run: tar --exclude=.git -czf current-main-source.tgz .
+        run: tar --exclude=.git -czf /tmp/current-main-source.tgz .
 
       - name: Upload source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: current-main-source
-          path: current-main-source.tgz
+          path: /tmp/current-main-source.tgz
           if-no-files-found: error

@@ -8,17 +8,17 @@ on:
       - .github/source-export-trigger
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
+          ref: refactor/extract-environment-observation-contract-20260723
+          persist-credentials: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -29,11 +29,30 @@ jobs:
       - name: Install formatter
         run: uv sync --extra dev
 
-      - name: Format new tests in exported worktree
+      - name: Format new tests
         run: >-
           uv run ruff format
           tests/architecture/test_environment_observation_contract_decomposition.py
           tests/rl/test_environment_observation_contract.py
+
+      - name: Commit formatted tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          if git diff --quiet -- \
+            tests/architecture/test_environment_observation_contract_decomposition.py \
+            tests/rl/test_environment_observation_contract.py; then
+            echo "No formatter changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              tests/architecture/test_environment_observation_contract_decomposition.py \
+              tests/rl/test_environment_observation_contract.py
+            git commit -m "style: format observation contract tests"
+            git push origin HEAD:refactor/extract-environment-observation-contract-20260723
+          fi
 
       - name: Pack source
         shell: bash

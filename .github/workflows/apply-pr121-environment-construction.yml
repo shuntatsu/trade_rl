@@ -1,0 +1,113 @@
+name: Apply PR121 environment construction
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-pr121-environment-construction.yml'
+      - '.github/pr121-apply-trigger'
+      - '.github/pr121-patch/**'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3 --extra studio
+
+      - name: Reconstruct and apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/pr121-patch/*.b64 | base64 --decode > /tmp/pr121-implementation.patch
+          actual="$(sha256sum /tmp/pr121-implementation.patch | cut -d' ' -f1)"
+          test "$actual" = "32f1d0fead1786b0449c4e2dcecdaa6d2b067ec3b8f45a95fac2616777c44015"
+          git apply --check /tmp/pr121-implementation.patch
+          git apply /tmp/pr121-implementation.patch
+
+      - name: Format and static verification
+        shell: bash
+        run: |
+          set -o pipefail
+          targets=(
+            pyproject.toml
+            tests/architecture/test_environment_construction_decomposition.py
+            tests/architecture/test_environment_constructor_public_api.py
+            tests/architecture/test_environment_step_decomposition.py
+            tests/rl/test_environment_construction_characterization.py
+            tests/rl/test_environment_construction_services.py
+            trade_rl/rl/environment.py
+            trade_rl/rl/environment_assembly.py
+            trade_rl/rl/environment_dependencies.py
+            trade_rl/rl/environment_state.py
+          )
+          uv run ruff check --fix "${targets[@]}"
+          uv run ruff format "${targets[@]}"
+          {
+            uv run ruff check .
+            uv run ruff format --check --diff .
+            uv run mypy .
+          } 2>&1 | tee pr121-static.log
+
+      - name: Focused behavior verification
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/architecture/test_environment_construction_decomposition.py \
+            tests/architecture/test_environment_constructor_public_api.py \
+            tests/architecture/test_environment_step_decomposition.py \
+            tests/rl/test_environment_construction_characterization.py \
+            tests/rl/test_environment_construction_services.py \
+            tests/rl/test_environment_identity.py \
+            tests/rl/test_target_weight_action.py \
+            tests/rl/test_environment_timing.py \
+            tests/rl/test_environment_sequence.py \
+            tests/rl/test_environment_pending_orders.py \
+            2>&1 | tee pr121-focused-pytest.log
+
+      - name: Remove one-shot material and commit
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm -rf .github/pr121-patch
+          rm -f .github/pr121-apply-trigger
+          rm -f .github/workflows/apply-pr121-environment-construction.yml
+          rm -f pr121-static.log pr121-focused-pytest.log
+          test ! -e .github/pr121-patch
+          test ! -e .github/pr121-apply-trigger
+          test ! -e .github/workflows/apply-pr121-environment-construction.yml
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'refactor: finish environment construction decomposition'
+          git push origin "HEAD:${HEAD_REF}"
+
+      - name: Upload focused diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr121-focused-diagnostics
+          path: |
+            pr121-static.log
+            pr121-focused-pytest.log
+          if-no-files-found: ignore

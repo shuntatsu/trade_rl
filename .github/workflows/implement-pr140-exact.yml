@@ -108,7 +108,7 @@ jobs:
           python-version: '3.12'
           enable-cache: true
       - name: Install
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
       - name: Normalize changed Python
         run: |
           uv run ruff check --fix \

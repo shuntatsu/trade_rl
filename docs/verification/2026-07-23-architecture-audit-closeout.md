@@ -6,11 +6,13 @@ This document closes or reclassifies the findings recorded in
 `docs/verification/2026-07-22-post-merge-architecture-audit.md` after the
 independent remediation pull requests were integrated.
 
-The current source baseline is `main` merge commit
-`53b124a46ce81f35db0bb37f1651f639fc4a6b6f`, which merged PR #111 after the
-stateful-execution decomposition, sequence-projection guard, telemetry identity,
-stream-generation, process-lock, Live Training, environment-runtime, and earlier
-architecture-boundary remediations.
+The current integrated source baseline is `main` merge commit
+`1b09118dca87b41e1ee1c8165d36a8aeaacdd733`, which merged the audit-closeout
+documentation after the stateful-execution decomposition, sequence-projection
+guard, telemetry identity, stream-generation, process-lock, Live Training,
+environment-runtime, and canonical public-contract remediations. The latest
+verified `AUD-RL-001` remediation candidate is PR #114 exact head
+`507e5882b45a4b6947f5b198d3d3f1be111a4da2`.
 
 The 2026-07-22 report remains a historical record of what was observed at its
 audited commit. It must not be read as the current defect list. Current status is
@@ -29,7 +31,7 @@ direct exchange capability.
 | `AUD-ARCH-001` | P2 | RESOLVED | PR #79 removed initializer mutation; PR #111 made public modules canonical maintained owners |
 | `AUD-SIM-001` | P2 | RESOLVED | PR #107 stateful execution phase decomposition |
 | `AUD-CI-002` | P2 | RESOLVED | PR #88 stable numerical contract; PR #106 permanent cross-platform guard |
-| `AUD-RL-001` | P2 risk | OPEN RISK, REDUCED | PR #92 extracted environment runtime/step services; facade-size risk remains |
+| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted environment runtime/step services; PR #114 extracted static observation-contract construction |
 
 No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
 The only open item is a maintainability risk without a reproduced behavioral
@@ -167,7 +169,7 @@ platforms, and normal CI also passed.
 The original numerical flake is therefore closed without weakening the semantic
 policy-parity boundary.
 
-### AUD-RL-001 — OPEN RISK, REDUCED
+### AUD-RL-001 — OPEN RISK, FURTHER REDUCED
 
 No behavior defect was reproduced in the original audit, so this remains a risk
 rather than a confirmed bug.
@@ -178,19 +180,34 @@ work also separated episode sampling, stateful target execution, observation
 assembly, and termination coordination. `step()` is now an orchestration facade
 which delegates those responsibilities while retaining mutable Gymnasium state.
 
-The remaining risk is construction and wiring density. `trade_rl/rl/environment.py`
-is currently approximately 1,500 source lines, and `ResidualMarketEnv.__init__`
-still owns a large amount of provider validation, identity binding, builder
-construction, and runtime wiring. A mechanical split is not justified without a
-behavior-preserving seam.
+PR #114 extracted the next behavior-preserving seam. The typed
+`EnvironmentObservationContractBuilder` now owns deterministic observation
+builder/layout construction, flat and structured schemas and digests, normalizer
+identity validation, sequence windows and policy plane, Gymnasium spaces, and the
+sequence-derived minimum index. Architecture tests prohibit those low-level
+operations from returning to `ResidualMarketEnv.__init__()`.
+
+The extraction removed 219 lines of inline observation construction and bounded
+the constructor at 321 source lines, protected by a 360-line architecture limit.
+The extracted module measured 114 / 114 statements and 32 / 32 branches covered,
+with a permanent 100.0% branch-coverage ratchet. Exact-head verification passed
+1,253 tests, 83.90% total coverage, 70.90% total branch coverage, Ubuntu, Windows,
+training-image, Import Linter, CLI, and PostgreSQL Catalog checks.
+
+The remaining risk is provider validation, identity binding, runtime-service
+wiring, and mutable Gymnasium-state initialization. A mechanical split is still
+not justified without another concrete behavior-preserving seam and
+characterization evidence.
 
 Control:
 
-- retain the existing environment runtime and step-service architecture tests;
+- retain the environment runtime, step-service, and observation-contract
+  architecture tests;
+- retain the 100.0% branch-coverage ratchet for the observation-contract builder;
 - do not add new action, risk, reward, execution, or observation policy directly
   to the facade when a typed service owns that concern;
-- extract constructor wiring only alongside a concrete feature or configuration
-  change with characterization tests.
+- extract further constructor responsibilities only with characterization tests
+  that preserve validation order, identities, and public behavior.
 
 This risk does not block research use, but it remains the next architecture
 maintenance watchpoint.
@@ -198,9 +215,10 @@ maintenance watchpoint.
 ## 4. Current architecture judgment
 
 The remediated core now has direct canonical public-contract ownership, bounded
-stateful execution phases, typed environment step services, generation-bound and
-process-safe telemetry, producer-issued environment episode identity, and a
-permanent cross-platform numerical stability guard.
+stateful execution phases, typed environment step services, a typed static
+observation-contract boundary, generation-bound and process-safe telemetry,
+producer-issued environment episode identity, and a permanent cross-platform
+numerical stability guard.
 
 The original audit's P0 non-findings remain supported by the maintained regression
 suite: no future-data observation path, accounting conservation break, sealed-test

@@ -1,0 +1,80 @@
+name: Final main-only inventory 2026-07-24
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/final-main-only-inventory-20260724.yml']
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  inventory:
+    if: github.head_ref == 'audit/final-main-only-inventory-20260724'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact inventory head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert main is the only persistent branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          INVENTORY_BRANCH: audit/final-main-only-inventory-20260724
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+          report=/tmp/final-main-only-inventory.txt
+          : > "$report"
+          echo 'final_main_only_inventory_v1' >> "$report"
+          echo "main_sha=$(git rev-parse origin/main)" >> "$report"
+
+          git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin \
+            | grep -v '^HEAD$' \
+            | grep -v '^main$' \
+            | grep -v "^${INVENTORY_BRANCH}$" \
+            | sort -u > /tmp/extra-branches.txt
+
+          extra_count=$(wc -l < /tmp/extra-branches.txt)
+          open_count=$(gh pr list --repo "$REPO" --state open --limit 100 --json number --jq 'length')
+          echo "extra_branch_count=$extra_count" >> "$report"
+          echo "open_pr_count=$open_count" >> "$report"
+          if [ "$extra_count" -ne 0 ]; then
+            sed 's/^/EXTRA /' /tmp/extra-branches.txt | tee -a "$report"
+            exit 1
+          fi
+          if [ "$open_count" -ne 1 ]; then
+            echo 'ABORT expected only this inventory PR to be open' | tee -a "$report"
+            gh pr list --repo "$REPO" --state open --limit 100 --json number,title,headRefName --jq '.[] | "OPEN #\(.number) head=\(.headRefName) title=\(.title)"' | tee -a "$report"
+            exit 1
+          fi
+          echo 'persistent_branches=main' >> "$report"
+          echo 'open_prs_after_closing_inventory=0' >> "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload final inventory
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-main-only-inventory-20260724
+          path: /tmp/final-main-only-inventory.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Delete inventory branch
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          INVENTORY_BRANCH: audit/final-main-only-inventory-20260724
+        run: |
+          set -euo pipefail
+          encoded=$(printf '%s' "$INVENTORY_BRANCH" | jq -sRr @uri)
+          gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"

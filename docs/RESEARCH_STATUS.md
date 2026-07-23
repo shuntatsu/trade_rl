@@ -51,7 +51,7 @@ Trade RL Studio is a local research console for validated datasets, configs, exp
 
 `training_telemetry_v1` is append-only diagnostic data. It is excluded from checkpoint selection, configuration selection, sealed evaluation, run identity, promotion, release approval, and order execution. BUY/SELL markers represent target-exposure changes, not exchange orders.
 
-The maintained browser path selects one vector environment and derives the chart, cursor, price, PnL, baseline, drawdown, events, playback, and jump controls from that selected vector environment's current episode. Producer-issued nullable `episode_id` values are preferred for episode selection. Historical records with `null` identity retain the terminal and counter-rollback fallback, so existing `training_telemetry_v1` streams remain readable.
+The maintained browser path selects one vector environment and derives the chart, cursor, price, PnL, baseline, drawdown, events, playback, and jump controls from that selected vector environment's current episode. Producer-issued `episode_id` values are nullable and are preferred for episode selection. Historical records with `null` identity retain the terminal and counter-rollback fallback, so existing `training_telemetry_v1` streams remain readable.
 
 Telemetry remains exploratory and is excluded from fitting, checkpoint selection, configuration selection, sealed evaluation, run identity, promotion, release approval, Serving activation, and order routing. The isolation contract prevents false cross-environment or cross-episode continuity; it does not turn telemetry into profitability or exchange-execution evidence.
 

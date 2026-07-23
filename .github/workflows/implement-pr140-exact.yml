@@ -121,12 +121,14 @@ jobs:
             trade_rl/rl/environment_initial_state.py \
             tests/rl/test_environment_initial_state.py \
             tests/architecture/test_environment_initial_state_decomposition.py
-      - name: Static verification
-        run: |
-          uv run ruff check .
-          uv run ruff format --check .
-          uv run mypy .
-          uv run lint-imports
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy .
+      - name: Import architecture
+        run: uv run lint-imports
       - name: Focused behavior verification
         run: >-
           uv run pytest -q

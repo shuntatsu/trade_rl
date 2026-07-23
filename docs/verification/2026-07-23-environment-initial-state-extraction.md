@@ -134,7 +134,35 @@ CI run `30005702390` passed:
 
 A permanent 100.0% critical coverage ratchet for `trade_rl/rl/environment_initial_state.py` is recorded in `pyproject.toml`.
 
-## 6. Final architecture disposition
+## 6. Current-main synchronized final verification
+
+Main advanced by the unrelated paper-reconciliation PR #142 after this branch was created. Main was merged into the feature branch before integration. The synchronized final head before this documentation-only evidence update was:
+
+- commit: `c46dad8be50169e4ab492b3283319a7d5136a2bd`;
+- CI run: `30007065940`;
+- PostgreSQL Catalog run: `30007065939`.
+
+The synchronized complete test result was:
+
+- 1,331 passed;
+- 2 skipped;
+- 11 warnings;
+- 84.18% total coverage;
+- 71.23% total branch coverage;
+- 45 / 45 initial-state statements covered with no executable branch points.
+
+The synchronized artifacts were:
+
+- pytest: `8563502941`, digest `sha256:5b0c311c94bc09d8ac2ad2ca8125751d6a71715864e48b961ed932d3397d6b11`;
+- architecture: `8563462798`, digest `sha256:3ef6bbea8afc0491fe83c603daac78e169b80d4aeb7bf89b1e51fa1ef3676348`;
+- static: `8563462247`, digest `sha256:342e76db511a564b2a09c4c290dcbad3a88635defbd47091b4c3dfa999323017`;
+- training image: `8563464984`, digest `sha256:34571b821d1f8e2b7cec86b2030d8012478a164b7922082e2f0f03b55103ddb5`;
+- Windows: `8563447365`, digest `sha256:e829b5253d76ce46d96a68c03509e10e7e611f83f3e333e04d02625b75a0ab6b`;
+- Ubuntu: `8563441793`, digest `sha256:08c95bfcea5dbac5289fd6ecbb6679ffe552a9e947aa1f34fe873aa81b597d7d`.
+
+The synchronized CI passed Core quality, complete pytest and coverage, the new 100.0% critical coverage ratchet, CLI smoke, Ubuntu and Windows compatibility, and the complete training image with packaged non-root runtime probe. PostgreSQL Catalog passed Compose validation, startup and readiness, migrations, unit and integration tests, and cleanup.
+
+## 7. Final architecture disposition
 
 `AUD-RL-001` remains a maintainability risk rather than a reproduced behavioral defect.
 

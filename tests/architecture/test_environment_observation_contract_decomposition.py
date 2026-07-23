@@ -11,8 +11,7 @@ from trade_rl.rl.environment import ResidualMarketEnv
 def test_environment_observation_contract_module_owns_static_construction() -> None:
     module_name = "trade_rl.rl.environment_observation_contract"
     assert importlib.util.find_spec(module_name) is not None, (
-        "static observation construction must be owned by "
-        f"{module_name}"
+        f"static observation construction must be owned by {module_name}"
     )
 
     module = __import__(module_name, fromlist=["*"])

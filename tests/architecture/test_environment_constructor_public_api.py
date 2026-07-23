@@ -30,7 +30,9 @@ EXPECTED_PARAMETERS = (
 
 
 def test_residual_market_environment_constructor_signature_is_stable() -> None:
-    parameters = tuple(inspect.signature(ResidualMarketEnv.__init__).parameters.values())
+    parameters = tuple(
+        inspect.signature(ResidualMarketEnv.__init__).parameters.values()
+    )
 
     assert tuple(parameter.name for parameter in parameters) == EXPECTED_PARAMETERS
     assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
@@ -39,4 +41,6 @@ def test_residual_market_environment_constructor_signature_is_stable() -> None:
         parameter.kind is inspect.Parameter.KEYWORD_ONLY for parameter in parameters[2:]
     )
     assert parameters[1].default is inspect.Parameter.empty
-    assert all(parameter.default is not inspect.Parameter.empty for parameter in parameters[2:])
+    assert all(
+        parameter.default is not inspect.Parameter.empty for parameter in parameters[2:]
+    )

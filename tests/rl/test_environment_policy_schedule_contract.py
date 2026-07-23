@@ -281,3 +281,25 @@ def test_environment_uses_policy_schedule_contract_without_digest_drift() -> Non
     assert env.decision_bars == 2
     assert env.decision_hours == pytest.approx(2.0)
     assert env._digest_payload()["environment_config"]["resolved_decision_hours"] == 2.0
+
+
+def test_environment_stress_reset_preserves_peak_and_drawdown_contract() -> None:
+    stress_fraction = 0.2
+    config = _config(
+        initial_state_modes=("stress",),
+        stress_drawdown_fraction=stress_fraction,
+    )
+    env = ResidualMarketEnv(
+        _market(),
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
+        ),
+        config=config,
+    )
+
+    env.reset(options={"initial_state_mode": "stress"})
+
+    assert env.hybrid.peak_value == pytest.approx(
+        config.initial_capital / (1.0 - stress_fraction)
+    )
+    assert env.hybrid.max_drawdown == pytest.approx(stress_fraction)

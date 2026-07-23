@@ -58,16 +58,12 @@ jobs:
           start = text.index(start_marker)
           end = text.index(end_marker, start) + len(end_marker)
           replacement = (
-              "        self._install_initial_state(\n"
-              "            EnvironmentInitialStateFactory.create(\n"
-              "                EnvironmentInitialStateRequest(\n"
-              "                    dataset=dataset,\n"
-              "                    config=self.config,\n"
-              "                    action_spec=self.action_spec,\n"
-              "                    minimum_start_index=self._minimum_start_index,\n"
-              "                )\n"
+              "        initial_state = EnvironmentInitialStateFactory.create(\n"
+              "            EnvironmentInitialStateRequest(\n"
+              "                dataset, self.config, self.action_spec, self._minimum_start_index\n"
               "            )\n"
               "        )\n"
+              "        self._install_initial_state(initial_state)\n"
           )
           text = text[:start] + replacement + text[end:]
 

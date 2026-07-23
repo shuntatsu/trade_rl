@@ -34,6 +34,31 @@ jobs:
           cat .github/patches/environment-construction-*.b64 > /tmp/environment-construction.b64
           base64 --decode /tmp/environment-construction.b64 > /tmp/environment-construction.tgz
           tar -xzf /tmp/environment-construction.tgz
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/rl/environment_dependencies.py')
+          source = path.read_text(encoding='utf-8').replace(
+              '                alpha_provider=request.alpha_provider,  # type: ignore[arg-type]\n',
+              '                alpha_provider=request.alpha_provider,\n',
+          )
+          path.write_text(source, encoding='utf-8')
+
+          path = Path('trade_rl/rl/environment_observation_contract.py')
+          source = path.read_text(encoding='utf-8')
+          source = source.replace('from typing import Any, cast\n', 'from typing import cast\n')
+          source = source.replace(
+              '    action_space: spaces.Box[np.ndarray]\n',
+              '    action_space: spaces.Box\n',
+          )
+          path.write_text(source, encoding='utf-8')
+
+          path = Path('trade_rl/rl/environment_state.py')
+          source = path.read_text(encoding='utf-8').replace(
+              '    episode_seed: int | None\n',
+              '    episode_seed: int\n',
+          )
+          path.write_text(source, encoding='utf-8')
+          PY
 
       - name: Install verification dependencies
         run: uv sync --extra dev --extra train-sb3 --extra studio
@@ -43,6 +68,16 @@ jobs:
         run: |
           set +e
           : > environment-construction-focused.log
+          uv run ruff check --fix \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_dependencies.py \
+            trade_rl/rl/environment_observation_contract.py \
+            trade_rl/rl/environment_assembly.py \
+            trade_rl/rl/environment_state.py \
+            tests/architecture/test_environment_construction_decomposition.py \
+            tests/rl/test_environment_construction_services.py \
+            2>&1 | tee -a environment-construction-focused.log
+          fix_status=${PIPESTATUS[0]}
           uv run ruff format \
             trade_rl/rl/environment.py \
             trade_rl/rl/environment_dependencies.py \
@@ -77,11 +112,12 @@ jobs:
             tests/rl/test_pending_order_environment.py \
             2>&1 | tee -a environment-construction-focused.log
           pytest_status=${PIPESTATUS[0]}
-          printf 'format=%s\nruff=%s\nmypy=%s\npytest=%s\n' \
-            "$format_status" "$ruff_status" "$mypy_status" "$pytest_status" \
-            > environment-construction-focused-status.txt
-          if [ "$format_status" -ne 0 ] || [ "$ruff_status" -ne 0 ] || \
-             [ "$mypy_status" -ne 0 ] || [ "$pytest_status" -ne 0 ]; then
+          printf 'fix=%s\nformat=%s\nruff=%s\nmypy=%s\npytest=%s\n' \
+            "$fix_status" "$format_status" "$ruff_status" "$mypy_status" \
+            "$pytest_status" > environment-construction-focused-status.txt
+          if [ "$fix_status" -ne 0 ] || [ "$format_status" -ne 0 ] || \
+             [ "$ruff_status" -ne 0 ] || [ "$mypy_status" -ne 0 ] || \
+             [ "$pytest_status" -ne 0 ]; then
             exit 1
           fi
 

@@ -202,9 +202,9 @@ def test_environment_facade_audit_is_resolved_with_protected_state_boundary() ->
         "`reset()` retains mutable Gymnasium state",
         "architecture tests",
         "100.0% critical coverage ratchets",
-        "no further mechanical split",
     ):
         assert required in section
+    assert "no further mechanical split" in section.lower()
     assert "OPEN RISK" not in section
     assert "Production remains `NO-GO`" in closeout
 

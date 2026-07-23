@@ -1,0 +1,77 @@
+name: Restore PR126 stress peak
+
+on:
+  push:
+    branches:
+      - refactor/extract-environment-policy-schedule-contract-20260723
+    paths:
+      - '.github/workflows/temp-restore-stress-peak-pr126.yml'
+      - '.github/restore-stress-peak-pr126-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  restore-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Restore stress peak calculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/rl/environment.py')
+          text = path.read_text(encoding='utf-8')
+          broken = '''            peak = self.config.initial_capital / (
+            )
+'''
+          fixed = '''            peak = self.config.initial_capital / (
+                1.0 - self.config.stress_drawdown_fraction
+            )
+'''
+          if text.count(broken) != 1:
+              raise RuntimeError('expected exactly one broken stress peak calculation')
+          path.write_text(text.replace(broken, fixed, 1), encoding='utf-8')
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Static verification
+        run: |
+          uv run ruff format trade_rl/rl/environment.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run lint-imports
+      - name: Focused regression verification
+        run: >-
+          uv run pytest -q
+          tests/rl/test_environment_timing.py::test_hard_drawdown_stop_overrides_turnover_inside_environment
+          tests/rl/test_environment_policy_schedule_contract.py
+          tests/architecture/test_environment_policy_schedule_contract_decomposition.py
+          tests/rl/test_environment_identity.py
+      - name: Remove temporary material and push verified repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/temp-restore-stress-peak-pr126.yml \
+            .github/restore-stress-peak-pr126-trigger
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: restore stress initial-state peak calculation'
+          git push origin HEAD:refactor/extract-environment-policy-schedule-contract-20260723

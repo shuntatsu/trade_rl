@@ -125,8 +125,12 @@ def test_environment_initial_values_match_factory_contract() -> None:
     assert env.hybrid is not env.shadow
     assert env.hybrid.cash == env.config.initial_capital
     assert env.shadow.cash == env.config.initial_capital
-    np.testing.assert_array_equal(env.hybrid.mark_prices, dataset.close[env.start_index])
-    np.testing.assert_array_equal(env.shadow.mark_prices, dataset.close[env.start_index])
+    np.testing.assert_array_equal(
+        env.hybrid.mark_prices, dataset.close[env.start_index]
+    )
+    np.testing.assert_array_equal(
+        env.shadow.mark_prices, dataset.close[env.start_index]
+    )
     assert env._decision_step_index == 0
     assert env._episode_seed == env.config.execution_cost.random_seed
     assert env._episode_hours == env.config.episode_hours

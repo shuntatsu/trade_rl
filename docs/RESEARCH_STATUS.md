@@ -1,19 +1,19 @@
 # Research Status
 
-## Current capability status — 2026-07-22
+## Current capability status — 2026-07-23
 
 ```text
 RepositoryIntegrity: VERIFIED_ON_ARCHITECTURE_REMEDIATION_HEAD
 ResearchWorkflows: AVAILABLE
 StatefulOHLCExecution: AVAILABLE_WITH_OHLCV_LIMITATIONS
-TradeRLStudio: AVAILABLE_FOR_DIAGNOSTIC_REPLAY_WITH_STREAM_ISOLATION_GAP
+TradeRLStudio: AVAILABLE_FOR_DIAGNOSTIC_REPLAY_WITH_EPISODE_ISOLATION
 AttestedPaperServing: AVAILABLE_FOR_ELIGIBLE_SELECTED_FINAL_BUNDLES
 DirectExchangeRouting: NOT_IMPLEMENTED
 EmpiricalProductionGate: NO-GO
 ProfitabilityClaim: NONE
 ```
 
-The current baseline includes the conservative stateful order simulator and the follow-up architecture remediation that unified compatibility execution with the stateful engine, enforced the telemetry dependency boundary, hardened telemetry parsing and indexed reads, centralized canonical JSON, separated PostgreSQL sealed-test reservation responsibilities, and decomposed `ResidualMarketEnv`. Exact commit, CI, PostgreSQL, container, and test evidence belongs in the dated [architecture remediation record](verification/2026-07-22-architecture-audit-remediation.md) and [post-remediation audit](verification/2026-07-22-post-merge-architecture-audit.md).
+The current baseline includes the conservative stateful order simulator and the follow-up architecture remediation that unified compatibility execution with the stateful engine, enforced the telemetry dependency boundary, hardened telemetry parsing and indexed reads, centralized canonical JSON, separated PostgreSQL sealed-test reservation responsibilities, decomposed `ResidualMarketEnv`, isolated Live Training replay to one selected vector environment and its current episode, and added producer-issued telemetry episode identity. Exact commit, CI, PostgreSQL, container, and test evidence belongs in the dated [architecture remediation record](verification/2026-07-22-architecture-audit-remediation.md), [post-remediation audit](verification/2026-07-22-post-merge-architecture-audit.md), and [architecture audit closeout](verification/2026-07-23-architecture-audit-closeout.md).
 
 Software verification establishes code, packaging, artifact, and test integrity for a source head. Research validity additionally requires causal data and sealed evaluation. Profitability requires positive repeatable evidence. Release eligibility requires external authorization and attestation. Direct exchange operation requires a separate broker integration. None of those later judgments follows automatically from passing CI.
 
@@ -51,7 +51,9 @@ Trade RL Studio is a local research console for validated datasets, configs, exp
 
 `training_telemetry_v1` is append-only diagnostic data. It is excluded from checkpoint selection, configuration selection, sealed evaluation, run identity, promotion, release approval, and order execution. BUY/SELL markers represent target-exposure changes, not exchange orders.
 
-The architecture remediation added strict boolean parsing, sparse indexed JSONL reads, duplicate-seed rejection, and an enforced standard-library-only `trade_rl.telemetry` layer. One confirmed diagnostic limitation remains: a seed stream can contain records from multiple vector environments and multiple auto-reset episodes, while the current browser view presents the buffered records as one chart/equity sequence without an environment or episode selector. This can create a false continuous diagnostic path. It does not contaminate model selection or release evidence because telemetry is outside those contracts.
+The maintained browser path selects one vector environment and derives the chart, cursor, price, PnL, baseline, drawdown, events, playback, and jump controls from that selected vector environment's current episode. Producer-issued `episode_id` values are nullable and are preferred for episode selection. Historical records with `null` identity retain the terminal and counter-rollback fallback, so existing `training_telemetry_v1` streams remain readable.
+
+Telemetry remains exploratory and is excluded from fitting, checkpoint selection, configuration selection, sealed evaluation, run identity, promotion, release approval, Serving activation, and order routing. The isolation contract prevents false cross-environment or cross-episode continuity; it does not turn telemetry into profitability or exchange-execution evidence.
 
 ## PostgreSQL artifact catalog
 
@@ -119,4 +121,4 @@ The repository supports research workflows and attested local/paper serving for 
 
 Production remains `NO-GO` until maintained GPU verification, at least 180 OOS days, a strictly positive paired block-bootstrap lower bound on RL-minus-baseline daily log excess, signed fresh confirmation, complete conservative execution evidence, and paper-trading reconciliation all pass.
 
-See [Architecture](ARCHITECTURE.md), [P0 validation evidence](verification/2026-07-21-p0-validation-baseline.md), [stateful execution verification](verification/2026-07-21-conservative-order-simulator.md), the original [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md), the [architecture remediation record](verification/2026-07-22-architecture-audit-remediation.md), and the [post-remediation architecture audit](verification/2026-07-22-post-merge-architecture-audit.md).
+See [Architecture](ARCHITECTURE.md), [P0 validation evidence](verification/2026-07-21-p0-validation-baseline.md), [stateful execution verification](verification/2026-07-21-conservative-order-simulator.md), the original [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md), the [architecture remediation record](verification/2026-07-22-architecture-audit-remediation.md), the [post-remediation architecture audit](verification/2026-07-22-post-merge-architecture-audit.md), and the [architecture audit closeout](verification/2026-07-23-architecture-audit-closeout.md).

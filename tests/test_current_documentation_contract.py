@@ -165,6 +165,24 @@ def test_remediated_findings_are_not_described_as_current() -> None:
         assert stale not in current_documents
 
 
+def test_resolved_live_training_isolation_is_not_described_as_open() -> None:
+    research_status = _text(ROOT / "docs" / "RESEARCH_STATUS.md").lower()
+    for stale in (
+        "available_for_diagnostic_replay_with_stream_isolation_gap",
+        "one confirmed diagnostic limitation remains",
+        "without an environment or episode selector",
+    ):
+        assert stale not in research_status
+    for current in (
+        "available_for_diagnostic_replay_with_episode_isolation",
+        "producer-issued `episode_id`",
+        "selected vector environment",
+        "current episode",
+        "historical records with `null` identity",
+    ):
+        assert current in research_status
+
+
 def test_internal_markdown_links_resolve() -> None:
     link_pattern = re.compile(
         r"\[[^\]]+\]\((?!https?://|#|mailto:)([^)#]+)(?:#[^)]+)?\)"

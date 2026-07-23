@@ -123,6 +123,7 @@ target = 90.0
 "trade_rl/evaluation/gates.py" = 100.0
 "trade_rl/telemetry/_indexed_storage.py" = 72.1
 "trade_rl/rl/training_telemetry.py" = 78.5
+"trade_rl/rl/environment.py" = 85.0
 "trade_rl/rl/environment_observation_contract.py" = 100.0
 "trade_rl/rl/environment_provider_contract.py" = 100.0
 "trade_rl/rl/environment_runtime_services.py" = 100.0

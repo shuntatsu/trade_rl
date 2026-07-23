@@ -1,0 +1,86 @@
+name: Delete final classified branches 2026-07-23
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/delete-final-classified-branches-20260723.yml']
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  delete:
+    if: github.head_ref == 'ci/delete-final-classified-branches-20260723'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact cleanup head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify classifications and delete exact allowlist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/delete-final-classified-branches-20260723
+        run: |
+          set -euo pipefail
+          report=/tmp/final-classified-branch-deletion.txt
+          : > "$report"
+          echo 'final_classified_branch_deletion_v1' >> "$report"
+          echo "main_sha=$(gh api repos/$REPO/commits/main --jq .sha)" >> "$report"
+
+          pr130=$(gh pr view 130 --repo "$REPO" --json state,mergedAt,headRefName,baseRefName,body)
+          pr131=$(gh pr view 131 --repo "$REPO" --json state,mergedAt,headRefName,baseRefName,body)
+          pr115=$(gh pr view 115 --repo "$REPO" --json state,mergedAt,headRefName,baseRefName,body)
+          pr117=$(gh pr view 117 --repo "$REPO" --json state,mergedAt,headRefName,baseRefName,body)
+          pr99=$(gh pr view 99 --repo "$REPO" --json state,mergedAt,headRefName,baseRefName,body)
+          pr163=$(gh pr view 163 --repo "$REPO" --json state,mergedAt,headRefName,baseRefName,body)
+
+          jq -e '.state == "CLOSED" and .mergedAt == null and .headRefName == "audit/export-pr126-source-20260723" and ((.body | ascii_downcase) | contains("superseded"))' >/dev/null <<<"$pr130"
+          jq -e '.state == "MERGED" and .mergedAt != null and .headRefName == "ci/sync-pr126-runner-workflow-20260723" and .baseRefName == "audit/export-pr126-source-20260723"' >/dev/null <<<"$pr131"
+
+          jq -e '.state == "CLOSED" and .mergedAt == null and .headRefName == "refactor/decompose-environment-construction-20260723" and ((.body | ascii_downcase) | contains("superseded"))' >/dev/null <<<"$pr115"
+          jq -e '.state == "MERGED" and .mergedAt != null and .headRefName == "docs/environment-construction-final-evidence-20260723" and .baseRefName == "refactor/decompose-environment-construction-20260723"' >/dev/null <<<"$pr117"
+
+          jq -e '.state == "MERGED" and .mergedAt != null and .headRefName == "fix/bind-telemetry-cursors-generation-clean-20260723" and .baseRefName == "main"' >/dev/null <<<"$pr99"
+          jq -e '.state == "CLOSED" and .mergedAt == null and .headRefName == "fix/bind-telemetry-cursors-generation-main-20260723" and ((.body | ascii_downcase) | contains("merged pr #99")) and ((.body | ascii_downcase) | contains("deletion-only"))' >/dev/null <<<"$pr163"
+
+          branches=(
+            'ci/sync-pr126-runner-workflow-20260723'
+            'docs/environment-construction-final-evidence-20260723'
+            'fix/bind-telemetry-cursors-generation-main-20260723'
+          )
+
+          for branch in "${branches[@]}"; do
+            count=$(gh pr list --repo "$REPO" --state open --head "$branch" --limit 100 --json number --jq 'length')
+            test "$count" -eq 0
+            encoded=$(printf '%s' "$branch" | jq -sRr @uri)
+            gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"
+            echo "DELETE classified $branch" | tee -a "$report"
+          done
+
+      - name: Upload deletion report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-classified-branch-deletion-20260723
+          path: /tmp/final-classified-branch-deletion.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Delete cleanup branch
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/delete-final-classified-branches-20260723
+        run: |
+          set -euo pipefail
+          encoded=$(printf '%s' "$CLEANUP_BRANCH" | jq -sRr @uri)
+          gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"

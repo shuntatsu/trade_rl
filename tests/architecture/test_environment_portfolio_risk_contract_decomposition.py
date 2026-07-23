@@ -36,6 +36,6 @@ def test_portfolio_risk_builder_preserves_validation_order() -> None:
 
     digest_position = source.index("require_sha256(")
     minimum_position = source.index("provider.minimum_index")
-    aggregation_position = source.index("max(minimum_start_index, provider_minimum)")
+    aggregation_position = source.index("minimum_start_index = max(")
 
     assert digest_position < minimum_position < aggregation_position

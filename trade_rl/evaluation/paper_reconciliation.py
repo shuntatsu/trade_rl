@@ -22,13 +22,15 @@ def _utc(value: datetime, *, field: str) -> datetime:
     return require_aware_datetime(value, field=field).astimezone(UTC)
 
 
-def _non_negative_integer(value: int, *, field: str) -> int:
+def _non_negative_integer(value: object, *, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{field} must be a non-negative integer")
     return value
 
 
-def _fraction(value: float, *, field: str) -> float:
+def _fraction(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
     resolved = float(value)
     if not math.isfinite(resolved) or not 0.0 <= resolved <= 1.0:
         raise ValueError(f"{field} must be finite and between 0 and 1")
@@ -190,92 +192,125 @@ class PaperReconciliationEvidence:
         start = _utc(start_time, field="start_time")
         end = _utc(end_time, field="end_time")
         created = _utc(created_at, field="created_at")
-        counts = {
-            "submitted_order_count": _non_negative_integer(
-                submitted_order_count, field="submitted_order_count"
-            ),
-            "terminal_order_count": _non_negative_integer(
-                terminal_order_count, field="terminal_order_count"
-            ),
-            "observed_fill_count": _non_negative_integer(
-                observed_fill_count, field="observed_fill_count"
-            ),
-            "matched_fill_count": _non_negative_integer(
-                matched_fill_count, field="matched_fill_count"
-            ),
-            "unknown_order_fill_count": _non_negative_integer(
-                unknown_order_fill_count, field="unknown_order_fill_count"
-            ),
-            "duplicate_fill_count": _non_negative_integer(
-                duplicate_fill_count, field="duplicate_fill_count"
-            ),
-            "open_order_count": _non_negative_integer(
-                open_order_count, field="open_order_count"
-            ),
-        }
-        fractions = {
-            "maximum_position_notional_difference_fraction": _fraction(
-                maximum_position_notional_difference_fraction,
-                field="maximum_position_notional_difference_fraction",
-            ),
-            "maximum_cash_difference_fraction": _fraction(
-                maximum_cash_difference_fraction,
-                field="maximum_cash_difference_fraction",
-            ),
-            "maximum_equity_difference_fraction": _fraction(
-                maximum_equity_difference_fraction,
-                field="maximum_equity_difference_fraction",
-            ),
-            "position_notional_tolerance_fraction": _fraction(
-                position_notional_tolerance_fraction,
-                field="position_notional_tolerance_fraction",
-            ),
-            "cash_tolerance_fraction": _fraction(
-                cash_tolerance_fraction,
-                field="cash_tolerance_fraction",
-            ),
-            "equity_tolerance_fraction": _fraction(
-                equity_tolerance_fraction,
-                field="equity_tolerance_fraction",
-            ),
-        }
-        passed = all(_conditions(**counts, **fractions).values())
+        submitted_orders = _non_negative_integer(
+            submitted_order_count, field="submitted_order_count"
+        )
+        terminal_orders = _non_negative_integer(
+            terminal_order_count, field="terminal_order_count"
+        )
+        observed_fills = _non_negative_integer(
+            observed_fill_count, field="observed_fill_count"
+        )
+        matched_fills = _non_negative_integer(
+            matched_fill_count, field="matched_fill_count"
+        )
+        unknown_fills = _non_negative_integer(
+            unknown_order_fill_count, field="unknown_order_fill_count"
+        )
+        duplicate_fills = _non_negative_integer(
+            duplicate_fill_count, field="duplicate_fill_count"
+        )
+        open_orders = _non_negative_integer(open_order_count, field="open_order_count")
+        maximum_position_difference = _fraction(
+            maximum_position_notional_difference_fraction,
+            field="maximum_position_notional_difference_fraction",
+        )
+        maximum_cash_difference = _fraction(
+            maximum_cash_difference_fraction,
+            field="maximum_cash_difference_fraction",
+        )
+        maximum_equity_difference = _fraction(
+            maximum_equity_difference_fraction,
+            field="maximum_equity_difference_fraction",
+        )
+        position_tolerance = _fraction(
+            position_notional_tolerance_fraction,
+            field="position_notional_tolerance_fraction",
+        )
+        cash_tolerance = _fraction(
+            cash_tolerance_fraction,
+            field="cash_tolerance_fraction",
+        )
+        equity_tolerance = _fraction(
+            equity_tolerance_fraction,
+            field="equity_tolerance_fraction",
+        )
+        passed = all(
+            _conditions(
+                submitted_order_count=submitted_orders,
+                terminal_order_count=terminal_orders,
+                observed_fill_count=observed_fills,
+                matched_fill_count=matched_fills,
+                unknown_order_fill_count=unknown_fills,
+                duplicate_fill_count=duplicate_fills,
+                open_order_count=open_orders,
+                maximum_position_notional_difference_fraction=(
+                    maximum_position_difference
+                ),
+                maximum_cash_difference_fraction=maximum_cash_difference,
+                maximum_equity_difference_fraction=maximum_equity_difference,
+                position_notional_tolerance_fraction=position_tolerance,
+                cash_tolerance_fraction=cash_tolerance,
+                equity_tolerance_fraction=equity_tolerance,
+            ).values()
+        )
         payload: dict[str, object] = {
+            "cash_tolerance_fraction": cash_tolerance,
             "created_at": created,
             "dataset_id": dataset_id,
-            "duplicate_fill_count": counts["duplicate_fill_count"],
+            "duplicate_fill_count": duplicate_fills,
             "end_time": end,
             "environment_digest": environment_digest,
+            "equity_tolerance_fraction": equity_tolerance,
             "fill_log_digest": fill_log_digest,
-            "matched_fill_count": counts["matched_fill_count"],
-            "maximum_cash_difference_fraction": fractions[
-                "maximum_cash_difference_fraction"
-            ],
-            "maximum_equity_difference_fraction": fractions[
-                "maximum_equity_difference_fraction"
-            ],
-            "maximum_position_notional_difference_fraction": fractions[
-                "maximum_position_notional_difference_fraction"
-            ],
-            "observed_fill_count": counts["observed_fill_count"],
-            "open_order_count": counts["open_order_count"],
+            "matched_fill_count": matched_fills,
+            "maximum_cash_difference_fraction": maximum_cash_difference,
+            "maximum_equity_difference_fraction": maximum_equity_difference,
+            "maximum_position_notional_difference_fraction": (
+                maximum_position_difference
+            ),
+            "observed_fill_count": observed_fills,
+            "open_order_count": open_orders,
             "order_log_digest": order_log_digest,
             "passed": passed,
             "policy_digest": policy_digest,
-            "position_notional_tolerance_fraction": fractions[
-                "position_notional_tolerance_fraction"
-            ],
-            "cash_tolerance_fraction": fractions["cash_tolerance_fraction"],
-            "equity_tolerance_fraction": fractions["equity_tolerance_fraction"],
+            "position_notional_tolerance_fraction": position_tolerance,
             "schema_version": PAPER_RECONCILIATION_SCHEMA,
             "sealed": True,
             "start_time": start,
-            "submitted_order_count": counts["submitted_order_count"],
-            "terminal_order_count": counts["terminal_order_count"],
+            "submitted_order_count": submitted_orders,
+            "terminal_order_count": terminal_orders,
             "training_run_digest": training_run_digest,
-            "unknown_order_fill_count": counts["unknown_order_fill_count"],
+            "unknown_order_fill_count": unknown_fills,
         }
-        return cls(evidence_digest=content_digest(payload), **payload)
+        return cls(
+            evidence_digest=content_digest(payload),
+            dataset_id=dataset_id,
+            environment_digest=environment_digest,
+            policy_digest=policy_digest,
+            training_run_digest=training_run_digest,
+            start_time=start,
+            end_time=end,
+            created_at=created,
+            order_log_digest=order_log_digest,
+            fill_log_digest=fill_log_digest,
+            submitted_order_count=submitted_orders,
+            terminal_order_count=terminal_orders,
+            observed_fill_count=observed_fills,
+            matched_fill_count=matched_fills,
+            unknown_order_fill_count=unknown_fills,
+            duplicate_fill_count=duplicate_fills,
+            open_order_count=open_orders,
+            maximum_position_notional_difference_fraction=(
+                maximum_position_difference
+            ),
+            maximum_cash_difference_fraction=maximum_cash_difference,
+            maximum_equity_difference_fraction=maximum_equity_difference,
+            position_notional_tolerance_fraction=position_tolerance,
+            cash_tolerance_fraction=cash_tolerance,
+            equity_tolerance_fraction=equity_tolerance,
+            passed=passed,
+        )
 
     def conditions(self) -> dict[str, bool]:
         return _conditions(

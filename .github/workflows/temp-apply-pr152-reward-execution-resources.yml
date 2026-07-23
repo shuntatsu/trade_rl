@@ -1,0 +1,167 @@
+name: Apply PR152 reward execution resources
+
+on:
+  push:
+    branches:
+      - refactor/extract-environment-reward-execution-resources-20260723
+    paths:
+      - '.github/workflows/temp-apply-pr152-reward-execution-resources.yml'
+      - '.github/pr152-reward-execution-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Apply exact facade delegation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/rl/environment.py')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = (
+              (
+                  'from trade_rl.rl.environment_reward import EnvironmentRewardRequest\n',
+                  '''from trade_rl.rl.environment_reward import EnvironmentRewardRequest
+          from trade_rl.rl.environment_reward_execution_resources import (
+              EnvironmentRewardExecutionResources,
+              EnvironmentRewardExecutionResourcesBuilder,
+          )
+          ''',
+              ),
+              (
+                  '''from trade_rl.rl.episode import (
+              complete_reward_history_steps,
+              minimum_reward_start_index,
+          )
+          ''',
+                  'from trade_rl.rl.episode import complete_reward_history_steps\n',
+              ),
+              (
+                  '''from trade_rl.rl.rewards import (
+              REWARD_SCHEMA,
+              RewardTracker,
+          )
+          ''',
+                  'from trade_rl.rl.rewards import REWARD_SCHEMA\n',
+              ),
+              ('from trade_rl.simulation import MarketExecutor\n', ''),
+              (
+                  '''        self.reward_tracker = RewardTracker(
+              reward_config,
+              decision_hours=self._resolved_decision_hours,
+          )
+          if (
+              self.config.require_full_reward_preroll
+              and reward_config.baseline_underperformance_weight > 0.0
+          ):
+              self._minimum_start_index = minimum_reward_start_index(
+                  dataset,
+                  signal_minimum=self._minimum_start_index,
+                  window_hours=reward_config.baseline_window_hours,
+              )
+          self.hybrid_executor = MarketExecutor(
+              dataset,
+              self.config.execution_cost,
+              rule_stress=self.execution_rule_stress,
+          )
+          self.shadow_executor = MarketExecutor(
+              dataset,
+              self.config.execution_cost,
+              rule_stress=self.execution_rule_stress,
+          )
+          self.executor = self.hybrid_executor
+          self._reward_history_cache: dict[int, tuple[float, ...]] = {}
+          ''',
+                  '''        reward_execution_resources = EnvironmentRewardExecutionResourcesBuilder(
+              dataset,
+              config=self.config,
+              reward_config=reward_config,
+              resolved_decision_hours=self._resolved_decision_hours,
+              minimum_start_index=self._minimum_start_index,
+              execution_rule_stress=self.execution_rule_stress,
+          ).build()
+          self._install_reward_execution_resources(reward_execution_resources)
+          ''',
+              ),
+              (
+                  '''    def _install_initial_state(
+              self,
+              state: EnvironmentInitialState,
+          ) -> None:
+          ''',
+                  '''    def _install_reward_execution_resources(
+              self,
+              resources: EnvironmentRewardExecutionResources,
+          ) -> None:
+              self.reward_tracker = resources.reward_tracker
+              self._minimum_start_index = resources.minimum_start_index
+              self.hybrid_executor = resources.hybrid_executor
+              self.shadow_executor = resources.shadow_executor
+              self.executor = resources.executor
+              self._reward_history_cache = resources.reward_history_cache
+
+              def _install_initial_state(
+              self,
+              state: EnvironmentInitialState,
+          ) -> None:
+          ''',
+              ),
+          )
+
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise RuntimeError(f'expected exactly one replacement target: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Install dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_reward_execution_resources.py \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/architecture/test_environment_reward_execution_resources_decomposition.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run lint-imports
+          uv run pytest -q \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/architecture/test_environment_reward_execution_resources_decomposition.py \
+            tests/rl/test_environment_identity.py \
+            tests/rl/test_environment_timing.py
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/temp-apply-pr152-reward-execution-resources.yml \
+            .github/pr152-reward-execution-trigger
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: delegate reward execution resources'
+          git push origin HEAD:refactor/extract-environment-reward-execution-resources-20260723

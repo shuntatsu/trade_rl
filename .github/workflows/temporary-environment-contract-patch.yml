@@ -20,22 +20,24 @@ jobs:
           ref: refactor/extract-environment-observation-contract-20260723
           persist-credentials: true
 
-      - name: Patch environment delegation
+      - name: Patch and commit environment delegation
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("trade_rl/rl/environment.py")
-          text = path.read_text()
-          text = text.replace(
-              "from typing import Any, Protocol, cast\n",
-              "from typing import Any, Protocol\n",
-          )
-          text = text.replace("from gymnasium import spaces\n", "")
-          text = text.replace(
-              """from trade_rl.rl.observations import (
+          environment_path = Path("trade_rl/rl/environment.py")
+          text = environment_path.read_text()
+          start_marker = "        self.observation_builder = ObservationBuilder(\n"
+          if start_marker in text:
+              text = text.replace(
+                  "from typing import Any, Protocol, cast\n",
+                  "from typing import Any, Protocol\n",
+              )
+              text = text.replace("from gymnasium import spaces\n", "")
+              text = text.replace(
+                  """from trade_rl.rl.observations import (
               OBSERVATION_SCHEMA,
               ObservationBuilder,
               ObservationExecutionState,
@@ -44,15 +46,15 @@ jobs:
               observation_passthrough_indices,
           )
           """,
-              """from trade_rl.rl.observations import (
+                  """from trade_rl.rl.observations import (
               ObservationExecutionState,
               PendingOrderObservationState,
               PolicyObservationSnapshot,
           )
           """,
-          )
-          text = text.replace(
-              """from trade_rl.rl.sequence_observations import (
+              )
+              text = text.replace(
+                  """from trade_rl.rl.sequence_observations import (
               SEQUENCE_OBSERVATION_SCHEMA,
               SequenceObservationBuilder,
               SequencePolicyPlane,
@@ -60,30 +62,28 @@ jobs:
               build_sequence_policy_plane,
           )
           """,
-              "",
-          )
-          observation_import = """from trade_rl.rl.environment_observation import (
+                  "",
+              )
+              observation_import = """from trade_rl.rl.environment_observation import (
               EnvironmentObservationAssembler,
               EnvironmentObservationRuntime,
           )
           """
-          contract_import = """from trade_rl.rl.environment_observation_contract import (
+              contract_import = """from trade_rl.rl.environment_observation_contract import (
               EnvironmentObservationContractBuilder,
           )
           """
-          if contract_import not in text:
-              text = text.replace(
-                  observation_import,
-                  observation_import + contract_import,
+              if contract_import not in text:
+                  text = text.replace(
+                      observation_import,
+                      observation_import + contract_import,
+                  )
+              start = text.index(start_marker)
+              end = text.index(
+                  "        self._episode_sampler = EpisodeContractSampler(\n",
+                  start,
               )
-          start = text.index(
-              "        self.observation_builder = ObservationBuilder(\n"
-          )
-          end = text.index(
-              "        self._episode_sampler = EpisodeContractSampler(\n",
-              start,
-          )
-          replacement = """        observation_contract = EnvironmentObservationContractBuilder(
+              replacement = """        observation_contract = EnvironmentObservationContractBuilder(
               dataset,
               self.config,
               action_spec=self.action_spec,
@@ -111,8 +111,42 @@ jobs:
           self.action_space = observation_contract.action_space
           self._minimum_start_index = observation_contract.minimum_start_index
           """
-          path.write_text(text[:start] + replacement + text[end:])
+              environment_path.write_text(text[:start] + replacement + text[end:])
+          elif "EnvironmentObservationContractBuilder" not in text:
+              raise RuntimeError("environment observation block was not found")
+
+          contract_path = Path("trade_rl/rl/environment_observation_contract.py")
+          contract = contract_path.read_text()
+          contract = contract.replace(
+              "            observation_contract_digest = observation_builder.schema_digest(self.dataset)\n",
+              """            observation_contract_digest = observation_builder.schema_digest(
+              self.dataset
+          )
+          """,
+          )
+          contract = contract.replace(
+              """            raise ValueError(
+              "normalizer observation schema does not match environment"
+          )
+          """,
+              """            raise ValueError("normalizer observation schema does not match environment")
+          """,
+          )
+          contract_path.write_text(contract)
           PY
+
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_observation_contract.py
+          if git diff --cached --quiet; then
+            echo "No implementation changes"
+          else
+            git commit -m "refactor: delegate environment observation contract"
+            git push origin HEAD:refactor/extract-environment-observation-contract-20260723
+          fi
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -122,33 +156,6 @@ jobs:
 
       - name: Install
         run: uv sync --extra dev --extra train-sb3
-
-      - name: Format implementation
-        run: >-
-          uv run ruff format
-          trade_rl/rl/environment.py
-          trade_rl/rl/environment_observation_contract.py
-          tests/architecture/test_environment_observation_contract_decomposition.py
-          tests/rl/test_environment_observation_contract.py
-
-      - name: Commit implementation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_observation_contract.py \
-            tests/architecture/test_environment_observation_contract_decomposition.py \
-            tests/rl/test_environment_observation_contract.py
-          if git diff --cached --quiet; then
-            echo "No implementation changes"
-          else
-            git commit -m "refactor: delegate environment observation contract"
-            git push origin HEAD:refactor/extract-environment-observation-contract-20260723
-          fi
 
       - name: Focused static verification
         run: |

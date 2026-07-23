@@ -1,0 +1,108 @@
+name: Delete post PR165 branches 2026-07-24
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/delete-post-pr165-branches-20260724.yml']
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: delete-post-pr165-branches-20260724
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    if: github.head_ref == 'ci/delete-post-pr165-branches-20260724'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact cleanup head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact branch allowlist and delete
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/delete-post-pr165-branches-20260724
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+          report=/tmp/post-pr165-branch-deletion.txt
+          : > "$report"
+          echo 'post_pr165_exact_branch_deletion_v1' >> "$report"
+          echo "main_sha=$(git rev-parse origin/main)" >> "$report"
+
+          cat > /tmp/expected-branches.txt <<'EOF'
+          audit/final-branch-inventory-20260723
+          audit/finalize-pr165-exact-20260723
+          audit/fix-pr165-doc-contract-20260723
+          audit/post-pr165-branch-inventory-20260724
+          audit/pr165-postgres-trigger-base-20260723
+          audit/pr165-postgres-trigger-base2-20260723
+          audit/update-pr165-resolution-docs-20260723
+          audit/validate-pr165-postgres-20260723
+          audit/validate-pr165-postgres-exact-20260723
+          audit/validate-pr165-postgres-final-20260723
+          audit/validate-pr165-postgres-final2-20260723
+          ci/sync-pr165-finalizer-20260723
+          docs/resolve-environment-facade-audit-20260723
+          EOF
+          sed -i 's/^          //' /tmp/expected-branches.txt
+          sort -o /tmp/expected-branches.txt /tmp/expected-branches.txt
+
+          git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin \
+            | grep -v '^HEAD$' \
+            | grep -v '^main$' \
+            | grep -v "^${CLEANUP_BRANCH}$" \
+            | sort -u > /tmp/observed-branches.txt
+
+          echo "expected_count=$(wc -l < /tmp/expected-branches.txt)" >> "$report"
+          echo "observed_count=$(wc -l < /tmp/observed-branches.txt)" >> "$report"
+          if ! diff -u /tmp/expected-branches.txt /tmp/observed-branches.txt | tee -a "$report"; then
+            echo 'ABORT unexpected branch inventory' | tee -a "$report"
+            exit 1
+          fi
+
+          while IFS= read -r branch; do
+            open_count=$(gh pr list --repo "$REPO" --state open --head "$branch" --limit 100 --json number --jq 'length')
+            if [ "$open_count" -ne 0 ]; then
+              echo "ABORT open-pr branch=$branch count=$open_count" | tee -a "$report"
+              exit 1
+            fi
+            encoded=$(printf '%s' "$branch" | jq -sRr @uri)
+            gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"
+            echo "DELETE $branch" | tee -a "$report"
+          done < /tmp/expected-branches.txt
+
+          echo 'deleted_count=13' >> "$report"
+          echo 'delete_failed=0' >> "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload exact deletion report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: post-pr165-branch-deletion-20260724
+          path: /tmp/post-pr165-branch-deletion.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Delete cleanup branch
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/delete-post-pr165-branches-20260724
+        run: |
+          set -euo pipefail
+          encoded=$(printf '%s' "$CLEANUP_BRANCH" | jq -sRr @uri)
+          gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"

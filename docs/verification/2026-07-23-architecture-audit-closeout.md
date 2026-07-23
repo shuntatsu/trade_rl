@@ -7,12 +7,11 @@ This document closes or reclassifies the findings recorded in
 independent remediation pull requests were integrated.
 
 The current integrated source baseline is `main` merge commit
-`3c02270a83a40a2c58a84fabcfb586915163947a`, which includes the canonical
+`9d7790f8d570d94220b40c903a32e43ae5fad5a7`, which includes the canonical
 observation, provider, runtime-service, portfolio-risk, policy/schedule,
-initial-state, and corrected verification remediations through PR #140. The
-latest verified `AUD-RL-001` remediation candidate is PR #152 exact
-implementation and coverage-ratchet head
-`5856752aa085e16fd7133059ef3878db072eded5`.
+initial-state, reward/execution-resource, and corrected verification remediations
+through PR #152. PR #165 is the documentation-contract closeout for the original
+deferred `AUD-RL-001` risk; it does not change Python production behavior.
 
 The 2026-07-22 report remains a historical record of what was observed at its
 audited commit. It must not be read as the current defect list. Current status is
@@ -31,11 +30,12 @@ direct exchange capability.
 | `AUD-ARCH-001` | P2 | RESOLVED | PR #79 removed initializer mutation; PR #111 made public modules canonical maintained owners |
 | `AUD-SIM-001` | P2 | RESOLVED | PR #107 stateful execution phase decomposition |
 | `AUD-CI-002` | P2 | RESOLVED | PR #88 stable numerical contract; PR #106 permanent cross-platform guard |
-| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts; PR #126 policy/schedule contracts; PR #140 initial mutable-state factory; PR #152 reward/execution resources |
+| `AUD-RL-001` | P2 risk | RESOLVED | PR #92 typed step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 runtime-service wiring; PR #125 portfolio-risk contracts; PR #126 policy/schedule contracts; PR #140 initial-state factory; PR #152 reward/execution resources; PR #165 executable resolution contract |
 
 No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
-The only open item is a maintainability risk without a reproduced behavioral
-failure.
+All recorded architecture findings are now resolved. Capability, operational,
+authorization, evidence-duration, and profitability gates remain independent and do
+not become resolved by this architecture closeout.
 
 ## 3. Finding-by-finding disposition
 
@@ -169,111 +169,68 @@ platforms, and normal CI also passed.
 The original numerical flake is therefore closed without weakening the semantic
 policy-parity boundary.
 
-### AUD-RL-001 — OPEN RISK, FURTHER REDUCED
+### AUD-RL-001 — RESOLVED
 
-No behavior defect was reproduced in the original audit, so this remains a risk
-rather than a confirmed bug.
+The original audit classified this item as a P2 maintainability risk, not a
+reproduced behavior defect. It explicitly prohibited a mechanical split and deferred
+remediation until concrete action, risk, or reward work supplied testable seams. That
+deferred condition is now satisfied.
 
-PR #92 reduced the concentration by extracting typed decision planning, risk
-projection, reward coordination, and information construction. Earlier runtime
-work also separated episode sampling, stateful target execution, observation
-assembly, and termination coordination. `step()` is now an orchestration facade
-which delegates those responsibilities while retaining mutable Gymnasium state.
+PR #92 extracted typed decision planning, risk projection, reward coordination, and
+information construction. Episode sampling, stateful target execution, observation
+assembly, and termination coordination are also dedicated services. `step()` remains
+an orchestration facade: it calls the typed decision, risk, execution, termination,
+reward, observation, and information owners, then applies their returned mutable state
+through the stable Gymnasium API.
 
-PR #114 extracted the deterministic observation seam. The typed
-`EnvironmentObservationContractBuilder` owns builder/layout construction, flat and
-structured schemas and digests, normalizer identity validation, sequence windows
-and policy plane, Gymnasium spaces, and the sequence-derived minimum index.
-Architecture tests prohibit those low-level operations from returning to
-`ResidualMarketEnv.__init__()`.
+PR #114 extracted deterministic observation construction, schemas, digests,
+normalizer identity, sequence windows, policy planes, and Gymnasium spaces. PR #120
+extracted provider reconciliation, alpha and factor identities, static factor-basis
+validation, and provider-derived causal minimum indices. PR #122 extracted the typed
+eight-service construction graph.
 
-PR #120 extracted the provider seam. The typed
-`EnvironmentProviderContractBuilder` owns trend and `MarketInputResolver`
-reconciliation, causal alpha compatibility wrapping, alpha and factor artifact
-identities, static factor-basis validation and copying, factor-count inference, and
-provider-derived minimum indices. The legacy provider protocols are imported by the
-environment facade from the maintained owner rather than redefined locally.
+PR #125 extracted portfolio-risk model/provider selection, SHA-256 identity and
+minimum-index validation. PR #126 extracted configuration, emergency-monitor,
+action-layout, reward-config, and episode/decision schedule policy. PR #140 extracted
+fresh invocation-local initial state. PR #152 extracted reward-tracker, full reward
+pre-roll, independent hybrid/shadow executor, maintained executor-alias, and reward
+cache construction.
 
-PR #122 extracted the runtime-service wiring seam. The frozen
-`EnvironmentRuntimeServices` contract and `EnvironmentRuntimeServicesBuilder` own
-the existing eight-service construction graph and preserve the original episode,
-execution, observation, decision, risk, reward, information, and termination order.
-The builder receives validated collaborators but no mutable books, order books,
-indices, pending targets, episode seeds, diagnostics, or reset state.
+`reset()` retains mutable Gymnasium state, episode-state validation, stable reset
+semantics, and application of fresh books, orders, arrays, diagnostics, and reward
+history. This is the protected invariant from the original audit, not unremediated
+construction debt. No further mechanical split is justified: future extraction now
+requires a concrete behavior-preserving seam and characterization evidence.
 
-PR #125 extracted the portfolio-risk input seam. The typed
-`EnvironmentPortfolioRiskContractBuilder` owns default model construction,
-advanced-input provider selection, provider SHA-256 identity validation, provider
-minimum-index validation, and aggregation with the existing causal minimum. Digest
-validation remains ordered before minimum-index access, and supplied model/provider
-identities are preserved.
+The audited constructor spanned 479 lines. The maintained constructor now has a
+150-line architecture limit and contains typed contract construction, assignment, and
+orchestration rather than inline action, risk, reward, execution, observation, or
+information policy.
 
-PR #126 extracted the deterministic policy and schedule seam. The frozen
-`EnvironmentPolicyScheduleContract` and
-`EnvironmentPolicyScheduleContractBuilder` own config resolution, emergency-monitor
-construction, leverage and random-gross validation, action-spec resolution and
-validation, action names, episode/decision bars, reward-config resolution, resolved
-decision hours, and episode-hour-choice validation. Existing identities, exception
-text, and validation order are preserved. Reward-tracker and executor construction
-remain outside this boundary.
+Architecture tests enforce:
 
-PR #140 extracted the invocation-local initial mutable-state seam. The frozen
-`EnvironmentInitialStateRequest` and `EnvironmentInitialState` contracts plus
-`EnvironmentInitialStateFactory` own the initial indices, independent hybrid and
-shadow books, episode defaults, action and position arrays, independent order books,
-observation execution state, diagnostics, and reset flag. Each invocation returns
-fresh mutable values, while the environment facade retains the maintained attribute
-names through one typed installation method.
+- one typed owner for each extracted constructor and runtime responsibility;
+- delegation of decision, risk, execution, termination, reward, observation, and info
+  from the stable facade;
+- absence of extracted policy and direct construction from the constructor;
+- preservation of construction order, identities, public behavior, and the 150-line
+  architecture limit;
+- continued local ownership of mutable reset/step state application.
 
-PR #152 extracts the reward and execution resource seam. The frozen
-`EnvironmentRewardExecutionResources` contract and
-`EnvironmentRewardExecutionResourcesBuilder` own reward-tracker construction,
-optional full reward pre-roll, independent hybrid and shadow executor construction,
-the maintained executor alias, and the fresh reward-history cache. Construction and
-validation order, supplied identities, public attributes, and downstream service
-inputs are preserved.
+The provider, runtime-service, portfolio-risk, policy/schedule, initial-state, and
+reward/execution-resource modules all have permanent 100.0% critical coverage
+ratchets. PR #152 exact-head verification passed 1,343 tests with 84.25% total
+coverage and 71.24% total branch coverage, plus Ruff, formatting, Mypy, Import
+Linter, Serving smoke, CLI, Ubuntu, Windows, complete training-image/non-root, and
+PostgreSQL Catalog checks.
 
-The provider extraction reduced the constructor from 321 to 262 source lines. The
-runtime-services extraction further reduced it to 232 lines. The portfolio-risk
-contract reduced it to 218 lines. The policy/schedule contract reduced it to 186
-lines. The initial-state factory reduced it to 168 lines. The reward/execution
-resource boundary further reduces it to 150 lines and enforces a 150-line
-architecture limit. The facade retains existing attributes while direct construction
-and validation policy are prohibited from returning inline.
+The executable documentation contract in
+`tests/test_current_documentation_contract.py` prevents this resolved finding from
+being presented as open again and requires the protected reset/step boundary,
+architecture controls, and production `NO-GO` statement to remain explicit.
 
-The provider contract measured 109 / 109 statements and 44 / 44 branches covered.
-The runtime-service module measured 61 / 61 statements with no executable branch
-points. The portfolio-risk contract measured 29 / 29 statements and 6 / 6 branches.
-The policy/schedule contract measured 53 / 53 statements and 16 / 16 branches. The
-initial-state module measured 45 / 45 statements with no executable branch points.
-The reward/execution resource module measured 33 / 33 statements and 2 / 2 branches.
-All six have permanent 100.0% critical coverage ratchets. PR #152 exact-head
-verification passed 1,343 tests, 84.25% total coverage, 71.24% total branch
-coverage, Ubuntu, Windows, training-image, Import Linter, CLI, and PostgreSQL
-Catalog checks. The verification runs were CI `30015551379` and PostgreSQL Catalog
-`30015552890`.
-
-The remaining construction density is validated contract assignment and
-observation/runtime orchestration. A mechanical split is still not justified without
-another concrete behavior-preserving seam and characterization evidence.
-
-Control:
-
-- retain the environment runtime, step-service, observation-contract,
-  provider-contract, runtime-service, portfolio-risk-contract,
-  policy/schedule-contract, initial-state, and reward/execution-resource architecture
-  tests;
-- retain the 100.0% critical coverage ratchets for the extracted contract and
-  wiring modules;
-- do not add new action, risk, reward, execution, observation, provider,
-  portfolio-risk input, policy/schedule, service-wiring, initial-state, or
-  reward/execution-resource construction policy directly to the facade when a typed
-  owner exists;
-- extract further constructor responsibilities only with characterization tests
-  that preserve validation order, identities, and public behavior.
-
-This risk does not block research use, but it remains the next architecture
-maintenance watchpoint.
+`AUD-RL-001` is therefore resolved. Future facade regression is governed by maintained
+architecture tests and coverage ratchets rather than retained as an open finding.
 
 ## 4. Current architecture judgment
 

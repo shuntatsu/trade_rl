@@ -139,32 +139,13 @@ jobs:
               raise RuntimeError("missing observation contract import marker")
           text = text.replace(marker, marker + new_import, 1)
 
-          old_block = """        self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
-                  resolved_risk_provider = portfolio_risk_inputs_provider
-                  if (
-                      self.portfolio_risk.requires_advanced_inputs
-                      and resolved_risk_provider is None
-                  ):
-                      resolved_risk_provider = RollingPortfolioRiskInputsProvider()
-                  self.portfolio_risk_inputs_provider = resolved_risk_provider
-                  if resolved_risk_provider is not None:
-                      require_sha256(
-                          resolved_risk_provider.identity_digest,
-                          field="portfolio_risk_inputs_provider.identity_digest",
-                      )
-                      minimum_index = resolved_risk_provider.minimum_index
-                      if (
-                          isinstance(minimum_index, bool)
-                          or not isinstance(minimum_index, int)
-                          or minimum_index < 0
-                          or minimum_index >= dataset.n_bars
-                      ):
-                          raise ValueError("portfolio risk inputs minimum_index is invalid")
-                      self._minimum_start_index = max(
-                          self._minimum_start_index, minimum_index
-                      )
-          """
-          new_block = """        portfolio_risk_contract = EnvironmentPortfolioRiskContractBuilder(
+          start_marker = (
+              "        self.portfolio_risk = portfolio_risk or PortfolioRiskModel()\n"
+          )
+          end_marker = "        self.normalizer = normalizer\n"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = """        portfolio_risk_contract = EnvironmentPortfolioRiskContractBuilder(
                       dataset,
                       portfolio_risk=portfolio_risk,
                       inputs_provider=portfolio_risk_inputs_provider,
@@ -177,9 +158,7 @@ jobs:
                       portfolio_risk_contract.minimum_start_index
                   )
           """
-          if old_block not in text:
-              raise RuntimeError("missing expected inline portfolio risk block")
-          path.write_text(text.replace(old_block, new_block, 1))
+          path.write_text(text[:start] + replacement + text[end:])
           PY
 
       - name: Set up uv

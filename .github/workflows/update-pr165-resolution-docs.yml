@@ -1,0 +1,252 @@
+name: Update PR165 resolution documents
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/update-pr165-resolution-docs.yml'
+
+permissions:
+  contents: write
+
+env:
+  TARGET_SHA: e9be30ce1a10d7695d8a5a00d682c5a0a655bc23
+  TARGET_BRANCH: docs/resolve-environment-facade-audit-20260723
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact RED head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Verify exact RED head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+
+      - name: Update closeout and resolution evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          closeout_path = Path(
+              'docs/verification/2026-07-23-architecture-audit-closeout.md'
+          )
+          closeout = closeout_path.read_text(encoding='utf-8')
+
+          old_baseline = '''The current integrated source baseline is `main` merge commit
+          `3c02270a83a40a2c58a84fabcfb586915163947a`, which includes the canonical
+          observation, provider, runtime-service, portfolio-risk, policy/schedule,
+          initial-state, and corrected verification remediations through PR #140. The
+          latest verified `AUD-RL-001` remediation candidate is PR #152 exact
+          implementation and coverage-ratchet head
+          `5856752aa085e16fd7133059ef3878db072eded5`.
+          '''
+          new_baseline = '''The current integrated source baseline is `main` merge commit
+          `9d7790f8d570d94220b40c903a32e43ae5fad5a7`, which includes the canonical
+          observation, provider, runtime-service, portfolio-risk, policy/schedule,
+          initial-state, reward/execution-resource, and corrected verification remediations
+          through PR #152. PR #165 is the documentation-contract closeout for the original
+          deferred `AUD-RL-001` risk; it does not change Python production behavior.
+          '''
+          if closeout.count(old_baseline) != 1:
+              raise RuntimeError('integrated-source baseline marker changed')
+          closeout = closeout.replace(old_baseline, new_baseline, 1)
+
+          old_row = '| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts; PR #126 policy/schedule contracts; PR #140 initial mutable-state factory; PR #152 reward/execution resources |'
+          new_row = '| `AUD-RL-001` | P2 risk | RESOLVED | PR #92 typed step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 runtime-service wiring; PR #125 portfolio-risk contracts; PR #126 policy/schedule contracts; PR #140 initial-state factory; PR #152 reward/execution resources; PR #165 executable resolution contract |'
+          if closeout.count(old_row) != 1:
+              raise RuntimeError('AUD-RL-001 summary row changed')
+          closeout = closeout.replace(old_row, new_row, 1)
+
+          old_summary = '''No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
+          The only open item is a maintainability risk without a reproduced behavioral
+          failure.
+          '''
+          new_summary = '''No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
+          All recorded architecture findings are now resolved. Capability, operational,
+          authorization, evidence-duration, and profitability gates remain independent and do
+          not become resolved by this architecture closeout.
+          '''
+          if closeout.count(old_summary) != 1:
+              raise RuntimeError('closeout summary paragraph changed')
+          closeout = closeout.replace(old_summary, new_summary, 1)
+
+          section_start = closeout.index(
+              '### AUD-RL-001 — OPEN RISK, FURTHER REDUCED'
+          )
+          section_end = closeout.index('## 4. Current architecture judgment')
+          resolved_section = '''### AUD-RL-001 — RESOLVED
+
+          The original audit classified this item as a P2 maintainability risk, not a
+          reproduced behavior defect. It explicitly prohibited a mechanical split and deferred
+          remediation until concrete action, risk, or reward work supplied testable seams. That
+          deferred condition is now satisfied.
+
+          PR #92 extracted typed decision planning, risk projection, reward coordination, and
+          information construction. Episode sampling, stateful target execution, observation
+          assembly, and termination coordination are also dedicated services. `step()` remains
+          an orchestration facade: it calls the typed decision, risk, execution, termination,
+          reward, observation, and information owners, then applies their returned mutable state
+          through the stable Gymnasium API.
+
+          PR #114 extracted deterministic observation construction, schemas, digests,
+          normalizer identity, sequence windows, policy planes, and Gymnasium spaces. PR #120
+          extracted provider reconciliation, alpha and factor identities, static factor-basis
+          validation, and provider-derived causal minimum indices. PR #122 extracted the typed
+          eight-service construction graph.
+
+          PR #125 extracted portfolio-risk model/provider selection, SHA-256 identity and
+          minimum-index validation. PR #126 extracted configuration, emergency-monitor,
+          action-layout, reward-config, and episode/decision schedule policy. PR #140 extracted
+          fresh invocation-local initial state. PR #152 extracted reward-tracker, full reward
+          pre-roll, independent hybrid/shadow executor, maintained executor-alias, and reward
+          cache construction.
+
+          `reset()` retains mutable Gymnasium state, episode-state validation, stable reset
+          semantics, and application of fresh books, orders, arrays, diagnostics, and reward
+          history. This is the protected invariant from the original audit, not unremediated
+          construction debt. No further mechanical split is justified: future extraction now
+          requires a concrete behavior-preserving seam and characterization evidence.
+
+          The audited constructor spanned 479 lines. The maintained constructor now has a
+          150-line architecture limit and contains typed contract construction, assignment, and
+          orchestration rather than inline action, risk, reward, execution, observation, or
+          information policy.
+
+          Architecture tests enforce:
+
+          - one typed owner for each extracted constructor and runtime responsibility;
+          - delegation of decision, risk, execution, termination, reward, observation, and info
+            from the stable facade;
+          - absence of extracted policy and direct construction from the constructor;
+          - preservation of construction order, identities, public behavior, and the 150-line
+            architecture limit;
+          - continued local ownership of mutable reset/step state application.
+
+          The provider, runtime-service, portfolio-risk, policy/schedule, initial-state, and
+          reward/execution-resource modules all have permanent 100.0% critical coverage
+          ratchets. PR #152 exact-head verification passed 1,343 tests with 84.25% total
+          coverage and 71.24% total branch coverage, plus Ruff, formatting, Mypy, Import
+          Linter, Serving smoke, CLI, Ubuntu, Windows, complete training-image/non-root, and
+          PostgreSQL Catalog checks.
+
+          The executable documentation contract in
+          `tests/test_current_documentation_contract.py` prevents this resolved finding from
+          being presented as open again and requires the protected reset/step boundary,
+          architecture controls, and production `NO-GO` statement to remain explicit.
+
+          `AUD-RL-001` is therefore resolved. Future facade regression is governed by maintained
+          architecture tests and coverage ratchets rather than retained as an open finding.
+
+          '''
+          closeout = closeout[:section_start] + resolved_section + closeout[section_end:]
+          closeout_path.write_text(closeout, encoding='utf-8')
+
+          resolution_path = Path(
+              'docs/verification/2026-07-23-environment-facade-audit-resolution.md'
+          )
+          resolution_path.write_text(
+              '''# Environment Facade Audit Resolution — 2026-07-23
+
+          ## 1. Decision
+
+          `AUD-RL-001` is resolved as a software-architecture finding.
+
+          The original audit recorded a P2 maintainability risk rather than a behavioral defect.
+          It protected mutable Gymnasium state and the stable reset/step/info APIs, rejected a
+          mechanical split, and deferred remediation until concrete action/risk/reward work
+          supplied testable typed seams.
+
+          PRs #92, #114, #120, #122, #125, #126, #140, and #152 supplied those seams. The
+          maintained facade now orchestrates typed owners while retaining the mutable state and
+          stable APIs the original audit explicitly required it to own.
+
+          Production remains `NO-GO`.
+
+          ## 2. RED documentation-contract evidence
+
+          The RED head was:
+
+          - commit: `e9be30ce1a10d7695d8a5a00d682c5a0a655bc23`;
+          - CI run: `30017876462`;
+          - pytest artifact: `8568032136`;
+          - artifact digest:
+            `sha256:6663569694cdc228f727a1e70f5aef15f9a05149344c22175a96b25408c5700c`.
+
+          Static checks, Mypy, Import Linter, Serving smoke, Ubuntu, Windows, and the complete
+          training image/non-root probe passed. Full pytest produced exactly one intended
+          failure:
+
+          - 1 failed;
+          - 1,343 passed;
+          - 2 skipped;
+          - 11 warnings;
+          - 84.25% total coverage.
+
+          The failure was
+          `test_environment_facade_audit_is_resolved_with_protected_state_boundary`, because the
+          closeout summary still classified `AUD-RL-001` as `OPEN RISK, FURTHER REDUCED`.
+
+          ## 3. Resolution criteria
+
+          The finding is closed because:
+
+          - the constructor is bounded by a maintained 150-line architecture limit, down from
+            the audited 479 lines;
+          - typed builders own observation, provider, runtime-service, portfolio-risk,
+            policy/schedule, initial-state, and reward/execution construction;
+          - typed services own decision planning, risk projection, stateful target execution,
+            termination, reward coordination, observation assembly, and information building;
+          - `step()` remains an orchestration facade and no longer owns extracted policy;
+          - `reset()` retains mutable Gymnasium state and stable reset semantics as required by
+            the protected invariant;
+          - architecture tests prohibit extracted responsibilities from returning inline;
+          - extracted construction and wiring modules have permanent 100.0% critical coverage
+            ratchets;
+          - no further mechanical split is justified without a new concrete behavior seam.
+
+          ## 4. Capability boundary
+
+          Resolving this maintainability finding does not establish:
+
+          - profitability;
+          - exchange-equivalent fills or L2 realism;
+          - authenticated exchange/broker access;
+          - direct order submit/cancel/replace/reconciliation;
+          - production secret distribution, venue kill switches, or operational alerting;
+          - paper/live reconciliation evidence;
+          - required out-of-sample duration or statistical uplift.
+
+          Production status remains `NO-GO` until the independent research, evidence,
+          operational, authorization, and profitability gates pass.
+
+          ## 5. Integration gate
+
+          This PR changes documentation and one executable documentation contract only. Before
+          merge, its exact final head must pass normal CI, complete pytest and coverage, critical
+          coverage checks, CLI smoke, Ubuntu and Windows compatibility, the complete training
+          image/non-root probe, and PostgreSQL Catalog validation.
+          '''.replace('          ', ''),
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Verify and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            docs/verification/2026-07-23-architecture-audit-closeout.md \
+            docs/verification/2026-07-23-environment-facade-audit-resolution.md
+          git commit -m 'docs: resolve environment facade architecture risk'
+          git push origin "HEAD:${TARGET_BRANCH}"

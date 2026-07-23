@@ -12,12 +12,8 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
-from trade_rl.domain.common import require_sha256
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
-from trade_rl.risk.inputs import (
-    PortfolioRiskInputsProvider,
-    RollingPortfolioRiskInputsProvider,
-)
+from trade_rl.risk.inputs import PortfolioRiskInputsProvider
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.rl.actions import (
@@ -50,6 +46,9 @@ from trade_rl.rl.environment_info import (
 from trade_rl.rl.environment_observation import EnvironmentObservationRuntime
 from trade_rl.rl.environment_observation_contract import (
     EnvironmentObservationContractBuilder,
+)
+from trade_rl.rl.environment_portfolio_risk_contract import (
+    EnvironmentPortfolioRiskContractBuilder,
 )
 from trade_rl.rl.environment_provider_contract import (
     AlphaProvider,
@@ -149,28 +148,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._minimum_start_index = provider_contract.minimum_start_index
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
-        self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
-        resolved_risk_provider = portfolio_risk_inputs_provider
-        if (
-            self.portfolio_risk.requires_advanced_inputs
-            and resolved_risk_provider is None
-        ):
-            resolved_risk_provider = RollingPortfolioRiskInputsProvider()
-        self.portfolio_risk_inputs_provider = resolved_risk_provider
-        if resolved_risk_provider is not None:
-            require_sha256(
-                resolved_risk_provider.identity_digest,
-                field="portfolio_risk_inputs_provider.identity_digest",
-            )
-            minimum_index = resolved_risk_provider.minimum_index
-            if (
-                isinstance(minimum_index, bool)
-                or not isinstance(minimum_index, int)
-                or minimum_index < 0
-                or minimum_index >= dataset.n_bars
-            ):
-                raise ValueError("portfolio risk inputs minimum_index is invalid")
-            self._minimum_start_index = max(self._minimum_start_index, minimum_index)
+        portfolio_risk_contract = EnvironmentPortfolioRiskContractBuilder(
+            dataset,
+            portfolio_risk=portfolio_risk,
+            inputs_provider=portfolio_risk_inputs_provider,
+        ).build(minimum_start_index=self._minimum_start_index)
+        self.portfolio_risk = portfolio_risk_contract.portfolio_risk
+        self.portfolio_risk_inputs_provider = portfolio_risk_contract.inputs_provider
+        self._minimum_start_index = portfolio_risk_contract.minimum_start_index
         self.normalizer = normalizer
         self.sequence_normalizer = sequence_normalizer
         self.execution_rule_stress = execution_rule_stress

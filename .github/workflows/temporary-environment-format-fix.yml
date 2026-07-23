@@ -1,0 +1,43 @@
+name: Temporary Environment Format Fix
+
+on:
+  push:
+    branches:
+      - refactor/extract-environment-observation-contract-20260723
+    paths:
+      - .github/environment-format-fix-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/extract-environment-observation-contract-20260723
+          persist-credentials: true
+
+      - name: Fix format and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/environment.py")
+          text = path.read_text()
+          text = text.replace(
+              "        self.sequence_layout_metadata = (\n            observation_contract.sequence_layout_metadata\n        )\n",
+              "        self.sequence_layout_metadata = observation_contract.sequence_layout_metadata\n",
+          )
+          path.write_text(text)
+          PY
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/rl/environment.py
+          git commit -m "style: format environment observation delegation"
+          git push origin HEAD:refactor/extract-environment-observation-contract-20260723

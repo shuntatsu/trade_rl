@@ -106,6 +106,35 @@ uv run trade-rl train run \
   --run-id quickstart-001
 ```
 
+## Paper reconciliationとOffline証拠
+
+`paper_reconciliation_request_v1`には、外部Paper環境で正規化した注文・約定・会計照合の測定値を入れます。CLIはfield closure、型、Identity、時刻、件数、差分、許容値を検証し、`passed`を再計算します。ただし、入力値が本当に特定Paper環境から取得されたこと自体をCLIが証明するわけではありません。
+
+作成された照合artifactのdigestをFresh confirmation requestへ入れ、その後Ed25519署名します。Serving packageでは照合artifactの明示パスが必須です。
+
+```bash
+uv run trade-rl reconciliation create \
+  --request /secure/paper-reconciliation-request.json \
+  --output /secure/paper-reconciliation.json
+
+uv run trade-rl confirmation create \
+  --request /secure/fresh-confirmation-request.json \
+  --private-key /secure/confirmation-key.json \
+  --output /secure/fresh-confirmation.json
+
+uv run trade-rl serving package \
+  --training-run var/research/selected-final \
+  --confirmation /secure/fresh-confirmation.json \
+  --paper-reconciliation /secure/paper-reconciliation.json \
+  --confirmation-public-keys /secure/confirmation-public-keys.json \
+  --output var/serving/candidate \
+  --signal-digest <signal-sha256> \
+  --selection-digest <selection-sha256> \
+  --trusted-now 2026-08-18T03:00:00Z
+```
+
+照合artifactを作れることは、実際のPaper runがGateを通過したことを意味しません。Production statusは実証証拠が揃うまで`NO-GO`です。
+
 ## PostgreSQL artifact catalog
 
 ```bash

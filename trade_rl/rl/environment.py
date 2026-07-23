@@ -332,32 +332,32 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._reward_history_cache: dict[int, tuple[float, ...]] = {}
 
         observation_contract = EnvironmentObservationContractBuilder(
-    dataset,
-    self.config,
-    action_spec=self.action_spec,
-    normalizer=self.normalizer,
-    sequence_normalizer=self.sequence_normalizer,
-    alpha_artifact_digest=self.alpha_artifact_digest,
-    factor_artifact_digest=self.factor_artifact_digest,
-    action_spec_digest=self.action_spec_digest,
-).build(minimum_start_index=self._minimum_start_index)
-self.observation_builder = observation_contract.observation_builder
-self.layout = observation_contract.layout
-self.asset_active_column = observation_contract.asset_active_column
-self.sequence_observation_builder = (
-    observation_contract.sequence_observation_builder
-)
-self.sequence_policy_plane = observation_contract.sequence_policy_plane
-self.sequence_layout_metadata = (
-    observation_contract.sequence_layout_metadata
-)
-self._observation_schema = observation_contract.observation_schema
-self._observation_contract_digest = (
-    observation_contract.observation_contract_digest
-)
-self.observation_space = observation_contract.observation_space
-self.action_space = observation_contract.action_space
-self._minimum_start_index = observation_contract.minimum_start_index
+            dataset,
+            self.config,
+            action_spec=self.action_spec,
+            normalizer=self.normalizer,
+            sequence_normalizer=self.sequence_normalizer,
+            alpha_artifact_digest=self.alpha_artifact_digest,
+            factor_artifact_digest=self.factor_artifact_digest,
+            action_spec_digest=self.action_spec_digest,
+        ).build(minimum_start_index=self._minimum_start_index)
+        self.observation_builder = observation_contract.observation_builder
+        self.layout = observation_contract.layout
+        self.asset_active_column = observation_contract.asset_active_column
+        self.sequence_observation_builder = (
+            observation_contract.sequence_observation_builder
+        )
+        self.sequence_policy_plane = observation_contract.sequence_policy_plane
+        self.sequence_layout_metadata = (
+            observation_contract.sequence_layout_metadata
+        )
+        self._observation_schema = observation_contract.observation_schema
+        self._observation_contract_digest = (
+            observation_contract.observation_contract_digest
+        )
+        self.observation_space = observation_contract.observation_space
+        self.action_space = observation_contract.action_space
+        self._minimum_start_index = observation_contract.minimum_start_index
         self._episode_sampler = EpisodeContractSampler(
             dataset,
             self.config,

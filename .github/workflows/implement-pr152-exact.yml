@@ -160,11 +160,6 @@ jobs:
               raise RuntimeError("reward import block changed")
           text = text.replace(reward_import, "from trade_rl.rl.rewards import REWARD_SCHEMA\n", 1)
 
-          executor_import = "from trade_rl.simulation import MarketExecutor\n"
-          if text.count(executor_import) != 1:
-              raise RuntimeError("MarketExecutor import count changed")
-          text = text.replace(executor_import, "", 1)
-
           old_block = (
               "        self.reward_tracker = RewardTracker(\n"
               "            reward_config,\n"

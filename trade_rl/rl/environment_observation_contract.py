@@ -42,7 +42,7 @@ class EnvironmentObservationContract:
     observation_schema: str
     observation_contract_digest: str
     observation_space: spaces.Space[Any]
-    action_space: spaces.Box[np.ndarray]
+    action_space: spaces.Box
     minimum_start_index: int
 
 
@@ -82,6 +82,7 @@ class EnvironmentObservationContractBuilder:
         sequence_observation_builder: SequenceObservationBuilder | None = None
         sequence_policy_plane: SequencePolicyPlane | None = None
         sequence_layout_metadata: dict[str, object] | None = None
+        observation_space: spaces.Space[Any]
         resolved_minimum_start_index = minimum_start_index
 
         if self.config.structured_sequence_observation:
@@ -229,7 +230,7 @@ class EnvironmentObservationContractBuilder:
         observation_builder: ObservationBuilder,
         sequence_observation_builder: SequenceObservationBuilder,
         layout: ObservationLayout,
-    ) -> tuple[spaces.Dict[Any], dict[str, object], str]:
+    ) -> tuple[spaces.Dict, dict[str, object], str]:
         sequence_payload = sequence_observation_builder.schema_payload(self.dataset)
         sequence_spaces: dict[str, spaces.Space[np.ndarray]] = {
             "decision_index": spaces.Box(

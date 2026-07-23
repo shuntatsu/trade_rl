@@ -11,7 +11,7 @@ on:
       - tests/architecture/test_environment_policy_schedule_contract_decomposition.py
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   red:
@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          persist-credentials: false
+          persist-credentials: true
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -37,5 +37,29 @@ jobs:
         run: uv run mypy .
       - name: Import architecture
         run: uv run lint-imports
-      - name: Expected RED pytest collection
-        run: uv run pytest -q
+      - name: Verify expected RED pytest collection
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q > policy-schedule-red.log 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F "No module named 'trade_rl.rl.environment_policy_schedule_contract'" policy-schedule-red.log
+      - name: Record RED proof
+        shell: bash
+        run: |
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "ruff=success"
+            echo "format=success"
+            echo "mypy=success"
+            echo "import_linter=success"
+            echo "pytest=expected_module_not_found"
+          } > .github/policy-schedule-red-proof
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/policy-schedule-red-proof
+          git commit -m "test: record policy schedule clean red"
+          git push origin HEAD:refactor/extract-environment-policy-schedule-contract-20260723

@@ -5,14 +5,13 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any, Protocol
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
-from trade_rl.domain.common import require_sha256
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
 from trade_rl.risk.inputs import (
     PortfolioRiskInputsProvider,
@@ -59,6 +58,11 @@ from trade_rl.rl.environment_observation import (
 from trade_rl.rl.environment_observation_contract import (
     EnvironmentObservationContractBuilder,
 )
+from trade_rl.rl.environment_provider_contract import (
+    AlphaProvider,
+    EnvironmentProviderContractBuilder,
+    FactorBasisProvider,
+)
 from trade_rl.rl.environment_reward import (
     EnvironmentRewardCoordinator,
     EnvironmentRewardRequest,
@@ -93,23 +97,6 @@ from trade_rl.simulation.execution import (
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.stateful_execution import StatefulExecutionResult
 from trade_rl.strategies.trend import TrendStrategy, TrendTargets
-
-
-class AlphaProvider(Protocol):
-    @property
-    def artifact_digest(self) -> str: ...
-
-    def predict_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
-
-
-class FactorBasisProvider(Protocol):
-    @property
-    def artifact_digest(self) -> str: ...
-
-    @property
-    def n_factors(self) -> int: ...
-
-    def basis_at(self, dataset: MarketDataset, index: int) -> np.ndarray: ...
 
 
 class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray]):
@@ -147,89 +134,30 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
     ) -> None:
         super().__init__()
         self.dataset = dataset
-        resolved_trend = trend_strategy or (
-            market_input_resolver.trend_strategy
-            if market_input_resolver is not None
-            else TrendStrategy()
-        )
-        if (
-            market_input_resolver is None
-            and alpha_provider is not None
-            and hasattr(alpha_provider, "predict")
-            and hasattr(alpha_provider, "identity_digest")
-        ):
-            market_input_resolver = MarketInputResolver(
-                trend_strategy=resolved_trend,
-                alpha_provider=alpha_provider,  # type: ignore[arg-type]
-                alpha_enabled=bool(alpha_enabled),
-            )
-        if market_input_resolver is not None and trend_strategy is not None:
-            if market_input_resolver.trend_strategy != trend_strategy:
-                raise ValueError(
-                    "market_input_resolver trend differs from trend_strategy"
-                )
-        self.market_input_resolver = market_input_resolver
-        self.trend_strategy = resolved_trend
-        self.alpha_provider = alpha_provider
-        self.alpha_enabled = (
-            market_input_resolver.alpha_enabled
-            if market_input_resolver is not None
-            else bool(alpha_enabled)
-        )
-        if (
-            self.alpha_enabled
-            and self.alpha_provider is None
-            and market_input_resolver is None
-        ):
-            raise ValueError("alpha_enabled requires an alpha_provider")
-        self.alpha_contract = alpha_contract or AlphaContract()
-        self.alpha_artifact_digest = self._resolve_provider_digest(
-            enabled=self.alpha_enabled,
-            provider=alpha_provider,
-            explicit=alpha_artifact_digest,
-            field_name="alpha_artifact_digest",
-        )
-        self._static_factor_basis = self._validated_static_basis(factor_basis)
-        self.factor_basis_provider = factor_basis_provider
-        resolved_factor_count = self._resolve_factor_count(
+        provider_contract = EnvironmentProviderContractBuilder(
+            dataset,
+            trend_strategy=trend_strategy,
+            market_input_resolver=market_input_resolver,
+            alpha_provider=alpha_provider,
+            alpha_enabled=alpha_enabled,
+            alpha_artifact_digest=alpha_artifact_digest,
+            alpha_contract=alpha_contract,
+            factor_basis=factor_basis,
+            factor_basis_provider=factor_basis_provider,
+            factor_artifact_digest=factor_artifact_digest,
             factor_count=factor_count,
-            provider=factor_basis_provider,
-        )
-        if self._static_factor_basis is not None:
-            if resolved_factor_count not in (0, self._static_factor_basis.shape[0]):
-                raise ValueError("factor_count does not match factor_basis")
-            resolved_factor_count = self._static_factor_basis.shape[0]
-        self.factor_artifact_digest = self._resolve_provider_digest(
-            enabled=resolved_factor_count > 0,
-            provider=factor_basis_provider,
-            explicit=factor_artifact_digest,
-            field_name="factor_artifact_digest",
-            static_payload=(
-                None
-                if self._static_factor_basis is None
-                else tuple(
-                    tuple(float(value) for value in row)
-                    for row in self._static_factor_basis
-                )
-            ),
-        )
-        provider_minimums = [self.trend_strategy.minimum_history_for(dataset)]
-        for provider_name, provider in (
-            ("alpha_provider", alpha_provider),
-            ("factor_basis_provider", factor_basis_provider),
-        ):
-            if provider is None:
-                continue
-            minimum_index = getattr(provider, "minimum_index", 0)
-            if (
-                isinstance(minimum_index, bool)
-                or not isinstance(minimum_index, int)
-                or minimum_index < 0
-                or minimum_index >= dataset.n_bars
-            ):
-                raise ValueError(f"{provider_name} minimum_index is invalid")
-            provider_minimums.append(minimum_index)
-        self._minimum_start_index = max(provider_minimums)
+        ).build()
+        self.market_input_resolver = provider_contract.market_input_resolver
+        self.trend_strategy = provider_contract.trend_strategy
+        self.alpha_provider = provider_contract.alpha_provider
+        self.alpha_enabled = provider_contract.alpha_enabled
+        self.alpha_contract = provider_contract.alpha_contract
+        self.alpha_artifact_digest = provider_contract.alpha_artifact_digest
+        self._static_factor_basis = provider_contract.static_factor_basis
+        self.factor_basis_provider = provider_contract.factor_basis_provider
+        self.factor_artifact_digest = provider_contract.factor_artifact_digest
+        resolved_factor_count = provider_contract.factor_count
+        self._minimum_start_index = provider_contract.minimum_start_index
         self.composer = composer or BaselineResidualComposer()
         self.pre_trade_risk = pre_trade_risk or PreTradeRisk()
         self.portfolio_risk = portfolio_risk or PortfolioRiskModel()
@@ -438,60 +366,6 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
         self._action_diagnostics = ActionDiagnosticsAccumulator()
         self._has_reset = False
-
-    @staticmethod
-    def _resolve_provider_digest(
-        *,
-        enabled: bool,
-        provider: object | None,
-        explicit: str | None,
-        field_name: str,
-        static_payload: object | None = None,
-    ) -> str | None:
-        if not enabled:
-            return None
-        resolved = explicit
-        if resolved is None and provider is not None:
-            candidate = getattr(provider, "artifact_digest", None)
-            if not isinstance(candidate, str):
-                candidate = getattr(provider, "identity_digest", None)
-            if isinstance(candidate, str):
-                resolved = candidate
-        if resolved is None and static_payload is not None:
-            resolved = content_digest(
-                {"schema_version": "static_factor_basis_v1", "value": static_payload}
-            )
-        if resolved is None:
-            raise ValueError(f"{field_name} is required when the component is enabled")
-        require_sha256(resolved, field=field_name)
-        return resolved
-
-    def _validated_static_basis(self, value: np.ndarray | None) -> np.ndarray | None:
-        if value is None:
-            return None
-        basis = np.asarray(value, dtype=np.float64)
-        if basis.ndim != 2 or basis.shape[1] != self.dataset.n_symbols:
-            raise ValueError("factor_basis must have shape (n_factors, n_symbols)")
-        if not np.isfinite(basis).all():
-            raise ValueError("factor_basis must be finite")
-        return basis.copy()
-
-    @staticmethod
-    def _resolve_factor_count(
-        *,
-        factor_count: int | None,
-        provider: object | None,
-    ) -> int:
-        resolved = factor_count
-        if resolved is None and provider is not None:
-            candidate = getattr(provider, "n_factors", None)
-            if isinstance(candidate, int) and not isinstance(candidate, bool):
-                resolved = candidate
-        if resolved is None:
-            return 0
-        if isinstance(resolved, bool) or not isinstance(resolved, int) or resolved < 0:
-            raise ValueError("factor_count must be a non-negative integer")
-        return resolved
 
     def _digest_payload(self) -> dict[str, object]:
         return {

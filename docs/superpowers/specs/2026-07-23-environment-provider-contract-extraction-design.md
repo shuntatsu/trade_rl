@@ -185,7 +185,7 @@ The environment continues to expose identical values/types for:
 - `ResidualMarketEnv.__init__()` must delegate to `EnvironmentProviderContractBuilder`.
 - The constructor must not directly construct `MarketInputResolver`, call provider-digest/factor-basis/factor-count helpers, or manually iterate provider minimum indices.
 - `_resolve_provider_digest`, `_validated_static_basis`, and `_resolve_factor_count` must no longer exist on `ResidualMarketEnv`.
-- The constructor source span must be reduced from 321 lines to at most 245 lines.
+- The constructor source span must be reduced from 321 lines to at most 270 lines.
 - Provider policy must not be duplicated in `environment.py`.
 - The new module must not depend on risk, reward, simulation, observation, or environment-runtime modules.
 

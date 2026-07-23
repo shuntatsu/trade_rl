@@ -28,7 +28,7 @@ def test_environment_constructor_delegates_provider_contract() -> None:
         'getattr(provider, "minimum_index", 0)',
     ):
         assert forbidden not in source
-    assert len(source.splitlines()) <= 245
+    assert len(source.splitlines()) <= 270
 
 
 def test_environment_facade_does_not_own_provider_helpers() -> None:

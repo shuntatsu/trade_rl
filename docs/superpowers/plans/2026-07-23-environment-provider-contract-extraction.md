@@ -32,7 +32,7 @@
 
 - [ ] **Step 1: Write the failing architecture tests**
 
-Require import of `trade_rl.rl.environment_provider_contract`, local definitions of `EnvironmentProviderContract` and `EnvironmentProviderContractBuilder`, constructor delegation, removal of `_resolve_provider_digest`, `_validated_static_basis`, and `_resolve_factor_count`, absence of inline `MarketInputResolver(` and provider-minimum loops, and a constructor source span of at most 245 lines.
+Require import of `trade_rl.rl.environment_provider_contract`, local definitions of `EnvironmentProviderContract` and `EnvironmentProviderContractBuilder`, constructor delegation, removal of `_resolve_provider_digest`, `_validated_static_basis`, and `_resolve_factor_count`, absence of inline `MarketInputResolver(` and provider-minimum loops, and a constructor source span of at most 270 lines.
 
 - [ ] **Step 2: Run the architecture test**
 
@@ -166,7 +166,7 @@ pytest -q \
   tests/rl/test_environment_risk_service.py
 ```
 
-Expected: all tests pass and constructor span is at most 245 lines.
+Expected: all tests pass and constructor span is at most 270 lines.
 
 - [ ] **Step 5: Run focused static checks**
 

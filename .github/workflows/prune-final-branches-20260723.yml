@@ -98,7 +98,7 @@ jobs:
               if [ -z "$reason" ] && jq -e '
                 length > 0
                 and all(.[]; .state == "CLOSED")
-                and any(.[ ];
+                and any(.[];
                   (((.title // "") + " " + (.body // "")) | ascii_downcase)
                   | test("superseded|temporary|closed without merge|must not be merged|do not merge|not be merged|diagnostic|verification only|validation pr|cleanup pr|ci-only|audit-only|runner branch|trigger")
                 )

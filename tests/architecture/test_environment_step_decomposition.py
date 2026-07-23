@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ENVIRONMENT = ROOT / "trade_rl" / "rl" / "environment.py"
+RUNTIME_SERVICES = ROOT / "trade_rl" / "rl" / "environment_runtime_services.py"
 SERVICE_PATHS = (
     ROOT / "trade_rl" / "rl" / "environment_decision.py",
     ROOT / "trade_rl" / "rl" / "environment_risk.py",
@@ -33,11 +34,13 @@ def test_environment_step_services_have_dedicated_modules() -> None:
 
 
 def test_environment_constructs_all_step_services() -> None:
-    source = _source(ENVIRONMENT)
+    environment_source = _source(ENVIRONMENT)
+    runtime_services_source = _source(RUNTIME_SERVICES)
 
+    assert "EnvironmentRuntimeServicesBuilder(" in environment_source
     for symbol, attribute in SERVICE_ATTRIBUTES:
-        assert symbol in source
-        assert attribute in source
+        assert f"{symbol}(" in runtime_services_source
+        assert attribute in environment_source
 
 
 def test_environment_step_delegates_action_risk_reward_and_info() -> None:

@@ -237,11 +237,11 @@ The runtime-service module measured 61 / 61 statements with no executable branch
 points. The portfolio-risk contract measured 29 / 29 statements and 6 / 6 branches.
 The policy/schedule contract measured 53 / 53 statements and 16 / 16 branches. The
 initial-state module measured 45 / 45 statements with no executable branch points.
-All five have permanent 100.0% critical coverage ratchets. PR #140 exact-head
-verification passed 1,321 tests, 84.21% total coverage, 71.28% total branch
-coverage, Ubuntu, Windows, training-image, Import Linter, and CLI checks. The final
-ratchet head is also subject to the maintained PostgreSQL Catalog workflow because
-`pyproject.toml` changed.
+All five have permanent 100.0% critical coverage ratchets. After current main
+was merged into the feature branch, PR #140 verification passed 1,331 tests,
+84.18% total coverage, 71.23% total branch coverage, Ubuntu, Windows,
+training-image, Import Linter, CLI, and PostgreSQL Catalog checks. The synchronized
+verification runs were CI `30007065940` and PostgreSQL Catalog `30007065939`.
 
 The remaining construction density is reward-tracker and reward-preroll
 construction, hybrid and shadow market-executor construction, and

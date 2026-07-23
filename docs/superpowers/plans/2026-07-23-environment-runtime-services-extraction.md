@@ -85,7 +85,7 @@ Run:
 uv run ruff check trade_rl/rl/environment.py trade_rl/rl/environment_runtime_services.py tests/architecture/test_environment_runtime_services_decomposition.py tests/rl/test_environment_runtime_services.py
 uv run ruff format --check trade_rl/rl/environment.py trade_rl/rl/environment_runtime_services.py tests/architecture/test_environment_runtime_services_decomposition.py tests/rl/test_environment_runtime_services.py
 uv run mypy trade_rl/rl/environment.py trade_rl/rl/environment_runtime_services.py
-uv run pytest -q tests/architecture/test_environment_runtime_services_decomposition.py tests/rl/test_environment_runtime_services.py tests/rl/test_environment.py tests/rl/test_environment_identity.py tests/rl/test_environment_risk_service.py
+uv run pytest -q tests/architecture/test_environment_runtime_services_decomposition.py tests/rl
 ```
 
 Expected: all commands pass.

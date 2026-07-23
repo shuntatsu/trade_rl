@@ -3,12 +3,16 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import runpy
 from enum import Enum
 from pathlib import Path
+from typing import Any, Callable, cast
 
 import numpy as np
 
-from tests.rl.test_target_weight_action import environment, target_spec
+_fixture = runpy.run_path("tests/rl/test_target_weight_action.py")
+environment = cast(Callable[..., Any], _fixture["environment"])
+target_spec = cast(Callable[..., Any], _fixture["target_spec"])
 
 
 def normalize(value: object) -> object:

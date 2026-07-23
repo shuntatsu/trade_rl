@@ -1,0 +1,50 @@
+name: Temporary Source Export
+
+on:
+  push:
+    branches:
+      - refactor/extract-environment-observation-contract-20260723
+    paths:
+      - .github/source-export-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install formatter
+        run: uv sync --extra dev
+
+      - name: Format new tests in exported worktree
+        run: >-
+          uv run ruff format
+          tests/architecture/test_environment_observation_contract_decomposition.py
+          tests/rl/test_environment_observation_contract.py
+
+      - name: Pack source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git --exclude=.venv -czf /tmp/trade-rl-source.tgz .
+
+      - name: Upload source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: temporary-trade-rl-source
+          path: /tmp/trade-rl-source.tgz
+          if-no-files-found: error
+          retention-days: 1

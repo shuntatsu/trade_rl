@@ -7,12 +7,13 @@ This document closes or reclassifies the findings recorded in
 independent remediation pull requests were integrated.
 
 The current integrated source baseline is `main` merge commit
-`acde8ba5db1838d625ede53c8e192e738f2ff239`, which merged PR #122 after the
+`7d5be020940ab7349d53a419c370a720448006bf`, which merged PR #125 after the
 stateful-execution decomposition, sequence-projection guard, telemetry identity,
 stream-generation, process-lock, Live Training, environment-runtime, canonical
-public-contract, observation-contract, provider-contract, and runtime-service
-wiring remediations. The latest verified `AUD-RL-001` remediation candidate is
-PR #125 exact head `4db0f5d59e05e60461058764aca783cfd8692e33`.
+public-contract, observation-contract, provider-contract, runtime-service wiring,
+and portfolio-risk input remediations. The latest verified `AUD-RL-001`
+remediation candidate is PR #126 exact head
+`08d8bdf6b39f00adaaca6d3f65e3183404083447`.
 
 The 2026-07-22 report remains a historical record of what was observed at its
 audited commit. It must not be read as the current defect list. Current status is
@@ -31,7 +32,7 @@ direct exchange capability.
 | `AUD-ARCH-001` | P2 | RESOLVED | PR #79 removed initializer mutation; PR #111 made public modules canonical maintained owners |
 | `AUD-SIM-001` | P2 | RESOLVED | PR #107 stateful execution phase decomposition |
 | `AUD-CI-002` | P2 | RESOLVED | PR #88 stable numerical contract; PR #106 permanent cross-platform guard |
-| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts |
+| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts; PR #126 policy/schedule contracts |
 
 No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
 The only open item is a maintainability risk without a reproduced behavioral
@@ -201,42 +202,54 @@ execution, observation, decision, risk, reward, information, and termination ord
 The builder receives validated collaborators but no mutable books, order books,
 indices, pending targets, episode seeds, diagnostics, or reset state.
 
-PR #125 extracts the portfolio-risk input seam. The typed
+PR #125 extracted the portfolio-risk input seam. The typed
 `EnvironmentPortfolioRiskContractBuilder` owns default model construction,
 advanced-input provider selection, provider SHA-256 identity validation, provider
 minimum-index validation, and aggregation with the existing causal minimum. Digest
 validation remains ordered before minimum-index access, and supplied model/provider
 identities are preserved.
 
+PR #126 extracts the deterministic policy and schedule seam. The frozen
+`EnvironmentPolicyScheduleContract` and
+`EnvironmentPolicyScheduleContractBuilder` own config resolution, emergency-monitor
+construction, leverage and random-gross validation, action-spec resolution and
+validation, action names, episode/decision bars, reward-config resolution, resolved
+decision hours, and episode-hour-choice validation. Existing identities, exception
+text, and validation order are preserved. Reward-tracker and executor construction
+remain outside this boundary.
+
 The provider extraction reduced the constructor from 321 to 262 source lines. The
 runtime-services extraction further reduced it to 232 lines. The portfolio-risk
-contract reduces it to 218 lines and enforces a 220-line architecture limit. The
-facade retains existing attributes while direct construction and validation policy
-are prohibited from returning inline.
+contract reduced it to 218 lines. The policy/schedule contract reduces it to 186
+lines and enforces a 190-line architecture limit. The facade retains existing
+attributes while direct construction and validation policy are prohibited from
+returning inline.
 
 The provider contract measured 109 / 109 statements and 44 / 44 branches covered.
 The runtime-service module measured 61 / 61 statements with no executable branch
 points. The portfolio-risk contract measured 29 / 29 statements and 6 / 6 branches.
-All three have permanent 100.0% critical coverage ratchets. PR #125 exact-head
-verification passed 1,298 tests, 84.12% total coverage, 71.19% total branch
+The policy/schedule contract measured 53 / 53 statements and 16 / 16 branches. All
+four have permanent 100.0% critical coverage ratchets. PR #126 exact-head
+verification passed 1,315 tests, 84.18% total coverage, 71.28% total branch
 coverage, Ubuntu, Windows, training-image, Import Linter, CLI, and PostgreSQL
 Catalog checks.
 
-The remaining construction density is environment/config/action/episode validation,
-reward-tracker and market-executor construction, and mutable Gymnasium-state
-initialization. A mechanical split is still not justified without another concrete
-behavior-preserving seam and characterization evidence.
+The remaining construction density is reward-tracker and reward-preroll
+construction, hybrid and shadow market-executor construction, observation/runtime
+contract assignment, and mutable Gymnasium-state initialization. A mechanical split
+is still not justified without another concrete behavior-preserving seam and
+characterization evidence.
 
 Control:
 
 - retain the environment runtime, step-service, observation-contract,
-  provider-contract, runtime-service, and portfolio-risk-contract architecture
-  tests;
+  provider-contract, runtime-service, portfolio-risk-contract, and
+  policy/schedule-contract architecture tests;
 - retain the 100.0% critical coverage ratchets for the extracted contract and
   wiring modules;
 - do not add new action, risk, reward, execution, observation, provider,
-  portfolio-risk input, or service-wiring policy directly to the facade when a
-  typed owner exists;
+  portfolio-risk input, policy/schedule, or service-wiring policy directly to the
+  facade when a typed owner exists;
 - extract further constructor responsibilities only with characterization tests
   that preserve validation order, identities, and public behavior.
 
@@ -247,9 +260,10 @@ maintenance watchpoint.
 
 The remediated core now has direct canonical public-contract ownership, bounded
 stateful execution phases, typed environment step services, typed static
-observation, provider, portfolio-risk input, and runtime-service wiring boundaries,
-generation-bound and process-safe telemetry, producer-issued environment episode
-identity, and a permanent cross-platform numerical stability guard.
+observation, provider, portfolio-risk input, policy/schedule, and runtime-service
+wiring boundaries, generation-bound and process-safe telemetry, producer-issued
+environment episode identity, and a permanent cross-platform numerical stability
+guard.
 
 The original audit's P0 non-findings remain supported by the maintained regression
 suite: no future-data observation path, accounting conservation break, sealed-test

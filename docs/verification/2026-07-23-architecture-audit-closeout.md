@@ -7,12 +7,12 @@ This document closes or reclassifies the findings recorded in
 independent remediation pull requests were integrated.
 
 The current integrated source baseline is `main` merge commit
-`cc1aac077c73c1ec5304236c0a9471b5bea9b106`, which merged PR #114 after the
+`12ea57dd2a8e8cd257f856a8f939d5faed6696d9`, which merged PR #120 after the
 stateful-execution decomposition, sequence-projection guard, telemetry identity,
 stream-generation, process-lock, Live Training, environment-runtime, canonical
-public-contract, and observation-contract remediations. The latest verified
-`AUD-RL-001` remediation candidate is PR #120 exact head
-`46a30ba1d6d0a277c28e27b5d5aae1322632c324`.
+public-contract, observation-contract, and provider-contract remediations. The latest
+verified `AUD-RL-001` remediation candidate is PR #122 exact head
+`e0290153acc60fbc1d7b90267e4122b0bc29bcba`.
 
 The 2026-07-22 report remains a historical record of what was observed at its
 audited commit. It must not be read as the current defect list. Current status is
@@ -31,7 +31,7 @@ direct exchange capability.
 | `AUD-ARCH-001` | P2 | RESOLVED | PR #79 removed initializer mutation; PR #111 made public modules canonical maintained owners |
 | `AUD-SIM-001` | P2 | RESOLVED | PR #107 stateful execution phase decomposition |
 | `AUD-CI-002` | P2 | RESOLVED | PR #88 stable numerical contract; PR #106 permanent cross-platform guard |
-| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 extracted observation-contract construction; PR #120 extracted trend/alpha/factor provider contracts |
+| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring |
 
 No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
 The only open item is a maintainability risk without a reproduced behavioral
@@ -187,36 +187,46 @@ and policy plane, Gymnasium spaces, and the sequence-derived minimum index.
 Architecture tests prohibit those low-level operations from returning to
 `ResidualMarketEnv.__init__()`.
 
-PR #120 extracts the next independent seam. The typed
+PR #120 extracted the provider seam. The typed
 `EnvironmentProviderContractBuilder` owns trend and `MarketInputResolver`
 reconciliation, causal alpha compatibility wrapping, alpha and factor artifact
 identities, static factor-basis validation and copying, factor-count inference, and
 provider-derived minimum indices. The legacy provider protocols are imported by the
 environment facade from the maintained owner rather than redefined locally.
 
-The provider extraction reduces the constructor from 321 to 262 source lines and
-removes the facade helpers `_resolve_provider_digest`, `_validated_static_basis`,
-and `_resolve_factor_count`. A 270-line architecture limit prevents the provider
-policy from returning inline.
+PR #122 extracts the runtime-service wiring seam. The frozen
+`EnvironmentRuntimeServices` contract and `EnvironmentRuntimeServicesBuilder` own
+the existing eight-service construction graph and preserve the original episode,
+execution, observation, decision, risk, reward, information, and termination order.
+The builder receives validated collaborators but no mutable books, order books,
+indices, pending targets, episode seeds, diagnostics, or reset state.
 
-The provider contract measured 109 / 109 statements and 44 / 44 branches covered,
-with a permanent 100.0% branch-coverage ratchet. Exact-head verification passed
-1,280 tests, 84.06% total coverage, 71.17% total branch coverage, Ubuntu, Windows,
-training-image, Import Linter, CLI, and PostgreSQL Catalog checks.
+The provider extraction reduced the constructor from 321 to 262 source lines. The
+runtime-services extraction further reduces it to 232 lines and enforces a 240-line
+architecture limit. The facade retains existing service attributes while direct
+construction is prohibited from returning inline.
+
+The provider contract measured 109 / 109 statements and 44 / 44 branches covered.
+The runtime-service module measured 61 / 61 statements with no executable branch
+points. Both have permanent 100.0% critical coverage ratchets. PR #122 exact-head
+verification passed 1,285 tests, 84.10% total coverage, 71.17% total branch
+coverage, Ubuntu, Windows, training-image, Import Linter, CLI, and PostgreSQL
+Catalog checks.
 
 The remaining construction density is portfolio-risk provider selection and
-identity validation, environment/config/action/episode validation, reward and
-executor construction, typed runtime-service wiring, and mutable Gymnasium-state
-initialization. A mechanical split is still not justified without another concrete
+identity validation, environment/config/action/episode validation, reward-tracker
+and market-executor construction, and mutable Gymnasium-state initialization. A
+mechanical split is still not justified without another concrete
 behavior-preserving seam and characterization evidence.
 
 Control:
 
-- retain the environment runtime, step-service, observation-contract, and
-  provider-contract architecture tests;
-- retain the 100.0% branch-coverage ratchets for both extracted contract builders;
-- do not add new action, risk, reward, execution, observation, or provider policy
-  directly to the facade when a typed service owns that concern;
+- retain the environment runtime, step-service, observation-contract,
+  provider-contract, and runtime-service architecture tests;
+- retain the 100.0% critical coverage ratchets for the extracted contract and
+  wiring modules;
+- do not add new action, risk, reward, execution, observation, provider, or service
+  wiring policy directly to the facade when a typed owner exists;
 - extract further constructor responsibilities only with characterization tests
   that preserve validation order, identities, and public behavior.
 
@@ -227,9 +237,9 @@ maintenance watchpoint.
 
 The remediated core now has direct canonical public-contract ownership, bounded
 stateful execution phases, typed environment step services, typed static
-observation and provider-contract boundaries, generation-bound and process-safe
-telemetry, producer-issued environment episode identity, and a permanent
-cross-platform numerical stability guard.
+observation and provider-contract boundaries, a typed runtime-service wiring
+boundary, generation-bound and process-safe telemetry, producer-issued environment
+episode identity, and a permanent cross-platform numerical stability guard.
 
 The original audit's P0 non-findings remain supported by the maintained regression
 suite: no future-data observation path, accounting conservation break, sealed-test

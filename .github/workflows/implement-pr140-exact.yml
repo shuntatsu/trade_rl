@@ -53,71 +53,49 @@ jobs:
                   raise RuntimeError("environment info import marker missing")
               text = text.replace(import_marker, import_marker + state_import, 1)
 
-          old = '''        self.start_index = self._minimum_start_index
-          self.end_index = self.start_index + 1
-          self.current_index = self.start_index
-          initial_prices = dataset.close[self.start_index]
-          self.hybrid = BookState.zero(
-              dataset.n_symbols,
-              self.config.initial_capital,
-              initial_prices,
-              contract_multipliers=dataset.resolved_array("contract_multipliers"),
+          start_marker = "        self.start_index = self._minimum_start_index\n"
+          end_marker = "        self._has_reset = False\n"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start) + len(end_marker)
+          replacement = (
+              "        self._install_initial_state(\n"
+              "            EnvironmentInitialStateFactory.create(\n"
+              "                EnvironmentInitialStateRequest(\n"
+              "                    dataset=dataset,\n"
+              "                    config=self.config,\n"
+              "                    action_spec=self.action_spec,\n"
+              "                    minimum_start_index=self._minimum_start_index,\n"
+              "                )\n"
+              "            )\n"
+              "        )\n"
           )
-          self.shadow = self.hybrid.clone()
-          self._decision_step_index = 0
-          self._episode_seed = self.config.execution_cost.random_seed
-          self._episode_hours = self.config.episode_hours
-          self._initial_state_mode = "cash"
-          self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
-          self._pending_hybrid_target: np.ndarray | None = None
-          self._pending_shadow_target: np.ndarray | None = None
-          self._hybrid_order_book = OrderBookState.empty()
-          self._shadow_order_book = OrderBookState.empty()
-          self._position_age = np.zeros(dataset.n_symbols, dtype=np.float64)
-          self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
-          self._action_diagnostics = ActionDiagnosticsAccumulator()
-          self._has_reset = False
-          '''
-          new = '''        self._install_initial_state(
-              EnvironmentInitialStateFactory.create(
-                  EnvironmentInitialStateRequest(
-                      dataset=dataset,
-                      config=self.config,
-                      action_spec=self.action_spec,
-                      minimum_start_index=self._minimum_start_index,
-                  )
-              )
-          )
-          '''
-          if text.count(old) != 1:
-              raise RuntimeError("expected exactly one inline initial-state block")
-          text = text.replace(old, new, 1)
+          text = text[:start] + replacement + text[end:]
 
           method_marker = "    def _digest_payload(self) -> dict[str, object]:\n"
-          install_method = '''    def _install_initial_state(
-              self,
-              state: EnvironmentInitialState,
-          ) -> None:
-              self.start_index = state.start_index
-              self.end_index = state.end_index
-              self.current_index = state.current_index
-              self.hybrid = state.hybrid
-              self.shadow = state.shadow
-              self._decision_step_index = state.decision_step_index
-              self._episode_seed = state.episode_seed
-              self._episode_hours = state.episode_hours
-              self._initial_state_mode = state.initial_state_mode
-              self._previous_action = state.previous_action
-              self._pending_hybrid_target = state.pending_hybrid_target
-              self._pending_shadow_target = state.pending_shadow_target
-              self._hybrid_order_book = state.hybrid_order_book
-              self._shadow_order_book = state.shadow_order_book
-              self._position_age = state.position_age
-              self._execution_state = state.execution_state
-              self._action_diagnostics = state.action_diagnostics
-              self._has_reset = state.has_reset
-
-          '''
+          install_method = (
+              "    def _install_initial_state(\n"
+              "        self,\n"
+              "        state: EnvironmentInitialState,\n"
+              "    ) -> None:\n"
+              "        self.start_index = state.start_index\n"
+              "        self.end_index = state.end_index\n"
+              "        self.current_index = state.current_index\n"
+              "        self.hybrid = state.hybrid\n"
+              "        self.shadow = state.shadow\n"
+              "        self._decision_step_index = state.decision_step_index\n"
+              "        self._episode_seed = state.episode_seed\n"
+              "        self._episode_hours = state.episode_hours\n"
+              "        self._initial_state_mode = state.initial_state_mode\n"
+              "        self._previous_action = state.previous_action\n"
+              "        self._pending_hybrid_target = state.pending_hybrid_target\n"
+              "        self._pending_shadow_target = state.pending_shadow_target\n"
+              "        self._hybrid_order_book = state.hybrid_order_book\n"
+              "        self._shadow_order_book = state.shadow_order_book\n"
+              "        self._position_age = state.position_age\n"
+              "        self._execution_state = state.execution_state\n"
+              "        self._action_diagnostics = state.action_diagnostics\n"
+              "        self._has_reset = state.has_reset\n\n"
+          )
           if install_method not in text:
               if method_marker not in text:
                   raise RuntimeError("digest method marker missing")

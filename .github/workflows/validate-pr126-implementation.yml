@@ -1,0 +1,223 @@
+name: Validate PR126 implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/validate-pr126-implementation.yml'
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: 2d651387907cedf3f369158a4c864fd079b37389
+
+jobs:
+  quality:
+    name: Rebuilt Core
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Install Studio frontend
+        run: npm ci --prefix studio --no-audit --no-fund
+      - name: Verify Studio frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            npm test --prefix studio -- --run
+            npm run typecheck --prefix studio
+            npm run build --prefix studio
+          } 2>&1 | tee studio-frontend.log
+      - name: Verify Studio fixed viewport layout
+        env:
+          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
+        run: npm run check:layout --prefix studio
+      - name: Workflow security
+        run: uv run python .github/check_workflow_security.py .
+      - name: Ruff
+        run: uv run ruff check . 2>&1 | tee ruff.log
+      - name: Format
+        run: uv run ruff format --check --diff . 2>&1 | tee format.log
+      - name: Mypy
+        run: uv run mypy . 2>&1 | tee mypy.log
+      - name: Import architecture
+        run: uv run lint-imports 2>&1 | tee import-linter.log
+      - name: Dead-code report
+        run: uv run vulture trade_rl tests --min-confidence 100
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+      - name: Tests and coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+      - name: Critical branch coverage
+        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+      - name: CLI smoke
+        run: uv run trade-rl --version
+      - name: Upload quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr126-implementation-quality
+          path: |
+            studio-frontend.log
+            studio/qa-screenshots
+            ruff.log
+            format.log
+            mypy.log
+            import-linter.log
+            pytest.log
+            coverage.json
+          if-no-files-found: ignore
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact target
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr126-implementation-compatibility-${{ matrix.os }}
+          path: compatibility.log
+          if-no-files-found: error
+
+  training-image:
+    name: Training image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Build complete training image
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
+            --file Dockerfile.training \
+            --tag trade-rl-training:ci \
+            .
+          image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
+          printf 'commit_sha=%s\nsource_tree_digest=%s\nlockfile_digest=%s\nimage_id=%s\n' \
+            "$commit" "$source_digest" "$lock_digest" "$image_id" > training-image-evidence.txt
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:ci -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '
+      - name: Upload training image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr126-implementation-training-image
+          path: training-image-evidence.txt
+          if-no-files-found: error
+
+  postgres:
+    name: PostgreSQL Catalog
+    runs-on: ubuntu-24.04
+    env:
+      TRADE_RL_DATABASE_URL: postgresql://trade_rl:trade_rl@localhost:5432/trade_rl
+      TRADE_RL_TEST_DATABASE_URL: postgresql://trade_rl:trade_rl@localhost:5432/trade_rl
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify exact target
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Validate Compose
+        run: docker compose config --quiet
+      - name: Start PostgreSQL
+        run: docker compose up -d postgres
+      - name: Wait for PostgreSQL
+        run: |
+          for attempt in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U trade_rl -d trade_rl; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs postgres
+          exit 1
+      - name: Install
+        run: uv sync --extra dev --extra postgres
+      - name: Migrate
+        run: uv run trade-rl catalog migrate
+      - name: Unit and integration tests
+        run: >-
+          uv run pytest
+          tests/catalog
+          tests/ops/test_postgres_compose_contract.py
+          tests/data/test_market_artifact_catalog.py
+          tests/cli/test_catalog_commands.py
+          -q
+      - name: Stop PostgreSQL
+        if: always()
+        run: docker compose down -v

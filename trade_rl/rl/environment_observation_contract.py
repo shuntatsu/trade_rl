@@ -114,8 +114,8 @@ class EnvironmentObservationContractBuilder:
         else:
             observation_schema = OBSERVATION_SCHEMA
             observation_contract_digest = observation_builder.schema_digest(
-    self.dataset
-)
+                self.dataset
+            )
             observation_space = spaces.Box(
                 low=-np.inf,
                 high=np.inf,
@@ -161,9 +161,7 @@ class EnvironmentObservationContractBuilder:
         if bound_dataset_ids and self.dataset.dataset_id not in bound_dataset_ids:
             raise ValueError("normalizer dataset identity does not match environment")
         if normalizer.observation_schema != OBSERVATION_SCHEMA:
-            raise ValueError(
-                "normalizer observation schema does not match environment"
-            )
+            raise ValueError("normalizer observation schema does not match environment")
         observation_schema_digest = observation_builder.schema_digest(self.dataset)
         if (
             normalizer.observation_schema_digest is not None

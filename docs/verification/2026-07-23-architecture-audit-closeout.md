@@ -7,12 +7,12 @@ This document closes or reclassifies the findings recorded in
 independent remediation pull requests were integrated.
 
 The current integrated source baseline is `main` merge commit
-`d559b249161cf641aeebaf51a334f5dbfd449bed`, which includes the canonical
-observation, provider, runtime-service, portfolio-risk, policy/schedule, and
-corrected verification remediations through PR #138. The latest verified
-`AUD-RL-001` remediation candidate is PR #140. Its behavior implementation head
-is `54a2d65b32356f07a5aa7ce577dd2cf8e46f6a87`, and its permanent coverage-ratchet
-head is `51407a10f1f6a22a06c8bd729cd6d1a8c83aefda`.
+`3c02270a83a40a2c58a84fabcfb586915163947a`, which includes the canonical
+observation, provider, runtime-service, portfolio-risk, policy/schedule,
+initial-state, and corrected verification remediations through PR #140. The
+latest verified `AUD-RL-001` remediation candidate is PR #152 exact
+implementation and coverage-ratchet head
+`5856752aa085e16fd7133059ef3878db072eded5`.
 
 The 2026-07-22 report remains a historical record of what was observed at its
 audited commit. It must not be read as the current defect list. Current status is
@@ -31,7 +31,7 @@ direct exchange capability.
 | `AUD-ARCH-001` | P2 | RESOLVED | PR #79 removed initializer mutation; PR #111 made public modules canonical maintained owners |
 | `AUD-SIM-001` | P2 | RESOLVED | PR #107 stateful execution phase decomposition |
 | `AUD-CI-002` | P2 | RESOLVED | PR #88 stable numerical contract; PR #106 permanent cross-platform guard |
-| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts; PR #126 policy/schedule contracts; PR #140 initial mutable-state factory |
+| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 observation contracts; PR #120 provider contracts; PR #122 typed runtime-service wiring; PR #125 portfolio-risk input contracts; PR #126 policy/schedule contracts; PR #140 initial mutable-state factory; PR #152 reward/execution resources |
 
 No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
 The only open item is a maintainability risk without a reproduced behavioral
@@ -217,7 +217,7 @@ decision hours, and episode-hour-choice validation. Existing identities, excepti
 text, and validation order are preserved. Reward-tracker and executor construction
 remain outside this boundary.
 
-PR #140 extracts the invocation-local initial mutable-state seam. The frozen
+PR #140 extracted the invocation-local initial mutable-state seam. The frozen
 `EnvironmentInitialStateRequest` and `EnvironmentInitialState` contracts plus
 `EnvironmentInitialStateFactory` own the initial indices, independent hybrid and
 shadow books, episode defaults, action and position arrays, independent order books,
@@ -225,39 +225,50 @@ observation execution state, diagnostics, and reset flag. Each invocation return
 fresh mutable values, while the environment facade retains the maintained attribute
 names through one typed installation method.
 
+PR #152 extracts the reward and execution resource seam. The frozen
+`EnvironmentRewardExecutionResources` contract and
+`EnvironmentRewardExecutionResourcesBuilder` own reward-tracker construction,
+optional full reward pre-roll, independent hybrid and shadow executor construction,
+the maintained executor alias, and the fresh reward-history cache. Construction and
+validation order, supplied identities, public attributes, and downstream service
+inputs are preserved.
+
 The provider extraction reduced the constructor from 321 to 262 source lines. The
 runtime-services extraction further reduced it to 232 lines. The portfolio-risk
 contract reduced it to 218 lines. The policy/schedule contract reduced it to 186
-lines. The initial-state factory further reduces it to 168 lines and enforces a
-170-line architecture limit. The facade retains existing attributes while direct
-construction and validation policy are prohibited from returning inline.
+lines. The initial-state factory reduced it to 168 lines. The reward/execution
+resource boundary further reduces it to 150 lines and enforces a 150-line
+architecture limit. The facade retains existing attributes while direct construction
+and validation policy are prohibited from returning inline.
 
 The provider contract measured 109 / 109 statements and 44 / 44 branches covered.
 The runtime-service module measured 61 / 61 statements with no executable branch
 points. The portfolio-risk contract measured 29 / 29 statements and 6 / 6 branches.
 The policy/schedule contract measured 53 / 53 statements and 16 / 16 branches. The
 initial-state module measured 45 / 45 statements with no executable branch points.
-All five have permanent 100.0% critical coverage ratchets. After current main
-was merged into the feature branch, PR #140 verification passed 1,331 tests,
-84.18% total coverage, 71.23% total branch coverage, Ubuntu, Windows,
-training-image, Import Linter, CLI, and PostgreSQL Catalog checks. The synchronized
-verification runs were CI `30007065940` and PostgreSQL Catalog `30007065939`.
+The reward/execution resource module measured 33 / 33 statements and 2 / 2 branches.
+All six have permanent 100.0% critical coverage ratchets. PR #152 exact-head
+verification passed 1,343 tests, 84.25% total coverage, 71.24% total branch
+coverage, Ubuntu, Windows, training-image, Import Linter, CLI, and PostgreSQL
+Catalog checks. The verification runs were CI `30015551379` and PostgreSQL Catalog
+`30015552890`.
 
-The remaining construction density is reward-tracker and reward-preroll
-construction, hybrid and shadow market-executor construction, and
-observation/runtime contract assignment. A mechanical split is still not justified
-without another concrete behavior-preserving seam and characterization evidence.
+The remaining construction density is validated contract assignment and
+observation/runtime orchestration. A mechanical split is still not justified without
+another concrete behavior-preserving seam and characterization evidence.
 
 Control:
 
 - retain the environment runtime, step-service, observation-contract,
   provider-contract, runtime-service, portfolio-risk-contract,
-  policy/schedule-contract, and initial-state architecture tests;
+  policy/schedule-contract, initial-state, and reward/execution-resource architecture
+  tests;
 - retain the 100.0% critical coverage ratchets for the extracted contract and
   wiring modules;
 - do not add new action, risk, reward, execution, observation, provider,
-  portfolio-risk input, policy/schedule, service-wiring, or initial-state
-  construction policy directly to the facade when a typed owner exists;
+  portfolio-risk input, policy/schedule, service-wiring, initial-state, or
+  reward/execution-resource construction policy directly to the facade when a typed
+  owner exists;
 - extract further constructor responsibilities only with characterization tests
   that preserve validation order, identities, and public behavior.
 
@@ -268,10 +279,10 @@ maintenance watchpoint.
 
 The remediated core now has direct canonical public-contract ownership, bounded
 stateful execution phases, typed environment step services, typed static
-observation, provider, portfolio-risk input, policy/schedule, runtime-service
-wiring, and invocation-local initial-state boundaries, generation-bound and
-process-safe telemetry, producer-issued environment episode identity, and a
-permanent cross-platform numerical stability guard.
+observation, provider, portfolio-risk input, policy/schedule, reward/execution
+resources, runtime-service wiring, and invocation-local initial-state boundaries,
+generation-bound and process-safe telemetry, producer-issued environment episode
+identity, and a permanent cross-platform numerical stability guard.
 
 The original audit's P0 non-findings remain supported by the maintained regression
 suite: no future-data observation path, accounting conservation break, sealed-test

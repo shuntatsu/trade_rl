@@ -128,46 +128,50 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra train-sb3
 
-      - name: Format and static verification
-        shell: bash
+      - name: Fix and format changed Python
         run: |
-          set -o pipefail
-          targets=(
-            trade_rl/rl/environment.py
-            trade_rl/rl/environment_runtime_services.py
-            tests/architecture/test_environment_runtime_services_decomposition.py
+          uv run ruff check --fix \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_runtime_services.py \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
             tests/rl/test_environment_runtime_services.py
-          )
-          uv run ruff check --fix "${targets[@]}"
-          uv run ruff format "${targets[@]}"
-          {
-            uv run ruff check "${targets[@]}"
-            uv run ruff format --check "${targets[@]}"
-            uv run mypy trade_rl/rl/environment.py trade_rl/rl/environment_runtime_services.py
-          } 2>&1 | tee runtime-services-static.log
+          uv run ruff format \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_runtime_services.py \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
+            tests/rl/test_environment_runtime_services.py
+
+      - name: Ruff verification
+        run: >-
+          uv run ruff check
+          trade_rl/rl/environment.py
+          trade_rl/rl/environment_runtime_services.py
+          tests/architecture/test_environment_runtime_services_decomposition.py
+          tests/rl/test_environment_runtime_services.py
+
+      - name: Format verification
+        run: >-
+          uv run ruff format --check
+          trade_rl/rl/environment.py
+          trade_rl/rl/environment_runtime_services.py
+          tests/architecture/test_environment_runtime_services_decomposition.py
+          tests/rl/test_environment_runtime_services.py
+
+      - name: Mypy verification
+        run: >-
+          uv run mypy
+          trade_rl/rl/environment.py
+          trade_rl/rl/environment_runtime_services.py
 
       - name: Focused behavior verification
-        shell: bash
-        run: |
-          set -o pipefail
-          uv run pytest -q \
-            tests/architecture/test_environment_runtime_services_decomposition.py \
-            tests/rl/test_environment_runtime_services.py \
-            tests/rl/test_environment.py \
-            tests/rl/test_environment_identity.py \
-            tests/rl/test_environment_risk_service.py \
-            tests/rl/test_environment_observation_contract.py \
-            2>&1 | tee runtime-services-pytest.log
-
-      - name: Upload focused diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: runtime-services-focused-diagnostics
-          path: |
-            runtime-services-static.log
-            runtime-services-pytest.log
-          if-no-files-found: ignore
+        run: >-
+          uv run pytest -q
+          tests/architecture/test_environment_runtime_services_decomposition.py
+          tests/rl/test_environment_runtime_services.py
+          tests/rl/test_environment.py
+          tests/rl/test_environment_identity.py
+          tests/rl/test_environment_risk_service.py
+          tests/rl/test_environment_observation_contract.py
 
       - name: Commit verified implementation and remove temporary job
         shell: bash
@@ -178,7 +182,6 @@ jobs:
           rm -f \
             .github/workflows/temporary-runtime-services-implementation.yml \
             .github/runtime-services-implementation-trigger
-          rm -f runtime-services-static.log runtime-services-pytest.log
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

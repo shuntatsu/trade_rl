@@ -36,93 +36,110 @@ jobs:
           path = Path('trade_rl/rl/environment.py')
           text = path.read_text(encoding='utf-8')
 
+          def lines(*values: str) -> str:
+              return '\n'.join(values)
+
           replacements = (
               (
                   'from trade_rl.rl.environment_reward import EnvironmentRewardRequest\n',
-                  '''from trade_rl.rl.environment_reward import EnvironmentRewardRequest
-          from trade_rl.rl.environment_reward_execution_resources import (
-              EnvironmentRewardExecutionResources,
-              EnvironmentRewardExecutionResourcesBuilder,
-          )
-          ''',
+                  lines(
+                      'from trade_rl.rl.environment_reward import EnvironmentRewardRequest',
+                      'from trade_rl.rl.environment_reward_execution_resources import (',
+                      '    EnvironmentRewardExecutionResources,',
+                      '    EnvironmentRewardExecutionResourcesBuilder,',
+                      ')',
+                      '',
+                  ),
               ),
               (
-                  '''from trade_rl.rl.episode import (
-              complete_reward_history_steps,
-              minimum_reward_start_index,
-          )
-          ''',
+                  lines(
+                      'from trade_rl.rl.episode import (',
+                      '    complete_reward_history_steps,',
+                      '    minimum_reward_start_index,',
+                      ')',
+                      '',
+                  ),
                   'from trade_rl.rl.episode import complete_reward_history_steps\n',
               ),
               (
-                  '''from trade_rl.rl.rewards import (
-              REWARD_SCHEMA,
-              RewardTracker,
-          )
-          ''',
+                  lines(
+                      'from trade_rl.rl.rewards import (',
+                      '    REWARD_SCHEMA,',
+                      '    RewardTracker,',
+                      ')',
+                      '',
+                  ),
                   'from trade_rl.rl.rewards import REWARD_SCHEMA\n',
               ),
               ('from trade_rl.simulation import MarketExecutor\n', ''),
               (
-                  '''        self.reward_tracker = RewardTracker(
-              reward_config,
-              decision_hours=self._resolved_decision_hours,
-          )
-          if (
-              self.config.require_full_reward_preroll
-              and reward_config.baseline_underperformance_weight > 0.0
-          ):
-              self._minimum_start_index = minimum_reward_start_index(
-                  dataset,
-                  signal_minimum=self._minimum_start_index,
-                  window_hours=reward_config.baseline_window_hours,
-              )
-          self.hybrid_executor = MarketExecutor(
-              dataset,
-              self.config.execution_cost,
-              rule_stress=self.execution_rule_stress,
-          )
-          self.shadow_executor = MarketExecutor(
-              dataset,
-              self.config.execution_cost,
-              rule_stress=self.execution_rule_stress,
-          )
-          self.executor = self.hybrid_executor
-          self._reward_history_cache: dict[int, tuple[float, ...]] = {}
-          ''',
-                  '''        reward_execution_resources = EnvironmentRewardExecutionResourcesBuilder(
-              dataset,
-              config=self.config,
-              reward_config=reward_config,
-              resolved_decision_hours=self._resolved_decision_hours,
-              minimum_start_index=self._minimum_start_index,
-              execution_rule_stress=self.execution_rule_stress,
-          ).build()
-          self._install_reward_execution_resources(reward_execution_resources)
-          ''',
+                  lines(
+                      '        self.reward_tracker = RewardTracker(',
+                      '            reward_config,',
+                      '            decision_hours=self._resolved_decision_hours,',
+                      '        )',
+                      '        if (',
+                      '            self.config.require_full_reward_preroll',
+                      '            and reward_config.baseline_underperformance_weight > 0.0',
+                      '        ):',
+                      '            self._minimum_start_index = minimum_reward_start_index(',
+                      '                dataset,',
+                      '                signal_minimum=self._minimum_start_index,',
+                      '                window_hours=reward_config.baseline_window_hours,',
+                      '            )',
+                      '        self.hybrid_executor = MarketExecutor(',
+                      '            dataset,',
+                      '            self.config.execution_cost,',
+                      '            rule_stress=self.execution_rule_stress,',
+                      '        )',
+                      '        self.shadow_executor = MarketExecutor(',
+                      '            dataset,',
+                      '            self.config.execution_cost,',
+                      '            rule_stress=self.execution_rule_stress,',
+                      '        )',
+                      '        self.executor = self.hybrid_executor',
+                      '        self._reward_history_cache: dict[int, tuple[float, ...]] = {}',
+                      '',
+                  ),
+                  lines(
+                      '        reward_execution_resources = EnvironmentRewardExecutionResourcesBuilder(',
+                      '            dataset,',
+                      '            config=self.config,',
+                      '            reward_config=reward_config,',
+                      '            resolved_decision_hours=self._resolved_decision_hours,',
+                      '            minimum_start_index=self._minimum_start_index,',
+                      '            execution_rule_stress=self.execution_rule_stress,',
+                      '        ).build()',
+                      '        self._install_reward_execution_resources(reward_execution_resources)',
+                      '',
+                  ),
               ),
               (
-                  '''    def _install_initial_state(
-              self,
-              state: EnvironmentInitialState,
-          ) -> None:
-          ''',
-                  '''    def _install_reward_execution_resources(
-              self,
-              resources: EnvironmentRewardExecutionResources,
-          ) -> None:
-              self.reward_tracker = resources.reward_tracker
-              self._minimum_start_index = resources.minimum_start_index
-              self.hybrid_executor = resources.hybrid_executor
-              self.shadow_executor = resources.shadow_executor
-              self.executor = resources.executor
-              self._reward_history_cache = resources.reward_history_cache
-
-              def _install_initial_state(
-              self,
-              state: EnvironmentInitialState,
-          ) -> None:
-          ''',
+                  lines(
+                      '    def _install_initial_state(',
+                      '        self,',
+                      '        state: EnvironmentInitialState,',
+                      '    ) -> None:',
+                      '',
+                  ),
+                  lines(
+                      '    def _install_reward_execution_resources(',
+                      '        self,',
+                      '        resources: EnvironmentRewardExecutionResources,',
+                      '    ) -> None:',
+                      '        self.reward_tracker = resources.reward_tracker',
+                      '        self._minimum_start_index = resources.minimum_start_index',
+                      '        self.hybrid_executor = resources.hybrid_executor',
+                      '        self.shadow_executor = resources.shadow_executor',
+                      '        self.executor = resources.executor',
+                      '        self._reward_history_cache = resources.reward_history_cache',
+                      '',
+                      '    def _install_initial_state(',
+                      '        self,',
+                      '        state: EnvironmentInitialState,',
+                      '    ) -> None:',
+                      '',
+                  ),
               ),
           )
 

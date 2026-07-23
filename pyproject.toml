@@ -130,6 +130,8 @@ target = 90.0
 "trade_rl/rl/environment_policy_schedule_contract.py" = 100.0
 "trade_rl/rl/environment_initial_state.py" = 100.0
 "trade_rl/rl/environment_reward_execution_resources.py" = 100.0
+"trade_rl/serving/package.py" = 90.0
+"trade_rl/serving/training_environment.py" = 100.0
 
 [tool.trade_rl.critical_coverage.groups.artifacts]
 minimum = 90.0

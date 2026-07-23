@@ -126,6 +126,7 @@ target = 90.0
 "trade_rl/rl/environment_observation_contract.py" = 100.0
 "trade_rl/rl/environment_provider_contract.py" = 100.0
 "trade_rl/rl/environment_runtime_services.py" = 100.0
+"trade_rl/rl/environment_portfolio_risk_contract.py" = 100.0
 
 [tool.trade_rl.critical_coverage.groups.artifacts]
 minimum = 90.0

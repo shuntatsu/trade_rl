@@ -126,7 +126,21 @@ jobs:
       - name: Format
         run: uv run ruff format --check .
       - name: Mypy
-        run: uv run mypy .
+        id: mypy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy . 2>&1 | tee mypy.log
+      - name: Upload Mypy diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr140-mypy-diagnostics
+          path: mypy.log
+          if-no-files-found: error
+      - name: Require Mypy
+        run: test "${{ steps.mypy.outcome }}" = success
       - name: Import architecture
         run: uv run lint-imports
       - name: Focused behavior verification

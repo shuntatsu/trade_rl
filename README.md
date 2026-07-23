@@ -137,11 +137,13 @@ uv run trade-rl data binance \
 
 Spot and USDⓈ-M are supported linear products. COIN-M inverse futures fail closed because the current accounting model is linear. See [docs/BINANCE.md](docs/BINANCE.md).
 
-Both execution commands print one machine-readable JSON result. Exploratory training cannot be packaged or released. A selected-final run requires an externally signed selection authorization before model construction, at least 30 days of Ed25519-signed post-training confirmation, deterministic bundle packaging, matching conservative execution evidence, and a separate offline release approval. Direct exchange connectivity is not implemented.
+Both execution commands print one machine-readable JSON result. Exploratory training cannot be packaged or released. A selected-final run requires an externally signed selection authorization before model construction, at least 30 days of Ed25519-signed post-training confirmation, deterministic bundle packaging, matching conservative execution evidence, a verified paper-reconciliation artifact, and a separate offline release approval. Direct exchange connectivity is not implemented.
 
 ### Offline evidence and release commands
 
 Private Ed25519 key files use schema `ed25519_private_key_v1`, must be purpose-bound, and on POSIX must have mode `0600`. They are used only on an offline approval host.
+
+The reconciliation request contains externally normalized paper-order, fill, and accounting measurements. `reconciliation create` validates the strict request and derives the artifact's pass state, but it does not independently prove the source of those measurements. The resulting digest must be referenced by the fresh-confirmation request and is then covered by the confirmation signature.
 
 ```bash
 uv run trade-rl selection authorize \
@@ -152,10 +154,24 @@ uv run trade-rl selection authorize \
   --expires-at 2026-07-25T03:00:00Z \
   --output /secure/selection-authorization.json
 
+uv run trade-rl reconciliation create \
+  --request /secure/paper-reconciliation-request.json \
+  --output /secure/paper-reconciliation.json
+
 uv run trade-rl confirmation create \
   --request /secure/fresh-confirmation-request.json \
   --private-key /secure/confirmation-key.json \
   --output /secure/fresh-confirmation.json
+
+uv run trade-rl serving package \
+  --training-run var/research/selected-final \
+  --confirmation /secure/fresh-confirmation.json \
+  --paper-reconciliation /secure/paper-reconciliation.json \
+  --confirmation-public-keys /secure/confirmation-public-keys.json \
+  --output var/serving/candidate \
+  --signal-digest <signal-sha256> \
+  --selection-digest <selection-sha256> \
+  --trusted-now 2026-08-18T03:00:00Z
 
 uv run trade-rl release approve \
   --bundle var/serving/candidate \
@@ -167,7 +183,7 @@ uv run trade-rl release approve \
   --expires-at 2026-09-18T03:00:00Z
 ```
 
-The authorization, confirmation, and release files are immutable and remain external to the candidate bundle until verification.
+The authorization, reconciliation, confirmation, and release files are immutable and remain external to the candidate bundle until verification and packaging.
 
 ## Docker GPU full research run
 

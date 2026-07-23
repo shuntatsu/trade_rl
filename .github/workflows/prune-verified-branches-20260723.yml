@@ -1,0 +1,151 @@
+name: Prune verified branches 2026-07-23
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: prune-verified-branches-20260723
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    if: github.head_ref == 'ci/prune-verified-branches-20260723'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact cleanup head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Delete only verified integrated or superseded branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/prune-verified-branches-20260723
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+          report=/tmp/verified-branch-prune-report.txt
+          : > "$report"
+          echo 'verified_branch_prune_v3' >> "$report"
+          echo "cleanup_head=${{ github.event.pull_request.head.sha }}" >> "$report"
+          echo "main_sha=$(git rev-parse origin/main)" >> "$report"
+          echo >> "$report"
+
+          mapfile -t branches < <(
+            git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin \
+              | grep -v '^HEAD$' \
+              | grep -v '^main$' \
+              | grep -v "^${CLEANUP_BRANCH}$" \
+              | sort -u
+          )
+
+          deleted=0
+          kept=0
+          failed=0
+
+          for branch in "${branches[@]}"; do
+            open_count=$(gh pr list \
+              --repo "$REPO" \
+              --state open \
+              --head "$branch" \
+              --limit 100 \
+              --json number \
+              --jq 'length')
+            if [ "$open_count" -gt 0 ]; then
+              echo "KEEP open-pr $branch" | tee -a "$report"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            reason=''
+            if git merge-base --is-ancestor "origin/$branch" origin/main; then
+              reason='ancestor-of-main'
+            elif [ "$(git rev-parse "origin/$branch^{tree}")" = "$(git rev-parse 'origin/main^{tree}')" ]; then
+              reason='identical-tree'
+            else
+              prs=$(gh pr list \
+                --repo "$REPO" \
+                --state all \
+                --head "$branch" \
+                --limit 100 \
+                --json number,state,mergedAt,baseRefName,title,body)
+
+              if jq -e 'any(.[]; .mergedAt != null and .baseRefName == "main")' \
+                >/dev/null <<<"$prs"; then
+                reason='merged-pr-to-main'
+              elif jq -e '
+                length > 0
+                and all(.[]; .state == "CLOSED")
+                and any(.[];
+                  (((.title // "") + " " + (.body // "")) | ascii_downcase)
+                  | test("superseded|temporary|closed without merge|must not be merged|do not merge|not be merged|diagnostic|verification only|validation pr|cleanup pr|ci-only|audit-only")
+                )
+              ' >/dev/null <<<"$prs"; then
+                reason='explicitly-superseded-or-temporary'
+              fi
+            fi
+
+            if [ -z "$reason" ]; then
+              pr_summary=$(gh pr list \
+                --repo "$REPO" \
+                --state all \
+                --head "$branch" \
+                --limit 10 \
+                --json number,state,mergedAt,baseRefName,title \
+                --jq 'map("#\(.number):\(.state):base=\(.baseRefName):merged=\(.mergedAt != null):\(.title)") | join(";")')
+              echo "KEEP unique-or-unverified $branch prs=${pr_summary:-none}" | tee -a "$report"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            encoded=$(printf '%s' "$branch" | jq -sRr @uri)
+            if gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"; then
+              echo "DELETE $reason $branch" | tee -a "$report"
+              deleted=$((deleted + 1))
+            else
+              echo "KEEP delete-failed $branch" | tee -a "$report"
+              failed=$((failed + 1))
+            fi
+          done
+
+          echo >> "$report"
+          echo "deleted=$deleted" >> "$report"
+          echo "kept=$kept" >> "$report"
+          echo "delete_failed=$failed" >> "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Upload branch inventory report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-branch-prune-report-20260723
+          path: /tmp/verified-branch-prune-report.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Delete cleanup branch
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CLEANUP_BRANCH: ci/prune-verified-branches-20260723
+        run: |
+          set -euo pipefail
+          encoded=$(printf '%s' "$CLEANUP_BRANCH" | jq -sRr @uri)
+          gh api --method DELETE "repos/$REPO/git/refs/heads/$encoded"

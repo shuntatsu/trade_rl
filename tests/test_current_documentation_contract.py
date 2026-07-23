@@ -183,6 +183,32 @@ def test_resolved_live_training_isolation_is_not_described_as_open() -> None:
         assert current in research_status
 
 
+def test_environment_facade_audit_is_resolved_with_protected_state_boundary() -> None:
+    closeout = _text(
+        ROOT / "docs" / "verification" / "2026-07-23-architecture-audit-closeout.md"
+    )
+    summary = closeout.split("## 2. Closeout summary", maxsplit=1)[1].split(
+        "## 3. Finding-by-finding disposition", maxsplit=1
+    )[0]
+    assert "| `AUD-RL-001` | P2 risk | RESOLVED |" in summary
+
+    section = closeout.split("### AUD-RL-001 — RESOLVED", maxsplit=1)[1].split(
+        "## 4. Current architecture judgment", maxsplit=1
+    )[0]
+    for required in (
+        "150-line architecture limit",
+        "typed",
+        "`step()` remains an orchestration facade",
+        "`reset()` retains mutable Gymnasium state",
+        "architecture tests",
+        "100.0% critical coverage ratchets",
+        "no further mechanical split",
+    ):
+        assert required in section
+    assert "OPEN RISK" not in section
+    assert "Production remains `NO-GO`" in closeout
+
+
 def test_internal_markdown_links_resolve() -> None:
     link_pattern = re.compile(
         r"\[[^\]]+\]\((?!https?://|#|mailto:)([^)#]+)(?:#[^)]+)?\)"

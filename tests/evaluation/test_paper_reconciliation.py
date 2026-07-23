@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,7 +17,7 @@ START = datetime(2026, 7, 2, tzinfo=UTC)
 
 
 def _evidence(**overrides: object) -> PaperReconciliationEvidence:
-    values: dict[str, object] = {
+    values: dict[str, Any] = {
         "dataset_id": "1" * 64,
         "environment_digest": "2" * 64,
         "policy_digest": "3" * 64,
@@ -82,7 +83,7 @@ def test_paper_reconciliation_load_rejects_tampered_observation(tmp_path: Path) 
     payload["maximum_cash_difference_fraction"] = 0.5
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="digest mismatch"):
+    with pytest.raises(ValueError, match="evidence is invalid"):
         load_paper_reconciliation_evidence(path)
 
 

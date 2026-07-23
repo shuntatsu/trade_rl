@@ -267,4 +267,4 @@ def test_environment_pre_roll_and_terminal_guards_are_covered() -> None:
 
 def test_environment_file_has_a_stronger_branch_coverage_ratchet() -> None:
     configuration = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"trade_rl/rl/environment.py" = 75.0' in configuration
+    assert '"trade_rl/rl/environment.py" = 85.0' in configuration

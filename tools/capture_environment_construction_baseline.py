@@ -24,6 +24,9 @@ def normalize(value: object) -> object:
         return normalize(value.item())
     if isinstance(value, Enum):
         return normalize(value.value)
+    snapshot = getattr(value, "snapshot", None)
+    if callable(snapshot):
+        return normalize(snapshot())
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {
             field.name: normalize(getattr(value, field.name))

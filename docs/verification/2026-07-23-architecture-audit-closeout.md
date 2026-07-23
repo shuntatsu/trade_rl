@@ -117,7 +117,7 @@ under the maintained attributes. That is an intentional framework-facing facade
 responsibility, not unowned construction policy.
 
 The constructor fell from the audited 479 lines to a maintained 150-line architecture limit. The remaining constructor statements are validated typed
-contract assignment and orchestration. Architecture tests prohibit extracted
+contract assignment and orchestration. The architecture tests prohibit extracted
 action, risk, reward, execution, observation, provider, portfolio-risk,
 policy/schedule, service-wiring, initial-state, and resource responsibilities from
 returning inline.

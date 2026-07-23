@@ -469,9 +469,7 @@ def _run_reconciliation_create(
             ),
             order_log_digest=_reconciliation_string(raw, "order_log_digest"),
             fill_log_digest=_reconciliation_string(raw, "fill_log_digest"),
-            submitted_order_count=_reconciliation_integer(
-                raw, "submitted_order_count"
-            ),
+            submitted_order_count=_reconciliation_integer(raw, "submitted_order_count"),
             terminal_order_count=_reconciliation_integer(raw, "terminal_order_count"),
             observed_fill_count=_reconciliation_integer(raw, "observed_fill_count"),
             matched_fill_count=_reconciliation_integer(raw, "matched_fill_count"),

@@ -301,9 +301,7 @@ class PaperReconciliationEvidence:
             unknown_order_fill_count=unknown_fills,
             duplicate_fill_count=duplicate_fills,
             open_order_count=open_orders,
-            maximum_position_notional_difference_fraction=(
-                maximum_position_difference
-            ),
+            maximum_position_notional_difference_fraction=(maximum_position_difference),
             maximum_cash_difference_fraction=maximum_cash_difference,
             maximum_equity_difference_fraction=maximum_equity_difference,
             position_notional_tolerance_fraction=position_tolerance,

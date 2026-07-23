@@ -26,7 +26,6 @@ from trade_rl.rl.actions import (
     ResidualActionV2,
     TargetWeightAction,
 )
-from trade_rl.rl.diagnostics import ActionDiagnosticsAccumulator
 from trade_rl.rl.environment_config import (
     RESET_STATE_MODES as _RESET_STATE_MODES,
 )
@@ -41,6 +40,11 @@ from trade_rl.rl.environment_execution import (
 from trade_rl.rl.environment_info import (
     EnvironmentStepInfoRequest,
     EnvironmentTerminalInfoRequest,
+)
+from trade_rl.rl.environment_initial_state import (
+    EnvironmentInitialState,
+    EnvironmentInitialStateFactory,
+    EnvironmentInitialStateRequest,
 )
 from trade_rl.rl.environment_observation import EnvironmentObservationRuntime
 from trade_rl.rl.environment_observation_contract import (
@@ -256,30 +260,35 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._termination_coordinator = runtime_services.termination_coordinator
         self._environment_digest = content_digest(self._digest_payload())
 
-        self.start_index = self._minimum_start_index
-        self.end_index = self.start_index + 1
-        self.current_index = self.start_index
-        initial_prices = dataset.close[self.start_index]
-        self.hybrid = BookState.zero(
-            dataset.n_symbols,
-            self.config.initial_capital,
-            initial_prices,
-            contract_multipliers=dataset.resolved_array("contract_multipliers"),
+        initial_state = EnvironmentInitialStateFactory.create(
+            EnvironmentInitialStateRequest(
+                dataset, self.config, self.action_spec, self._minimum_start_index
+            )
         )
-        self.shadow = self.hybrid.clone()
-        self._decision_step_index = 0
-        self._episode_seed = self.config.execution_cost.random_seed
-        self._episode_hours = self.config.episode_hours
-        self._initial_state_mode = "cash"
-        self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
-        self._pending_hybrid_target: np.ndarray | None = None
-        self._pending_shadow_target: np.ndarray | None = None
-        self._hybrid_order_book = OrderBookState.empty()
-        self._shadow_order_book = OrderBookState.empty()
-        self._position_age = np.zeros(dataset.n_symbols, dtype=np.float64)
-        self._execution_state = ObservationExecutionState.zero(dataset.n_symbols)
-        self._action_diagnostics = ActionDiagnosticsAccumulator()
-        self._has_reset = False
+        self._install_initial_state(initial_state)
+
+    def _install_initial_state(
+        self,
+        state: EnvironmentInitialState,
+    ) -> None:
+        self.start_index = state.start_index
+        self.end_index = state.end_index
+        self.current_index = state.current_index
+        self.hybrid = state.hybrid
+        self.shadow = state.shadow
+        self._decision_step_index = state.decision_step_index
+        self._episode_seed = state.episode_seed
+        self._episode_hours = state.episode_hours
+        self._initial_state_mode = state.initial_state_mode
+        self._previous_action = state.previous_action
+        self._pending_hybrid_target = state.pending_hybrid_target
+        self._pending_shadow_target = state.pending_shadow_target
+        self._hybrid_order_book = state.hybrid_order_book
+        self._shadow_order_book = state.shadow_order_book
+        self._position_age = state.position_age
+        self._execution_state = state.execution_state
+        self._action_diagnostics = state.action_diagnostics
+        self._has_reset = state.has_reset
 
     def _digest_payload(self) -> dict[str, object]:
         return {

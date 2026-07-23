@@ -19,6 +19,7 @@ CONSTRUCTION_PATHS = (
     "trade_rl/rl/environment_assembly.py",
     "trade_rl/rl/environment_state.py",
 )
+OBSERVATION_CONTRACT_PATH = "trade_rl/rl/environment_observation_contract.py"
 FORBIDDEN_CONSTRUCTOR_SYMBOLS = {
     "BookState.zero",
     "CausalEmergencyRiskMonitor",
@@ -108,11 +109,26 @@ def test_environment_facade_keeps_public_identity_and_mutable_state() -> None:
     assert "self.__dict__.update" not in source
 
 
+def test_observation_contract_remains_the_canonical_pr114_owner() -> None:
+    source = (ROOT / OBSERVATION_CONTRACT_PATH).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    owners = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    }
+
+    assert "EnvironmentObservationContractBuilder" in owners
+    for module_name in REQUIRED_MODULES:
+        assert OBSERVATION_CONTRACT_PATH not in _module_source(module_name)
+
+
 def test_environment_construction_coverage_tracks_behavior_owners() -> None:
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    group = configuration["tool"]["trade_rl"]["critical_coverage"]["groups"][
-        "environment_construction_support"
-    ]
+    critical_coverage = configuration["tool"]["trade_rl"]["critical_coverage"]
+    group = critical_coverage["groups"]["environment_construction_support"]
 
     assert group["minimum"] == 63.2
     assert tuple(group["paths"]) == CONSTRUCTION_PATHS
+    assert OBSERVATION_CONTRACT_PATH not in group["paths"]
+    assert critical_coverage["files"][OBSERVATION_CONTRACT_PATH] == 100.0

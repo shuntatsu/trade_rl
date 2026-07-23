@@ -85,8 +85,10 @@ jobs:
             tests/rl/test_environment_identity.py \
             tests/rl/test_target_weight_action.py \
             tests/rl/test_environment_timing.py \
-            tests/rl/test_environment_sequence.py \
-            tests/rl/test_environment_pending_orders.py \
+            tests/rl/test_sequence_environment_config.py \
+            tests/rl/test_sequence_observations.py \
+            tests/rl/test_pending_order_environment.py \
+            tests/rl/test_pending_order_observation.py \
             2>&1 | tee pr121-focused-pytest.log
 
       - name: Remove one-shot material and commit

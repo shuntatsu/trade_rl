@@ -187,11 +187,26 @@ jobs:
           uv run mypy trade_rl/rl/environment.py trade_rl/rl/environment_portfolio_risk_contract.py
 
       - name: Focused behavior verification
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          set +e
           uv run pytest -q \
             tests/architecture/test_environment_portfolio_risk_contract_decomposition.py \
             tests/rl/test_environment_portfolio_risk_contract.py \
-            tests/rl
+            tests/rl \
+            2>&1 | tee .github/portfolio-risk-contract-pytest-diagnostic.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .github/portfolio-risk-contract-pytest-diagnostic.txt
+            git commit -m 'ci: capture portfolio risk contract behavior failure'
+            git push origin "HEAD:${HEAD_REF}"
+            exit "$status"
+          fi
 
       - name: Commit verified implementation and remove temporary job
         shell: bash
@@ -201,7 +216,8 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/workflows/temporary-portfolio-risk-contract-implementation.yml \
-            .github/portfolio-risk-contract-implementation-trigger
+            .github/portfolio-risk-contract-implementation-trigger \
+            .github/portfolio-risk-contract-pytest-diagnostic.txt
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

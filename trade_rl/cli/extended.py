@@ -31,6 +31,32 @@ _CONFIRMATION_REQUEST_FIELDS = {
     "start_time",
     "training_run_digest",
 }
+_PAPER_RECONCILIATION_REQUEST_SCHEMA = "paper_reconciliation_request_v1"
+_PAPER_RECONCILIATION_REQUEST_FIELDS = {
+    "cash_tolerance_fraction",
+    "created_at",
+    "dataset_id",
+    "duplicate_fill_count",
+    "end_time",
+    "environment_digest",
+    "equity_tolerance_fraction",
+    "fill_log_digest",
+    "matched_fill_count",
+    "maximum_cash_difference_fraction",
+    "maximum_equity_difference_fraction",
+    "maximum_position_notional_difference_fraction",
+    "observed_fill_count",
+    "open_order_count",
+    "order_log_digest",
+    "policy_digest",
+    "position_notional_tolerance_fraction",
+    "schema_version",
+    "start_time",
+    "submitted_order_count",
+    "terminal_order_count",
+    "training_run_digest",
+    "unknown_order_fill_count",
+}
 
 
 def execute_training_run(**kwargs: Any) -> Any:
@@ -87,6 +113,7 @@ def _serving_package_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="trade-rl serving package")
     parser.add_argument("--training-run", type=Path, required=True)
     parser.add_argument("--confirmation", type=Path, required=True)
+    parser.add_argument("--paper-reconciliation", type=Path, required=True)
     parser.add_argument("--confirmation-public-keys", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--signal-digest", required=True)
@@ -123,6 +150,13 @@ def _confirmation_create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="trade-rl confirmation create")
     parser.add_argument("--request", type=Path, required=True)
     parser.add_argument("--private-key", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    return parser
+
+
+def _reconciliation_create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="trade-rl reconciliation create")
+    parser.add_argument("--request", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -304,6 +338,40 @@ def _request_number(raw: Mapping[str, object], field: str) -> float:
     return float(value)
 
 
+def _strict_reconciliation_request(path: Path) -> Mapping[str, object]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("paper reconciliation request must be an object")
+    if set(raw) != _PAPER_RECONCILIATION_REQUEST_FIELDS:
+        raise ValueError("paper reconciliation request fields are invalid")
+    if raw.get("schema_version") != _PAPER_RECONCILIATION_REQUEST_SCHEMA:
+        raise ValueError("paper reconciliation request schema is unsupported")
+    return raw
+
+
+def _reconciliation_string(raw: Mapping[str, object], field: str) -> str:
+    value = raw.get(field)
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            f"paper reconciliation request {field} must be a non-empty string"
+        )
+    return value
+
+
+def _reconciliation_integer(raw: Mapping[str, object], field: str) -> int:
+    value = raw.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"paper reconciliation request {field} must be an integer")
+    return value
+
+
+def _reconciliation_number(raw: Mapping[str, object], field: str) -> float:
+    value = raw.get(field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"paper reconciliation request {field} must be numeric")
+    return float(value)
+
+
 def _run_confirmation_create(
     argv: Sequence[str],
     *,
@@ -371,6 +439,85 @@ def _run_confirmation_create(
     return 0
 
 
+def _run_reconciliation_create(
+    argv: Sequence[str],
+    *,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    args = _reconciliation_create_parser().parse_args(list(argv))
+    try:
+        from trade_rl.evaluation.paper_reconciliation import (
+            PaperReconciliationEvidence,
+            write_paper_reconciliation_evidence,
+        )
+
+        raw = _strict_reconciliation_request(args.request)
+        evidence = PaperReconciliationEvidence.create(
+            dataset_id=_reconciliation_string(raw, "dataset_id"),
+            environment_digest=_reconciliation_string(raw, "environment_digest"),
+            policy_digest=_reconciliation_string(raw, "policy_digest"),
+            training_run_digest=_reconciliation_string(raw, "training_run_digest"),
+            start_time=_parse_datetime(
+                _reconciliation_string(raw, "start_time"), field="start-time"
+            ),
+            end_time=_parse_datetime(
+                _reconciliation_string(raw, "end_time"), field="end-time"
+            ),
+            created_at=_parse_datetime(
+                _reconciliation_string(raw, "created_at"), field="created-at"
+            ),
+            order_log_digest=_reconciliation_string(raw, "order_log_digest"),
+            fill_log_digest=_reconciliation_string(raw, "fill_log_digest"),
+            submitted_order_count=_reconciliation_integer(raw, "submitted_order_count"),
+            terminal_order_count=_reconciliation_integer(raw, "terminal_order_count"),
+            observed_fill_count=_reconciliation_integer(raw, "observed_fill_count"),
+            matched_fill_count=_reconciliation_integer(raw, "matched_fill_count"),
+            unknown_order_fill_count=_reconciliation_integer(
+                raw, "unknown_order_fill_count"
+            ),
+            duplicate_fill_count=_reconciliation_integer(raw, "duplicate_fill_count"),
+            open_order_count=_reconciliation_integer(raw, "open_order_count"),
+            maximum_position_notional_difference_fraction=_reconciliation_number(
+                raw, "maximum_position_notional_difference_fraction"
+            ),
+            maximum_cash_difference_fraction=_reconciliation_number(
+                raw, "maximum_cash_difference_fraction"
+            ),
+            maximum_equity_difference_fraction=_reconciliation_number(
+                raw, "maximum_equity_difference_fraction"
+            ),
+            position_notional_tolerance_fraction=_reconciliation_number(
+                raw, "position_notional_tolerance_fraction"
+            ),
+            cash_tolerance_fraction=_reconciliation_number(
+                raw, "cash_tolerance_fraction"
+            ),
+            equity_tolerance_fraction=_reconciliation_number(
+                raw, "equity_tolerance_fraction"
+            ),
+        )
+        path = write_paper_reconciliation_evidence(args.output, evidence)
+    except Exception as error:
+        return _error(
+            stderr,
+            error,
+            schema="paper_reconciliation_creation_error_v1",
+        )
+    _write_json(
+        stdout,
+        {
+            "artifact_path": str(path),
+            "evidence_digest": evidence.evidence_digest,
+            "passed": evidence.passed,
+            "production_status": "NO-GO",
+            "schema": "paper_reconciliation_creation_result_v1",
+            "status": "sealed_for_fresh_confirmation_review",
+        },
+    )
+    return 0
+
+
 def _run_serving_package(
     argv: Sequence[str],
     *,
@@ -382,6 +529,7 @@ def _run_serving_package(
         manifest = package_selected_training_run(
             training_root=args.training_run,
             confirmation_path=args.confirmation,
+            paper_reconciliation_path=args.paper_reconciliation,
             output_root=args.output,
             signal_digest=args.signal_digest,
             selection_digest=args.selection_digest,
@@ -503,6 +651,8 @@ def main(
         return _run_release_approve(arguments[2:], stdout=output, stderr=errors)
     if arguments[:2] == ["confirmation", "create"]:
         return _run_confirmation_create(arguments[2:], stdout=output, stderr=errors)
+    if arguments[:2] == ["reconciliation", "create"]:
+        return _run_reconciliation_create(arguments[2:], stdout=output, stderr=errors)
     raise ValueError("unsupported artifact-producing CLI command")
 
 

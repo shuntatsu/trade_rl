@@ -31,21 +31,18 @@ jobs:
 
           path = Path("trade_rl/rl/environment.py")
           text = path.read_text()
-
           replacements = {
               """from trade_rl.rl.environment_decision import (
               EnvironmentDecisionPlanner,
               EnvironmentDecisionRequest,
           )
-          """: """from trade_rl.rl.environment_decision import EnvironmentDecisionRequest
-          """,
+          """: "from trade_rl.rl.environment_decision import EnvironmentDecisionRequest\n",
               "from trade_rl.rl.environment_episode import EpisodeContractSampler\n": "",
               """from trade_rl.rl.environment_execution import (
               EnvironmentExecutionCoordinator,
               TargetExecutionRequest,
           )
-          """: """from trade_rl.rl.environment_execution import TargetExecutionRequest
-          """,
+          """: "from trade_rl.rl.environment_execution import TargetExecutionRequest\n",
               """from trade_rl.rl.environment_info import (
               EnvironmentInfoBuilder,
               EnvironmentStepInfoRequest,
@@ -60,20 +57,17 @@ jobs:
               EnvironmentObservationAssembler,
               EnvironmentObservationRuntime,
           )
-          """: """from trade_rl.rl.environment_observation import EnvironmentObservationRuntime
-          """,
+          """: "from trade_rl.rl.environment_observation import EnvironmentObservationRuntime\n",
               """from trade_rl.rl.environment_reward import (
               EnvironmentRewardCoordinator,
               EnvironmentRewardRequest,
           )
-          """: """from trade_rl.rl.environment_reward import EnvironmentRewardRequest
-          """,
+          """: "from trade_rl.rl.environment_reward import EnvironmentRewardRequest\n",
               """from trade_rl.rl.environment_risk import (
               EnvironmentRiskProjector,
               EnvironmentRiskRequest,
           )
-          """: """from trade_rl.rl.environment_risk import EnvironmentRiskRequest
-          """,
+          """: "from trade_rl.rl.environment_risk import EnvironmentRiskRequest\n",
               "from trade_rl.rl.environment_transition import EnvironmentTerminationCoordinator\n": "",
           }
           for old, new in replacements.items():
@@ -86,8 +80,7 @@ jobs:
               EnvironmentRuntimeServicesBuilder,
           )
           """
-          if runtime_import not in text:
-              text = text.replace(marker, marker + runtime_import, 1)
+          text = text.replace(marker, marker + runtime_import, 1)
 
           start = text.index("        self._episode_sampler = EpisodeContractSampler(\n")
           end = text.index(
@@ -123,8 +116,7 @@ jobs:
               "self._termination_coordinator = runtime_services.termination_coordinator",
           ]
           replacement = "\n".join(f"        {line}" for line in lines) + "\n"
-          text = text[:start] + replacement + text[end:]
-          path.write_text(text)
+          path.write_text(text[:start] + replacement + text[end:])
           PY
 
       - name: Set up uv
@@ -136,39 +128,46 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra train-sb3
 
-      - name: Format changed Python
-        run: >-
-          uv run ruff format
-          trade_rl/rl/environment.py
-          trade_rl/rl/environment_runtime_services.py
-          tests/architecture/test_environment_runtime_services_decomposition.py
-          tests/rl/test_environment_runtime_services.py
-
-      - name: Focused static verification
+      - name: Format and static verification
+        shell: bash
         run: |
-          uv run ruff check \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_runtime_services.py \
-            tests/architecture/test_environment_runtime_services_decomposition.py \
-            tests/rl/test_environment_runtime_services.py
-          uv run ruff format --check \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_runtime_services.py \
-            tests/architecture/test_environment_runtime_services_decomposition.py \
-            tests/rl/test_environment_runtime_services.py
-          uv run mypy \
-            trade_rl/rl/environment.py \
+          set -o pipefail
+          targets=(
+            trade_rl/rl/environment.py
             trade_rl/rl/environment_runtime_services.py
+            tests/architecture/test_environment_runtime_services_decomposition.py
+            tests/rl/test_environment_runtime_services.py
+          )
+          uv run ruff check --fix "${targets[@]}"
+          uv run ruff format "${targets[@]}"
+          {
+            uv run ruff check "${targets[@]}"
+            uv run ruff format --check "${targets[@]}"
+            uv run mypy trade_rl/rl/environment.py trade_rl/rl/environment_runtime_services.py
+          } 2>&1 | tee runtime-services-static.log
 
       - name: Focused behavior verification
-        run: >-
-          uv run pytest -q
-          tests/architecture/test_environment_runtime_services_decomposition.py
-          tests/rl/test_environment_runtime_services.py
-          tests/rl/test_environment.py
-          tests/rl/test_environment_identity.py
-          tests/rl/test_environment_risk_service.py
-          tests/rl/test_environment_observation_contract.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
+            tests/rl/test_environment_runtime_services.py \
+            tests/rl/test_environment.py \
+            tests/rl/test_environment_identity.py \
+            tests/rl/test_environment_risk_service.py \
+            tests/rl/test_environment_observation_contract.py \
+            2>&1 | tee runtime-services-pytest.log
+
+      - name: Upload focused diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-services-focused-diagnostics
+          path: |
+            runtime-services-static.log
+            runtime-services-pytest.log
+          if-no-files-found: ignore
 
       - name: Commit verified implementation and remove temporary job
         shell: bash
@@ -179,6 +178,7 @@ jobs:
           rm -f \
             .github/workflows/temporary-runtime-services-implementation.yml \
             .github/runtime-services-implementation-trigger
+          rm -f runtime-services-static.log runtime-services-pytest.log
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

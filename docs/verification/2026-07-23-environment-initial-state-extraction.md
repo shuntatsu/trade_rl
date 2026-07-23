@@ -177,3 +177,7 @@ The remaining constructor density consists primarily of:
 - observation/runtime contract assignment.
 
 This item does not block causal research use. Production remains `NO-GO` until the maintained research, evidence, operational, authorization, and profitability gates pass independently.
+
+## 8. Documentation-head integration gate
+
+Documentation-only evidence commits after the synchronized code head do not alter Python, tests, configuration, or runtime behavior. They are still required to pass the normal read-only CI workflow at their exact head before merge; prior code-head success is not substituted for that final integration check.

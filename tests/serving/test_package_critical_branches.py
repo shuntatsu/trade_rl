@@ -244,13 +244,7 @@ def test_package_rejects_confirmation_identity_mismatch(
         ({"environment_digest": "0" * 64}, "environment identity"),
         ({"policy_digest": "0" * 64}, "policy identity"),
         ({"start_time": COMPLETED + timedelta(hours=1)}, "start time"),
-        (
-            {
-                "end_time": COMPLETED + timedelta(days=30, hours=1),
-                "created_at": COMPLETED + timedelta(days=30, hours=1),
-            },
-            "end time",
-        ),
+        ({"end_time": COMPLETED + timedelta(days=29)}, "end time"),
     ],
 )
 def test_package_rejects_reconciliation_binding_mismatch(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import inspect
+import tomllib
 from pathlib import Path
 
 from trade_rl.rl.environment import ResidualMarketEnv
@@ -13,6 +14,11 @@ REQUIRED_MODULES = {
     "trade_rl.rl.environment_assembly": "EnvironmentServiceAssembler",
     "trade_rl.rl.environment_state": "EnvironmentInitialStateFactory",
 }
+CONSTRUCTION_PATHS = (
+    "trade_rl/rl/environment_dependencies.py",
+    "trade_rl/rl/environment_assembly.py",
+    "trade_rl/rl/environment_state.py",
+)
 FORBIDDEN_CONSTRUCTOR_SYMBOLS = {
     "BookState.zero",
     "CausalEmergencyRiskMonitor",
@@ -100,3 +106,13 @@ def test_environment_facade_keeps_public_identity_and_mutable_state() -> None:
     ):
         assert field in source
     assert "self.__dict__.update" not in source
+
+
+def test_environment_construction_coverage_tracks_behavior_owners() -> None:
+    configuration = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    group = configuration["tool"]["trade_rl"]["critical_coverage"]["groups"][
+        "environment_construction_support"
+    ]
+
+    assert group["minimum"] == 63.2
+    assert tuple(group["paths"]) == CONSTRUCTION_PATHS

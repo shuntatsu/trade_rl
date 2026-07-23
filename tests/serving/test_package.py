@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -18,6 +19,11 @@ from trade_rl.data.metadata_promotion import (
 )
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
+from trade_rl.evaluation.paper_reconciliation import (
+    PAPER_RECONCILIATION_FILE_NAME,
+    PaperReconciliationEvidence,
+    write_paper_reconciliation_evidence,
+)
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.bundle import load_serving_bundle
@@ -137,7 +143,59 @@ def _training_run(
     return manifest
 
 
-def _confirmation(path: Path, manifest: TrainingRunManifest) -> None:
+def _paper_reconciliation(
+    path: Path,
+    manifest: TrainingRunManifest,
+    **overrides: object,
+) -> PaperReconciliationEvidence:
+    values: dict[str, Any] = {
+        "dataset_id": manifest.dataset_id,
+        "environment_digest": manifest.environment_digest,
+        "policy_digest": manifest.ensemble_digest,
+        "training_run_digest": manifest.digest,
+        "start_time": manifest.completed_at,
+        "end_time": manifest.completed_at + timedelta(days=30),
+        "created_at": manifest.completed_at + timedelta(days=30),
+        "order_log_digest": "7" * 64,
+        "fill_log_digest": "8" * 64,
+        "submitted_order_count": 120,
+        "terminal_order_count": 120,
+        "observed_fill_count": 100,
+        "matched_fill_count": 100,
+        "unknown_order_fill_count": 0,
+        "duplicate_fill_count": 0,
+        "open_order_count": 0,
+        "maximum_position_notional_difference_fraction": 0.0,
+        "maximum_cash_difference_fraction": 0.0,
+        "maximum_equity_difference_fraction": 0.0,
+        "position_notional_tolerance_fraction": 1e-8,
+        "cash_tolerance_fraction": 1e-8,
+        "equity_tolerance_fraction": 1e-8,
+    }
+    values.update(overrides)
+    evidence = PaperReconciliationEvidence.create(**values)
+    write_paper_reconciliation_evidence(path, evidence)
+    return evidence
+
+
+def _confirmation(
+    path: Path,
+    manifest: TrainingRunManifest,
+    *,
+    write_reconciliation: bool = True,
+    reconciliation_digest: str | None = None,
+    reconciliation_overrides: dict[str, object] | None = None,
+) -> None:
+    reconciliation = None
+    if write_reconciliation:
+        reconciliation = _paper_reconciliation(
+            path.with_name(PAPER_RECONCILIATION_FILE_NAME),
+            manifest,
+            **(reconciliation_overrides or {}),
+        )
+    resolved_reconciliation_digest = reconciliation_digest or (
+        reconciliation.evidence_digest if reconciliation is not None else "9" * 64
+    )
     evidence = create_fresh_confirmation_evidence(
         dataset_id=manifest.dataset_id,
         environment_digest=manifest.environment_digest,
@@ -152,7 +210,7 @@ def _confirmation(path: Path, manifest: TrainingRunManifest) -> None:
         return_period_hours=24.0,
         order_log_digest="7" * 64,
         fill_log_digest="8" * 64,
-        reconciliation_digest="9" * 64,
+        reconciliation_digest=resolved_reconciliation_digest,
         created_at=manifest.completed_at + timedelta(days=30),
         key_id=PUBLIC_KEY.key_id,
         private_key=PRIVATE_KEY,
@@ -181,6 +239,116 @@ def test_package_selected_final_binds_training_and_confirmation(tmp_path: Path) 
     assert loaded.manifest == manifest
     assert (loaded.root / "training-run.json").is_file()
     assert (loaded.root / "confirmation-evidence.json").is_file()
+    assert (loaded.root / PAPER_RECONCILIATION_FILE_NAME).is_file()
+
+
+def test_package_rejects_missing_paper_reconciliation(tmp_path: Path) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(training_root, run_kind="research_selected_final")
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(confirmation_path, training, write_reconciliation=False)
+
+    with pytest.raises((FileNotFoundError, ValueError), match="reconciliation"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_reconciliation_digest_mismatch(tmp_path: Path) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(training_root, run_kind="research_selected_final")
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(confirmation_path, training, reconciliation_digest="9" * 64)
+
+    with pytest.raises(ValueError, match="reconciliation digest"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_failed_paper_reconciliation(tmp_path: Path) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(training_root, run_kind="research_selected_final")
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(
+        confirmation_path,
+        training,
+        reconciliation_overrides={
+            "matched_fill_count": 99,
+            "unknown_order_fill_count": 1,
+        },
+    )
+
+    with pytest.raises(ValueError, match="did not pass"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_reconciliation_created_after_confirmation(
+    tmp_path: Path,
+) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(training_root, run_kind="research_selected_final")
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(
+        confirmation_path,
+        training,
+        reconciliation_overrides={
+            "created_at": training.completed_at + timedelta(days=30, minutes=1)
+        },
+    )
+
+    with pytest.raises(ValueError, match="created after confirmation"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
+
+
+def test_package_rejects_reconciliation_identity_mismatch(tmp_path: Path) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(training_root, run_kind="research_selected_final")
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(
+        confirmation_path,
+        training,
+        reconciliation_overrides={"dataset_id": "0" * 64},
+    )
+
+    with pytest.raises(ValueError, match="dataset identity"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
 
 
 def test_package_rejects_exploratory_training(tmp_path: Path) -> None:

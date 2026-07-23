@@ -20,6 +20,13 @@ from trade_rl.evaluation.metrics import (
     compound_return,
     evaluate_performance,
 )
+from trade_rl.evaluation.paper_reconciliation import (
+    PAPER_RECONCILIATION_FILE_NAME,
+    PAPER_RECONCILIATION_SCHEMA,
+    PaperReconciliationEvidence,
+    load_paper_reconciliation_evidence,
+    write_paper_reconciliation_evidence,
+)
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 __all__ = [
@@ -29,7 +36,10 @@ __all__ = [
     "ExecutionDiagnostics",
     "FRESH_CONFIRMATION_SCHEMA",
     "FreshConfirmationEvidence",
+    "PAPER_RECONCILIATION_FILE_NAME",
+    "PAPER_RECONCILIATION_SCHEMA",
     "PairedComparison",
+    "PaperReconciliationEvidence",
     "PerformanceMetrics",
     "ReturnKind",
     "ReturnSeries",
@@ -38,7 +48,9 @@ __all__ = [
     "evaluate_capacity_grid",
     "evaluate_performance",
     "load_confirmation_evidence",
+    "load_paper_reconciliation_evidence",
     "moving_block_mean_test",
     "resolve_gate",
     "write_confirmation_evidence",
+    "write_paper_reconciliation_evidence",
 ]

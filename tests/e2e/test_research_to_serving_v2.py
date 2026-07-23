@@ -24,6 +24,10 @@ from trade_rl.data.contracts import (
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
+from trade_rl.evaluation.paper_reconciliation import (
+    PaperReconciliationEvidence,
+    write_paper_reconciliation_evidence,
+)
 from trade_rl.integrations.sb3_serving import StableBaselines3PolicyLoader
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.attestation import (
@@ -267,6 +271,34 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     )
     confirmation_end = confirmation_start + timedelta(days=30)
 
+    reconciliation = PaperReconciliationEvidence.create(
+        dataset_id=result.dataset_id,
+        environment_digest=ensemble["environment_digest"],
+        policy_digest=result.policy_digest,
+        training_run_digest=result.run_digest,
+        start_time=confirmation_start,
+        end_time=confirmation_end,
+        created_at=confirmation_end,
+        order_log_digest="4" * 64,
+        fill_log_digest="5" * 64,
+        submitted_order_count=1,
+        terminal_order_count=1,
+        observed_fill_count=1,
+        matched_fill_count=1,
+        unknown_order_fill_count=0,
+        duplicate_fill_count=0,
+        open_order_count=0,
+        maximum_position_notional_difference_fraction=0.0,
+        maximum_cash_difference_fraction=0.0,
+        maximum_equity_difference_fraction=0.0,
+        position_notional_tolerance_fraction=1e-8,
+        cash_tolerance_fraction=1e-8,
+        equity_tolerance_fraction=1e-8,
+    )
+    write_paper_reconciliation_evidence(
+        tmp_path / "paper-reconciliation.json", reconciliation
+    )
+
     confirmation_private = Ed25519PrivateKey.from_private_bytes(b"\x52" * 32)
     confirmation_public = PublicVerificationKey(
         key_id="e2e-confirmation-key",
@@ -289,7 +321,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         return_period_hours=24.0,
         order_log_digest="4" * 64,
         fill_log_digest="5" * 64,
-        reconciliation_digest="6" * 64,
+        reconciliation_digest=reconciliation.evidence_digest,
         created_at=confirmation_end,
         key_id=confirmation_public.key_id,
         private_key=confirmation_private,

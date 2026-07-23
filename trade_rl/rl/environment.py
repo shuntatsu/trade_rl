@@ -38,24 +38,16 @@ from trade_rl.rl.environment_config import (
 from trade_rl.rl.environment_config import (
     ResidualMarketEnvConfig,
 )
-from trade_rl.rl.environment_decision import (
-    EnvironmentDecisionPlanner,
-    EnvironmentDecisionRequest,
-)
-from trade_rl.rl.environment_episode import EpisodeContractSampler
+from trade_rl.rl.environment_decision import EnvironmentDecisionRequest
 from trade_rl.rl.environment_execution import (
     EnvironmentExecutionCoordinator,
     TargetExecutionRequest,
 )
 from trade_rl.rl.environment_info import (
-    EnvironmentInfoBuilder,
     EnvironmentStepInfoRequest,
     EnvironmentTerminalInfoRequest,
 )
-from trade_rl.rl.environment_observation import (
-    EnvironmentObservationAssembler,
-    EnvironmentObservationRuntime,
-)
+from trade_rl.rl.environment_observation import EnvironmentObservationRuntime
 from trade_rl.rl.environment_observation_contract import (
     EnvironmentObservationContractBuilder,
 )
@@ -64,15 +56,11 @@ from trade_rl.rl.environment_provider_contract import (
     EnvironmentProviderContractBuilder,
     FactorBasisProvider,
 )
-from trade_rl.rl.environment_reward import (
-    EnvironmentRewardCoordinator,
-    EnvironmentRewardRequest,
+from trade_rl.rl.environment_reward import EnvironmentRewardRequest
+from trade_rl.rl.environment_risk import EnvironmentRiskRequest
+from trade_rl.rl.environment_runtime_services import (
+    EnvironmentRuntimeServicesBuilder,
 )
-from trade_rl.rl.environment_risk import (
-    EnvironmentRiskProjector,
-    EnvironmentRiskRequest,
-)
-from trade_rl.rl.environment_transition import EnvironmentTerminationCoordinator
 from trade_rl.rl.episode import (
     complete_reward_history_steps,
     minimum_reward_start_index,
@@ -285,62 +273,32 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.observation_space = observation_contract.observation_space
         self.action_space = observation_contract.action_space
         self._minimum_start_index = observation_contract.minimum_start_index
-        self._episode_sampler = EpisodeContractSampler(
+        runtime_services = EnvironmentRuntimeServicesBuilder(
             dataset,
             self.config,
             minimum_start_index=self._minimum_start_index,
-        )
-        self._execution_coordinator = EnvironmentExecutionCoordinator(
-            dataset,
-            self.config.execution_cost,
-            initial_capital=self.config.initial_capital,
-        )
-        self._observation_assembler = EnvironmentObservationAssembler(
-            dataset,
-            observation_builder=self.observation_builder,
-            layout=self.layout,
+            observation_contract=observation_contract,
             normalizer=self.normalizer,
-            sequence_observation_builder=self.sequence_observation_builder,
-            sequence_policy_plane=self.sequence_policy_plane,
             sequence_normalizer=self.sequence_normalizer,
-            action_size=self.action_spec.size,
-            n_factors=self.action_spec.n_factors,
-            finite_horizon=self.config.finite_horizon_observation,
-        )
-        self._decision_planner = EnvironmentDecisionPlanner(
-            dataset,
             action_spec=self.action_spec,
             composer=self.composer,
-            max_gross=self.pre_trade_risk.config.max_gross,
+            pre_trade_risk=self.pre_trade_risk,
             alpha_enabled=self.alpha_enabled,
-            accept_legacy_actions=self.config.accept_legacy_actions,
-            signal_delay_decisions=self.config.signal_delay_decisions,
-            decision_every=self.config.decision_every,
-            decision_hours=self.config.decision_hours,
-        )
-        self._risk_projector = EnvironmentRiskProjector(
-            dataset,
             emergency_risk_monitor=self.emergency_risk_monitor,
-            pre_trade_risk=self.pre_trade_risk,
             portfolio_risk=self.portfolio_risk,
-            portfolio_risk_inputs_provider=(self.portfolio_risk_inputs_provider),
-        )
-        self._reward_coordinator = EnvironmentRewardCoordinator(
-            self.reward_tracker,
-            initial_capital=self.config.initial_capital,
-        )
-        self._info_builder = EnvironmentInfoBuilder(
-            dataset,
-            self.reward_tracker,
-        )
-        self._termination_coordinator = EnvironmentTerminationCoordinator(
-            config=self.config,
+            portfolio_risk_inputs_provider=self.portfolio_risk_inputs_provider,
             reward_tracker=self.reward_tracker,
-            pre_trade_risk=self.pre_trade_risk,
             hybrid_executor=self.hybrid_executor,
             shadow_executor=self.shadow_executor,
-            execution_coordinator=self._execution_coordinator,
-        )
+        ).build()
+        self._episode_sampler = runtime_services.episode_sampler
+        self._execution_coordinator = runtime_services.execution_coordinator
+        self._observation_assembler = runtime_services.observation_assembler
+        self._decision_planner = runtime_services.decision_planner
+        self._risk_projector = runtime_services.risk_projector
+        self._reward_coordinator = runtime_services.reward_coordinator
+        self._info_builder = runtime_services.info_builder
+        self._termination_coordinator = runtime_services.termination_coordinator
         self._environment_digest = content_digest(self._digest_payload())
 
         self.start_index = self._minimum_start_index

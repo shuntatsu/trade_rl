@@ -148,11 +148,7 @@ jobs:
           )
           if episode_import not in text:
               raise RuntimeError("episode import block changed")
-          text = text.replace(
-              episode_import,
-              "from trade_rl.rl.episode import complete_reward_history_steps\n",
-              1,
-          )
+          text = text.replace(episode_import, "from trade_rl.rl.episode import complete_reward_history_steps\n", 1)
 
           reward_import = (
               "from trade_rl.rl.rewards import (\n"
@@ -236,17 +232,34 @@ jobs:
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
 
       - name: Normalize changed Python
+        id: normalize
+        continue-on-error: true
+        shell: bash
         run: |
-          uv run ruff check --fix \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_reward_execution_resources.py \
-            tests/rl/test_environment_reward_execution_resources.py \
-            tests/architecture/test_environment_reward_execution_resources_decomposition.py
-          uv run ruff format \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_reward_execution_resources.py \
-            tests/rl/test_environment_reward_execution_resources.py \
-            tests/architecture/test_environment_reward_execution_resources_decomposition.py
+          set -o pipefail
+          {
+            uv run ruff check --fix \
+              trade_rl/rl/environment.py \
+              trade_rl/rl/environment_reward_execution_resources.py \
+              tests/rl/test_environment_reward_execution_resources.py \
+              tests/architecture/test_environment_reward_execution_resources_decomposition.py
+            uv run ruff format \
+              trade_rl/rl/environment.py \
+              trade_rl/rl/environment_reward_execution_resources.py \
+              tests/rl/test_environment_reward_execution_resources.py \
+              tests/architecture/test_environment_reward_execution_resources_decomposition.py
+          } 2>&1 | tee normalize.log
+
+      - name: Upload normalization diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr152-normalization-diagnostics
+          path: normalize.log
+          if-no-files-found: error
+
+      - name: Require normalization
+        run: test "${{ steps.normalize.outcome }}" = success
 
       - name: Ruff
         run: uv run ruff check .

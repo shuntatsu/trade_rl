@@ -194,9 +194,21 @@ jobs:
               "            dataset, self.config, reward_config, self._resolved_decision_hours,\n"
               "            self._minimum_start_index, self.execution_rule_stress,\n"
               "        ).build()\n"
-              "        self._install_reward_execution_resources(resources)\n"
+              "        self._install_reward_execution_resources(resources)"
           )
           text = text.replace(old_block, new_block, 1)
+
+          digest_gap = (
+              "        self._environment_digest = content_digest(self._digest_payload())\n\n"
+              "        initial_state = EnvironmentInitialStateFactory.create(\n"
+          )
+          compact_digest_gap = (
+              "        self._environment_digest = content_digest(self._digest_payload())\n"
+              "        initial_state = EnvironmentInitialStateFactory.create(\n"
+          )
+          if text.count(digest_gap) != 1:
+              raise RuntimeError("environment digest gap changed")
+          text = text.replace(digest_gap, compact_digest_gap, 1)
 
           method_marker = "    def _install_initial_state(\n"
           install_method = (

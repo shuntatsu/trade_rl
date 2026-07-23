@@ -12,6 +12,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
+from trade_rl.domain.common import require_sha256
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor
 from trade_rl.risk.inputs import (
     PortfolioRiskInputsProvider,

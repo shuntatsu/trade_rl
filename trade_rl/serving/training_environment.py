@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import fields
 from pathlib import Path
+from typing import Any, cast
 
 from trade_rl.simulation.execution import ExecutionCostConfig
 
@@ -42,7 +43,7 @@ def load_training_execution_cost(path: Path) -> ExecutionCostConfig:
         raise ValueError("trigger_volume_fractions must be a list or tuple")
     raw["trigger_volume_fractions"] = tuple(fractions)
     try:
-        return ExecutionCostConfig(**raw)
+        return ExecutionCostConfig(**cast(dict[str, Any], raw))
     except TypeError as error:
         raise ValueError("execution_cost fields are invalid") from error
 

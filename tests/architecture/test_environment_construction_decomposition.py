@@ -46,7 +46,9 @@ def _module_source(module_name: str) -> str:
 def test_environment_construction_modules_exist_with_typed_owners() -> None:
     for module_name, owner_name in REQUIRED_MODULES.items():
         assert importlib.util.find_spec(module_name) is not None, module_name
-        tree = ast.parse(_module_source(module_name))
+        source = _module_source(module_name)
+        assert "from trade_rl.rl.environment import" not in source, module_name
+        tree = ast.parse(source)
         owners = {
             node.name
             for node in tree.body

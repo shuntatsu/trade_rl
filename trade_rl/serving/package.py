@@ -17,6 +17,10 @@ from trade_rl.data.metadata_promotion import (
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.evaluation.confirmation import load_confirmation_evidence
+from trade_rl.evaluation.paper_reconciliation import (
+    PAPER_RECONCILIATION_FILE_NAME,
+    load_paper_reconciliation_evidence,
+)
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
@@ -192,6 +196,7 @@ def package_selected_training_run(
     selection_digest: str,
     trusted_confirmation_keys: Mapping[str, PublicVerificationKey],
     trusted_now: datetime,
+    paper_reconciliation_path: Path | None = None,
 ) -> ServingBundleManifest:
     """Validate and copy a selected-final run into an immutable bundle directory."""
 
@@ -268,6 +273,30 @@ def package_selected_training_run(
     if confirmation.maximum_drawdown > 0.20:
         raise ValueError("confirmation drawdown exceeds release packaging limit")
 
+    reconciliation_path = paper_reconciliation_path or confirmation_path.with_name(
+        PAPER_RECONCILIATION_FILE_NAME
+    )
+    reconciliation = load_paper_reconciliation_evidence(reconciliation_path)
+    reconciliation.require_promotable()
+    if reconciliation.evidence_digest != confirmation.reconciliation_digest:
+        raise ValueError("confirmation reconciliation digest mismatch")
+    if reconciliation.order_log_digest != confirmation.order_log_digest:
+        raise ValueError("paper reconciliation order log digest mismatch")
+    if reconciliation.fill_log_digest != confirmation.fill_log_digest:
+        raise ValueError("paper reconciliation fill log digest mismatch")
+    if reconciliation.training_run_digest != manifest.digest:
+        raise ValueError("paper reconciliation training run identity mismatch")
+    if reconciliation.dataset_id != manifest.dataset_id:
+        raise ValueError("paper reconciliation dataset identity mismatch")
+    if reconciliation.environment_digest != manifest.environment_digest:
+        raise ValueError("paper reconciliation environment identity mismatch")
+    if reconciliation.policy_digest != ensemble_digest:
+        raise ValueError("paper reconciliation policy identity mismatch")
+    if reconciliation.start_time != confirmation.start_time:
+        raise ValueError("paper reconciliation start time mismatch")
+    if reconciliation.end_time != confirmation.end_time:
+        raise ValueError("paper reconciliation end time mismatch")
+
     if output_root.exists():
         raise FileExistsError("serving bundle output already exists")
     stage = output_root.with_name(f".{output_root.name}.staging")
@@ -286,6 +315,11 @@ def package_selected_training_run(
         artifact_paths.append("training-run.json")
         shutil.copy2(confirmation_path, stage / "confirmation-evidence.json")
         artifact_paths.append("confirmation-evidence.json")
+        shutil.copy2(
+            reconciliation_path,
+            stage / PAPER_RECONCILIATION_FILE_NAME,
+        )
+        artifact_paths.append(PAPER_RECONCILIATION_FILE_NAME)
 
         action_names_raw = ensemble_raw.get("action_names")
         if not isinstance(action_names_raw, list) or any(

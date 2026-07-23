@@ -7,12 +7,12 @@ This document closes or reclassifies the findings recorded in
 independent remediation pull requests were integrated.
 
 The current integrated source baseline is `main` merge commit
-`1b09118dca87b41e1ee1c8165d36a8aeaacdd733`, which merged the audit-closeout
-documentation after the stateful-execution decomposition, sequence-projection
-guard, telemetry identity, stream-generation, process-lock, Live Training,
-environment-runtime, and canonical public-contract remediations. The latest
-verified `AUD-RL-001` remediation candidate is PR #114 exact head
-`507e5882b45a4b6947f5b198d3d3f1be111a4da2`.
+`cc1aac077c73c1ec5304236c0a9471b5bea9b106`, which merged PR #114 after the
+stateful-execution decomposition, sequence-projection guard, telemetry identity,
+stream-generation, process-lock, Live Training, environment-runtime, canonical
+public-contract, and observation-contract remediations. The latest verified
+`AUD-RL-001` remediation candidate is PR #120 exact head
+`46a30ba1d6d0a277c28e27b5d5aae1322632c324`.
 
 The 2026-07-22 report remains a historical record of what was observed at its
 audited commit. It must not be read as the current defect list. Current status is
@@ -31,7 +31,7 @@ direct exchange capability.
 | `AUD-ARCH-001` | P2 | RESOLVED | PR #79 removed initializer mutation; PR #111 made public modules canonical maintained owners |
 | `AUD-SIM-001` | P2 | RESOLVED | PR #107 stateful execution phase decomposition |
 | `AUD-CI-002` | P2 | RESOLVED | PR #88 stable numerical contract; PR #106 permanent cross-platform guard |
-| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted environment runtime/step services; PR #114 extracted static observation-contract construction |
+| `AUD-RL-001` | P2 risk | OPEN RISK, FURTHER REDUCED | PR #92 extracted runtime/step services; PR #114 extracted observation-contract construction; PR #120 extracted trend/alpha/factor provider contracts |
 
 No confirmed P0 or P1 product defect remains from the 2026-07-22 finding set.
 The only open item is a maintainability risk without a reproduced behavioral
@@ -180,32 +180,43 @@ work also separated episode sampling, stateful target execution, observation
 assembly, and termination coordination. `step()` is now an orchestration facade
 which delegates those responsibilities while retaining mutable Gymnasium state.
 
-PR #114 extracted the next behavior-preserving seam. The typed
-`EnvironmentObservationContractBuilder` now owns deterministic observation
-builder/layout construction, flat and structured schemas and digests, normalizer
-identity validation, sequence windows and policy plane, Gymnasium spaces, and the
-sequence-derived minimum index. Architecture tests prohibit those low-level
-operations from returning to `ResidualMarketEnv.__init__()`.
+PR #114 extracted the deterministic observation seam. The typed
+`EnvironmentObservationContractBuilder` owns builder/layout construction, flat and
+structured schemas and digests, normalizer identity validation, sequence windows
+and policy plane, Gymnasium spaces, and the sequence-derived minimum index.
+Architecture tests prohibit those low-level operations from returning to
+`ResidualMarketEnv.__init__()`.
 
-The extraction removed 219 lines of inline observation construction and bounded
-the constructor at 321 source lines, protected by a 360-line architecture limit.
-The extracted module measured 114 / 114 statements and 32 / 32 branches covered,
+PR #120 extracts the next independent seam. The typed
+`EnvironmentProviderContractBuilder` owns trend and `MarketInputResolver`
+reconciliation, causal alpha compatibility wrapping, alpha and factor artifact
+identities, static factor-basis validation and copying, factor-count inference, and
+provider-derived minimum indices. The legacy provider protocols are imported by the
+environment facade from the maintained owner rather than redefined locally.
+
+The provider extraction reduces the constructor from 321 to 262 source lines and
+removes the facade helpers `_resolve_provider_digest`, `_validated_static_basis`,
+and `_resolve_factor_count`. A 270-line architecture limit prevents the provider
+policy from returning inline.
+
+The provider contract measured 109 / 109 statements and 44 / 44 branches covered,
 with a permanent 100.0% branch-coverage ratchet. Exact-head verification passed
-1,253 tests, 83.90% total coverage, 70.90% total branch coverage, Ubuntu, Windows,
+1,280 tests, 84.06% total coverage, 71.17% total branch coverage, Ubuntu, Windows,
 training-image, Import Linter, CLI, and PostgreSQL Catalog checks.
 
-The remaining risk is provider validation, identity binding, runtime-service
-wiring, and mutable Gymnasium-state initialization. A mechanical split is still
-not justified without another concrete behavior-preserving seam and
-characterization evidence.
+The remaining construction density is portfolio-risk provider selection and
+identity validation, environment/config/action/episode validation, reward and
+executor construction, typed runtime-service wiring, and mutable Gymnasium-state
+initialization. A mechanical split is still not justified without another concrete
+behavior-preserving seam and characterization evidence.
 
 Control:
 
-- retain the environment runtime, step-service, and observation-contract
-  architecture tests;
-- retain the 100.0% branch-coverage ratchet for the observation-contract builder;
-- do not add new action, risk, reward, execution, or observation policy directly
-  to the facade when a typed service owns that concern;
+- retain the environment runtime, step-service, observation-contract, and
+  provider-contract architecture tests;
+- retain the 100.0% branch-coverage ratchets for both extracted contract builders;
+- do not add new action, risk, reward, execution, observation, or provider policy
+  directly to the facade when a typed service owns that concern;
 - extract further constructor responsibilities only with characterization tests
   that preserve validation order, identities, and public behavior.
 
@@ -215,10 +226,10 @@ maintenance watchpoint.
 ## 4. Current architecture judgment
 
 The remediated core now has direct canonical public-contract ownership, bounded
-stateful execution phases, typed environment step services, a typed static
-observation-contract boundary, generation-bound and process-safe telemetry,
-producer-issued environment episode identity, and a permanent cross-platform
-numerical stability guard.
+stateful execution phases, typed environment step services, typed static
+observation and provider-contract boundaries, generation-bound and process-safe
+telemetry, producer-issued environment episode identity, and a permanent
+cross-platform numerical stability guard.
 
 The original audit's P0 non-findings remain supported by the maintained regression
 suite: no future-data observation path, accounting conservation break, sealed-test

@@ -124,8 +124,7 @@ def test_environment_exposes_the_same_runtime_service_graph() -> None:
     assert env._termination_coordinator.hybrid_executor is env.hybrid_executor
     assert env._termination_coordinator.shadow_executor is env.shadow_executor
     assert (
-        env._termination_coordinator.execution_coordinator
-        is env._execution_coordinator
+        env._termination_coordinator.execution_coordinator is env._execution_coordinator
     )
 
 

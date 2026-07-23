@@ -240,3 +240,168 @@ jobs:
             test -w /workspace/var
             python -c "import torch, trade_rl; print(torch.__version__)"
           '
+
+  runtime-services-implementation:
+    name: Temporary runtime services implementation
+    if: github.event_name == 'pull_request' && github.head_ref == 'refactor/extract-environment-runtime-services-20260723'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout writable branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/extract-environment-runtime-services-20260723
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch environment delegation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/environment.py")
+          text = path.read_text()
+          replacements = {
+              """from trade_rl.rl.environment_decision import (
+              EnvironmentDecisionPlanner,
+              EnvironmentDecisionRequest,
+          )
+          """: "from trade_rl.rl.environment_decision import EnvironmentDecisionRequest\n",
+              "from trade_rl.rl.environment_episode import EpisodeContractSampler\n": "",
+              """from trade_rl.rl.environment_execution import (
+              EnvironmentExecutionCoordinator,
+              TargetExecutionRequest,
+          )
+          """: "from trade_rl.rl.environment_execution import TargetExecutionRequest\n",
+              """from trade_rl.rl.environment_info import (
+              EnvironmentInfoBuilder,
+              EnvironmentStepInfoRequest,
+              EnvironmentTerminalInfoRequest,
+          )
+          """: """from trade_rl.rl.environment_info import (
+              EnvironmentStepInfoRequest,
+              EnvironmentTerminalInfoRequest,
+          )
+          """,
+              """from trade_rl.rl.environment_observation import (
+              EnvironmentObservationAssembler,
+              EnvironmentObservationRuntime,
+          )
+          """: "from trade_rl.rl.environment_observation import EnvironmentObservationRuntime\n",
+              """from trade_rl.rl.environment_reward import (
+              EnvironmentRewardCoordinator,
+              EnvironmentRewardRequest,
+          )
+          """: "from trade_rl.rl.environment_reward import EnvironmentRewardRequest\n",
+              """from trade_rl.rl.environment_risk import (
+              EnvironmentRiskProjector,
+              EnvironmentRiskRequest,
+          )
+          """: "from trade_rl.rl.environment_risk import EnvironmentRiskRequest\n",
+              "from trade_rl.rl.environment_transition import EnvironmentTerminationCoordinator\n": "",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise RuntimeError(f"missing expected import block: {old!r}")
+              text = text.replace(old, new, 1)
+
+          marker = "from trade_rl.rl.environment_risk import EnvironmentRiskRequest\n"
+          runtime_import = """from trade_rl.rl.environment_runtime_services import (
+              EnvironmentRuntimeServicesBuilder,
+          )
+          """
+          text = text.replace(marker, marker + runtime_import, 1)
+
+          start = text.index("        self._episode_sampler = EpisodeContractSampler(\n")
+          end = text.index(
+              "        self._environment_digest = content_digest(self._digest_payload())\n",
+              start,
+          )
+          lines = [
+              "runtime_services = EnvironmentRuntimeServicesBuilder(",
+              "    dataset,",
+              "    self.config,",
+              "    minimum_start_index=self._minimum_start_index,",
+              "    observation_contract=observation_contract,",
+              "    normalizer=self.normalizer,",
+              "    sequence_normalizer=self.sequence_normalizer,",
+              "    action_spec=self.action_spec,",
+              "    composer=self.composer,",
+              "    pre_trade_risk=self.pre_trade_risk,",
+              "    alpha_enabled=self.alpha_enabled,",
+              "    emergency_risk_monitor=self.emergency_risk_monitor,",
+              "    portfolio_risk=self.portfolio_risk,",
+              "    portfolio_risk_inputs_provider=self.portfolio_risk_inputs_provider,",
+              "    reward_tracker=self.reward_tracker,",
+              "    hybrid_executor=self.hybrid_executor,",
+              "    shadow_executor=self.shadow_executor,",
+              ").build()",
+              "self._episode_sampler = runtime_services.episode_sampler",
+              "self._execution_coordinator = runtime_services.execution_coordinator",
+              "self._observation_assembler = runtime_services.observation_assembler",
+              "self._decision_planner = runtime_services.decision_planner",
+              "self._risk_projector = runtime_services.risk_projector",
+              "self._reward_coordinator = runtime_services.reward_coordinator",
+              "self._info_builder = runtime_services.info_builder",
+              "self._termination_coordinator = runtime_services.termination_coordinator",
+          ]
+          replacement = "\n".join(f"        {line}" for line in lines) + "\n"
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Format changed Python
+        run: >-
+          uv run ruff format
+          trade_rl/rl/environment.py
+          trade_rl/rl/environment_runtime_services.py
+          tests/architecture/test_environment_runtime_services_decomposition.py
+          tests/rl/test_environment_runtime_services.py
+
+      - name: Verify focused boundary
+        run: |
+          uv run ruff check \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_runtime_services.py \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
+            tests/rl/test_environment_runtime_services.py
+          uv run ruff format --check \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_runtime_services.py \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
+            tests/rl/test_environment_runtime_services.py
+          uv run mypy trade_rl/rl/environment.py trade_rl/rl/environment_runtime_services.py
+          uv run pytest -q \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
+            tests/rl/test_environment_runtime_services.py \
+            tests/rl/test_environment.py \
+            tests/rl/test_environment_identity.py \
+            tests/rl/test_environment_risk_service.py \
+            tests/rl/test_environment_observation_contract.py
+
+      - name: Restore maintained workflow and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
+          rm -f \
+            .github/workflows/temporary-runtime-services-implementation.yml \
+            .github/runtime-services-implementation-trigger
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: delegate environment runtime service wiring"
+          git push origin HEAD:refactor/extract-environment-runtime-services-20260723

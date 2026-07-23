@@ -42,10 +42,7 @@ def load_training_execution_cost(path: Path) -> ExecutionCostConfig:
     if not isinstance(fractions, (list, tuple)):
         raise ValueError("trigger_volume_fractions must be a list or tuple")
     raw["trigger_volume_fractions"] = tuple(fractions)
-    try:
-        return ExecutionCostConfig(**cast(dict[str, Any], raw))
-    except TypeError as error:
-        raise ValueError("execution_cost fields are invalid") from error
+    return ExecutionCostConfig(**cast(dict[str, Any], raw))
 
 
 __all__ = ["TRAINING_ENVIRONMENT_SCHEMA", "load_training_execution_cost"]

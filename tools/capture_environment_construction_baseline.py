@@ -52,6 +52,14 @@ def book(env: object, name: str) -> dict[str, object]:
     }
 
 
+def index_state(env: object) -> dict[str, int]:
+    return {
+        "start_index": int(getattr(env, "start_index")),
+        "current_index": int(getattr(env, "current_index")),
+        "end_index": int(getattr(env, "end_index")),
+    }
+
+
 def main() -> None:
     env = environment(target_spec(count=2))
     payload: dict[str, object] = {
@@ -76,8 +84,7 @@ def main() -> None:
         "nominal_decision_bars": int(env._nominal_decision_bars),
         "resolved_decision_hours": float(env._resolved_decision_hours),
         "initial": {
-            "index": int(env._index),
-            "end_index": int(env._end_index),
+            **index_state(env),
             "hybrid": book(env, "hybrid"),
             "shadow": book(env, "shadow"),
             "previous_action": normalize(env._previous_action),
@@ -95,8 +102,7 @@ def main() -> None:
     payload["reset"] = {
         "observation": normalize(reset_observation),
         "info": normalize(reset_info),
-        "index": int(env._index),
-        "end_index": int(env._end_index),
+        **index_state(env),
         "hybrid": book(env, "hybrid"),
         "shadow": book(env, "shadow"),
     }
@@ -109,7 +115,7 @@ def main() -> None:
         "terminated": bool(terminated),
         "truncated": bool(truncated),
         "info": normalize(info),
-        "index": int(env._index),
+        **index_state(env),
         "hybrid": book(env, "hybrid"),
         "shadow": book(env, "shadow"),
         "previous_action": normalize(env._previous_action),

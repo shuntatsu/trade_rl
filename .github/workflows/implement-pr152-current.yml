@@ -1,0 +1,217 @@
+name: Implement PR152 current head
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/implement-pr152-current.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: implement-pr152-current-20260723
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: 9004820a55a7a9e1ebc7fa9a8f0c1bd8b6775704
+  TARGET_BRANCH: refactor/extract-environment-reward-execution-resources-20260723
+
+jobs:
+  implement:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact feature head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Verify exact feature head
+        run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+
+      - name: Apply facade delegation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          module = Path("trade_rl/rl/environment_reward_execution_resources.py")
+          if not module.exists():
+              raise RuntimeError("typed resource module is missing from current feature head")
+
+          path = Path("trade_rl/rl/environment.py")
+          text = path.read_text(encoding="utf-8")
+
+          initial_state_import = (
+              "from trade_rl.rl.environment_initial_state import (\n"
+              "    EnvironmentInitialState,\n"
+              "    EnvironmentInitialStateFactory,\n"
+              "    EnvironmentInitialStateRequest,\n"
+              ")\n"
+          )
+          resource_import = (
+              "from trade_rl.rl.environment_reward_execution_resources import (\n"
+              "    EnvironmentRewardExecutionResources,\n"
+              "    EnvironmentRewardExecutionResourcesBuilder,\n"
+              ")\n"
+          )
+          if resource_import in text:
+              raise RuntimeError("resource facade delegation already exists")
+          if text.count(initial_state_import) != 1:
+              raise RuntimeError("initial-state import marker changed")
+          text = text.replace(initial_state_import, initial_state_import + resource_import, 1)
+
+          episode_import = (
+              "from trade_rl.rl.episode import (\n"
+              "    complete_reward_history_steps,\n"
+              "    minimum_reward_start_index,\n"
+              ")\n"
+          )
+          if text.count(episode_import) != 1:
+              raise RuntimeError("episode import block changed")
+          text = text.replace(
+              episode_import,
+              "from trade_rl.rl.episode import complete_reward_history_steps\n",
+              1,
+          )
+
+          reward_import = (
+              "from trade_rl.rl.rewards import (\n"
+              "    REWARD_SCHEMA,\n"
+              "    RewardTracker,\n"
+              ")\n"
+          )
+          if text.count(reward_import) != 1:
+              raise RuntimeError("reward import block changed")
+          text = text.replace(
+              reward_import,
+              "from trade_rl.rl.rewards import REWARD_SCHEMA\n",
+              1,
+          )
+          if text.count("from trade_rl.simulation import MarketExecutor\n") != 1:
+              raise RuntimeError("MarketExecutor import changed")
+          text = text.replace("from trade_rl.simulation import MarketExecutor\n", "", 1)
+
+          old_block = (
+              "        self.reward_tracker = RewardTracker(\n"
+              "            reward_config,\n"
+              "            decision_hours=self._resolved_decision_hours,\n"
+              "        )\n"
+              "        if (\n"
+              "            self.config.require_full_reward_preroll\n"
+              "            and reward_config.baseline_underperformance_weight > 0.0\n"
+              "        ):\n"
+              "            self._minimum_start_index = minimum_reward_start_index(\n"
+              "                dataset,\n"
+              "                signal_minimum=self._minimum_start_index,\n"
+              "                window_hours=reward_config.baseline_window_hours,\n"
+              "            )\n"
+              "        self.hybrid_executor = MarketExecutor(\n"
+              "            dataset,\n"
+              "            self.config.execution_cost,\n"
+              "            rule_stress=self.execution_rule_stress,\n"
+              "        )\n"
+              "        self.shadow_executor = MarketExecutor(\n"
+              "            dataset,\n"
+              "            self.config.execution_cost,\n"
+              "            rule_stress=self.execution_rule_stress,\n"
+              "        )\n"
+              "        self.executor = self.hybrid_executor\n"
+              "        self._reward_history_cache: dict[int, tuple[float, ...]] = {}\n"
+          )
+          if text.count(old_block) != 1:
+              raise RuntimeError("inline reward/execution block changed")
+          new_block = (
+              "        reward_execution_resources = EnvironmentRewardExecutionResourcesBuilder(\n"
+              "            dataset,\n"
+              "            config=self.config,\n"
+              "            reward_config=reward_config,\n"
+              "            resolved_decision_hours=self._resolved_decision_hours,\n"
+              "            minimum_start_index=self._minimum_start_index,\n"
+              "            execution_rule_stress=self.execution_rule_stress,\n"
+              "        ).build()\n"
+              "        self._install_reward_execution_resources(reward_execution_resources)\n"
+          )
+          text = text.replace(old_block, new_block, 1)
+
+          method_marker = "    def _install_initial_state(\n"
+          install_method = (
+              "    def _install_reward_execution_resources(\n"
+              "        self,\n"
+              "        resources: EnvironmentRewardExecutionResources,\n"
+              "    ) -> None:\n"
+              "        self.reward_tracker = resources.reward_tracker\n"
+              "        self._minimum_start_index = resources.minimum_start_index\n"
+              "        self.hybrid_executor = resources.hybrid_executor\n"
+              "        self.shadow_executor = resources.shadow_executor\n"
+              "        self.executor = resources.executor\n"
+              "        self._reward_history_cache = resources.reward_history_cache\n\n"
+          )
+          if text.count(method_marker) != 1:
+              raise RuntimeError("initial-state installer marker changed")
+          text = text.replace(method_marker, install_method + method_marker, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Normalize changed Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_reward_execution_resources.py \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/architecture/test_environment_reward_execution_resources_decomposition.py
+          uv run ruff format \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_reward_execution_resources.py \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/architecture/test_environment_reward_execution_resources_decomposition.py
+
+      - name: Static verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run lint-imports
+
+      - name: Focused behavior verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/architecture/test_environment_reward_execution_resources_decomposition.py \
+            tests/rl/test_environment_identity.py \
+            tests/rl/test_environment_timing.py \
+            tests/rl/test_environment_initial_state.py \
+            tests/architecture/test_environment_initial_state_decomposition.py
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/temp-apply-pr152-reward-execution-resources.yml \
+            .github/pr152-reward-execution-trigger
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: delegate reward execution resources'
+          git push origin "HEAD:${TARGET_BRANCH}"

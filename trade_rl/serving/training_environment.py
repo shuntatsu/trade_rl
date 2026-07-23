@@ -28,9 +28,7 @@ def load_training_execution_cost(path: Path) -> ExecutionCostConfig:
     if payload.get("schema_version") != TRAINING_ENVIRONMENT_SCHEMA:
         raise ValueError("unsupported training environment schema")
     environment = _mapping(payload.get("environment"), field="environment")
-    raw = dict(
-        _mapping(environment.get("execution_cost"), field="execution_cost")
-    )
+    raw = dict(_mapping(environment.get("execution_cost"), field="execution_cost"))
     expected = {item.name for item in fields(ExecutionCostConfig)}
     observed = set(raw)
     missing = sorted(expected - observed)

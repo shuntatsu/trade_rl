@@ -91,7 +91,10 @@ def test_execution_cost_rejects_unknown_canonical_field(tmp_path: Path) -> None:
     ("payload", "message"),
     [
         ([], "training environment must be a mapping"),
-        ({"schema_version": "training_environment_v2", "environment": []}, "environment must be a mapping"),
+        (
+            {"schema_version": "training_environment_v2", "environment": []},
+            "environment must be a mapping",
+        ),
         (
             {
                 "schema_version": "training_environment_v2",

@@ -165,3 +165,7 @@ Reward-tracker, full reward pre-roll, dual-executor, compatibility-alias, and re
 The remaining constructor density consists primarily of validated contract assignment and observation/runtime orchestration. A further split requires another concrete behavior-preserving seam rather than mechanical line movement.
 
 This item does not block causal research use. Production remains `NO-GO` until the maintained research, evidence, operational, authorization, and profitability gates pass independently.
+
+## 7. Documentation-head integration gate
+
+The architecture-closeout update is documentation-only and does not alter Python, tests, configuration, or runtime behavior. The exact documentation head must nevertheless pass the normal read-only CI workflow and PostgreSQL Catalog workflow before merge; the earlier code-and-ratchet success is not substituted for that final integration check.

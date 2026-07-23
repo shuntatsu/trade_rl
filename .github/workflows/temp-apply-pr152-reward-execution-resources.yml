@@ -120,7 +120,6 @@ jobs:
                       '        self,',
                       '        state: EnvironmentInitialState,',
                       '    ) -> None:',
-                      '',
                   ),
                   lines(
                       '    def _install_reward_execution_resources(',
@@ -138,7 +137,6 @@ jobs:
                       '        self,',
                       '        state: EnvironmentInitialState,',
                       '    ) -> None:',
-                      '',
                   ),
               ),
           )

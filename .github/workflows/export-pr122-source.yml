@@ -1,0 +1,32 @@
+name: Export PR122 source
+
+on:
+  pull_request:
+    branches:
+      - refactor/extract-environment-runtime-services-20260723
+    paths:
+      - '.github/workflows/export-pr122-source.yml'
+      - '.github/export-pr122-source-trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR122 head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fe484b97f53b595d16539f28d4e63ad7f162ef7a
+          persist-credentials: false
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "fe484b97f53b595d16539f28d4e63ad7f162ef7a"
+      - name: Package source
+        run: tar --exclude=.git -czf /tmp/pr122-source.tgz .
+      - name: Upload source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr122-source
+          path: /tmp/pr122-source.tgz
+          if-no-files-found: error

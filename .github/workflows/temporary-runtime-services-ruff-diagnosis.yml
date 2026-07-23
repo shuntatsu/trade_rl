@@ -1,4 +1,4 @@
-name: Temporary Runtime Services Ruff Diagnosis
+name: Temporary Runtime Services Behavior Diagnosis
 
 on:
   pull_request:
@@ -40,11 +40,27 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3
-      - name: Ruff environment facade
-        run: uv run ruff check --fix trade_rl/rl/environment.py
-      - name: Ruff runtime services
-        run: uv run ruff check --fix trade_rl/rl/environment_runtime_services.py
-      - name: Ruff architecture contract
-        run: uv run ruff check --fix tests/architecture/test_environment_runtime_services_decomposition.py
-      - name: Ruff runtime service tests
-        run: uv run ruff check --fix tests/rl/test_environment_runtime_services.py
+      - name: Normalize changed Python
+        run: |
+          uv run ruff check --fix \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_runtime_services.py \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
+            tests/rl/test_environment_runtime_services.py
+          uv run ruff format \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_runtime_services.py \
+            tests/architecture/test_environment_runtime_services_decomposition.py \
+            tests/rl/test_environment_runtime_services.py
+      - name: Architecture contract
+        run: uv run pytest -q tests/architecture/test_environment_runtime_services_decomposition.py
+      - name: Runtime service unit tests
+        run: uv run pytest -q tests/rl/test_environment_runtime_services.py
+      - name: Environment behavior
+        run: uv run pytest -q tests/rl/test_environment.py
+      - name: Environment identity
+        run: uv run pytest -q tests/rl/test_environment_identity.py
+      - name: Environment risk service
+        run: uv run pytest -q tests/rl/test_environment_risk_service.py
+      - name: Observation contract
+        run: uv run pytest -q tests/rl/test_environment_observation_contract.py

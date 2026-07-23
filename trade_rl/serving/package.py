@@ -280,6 +280,8 @@ def package_selected_training_run(
     reconciliation.require_promotable()
     if reconciliation.evidence_digest != confirmation.reconciliation_digest:
         raise ValueError("confirmation reconciliation digest mismatch")
+    if reconciliation.created_at > confirmation.created_at:
+        raise ValueError("paper reconciliation was created after confirmation signing")
     if reconciliation.order_log_digest != confirmation.order_log_digest:
         raise ValueError("paper reconciliation order log digest mismatch")
     if reconciliation.fill_log_digest != confirmation.fill_log_digest:

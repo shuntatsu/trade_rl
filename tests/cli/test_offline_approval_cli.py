@@ -298,6 +298,41 @@ def test_reconciliation_create_cli_writes_derived_evidence(tmp_path: Path) -> No
     }
 
 
+def test_reconciliation_create_cli_preserves_failed_evidence(tmp_path: Path) -> None:
+    from trade_rl.cli import extended
+    from trade_rl.evaluation.paper_reconciliation import (
+        load_paper_reconciliation_evidence,
+    )
+
+    request = _reconciliation_request()
+    request["matched_fill_count"] = 79
+    request["unknown_order_fill_count"] = 1
+    request_path = tmp_path / "reconciliation-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    output = tmp_path / "paper-reconciliation.json"
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = extended.main(
+        [
+            "reconciliation",
+            "create",
+            "--request",
+            str(request_path),
+            "--output",
+            str(output),
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    evidence = load_paper_reconciliation_evidence(output)
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert evidence.passed is False
+    assert json.loads(stdout.getvalue())["passed"] is False
+
+
 def test_reconciliation_create_cli_rejects_caller_passed_field(
     tmp_path: Path,
 ) -> None:

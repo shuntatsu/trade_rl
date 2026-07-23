@@ -114,7 +114,7 @@ jobs:
                       executor=hybrid_executor,
                       reward_history_cache={},
                   )
-          '''.replace("          ", ""),
+          ''',
               encoding="utf-8",
           )
 
@@ -138,11 +138,7 @@ jobs:
               raise RuntimeError("resource import unexpectedly exists at RED head")
           if initial_state_import not in text:
               raise RuntimeError("initial-state import marker missing")
-          text = text.replace(
-              initial_state_import,
-              initial_state_import + resource_import,
-              1,
-          )
+          text = text.replace(initial_state_import, initial_state_import + resource_import, 1)
 
           episode_import = (
               "from trade_rl.rl.episode import (\n"
@@ -166,68 +162,64 @@ jobs:
           )
           if reward_import not in text:
               raise RuntimeError("reward import block changed")
-          text = text.replace(
-              reward_import,
-              "from trade_rl.rl.rewards import REWARD_SCHEMA\n",
-              1,
-          )
+          text = text.replace(reward_import, "from trade_rl.rl.rewards import REWARD_SCHEMA\n", 1)
 
           executor_import = "from trade_rl.simulation import MarketExecutor\n"
           if text.count(executor_import) != 1:
               raise RuntimeError("MarketExecutor import count changed")
           text = text.replace(executor_import, "", 1)
 
-          old_block = '''        self.reward_tracker = RewardTracker(
-              reward_config,
-              decision_hours=self._resolved_decision_hours,
+          old_block = (
+              "        self.reward_tracker = RewardTracker(\n"
+              "            reward_config,\n"
+              "            decision_hours=self._resolved_decision_hours,\n"
+              "        )\n"
+              "        if (\n"
+              "            self.config.require_full_reward_preroll\n"
+              "            and reward_config.baseline_underperformance_weight > 0.0\n"
+              "        ):\n"
+              "            self._minimum_start_index = minimum_reward_start_index(\n"
+              "                dataset,\n"
+              "                signal_minimum=self._minimum_start_index,\n"
+              "                window_hours=reward_config.baseline_window_hours,\n"
+              "            )\n"
+              "        self.hybrid_executor = MarketExecutor(\n"
+              "            dataset,\n"
+              "            self.config.execution_cost,\n"
+              "            rule_stress=self.execution_rule_stress,\n"
+              "        )\n"
+              "        self.shadow_executor = MarketExecutor(\n"
+              "            dataset,\n"
+              "            self.config.execution_cost,\n"
+              "            rule_stress=self.execution_rule_stress,\n"
+              "        )\n"
+              "        self.executor = self.hybrid_executor\n"
+              "        self._reward_history_cache: dict[int, tuple[float, ...]] = {}\n"
           )
-          if (
-              self.config.require_full_reward_preroll
-              and reward_config.baseline_underperformance_weight > 0.0
-          ):
-              self._minimum_start_index = minimum_reward_start_index(
-                  dataset,
-                  signal_minimum=self._minimum_start_index,
-                  window_hours=reward_config.baseline_window_hours,
-              )
-          self.hybrid_executor = MarketExecutor(
-              dataset,
-              self.config.execution_cost,
-              rule_stress=self.execution_rule_stress,
-          )
-          self.shadow_executor = MarketExecutor(
-              dataset,
-              self.config.execution_cost,
-              rule_stress=self.execution_rule_stress,
-          )
-          self.executor = self.hybrid_executor
-          self._reward_history_cache: dict[int, tuple[float, ...]] = {}
-          '''.replace("          ", "")
           if text.count(old_block) != 1:
               raise RuntimeError("inline reward/execution block changed")
-          new_block = '''        resources = EnvironmentRewardExecutionResourcesBuilder(
-              dataset, self.config, reward_config, self._resolved_decision_hours,
-              self._minimum_start_index, self.execution_rule_stress,
-          ).build()
-          self._install_reward_execution_resources(resources)
-          '''.replace("          ", "")
+          new_block = (
+              "        resources = EnvironmentRewardExecutionResourcesBuilder(\n"
+              "            dataset, self.config, reward_config, self._resolved_decision_hours,\n"
+              "            self._minimum_start_index, self.execution_rule_stress,\n"
+              "        ).build()\n"
+              "        self._install_reward_execution_resources(resources)\n"
+          )
           text = text.replace(old_block, new_block, 1)
 
           method_marker = "    def _install_initial_state(\n"
-          install_method = '''    def _install_reward_execution_resources(
-              self,
-              resources: EnvironmentRewardExecutionResources,
-          ) -> None:
-              self.reward_tracker = resources.reward_tracker
-              self._minimum_start_index = resources.minimum_start_index
-              self.hybrid_executor = resources.hybrid_executor
-              self.shadow_executor = resources.shadow_executor
-              self.executor = resources.executor
-              self._reward_history_cache = resources.reward_history_cache
-
-          '''.replace("          ", "")
-          if install_method in text:
-              raise RuntimeError("resource installer unexpectedly exists at RED head")
+          install_method = (
+              "    def _install_reward_execution_resources(\n"
+              "        self,\n"
+              "        resources: EnvironmentRewardExecutionResources,\n"
+              "    ) -> None:\n"
+              "        self.reward_tracker = resources.reward_tracker\n"
+              "        self._minimum_start_index = resources.minimum_start_index\n"
+              "        self.hybrid_executor = resources.hybrid_executor\n"
+              "        self.shadow_executor = resources.shadow_executor\n"
+              "        self.executor = resources.executor\n"
+              "        self._reward_history_cache = resources.reward_history_cache\n\n"
+          )
           if method_marker not in text:
               raise RuntimeError("initial-state installer marker missing")
           text = text.replace(method_marker, install_method + method_marker, 1)
@@ -320,9 +312,7 @@ jobs:
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            trade_rl/rl/environment.py \
-            trade_rl/rl/environment_reward_execution_resources.py
+          git add trade_rl/rl/environment.py trade_rl/rl/environment_reward_execution_resources.py
           git commit -m 'refactor: extract environment reward execution resources'
           git push origin "HEAD:${TARGET_BRANCH}"
           encoded=$(printf '%s' "$RUNNER_BRANCH" | jq -sRr @uri)

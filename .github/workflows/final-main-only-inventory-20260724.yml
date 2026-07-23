@@ -32,14 +32,17 @@ jobs:
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
           report=/tmp/final-main-only-inventory.txt
           : > "$report"
-          echo 'final_main_only_inventory_v1' >> "$report"
+          echo 'final_main_only_inventory_v2' >> "$report"
           echo "main_sha=$(git rev-parse origin/main)" >> "$report"
 
-          git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin \
-            | grep -v '^HEAD$' \
-            | grep -v '^main$' \
-            | grep -v "^${INVENTORY_BRANCH}$" \
-            | sort -u > /tmp/extra-branches.txt
+          : > /tmp/extra-branches.txt
+          {
+            git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin \
+              | grep -v '^HEAD$' \
+              | grep -v '^main$' \
+              | grep -v "^${INVENTORY_BRANCH}$" \
+              | sort -u > /tmp/extra-branches.txt
+          } || true
 
           extra_count=$(wc -l < /tmp/extra-branches.txt)
           open_count=$(gh pr list --repo "$REPO" --state open --limit 100 --json number --jq 'length')

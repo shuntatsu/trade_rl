@@ -1,0 +1,54 @@
+name: Temporary Format Export
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  export-formatted-files:
+    if: github.head_ref == 'agent/perfect-information-oracle-bound'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Install development environment
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Format reported files
+        run: >-
+          uv run ruff format
+          tests/evaluation/test_perfect_information_bound_contracts.py
+          tests/evaluation/test_perfect_information_bound_fail_closed.py
+          tests/evaluation/test_perfect_information_bound_solver.py
+          tests/rl/test_rollout_memory.py
+          tests/simulation/test_orders.py
+          trade_rl/evaluation/_perfect_information_lp.py
+          trade_rl/evaluation/perfect_information_bound.py
+          trade_rl/rl/policies.py
+          trade_rl/simulation/orders.py
+
+      - name: Upload formatted files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: formatted-perfect-information-files
+          path: |
+            tests/evaluation/test_perfect_information_bound_contracts.py
+            tests/evaluation/test_perfect_information_bound_fail_closed.py
+            tests/evaluation/test_perfect_information_bound_solver.py
+            tests/rl/test_rollout_memory.py
+            tests/simulation/test_orders.py
+            trade_rl/evaluation/_perfect_information_lp.py
+            trade_rl/evaluation/perfect_information_bound.py
+            trade_rl/rl/policies.py
+            trade_rl/simulation/orders.py
+          if-no-files-found: error

@@ -58,9 +58,22 @@ jobs:
             trade_rl/integrations/sb3_training.py
 
       - name: Verify Mypy
-        run: uv run mypy
+        id: mypy
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          uv run mypy 2>&1 | tee mypy-fix.log
+
+      - name: Upload Mypy diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mypy-fix-diagnostics
+          path: mypy-fix.log
+          if-no-files-found: error
 
       - name: Verify focused behavior
+        if: steps.mypy.outcome == 'success'
         run: >-
           uv run pytest -q
           tests/evaluation/test_perfect_information_bound_contracts.py
@@ -69,6 +82,7 @@ jobs:
           tests/integrations/test_sb3_training.py
 
       - name: Commit verified fixes
+        if: steps.mypy.outcome == 'success'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -78,3 +92,7 @@ jobs:
             trade_rl/integrations/sb3_training.py
           git commit -m "fix: normalize numeric scalar types"
           git push origin HEAD:${{ github.head_ref }}
+
+      - name: Fail if Mypy failed
+        if: steps.mypy.outcome != 'success'
+        run: exit 1

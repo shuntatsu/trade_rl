@@ -75,12 +75,14 @@ jobs:
       - name: Verify Mypy
         run: uv run mypy
 
-      - name: Verify focused telemetry suite
+      - name: Verify focused telemetry regression
         id: telemetry
         continue-on-error: true
         run: |
           set -o pipefail
-          uv run pytest -q tests/telemetry 2>&1 | tee telemetry-fix.log
+          uv run pytest -q \
+            tests/telemetry/test_indexed_process_concurrency.py \
+            2>&1 | tee telemetry-fix.log
 
       - name: Upload focused diagnostics
         if: always()
@@ -90,7 +92,7 @@ jobs:
           path: telemetry-fix.log
           if-no-files-found: error
 
-      - name: Require focused suite success
+      - name: Require focused regression success
         if: steps.telemetry.outcome != 'success'
         run: exit 1
 

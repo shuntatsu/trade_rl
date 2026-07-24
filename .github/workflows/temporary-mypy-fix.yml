@@ -22,7 +22,7 @@ jobs:
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
 
       - name: Install development environment
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev --extra train-sb3 --extra studio
 
       - name: Apply typed scalar fixes
         run: |
@@ -31,11 +31,19 @@ jobs:
 
           public = Path("trade_rl/evaluation/perfect_information_bound.py")
           public_text = public.read_text(encoding="utf-8")
-          old_public = "    value: float | Sequence[float],\n"
-          new_public = "    value: object,\n"
-          if public_text.count(old_public) != 1:
+          old_signature = "    value: float | Sequence[float],\n"
+          new_signature = "    value: object,\n"
+          old_branch = (
+              "    if isinstance(value, Real) and not isinstance(value, bool):\n"
+          )
+          new_branch = "    if isinstance(value, Real):\n"
+          if public_text.count(old_signature) != 1:
               raise SystemExit("perfect-information helper signature changed unexpectedly")
-          public.write_text(public_text.replace(old_public, new_public), encoding="utf-8")
+          if public_text.count(old_branch) != 1:
+              raise SystemExit("perfect-information scalar branch changed unexpectedly")
+          public_text = public_text.replace(old_signature, new_signature)
+          public_text = public_text.replace(old_branch, new_branch)
+          public.write_text(public_text, encoding="utf-8")
 
           sb3 = Path("trade_rl/integrations/sb3_training.py")
           sb3_text = sb3.read_text(encoding="utf-8")

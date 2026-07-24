@@ -1329,7 +1329,13 @@ def execute_market_walk_forward(
             evaluation_digest=result.evaluation_digest,
             dataset_id=dataset.dataset_id,
         )
-    except Exception:
+    except Exception as error:
         if stage.is_dir():
-            store.mark_failed(resolved_run_id)
+            try:
+                store.mark_failed(resolved_run_id)
+            except Exception as isolation_error:
+                error.add_note(
+                    "failed to isolate partial walk-forward artifacts: "
+                    f"{type(isolation_error).__name__}: {isolation_error}"
+                )
         raise

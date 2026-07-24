@@ -54,12 +54,11 @@ class SequenceRolloutReconstructor:
             indices >= self.dataset.n_bars
         ):
             raise ValueError("rollout reconstruction index is outside causal history")
+        if self.policy_plane is not None:
+            return self.policy_plane.batch_components(indices)
         cache: dict[int, dict[str, np.ndarray]] = {}
         for raw_index in np.unique(indices):
             index = int(raw_index)
-            if self.policy_plane is not None:
-                cache[index] = self.policy_plane.components(index)
-                continue
             sequence = self.builder.build(self.dataset, index=index)
             components: dict[str, np.ndarray] = {}
             for timeframe in sequence.values:

@@ -10,6 +10,7 @@ import pytest
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.rl.checkpointing import publish_checkpoint
+from trade_rl.rl.observations import ORDER_OBSERVATION_WIDTH
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
@@ -31,9 +32,12 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert config.training.seeds == (0, 1, 2)
     assert config.training.timesteps >= 524_288
-    assert config.training.n_steps == 128
-    assert config.training.batch_size == 128
+    assert config.training.n_steps == 256
+    assert config.training.batch_size == 256
+    assert config.training.behavior_cloning_epochs == 0
     assert config.training.n_epochs == 10
+    assert config.training.ent_coef == 0.0
+    assert config.training.log_std_init == pytest.approx(-2.3)
     assert config.training.sequence_capacity == "standard"
     assert config.training.sequence_d_model == 336
     assert config.training.sequence_attention_heads == 8
@@ -42,12 +46,13 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.gamma == pytest.approx(0.998969062762624)
     assert config.training.decision_hours == 0.25
     assert config.environment.decision_hours == 0.25
-    assert config.training.behavior_cloning_epochs == 15
+    assert config.reward.projection_penalty_weight == 0.0
     assert config.risk.max_turnover is None
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
-    assert config.action.mode.value == "target_weight"
-    assert config.action.target_weight_count == 3
+    assert config.action.mode.value == "residual"
+    assert config.action.residual_scale == pytest.approx(0.25)
+    assert config.action.target_weight_count == 0
     assert config.action.n_factors == 0
     assert config.factor_artifact is None
     assert config.risk.entry_threshold == 0.10
@@ -75,18 +80,18 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert sum(fold.test.size for fold in folds) == 17_280
     assert (folds[0].test.start, folds[0].test.stop) == (26_336, 29_216)
     assert (folds[-1].test.start, folds[-1].test.stop) == (40_736, 43_616)
-    # oracle-bc-ppo-15m-target のみの1候補構成
-    assert [candidate.name for candidate in config.candidates] == [
-        "oracle-bc-ppo-15m-target",
-    ]
+    # baseline-anchored residual PPO のみの1候補構成
+    assert [candidate.name for candidate in config.candidates] == ["residual-ppo-15m"]
     oracle = next(
-        item.run
-        for item in config.candidates
-        if item.name == "oracle-bc-ppo-15m-target"
+        item.run for item in config.candidates if item.name == "residual-ppo-15m"
     )
-    assert oracle.training.behavior_cloning_epochs == 15
-    assert oracle.training.batch_size == 128
+    assert oracle.training.behavior_cloning_epochs == 0
+    assert oracle.reward.projection_penalty_weight == 0.0
+    assert oracle.training.n_steps == 256
+    assert oracle.training.batch_size == 256
     assert oracle.training.n_epochs == 10
+    assert oracle.training.ent_coef == 0.0
+    assert oracle.training.log_std_init == pytest.approx(-2.3)
     assert oracle.training.policy_net_arch == (384, 256, 128)
     assert oracle.training.value_net_arch == (512, 384, 256)
     assert oracle.training.sequence_capacity == "standard"
@@ -108,8 +113,9 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     )
     assert oracle.risk.max_turnover is None
     assert not oracle.action.risk_tilt_enabled
-    assert oracle.action.mode.value == "target_weight"
-    assert oracle.action.target_weight_count == 3
+    assert oracle.action.mode.value == "residual"
+    assert oracle.action.residual_scale == pytest.approx(0.25)
+    assert oracle.action.target_weight_count == 0
     assert oracle.action.n_factors == 0
     assert oracle.factor_artifact is None
     assert config.minimum_seed_success_fraction == pytest.approx(2.0 / 3.0)
@@ -136,10 +142,17 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "binance_multitimeframe_feature_specs" in content
     assert "raw_feature_count" in content
     assert "policy_observation_count" in content
-    assert "231_005" in content
+    assert "231_026" in content
     assert "226" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
+
+
+def test_full_runner_observation_contract_includes_pending_order_state() -> None:
+    namespace = _runner_namespace()
+
+    assert namespace["_EXPECTED_POLICY_OBSERVATIONS"] == 231_026
+    assert 231_026 - 231_005 == 3 * ORDER_OBSERVATION_WIDTH
 
 
 def test_full_runner_separates_selection_from_final_training() -> None:
@@ -304,7 +317,7 @@ def _write_walk_forward(
     returns_by_fold = ([0.10, -0.20], [-0.05, 0.02])
     folds = [
         {
-            "selected_configuration": "oracle-bc-ppo-15m-target",
+            "selected_configuration": "residual-ppo-15m",
             "selected_policy_digest": digest,
             "selected_member_seeds": [0, 1, 2],
             "selected_member_policy_digests": [
@@ -317,7 +330,7 @@ def _write_walk_forward(
             "selected_cost_fraction": 0.01,
             "candidate_aggregates": [
                 {
-                    "configuration": "oracle-bc-ppo-15m-target",
+                    "configuration": "residual-ppo-15m",
                     "eligible": True,
                 }
             ],
@@ -797,7 +810,7 @@ def test_full_runner_preserves_all_selected_recipe_seeds(tmp_path: Path) -> None
         tmp_path / "selected.json",
     )
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert selected_name == "oracle-bc-ppo-15m-target"
+    assert selected_name == "residual-ppo-15m"
     assert seeds == (0, 1, 2)
     assert payload["training"]["seeds"] == [0, 1, 2]
 

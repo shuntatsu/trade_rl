@@ -4,6 +4,7 @@ import json
 import os
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -368,3 +369,26 @@ def test_near_tail_page_parses_at_most_one_checkpoint_stride(
 
     assert [item.sequence for item in page.items] == list(range(4_081, 4_097))
     assert parsed <= 80
+
+
+def test_writer_batches_durable_index_replacements_with_data_flushes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    writer = TrainingTelemetryWriter(path, flush_every=32)
+    original_write = indexed._write_index
+    writes = 0
+
+    def counted_write(target: Path, index: Any) -> None:
+        nonlocal writes
+        writes += 1
+        original_write(target, index)
+
+    monkeypatch.setattr(indexed, "_write_index", counted_write)
+    for sequence in range(1, 66):
+        writer.append(record(sequence))
+    writer.close()
+
+    assert writes == 3
+    assert training_telemetry_status(path).last_sequence == 65

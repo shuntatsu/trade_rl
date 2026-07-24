@@ -168,6 +168,63 @@ def test_sequence_rollout_reconstructor_matches_direct_causal_builder() -> None:
             )
 
 
+def test_sequence_rollout_reconstructor_vectorizes_precomputed_plane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.integrations.compact_rollout_buffer import (
+        SequenceRolloutReconstructor,
+    )
+    from trade_rl.rl.sequence_observations import (
+        SequenceObservationBuilder,
+        SequencePolicyPlane,
+        SequenceWindowSpec,
+        build_sequence_policy_plane,
+    )
+
+    dataset = _sequence_dataset()
+    builder = SequenceObservationBuilder(
+        windows=(
+            SequenceWindowSpec("15m", 4),
+            SequenceWindowSpec("1h", 3),
+            SequenceWindowSpec("4h", 2),
+            SequenceWindowSpec("1d", 1),
+        )
+    )
+    plane = build_sequence_policy_plane(dataset, builder, None)
+    expected_indices = np.array([64, 68, 64], dtype=np.int64)
+    expected = plane.batch_components(expected_indices)
+    batch_calls: list[np.ndarray] = []
+    original_batch = SequencePolicyPlane.batch_components
+
+    def counting_batch(
+        self: SequencePolicyPlane, indices: np.ndarray
+    ) -> dict[str, np.ndarray]:
+        batch_calls.append(np.asarray(indices).copy())
+        return original_batch(self, indices)
+
+    def forbidden_scalar(self: SequencePolicyPlane, index: int) -> dict[str, np.ndarray]:
+        raise AssertionError(f"scalar reconstruction used for index {index}")
+
+    monkeypatch.setattr(SequencePolicyPlane, "batch_components", counting_batch)
+    monkeypatch.setattr(SequencePolicyPlane, "components", forbidden_scalar)
+    reconstructor = SequenceRolloutReconstructor(
+        dataset=dataset,
+        builder=builder,
+        normalizer=None,
+        expected_dataset_id=dataset.dataset_id,
+        expected_layout_digest=builder.layout_digest(dataset),
+        policy_plane=plane,
+    )
+
+    actual = reconstructor.reconstruct(expected_indices)
+
+    assert len(batch_calls) == 1
+    np.testing.assert_array_equal(batch_calls[0], expected_indices)
+    assert actual.keys() == expected.keys()
+    for key in expected:
+        np.testing.assert_array_equal(actual[key], expected[key])
+
+
 def test_sequence_rollout_reconstructor_fails_closed_on_identity_mismatch() -> None:
     from trade_rl.integrations.compact_rollout_buffer import (
         SequenceRolloutReconstructor,

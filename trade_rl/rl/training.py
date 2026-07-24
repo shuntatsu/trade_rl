@@ -106,6 +106,8 @@ class ResidualTrainingConfig:
     behavior_cloning_validation_fraction: float = 0.0
     behavior_cloning_patience: int = 3
     behavior_cloning_minimum_improvement: float = 0.0
+    behavior_cloning_teacher: str = "oracle"
+    behavior_cloning_required_relative_improvement: float = 0.0
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (
@@ -150,6 +152,17 @@ class ResidualTrainingConfig:
         ):
             raise ValueError(
                 "behavior_cloning_minimum_improvement must be non-negative"
+            )
+        if self.behavior_cloning_teacher not in {"oracle", "trend_baseline"}:
+            raise ValueError(
+                "behavior_cloning_teacher must be oracle or trend_baseline"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_required_relative_improvement)
+            or not 0.0 <= self.behavior_cloning_required_relative_improvement < 1.0
+        ):
+            raise ValueError(
+                "behavior_cloning_required_relative_improvement must be within [0, 1)"
             )
         if self.checkpoint_interval_steps is not None and (
             isinstance(self.checkpoint_interval_steps, bool)
@@ -380,6 +393,16 @@ class ResidualTrainingConfig:
                         self.behavior_cloning_minimum_improvement,
                         0.0,
                     ),
+                    (
+                        "behavior_cloning_teacher",
+                        self.behavior_cloning_teacher,
+                        "oracle",
+                    ),
+                    (
+                        "behavior_cloning_required_relative_improvement",
+                        self.behavior_cloning_required_relative_improvement,
+                        0.0,
+                    ),
                 ),
                 context="behavior cloning disabled",
             )
@@ -409,6 +432,10 @@ class ResidualTrainingConfig:
             "behavior_cloning_validation_fraction": self.behavior_cloning_validation_fraction,
             "behavior_cloning_patience": self.behavior_cloning_patience,
             "behavior_cloning_minimum_improvement": self.behavior_cloning_minimum_improvement,
+            "behavior_cloning_teacher": self.behavior_cloning_teacher,
+            "behavior_cloning_required_relative_improvement": (
+                self.behavior_cloning_required_relative_improvement
+            ),
             "buffer_size": self.buffer_size,
             "global_embedding_dim": self.global_embedding_dim,
             "checkpoint_interval_steps": self.checkpoint_interval_steps,

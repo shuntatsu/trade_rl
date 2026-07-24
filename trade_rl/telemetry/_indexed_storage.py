@@ -498,6 +498,7 @@ class _IndexedTrainingTelemetryWriter:
             with _telemetry_process_lock(self.path):
                 index = _refresh_index_unlocked(self.path).index
                 self._last_sequence = 0 if index is None else index.last_sequence
+                self._expected_size = 0 if index is None else index.indexed_size
         except BaseException:
             os.close(descriptor)
             self._fd = None
@@ -519,9 +520,6 @@ class _IndexedTrainingTelemetryWriter:
             if descriptor is None:
                 raise RuntimeError("telemetry writer is closed")
             with _telemetry_process_lock(self.path):
-                index = _refresh_index_unlocked(self.path).index
-                if index is None:
-                    raise RuntimeError("telemetry stream is unavailable")
                 path_stat = self.path.stat()
                 descriptor_stat = os.fstat(descriptor)
                 if (
@@ -529,24 +527,42 @@ class _IndexedTrainingTelemetryWriter:
                     int(descriptor_stat.st_ino),
                 ) != (int(path_stat.st_dev), int(path_stat.st_ino)):
                     raise RuntimeError("telemetry stream identity changed")
-                if path_stat.st_size != index.indexed_size:
-                    raise RuntimeError(
-                        "telemetry file has an incomplete trailing record"
-                    )
-                if record.sequence <= index.last_sequence:
+                if path_stat.st_size != self._expected_size:
+                    # Another writer may have appended while this instance was
+                    # idle. Reconcile only when the stream size actually moved.
+                    index = _refresh_index_unlocked(self.path).index
+                    if index is None or path_stat.st_size != index.indexed_size:
+                        raise RuntimeError(
+                            "telemetry file has an incomplete trailing record"
+                        )
+                    self._last_sequence = index.last_sequence
+                    self._expected_size = index.indexed_size
+                if record.sequence <= self._last_sequence:
                     raise ValueError("telemetry sequence must strictly increase")
                 _write_all(descriptor, payload)
+                self._expected_size += len(payload)
                 self._last_sequence = record.sequence
                 self._pending += 1
                 if self._pending >= self.flush_every:
-                    os.fsync(descriptor)
-                    self._pending = 0
+                    self._flush_index_unlocked(descriptor)
+
+    def _flush_index_unlocked(self, descriptor: int) -> None:
+        os.fsync(descriptor)
+        index = _refresh_index_unlocked(self.path).index
+        if (
+            index is None
+            or index.indexed_size != self._expected_size
+            or index.last_sequence != self._last_sequence
+        ):
+            raise RuntimeError("telemetry index did not reach the appended stream")
+        self._pending = 0
 
     def flush(self) -> None:
         with self._lock:
-            if self._fd is not None:
-                os.fsync(self._fd)
-                self._pending = 0
+            descriptor = self._fd
+            if descriptor is not None:
+                with _telemetry_process_lock(self.path):
+                    self._flush_index_unlocked(descriptor)
 
     def close(self) -> None:
         with self._lock:
@@ -554,7 +570,8 @@ class _IndexedTrainingTelemetryWriter:
             if descriptor is None:
                 return
             try:
-                os.fsync(descriptor)
+                with _telemetry_process_lock(self.path):
+                    self._flush_index_unlocked(descriptor)
             finally:
                 os.close(descriptor)
                 self._fd = None

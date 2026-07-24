@@ -171,6 +171,7 @@ class ActionSpec:
     risk_tilt_enabled: bool = True
     n_factors: int = 0
     target_weight_count: int = 0
+    residual_scale: float = 1.0
     validation_mode: ActionValidationMode | str = ActionValidationMode.CLIP
 
     def __post_init__(self) -> None:
@@ -204,6 +205,10 @@ class ActionSpec:
                 )
         elif self.target_weight_count:
             raise ValueError("residual mode does not accept target_weight_count")
+        if not np.isfinite(self.residual_scale) or not 0.0 < self.residual_scale <= 1.0:
+            raise ValueError("residual_scale must be within (0, 1]")
+        if action_mode is ActionMode.TARGET_WEIGHT and self.residual_scale != 1.0:
+            raise ValueError("target_weight mode does not accept residual_scale")
         try:
             mode = ActionValidationMode(self.validation_mode)
         except ValueError as error:
@@ -268,6 +273,7 @@ class ActionSpec:
                 saturated_count=int(np.count_nonzero(outside)),
                 raw_max_abs=float(np.max(np.abs(vector), initial=0.0)),
             )
+        clipped *= self.residual_scale
         cursor = 0
         fast_tilt = float(clipped[cursor])
         cursor += 1

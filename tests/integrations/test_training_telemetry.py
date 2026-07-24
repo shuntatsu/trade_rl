@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -127,6 +128,32 @@ def test_sampler_skips_unimportant_steps_and_preserves_position_risk_and_termina
     ]
     assert [item.sequence for item in page.items] == [1, 2, 3]
     assert page.items[0].action == pytest.approx((0.4,))
+
+
+def test_sampler_batches_durable_writes_until_rollout_boundary(tmp_path: Path) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)
+
+    assert sampler.writer.flush_every == 4_096
+    assert (
+        sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]], dtype=np.float32),
+            rewards=np.asarray([0.0], dtype=np.float32),
+            dones=np.asarray([False]),
+            infos=(info(1),),
+        )
+        == 1
+    )
+    # The record is appended immediately, while the durable sparse index is
+    # intentionally refreshed by the rollout callback's explicit flush.
+    assert path.stat().st_size > 0
+    index_path = path.with_name(f"{path.name}.index.json")
+    assert json.loads(index_path.read_text(encoding="utf-8"))["last_sequence"] == 0
+
+    sampler.flush()
+    assert json.loads(index_path.read_text(encoding="utf-8"))["last_sequence"] == 1
+    sampler.close()
 
 
 def test_sampler_continues_sequence_after_training_resume(tmp_path: Path) -> None:

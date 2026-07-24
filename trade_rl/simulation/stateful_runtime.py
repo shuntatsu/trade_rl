@@ -97,7 +97,10 @@ class StatefulExecutionRuntime:
     def submit_intents(self, intents: Sequence[OrderIntent]) -> None:
         for intent in intents:
             pending = PendingOrder.from_intent(intent)
-            self.order_book = self.order_book.add(pending)
+            # Intents are canonically identified by the monotonically advancing
+            # decision index, so the runtime can preserve the validated archive
+            # without rescanning every historical terminal order.
+            self.order_book = self.order_book._add_generated(pending)
             self.append_event(
                 previous=pending,
                 updated=pending,

@@ -71,6 +71,26 @@ def test_zero_action_without_risk_tilt_is_exact_baseline_identity() -> None:
     np.testing.assert_array_equal(result.proposal, trends().base)
 
 
+def test_residual_scale_bounds_effective_tilts_without_changing_raw_diagnostics() -> (
+    None
+):
+    spec = ActionSpec(risk_tilt_enabled=False, residual_scale=0.25)
+    action = spec.parse(np.array([1.0, -0.5]))
+
+    assert action.fast_tilt == pytest.approx(0.25)
+    assert action.slow_tilt == pytest.approx(-0.125)
+    assert action.raw_max_abs == pytest.approx(1.0)
+
+    with pytest.raises(ValueError, match="residual_scale"):
+        ActionSpec(residual_scale=0.0)
+    with pytest.raises(ValueError, match="does not accept"):
+        ActionSpec(
+            mode="target_weight",
+            target_weight_count=2,
+            residual_scale=0.25,
+        )
+
+
 def test_independent_fast_slow_alpha_factor_and_risk_controls_are_composed() -> None:
     spec = ActionSpec(alpha_enabled=True, n_factors=1)
     action = spec.parse(np.array([1.0, 0.5, -0.5, 0.5, 1.0]))

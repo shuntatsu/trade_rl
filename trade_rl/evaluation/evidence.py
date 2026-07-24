@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from trade_rl.evaluation.closed_trades import ClosedTradeDiagnostics
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +20,9 @@ class ExecutionDiagnostics:
     n_trades: int = 0
     rebalance_events: int = 0
     termination_reasons: tuple[str, ...] = ()
+    closed_trades: ClosedTradeDiagnostics = field(
+        default_factory=ClosedTradeDiagnostics
+    )
 
     def __post_init__(self) -> None:
         for field_name, value in (
@@ -45,6 +50,7 @@ class ExecutionDiagnostics:
     def digest_payload(self) -> dict[str, object]:
         return {
             "borrow_cost": self.borrow_cost,
+            "closed_trades": self.closed_trades.digest_payload(),
             "funding_pnl": self.funding_pnl,
             "n_trades": self.n_trades,
             "rebalance_events": self.rebalance_events,
@@ -63,6 +69,9 @@ class ExecutionDiagnostics:
             borrow_cost=sum(item.borrow_cost for item in items),
             n_trades=sum(item.n_trades for item in items),
             rebalance_events=sum(item.rebalance_events for item in items),
+            closed_trades=ClosedTradeDiagnostics.combine(
+                tuple(item.closed_trades for item in items)
+            ),
             termination_reasons=tuple(
                 reason for item in items for reason in item.termination_reasons
             ),

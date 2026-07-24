@@ -14,6 +14,7 @@ from trade_rl.simulation.orders import (
     OrderStatus,
     OrderType,
     PendingOrder,
+    TerminalOrderArchive,
     TimeInForce,
     execution_policy_digest,
 )
@@ -102,6 +103,45 @@ def test_pending_order_rejects_overfill_wrong_direction_and_terminal_mutation() 
         filled.cancel(processing_index=6, reason="replace")
 
 
+@pytest.mark.parametrize(
+    ("requested_quantity", "filled_quantity"),
+    (
+        (-744.325999999999, -744.326),
+        (335.904999999999, 335.90500000000003),
+    ),
+)
+def test_pending_order_clamps_lot_rounding_residual_within_float_precision(
+    requested_quantity: float,
+    filled_quantity: float,
+) -> None:
+    pending = PendingOrder.from_intent(_intent(requested_quantity=requested_quantity))
+
+    filled = pending.apply_fill(
+        quantity=filled_quantity,
+        notional=abs(filled_quantity),
+        processing_index=5,
+    )
+
+    assert filled.remaining_quantity == 0.0
+    assert filled.cumulative_filled_quantity == pending.intent.requested_quantity
+    assert filled.status is OrderStatus.FILLED
+    assert filled.terminal_reason == "filled"
+
+
+def test_pending_order_identity_allows_one_ulp_of_partial_fill_roundoff() -> None:
+    pending = PendingOrder(
+        intent=_intent(requested_quantity=11235.087383741828),
+        remaining_quantity=8467.547383741829,
+        cumulative_filled_quantity=2767.54,
+        cumulative_filled_notional=2767.54,
+        status=OrderStatus.PARTIALLY_FILLED,
+    )
+
+    assert pending.remaining_quantity + pending.cumulative_filled_quantity == (
+        pytest.approx(pending.intent.requested_quantity)
+    )
+
+
 def test_pending_order_explicit_transitions_are_monotonic() -> None:
     pending = PendingOrder.from_intent(_intent(eligible_index=7))
     waiting = pending.mark_latency_wait(processing_index=5)
@@ -141,6 +181,36 @@ def test_order_book_replace_moves_terminal_orders_and_rejects_unknown_id() -> No
     assert replaced.terminal_orders[0].status is OrderStatus.CANCELLED
     with pytest.raises(OrderDomainError, match="unknown"):
         replaced.replace(first)
+
+
+def test_runtime_order_transitions_do_not_rescan_terminal_archive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = PendingOrder.from_intent(_intent())
+    initial = OrderBookState.empty()._add_generated(first)
+    archived = initial.replace(first.cancel(processing_index=6, reason="superseded"))
+    original_archive = archived.terminal_orders
+    assert isinstance(original_archive, TerminalOrderArchive)
+
+    def fail_full_scan(_archive: TerminalOrderArchive) -> object:
+        raise AssertionError("runtime transition rescanned terminal history")
+
+    monkeypatch.setattr(TerminalOrderArchive, "__iter__", fail_full_scan)
+    second = PendingOrder.from_intent(
+        _intent(
+            target_identity="target-2",
+            submit_index=7,
+            eligible_index=8,
+        )
+    )
+    active = archived._add_generated(second)
+    completed = active.replace(
+        second.cancel(processing_index=9, reason="superseded")
+    )
+
+    assert len(original_archive) == 1
+    assert len(completed.terminal_orders) == 2
+    assert completed.terminal_orders[-1].order_id == second.order_id
 
 
 def test_order_event_payload_is_canonical_and_digest_helper_matches_codec() -> None:

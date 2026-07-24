@@ -57,3 +57,23 @@ def test_vector_environment_width_preserves_existing_positional_arguments() -> N
 
     assert config.batch_size == 8
     assert config.n_envs == 1
+
+
+def test_behavior_cloning_teacher_and_quality_gate_are_validated_and_digested() -> None:
+    config = _base(
+        behavior_cloning_epochs=1,
+        behavior_cloning_teacher="trend_baseline",
+        behavior_cloning_required_relative_improvement=0.05,
+    )
+
+    assert config.digest_payload()["behavior_cloning_teacher"] == "trend_baseline"
+    assert config.digest_payload()[
+        "behavior_cloning_required_relative_improvement"
+    ] == pytest.approx(0.05)
+
+    with pytest.raises(ValueError, match="behavior_cloning_teacher"):
+        _base(behavior_cloning_teacher="future_oracle")
+    with pytest.raises(
+        ValueError, match="behavior_cloning_required_relative_improvement"
+    ):
+        _base(behavior_cloning_required_relative_improvement=1.0)

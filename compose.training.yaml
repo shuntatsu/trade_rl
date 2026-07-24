@@ -23,8 +23,9 @@ services:
       TRADE_RL_CONFIRMATION_PUBLIC_KEYS: ${TRADE_RL_CONFIRMATION_PUBLIC_KEYS:-}
       TRADE_RL_TRUSTED_NOW: ${TRADE_RL_TRUSTED_NOW:-}
       TRADE_RL_IMAGE_DIGEST: ${TRADE_RL_IMAGE_DIGEST:-}
-      OMP_NUM_THREADS: "2"
-      MKL_NUM_THREADS: "2"
+      TRADE_RL_TEACHER_CACHE_ROOT: /workspace/var/cache/teacher-artifacts
+      OMP_NUM_THREADS: "8"
+      MKL_NUM_THREADS: "8"
     volumes:
       - trade-rl-training-data:/workspace/var
       - type: bind

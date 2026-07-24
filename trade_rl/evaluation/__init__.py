@@ -6,6 +6,10 @@ from trade_rl.evaluation.capacity import (
     CapacityPoint,
     evaluate_capacity_grid,
 )
+from trade_rl.evaluation.closed_trades import (
+    ClosedTradeDiagnostics,
+    ClosedTradeTracker,
+)
 from trade_rl.evaluation.comparisons import PairedComparison, compare_paired_returns
 from trade_rl.evaluation.confirmation import (
     FRESH_CONFIRMATION_SCHEMA,
@@ -33,6 +37,8 @@ __all__ = [
     "BootstrapResult",
     "CapacityCurve",
     "CapacityPoint",
+    "ClosedTradeDiagnostics",
+    "ClosedTradeTracker",
     "ExecutionDiagnostics",
     "FRESH_CONFIRMATION_SCHEMA",
     "FreshConfirmationEvidence",

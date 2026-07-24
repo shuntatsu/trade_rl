@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
@@ -17,6 +22,7 @@ from trade_rl.learning import (
     StructuredTeacherObservationProvider,
     SupervisedPolicyDataset,
     collect_teacher_rollout,
+    load_teacher_artifact,
     oracle_target_path,
     write_teacher_artifact,
 )
@@ -40,6 +46,148 @@ from trade_rl.rl.training import (
     _environment_identity,
     _validate_training_environment,
 )
+
+
+def _configure_torch_cuda_runtime(torch: Any, device: object) -> dict[str, object]:
+    """Enable maintained CUDA fast paths without reducing training work."""
+
+    requested = str(device).strip().lower()
+    uses_cuda = requested == "auto" and bool(torch.cuda.is_available())
+    if requested != "auto":
+        try:
+            uses_cuda = torch.device(device).type == "cuda"
+        except (RuntimeError, TypeError, ValueError):
+            uses_cuda = False
+    if uses_cuda:
+        # Ampere-and-newer GPUs accelerate float32 matrix products through TF32.
+        # Parameters, optimizer state, losses, and checkpoints remain float32.
+        torch.set_float32_matmul_precision("high")
+        # Sequence windows and mini-batches use a small fixed set of shapes, so
+        # the one-time cuDNN search is amortized over the full training run.
+        # SB3 enables deterministic cuDNN while seeding a CUDA model; that
+        # forces a pathologically slow algorithm for our dilated Conv1d stack.
+        # Reapply this after model construction/load as well as before it.
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+    bf16_supported = bool(
+        uses_cuda
+        and callable(getattr(torch.cuda, "is_bf16_supported", None))
+        and torch.cuda.is_bf16_supported()
+    )
+    return {
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+        "cudnn_tf32": bool(torch.backends.cudnn.allow_tf32),
+        "float32_matmul_precision": str(torch.get_float32_matmul_precision()),
+        "matmul_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
+        "sequence_encoder_autocast": ("bfloat16" if bf16_supported else "disabled"),
+    }
+
+
+def _teacher_cache_key(
+    *,
+    dataset_id: str,
+    train_range: tuple[int, int],
+    environment_digest: str,
+    action_spec_digest: str,
+    teacher_config_digest: str,
+) -> str:
+    return content_digest(
+        {
+            "action_spec_digest": action_spec_digest,
+            "dataset_id": dataset_id,
+            "environment_digest": environment_digest,
+            "teacher_config_digest": teacher_config_digest,
+            "train_range": train_range,
+        }
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _TeacherIdentity:
+    """Content identity for non-oracle causal behavior-cloning teachers."""
+
+    digest: str
+
+
+def _behavior_cloning_quality(
+    *,
+    initial_mse: float,
+    final_mse: float,
+    required_relative_improvement: float,
+) -> tuple[float, bool]:
+    """Return a fail-closed relative improvement decision for BC warm starts."""
+
+    if (
+        not np.isfinite(initial_mse)
+        or not np.isfinite(final_mse)
+        or initial_mse < 0.0
+        or final_mse < 0.0
+    ):
+        raise ValueError("behavior cloning MSE values must be finite and non-negative")
+    denominator = max(initial_mse, np.finfo(np.float64).eps)
+    relative_improvement = (initial_mse - final_mse) / denominator
+    return (
+        relative_improvement,
+        relative_improvement >= required_relative_improvement,
+    )
+
+
+_HEAVY_TRAINING_INFO_KEYS = (
+    "hybrid_execution",
+    "shadow_execution",
+    "hybrid_liquidation",
+    "shadow_liquidation",
+)
+
+
+def _compact_training_info(info: dict[str, object]) -> dict[str, object]:
+    """Keep callback diagnostics without copying the environment's histories.
+
+    ``DummyVecEnv`` deep-copies every info mapping.  Execution results reference
+    ``BookState`` objects whose return histories grow for the whole episode, so
+    exposing them to SB3 turns rollout collection into quadratic work.  The raw
+    Gymnasium environment retains its rich diagnostic contract; only the
+    training adapter replaces those objects with the small fields consumed by
+    telemetry and callbacks.
+    """
+
+    compact = dict(info)
+    execution = compact.get("hybrid_execution")
+    book = getattr(execution, "book", None)
+    weights = getattr(book, "weights", None)
+    if weights is not None:
+        compact["telemetry_weights_after"] = np.asarray(
+            weights,
+            dtype=np.float64,
+        ).copy()
+    if "telemetry_risk_reasons" not in compact:
+        risk = compact.get("hybrid_risk")
+        reasons = getattr(risk, "reasons", ())
+        compact["telemetry_risk_reasons"] = tuple(
+            str(getattr(item, "value", item)) for item in reasons if str(item)
+        )
+    for key in _HEAVY_TRAINING_INFO_KEYS:
+        compact.pop(key, None)
+    return compact
+
+
+class _TrainingInfoFilter(gym.Wrapper):
+    """Remove history-bearing diagnostics before SB3 copies vector infos."""
+
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, object]]:
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        return (
+            observation,
+            float(reward),
+            bool(terminated),
+            bool(truncated),
+            _compact_training_info(info),
+        )
+
+
+def _filtered_training_environment(factory: Callable[[], Any]) -> Any:
+    return _TrainingInfoFilter(factory())
 
 
 def _build_training_environment(
@@ -78,7 +226,12 @@ class StableBaselines3Backend:
         self.verbose = verbose
         self.resume_replay_artifact = resume_replay_artifact
         self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
+        raw_teacher_cache = os.environ.get("TRADE_RL_TEACHER_CACHE_ROOT", "").strip()
+        self.teacher_cache_root = (
+            None if not raw_teacher_cache else Path(raw_teacher_cache).resolve()
+        )
         self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
+        self._trend_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
         self._teacher_dataset_cache: dict[
             tuple[str, int, int, str, str, str], SupervisedPolicyDataset
         ] = {}
@@ -105,6 +258,39 @@ class StableBaselines3Backend:
         self._oracle_target_cache[key] = targets
         return targets
 
+    def _trend_baseline_targets(
+        self,
+        dataset: Any,
+        train_range: tuple[int, int],
+        strategy: Any,
+        *,
+        teacher_digest: str,
+    ) -> np.ndarray:
+        """Return causal base-trend targets aligned with policy decisions."""
+
+        dataset_id = getattr(dataset, "dataset_id", None)
+        if not isinstance(dataset_id, str):
+            raise ValueError("trend teacher dataset must expose dataset_id")
+        start, stop = train_range
+        key = (dataset_id, int(start), int(stop), teacher_digest)
+        cached = self._trend_target_cache.get(key)
+        if cached is not None:
+            return cached
+        targets = np.stack(
+            [
+                np.asarray(strategy.targets(dataset, index).base, dtype=np.float32)
+                for index in range(start, stop - 1)
+            ],
+            axis=0,
+        ).astype(np.float32, copy=False)
+        if targets.ndim != 2 or len(targets) != stop - start - 1:
+            raise RuntimeError("causal trend teacher target shape mismatch")
+        if not np.isfinite(targets).all():
+            raise RuntimeError("causal trend teacher targets are non-finite")
+        targets.setflags(write=False)
+        self._trend_target_cache[key] = targets
+        return targets
+
     def _teacher_dataset(
         self,
         environment: Any,
@@ -112,7 +298,7 @@ class StableBaselines3Backend:
         *,
         dataset_id: str,
         train_range: tuple[int, int],
-        teacher_config: OracleTeacherConfig,
+        teacher_config: OracleTeacherConfig | _TeacherIdentity,
     ) -> SupervisedPolicyDataset:
         start, stop = train_range
         environment_digest = getattr(environment, "environment_digest", None)
@@ -132,6 +318,27 @@ class StableBaselines3Backend:
         cached = self._teacher_dataset_cache.get(key)
         if cached is not None:
             return cached
+        cache_path: Path | None = None
+        if self.teacher_cache_root is not None:
+            cache_path = self.teacher_cache_root / _teacher_cache_key(
+                dataset_id=dataset_id,
+                train_range=(start, stop),
+                environment_digest=environment_digest,
+                action_spec_digest=action_spec_digest,
+                teacher_config_digest=teacher_config.digest,
+            )
+            if cache_path.exists():
+                _, teacher_dataset = load_teacher_artifact(
+                    cache_path,
+                    expected_dataset_id=dataset_id,
+                    expected_environment_digest=environment_digest,
+                    expected_action_spec_digest=action_spec_digest,
+                    expected_train_range=(start, stop),
+                )
+                if teacher_dataset.teacher_config_digest != teacher_config.digest:
+                    raise ValueError("cached teacher configuration identity mismatch")
+                self._teacher_dataset_cache[key] = teacher_dataset
+                return teacher_dataset
         teacher_dataset = collect_teacher_rollout(
             environment,
             targets,
@@ -139,6 +346,23 @@ class StableBaselines3Backend:
             train_range=(start, stop),
             teacher_config_digest=teacher_config.digest,
         )
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{cache_path.name}.", dir=str(cache_path.parent)
+                )
+            )
+            try:
+                write_teacher_artifact(temporary, teacher_dataset)
+                try:
+                    temporary.replace(cache_path)
+                except FileExistsError:
+                    # A concurrent equivalent trainer won the content-addressed race.
+                    pass
+            finally:
+                if temporary.exists():
+                    shutil.rmtree(temporary)
         self._teacher_dataset_cache[key] = teacher_dataset
         return teacher_dataset
 
@@ -149,7 +373,10 @@ class StableBaselines3Backend:
         config: ResidualTrainingConfig,
         output_path: Path,
     ) -> PolicyTrainingResult:
+        import torch
         from stable_baselines3 import PPO, SAC, TD3
+
+        torch_runtime = _configure_torch_cuda_runtime(torch, config.device)
 
         probe = self.environment_factory()
         environment: Any | None = None
@@ -178,6 +405,7 @@ class StableBaselines3Backend:
             policy_kwargs: dict[str, Any]
             sequence_metadata: dict[str, Any] | None = None
             sequence_reconstructor: Any | None = None
+            uses_shared_asset_actor = False
             if config.sequence_encoder:
                 from trade_rl.rl.policies import (
                     SequenceAssetFeatureExtractor,
@@ -191,6 +419,10 @@ class StableBaselines3Backend:
                         "sequence training requires environment sequence metadata"
                     )
                 sequence_metadata = dict(metadata)
+                action_names = tuple(str(name) for name in identity["action_names"])
+                uses_shared_asset_actor = int(identity["action_size"]) == int(
+                    sequence_metadata["n_symbols"]
+                ) and all(name.startswith("target_weight:") for name in action_names)
                 from trade_rl.integrations.compact_rollout_buffer import (
                     SequenceRolloutReconstructor,
                 )
@@ -225,11 +457,18 @@ class StableBaselines3Backend:
                         "attention_layers": config.sequence_attention_layers,
                         "dropout": config.sequence_dropout,
                     },
-                    "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
-                    "shared_actor_d_model": config.sequence_d_model,
-                    "shared_actor_global_dim": 128,
-                    "shared_actor_net_arch": tuple(config.policy_net_arch),
                 }
+                if uses_shared_asset_actor:
+                    policy_kwargs.update(
+                        {
+                            "shared_actor_n_symbols": int(
+                                sequence_metadata["n_symbols"]
+                            ),
+                            "shared_actor_d_model": config.sequence_d_model,
+                            "shared_actor_global_dim": 128,
+                            "shared_actor_net_arch": tuple(config.policy_net_arch),
+                        }
+                    )
             elif isinstance(algorithm_config, PPOConfig):
                 policy_kwargs = {
                     "net_arch": {
@@ -270,20 +509,20 @@ class StableBaselines3Backend:
                     }
                 )
             if config.n_envs == 1:
-                environment = probe
+                environment = _TrainingInfoFilter(probe)
                 probe = None
             else:
                 probe_to_close = probe
                 probe = None
                 probe_to_close.close()
                 environment = _build_training_environment(
-                    self.environment_factory,
+                    lambda: _filtered_training_environment(self.environment_factory),
                     config.n_envs,
                     subprocesses=False,
                 )
             policy_identifier: Any = (
                 SharedPerAssetActorCriticPolicy
-                if config.sequence_encoder
+                if uses_shared_asset_actor
                 else config.policy
             )
             common: dict[str, Any] = {
@@ -415,6 +654,11 @@ class StableBaselines3Backend:
                         "sequence_reconstructor": sequence_reconstructor
                     }
 
+            # Stable-Baselines3 seeds CUDA during model construction/loading and
+            # resets cuDNN to its deterministic, slow dilated-convolution path.
+            # Capture and persist the effective post-construction runtime state.
+            torch_runtime = _configure_torch_cuda_runtime(torch, config.device)
+
             parameter_count = sum(
                 int(parameter.numel()) for parameter in model.policy.parameters()
             )
@@ -500,6 +744,7 @@ class StableBaselines3Backend:
                             else policy_identifier
                         ),
                         "rollout_buffer_bytes": rollout_buffer_bytes,
+                        "torch_runtime": torch_runtime,
                         "rollout_buffer": (
                             "index_backed_dict"
                             if config.sequence_encoder
@@ -532,28 +777,63 @@ class StableBaselines3Backend:
                         name.startswith("target_weight:") for name in action_names
                     ):
                         raise ValueError(
-                            "oracle behavior cloning requires direct target-weight actions"
+                            "behavior cloning requires direct target-weight actions"
                         )
                     dataset = unwrapped_teacher.dataset
                     train_range = (
                         int(unwrapped_teacher.minimum_start_index),
                         int(dataset.n_bars),
                     )
-                    risk_config = unwrapped_teacher.pre_trade_risk.config
-                    teacher_config = OracleTeacherConfig(
-                        execution_cost=unwrapped_teacher.config.execution_cost,
-                        portfolio_risk=unwrapped_teacher.portfolio_risk.config,
-                        max_gross=risk_config.max_gross,
-                        max_abs_weight=risk_config.max_abs_weight,
-                        entry_threshold=risk_config.entry_threshold,
-                        exit_threshold=risk_config.exit_threshold,
-                        no_trade_band=risk_config.no_trade_band,
-                        reference_portfolio_value=unwrapped_teacher.initial_capital,
-                        signal_delay_decisions=(
-                            unwrapped_teacher.config.signal_delay_decisions
-                        ),
-                    )
-                    targets = self._oracle_targets(dataset, train_range, teacher_config)
+                    teacher_kind = config.behavior_cloning_teacher
+                    if teacher_kind == "oracle":
+                        risk_config = unwrapped_teacher.pre_trade_risk.config
+                        teacher_config: Any = OracleTeacherConfig(
+                            execution_cost=unwrapped_teacher.config.execution_cost,
+                            portfolio_risk=unwrapped_teacher.portfolio_risk.config,
+                            max_gross=risk_config.max_gross,
+                            max_abs_weight=risk_config.max_abs_weight,
+                            entry_threshold=risk_config.entry_threshold,
+                            exit_threshold=risk_config.exit_threshold,
+                            no_trade_band=risk_config.no_trade_band,
+                            reference_portfolio_value=(
+                                unwrapped_teacher.initial_capital
+                            ),
+                            signal_delay_decisions=(
+                                unwrapped_teacher.config.signal_delay_decisions
+                            ),
+                        )
+                        targets = self._oracle_targets(
+                            dataset, train_range, teacher_config
+                        )
+                    else:
+                        trend_strategy = getattr(
+                            unwrapped_teacher, "trend_strategy", None
+                        )
+                        if trend_strategy is None or not callable(
+                            getattr(trend_strategy, "targets", None)
+                        ):
+                            raise ValueError(
+                                "trend behavior cloning requires a trend strategy"
+                            )
+                        teacher_config = _TeacherIdentity(
+                            digest=content_digest(
+                                {
+                                    "schema_version": (
+                                        "causal_trend_baseline_teacher_v1"
+                                    ),
+                                    "signal_delay_decisions": (
+                                        unwrapped_teacher.config.signal_delay_decisions
+                                    ),
+                                    "trend": trend_strategy.config,
+                                }
+                            )
+                        )
+                        targets = self._trend_baseline_targets(
+                            dataset,
+                            train_range,
+                            trend_strategy,
+                            teacher_digest=teacher_config.digest,
+                        )
                     teacher_dataset = self._teacher_dataset(
                         teacher_environment,
                         targets,
@@ -603,6 +883,14 @@ class StableBaselines3Backend:
                         seed=seed,
                         observation_provider=observation_provider,
                     )
+                    required_relative_improvement = (
+                        config.behavior_cloning_required_relative_improvement
+                    )
+                    relative_improvement, quality_passed = _behavior_cloning_quality(
+                        initial_mse=cloning.initial_mse,
+                        final_mse=cloning.final_mse,
+                        required_relative_improvement=(required_relative_improvement),
+                    )
                     cloning_payload = {
                         "artifact_digest": teacher_digest,
                         "behavior_cloning_digest": cloning.digest,
@@ -612,12 +900,23 @@ class StableBaselines3Backend:
                         "validation_mse": cloning.validation_mse,
                         "validation_sample_count": cloning.validation_sample_count,
                         "best_epoch": cloning.best_epoch,
-                        "schema_version": "oracle_behavior_cloning_run_v2",
+                        "quality_passed": quality_passed,
+                        "relative_improvement": relative_improvement,
+                        "required_relative_improvement": (
+                            required_relative_improvement
+                        ),
+                        "teacher_kind": teacher_kind,
+                        "schema_version": "behavior_cloning_run_v3",
                     }
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     (output_path.parent / "behavior-cloning.json").write_bytes(
                         canonical_json_bytes(cloning_payload)
                     )
+                    if not quality_passed:
+                        raise RuntimeError(
+                            "behavior cloning failed the required relative "
+                            "improvement gate"
+                        )
                 finally:
                     teacher_environment.close()
             from trade_rl.rl.checkpointing import build_checkpoint_callback

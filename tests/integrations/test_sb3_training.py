@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import gymnasium as gym
@@ -16,7 +17,10 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.integrations import sb3_training
 from trade_rl.integrations.sb3_training import (
     StableBaselines3Backend,
+    _behavior_cloning_quality,
     _build_training_environment,
+    _compact_training_info,
+    _configure_torch_cuda_runtime,
 )
 from trade_rl.learning import OracleTeacherConfig
 from trade_rl.rl.actions import ActionSpec
@@ -29,6 +33,79 @@ from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 ENVIRONMENT_DIGEST = "e" * 64
 ACTION_NAMES = ("tilt",)
 ACTION_SPEC_DIGEST = content_digest({"names": ACTION_NAMES})
+
+
+class _BackendFlag:
+    def __init__(self, value: bool) -> None:
+        self.allow_tf32 = value
+
+
+class _CudnnFlags(_BackendFlag):
+    def __init__(self) -> None:
+        super().__init__(True)
+        self.benchmark = False
+        self.deterministic = True
+
+
+class _FakeTorch:
+    def __init__(self, *, cuda_available: bool, bf16_supported: bool = True) -> None:
+        self.cuda = type(
+            "Cuda",
+            (),
+            {
+                "is_available": lambda _: cuda_available,
+                "is_bf16_supported": lambda _: bf16_supported,
+            },
+        )()
+        self.backends = type(
+            "Backends",
+            (),
+            {
+                "cuda": type("CudaBackend", (), {"matmul": _BackendFlag(False)})(),
+                "cudnn": _CudnnFlags(),
+            },
+        )()
+        self.precision = "highest"
+
+    def device(self, value: object) -> object:
+        kind = str(value).split(":", maxsplit=1)[0]
+        if kind not in {"cpu", "cuda"}:
+            raise RuntimeError("invalid device")
+        return type("Device", (), {"type": kind})()
+
+    def get_float32_matmul_precision(self) -> str:
+        return self.precision
+
+    def set_float32_matmul_precision(self, value: str) -> None:
+        self.precision = value
+        self.backends.cuda.matmul.allow_tf32 = value == "high"
+
+
+def test_cuda_runtime_enables_tf32_and_fixed_shape_cudnn_search() -> None:
+    torch = _FakeTorch(cuda_available=True)
+
+    result = _configure_torch_cuda_runtime(torch, "cuda:0")
+
+    assert result == {
+        "cudnn_benchmark": True,
+        "cudnn_deterministic": False,
+        "cudnn_tf32": True,
+        "float32_matmul_precision": "high",
+        "matmul_tf32": True,
+        "sequence_encoder_autocast": "bfloat16",
+    }
+
+
+def test_cpu_runtime_does_not_enable_cuda_fast_paths() -> None:
+    torch = _FakeTorch(cuda_available=True)
+
+    result = _configure_torch_cuda_runtime(torch, "cpu")
+
+    assert result["cudnn_benchmark"] is False
+    assert result["cudnn_deterministic"] is True
+    assert result["matmul_tf32"] is False
+    assert result["float32_matmul_precision"] == "highest"
+    assert result["sequence_encoder_autocast"] == "disabled"
 
 
 class TinyEnvironment(gym.Env[np.ndarray, np.ndarray]):
@@ -182,6 +259,41 @@ def test_build_training_environment_uses_in_process_workers_for_sequences() -> N
         environment.close()
 
 
+def test_compact_training_info_removes_history_bearing_execution_results() -> None:
+    history = list(np.linspace(-0.01, 0.01, 10_000))
+    execution = SimpleNamespace(
+        book=SimpleNamespace(
+            weights=np.asarray((0.25, -0.5), dtype=np.float64),
+            returns_history=history,
+        )
+    )
+    info: dict[str, object] = {
+        "hybrid_execution": execution,
+        "shadow_execution": execution,
+        "hybrid_liquidation": execution,
+        "shadow_liquidation": execution,
+        "hybrid_risk": SimpleNamespace(reasons=("drawdown_deleveraging",)),
+        "portfolio_value_after": 99_000.0,
+    }
+
+    compact = _compact_training_info(info)
+
+    assert all(
+        key not in compact
+        for key in (
+            "hybrid_execution",
+            "shadow_execution",
+            "hybrid_liquidation",
+            "shadow_liquidation",
+        )
+    )
+    assert compact["telemetry_weights_after"] == pytest.approx((0.25, -0.5))
+    assert compact["telemetry_risk_reasons"] == ("drawdown_deleveraging",)
+    assert compact["portfolio_value_after"] == 99_000.0
+    assert info["hybrid_execution"] is execution
+    assert execution.book.returns_history is history
+
+
 def test_backend_closes_a_failing_probe_exactly_once(tmp_path: Path) -> None:
     probe = RaisingCloseProbe([])
     backend = StableBaselines3Backend(lambda: probe)
@@ -214,7 +326,8 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
     def build_workers(
         worker_factory: Callable[[], Any], n_envs: int, *, subprocesses: bool = True
     ) -> Any:
-        assert worker_factory is factory
+        assert worker_factory is not factory
+        assert callable(worker_factory)
         assert n_envs == 2
         assert subprocesses is False
         assert events == ["metadata", "validated", "metadata", "probe-close"]
@@ -381,6 +494,57 @@ def test_backend_caches_oracle_targets_across_seed_members(
     assert first.flags.writeable is False
 
 
+def test_behavior_cloning_quality_gate_uses_relative_mse_improvement() -> None:
+    relative, passed = _behavior_cloning_quality(
+        initial_mse=0.12,
+        final_mse=0.11,
+        required_relative_improvement=0.05,
+    )
+    assert relative == pytest.approx(1.0 / 12.0)
+    assert passed is True
+
+    relative, passed = _behavior_cloning_quality(
+        initial_mse=0.12,
+        final_mse=0.119,
+        required_relative_improvement=0.05,
+    )
+    assert relative == pytest.approx(1.0 / 120.0)
+    assert passed is False
+
+
+def test_backend_caches_causal_trend_targets_without_using_stop_bar() -> None:
+    dataset = type("Dataset", (), {"dataset_id": "d" * 64})()
+    calls: list[int] = []
+
+    class Strategy:
+        def targets(self, observed_dataset: Any, index: int) -> SimpleNamespace:
+            assert observed_dataset is dataset
+            calls.append(index)
+            return SimpleNamespace(base=np.asarray([index, -index], dtype=np.float32))
+
+    backend = StableBaselines3Backend(_tiny_environment_factory)
+    first = backend._trend_baseline_targets(
+        dataset,
+        (3, 7),
+        Strategy(),
+        teacher_digest="a" * 64,
+    )
+    second = backend._trend_baseline_targets(
+        dataset,
+        (3, 7),
+        Strategy(),
+        teacher_digest="a" * 64,
+    )
+
+    assert calls == [3, 4, 5]
+    np.testing.assert_array_equal(
+        first,
+        np.asarray([[3, -3], [4, -4], [5, -5]], dtype=np.float32),
+    )
+    assert first.flags.writeable is False
+    assert second is first
+
+
 def test_backend_caches_teacher_dataset_across_seed_members(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -456,6 +620,72 @@ def test_backend_caches_teacher_dataset_across_seed_members(
     assert calls == 2
     assert first is second
     assert third is not first
+
+
+def test_backend_reuses_identity_bound_teacher_artifact_across_processes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
+
+    calls = 0
+
+    def collect(
+        environment: Any,
+        targets: np.ndarray,
+        *,
+        dataset_id: str,
+        train_range: tuple[int, int],
+        teacher_config_digest: str,
+    ) -> SupervisedPolicyDataset:
+        nonlocal calls
+        calls += 1
+        start, stop = train_range
+        return SupervisedPolicyDataset(
+            observations=np.zeros((stop - start - 1, 2), dtype=np.float32),
+            actions=np.asarray(targets, dtype=np.float32),
+            dataset_id=dataset_id,
+            train_start=start,
+            train_stop=stop,
+            environment_digest=environment.environment_digest,
+            action_spec_digest=environment.action_spec_digest,
+            teacher_config_digest=teacher_config_digest,
+        )
+
+    cache_root = tmp_path / "teacher-cache"
+    monkeypatch.setenv("TRADE_RL_TEACHER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setattr(sb3_training, "collect_teacher_rollout", collect)
+    teacher_config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    targets = np.asarray([[0.0], [0.25]], dtype=np.float32)
+    environment = type(
+        "TeacherEnvironment",
+        (),
+        {
+            "environment_digest": "1" * 64,
+            "action_spec_digest": "2" * 64,
+        },
+    )()
+    arguments = {
+        "dataset_id": "3" * 64,
+        "train_range": (3, 6),
+        "teacher_config": teacher_config,
+    }
+
+    first = StableBaselines3Backend(_tiny_environment_factory)._teacher_dataset(
+        environment, targets, **arguments
+    )
+    second = StableBaselines3Backend(_tiny_environment_factory)._teacher_dataset(
+        environment, targets, **arguments
+    )
+
+    assert calls == 1
+    assert first.observation_digest == second.observation_digest
+    assert first.action_digest == second.action_digest
+    cache_entries = tuple(cache_root.iterdir())
+    assert len(cache_entries) == 1
+    assert {path.name for path in cache_entries[0].iterdir()} == {
+        "arrays.npz",
+        "manifest.json",
+    }
 
 
 def test_backend_rejects_ppo_rollout_before_worker_or_model_allocation(

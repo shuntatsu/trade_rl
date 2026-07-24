@@ -18,6 +18,13 @@ from trade_rl.telemetry import (
 
 _DEFAULT_SAMPLE_EVERY = 32
 _DEFAULT_POSITION_THRESHOLD = 0.02
+# Rollout callbacks call ``flush()`` at every rollout boundary.  Keep the
+# writer's automatic durability threshold above ordinary rollout sizes so a
+# Docker volume does not fsync the growing JSONL stream dozens of times during
+# one rollout.  Records are still appended immediately and the sparse index is
+# refreshed at the boundary (and on close), so readers and resume recovery keep
+# the same contract.
+_ROLLOUT_WRITER_FLUSH_EVERY = 4_096
 MarketSnapshotProvider = Callable[[int, int, bool, bool], dict[str, object]]
 
 
@@ -199,7 +206,10 @@ class TrainingTelemetrySampler:
         self.seed = int(seed)
         self.sample_every = int(sample_every)
         self.position_threshold = float(position_threshold)
-        self.writer = TrainingTelemetryWriter(path)
+        self.writer = TrainingTelemetryWriter(
+            path,
+            flush_every=_ROLLOUT_WRITER_FLUSH_EVERY,
+        )
         self.sequence = training_telemetry_status(path).last_sequence
         self.disabled = False
         self._previous_weights: dict[int, tuple[float, ...]] = {}

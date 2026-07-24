@@ -11,6 +11,7 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.signals import load_signal_artifact
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.closed_trades import ClosedTradeTracker
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.walk_forward.folds import IndexRange
@@ -265,6 +266,9 @@ def evaluate_range_evidence(
         factor_provider=factor_provider,
         execution_rule_stress=execution_rule_stress,
     )
+    closed_trade_tracker = ClosedTradeTracker(
+        dataset.resolved_array("contract_multipliers")
+    )
     try:
         observation, _ = env.reset(
             seed=0,
@@ -284,7 +288,13 @@ def evaluate_range_evidence(
                     raise RuntimeError("residual evaluation requires a loaded model")
                 raw_action, _ = model.predict(observation, deterministic=True)
                 action = np.asarray(raw_action, dtype=np.float32).reshape(-1)
-            observation, _, terminated, truncated, _ = env.step(action)
+            observation, _, terminated, truncated, info = env.step(action)
+            execution_key = "shadow_execution" if baseline else "hybrid_execution"
+            liquidation_key = "shadow_liquidation" if baseline else "hybrid_liquidation"
+            closed_trade_tracker.ingest_stateful(info[execution_key])
+            liquidation = info.get(liquidation_key)
+            if liquidation is not None:
+                closed_trade_tracker.ingest_liquidation(liquidation)
         book = env.shadow if baseline else env.hybrid
         values = tuple(float(value) for value in book.returns_history)
         termination_reasons = (
@@ -302,6 +312,7 @@ def evaluate_range_evidence(
             n_trades=book.n_trades,
             rebalance_events=book.rebalance_events,
             termination_reasons=termination_reasons,
+            closed_trades=closed_trade_tracker.diagnostics(),
         )
     finally:
         env.close()

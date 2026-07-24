@@ -289,6 +289,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 "risk_tilt_enabled": self.action_spec.risk_tilt_enabled,
                 "n_factors": self.action_spec.n_factors,
                 "names": self._action_names,
+                "residual_scale": self.action_spec.residual_scale,
                 "target_weight_count": self.action_spec.target_weight_count,
                 "validation_mode": ActionValidationMode(
                     self.action_spec.validation_mode
@@ -418,6 +419,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 "risk_tilt_enabled": self.action_spec.risk_tilt_enabled,
                 "n_factors": self.action_spec.n_factors,
                 "names": self._action_names,
+                "residual_scale": self.action_spec.residual_scale,
                 "target_weight_count": self.action_spec.target_weight_count,
                 "validation_mode": ActionValidationMode(
                     self.action_spec.validation_mode

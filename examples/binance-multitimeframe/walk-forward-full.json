@@ -1,14 +1,15 @@
 {
   "candidates": [
     {
-      "name": "oracle-bc-ppo-15m-target",
+      "name": "residual-ppo-15m",
       "run": {
         "action": {
           "alpha_enabled": false,
-          "mode": "target_weight",
+          "mode": "residual",
           "n_factors": 0,
           "risk_tilt_enabled": false,
-          "target_weight_count": 3,
+          "residual_scale": 0.25,
+          "target_weight_count": 0,
           "validation_mode": "clip"
         },
         "alpha_contract": {
@@ -91,7 +92,7 @@
           "baseline_window_hours": 720.0,
           "excess_growth_weight": 0.1,
           "incremental_drawdown_weight": 0.05,
-          "projection_penalty_weight": 0.01
+          "projection_penalty_weight": 0.0
         },
         "risk": {
           "drawdown_start": 0.1,
@@ -108,27 +109,21 @@
         "training": {
           "algorithm": "ppo",
           "asset_set_encoder": false,
-          "batch_size": 128,
-          "behavior_cloning_batch_size": 256,
-          "behavior_cloning_epochs": 15,
-          "behavior_cloning_learning_rate": 0.001,
-          "behavior_cloning_minimum_improvement": 1e-07,
-          "behavior_cloning_patience": 5,
-          "behavior_cloning_validation_fraction": 0.1,
+          "batch_size": 256,
           "checkpoint_interval_steps": 32768,
           "decision_hours": 0.25,
           "device": "cuda",
           "discount_half_life_hours": 168.0,
-          "ent_coef": 0.001,
+          "ent_coef": 0.0,
           "gamma": 0.998969062762624,
           "learning_rate": 0.00012,
-          "log_std_init": -0.7,
+          "log_std_init": -2.3,
           "max_checkpoints": 8,
           "max_policy_parameters": 12000000,
           "max_rollout_buffer_bytes": 805306368,
           "n_envs": 4,
           "n_epochs": 10,
-          "n_steps": 128,
+          "n_steps": 256,
           "policy": "MultiInputPolicy",
           "policy_net_arch": [
             384,

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
-from typing import Mapping
+from typing import Mapping, overload
 
 import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 
 _QUANTITY_TOLERANCE = 1e-12
+_QUANTITY_ULPS = 32
 
 
 class OrderDomainError(ValueError):
@@ -54,6 +56,19 @@ class OrderStatus(StrEnum):
 
 def _is_finite(value: float) -> bool:
     return math.isfinite(value)
+
+
+def _quantity_tolerance(*values: float) -> float:
+    """Resolve an absolute quantity tolerance that survives lot arithmetic."""
+
+    return max(
+        _QUANTITY_TOLERANCE,
+        *(
+            _QUANTITY_ULPS * math.ulp(abs(float(value)))
+            for value in values
+            if _is_finite(value)
+        ),
+    )
 
 
 def _validate_positive(name: str, value: float) -> None:
@@ -235,11 +250,17 @@ class PendingOrder:
             if not _is_finite(value):
                 raise OrderDomainError(f"{name} must be finite")
         expected = self.cumulative_filled_quantity + self.remaining_quantity
+        identity_tolerance = _quantity_tolerance(
+            self.intent.requested_quantity,
+            self.cumulative_filled_quantity,
+            self.remaining_quantity,
+            expected,
+        )
         if not math.isclose(
             expected,
             self.intent.requested_quantity,
             rel_tol=0.0,
-            abs_tol=_QUANTITY_TOLERANCE,
+            abs_tol=identity_tolerance,
         ):
             raise OrderDomainError("requested quantity identity is inconsistent")
         requested_sign = math.copysign(1.0, self.intent.requested_quantity)
@@ -366,14 +387,26 @@ class PendingOrder:
             raise OrderDomainError(
                 "fill quantity direction does not match remaining quantity"
             )
-        if abs(quantity) > abs(self.remaining_quantity) + _QUANTITY_TOLERANCE:
+        fill_tolerance = _quantity_tolerance(
+            self.intent.requested_quantity,
+            self.remaining_quantity,
+            self.cumulative_filled_quantity,
+            quantity,
+        )
+        if abs(quantity) > abs(self.remaining_quantity) + fill_tolerance:
             raise OrderDomainError("fill quantity exceeds remaining quantity")
         if not _is_finite(notional) or notional < 0.0:
             raise OrderDomainError("fill notional must be finite and non-negative")
 
         cumulative_quantity = self.cumulative_filled_quantity + quantity
         remaining = self.intent.requested_quantity - cumulative_quantity
-        if abs(remaining) <= _QUANTITY_TOLERANCE:
+        completion_tolerance = _quantity_tolerance(
+            self.intent.requested_quantity,
+            cumulative_quantity,
+            remaining,
+        )
+        if abs(remaining) <= completion_tolerance:
+            cumulative_quantity = self.intent.requested_quantity
             remaining = 0.0
             status = OrderStatus.FILLED
             terminal_reason = "filled"
@@ -414,19 +447,161 @@ class PendingOrder:
 
 
 @dataclass(frozen=True, slots=True)
+class _TerminalOrderNode:
+    order: PendingOrder
+    previous: _TerminalOrderNode | None
+    length: int
+    max_submit_index: int
+    order_ids_at_max_submit: frozenset[str]
+
+
+class TerminalOrderArchive(Sequence[PendingOrder]):
+    """Persistent chronological archive with constant-time tail appends.
+
+    Execution produces many immutable ``OrderBookState`` snapshots. Copying a
+    tuple containing every completed order for each snapshot makes an episode
+    quadratic. A linked archive preserves every terminal order and historical
+    snapshot while sharing the unchanged prefix.
+    """
+
+    __slots__ = ("_tail",)
+
+    def __init__(self, orders: Sequence[PendingOrder] = ()) -> None:
+        tail: _TerminalOrderNode | None = None
+        for order in orders:
+            tail = self._next_node(tail, order)
+        self._tail = tail
+
+    @staticmethod
+    def _next_node(
+        previous: _TerminalOrderNode | None,
+        order: PendingOrder,
+    ) -> _TerminalOrderNode:
+        submit_index = order.intent.submit_index
+        previous_max = -1 if previous is None else previous.max_submit_index
+        if submit_index > previous_max:
+            max_submit_index = submit_index
+            ids = frozenset((order.order_id,))
+        elif submit_index == previous_max:
+            max_submit_index = previous_max
+            previous_ids = (
+                frozenset() if previous is None else previous.order_ids_at_max_submit
+            )
+            ids = previous_ids | frozenset((order.order_id,))
+        else:
+            max_submit_index = previous_max
+            ids = (
+                frozenset() if previous is None else previous.order_ids_at_max_submit
+            )
+        return _TerminalOrderNode(
+            order=order,
+            previous=previous,
+            length=1 if previous is None else previous.length + 1,
+            max_submit_index=max_submit_index,
+            order_ids_at_max_submit=ids,
+        )
+
+    @classmethod
+    def _from_tail(cls, tail: _TerminalOrderNode) -> TerminalOrderArchive:
+        archive = object.__new__(cls)
+        archive._tail = tail
+        return archive
+
+    def append(self, order: PendingOrder) -> TerminalOrderArchive:
+        return self._from_tail(self._next_node(self._tail, order))
+
+    def canonical_payload(self) -> tuple[PendingOrder, ...]:
+        """Expose the historical tuple shape at serialization boundaries."""
+
+        return tuple(self)
+
+    @property
+    def max_submit_index(self) -> int:
+        return -1 if self._tail is None else self._tail.max_submit_index
+
+    @property
+    def order_ids_at_max_submit(self) -> frozenset[str]:
+        return (
+            frozenset()
+            if self._tail is None
+            else self._tail.order_ids_at_max_submit
+        )
+
+    def __len__(self) -> int:
+        return 0 if self._tail is None else self._tail.length
+
+    def __iter__(self) -> Iterator[PendingOrder]:
+        reverse: list[PendingOrder] = []
+        node = self._tail
+        while node is not None:
+            reverse.append(node.order)
+            node = node.previous
+        yield from reversed(reverse)
+
+    @overload
+    def __getitem__(self, index: int) -> PendingOrder: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[PendingOrder, ...]: ...
+
+    def __getitem__(
+        self, index: int | slice
+    ) -> PendingOrder | tuple[PendingOrder, ...]:
+        if isinstance(index, slice):
+            return tuple(self)[index]
+        size = len(self)
+        resolved = index + size if index < 0 else index
+        if not 0 <= resolved < size:
+            raise IndexError("terminal order archive index out of range")
+        steps = size - 1 - resolved
+        node = self._tail
+        for _ in range(steps):
+            assert node is not None
+            node = node.previous
+        assert node is not None
+        return node.order
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Sequence):
+            return tuple(self) == tuple(other)
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        return f"TerminalOrderArchive({tuple(self)!r})"
+
+
+@dataclass(frozen=True, slots=True)
 class OrderBookState:
     active_orders: tuple[PendingOrder, ...]
-    terminal_orders: tuple[PendingOrder, ...]
+    terminal_orders: Sequence[PendingOrder]
 
     def __post_init__(self) -> None:
-        all_orders = self.active_orders + self.terminal_orders
+        archive = (
+            self.terminal_orders
+            if isinstance(self.terminal_orders, TerminalOrderArchive)
+            else TerminalOrderArchive(self.terminal_orders)
+        )
+        all_orders = self.active_orders + tuple(archive)
         order_ids = tuple(order.order_id for order in all_orders)
         if len(order_ids) != len(set(order_ids)):
             raise OrderDomainError("duplicate order IDs are not allowed")
         if any(order.terminal for order in self.active_orders):
             raise OrderDomainError("active_orders may not contain terminal orders")
-        if any(not order.terminal for order in self.terminal_orders):
+        if any(not order.terminal for order in archive):
             raise OrderDomainError("terminal_orders must contain only terminal orders")
+        object.__setattr__(self, "terminal_orders", archive)
+
+    @classmethod
+    def _from_validated(
+        cls,
+        *,
+        active_orders: tuple[PendingOrder, ...],
+        terminal_orders: TerminalOrderArchive,
+    ) -> OrderBookState:
+        state = object.__new__(cls)
+        object.__setattr__(state, "active_orders", active_orders)
+        object.__setattr__(state, "terminal_orders", terminal_orders)
+        return state
 
     @classmethod
     def empty(cls) -> OrderBookState:
@@ -461,6 +636,38 @@ class OrderBookState:
             terminal_orders=self.terminal_orders,
         )
 
+    def _add_generated(self, *orders: PendingOrder) -> OrderBookState:
+        """Add canonical runtime intents without rescanning the full archive."""
+
+        if any(order.terminal for order in orders):
+            raise OrderDomainError("cannot add terminal orders as active")
+        archive = self.terminal_orders
+        if not isinstance(archive, TerminalOrderArchive):  # pragma: no cover
+            raise RuntimeError("terminal order archive was not normalized")
+        existing_active = {order.order_id for order in self.active_orders}
+        generated_ids = tuple(order.order_id for order in orders)
+        if len(generated_ids) != len(set(generated_ids)) or any(
+            order_id in existing_active for order_id in generated_ids
+        ):
+            raise OrderDomainError("duplicate order IDs are not allowed")
+        latest_submit = max(
+            (
+                archive.max_submit_index,
+                *(order.intent.submit_index for order in self.active_orders),
+            )
+        )
+        for order in orders:
+            submit_index = order.intent.submit_index
+            if submit_index < latest_submit or (
+                submit_index == archive.max_submit_index
+                and order.order_id in archive.order_ids_at_max_submit
+            ):
+                raise OrderDomainError("generated order identity is not monotonic")
+        return self._from_validated(
+            active_orders=self.active_orders + tuple(orders),
+            terminal_orders=archive,
+        )
+
     def replace(self, updated: PendingOrder) -> OrderBookState:
         matching = [
             index
@@ -473,11 +680,16 @@ class OrderBookState:
         active = list(self.active_orders)
         active.pop(index)
         terminal = self.terminal_orders
+        if not isinstance(terminal, TerminalOrderArchive):  # pragma: no cover
+            raise RuntimeError("terminal order archive was not normalized")
         if updated.terminal:
-            terminal += (updated,)
+            terminal = terminal.append(updated)
         else:
             active.insert(index, updated)
-        return OrderBookState(active_orders=tuple(active), terminal_orders=terminal)
+        return self._from_validated(
+            active_orders=tuple(active),
+            terminal_orders=terminal,
+        )
 
 
 @dataclass(frozen=True, slots=True)

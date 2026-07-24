@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from functools import partial
 from typing import Any
 
@@ -14,6 +15,14 @@ from stable_baselines3.common.distributions import (
 from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch import nn
+
+
+def _sequence_encoder_autocast(reference: torch.Tensor) -> Any:
+    """Use stable BF16 tensor-core math for the memory-heavy CUDA encoder."""
+
+    if reference.device.type != "cuda" or not torch.cuda.is_bf16_supported():
+        return nullcontext()
+    return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
 
 
 class AssetSetFeatureExtractor(BaseFeaturesExtractor):
@@ -167,28 +176,36 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         )
 
     def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
-        sequences: dict[str, torch.Tensor] = {}
-        available: dict[str, torch.Tensor] = {}
-        for timeframe in self.timeframes:
-            values = observations[f"sequence_{timeframe}_values"].float()
-            availability = observations[f"sequence_{timeframe}_available"].float()
-            staleness = observations[f"sequence_{timeframe}_staleness"].float()
-            sequences[timeframe] = torch.cat(
-                (values, availability, torch.log1p(staleness.clamp_min(0.0))),
-                dim=-1,
+        reference = observations["current_snapshot"]
+        with _sequence_encoder_autocast(reference):
+            sequences: dict[str, torch.Tensor] = {}
+            available: dict[str, torch.Tensor] = {}
+            for timeframe in self.timeframes:
+                values = observations[f"sequence_{timeframe}_values"].float()
+                availability = observations[
+                    f"sequence_{timeframe}_available"
+                ].float()
+                staleness = observations[f"sequence_{timeframe}_staleness"].float()
+                sequences[timeframe] = torch.cat(
+                    (values, availability, torch.log1p(staleness.clamp_min(0.0))),
+                    dim=-1,
+                )
+                available[timeframe] = availability > 0.5
+            asset_tokens, pooled_assets = self.asset_encoder(
+                sequences=sequences,
+                available=available,
+                snapshot=reference.float(),
+                asset_state=observations["asset_state"].float(),
+                active=observations["active"].float(),
             )
-            available[timeframe] = availability > 0.5
-        asset_tokens, pooled_assets = self.asset_encoder(
-            sequences=sequences,
-            available=available,
-            snapshot=observations["current_snapshot"].float(),
-            asset_state=observations["asset_state"].float(),
-            active=observations["active"].float(),
-        )
-        globals_ = self.global_encoder(observations["global_state"].float())
-        ordered_assets = asset_tokens.reshape(asset_tokens.shape[0], -1)
-        active = observations["active"].float()
-        return torch.cat((ordered_assets, pooled_assets, globals_, active), dim=-1)
+            globals_ = self.global_encoder(observations["global_state"].float())
+            ordered_assets = asset_tokens.reshape(asset_tokens.shape[0], -1)
+            active = observations["active"].float()
+            encoded = torch.cat(
+                (ordered_assets, pooled_assets, globals_, active), dim=-1
+            )
+        # Actor/critic heads, PPO losses, optimizer state, and checkpoints stay FP32.
+        return encoded.float()
 
 
 class SharedAssetActorCriticExtractor(nn.Module):

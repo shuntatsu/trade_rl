@@ -75,7 +75,7 @@
 - Create: `docs/superpowers/plans/2026-07-25-perfect-information-linear-bound.md`
 
 - [x] Add and verify the public import test.
-- [x] Verify focused Pytest: 47 passed.
+- [x] Verify focused Pytest: 52 passed.
 - [x] Verify focused branch coverage: 100% for both new modules.
 - [x] Verify Python compilation succeeds.
 - [ ] Run `ruff check trade_rl/evaluation/perfect_information_bound.py trade_rl/evaluation/_perfect_information_lp.py tests/evaluation/test_perfect_information_bound_*.py` in a complete development environment.

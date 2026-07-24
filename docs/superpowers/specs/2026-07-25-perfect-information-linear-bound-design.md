@@ -51,7 +51,7 @@ This split keeps public economic validation independent of the optimizer impleme
 
 ## Public result
 
-The result contains immutable arrays for target weights, absolute weights, turnover, period gross returns, period transaction costs, period net returns, terminal liquidation cost, the primary linearized upper bound, selected-path linear objective, exact replay log return, replay total return, primary and secondary solver evidence, maximum primal violation, problem digest, configuration digest, and result digest.
+The result contains immutable arrays for target weights, absolute weights, turnover, period gross returns, period transaction costs, period net returns, terminal liquidation cost, the primary linearized upper bound, selected-path linear objective, exact replay log return, replay total return when it is representable as a finite float, primary and secondary solver evidence, maximum primal violation, problem digest, configuration digest, and result digest. If exponentiating the log return would overflow, the optional simple-return field is `None` while the finite log return remains authoritative.
 
 Scalar or per-asset configuration values are normalized to immutable tuples. The default net exposure limit is `None` because `max_gross` already bounds absolute net exposure; an explicit tighter net limit remains supported.
 
@@ -78,6 +78,9 @@ Tests cover:
 11. a tiny brute-force grid never exceeds the LP primary optimum;
 12. missing optional SciPy is reported only at invocation;
 13. malformed primary/secondary solver vectors and inconsistent replay evidence fail closed;
-14. both production modules achieve 100% statement and branch coverage in the focused suite.
+14. signed zero is canonicalized for cross-platform digest stability;
+15. unrepresentable simple returns remain optional while finite log returns are preserved;
+16. non-finite solver objectives and malformed target-weight matrices fail closed;
+17. both production modules achieve 100% statement and branch coverage in the focused suite.
 
 Required merge gates are focused Pytest with branch coverage, Ruff check, Ruff format check, MyPy, the complete evaluation suite, and the full project test suite. This environment cannot materialize the complete GitHub checkout, so this session can provide fresh focused local evidence only; full-repository verification remains mandatory before merge.

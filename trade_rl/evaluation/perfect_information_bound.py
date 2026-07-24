@@ -15,6 +15,7 @@ from trade_rl.evaluation._perfect_information_lp import (
 )
 
 PERFECT_INFORMATION_BOUND_SCHEMA = "perfect_information_linear_bound_v1"
+_MAX_FLOAT_LOG = math.log(float(np.finfo(np.float64).max))
 
 
 def _finite_float(name: str, value: object) -> float:
@@ -190,7 +191,7 @@ class PerfectInformationBoundResult:
     linearized_log_upper_bound: float
     selected_path_linearized_objective: float
     replay_log_return: float
-    replay_total_return: float
+    replay_total_return: float | None
     primary_solver_status: int
     primary_solver_message: str
     primary_solver_iterations: int
@@ -241,8 +242,14 @@ def _validated_returns(returns: np.ndarray, *, n_assets: int) -> np.ndarray:
     return values.copy(order="C")
 
 
+def _canonical_float(value: float) -> float:
+    result = float(value)
+    return 0.0 if result == 0.0 else result
+
+
 def _readonly(value: np.ndarray) -> np.ndarray:
     result = np.asarray(value, dtype=np.float64).copy(order="C")
+    result[result == 0.0] = 0.0
     result.setflags(write=False)
     return result
 
@@ -315,39 +322,46 @@ def solve_perfect_information_bound(
         feasibility_tolerance=config.feasibility_tolerance,
         solver_method=config.solver_method,
     )
-    weights = np.asarray(solution.target_weights, dtype=np.float64)
+    weights = np.asarray(solution.target_weights, dtype=np.float64).copy(order="C")
+    if weights.shape != values.shape or not np.isfinite(weights).all():
+        raise RuntimeError("perfect-information solver returned invalid target weights")
+    weights[weights == 0.0] = 0.0
+    upper_bound = _canonical_float(solution.linearized_upper_bound)
+    selected_evidence = _canonical_float(solution.selected_linearized_objective)
+    if not math.isfinite(upper_bound) or not math.isfinite(selected_evidence):
+        raise RuntimeError(
+            "perfect-information solver returned non-finite objective evidence"
+        )
     turnover = _turnover(weights, initial)
     gross_returns = np.sum(values * weights, axis=1)
     transaction_costs = np.sum(turnover[:-1] * transaction[None, :], axis=1)
     net_returns = gross_returns - transaction_costs
-    terminal_cost = float(np.sum(turnover[-1] * liquidation))
+    terminal_cost = _canonical_float(np.sum(turnover[-1] * liquidation))
     if np.any(net_returns <= -1.0) or terminal_cost >= 1.0:
         raise RuntimeError(
             "perfect-information replay has a non-positive wealth factor"
         )
 
-    selected_objective = float(np.sum(net_returns) - terminal_cost)
+    selected_objective = _canonical_float(np.sum(net_returns) - terminal_cost)
     if not math.isclose(
         selected_objective,
-        solution.selected_linearized_objective,
+        selected_evidence,
         rel_tol=0.0,
         abs_tol=config.feasibility_tolerance,
     ):
         raise RuntimeError("independent replay disagrees with the LP objective")
     if selected_objective < (
-        solution.linearized_upper_bound
+        upper_bound
         - config.lexicographic_objective_tolerance
         - config.feasibility_tolerance
     ):
         raise RuntimeError(
             "secondary solution violates the primary objective tolerance"
         )
-    replay_log_return = float(
+    replay_log_return = _canonical_float(
         np.sum(np.log1p(net_returns)) + math.log1p(-terminal_cost)
     )
-    if replay_log_return > (
-        solution.linearized_upper_bound + config.feasibility_tolerance
-    ):
+    if replay_log_return > upper_bound + config.feasibility_tolerance:
         raise RuntimeError("linearized upper bound is below exact replay log return")
     max_violation = _constraint_violation(
         weights=weights,
@@ -370,10 +384,14 @@ def solve_perfect_information_bound(
         period_transaction_costs=_readonly(transaction_costs),
         period_net_returns=_readonly(net_returns),
         terminal_liquidation_cost=terminal_cost,
-        linearized_log_upper_bound=solution.linearized_upper_bound,
+        linearized_log_upper_bound=upper_bound,
         selected_path_linearized_objective=selected_objective,
         replay_log_return=replay_log_return,
-        replay_total_return=float(math.expm1(replay_log_return)),
+        replay_total_return=(
+            None
+            if replay_log_return > _MAX_FLOAT_LOG
+            else _canonical_float(math.expm1(replay_log_return))
+        ),
         primary_solver_status=solution.primary_status,
         primary_solver_message=solution.primary_message,
         primary_solver_iterations=solution.primary_iterations,

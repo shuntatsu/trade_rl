@@ -172,3 +172,83 @@ def test_config_rejects_initial_weight_above_net_limit() -> None:
             max_net_exposure=0.1,
             initial_weights=(0.2, 0.0),
         )
+
+
+def test_result_normalizes_signed_zero_for_stable_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation import perfect_information_bound as module
+    from trade_rl.evaluation._perfect_information_lp import LinearProgramSolution
+
+    def solution(weight: float, objective: float) -> LinearProgramSolution:
+        return LinearProgramSolution(
+            target_weights=np.asarray([[weight]], dtype=np.float64),
+            linearized_upper_bound=objective,
+            selected_linearized_objective=objective,
+            primary_status=0,
+            primary_message="optimal",
+            primary_iterations=0,
+            secondary_status=0,
+            secondary_message="optimal",
+            secondary_iterations=0,
+        )
+
+    monkeypatch.setattr(
+        module,
+        "solve_lexicographic_linear_program",
+        lambda *_args, **_kwargs: solution(-0.0, -0.0),
+    )
+    negative = solve_perfect_information_bound(
+        np.asarray([[0.0]], dtype=np.float64),
+        PerfectInformationBoundConfig(n_assets=1),
+    )
+    monkeypatch.setattr(
+        module,
+        "solve_lexicographic_linear_program",
+        lambda *_args, **_kwargs: solution(0.0, 0.0),
+    )
+    positive = solve_perfect_information_bound(
+        np.asarray([[0.0]], dtype=np.float64),
+        PerfectInformationBoundConfig(n_assets=1),
+    )
+
+    assert math.copysign(1.0, negative.target_weights[0, 0]) == 1.0
+    assert negative.digest == positive.digest
+
+
+def test_large_log_return_omits_unrepresentable_simple_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation import perfect_information_bound as module
+    from trade_rl.evaluation._perfect_information_lp import LinearProgramSolution
+
+    steps = 2_000
+    weights = np.full((steps, 1), 0.45, dtype=np.float64)
+    objective = float(steps * 0.45)
+    monkeypatch.setattr(
+        module,
+        "solve_lexicographic_linear_program",
+        lambda *_args, **_kwargs: LinearProgramSolution(
+            target_weights=weights,
+            linearized_upper_bound=objective,
+            selected_linearized_objective=objective,
+            primary_status=0,
+            primary_message="optimal",
+            primary_iterations=0,
+            secondary_status=0,
+            secondary_message="optimal",
+            secondary_iterations=0,
+        ),
+    )
+
+    result = solve_perfect_information_bound(
+        np.ones((steps, 1), dtype=np.float64),
+        PerfectInformationBoundConfig(
+            n_assets=1,
+            max_abs_weight=0.45,
+            max_gross=0.45,
+        ),
+    )
+
+    assert result.replay_log_return > math.log(np.finfo(np.float64).max)
+    assert result.replay_total_return is None

@@ -41,6 +41,7 @@ dev = [
     "vulture>=2.14",
     "PyYAML==6.0.3",
     "httpx>=0.28,<0.29",
+    "scipy>=1.14,<1.18",
 ]
 export = [
     "onnx==1.16.2",

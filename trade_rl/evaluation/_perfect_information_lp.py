@@ -246,6 +246,11 @@ def solve_lexicographic_linear_program(
         options={"presolve": True},
     )
     _require_optimal(primary, stage="primary")
+    primary_objective = float(primary.fun)
+    if not np.isfinite(primary_objective):
+        raise RuntimeError(
+            "perfect-information primary solver returned non-finite objective"
+        )
     primary_vector = np.asarray(primary.x, dtype=np.float64)
     if primary_vector.shape != (layout.variable_count,) or not np.isfinite(
         primary_vector
@@ -261,7 +266,7 @@ def solve_lexicographic_linear_program(
         format="csr",
     )
     augmented_rhs = np.concatenate(
-        [rhs, np.asarray([float(primary.fun) + objective_tolerance])]
+        [rhs, np.asarray([primary_objective + objective_tolerance])]
     )
     secondary = optimize.linprog(
         turnover_objective,
@@ -282,7 +287,7 @@ def solve_lexicographic_linear_program(
     selected_objective = float(-objective @ vector)
     return LinearProgramSolution(
         target_weights=weights.copy(order="C"),
-        linearized_upper_bound=float(-primary.fun),
+        linearized_upper_bound=float(-primary_objective),
         selected_linearized_objective=selected_objective,
         primary_status=int(primary.status),
         primary_message=str(primary.message),

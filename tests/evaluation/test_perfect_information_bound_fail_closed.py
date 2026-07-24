@@ -239,3 +239,76 @@ def test_private_solver_rejects_invalid_secondary_vector(
             feasibility_tolerance=1e-8,
             solver_method="highs",
         )
+
+
+def test_private_solver_rejects_non_finite_primary_objective(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_sparse = __import__("scipy.sparse", fromlist=["sparse"])
+    fake_optimize = SimpleNamespace(
+        linprog=lambda *_args, **_kwargs: SimpleNamespace(
+            success=True,
+            status=0,
+            message="optimal",
+            x=np.zeros(4, dtype=np.float64),
+            fun=np.nan,
+            nit=0,
+        )
+    )
+    monkeypatch.setattr(
+        _perfect_information_lp,
+        "_scipy_modules",
+        lambda: (fake_optimize, real_sparse),
+    )
+    with pytest.raises(RuntimeError, match="non-finite objective"):
+        _perfect_information_lp.solve_lexicographic_linear_program(
+            np.zeros((1, 1), dtype=np.float64),
+            transaction_cost_rate=np.zeros(1),
+            liquidation_cost_rate=np.zeros(1),
+            max_abs_weight=np.asarray([0.45]),
+            max_gross=1.0,
+            max_net_exposure=None,
+            initial_weights=np.zeros(1),
+            minimum_period_net_return=-0.999,
+            objective_tolerance=0.0,
+            feasibility_tolerance=1e-8,
+            solver_method="highs",
+        )
+
+
+def test_public_replay_rejects_malformed_solution_weights(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        bound_module,
+        "solve_lexicographic_linear_program",
+        lambda *_args, **_kwargs: _linear_solution(
+            np.zeros((2, 1), dtype=np.float64),
+            upper_bound=0.0,
+            selected_objective=0.0,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="invalid target weights"):
+        solve_perfect_information_bound(
+            np.asarray([[0.0]], dtype=np.float64),
+            PerfectInformationBoundConfig(n_assets=1),
+        )
+
+
+def test_public_replay_rejects_non_finite_objective_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        bound_module,
+        "solve_lexicographic_linear_program",
+        lambda *_args, **_kwargs: _linear_solution(
+            np.zeros((1, 1), dtype=np.float64),
+            upper_bound=np.nan,
+            selected_objective=0.0,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="non-finite objective evidence"):
+        solve_perfect_information_bound(
+            np.asarray([[0.0]], dtype=np.float64),
+            PerfectInformationBoundConfig(n_assets=1),
+        )

@@ -217,9 +217,7 @@ def test_private_solver_rejects_invalid_secondary_vector(
             ),
         ]
     )
-    fake_optimize = SimpleNamespace(
-        linprog=lambda *_args, **_kwargs: next(responses)
-    )
+    fake_optimize = SimpleNamespace(linprog=lambda *_args, **_kwargs: next(responses))
     monkeypatch.setattr(
         _perfect_information_lp,
         "_scipy_modules",

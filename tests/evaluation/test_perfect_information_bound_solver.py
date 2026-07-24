@@ -82,8 +82,7 @@ def test_multi_asset_solution_respects_all_exposure_constraints() -> None:
     )
 
     assert np.all(
-        np.abs(result.target_weights)
-        <= np.asarray([0.45, 0.30, 0.25]) + 1e-8
+        np.abs(result.target_weights) <= np.asarray([0.45, 0.30, 0.25]) + 1e-8
     )
     assert np.all(np.abs(result.target_weights).sum(axis=1) <= 0.60 + 1e-8)
     assert np.all(np.abs(result.target_weights.sum(axis=1)) <= 0.20 + 1e-8)
@@ -237,12 +236,8 @@ def test_randomized_small_problems_preserve_constraints_and_bound() -> None:
         assert result.target_weights.shape == (n_steps, n_assets)
         assert result.turnover.shape == (n_steps + 1, n_assets)
         assert np.all(np.abs(result.target_weights) <= max_abs[None, :] + 1e-8)
-        assert np.all(
-            np.abs(result.target_weights).sum(axis=1) <= max_gross + 1e-8
-        )
-        assert np.all(
-            np.abs(result.target_weights.sum(axis=1)) <= max_net + 1e-8
-        )
+        assert np.all(np.abs(result.target_weights).sum(axis=1) <= max_gross + 1e-8)
+        assert np.all(np.abs(result.target_weights.sum(axis=1)) <= max_net + 1e-8)
         assert result.max_primal_violation <= config.feasibility_tolerance
         assert (
             result.selected_path_linearized_objective

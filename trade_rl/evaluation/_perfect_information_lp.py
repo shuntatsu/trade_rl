@@ -145,12 +145,8 @@ def _build_problem(
                 )
             else:
                 previous = layout.weight(step - 1, asset)
-                add_constraint(
-                    {current: 1.0, previous: -1.0, turnover: -1.0}, 0.0
-                )
-                add_constraint(
-                    {current: -1.0, previous: 1.0, turnover: -1.0}, 0.0
-                )
+                add_constraint({current: 1.0, previous: -1.0, turnover: -1.0}, 0.0)
+                add_constraint({current: -1.0, previous: 1.0, turnover: -1.0}, 0.0)
 
     for asset in range(n_assets):
         final_weight = layout.weight(n_steps - 1, asset)
@@ -252,9 +248,10 @@ def solve_lexicographic_linear_program(
             "perfect-information primary solver returned non-finite objective"
         )
     primary_vector = np.asarray(primary.x, dtype=np.float64)
-    if primary_vector.shape != (layout.variable_count,) or not np.isfinite(
-        primary_vector
-    ).all():
+    if (
+        primary_vector.shape != (layout.variable_count,)
+        or not np.isfinite(primary_vector).all()
+    ):
         raise RuntimeError(
             "perfect-information primary solver returned invalid variables"
         )

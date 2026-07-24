@@ -15,9 +15,10 @@ from trade_rl.evaluation.perfect_information_bound import (
 
 
 def test_perfect_information_bound_module_exists() -> None:
-    assert importlib.util.find_spec(
-        "trade_rl.evaluation.perfect_information_bound"
-    ) is not None
+    assert (
+        importlib.util.find_spec("trade_rl.evaluation.perfect_information_bound")
+        is not None
+    )
 
 
 def test_config_normalizes_scalar_asset_parameters() -> None:
@@ -111,13 +112,16 @@ def test_repeated_solves_are_deterministic_and_digest_stable() -> None:
     np.testing.assert_array_equal(first.target_weights, second.target_weights)
     np.testing.assert_array_equal(first.turnover, second.turnover)
     assert first.digest == second.digest
-    assert config.digest == PerfectInformationBoundConfig(
-        n_assets=2,
-        transaction_cost_rate=(0.001, 0.001),
-        max_abs_weight=(0.4, 0.4),
-        max_gross=0.6,
-        max_net_exposure=0.3,
-    ).digest
+    assert (
+        config.digest
+        == PerfectInformationBoundConfig(
+            n_assets=2,
+            transaction_cost_rate=(0.001, 0.001),
+            max_abs_weight=(0.4, 0.4),
+            max_gross=0.6,
+            max_net_exposure=0.3,
+        ).digest
+    )
 
 
 def test_result_digest_changes_when_problem_changes() -> None:

@@ -342,9 +342,7 @@ def solve_perfect_information_bound(
             "perfect-information replay has a non-positive wealth factor"
         )
 
-    selected_objective = _canonical_float(
-        float(np.sum(net_returns) - terminal_cost)
-    )
+    selected_objective = _canonical_float(float(np.sum(net_returns) - terminal_cost))
     if not math.isclose(
         selected_objective,
         selected_evidence,

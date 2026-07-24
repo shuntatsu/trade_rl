@@ -202,7 +202,9 @@ def test_sequence_rollout_reconstructor_vectorizes_precomputed_plane(
         batch_calls.append(np.asarray(indices).copy())
         return original_batch(self, indices)
 
-    def forbidden_scalar(self: SequencePolicyPlane, index: int) -> dict[str, np.ndarray]:
+    def forbidden_scalar(
+        self: SequencePolicyPlane, index: int
+    ) -> dict[str, np.ndarray]:
         raise AssertionError(f"scalar reconstruction used for index {index}")
 
     monkeypatch.setattr(SequencePolicyPlane, "batch_components", counting_batch)

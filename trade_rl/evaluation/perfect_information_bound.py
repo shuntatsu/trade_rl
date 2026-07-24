@@ -336,13 +336,15 @@ def solve_perfect_information_bound(
     gross_returns = np.sum(values * weights, axis=1)
     transaction_costs = np.sum(turnover[:-1] * transaction[None, :], axis=1)
     net_returns = gross_returns - transaction_costs
-    terminal_cost = _canonical_float(np.sum(turnover[-1] * liquidation))
+    terminal_cost = _canonical_float(float(np.sum(turnover[-1] * liquidation)))
     if np.any(net_returns <= -1.0) or terminal_cost >= 1.0:
         raise RuntimeError(
             "perfect-information replay has a non-positive wealth factor"
         )
 
-    selected_objective = _canonical_float(np.sum(net_returns) - terminal_cost)
+    selected_objective = _canonical_float(
+        float(np.sum(net_returns) - terminal_cost)
+    )
     if not math.isclose(
         selected_objective,
         selected_evidence,
@@ -359,7 +361,7 @@ def solve_perfect_information_bound(
             "secondary solution violates the primary objective tolerance"
         )
     replay_log_return = _canonical_float(
-        np.sum(np.log1p(net_returns)) + math.log1p(-terminal_cost)
+        float(np.sum(np.log1p(net_returns)) + math.log1p(-terminal_cost))
     )
     if replay_log_return > upper_bound + config.feasibility_tolerance:
         raise RuntimeError("linearized upper bound is below exact replay log return")

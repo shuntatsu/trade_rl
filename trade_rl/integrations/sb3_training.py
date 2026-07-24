@@ -125,7 +125,7 @@ def _behavior_cloning_quality(
         or final_mse < 0.0
     ):
         raise ValueError("behavior cloning MSE values must be finite and non-negative")
-    denominator = max(initial_mse, np.finfo(np.float64).eps)
+    denominator = max(initial_mse, float(np.finfo(np.float64).eps))
     relative_improvement = (initial_mse - final_mse) / denominator
     return (
         relative_improvement,

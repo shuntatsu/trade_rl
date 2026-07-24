@@ -29,11 +29,11 @@ def _finite_float(name: str, value: object) -> float:
 
 def _asset_tuple(
     name: str,
-    value: float | Sequence[float],
+    value: object,
     *,
     n_assets: int,
 ) -> tuple[float, ...]:
-    if isinstance(value, Real) and not isinstance(value, bool):
+    if isinstance(value, Real):
         result = (_finite_float(name, value),) * n_assets
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         result = tuple(_finite_float(name, item) for item in value)

@@ -1,80 +1,120 @@
-name: Temporary Telemetry Reproduction
+name: Temporary Telemetry Identity Fix
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  reproduce-main-and-head:
+  verify-and-fix:
     if: github.head_ref == 'agent/perfect-information-oracle-bound'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main
+      - name: Checkout feature branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: main
-          path: main-checkout
-          persist-credentials: false
-
-      - name: Checkout PR head
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: head-checkout
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
 
-      - name: Reproduce on main
-        id: main
+      - name: Install development environment
+        run: uv sync --extra dev --extra train-sb3 --extra studio
+
+      - name: Add regression test and detect old implementation
+        id: prepare
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          test_path = Path("tests/telemetry/test_indexed_process_concurrency.py")
+          test_text = test_path.read_text(encoding="utf-8")
+          marker = "def test_flush_does_not_reindex_a_replaced_stream"
+          if marker not in test_text:
+              test_text += '''\n\n@pytest.mark.skipif(os.name == "nt", reason="Windows prevents replacing an open file")\ndef test_flush_does_not_reindex_a_replaced_stream(tmp_path: Path) -> None:\n    path = tmp_path / "training-telemetry.jsonl"\n    replacement = tmp_path / "replacement.jsonl"\n    writer = TrainingTelemetryWriter(path, flush_every=1)\n    try:\n        writer.append(_record(1))\n        replacement.write_text(\n            json.dumps(_record(1).to_json_dict(), sort_keys=True) + "\\n",\n            encoding="utf-8",\n        )\n        os.replace(replacement, path)\n\n        writer.flush()\n        with pytest.raises(RuntimeError, match="stream identity changed"):\n            writer.append(_record(2))\n    finally:\n        writer.close()\n\n    page = read_training_telemetry(path, after_sequence=0, limit=10)\n    assert [item.sequence for item in page.items] == [1]\n'''
+              test_path.write_text(test_text, encoding="utf-8")
+
+          production = Path("trade_rl/telemetry/_indexed_storage.py")
+          production_text = production.read_text(encoding="utf-8")
+          old = "    def _flush_index_unlocked(self, descriptor: int) -> None:\n"
+          new = "    def _flush_index_unlocked(\n"
+          if old in production_text:
+              needs_fix = "true"
+          elif new in production_text and "allow_detached" in production_text:
+              needs_fix = "false"
+          else:
+              raise SystemExit("telemetry flush implementation changed unexpectedly")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"needs_fix={needs_fix}\\n")
+          PY
+
+      - name: Confirm RED before production fix
+        if: steps.prepare.outputs.needs_fix == 'true'
+        id: red
         continue-on-error: true
-        working-directory: main-checkout
-        run: |
-          set -o pipefail
-          uv sync --extra dev
-          failures=0
-          for attempt in 1 2 3 4 5; do
-            echo "=== main attempt ${attempt} ===" | tee -a ../telemetry-repro-main.log
-            uv run pytest -q \
-              tests/telemetry/test_indexed_process_concurrency.py::test_append_fails_closed_when_stream_identity_is_replaced \
-              2>&1 | tee -a ../telemetry-repro-main.log || failures=$((failures + 1))
-          done
-          echo "main_failures=${failures}" | tee -a ../telemetry-repro-main.log
-          test "${failures}" -eq 0
+        run: >-
+          uv run pytest -q
+          tests/telemetry/test_indexed_process_concurrency.py::test_append_fails_closed_when_stream_identity_is_replaced
+          tests/telemetry/test_indexed_process_concurrency.py::test_flush_does_not_reindex_a_replaced_stream
 
-      - name: Reproduce on PR head
-        id: head
-        continue-on-error: true
-        working-directory: head-checkout
-        run: |
-          set -o pipefail
-          uv sync --extra dev
-          failures=0
-          for attempt in 1 2 3 4 5; do
-            echo "=== head attempt ${attempt} ===" | tee -a ../telemetry-repro-head.log
-            uv run pytest -q \
-              tests/telemetry/test_indexed_process_concurrency.py::test_append_fails_closed_when_stream_identity_is_replaced \
-              2>&1 | tee -a ../telemetry-repro-head.log || failures=$((failures + 1))
-          done
-          echo "head_failures=${failures}" | tee -a ../telemetry-repro-head.log
-          test "${failures}" -eq 0
+      - name: Require RED reproduction
+        if: steps.prepare.outputs.needs_fix == 'true' && steps.red.outcome != 'failure'
+        run: exit 1
 
-      - name: Upload reproduction logs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: telemetry-reproduction
-          path: |
-            telemetry-repro-main.log
-            telemetry-repro-head.log
-          if-no-files-found: error
-
-      - name: Report outcomes
-        if: always()
+      - name: Apply descriptor-identity-aware flush fix
+        if: steps.prepare.outputs.needs_fix == 'true'
         run: |
-          echo "main=${{ steps.main.outcome }}"
-          echo "head=${{ steps.head.outcome }}"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/telemetry/_indexed_storage.py")
+          text = path.read_text(encoding="utf-8")
+          old_method = '''    def _flush_index_unlocked(self, descriptor: int) -> None:\n        os.fsync(descriptor)\n        index = _refresh_index_unlocked(self.path).index\n'''
+          new_method = '''    def _flush_index_unlocked(\n        self,\n        descriptor: int,\n        *,\n        allow_detached: bool = False,\n    ) -> None:\n        os.fsync(descriptor)\n        path_stat = self.path.stat()\n        descriptor_stat = os.fstat(descriptor)\n        if (\n            int(descriptor_stat.st_dev),\n            int(descriptor_stat.st_ino),\n        ) != (int(path_stat.st_dev), int(path_stat.st_ino)):\n            if allow_detached:\n                self._pending = 0\n                return\n            raise RuntimeError("telemetry stream identity changed")\n        index = _refresh_index_unlocked(self.path).index\n'''
+          if text.count(old_method) != 1:
+              raise SystemExit("telemetry flush method changed unexpectedly")
+          text = text.replace(old_method, new_method)
+
+          old_flush = '''    def flush(self) -> None:\n        with self._lock:\n            descriptor = self._fd\n            if descriptor is not None:\n                with _telemetry_process_lock(self.path):\n                    self._flush_index_unlocked(descriptor)\n'''
+          new_flush = '''    def flush(self) -> None:\n        with self._lock:\n            descriptor = self._fd\n            if descriptor is not None:\n                with _telemetry_process_lock(self.path):\n                    self._flush_index_unlocked(descriptor, allow_detached=True)\n'''
+          if text.count(old_flush) != 1:
+              raise SystemExit("telemetry public flush changed unexpectedly")
+          text = text.replace(old_flush, new_flush)
+
+          old_close = '''            try:\n                with _telemetry_process_lock(self.path):\n                    self._flush_index_unlocked(descriptor)\n            finally:\n'''
+          new_close = '''            try:\n                with _telemetry_process_lock(self.path):\n                    self._flush_index_unlocked(descriptor, allow_detached=True)\n            finally:\n'''
+          if text.count(old_close) != 1:
+              raise SystemExit("telemetry close changed unexpectedly")
+          path.write_text(text.replace(old_close, new_close), encoding="utf-8")
+          PY
+
+      - name: Format and lint
+        run: |
+          uv run ruff format \
+            trade_rl/telemetry/_indexed_storage.py \
+            tests/telemetry/test_indexed_process_concurrency.py
+          uv run ruff check \
+            trade_rl/telemetry/_indexed_storage.py \
+            tests/telemetry/test_indexed_process_concurrency.py
+
+      - name: Verify Mypy
+        run: uv run mypy
+
+      - name: Verify focused telemetry suite
+        run: uv run pytest -q tests/telemetry
+
+      - name: Commit verified regression fix
+        if: steps.prepare.outputs.needs_fix == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/telemetry/_indexed_storage.py \
+            tests/telemetry/test_indexed_process_concurrency.py
+          git commit -m "fix: close detached telemetry writers safely"
+          git push origin HEAD:${{ github.head_ref }}

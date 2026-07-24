@@ -28,6 +28,9 @@ train-sb3 = [
 postgres = [
     "psycopg[binary]>=3.2,<4",
 ]
+oracle = [
+    "scipy>=1.14,<1.18",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
@@ -121,6 +124,8 @@ target = 90.0
 "trade_rl/risk/pretrade.py" = 90.0
 "trade_rl/rl/rewards.py" = 97.0
 "trade_rl/evaluation/gates.py" = 100.0
+"trade_rl/evaluation/perfect_information_bound.py" = 100.0
+"trade_rl/evaluation/_perfect_information_lp.py" = 100.0
 "trade_rl/telemetry/_indexed_storage.py" = 72.1
 "trade_rl/rl/training_telemetry.py" = 78.5
 "trade_rl/rl/environment.py" = 85.0

@@ -31,6 +31,12 @@ from trade_rl.evaluation.paper_reconciliation import (
     load_paper_reconciliation_evidence,
     write_paper_reconciliation_evidence,
 )
+from trade_rl.evaluation.perfect_information_bound import (
+    PERFECT_INFORMATION_BOUND_SCHEMA,
+    PerfectInformationBoundConfig,
+    PerfectInformationBoundResult,
+    solve_perfect_information_bound,
+)
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 __all__ = [
@@ -44,8 +50,11 @@ __all__ = [
     "FreshConfirmationEvidence",
     "PAPER_RECONCILIATION_FILE_NAME",
     "PAPER_RECONCILIATION_SCHEMA",
+    "PERFECT_INFORMATION_BOUND_SCHEMA",
     "PairedComparison",
     "PaperReconciliationEvidence",
+    "PerfectInformationBoundConfig",
+    "PerfectInformationBoundResult",
     "PerformanceMetrics",
     "ReturnKind",
     "ReturnSeries",
@@ -57,6 +66,7 @@ __all__ = [
     "load_paper_reconciliation_evidence",
     "moving_block_mean_test",
     "resolve_gate",
+    "solve_perfect_information_bound",
     "write_confirmation_evidence",
     "write_paper_reconciliation_evidence",
 ]

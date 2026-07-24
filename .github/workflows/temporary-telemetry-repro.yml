@@ -1,0 +1,80 @@
+name: Temporary Telemetry Reproduction
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce-main-and-head:
+    if: github.head_ref == 'agent/perfect-information-oracle-bound'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: main
+          path: main-checkout
+          persist-credentials: false
+
+      - name: Checkout PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head-checkout
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Reproduce on main
+        id: main
+        continue-on-error: true
+        working-directory: main-checkout
+        run: |
+          set -o pipefail
+          uv sync --extra dev
+          failures=0
+          for attempt in 1 2 3 4 5; do
+            echo "=== main attempt ${attempt} ===" | tee -a ../telemetry-repro-main.log
+            uv run pytest -q \
+              tests/telemetry/test_indexed_process_concurrency.py::test_append_fails_closed_when_stream_identity_is_replaced \
+              2>&1 | tee -a ../telemetry-repro-main.log || failures=$((failures + 1))
+          done
+          echo "main_failures=${failures}" | tee -a ../telemetry-repro-main.log
+          test "${failures}" -eq 0
+
+      - name: Reproduce on PR head
+        id: head
+        continue-on-error: true
+        working-directory: head-checkout
+        run: |
+          set -o pipefail
+          uv sync --extra dev
+          failures=0
+          for attempt in 1 2 3 4 5; do
+            echo "=== head attempt ${attempt} ===" | tee -a ../telemetry-repro-head.log
+            uv run pytest -q \
+              tests/telemetry/test_indexed_process_concurrency.py::test_append_fails_closed_when_stream_identity_is_replaced \
+              2>&1 | tee -a ../telemetry-repro-head.log || failures=$((failures + 1))
+          done
+          echo "head_failures=${failures}" | tee -a ../telemetry-repro-head.log
+          test "${failures}" -eq 0
+
+      - name: Upload reproduction logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: telemetry-reproduction
+          path: |
+            telemetry-repro-main.log
+            telemetry-repro-head.log
+          if-no-files-found: error
+
+      - name: Report outcomes
+        if: always()
+        run: |
+          echo "main=${{ steps.main.outcome }}"
+          echo "head=${{ steps.head.outcome }}"

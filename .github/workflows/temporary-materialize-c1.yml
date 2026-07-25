@@ -33,8 +33,14 @@ jobs:
         run: test "$(git hash-object .github/c1-patch/part02-01)" = "9dacb4ca60fa3eda0f43dc7baaf6487597ca2ad6"
       - name: Verify patch part02-02
         run: test "$(git hash-object .github/c1-patch/part02-02)" = "91ddfe10266a5e779d924fae7d106597d768d47f"
-      - name: Verify patch part02-03
-        run: test "$(git hash-object .github/c1-patch/part02-03)" = "38280c62066a8b6b9541b3a9fe2f3c7716828158"
+      - name: Verify patch part02-03-00
+        run: test "$(git hash-object .github/c1-patch/part02-03-00)" = "70e9b7bc2be0bdbaabbd2126aacbc8bda5be43ae"
+      - name: Verify patch part02-03-01
+        run: test "$(git hash-object .github/c1-patch/part02-03-01)" = "879c1bbd588201d5d5bc967caa4651f16d455526"
+      - name: Verify patch part02-03-02
+        run: test "$(git hash-object .github/c1-patch/part02-03-02)" = "f82e1998989434c530094cc62af609e64ef1a15e"
+      - name: Verify patch part02-03-03
+        run: test "$(git hash-object .github/c1-patch/part02-03-03)" = "43f1f44c216869295f137897caa908d515b11e74"
       - name: Verify patch part03
         run: test "$(git hash-object .github/c1-patch/part03)" = "b6c691c773af220c3988bfd8b7efe4aa8194f084"
       - name: Verify patch part04
@@ -53,7 +59,10 @@ jobs:
             .github/c1-patch/part02-00 \
             .github/c1-patch/part02-01 \
             .github/c1-patch/part02-02 \
-            .github/c1-patch/part02-03 \
+            .github/c1-patch/part02-03-00 \
+            .github/c1-patch/part02-03-01 \
+            .github/c1-patch/part02-03-02 \
+            .github/c1-patch/part02-03-03 \
             .github/c1-patch/part03 \
             .github/c1-patch/part04 \
             .github/c1-patch/part05 \

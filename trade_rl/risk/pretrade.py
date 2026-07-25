@@ -10,6 +10,13 @@ import numpy as np
 _TOLERANCE = 1e-12
 
 
+def _copied_weight_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
+    if vector.size == 0 or not np.isfinite(vector).all():
+        raise ValueError(f"{field_name} must be a non-empty finite vector")
+    return vector
+
+
 @dataclass(frozen=True, slots=True)
 class PreTradeRiskConfig:
     max_gross: float = 1.0
@@ -72,6 +79,24 @@ class RiskConstrainedTarget:
     risk_scale: float
     projection_l1: float = 0.0
     turnover_overridden: bool = False
+    proposal_weights: np.ndarray | None = None
+    pretrade_weights: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        weights = _copied_weight_vector(self.weights, field_name="weights")
+        proposal = _copied_weight_vector(
+            weights if self.proposal_weights is None else self.proposal_weights,
+            field_name="proposal_weights",
+        )
+        pretrade = _copied_weight_vector(
+            weights if self.pretrade_weights is None else self.pretrade_weights,
+            field_name="pretrade_weights",
+        )
+        if proposal.shape != weights.shape or pretrade.shape != weights.shape:
+            raise ValueError("risk target pipeline stages must have the same shape")
+        object.__setattr__(self, "weights", weights)
+        object.__setattr__(self, "proposal_weights", proposal)
+        object.__setattr__(self, "pretrade_weights", pretrade)
 
 
 class PreTradeRisk:
@@ -140,6 +165,7 @@ class PreTradeRisk:
         emergency_mask: np.ndarray,
     ) -> np.ndarray:
         """Suppress low-confidence entries and uneconomic target adjustments."""
+
         controlled = requested.copy()
         entry_changed = False
         hold_changed = False
@@ -204,6 +230,7 @@ class PreTradeRisk:
             raise ValueError("target and current weights must have the same shape")
         if not np.isfinite(requested).all() or not np.isfinite(existing).all():
             raise ValueError("target and current weights must be finite")
+        proposal_weights = requested.copy()
         emergency_mask = (
             np.zeros(requested.shape, dtype=np.bool_)
             if emergency_flatten_mask is None
@@ -288,4 +315,6 @@ class PreTradeRisk:
             risk_scale=scale,
             projection_l1=projection_l1,
             turnover_overridden=turnover_overridden,
+            proposal_weights=proposal_weights,
+            pretrade_weights=weights,
         )

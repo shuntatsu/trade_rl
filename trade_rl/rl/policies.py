@@ -182,9 +182,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             available: dict[str, torch.Tensor] = {}
             for timeframe in self.timeframes:
                 values = observations[f"sequence_{timeframe}_values"].float()
-                availability = observations[
-                    f"sequence_{timeframe}_available"
-                ].float()
+                availability = observations[f"sequence_{timeframe}_available"].float()
                 staleness = observations[f"sequence_{timeframe}_staleness"].float()
                 sequences[timeframe] = torch.cat(
                     (values, availability, torch.log1p(staleness.clamp_min(0.0))),

@@ -546,8 +546,23 @@ class _IndexedTrainingTelemetryWriter:
                 if self._pending >= self.flush_every:
                     self._flush_index_unlocked(descriptor)
 
-    def _flush_index_unlocked(self, descriptor: int) -> None:
+    def _flush_index_unlocked(
+        self,
+        descriptor: int,
+        *,
+        allow_detached: bool = False,
+    ) -> None:
         os.fsync(descriptor)
+        path_stat = self.path.stat()
+        descriptor_stat = os.fstat(descriptor)
+        if (
+            int(descriptor_stat.st_dev),
+            int(descriptor_stat.st_ino),
+        ) != (int(path_stat.st_dev), int(path_stat.st_ino)):
+            if allow_detached:
+                self._pending = 0
+                return
+            raise RuntimeError("telemetry stream identity changed")
         index = _refresh_index_unlocked(self.path).index
         if (
             index is None
@@ -562,7 +577,7 @@ class _IndexedTrainingTelemetryWriter:
             descriptor = self._fd
             if descriptor is not None:
                 with _telemetry_process_lock(self.path):
-                    self._flush_index_unlocked(descriptor)
+                    self._flush_index_unlocked(descriptor, allow_detached=True)
 
     def close(self) -> None:
         with self._lock:
@@ -571,7 +586,7 @@ class _IndexedTrainingTelemetryWriter:
                 return
             try:
                 with _telemetry_process_lock(self.path):
-                    self._flush_index_unlocked(descriptor)
+                    self._flush_index_unlocked(descriptor, allow_detached=True)
             finally:
                 os.close(descriptor)
                 self._fd = None

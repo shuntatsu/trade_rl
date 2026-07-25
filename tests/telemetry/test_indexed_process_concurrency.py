@@ -259,3 +259,26 @@ def test_append_fails_closed_when_stream_identity_is_replaced(tmp_path: Path) ->
 
     page = read_training_telemetry(path, after_sequence=0, limit=10)
     assert [item.sequence for item in page.items] == [1]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows prevents replacing an open file")
+def test_flush_does_not_reindex_a_replaced_stream(tmp_path: Path) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    replacement = tmp_path / "replacement.jsonl"
+    writer = TrainingTelemetryWriter(path, flush_every=1)
+    try:
+        writer.append(_record(1))
+        replacement.write_text(
+            json.dumps(_record(1).to_json_dict(), sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(replacement, path)
+
+        writer.flush()
+        with pytest.raises(RuntimeError, match="stream identity changed"):
+            writer.append(_record(2))
+    finally:
+        writer.close()
+
+    page = read_training_telemetry(path, after_sequence=0, limit=10)
+    assert [item.sequence for item in page.items] == [1]

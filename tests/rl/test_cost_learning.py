@@ -84,7 +84,9 @@ def test_cost_schema_digest_tracks_optimization_identity() -> None:
                 gamma=spec.gamma,
                 gae_lambda=spec.gae_lambda,
                 value_loss_coefficient=(
-                    0.5 if spec.name == "daily_turnover" else spec.value_loss_coefficient
+                    0.5
+                    if spec.name == "daily_turnover"
+                    else spec.value_loss_coefficient
                 ),
                 auxiliary_event_loss_coefficient=(
                     spec.auxiliary_event_loss_coefficient

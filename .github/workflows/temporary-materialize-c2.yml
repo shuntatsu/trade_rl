@@ -112,3 +112,5 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "feat: add train-only causal scenario library"
           git push origin HEAD:agent/causal-scenario-library-c2
+
+# Trigger run after workflow registration.

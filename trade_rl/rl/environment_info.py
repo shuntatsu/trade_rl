@@ -20,6 +20,7 @@ from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext
 from trade_rl.simulation.accounting import BookState
 
 _HOURS_PER_YEAR = 365.0 * 24.0
+_TOLERANCE = 1e-12
 
 
 class InfoDataset(Protocol):
@@ -135,9 +136,16 @@ class EnvironmentInfoBuilder:
         self,
         dataset: InfoDataset,
         reward_tracker: RewardInfoSource,
+        *,
+        initial_capital: float | None = None,
     ) -> None:
+        if initial_capital is not None and (
+            not math.isfinite(initial_capital) or initial_capital <= 0.0
+        ):
+            raise ValueError("initial_capital must be finite and positive")
         self.dataset = dataset
         self.reward_tracker = reward_tracker
+        self.initial_capital = initial_capital
 
     @staticmethod
     def drawdown(book: BookState) -> float:
@@ -167,11 +175,24 @@ class EnvironmentInfoBuilder:
         return value
 
     @staticmethod
+    def _target_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
+        vector = np.asarray(value, dtype=np.float64).reshape(-1)
+        if vector.size == 0 or not np.isfinite(vector).all():
+            raise RuntimeError(f"{field_name} must be a non-empty finite vector")
+        return vector
+
+    @staticmethod
     def _action_path_info(
         diagnostics: ActionPathDiagnostics,
     ) -> dict[str, object]:
         return {
             "action_path": diagnostics,
+            "action_path_policy_to_execution_intent_l1": (
+                diagnostics.policy_to_execution_intent_l1
+            ),
+            "action_path_execution_intent_to_pretrade_l1": (
+                diagnostics.execution_intent_to_pretrade_l1
+            ),
             "action_path_policy_to_pretrade_l1": diagnostics.policy_to_pretrade_l1,
             "action_path_pretrade_to_feasible_l1": (
                 diagnostics.pretrade_to_feasible_l1
@@ -179,8 +200,19 @@ class EnvironmentInfoBuilder:
             "action_path_feasible_to_submitted_l1": (
                 diagnostics.feasible_to_submitted_l1
             ),
-            "action_path_submitted_to_filled_l1": (diagnostics.submitted_to_filled_l1),
+            "action_path_submitted_to_filled_l1": (
+                diagnostics.submitted_to_filled_l1
+            ),
+            "action_path_execution_intent_to_filled_l1": (
+                diagnostics.execution_intent_to_filled_l1
+            ),
             "action_path_policy_to_filled_l1": diagnostics.policy_to_filled_l1,
+            "action_path_policy_to_execution_intent_max_abs": (
+                diagnostics.policy_to_execution_intent_max_abs
+            ),
+            "action_path_execution_intent_to_pretrade_max_abs": (
+                diagnostics.execution_intent_to_pretrade_max_abs
+            ),
             "action_path_policy_to_pretrade_max_abs": (
                 diagnostics.policy_to_pretrade_max_abs
             ),
@@ -192,6 +224,12 @@ class EnvironmentInfoBuilder:
             ),
             "action_path_submitted_to_filled_max_abs": (
                 diagnostics.submitted_to_filled_max_abs
+            ),
+            "action_path_policy_changed_by_execution_delay": (
+                diagnostics.policy_changed_by_execution_delay
+            ),
+            "action_path_execution_intent_changed_by_pretrade": (
+                diagnostics.execution_intent_changed_by_pretrade
             ),
             "action_path_policy_changed_by_pretrade": (
                 diagnostics.policy_changed_by_pretrade
@@ -213,7 +251,7 @@ class EnvironmentInfoBuilder:
             "constraint_costs": costs,
             "constraint_cost_drawdown_excess": costs.drawdown_excess,
             "constraint_cost_drawdown_stop_event": costs.drawdown_stop_event,
-            "constraint_cost_margin_deficit_fraction": (costs.margin_deficit_fraction),
+            "constraint_cost_margin_deficit_fraction": costs.margin_deficit_fraction,
             "constraint_cost_forced_liquidation_event": (
                 costs.forced_liquidation_event
             ),
@@ -222,22 +260,58 @@ class EnvironmentInfoBuilder:
             ),
             "constraint_cost_daily_turnover": costs.daily_turnover,
             "constraint_cost_execution_fraction": costs.execution_cost_fraction,
-            "constraint_cost_funding_credit_fraction": (costs.funding_credit_fraction),
+            "constraint_cost_funding_credit_fraction": costs.funding_credit_fraction,
         }
 
-    @staticmethod
+    @classmethod
+    def _risk_pipeline_targets(
+        cls,
+        request: EnvironmentStepInfoRequest,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        policy_target = cls._target_vector(
+            request.submitted_target,
+            field_name="submitted_target",
+        )
+        execution_intent = cls._target_vector(
+            request.executed_target,
+            field_name="executed_target",
+        )
+        risk_proposal = request.hybrid_risk.proposal_weights
+        pretrade = request.hybrid_risk.pretrade_weights
+        if risk_proposal is None or pretrade is None:
+            raise RuntimeError("risk result lacks action-path stage metadata")
+        risk_proposal_vector = cls._target_vector(
+            risk_proposal,
+            field_name="risk proposal",
+        )
+        if risk_proposal_vector.shape != execution_intent.shape or not np.allclose(
+            risk_proposal_vector,
+            execution_intent,
+            atol=_TOLERANCE,
+            rtol=0.0,
+        ):
+            raise RuntimeError("executed target disagrees with risk proposal")
+        return (
+            policy_target,
+            execution_intent,
+            cls._target_vector(pretrade, field_name="pretrade target"),
+            cls._target_vector(request.hybrid_risk.weights, field_name="feasible target"),
+        )
+
+    @classmethod
     def _derived_action_path(
+        cls,
         request: EnvironmentStepInfoRequest,
     ) -> ActionPathDiagnostics:
-        policy_target = request.hybrid_risk.proposal_weights
-        pretrade_target = request.hybrid_risk.pretrade_weights
-        if policy_target is None or pretrade_target is None:
-            raise RuntimeError("risk result lacks action-path stage metadata")
+        policy_target, execution_intent, pretrade, feasible = (
+            cls._risk_pipeline_targets(request)
+        )
         return ActionPathDiagnostics.from_stages(
             policy_target=policy_target,
-            pretrade_target=pretrade_target,
-            feasible_target=request.hybrid_risk.weights,
-            submitted_order_target=request.hybrid_risk.weights,
+            execution_intent_target=execution_intent,
+            pretrade_target=pretrade,
+            feasible_target=feasible,
+            submitted_order_target=feasible,
             filled_weight=request.hybrid.weights,
         )
 
@@ -245,11 +319,11 @@ class EnvironmentInfoBuilder:
         self,
         request: EnvironmentStepInfoRequest,
     ) -> ConstraintCostVector:
-        policy_target = request.hybrid_risk.proposal_weights
+        if self.initial_capital is None:
+            raise RuntimeError("constraint costs require configured initial capital")
+        _, execution_intent, _, _ = self._risk_pipeline_targets(request)
         max_gross = request.hybrid_risk.max_gross
         drawdown_budget = request.hybrid_risk.drawdown_budget
-        if policy_target is None:
-            raise RuntimeError("risk result lacks policy-target metadata")
         if max_gross is None or drawdown_budget is None:
             raise RuntimeError("risk result lacks constraint-limit metadata")
         final_equity = max(
@@ -262,17 +336,11 @@ class EnvironmentInfoBuilder:
         liquidation = request.hybrid_liquidation
         filled_turnover = (
             request.hybrid_execution.filled_turnover
-            + self._liquidation_metric(
-                liquidation,
-                "filled_turnover",
-            )
+            + self._liquidation_metric(liquidation, "filled_turnover")
         )
         interval_cost = (
             request.hybrid_execution.interval_cost
-            + self._liquidation_metric(
-                liquidation,
-                "interval_cost",
-            )
+            + self._liquidation_metric(liquidation, "interval_cost")
         )
         interval_funding = (
             request.hybrid_execution.interval_funding
@@ -287,12 +355,13 @@ class EnvironmentInfoBuilder:
         )
         return calculate_constraint_costs(
             ConstraintCostRequest(
-                policy_target=policy_target,
+                policy_target=execution_intent,
                 max_gross=max_gross,
                 decision_hours=decision_hours,
                 drawdown=self.drawdown(request.hybrid),
                 drawdown_budget=drawdown_budget,
                 margin_deficit=request.hybrid.margin_deficit,
+                initial_capital=self.initial_capital,
                 previous_equity=previous_equity,
                 filled_turnover=filled_turnover,
                 interval_cost=interval_cost,

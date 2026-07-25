@@ -17,6 +17,15 @@ _FORCED_LIQUIDATION_REASONS = frozenset(
         "insolvency",
     }
 )
+CONSTRAINT_COST_NAMES = (
+    "drawdown_excess",
+    "drawdown_stop_event",
+    "margin_deficit_fraction",
+    "forced_liquidation_event",
+    "gross_exposure_request_excess",
+    "daily_turnover",
+    "execution_cost_fraction",
+)
 
 
 def _readonly_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
@@ -170,6 +179,7 @@ class ConstraintCostRequest:
     drawdown: float
     drawdown_budget: float
     margin_deficit: float
+    initial_capital: float
     previous_equity: float
     filled_turnover: float
     interval_cost: float
@@ -192,6 +202,7 @@ class ConstraintCostRequest:
             "drawdown",
             "drawdown_budget",
             "margin_deficit",
+            "initial_capital",
             "previous_equity",
             "filled_turnover",
             "interval_cost",
@@ -212,6 +223,8 @@ class ConstraintCostRequest:
             raise ValueError("drawdown_budget must be within [0, 1]")
         if self.margin_deficit < 0.0:
             raise ValueError("margin_deficit must be non-negative")
+        if self.initial_capital <= 0.0:
+            raise ValueError("initial_capital must be positive")
         if self.previous_equity <= 0.0:
             raise ValueError("previous_equity must be positive")
         if self.filled_turnover < 0.0:
@@ -229,7 +242,7 @@ class ConstraintCostRequest:
 
 @dataclass(frozen=True, slots=True)
 class ConstraintCostVector:
-    """Normalized non-negative cost signals emitted by one transition."""
+    """Seven constraint costs plus non-constraint transition diagnostics."""
 
     drawdown_excess: float
     drawdown_stop_event: float
@@ -247,15 +260,16 @@ class ConstraintCostVector:
                 raise ValueError(f"{field_name} must be finite and non-negative")
             object.__setattr__(self, field_name, value)
 
+    def constraint_dict(self) -> dict[str, float]:
+        """Return only the seven values eligible for constraint optimization."""
+
+        return {name: float(getattr(self, name)) for name in CONSTRAINT_COST_NAMES}
+
     def as_dict(self) -> dict[str, float]:
+        """Return complete telemetry, including the non-constraint funding credit."""
+
         return {
-            "drawdown_excess": self.drawdown_excess,
-            "drawdown_stop_event": self.drawdown_stop_event,
-            "margin_deficit_fraction": self.margin_deficit_fraction,
-            "forced_liquidation_event": self.forced_liquidation_event,
-            "gross_exposure_request_excess": self.gross_exposure_request_excess,
-            "daily_turnover": self.daily_turnover,
-            "execution_cost_fraction": self.execution_cost_fraction,
+            **self.constraint_dict(),
             "funding_credit_fraction": self.funding_credit_fraction,
         }
 
@@ -263,7 +277,14 @@ class ConstraintCostVector:
 def calculate_constraint_costs(request: ConstraintCostRequest) -> ConstraintCostVector:
     """Calculate independent causal constraint costs without shaping reward."""
 
-    denominator = max(request.previous_equity, float(np.finfo(np.float64).eps))
+    margin_denominator = max(
+        request.initial_capital,
+        float(np.finfo(np.float64).eps),
+    )
+    equity_denominator = max(
+        request.previous_equity,
+        float(np.finfo(np.float64).eps),
+    )
     reason = _termination_value(request.termination_reason)
     drawdown_stop_event = float(reason == "drawdown_stop")
     forced_liquidation = bool(
@@ -281,20 +302,23 @@ def calculate_constraint_costs(request: ConstraintCostRequest) -> ConstraintCost
     return ConstraintCostVector(
         drawdown_excess=max(0.0, request.drawdown - request.drawdown_budget),
         drawdown_stop_event=drawdown_stop_event,
-        margin_deficit_fraction=request.margin_deficit / denominator,
+        margin_deficit_fraction=request.margin_deficit / margin_denominator,
         forced_liquidation_event=float(forced_liquidation),
         gross_exposure_request_excess=max(
             0.0,
             float(np.abs(request.policy_target).sum()) - request.max_gross,
         ),
         daily_turnover=request.filled_turnover * 24.0 / request.decision_hours,
-        execution_cost_fraction=execution_cost / denominator,
-        funding_credit_fraction=max(0.0, request.interval_funding) / denominator,
+        execution_cost_fraction=execution_cost / equity_denominator,
+        funding_credit_fraction=(
+            max(0.0, request.interval_funding) / equity_denominator
+        ),
     )
 
 
 __all__ = [
     "ActionPathDiagnostics",
+    "CONSTRAINT_COST_NAMES",
     "ConstraintCostRequest",
     "ConstraintCostVector",
     "calculate_constraint_costs",

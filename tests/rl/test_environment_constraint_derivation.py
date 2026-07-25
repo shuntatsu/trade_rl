@@ -16,7 +16,10 @@ from trade_rl.simulation.accounting import BookState
 
 class _Dataset:
     periods_per_year = 8_760
-    nominal_bar_hours = 1.0
+
+    @staticmethod
+    def elapsed_hours(start_index: int, end_index: int) -> float:
+        return float(end_index - start_index)
 
 
 class _RewardTracker:
@@ -59,6 +62,7 @@ def test_step_info_derives_action_path_and_costs_from_causal_transition_state() 
     hybrid = BookState.zero(2, 100.0, np.array([10.0, 20.0]))
     hybrid.cash = 95.0
     execution = SimpleNamespace(
+        next_index=2,
         bars_advanced=2,
         interval_cost=0.5,
         interval_funding=-0.1,
@@ -76,6 +80,7 @@ def test_step_info_derives_action_path_and_costs_from_causal_transition_state() 
         drawdown_budget=0.10,
     )
     shadow_execution = SimpleNamespace(
+        next_index=2,
         bars_advanced=2,
         interval_cost=0.0,
         interval_funding=0.0,

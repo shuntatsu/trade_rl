@@ -22,20 +22,20 @@ def classify_economic_transition(
     liquidation_terminal: bool,
     liquidation_complete: bool,
 ) -> EconomicTransition:
-    """Resolve Gymnasium flags and a stable terminal reason from book state."""
+    """Resolve Gymnasium flags and a stable terminal or truncation reason."""
 
-    terminated = hybrid.insolvent or shadow.insolvent or liquidation_terminal
-    truncated = time_limit_reached and not terminated
-    if not terminated:
-        reason = None
-    elif hybrid.termination_reason is not None:
+    terminated = hybrid.insolvent or liquidation_terminal
+    shadow_truncated = shadow.insolvent and not terminated
+    truncated = (time_limit_reached or shadow_truncated) and not terminated
+    if hybrid.termination_reason is not None:
         reason = EconomicTerminationReason(hybrid.termination_reason).value
+    elif liquidation_terminal:
+        reason = "forced_close" if liquidation_complete else "liquidation_incomplete"
     elif shadow.termination_reason is not None:
-        reason = EconomicTerminationReason(shadow.termination_reason).value
-    elif liquidation_complete:
-        reason = "forced_close"
+        shadow_reason = EconomicTerminationReason(shadow.termination_reason).value
+        reason = f"shadow_{shadow_reason}"
     else:
-        reason = "liquidation_incomplete"
+        reason = None
     return EconomicTransition(
         terminated=terminated,
         truncated=truncated,

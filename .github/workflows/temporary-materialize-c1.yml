@@ -23,13 +23,28 @@ jobs:
           fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-      - name: Apply hash-verified C1 patch
+      - name: Diagnose and apply C1 patch
+        shell: bash
         run: |
-          echo "cf49cfebba5a98770e69d7036b61f9e6e7737733a4a9d25173d5bfeb42e7e50e  .github/c1-v2.patch.gz" | sha256sum --check
-          gzip --test .github/c1-v2.patch.gz
-          gzip --decompress --stdout .github/c1-v2.patch.gz > /tmp/c1.patch
-          git apply --check --verbose /tmp/c1.patch
-          git apply --index /tmp/c1.patch
+          set -o pipefail
+          {
+            wc -c .github/c1-v2.patch.gz
+            sha256sum .github/c1-v2.patch.gz
+            gzip --test .github/c1-v2.patch.gz
+            gzip --decompress --stdout .github/c1-v2.patch.gz > /tmp/c1.patch
+            wc -c /tmp/c1.patch
+            sha256sum /tmp/c1.patch
+            git apply --check --verbose /tmp/c1.patch
+            git apply --index /tmp/c1.patch
+          } 2>&1 | tee c1-patch-diagnostics.log
+      - name: Upload patch diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: c1-patch-diagnostics
+          path: c1-patch-diagnostics.log
+          if-no-files-found: error
+          retention-days: 1
       - name: Install exact development environment
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
       - name: Format and safely lint-fix C1 files
@@ -49,7 +64,7 @@ jobs:
           set -o pipefail
           uv run mypy . 2>&1 | tee mypy-c1.log
       - name: Upload Mypy diagnostics
-        if: always()
+        if: always() && hashFiles('mypy-c1.log') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: c1-mypy-diagnostics-v2

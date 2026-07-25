@@ -67,9 +67,7 @@ class CostValueSpec:
         if self.value_loss_coefficient < 0.0:
             raise ValueError("value_loss_coefficient must be non-negative")
         if self.auxiliary_event_loss_coefficient < 0.0:
-            raise ValueError(
-                "auxiliary_event_loss_coefficient must be non-negative"
-            )
+            raise ValueError("auxiliary_event_loss_coefficient must be non-negative")
         if self.family is CostFamily.CONTINUOUS and (
             self.auxiliary_event_loss_coefficient != 0.0
         ):
@@ -134,7 +132,9 @@ class CostLearningSchema:
 
     @property
     def event_names(self) -> tuple[str, ...]:
-        return tuple(spec.name for spec in self.specs if spec.family is CostFamily.EVENT)
+        return tuple(
+            spec.name for spec in self.specs if spec.family is CostFamily.EVENT
+        )
 
     def __getitem__(self, name: str) -> CostValueSpec:
         for spec in self.specs:

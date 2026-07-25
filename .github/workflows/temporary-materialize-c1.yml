@@ -88,21 +88,25 @@ jobs:
         run: uv run python -m compileall -q trade_rl tests
 
       - name: Run focused C1 tests
-        run: >-
-          uv run pytest
-          tests/evaluation/test_causal_scenario_*.py
-          tests/architecture/test_causal_scenario_evaluator_boundary.py
-          -q
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest \
+            tests/evaluation/test_causal_scenario_*.py \
+            tests/architecture/test_causal_scenario_evaluator_boundary.py \
+            -vv --tb=long 2>&1 | tee focused-c1.log
 
       - name: Enforce C1 branch coverage
-        run: >-
-          uv run pytest
-          tests/evaluation/test_causal_scenario_*.py
-          --cov=trade_rl.evaluation.causal_scenario_values
-          --cov=trade_rl.evaluation.causal_scenario_artifact
-          --cov-branch
-          --cov-report=term-missing
-          --cov-fail-under=100
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest \
+            tests/evaluation/test_causal_scenario_*.py \
+            --cov=trade_rl.evaluation.causal_scenario_values \
+            --cov=trade_rl.evaluation.causal_scenario_artifact \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-fail-under=100 2>&1 | tee coverage-c1.log
 
       - name: Run complete repository tests
         run: uv run pytest -q
@@ -120,6 +124,8 @@ jobs:
           path: |
             mypy-c1.log
             import-linter-c1.log
+            focused-c1.log
+            coverage-c1.log
           if-no-files-found: ignore
           retention-days: 1
 

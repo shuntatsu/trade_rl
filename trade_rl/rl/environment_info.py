@@ -9,6 +9,10 @@ import numpy as np
 
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.rl.environment_constraints import (
+    ActionPathDiagnostics,
+    ConstraintCostVector,
+)
 from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext
 from trade_rl.simulation.accounting import BookState
 
@@ -81,6 +85,8 @@ class EnvironmentStepInfoRequest:
     discarded_pending_target: np.ndarray | None
     hybrid_liquidation: object | None
     shadow_liquidation: object | None
+    action_path: ActionPathDiagnostics | None = None
+    constraint_costs: ConstraintCostVector | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +117,71 @@ class EnvironmentInfoBuilder:
             1.0,
             max(0.0, 1.0 - value / max(book.peak_value, value, 1e-12)),
         )
+
+    @staticmethod
+    def _action_path_info(
+        diagnostics: ActionPathDiagnostics,
+    ) -> dict[str, object]:
+        return {
+            "action_path": diagnostics,
+            "action_path_policy_to_pretrade_l1": diagnostics.policy_to_pretrade_l1,
+            "action_path_pretrade_to_feasible_l1": (
+                diagnostics.pretrade_to_feasible_l1
+            ),
+            "action_path_feasible_to_submitted_l1": (
+                diagnostics.feasible_to_submitted_l1
+            ),
+            "action_path_submitted_to_filled_l1": (
+                diagnostics.submitted_to_filled_l1
+            ),
+            "action_path_policy_to_filled_l1": diagnostics.policy_to_filled_l1,
+            "action_path_policy_to_pretrade_max_abs": (
+                diagnostics.policy_to_pretrade_max_abs
+            ),
+            "action_path_pretrade_to_feasible_max_abs": (
+                diagnostics.pretrade_to_feasible_max_abs
+            ),
+            "action_path_feasible_to_submitted_max_abs": (
+                diagnostics.feasible_to_submitted_max_abs
+            ),
+            "action_path_submitted_to_filled_max_abs": (
+                diagnostics.submitted_to_filled_max_abs
+            ),
+            "action_path_policy_changed_by_pretrade": (
+                diagnostics.policy_changed_by_pretrade
+            ),
+            "action_path_pretrade_changed_by_feasibility": (
+                diagnostics.pretrade_changed_by_feasibility
+            ),
+            "action_path_feasible_changed_before_submission": (
+                diagnostics.feasible_changed_before_submission
+            ),
+            "action_path_submission_changed_by_fill": (
+                diagnostics.submission_changed_by_fill
+            ),
+        }
+
+    @staticmethod
+    def _constraint_cost_info(costs: ConstraintCostVector) -> dict[str, object]:
+        return {
+            "constraint_costs": costs,
+            "constraint_cost_drawdown_excess": costs.drawdown_excess,
+            "constraint_cost_drawdown_stop_event": costs.drawdown_stop_event,
+            "constraint_cost_margin_deficit_fraction": (
+                costs.margin_deficit_fraction
+            ),
+            "constraint_cost_forced_liquidation_event": (
+                costs.forced_liquidation_event
+            ),
+            "constraint_cost_gross_exposure_request_excess": (
+                costs.gross_exposure_request_excess
+            ),
+            "constraint_cost_daily_turnover": costs.daily_turnover,
+            "constraint_cost_execution_fraction": costs.execution_cost_fraction,
+            "constraint_cost_funding_credit_fraction": (
+                costs.funding_credit_fraction
+            ),
+        }
 
     def step_info(self, request: EnvironmentStepInfoRequest) -> dict[str, object]:
         reward = request.reward_breakdown
@@ -173,6 +244,10 @@ class EnvironmentInfoBuilder:
             "terminal_liquidation_cost": request.terminal_liquidation_cost,
             "pending_target_discarded": request.pending_target_discarded,
         }
+        if request.action_path is not None:
+            info.update(self._action_path_info(request.action_path))
+        if request.constraint_costs is not None:
+            info.update(self._constraint_cost_info(request.constraint_costs))
         if request.discarded_pending_target is not None:
             info["discarded_pending_target"] = np.asarray(
                 request.discarded_pending_target, dtype=np.float64

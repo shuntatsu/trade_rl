@@ -85,7 +85,11 @@ def test_step_info_derives_action_path_and_costs_from_causal_transition_state() 
         filled_turnover=0.0,
     )
 
-    info = EnvironmentInfoBuilder(_Dataset(), _RewardTracker()).step_info(
+    info = EnvironmentInfoBuilder(
+        _Dataset(),
+        _RewardTracker(),
+        initial_capital=100.0,
+    ).step_info(
         EnvironmentStepInfoRequest(
             action_delta_l1=0.0,
             raw_max_abs=0.8,
@@ -120,10 +124,12 @@ def test_step_info_derives_action_path_and_costs_from_causal_transition_state() 
 
     action_path = info["action_path"]
     np.testing.assert_allclose(action_path.policy_target, [0.8, -0.6])
+    np.testing.assert_allclose(action_path.execution_intent_target, [0.8, -0.6])
     np.testing.assert_allclose(action_path.pretrade_target, [0.5, -0.4])
     np.testing.assert_allclose(action_path.feasible_target, [0.4, -0.3])
     np.testing.assert_allclose(action_path.submitted_order_target, [0.4, -0.3])
     np.testing.assert_allclose(action_path.filled_weight, [0.0, 0.0])
+    assert info["action_path_policy_to_execution_intent_l1"] == 0.0
     assert info["action_path_policy_to_filled_l1"] == pytest.approx(1.4)
 
     costs = info["constraint_costs"]

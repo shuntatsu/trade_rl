@@ -43,11 +43,18 @@ jobs:
           git apply --check --verbose /tmp/c2.patch
           git apply /tmp/c2.patch
 
-          test "$(wc -c < .github/c2-architecture-fix.patch.gz)" = "4183"
-          echo "1ffb669ebd9a561c1c7e6b443aad3b7ff7802e5320d0a00768dc383fe634e3b5  .github/c2-architecture-fix.patch.gz" | sha256sum --check
-          gzip --test .github/c2-architecture-fix.patch.gz
-          gzip --decompress --stdout .github/c2-architecture-fix.patch.gz > /tmp/c2-architecture-fix.patch
-          echo "c5620335e0d7154719b52e9a4fb61503d7bf38d1c4c858e381a0836ecb160757  /tmp/c2-architecture-fix.patch" | sha256sum --check
+          cat \
+            .github/c2-architecture-fix-parts/part00 \
+            .github/c2-architecture-fix-parts/part01 \
+            .github/c2-architecture-fix-parts/part02 \
+            > /tmp/c2-architecture-fix.patch.gz.b64
+          test "$(wc -c < /tmp/c2-architecture-fix.patch.gz.b64)" = "5725"
+          echo "ff1672a3f5411a1f8c567623878d87425c7b9ba037b09ef821b018e972e5d708  /tmp/c2-architecture-fix.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/c2-architecture-fix.patch.gz.b64 > /tmp/c2-architecture-fix.patch.gz
+          echo "89e6e960149ec29f5161405675faef4cfe9117fcdf4bd5bc367a3881849e8659  /tmp/c2-architecture-fix.patch.gz" | sha256sum --check
+          gzip --test /tmp/c2-architecture-fix.patch.gz
+          gzip --decompress --stdout /tmp/c2-architecture-fix.patch.gz > /tmp/c2-architecture-fix.patch
+          echo "d919add5fb160f97fadd8d138f83eb6c7f3d5eafca1114b5f7a61d4d2cc3b5ef  /tmp/c2-architecture-fix.patch" | sha256sum --check
           git apply --check --verbose /tmp/c2-architecture-fix.patch
           git apply /tmp/c2-architecture-fix.patch
 
@@ -60,43 +67,15 @@ jobs:
       - name: Install exact development environment
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
 
-      - name: Diagnose formatting and safe lint fixes
+      - name: Format and safely lint-fix changed Python files
         shell: bash
         run: |
-          set +e
-          {
-            mapfile -t FILES < <(git diff --name-only --diff-filter=ACM HEAD -- '*.py')
-            printf 'file_count=%s\n' "${#FILES[@]}"
-            printf '%s\n' "${FILES[@]}"
-            test "${#FILES[@]}" -gt 0
-            uv run ruff format "${FILES[@]}"
-            format_one=$?
-            echo "format_one=$format_one"
-            uv run ruff check --fix "${FILES[@]}"
-            lint_fix=$?
-            echo "lint_fix=$lint_fix"
-            uv run ruff format "${FILES[@]}"
-            format_two=$?
-            echo "format_two=$format_two"
-            if test "$format_one" -eq 0 && test "$lint_fix" -eq 0 && test "$format_two" -eq 0; then
-              touch /tmp/c2-format-ok
-            fi
-          } > c2-format-diagnostics.log 2>&1
-          exit 0
-
-      - name: Upload formatting diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: c2-format-diagnostics
-          path: c2-format-diagnostics.log
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Gate formatting and safe lint fixes
-        run: |
-          cat c2-format-diagnostics.log
-          test -f /tmp/c2-format-ok
+          set -euo pipefail
+          mapfile -t FILES < <(git diff --name-only --diff-filter=ACM HEAD -- '*.py')
+          test "${#FILES[@]}" -gt 0
+          uv run ruff format "${FILES[@]}"
+          uv run ruff check --fix "${FILES[@]}"
+          uv run ruff format "${FILES[@]}"
 
       - name: Static and architecture gates
         run: |
@@ -144,7 +123,8 @@ jobs:
           set -euo pipefail
           git add -A
           git rm -r .github/c2-final-parts
-          git rm .github/c2-architecture-fix.patch.gz
+          git rm -r .github/c2-architecture-fix-parts
+          git rm .github/c2-architecture-fix.patch.gz || true
           git rm .github/c2-final.patch.gz.b64 || true
           git rm .github/workflows/temporary-materialize-c1.yml || true
           git rm .github/workflows/temporary-materialize-c2.yml

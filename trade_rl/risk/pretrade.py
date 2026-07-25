@@ -81,6 +81,8 @@ class RiskConstrainedTarget:
     turnover_overridden: bool = False
     proposal_weights: np.ndarray | None = None
     pretrade_weights: np.ndarray | None = None
+    max_gross: float | None = None
+    drawdown_budget: float | None = None
 
     def __post_init__(self) -> None:
         weights = _copied_weight_vector(self.weights, field_name="weights")
@@ -94,6 +96,15 @@ class RiskConstrainedTarget:
         )
         if proposal.shape != weights.shape or pretrade.shape != weights.shape:
             raise ValueError("risk target pipeline stages must have the same shape")
+        if self.max_gross is not None and (
+            not math.isfinite(self.max_gross) or self.max_gross <= 0.0
+        ):
+            raise ValueError("max_gross must be finite and positive when provided")
+        if self.drawdown_budget is not None and (
+            not math.isfinite(self.drawdown_budget)
+            or not 0.0 <= self.drawdown_budget <= 1.0
+        ):
+            raise ValueError("drawdown_budget must be within [0, 1] when provided")
         object.__setattr__(self, "weights", weights)
         object.__setattr__(self, "proposal_weights", proposal)
         object.__setattr__(self, "pretrade_weights", pretrade)
@@ -317,4 +328,6 @@ class PreTradeRisk:
             turnover_overridden=turnover_overridden,
             proposal_weights=proposal_weights,
             pretrade_weights=weights,
+            max_gross=self.config.max_gross,
+            drawdown_budget=self.config.drawdown_start,
         )

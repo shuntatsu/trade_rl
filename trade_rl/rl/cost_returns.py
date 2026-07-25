@@ -29,9 +29,9 @@ class CostReturnResult:
         object.__setattr__(self, "returns", returns)
 
 
-def _finite_array(value: np.ndarray, *, name: str, dtype: object) -> np.ndarray:
-    array = np.asarray(value, dtype=dtype)
-    if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
+def _finite_float_array(value: np.ndarray, *, name: str) -> np.ndarray:
+    array = np.asarray(value, dtype=np.float64)
+    if not np.isfinite(array).all():
         raise ValueError(f"{name} must contain finite values")
     return array
 
@@ -56,16 +56,15 @@ def compute_cost_returns_and_advantages(
     ``last_values``.
     """
 
-    costs_array = _finite_array(costs, name="costs", dtype=np.float64)
+    costs_array = _finite_float_array(costs, name="costs")
     if costs_array.ndim != 3:
         raise ValueError("costs must be three-dimensional [steps, envs, costs]")
-    values_array = _finite_array(values, name="values", dtype=np.float64)
+    values_array = _finite_float_array(values, name="values")
     if values_array.shape != costs_array.shape:
         raise ValueError("costs and values must have the same shape")
-    terminal_values_array = _finite_array(
+    terminal_values_array = _finite_float_array(
         terminal_values,
         name="terminal_values",
-        dtype=np.float64,
     )
     if terminal_values_array.shape != costs_array.shape:
         raise ValueError("terminal value shape must match costs")
@@ -81,18 +80,16 @@ def compute_cost_returns_and_advantages(
     if np.any(terminated_array & truncated_array):
         raise ValueError("a transition cannot both terminate and truncate")
 
-    last_values_array = _finite_array(
+    last_values_array = _finite_float_array(
         last_values,
         name="last_values",
-        dtype=np.float64,
     )
     if last_values_array.shape != (environments, cost_count):
         raise ValueError("last value shape must match [environments, costs]")
-    gammas_array = _finite_array(gammas, name="gammas", dtype=np.float64).reshape(-1)
-    lambdas_array = _finite_array(
+    gammas_array = _finite_float_array(gammas, name="gammas").reshape(-1)
+    lambdas_array = _finite_float_array(
         gae_lambdas,
         name="gae_lambdas",
-        dtype=np.float64,
     ).reshape(-1)
     if gammas_array.shape != (cost_count,) or lambdas_array.shape != (cost_count,):
         raise ValueError("gamma and lambda cost dimension must match costs")

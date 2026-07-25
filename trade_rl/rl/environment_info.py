@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -11,7 +12,9 @@ from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.rl.environment_constraints import (
     ActionPathDiagnostics,
+    ConstraintCostRequest,
     ConstraintCostVector,
+    calculate_constraint_costs,
 )
 from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext
 from trade_rl.simulation.accounting import BookState
@@ -20,6 +23,9 @@ from trade_rl.simulation.accounting import BookState
 class InfoDataset(Protocol):
     @property
     def periods_per_year(self) -> int: ...
+
+    @property
+    def nominal_bar_hours(self) -> float: ...
 
 
 class RewardInfoSource(Protocol):
@@ -44,15 +50,36 @@ class ExecutionInfo(Protocol):
     def interval_funding(self) -> float: ...
 
     @property
+    def interval_borrow_cost(self) -> float: ...
+
+    @property
     def interval_gross_return(self) -> float: ...
 
     @property
     def interval_net_return(self) -> float: ...
 
+    @property
+    def filled_turnover(self) -> float: ...
+
 
 class RiskInfo(Protocol):
     @property
     def projection_l1(self) -> float: ...
+
+    @property
+    def proposal_weights(self) -> np.ndarray: ...
+
+    @property
+    def pretrade_weights(self) -> np.ndarray: ...
+
+    @property
+    def weights(self) -> np.ndarray: ...
+
+    @property
+    def max_gross(self) -> float | None: ...
+
+    @property
+    def drawdown_budget(self) -> float | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +146,15 @@ class EnvironmentInfoBuilder:
         )
 
     @staticmethod
+    def _liquidation_metric(liquidation: object | None, field_name: str) -> float:
+        if liquidation is None:
+            return 0.0
+        value = float(getattr(liquidation, field_name, 0.0))
+        if not math.isfinite(value):
+            raise RuntimeError(f"liquidation {field_name} must be finite")
+        return value
+
+    @staticmethod
     def _action_path_info(
         diagnostics: ActionPathDiagnostics,
     ) -> dict[str, object]:
@@ -177,11 +213,80 @@ class EnvironmentInfoBuilder:
             "constraint_cost_funding_credit_fraction": (costs.funding_credit_fraction),
         }
 
+    @staticmethod
+    def _derived_action_path(request: EnvironmentStepInfoRequest) -> ActionPathDiagnostics:
+        return ActionPathDiagnostics.from_stages(
+            policy_target=request.hybrid_risk.proposal_weights,
+            pretrade_target=request.hybrid_risk.pretrade_weights,
+            feasible_target=request.hybrid_risk.weights,
+            submitted_order_target=request.hybrid_risk.weights,
+            filled_weight=request.hybrid.weights,
+        )
+
+    def _derived_constraint_costs(
+        self,
+        request: EnvironmentStepInfoRequest,
+    ) -> ConstraintCostVector:
+        max_gross = request.hybrid_risk.max_gross
+        drawdown_budget = request.hybrid_risk.drawdown_budget
+        if max_gross is None or drawdown_budget is None:
+            raise RuntimeError("risk result lacks constraint-limit metadata")
+        final_equity = max(
+            request.hybrid.portfolio_value,
+            float(np.finfo(np.float64).eps),
+        )
+        previous_equity = final_equity * math.exp(-request.hybrid_log_return)
+        if not math.isfinite(previous_equity) or previous_equity <= 0.0:
+            raise RuntimeError("transition previous equity could not be reconstructed")
+        liquidation = request.hybrid_liquidation
+        filled_turnover = request.hybrid_execution.filled_turnover + self._liquidation_metric(
+            liquidation,
+            "filled_turnover",
+        )
+        interval_cost = request.hybrid_execution.interval_cost + self._liquidation_metric(
+            liquidation,
+            "interval_cost",
+        )
+        interval_funding = (
+            request.hybrid_execution.interval_funding
+            + self._liquidation_metric(liquidation, "interval_funding")
+        )
+        interval_borrow_cost = (
+            request.hybrid_execution.interval_borrow_cost
+            + self._liquidation_metric(liquidation, "interval_borrow_cost")
+        )
+        decision_hours = (
+            request.hybrid_execution.bars_advanced * self.dataset.nominal_bar_hours
+        )
+        return calculate_constraint_costs(
+            ConstraintCostRequest(
+                policy_target=request.hybrid_risk.proposal_weights,
+                max_gross=max_gross,
+                decision_hours=decision_hours,
+                drawdown=self.drawdown(request.hybrid),
+                drawdown_budget=drawdown_budget,
+                margin_deficit=request.hybrid.margin_deficit,
+                previous_equity=previous_equity,
+                filled_turnover=filled_turnover,
+                interval_cost=interval_cost,
+                interval_funding=interval_funding,
+                interval_borrow_cost=interval_borrow_cost,
+                termination_reason=request.termination_reason,
+                emergency_deleverage=request.emergency_deleverage,
+                liquidation_terminal=request.liquidation_terminal,
+                liquidation_complete=request.liquidation_complete,
+            )
+        )
+
     def step_info(self, request: EnvironmentStepInfoRequest) -> dict[str, object]:
         reward = request.reward_breakdown
         before = self.reward_tracker.last_context_before
         after = self.reward_tracker.last_context_after
         baseline_weight = self.reward_tracker.config.baseline_underperformance_weight
+        action_path = request.action_path or self._derived_action_path(request)
+        constraint_costs = request.constraint_costs or self._derived_constraint_costs(
+            request
+        )
         info: dict[str, object] = {
             "action_delta_l1": request.action_delta_l1,
             "action_raw_max_abs": request.raw_max_abs,
@@ -238,10 +343,8 @@ class EnvironmentInfoBuilder:
             "terminal_liquidation_cost": request.terminal_liquidation_cost,
             "pending_target_discarded": request.pending_target_discarded,
         }
-        if request.action_path is not None:
-            info.update(self._action_path_info(request.action_path))
-        if request.constraint_costs is not None:
-            info.update(self._constraint_cost_info(request.constraint_costs))
+        info.update(self._action_path_info(action_path))
+        info.update(self._constraint_cost_info(constraint_costs))
         if request.discarded_pending_target is not None:
             info["discarded_pending_target"] = np.asarray(
                 request.discarded_pending_target, dtype=np.float64

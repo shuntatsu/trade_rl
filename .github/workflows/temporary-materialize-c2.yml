@@ -71,7 +71,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t FILES < <(git diff --name-only --diff-filter=ACM HEAD -- '*.py')
+          mapfile -t FILES < <(
+            {
+              git diff --name-only --diff-filter=ACM HEAD -- '*.py'
+              git ls-files --others --exclude-standard -- '*.py'
+            } | sort -u
+          )
           test "${#FILES[@]}" -gt 0
           uv run ruff format "${FILES[@]}"
           uv run ruff check --fix "${FILES[@]}"

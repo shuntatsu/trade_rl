@@ -19,13 +19,15 @@ from trade_rl.rl.environment_constraints import (
 from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext
 from trade_rl.simulation.accounting import BookState
 
+_HOURS_PER_YEAR = 365.0 * 24.0
+
 
 class InfoDataset(Protocol):
     @property
     def periods_per_year(self) -> int: ...
 
     @property
-    def nominal_bar_hours(self) -> float: ...
+    def nominal_bar_hours(self) -> float | None: ...
 
 
 class RewardInfoSource(Protocol):
@@ -67,10 +69,10 @@ class RiskInfo(Protocol):
     def projection_l1(self) -> float: ...
 
     @property
-    def proposal_weights(self) -> np.ndarray: ...
+    def proposal_weights(self) -> np.ndarray | None: ...
 
     @property
-    def pretrade_weights(self) -> np.ndarray: ...
+    def pretrade_weights(self) -> np.ndarray | None: ...
 
     @property
     def weights(self) -> np.ndarray: ...
@@ -145,6 +147,14 @@ class EnvironmentInfoBuilder:
             max(0.0, 1.0 - value / max(book.peak_value, value, 1e-12)),
         )
 
+    def _nominal_bar_hours(self) -> float:
+        value = self.dataset.nominal_bar_hours
+        if value is None:
+            value = _HOURS_PER_YEAR / self.dataset.periods_per_year
+        if not math.isfinite(value) or value <= 0.0:
+            raise RuntimeError("dataset nominal bar duration must be finite and positive")
+        return value
+
     @staticmethod
     def _liquidation_metric(liquidation: object | None, field_name: str) -> float:
         if liquidation is None:
@@ -214,10 +224,16 @@ class EnvironmentInfoBuilder:
         }
 
     @staticmethod
-    def _derived_action_path(request: EnvironmentStepInfoRequest) -> ActionPathDiagnostics:
+    def _derived_action_path(
+        request: EnvironmentStepInfoRequest,
+    ) -> ActionPathDiagnostics:
+        policy_target = request.hybrid_risk.proposal_weights
+        pretrade_target = request.hybrid_risk.pretrade_weights
+        if policy_target is None or pretrade_target is None:
+            raise RuntimeError("risk result lacks action-path stage metadata")
         return ActionPathDiagnostics.from_stages(
-            policy_target=request.hybrid_risk.proposal_weights,
-            pretrade_target=request.hybrid_risk.pretrade_weights,
+            policy_target=policy_target,
+            pretrade_target=pretrade_target,
             feasible_target=request.hybrid_risk.weights,
             submitted_order_target=request.hybrid_risk.weights,
             filled_weight=request.hybrid.weights,
@@ -227,8 +243,11 @@ class EnvironmentInfoBuilder:
         self,
         request: EnvironmentStepInfoRequest,
     ) -> ConstraintCostVector:
+        policy_target = request.hybrid_risk.proposal_weights
         max_gross = request.hybrid_risk.max_gross
         drawdown_budget = request.hybrid_risk.drawdown_budget
+        if policy_target is None:
+            raise RuntimeError("risk result lacks policy-target metadata")
         if max_gross is None or drawdown_budget is None:
             raise RuntimeError("risk result lacks constraint-limit metadata")
         final_equity = max(
@@ -239,13 +258,19 @@ class EnvironmentInfoBuilder:
         if not math.isfinite(previous_equity) or previous_equity <= 0.0:
             raise RuntimeError("transition previous equity could not be reconstructed")
         liquidation = request.hybrid_liquidation
-        filled_turnover = request.hybrid_execution.filled_turnover + self._liquidation_metric(
-            liquidation,
-            "filled_turnover",
+        filled_turnover = (
+            request.hybrid_execution.filled_turnover
+            + self._liquidation_metric(
+                liquidation,
+                "filled_turnover",
+            )
         )
-        interval_cost = request.hybrid_execution.interval_cost + self._liquidation_metric(
-            liquidation,
-            "interval_cost",
+        interval_cost = (
+            request.hybrid_execution.interval_cost
+            + self._liquidation_metric(
+                liquidation,
+                "interval_cost",
+            )
         )
         interval_funding = (
             request.hybrid_execution.interval_funding
@@ -255,12 +280,10 @@ class EnvironmentInfoBuilder:
             request.hybrid_execution.interval_borrow_cost
             + self._liquidation_metric(liquidation, "interval_borrow_cost")
         )
-        decision_hours = (
-            request.hybrid_execution.bars_advanced * self.dataset.nominal_bar_hours
-        )
+        decision_hours = request.hybrid_execution.bars_advanced * self._nominal_bar_hours()
         return calculate_constraint_costs(
             ConstraintCostRequest(
-                policy_target=request.hybrid_risk.proposal_weights,
+                policy_target=policy_target,
                 max_gross=max_gross,
                 decision_hours=decision_hours,
                 drawdown=self.drawdown(request.hybrid),

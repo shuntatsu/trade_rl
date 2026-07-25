@@ -23,7 +23,8 @@ current path before refreshing the index.
 
 ## Verification boundary
 
-The stacked checkout passed Ruff, repository-wide Mypy, all telemetry tests, and
-training-telemetry integration tests. The exact-head standard CI, Windows/Ubuntu
-compatibility, training-image build, complete suite, and critical coverage remain
-mandatory before integration.
+The dependency-ordered checkout passed Ruff, repository-wide Mypy, all telemetry
+tests, and training-telemetry integration tests. The PR now targets `main`, so its
+exact head must additionally pass the standard CI, Windows/Ubuntu compatibility,
+training-image build, complete suite, CLI smoke, and critical branch-coverage
+ratchets before integration.

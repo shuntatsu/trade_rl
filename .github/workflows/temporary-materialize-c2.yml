@@ -60,15 +60,43 @@ jobs:
       - name: Install exact development environment
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
 
-      - name: Format and safely lint-fix changed Python files
+      - name: Diagnose formatting and safe lint fixes
         shell: bash
         run: |
-          set -euo pipefail
-          mapfile -t FILES < <(git diff --name-only --diff-filter=ACM HEAD -- '*.py')
-          test "${#FILES[@]}" -gt 0
-          uv run ruff format "${FILES[@]}"
-          uv run ruff check --fix "${FILES[@]}"
-          uv run ruff format "${FILES[@]}"
+          set +e
+          {
+            mapfile -t FILES < <(git diff --name-only --diff-filter=ACM HEAD -- '*.py')
+            printf 'file_count=%s\n' "${#FILES[@]}"
+            printf '%s\n' "${FILES[@]}"
+            test "${#FILES[@]}" -gt 0
+            uv run ruff format "${FILES[@]}"
+            format_one=$?
+            echo "format_one=$format_one"
+            uv run ruff check --fix "${FILES[@]}"
+            lint_fix=$?
+            echo "lint_fix=$lint_fix"
+            uv run ruff format "${FILES[@]}"
+            format_two=$?
+            echo "format_two=$format_two"
+            if test "$format_one" -eq 0 && test "$lint_fix" -eq 0 && test "$format_two" -eq 0; then
+              touch /tmp/c2-format-ok
+            fi
+          } > c2-format-diagnostics.log 2>&1
+          exit 0
+
+      - name: Upload formatting diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: c2-format-diagnostics
+          path: c2-format-diagnostics.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Gate formatting and safe lint fixes
+        run: |
+          cat c2-format-diagnostics.log
+          test -f /tmp/c2-format-ok
 
       - name: Static and architecture gates
         run: |

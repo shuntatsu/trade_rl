@@ -540,8 +540,8 @@ def generate_residual_candidates(
 
 def _loss_cvar(advantages: np.ndarray, *, alpha: float) -> np.ndarray:
     tail_count = int(math.ceil(alpha * advantages.shape[0]))
-    losses = -advantages
-    return np.sort(losses, axis=0)[-tail_count:].mean(axis=0)
+    downside_losses = np.maximum(-advantages, 0.0)
+    return np.sort(downside_losses, axis=0)[-tail_count:].mean(axis=0)
 
 
 def _bootstrap_mean_intervals(

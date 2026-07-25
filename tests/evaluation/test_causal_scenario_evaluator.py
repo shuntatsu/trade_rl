@@ -287,3 +287,11 @@ def test_bootstrap_is_deterministic_and_query_bound() -> None:
     np.testing.assert_allclose(first.mean_advantage, changed.mean_advantage)
     assert not np.array_equal(first.confidence_lower, changed.confidence_lower)
     assert first.result_digest != changed.result_digest
+
+
+def test_all_positive_advantages_have_zero_downside_cvar() -> None:
+    coefficients = np.tile(np.asarray([0.02, 0.0, 0.0]), (64, 1))
+    result, _ = evaluate(coefficients)
+    selected = result.selected_candidate_index
+    assert np.all(result.baseline_relative_advantages[:, selected] > 0.0)
+    assert result.loss_cvar[selected] == 0.0

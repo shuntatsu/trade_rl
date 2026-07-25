@@ -62,14 +62,45 @@ jobs:
           uv run ruff check --fix "${FILES[@]}"
           uv run ruff format "${FILES[@]}"
 
-      - name: Static and architecture gates
+      - name: Diagnose static and architecture gates
+        shell: bash
         run: |
-          uv run ruff check .
-          uv run ruff format --check --diff .
-          uv run mypy .
-          uv run lint-imports
-          uv run vulture trade_rl tests --min-confidence 100
-          uv run python -m compileall -q trade_rl tests
+          set +e
+          status=0
+          run_gate() {
+            name="$1"
+            shift
+            echo "===== $name ====="
+            "$@"
+            code=$?
+            echo "exit_code=$code"
+            if test "$code" -ne 0; then status=1; fi
+          }
+          {
+            run_gate ruff uv run ruff check .
+            run_gate format uv run ruff format --check --diff .
+            run_gate mypy uv run mypy .
+            run_gate import-linter uv run lint-imports
+            run_gate dead-code uv run vulture trade_rl tests --min-confidence 100
+            run_gate compileall uv run python -m compileall -q trade_rl tests
+            echo "status=$status"
+          } > c2-static-diagnostics.log 2>&1
+          test "$status" -eq 0 && touch /tmp/c2-static-ok
+          exit 0
+
+      - name: Upload static diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: c2-static-diagnostics
+          path: c2-static-diagnostics.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Gate static and architecture checks
+        run: |
+          cat c2-static-diagnostics.log
+          test -f /tmp/c2-static-ok
 
       - name: Focused causal-scenario tests
         run: |

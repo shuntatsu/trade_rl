@@ -490,9 +490,7 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
             ids = previous_ids | frozenset((order.order_id,))
         else:
             max_submit_index = previous_max
-            ids = (
-                frozenset() if previous is None else previous.order_ids_at_max_submit
-            )
+            ids = frozenset() if previous is None else previous.order_ids_at_max_submit
         return _TerminalOrderNode(
             order=order,
             previous=previous,
@@ -521,11 +519,7 @@ class TerminalOrderArchive(Sequence[PendingOrder]):
 
     @property
     def order_ids_at_max_submit(self) -> frozenset[str]:
-        return (
-            frozenset()
-            if self._tail is None
-            else self._tail.order_ids_at_max_submit
-        )
+        return frozenset() if self._tail is None else self._tail.order_ids_at_max_submit
 
     def __len__(self) -> int:
         return 0 if self._tail is None else self._tail.length

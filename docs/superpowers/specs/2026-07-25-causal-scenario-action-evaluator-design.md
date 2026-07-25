@@ -55,7 +55,10 @@ build scenarios from historical data and does not modify walk-forward training.
 C2 builds a frozen scenario library exclusively from a fold's train range,
 selects deterministic nearest historical regimes that ended before the query,
 and creates replayable future blocks without accessing checkpoint, selection,
-or outer-test futures.
+or outer-test futures. The frozen artifact stores only eligible anchor indices,
+raw and normalized condition matrices, and normalizer metadata. It materializes
+the selected 64 future blocks from the identity-bound source dataset on demand,
+so overlapping 96-decision windows are not duplicated across the artifact.
 
 ### C3: walk-forward comparison and Phase A gate
 

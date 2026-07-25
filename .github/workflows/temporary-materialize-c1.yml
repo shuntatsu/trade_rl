@@ -1,34 +1,75 @@
-name: Temporary Materialize C1 Workspace
+name: Temporary Apply and Verify C1
 
 on:
   push:
     branches:
       - agent/causal-scenario-oracle-c1
-  pull_request:
-    branches:
-      - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  archive:
+  apply-and-verify:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head
-        uses: actions/checkout@v4
+      - name: Checkout exact branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Archive exact head
+          ref: agent/causal-scenario-oracle-c1
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - name: Apply staged C1 patch
         run: |
-          git archive \
-            --format=tar.gz \
-            --output=trade-rl-c1-workspace.tar.gz \
-            HEAD
-      - name: Upload workspace
-        uses: actions/upload-artifact@v4
-        with:
-          name: trade-rl-c1-workspace
-          path: trade-rl-c1-workspace.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+          base64 --decode .github/c1.patch.gz.b64 | gzip --decompress > /tmp/c1.patch
+          git apply --index /tmp/c1.patch
+      - name: Install exact development environment
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format C1 files
+        run: |
+          uv run ruff format \
+            trade_rl/evaluation/causal_scenario_values.py \
+            trade_rl/evaluation/causal_scenario_artifact.py \
+            trade_rl/evaluation/__init__.py \
+            tests/evaluation/test_causal_scenario_contracts.py \
+            tests/evaluation/test_causal_scenario_evaluator.py \
+            tests/evaluation/test_causal_scenario_fail_closed.py \
+            tests/evaluation/test_causal_scenario_validation.py \
+            tests/evaluation/test_causal_scenario_artifact.py \
+            tests/architecture/test_causal_scenario_evaluator_boundary.py
+          git add \
+            trade_rl/evaluation \
+            tests/evaluation/test_causal_scenario_*.py \
+            tests/architecture/test_causal_scenario_evaluator_boundary.py
+      - name: Run static and architecture checks
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run python scripts/check_import_architecture.py
+          uv run python scripts/report_dead_code.py
+          uv run python -m compileall -q trade_rl tests
+      - name: Run focused C1 tests and strict coverage
+        run: |
+          uv run pytest \
+            tests/evaluation/test_causal_scenario_*.py \
+            tests/architecture/test_causal_scenario_evaluator_boundary.py \
+            -q
+          uv run pytest \
+            tests/evaluation/test_causal_scenario_*.py \
+            --cov=trade_rl.evaluation.causal_scenario_values \
+            --cov=trade_rl.evaluation.causal_scenario_artifact \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-fail-under=100
+      - name: Run complete repository tests
+        run: uv run pytest -q
+      - name: Commit verified C1 implementation
+        run: |
+          git rm .github/c1.patch.gz.b64
+          git rm .github/workflows/temporary-materialize-c1.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "feat: add causal scenario action evaluator contracts"
+          git push origin HEAD:agent/causal-scenario-oracle-c1

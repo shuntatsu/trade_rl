@@ -22,7 +22,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Reconstruct and apply hash-verified C2 patch
+      - name: Apply hash-verified C2 patches
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +43,14 @@ jobs:
           git apply --check --verbose /tmp/c2.patch
           git apply /tmp/c2.patch
 
+          test "$(wc -c < .github/c2-architecture-fix.patch.gz)" = "4183"
+          echo "1ffb669ebd9a561c1c7e6b443aad3b7ff7802e5320d0a00768dc383fe634e3b5  .github/c2-architecture-fix.patch.gz" | sha256sum --check
+          gzip --test .github/c2-architecture-fix.patch.gz
+          gzip --decompress --stdout .github/c2-architecture-fix.patch.gz > /tmp/c2-architecture-fix.patch
+          echo "c5620335e0d7154719b52e9a4fb61503d7bf38d1c4c858e381a0836ecb160757  /tmp/c2-architecture-fix.patch" | sha256sum --check
+          git apply --check --verbose /tmp/c2-architecture-fix.patch
+          git apply /tmp/c2-architecture-fix.patch
+
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -62,45 +70,14 @@ jobs:
           uv run ruff check --fix "${FILES[@]}"
           uv run ruff format "${FILES[@]}"
 
-      - name: Diagnose static and architecture gates
-        shell: bash
+      - name: Static and architecture gates
         run: |
-          set +e
-          status=0
-          run_gate() {
-            name="$1"
-            shift
-            echo "===== $name ====="
-            "$@"
-            code=$?
-            echo "exit_code=$code"
-            if test "$code" -ne 0; then status=1; fi
-          }
-          {
-            run_gate ruff uv run ruff check .
-            run_gate format uv run ruff format --check --diff .
-            run_gate mypy uv run mypy .
-            run_gate import-linter uv run lint-imports
-            run_gate dead-code uv run vulture trade_rl tests --min-confidence 100
-            run_gate compileall uv run python -m compileall -q trade_rl tests
-            echo "status=$status"
-          } > c2-static-diagnostics.log 2>&1
-          test "$status" -eq 0 && touch /tmp/c2-static-ok
-          exit 0
-
-      - name: Upload static diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: c2-static-diagnostics
-          path: c2-static-diagnostics.log
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Gate static and architecture checks
-        run: |
-          cat c2-static-diagnostics.log
-          test -f /tmp/c2-static-ok
+          uv run ruff check .
+          uv run ruff format --check --diff .
+          uv run mypy .
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+          uv run python -m compileall -q trade_rl tests
 
       - name: Focused causal-scenario tests
         run: |
@@ -117,10 +94,10 @@ jobs:
             tests/evaluation/test_causal_scenario_library_artifact.py \
             tests/evaluation/test_causal_scenario_replay.py \
             tests/evaluation/test_causal_scenario_c2_fail_closed.py \
-            --cov=trade_rl.evaluation.causal_scenario_conditions \
-            --cov=trade_rl.evaluation.causal_scenario_library \
-            --cov=trade_rl.evaluation.causal_scenario_library_artifact \
-            --cov=trade_rl.evaluation.causal_scenario_replay \
+            --cov=trade_rl.workflows.causal_scenario.conditions \
+            --cov=trade_rl.workflows.causal_scenario.library \
+            --cov=trade_rl.workflows.causal_scenario.library_artifact \
+            --cov=trade_rl.workflows.causal_scenario.replay \
             --cov-branch \
             --cov-report=term-missing \
             --cov-fail-under=100
@@ -139,6 +116,7 @@ jobs:
           set -euo pipefail
           git add -A
           git rm -r .github/c2-final-parts
+          git rm .github/c2-architecture-fix.patch.gz
           git rm .github/c2-final.patch.gz.b64 || true
           git rm .github/workflows/temporary-materialize-c1.yml || true
           git rm .github/workflows/temporary-materialize-c2.yml

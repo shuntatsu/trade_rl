@@ -15,16 +15,21 @@ jobs:
   archive:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact branch
+      - name: Checkout exact head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Archive workspace
         run: |
           git rev-parse HEAD > MATERIALIZED_HEAD
-          tar --exclude=.git -czf ../trade-rl-c1-workspace.tar.gz .
+          tar \
+            --exclude=.git \
+            --exclude=trade-rl-c1-workspace.tar.gz \
+            -czf trade-rl-c1-workspace.tar.gz .
       - name: Upload workspace
         uses: actions/upload-artifact@v4
         with:
           name: trade-rl-c1-workspace
-          path: ../trade-rl-c1-workspace.tar.gz
+          path: trade-rl-c1-workspace.tar.gz
           if-no-files-found: error
           retention-days: 1

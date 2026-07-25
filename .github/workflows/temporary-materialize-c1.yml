@@ -23,34 +23,22 @@ jobs:
           fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-      - name: Verify patch part00
-        run: test "$(git hash-object .github/c1-patch/part00)" = "ed573be8b25e2843b0afe090d3f03bf04c2e3945"
-      - name: Verify patch part01
-        run: test "$(git hash-object .github/c1-patch/part01)" = "63d5f6154a33f1b88f3ee1fc69b425e969e7da29"
-      - name: Verify patch part02-00
-        run: test "$(git hash-object .github/c1-patch/part02-00)" = "834351230333e6101d3480e9dfd801b62d943172"
-      - name: Verify patch part02-01
-        run: test "$(git hash-object .github/c1-patch/part02-01)" = "9dacb4ca60fa3eda0f43dc7baaf6487597ca2ad6"
-      - name: Verify patch part02-02
-        run: test "$(git hash-object .github/c1-patch/part02-02)" = "91ddfe10266a5e779d924fae7d106597d768d47f"
-      - name: Verify patch part02-03-00
-        run: test "$(git hash-object .github/c1-patch/part02-03-00)" = "70e9b7bc2be0bdbaabbd2126aacbc8bda5be43ae"
-      - name: Verify patch part02-03-01
-        run: test "$(git hash-object .github/c1-patch/part02-03-01)" = "879c1bbd588201d5d5bc967caa4651f16d455526"
-      - name: Verify patch part02-03-02
-        run: test "$(git hash-object .github/c1-patch/part02-03-02)" = "f82e1998989434c530094cc62af609e64ef1a15e"
-      - name: Verify patch part02-03-03
-        run: test "$(git hash-object .github/c1-patch/part02-03-03)" = "43f1f44c216869295f137897caa908d515b11e74"
-      - name: Verify patch part03
-        run: test "$(git hash-object .github/c1-patch/part03)" = "b6c691c773af220c3988bfd8b7efe4aa8194f084"
-      - name: Verify patch part04
-        run: test "$(git hash-object .github/c1-patch/part04)" = "62ed15e49281b96a13ca9708f819895a0b13cb73"
-      - name: Verify patch part05
-        run: test "$(git hash-object .github/c1-patch/part05)" = "0c175e8eb81f43f6a84215b56ac4e9ac83c1c080"
-      - name: Verify patch part06
-        run: test "$(git hash-object .github/c1-patch/part06)" = "0b40bf9609eb0ab0e6a3dd45e15ec7329b86a0f7"
-      - name: Verify patch part07
-        run: test "$(git hash-object .github/c1-patch/part07)" = "fda031d5fe64a43d38fb7489bc90cc575389db82"
+      - name: Verify patch fragments
+        run: |
+          test "$(git hash-object .github/c1-patch/part00)" = "ed573be8b25e2843b0afe090d3f03bf04c2e3945"
+          test "$(git hash-object .github/c1-patch/part01)" = "63d5f6154a33f1b88f3ee1fc69b425e969e7da29"
+          test "$(git hash-object .github/c1-patch/part02-00)" = "834351230333e6101d3480e9dfd801b62d943172"
+          test "$(git hash-object .github/c1-patch/part02-01)" = "9dacb4ca60fa3eda0f43dc7baaf6487597ca2ad6"
+          test "$(git hash-object .github/c1-patch/part02-02)" = "91ddfe10266a5e779d924fae7d106597d768d47f"
+          test "$(git hash-object .github/c1-patch/part02-03-00)" = "70e9b7bc2be0bdbaabbd2126aacbc8bda5be43ae"
+          test "$(git hash-object .github/c1-patch/part02-03-01)" = "879c1bbd588201d5d5bc967caa4651f16d455526"
+          test "$(git hash-object .github/c1-patch/part02-03-02)" = "f82e1998989434c530094cc62af609e64ef1a15e"
+          test "$(git hash-object .github/c1-patch/part02-03-03)" = "43f1f44c216869295f137897caa908d515b11e74"
+          test "$(git hash-object .github/c1-patch/part03)" = "b6c691c773af220c3988bfd8b7efe4aa8194f084"
+          test "$(git hash-object .github/c1-patch/part04)" = "62ed15e49281b96a13ca9708f819895a0b13cb73"
+          test "$(git hash-object .github/c1-patch/part05)" = "0c175e8eb81f43f6a84215b56ac4e9ac83c1c080"
+          test "$(git hash-object .github/c1-patch/part06)" = "0b40bf9609eb0ab0e6a3dd45e15ec7329b86a0f7"
+          test "$(git hash-object .github/c1-patch/part07)" = "fda031d5fe64a43d38fb7489bc90cc575389db82"
       - name: Reassemble and apply verified C1 patch
         run: |
           cat \
@@ -77,22 +65,13 @@ jobs:
           git apply --index /tmp/c1.patch
       - name: Install exact development environment
         run: uv sync --extra dev --extra train-sb3
-      - name: Format C1 files
+      - name: Format and safely lint-fix C1 files
         run: |
-          uv run ruff format \
-            trade_rl/evaluation/causal_scenario_values.py \
-            trade_rl/evaluation/causal_scenario_artifact.py \
-            trade_rl/evaluation/__init__.py \
-            tests/evaluation/test_causal_scenario_contracts.py \
-            tests/evaluation/test_causal_scenario_evaluator.py \
-            tests/evaluation/test_causal_scenario_fail_closed.py \
-            tests/evaluation/test_causal_scenario_validation.py \
-            tests/evaluation/test_causal_scenario_artifact.py \
-            tests/architecture/test_causal_scenario_evaluator_boundary.py
-          git add \
-            trade_rl/evaluation \
-            tests/evaluation/test_causal_scenario_*.py \
-            tests/architecture/test_causal_scenario_evaluator_boundary.py
+          FILES="trade_rl/evaluation/causal_scenario_values.py trade_rl/evaluation/causal_scenario_artifact.py trade_rl/evaluation/__init__.py tests/evaluation/test_causal_scenario_contracts.py tests/evaluation/test_causal_scenario_evaluator.py tests/evaluation/test_causal_scenario_fail_closed.py tests/evaluation/test_causal_scenario_validation.py tests/evaluation/test_causal_scenario_artifact.py tests/architecture/test_causal_scenario_evaluator_boundary.py"
+          uv run ruff format $FILES
+          uv run ruff check --fix $FILES
+          uv run ruff format $FILES
+          git add trade_rl/evaluation tests/evaluation/test_causal_scenario_*.py tests/architecture/test_causal_scenario_evaluator_boundary.py
       - name: Ruff
         run: uv run ruff check .
       - name: Format check
@@ -107,17 +86,8 @@ jobs:
         run: uv run python -m compileall -q trade_rl tests
       - name: Run focused C1 tests and strict coverage
         run: |
-          uv run pytest \
-            tests/evaluation/test_causal_scenario_*.py \
-            tests/architecture/test_causal_scenario_evaluator_boundary.py \
-            -q
-          uv run pytest \
-            tests/evaluation/test_causal_scenario_*.py \
-            --cov=trade_rl.evaluation.causal_scenario_values \
-            --cov=trade_rl.evaluation.causal_scenario_artifact \
-            --cov-branch \
-            --cov-report=term-missing \
-            --cov-fail-under=100
+          uv run pytest tests/evaluation/test_causal_scenario_*.py tests/architecture/test_causal_scenario_evaluator_boundary.py -q
+          uv run pytest tests/evaluation/test_causal_scenario_*.py --cov=trade_rl.evaluation.causal_scenario_values --cov=trade_rl.evaluation.causal_scenario_artifact --cov-branch --cov-report=term-missing --cov-fail-under=100
       - name: Run complete repository tests
         run: uv run pytest -q
       - name: Commit verified C1 implementation

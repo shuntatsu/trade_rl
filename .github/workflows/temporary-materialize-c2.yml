@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/causal-scenario-library-c2
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -16,7 +19,7 @@ jobs:
       - name: Checkout immutable event head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Reconstruct and apply hash-verified C2 patch
@@ -112,5 +115,3 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "feat: add train-only causal scenario library"
           git push origin HEAD:agent/causal-scenario-library-c2
-
-# Trigger run after workflow registration.

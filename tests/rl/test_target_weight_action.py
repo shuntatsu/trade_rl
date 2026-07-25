@@ -160,11 +160,24 @@ def test_delayed_target_executes_on_the_following_decision() -> None:
     assert first["execution_delay_warmup"] is True
     np.testing.assert_allclose(first["submitted_target"], np.array([0.40, 0.0]))
     np.testing.assert_allclose(first["executed_target"], np.zeros(2))
+    first_path = first["action_path"]
+    np.testing.assert_allclose(first_path.policy_target, np.array([0.40, 0.0]))
+    np.testing.assert_allclose(first_path.execution_intent_target, np.zeros(2))
+    assert first["action_path_policy_to_execution_intent_l1"] == pytest.approx(0.4)
+    assert first["action_path_policy_changed_by_execution_delay"] is True
 
     _, _, _, _, second = env.step(np.zeros(2, dtype=np.float32))
     assert env.hybrid.weights[0] > 0.30
     assert second["execution_delay_warmup"] is False
     np.testing.assert_allclose(second["executed_target"], np.array([0.40, 0.0]))
+    second_path = second["action_path"]
+    np.testing.assert_allclose(second_path.policy_target, np.zeros(2))
+    np.testing.assert_allclose(
+        second_path.execution_intent_target,
+        np.array([0.40, 0.0]),
+    )
+    assert second["action_path_policy_to_execution_intent_l1"] == pytest.approx(0.4)
+    assert second["action_path_policy_changed_by_execution_delay"] is True
 
 
 def test_reset_clears_delayed_target_queue() -> None:
@@ -193,8 +206,10 @@ def test_live_environment_emits_constraint_telemetry_without_shaping_reward() ->
     assert isinstance(action_path, ActionPathDiagnostics)
     assert isinstance(costs, ConstraintCostVector)
     np.testing.assert_allclose(action_path.policy_target, action)
+    np.testing.assert_allclose(action_path.execution_intent_target, action)
     np.testing.assert_allclose(action_path.feasible_target, info["hybrid_risk"].weights)
     np.testing.assert_allclose(action_path.filled_weight, env.hybrid.weights)
+    assert info["action_path_policy_to_execution_intent_l1"] == 0.0
     assert info["action_path_policy_to_filled_l1"] == pytest.approx(
         action_path.policy_to_filled_l1
     )

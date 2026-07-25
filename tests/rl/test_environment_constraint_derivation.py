@@ -21,8 +21,17 @@ class _Dataset:
 
 class _RewardTracker:
     config = RewardConfig()
-    last_context_before = RewardContext.zero()
-    last_context_after = RewardContext.zero()
+    last_context_before = RewardContext(
+        rolling_hybrid_log_growth=0.0,
+        rolling_shadow_log_growth=0.0,
+        baseline_shortfall=0.0,
+        baseline_tolerance=0.015,
+        baseline_penalty=0.0,
+        hybrid_drawdown=0.0,
+        drawdown_severity=0.0,
+        history_bars=0,
+    )
+    last_context_after = last_context_before
 
 
 def _reward() -> RewardBreakdown:

@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/causal-scenario-oracle-c1
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read

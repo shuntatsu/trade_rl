@@ -13,8 +13,8 @@ state without reading the realized future of that state:
 
 > If one residual action is applied now and the maintained Trend baseline is used
 > afterwards, which candidate has the best distribution of baseline-relative
-> finite-horizon outcomes under scenarios built only from the fold's training
-> range?
+> finite-horizon outcomes under scenarios built only from earlier fold-training
+> history?
 
 The evaluator measures whether useful causal decisions exist between the
 Perfect-Information Linear Bound and the maintained `residual-ppo-15m` policy.
@@ -34,8 +34,9 @@ The research comparison is split into four distinct layers:
 Future-informed paths from the perfect-information benchmark and the historical
 DP teacher are not inputs to the causal evaluator. The evaluator shares the
 maintained action composer, risk controls, stateful execution engine, and
-finite-horizon terminal accounting contract, but remains outside Serving,
-selection, promotion, release authorization, and direct execution.
+finite-horizon terminal accounting contract, but remains outside maintained PPO
+fitting, checkpoint/configuration selection, Serving, promotion, release
+authorization, and direct execution.
 
 ## Scope decomposition
 
@@ -52,12 +53,13 @@ build scenarios from historical data and does not modify walk-forward training.
 ### C2: train-only conditioned block scenario library
 
 C2 builds a frozen scenario library exclusively from a fold's train range,
-selects deterministic nearest historical regimes, and creates replayable future
-blocks without accessing checkpoint, selection, or outer-test futures.
+selects deterministic nearest historical regimes that ended before the query,
+and creates replayable future blocks without accessing checkpoint, selection,
+or outer-test futures.
 
 ### C3: walk-forward comparison and Phase A gate
 
-C3 runs the frozen evaluator against Trend, residual PPO, and the
+C3 runs the frozen evaluator against Trend, residual PPO, and a compatible
 Perfect-Information Bound on predeclared checkpoint and selection ranges. It
 produces gap, calibration, ranking, cost, turnover, drawdown, and robustness
 reports. It may open a sealed outer test only under the repository's existing
@@ -73,7 +75,7 @@ all subsequent decisions in the scenario horizon, the residual action is zero,
 which means the maintained Trend target is recomputed causally from each
 scenario path and used without an additional residual.
 
-For candidate `a`, scenario `s`, and horizon `H`, the value is therefore:
+For candidate `a`, scenario `s`, and horizon `H`, the value is:
 
 ```text
 apply a at t
@@ -83,15 +85,15 @@ contracts at every step
 liquidate under the maintained finite-horizon terminal contract at H
 ```
 
-This design estimates the marginal value of the current residual decision. C1
-through C3 do not implement multi-step scenario-tree MPC.
+This estimates the marginal value of the current residual decision. C1 through
+C3 do not implement multi-step scenario-tree MPC.
 
 ### Fixed initial horizon
 
 The initial predeclared horizon is 96 decisions, equal to 24 hours at the
 maintained 15-minute clock. The horizon is digest-bound and configurable for
-research comparisons, but C3 chooses among alternative horizons only on the
-checkpoint range and freezes one horizon before selection evaluation.
+research comparisons. C3 may choose among predeclared alternative horizons only
+on the checkpoint range and freezes one horizon before selection evaluation.
 
 ### Current-state closure
 
@@ -131,7 +133,7 @@ not treat projection-suppressed raw actions as economically distinct.
 
 ## Scenario library
 
-### Train-only construction
+### Train-only and past-only construction
 
 For each fold, the library is built from the fold train interval only. An anchor
 is eligible when:
@@ -146,39 +148,49 @@ Checkpoint, selection, purge, test, outer, or fresh-confirmation rows are never
 library anchors and never affect library normalization, distances, scenario
 weights, or hyperparameters.
 
-When a query itself is inside train for development tests, anchors whose context
-or future block intersects `[t-H, t+H]` are excluded. This embargo prevents a
-query from selecting its own realized future as a nearest scenario.
+Every scenario used for a query must also be historical relative to that query.
+The source block's final bar must be strictly earlier than the query's causal
+cutoff. For a development query inside the train interval, a full one-horizon
+embargo is additionally required:
+
+```text
+source_block_stop <= query_index - horizon
+```
+
+Thus no train query can select its own future, an overlapping future, or a later
+train block. For checkpoint and later queries, the fold train boundary already
+provides a stronger chronological separation.
 
 ### Condition vector
 
-The version-one condition vector is deterministic and uses only values available
-at the query timestamp:
+The version-one condition vector is deterministic and uses only the last
+causally closed market bar and state available at the query timestamp:
 
 - maintained Trend fast, base, and slow signals per asset;
 - 24-hour realized volatility per asset;
 - 7-day pairwise return correlations;
-- current spread rates and log market-notional liquidity;
-- current funding rates and funding-due flags;
+- spread rates and log market-notional liquidity;
+- funding rates and funding-due flags;
 - tradable, buy-allowed, sell-allowed, borrow-available, and active masks.
 
 Continuous components are median-centered and scaled by train-only median
 absolute deviation with an epsilon floor. Binary masks remain unscaled. The
 normalization statistics and feature ordering are immutable library evidence.
+No processing-bar OHLCV or other post-decision value enters this vector.
 
 ### Conditioned block selection
 
 Version one uses deterministic k-nearest-neighbor block selection:
 
 - `scenario_count = 64`;
-- squared Euclidean distance in the normalized condition space;
+- squared Euclidean distance in normalized condition space;
 - ascending anchor index as the final tie-break;
 - uniform probability `1/64` for each selected scenario;
 - no automatic fallback to an unconditional library.
 
-Fewer than 64 eligible anchors is a fail-closed error. Scenario identifiers bind
-the dataset ID, train range, anchor index, horizon, condition configuration, and
-library digest.
+Fewer than 64 eligible past anchors is a fail-closed error. Scenario identifiers
+bind the dataset ID, train range, anchor index, horizon, condition configuration,
+and library digest.
 
 ### Replay transformation
 
@@ -216,13 +228,13 @@ impact, funding, borrow, dividends, cash interest, partial fills, pending orders
 and terminal liquidation already enter terminal equity and are not subtracted a
 second time.
 
-The lower-tail loss is `loss[s, a] = -d[s, a]`. With uniform scenario weights,
-version one uses:
+Version one penalizes only downside relative to the baseline:
 
 ```text
+downside_loss[s, a] = max(-d[s, a], 0)
 mean_advantage[a] = mean(d[:, a])
-loss_cvar_10[a] = mean(largest ceil(0.10 * 64) losses)
-score[a] = mean_advantage[a] - 0.25 * loss_cvar_10[a]
+downside_cvar_10[a] = mean(largest ceil(0.10 * 64) downside losses)
+score[a] = mean_advantage[a] - 0.25 * downside_cvar_10[a]
 regret[a] = max(score) - score[a]
 ```
 
@@ -264,25 +276,26 @@ single-action supervised teacher artifact. It stores:
 - raw candidate residuals, projected targets, and candidate digests;
 - per-scenario gross log returns and baseline-relative advantages;
 - feasibility, termination, fill, cost, turnover, and terminal-equity evidence;
-- mean advantage, loss CVaR, score, regret, bootstrap interval, and effective
+- mean advantage, downside CVaR, score, regret, bootstrap interval, and effective
   scenario count per candidate;
 - selected candidate, tie set, and deterministic selection evidence.
 
-Arrays are sample-first, numeric, finite where their mask declares validity,
-read-only after construction, and written in deterministic archives. The
-artifact has exact file closure, canonical JSON, content digests, atomic writes,
-and fail-closed loading. It contains no realized query-future outcome; realized
-C3 evaluation is a separate paired-evaluation artifact.
+Arrays have explicit scenario and candidate axes, are numeric and finite where
+their masks declare validity, become read-only after construction, and are
+written in deterministic archives. The artifact has exact file closure,
+canonical JSON, content digests, atomic writes, and fail-closed loading. It
+contains no realized query-future outcome; realized C3 evaluation is a separate
+paired-evaluation artifact.
 
 ## Data-access and leakage boundaries
 
-The implementation must make the following boundaries structural rather than
-conventional:
+The implementation makes the following boundaries structural:
 
 - the scenario builder receives a train-range capability, not an unrestricted
   dataset view;
-- scenario anchors and normalization statistics expose their source indices for
-  independent audit;
+- scenario anchors and normalization statistics expose source indices for audit;
+- the query-time selector filters the frozen train library to blocks that ended
+  before the query's causal cutoff;
 - the evaluator receives frozen scenarios and a causal query snapshot, not the
   query's subsequent realized bars;
 - the C3 realized replay is invoked only after candidate selection has been
@@ -292,11 +305,12 @@ conventional:
 - outer evaluation requires the existing sealed-test ledger and cannot change
   the evaluator, scenario library, candidates, horizon, or gates;
 - none of the Phase C artifacts may enter Serving, policy observations, PPO
-  rewards, checkpoint selection, or release authorization.
+  rewards, maintained checkpoint/configuration selection, or release
+  authorization.
 
-Prefix-causality tests must prove that changing any row after the query timestamp
-does not change the query condition vector, candidate set, selected historical
-scenario anchors, or predicted value artifact.
+Prefix-causality tests must prove that changing any row at or after the query's
+decision cutoff does not change the condition vector, candidate set, eligible
+past anchors, selected scenario anchors, or predicted value artifact.
 
 ## Error handling
 
@@ -305,7 +319,7 @@ The implementation fails closed for:
 - missing zero-residual baseline;
 - invalid candidate dimensions, bounds, order, count, or duplicate identity;
 - incomplete causal state or incompatible identity digests;
-- insufficient or out-of-range scenario anchors;
+- insufficient, future-relative, overlapping, or out-of-range scenario anchors;
 - train-library overlap with forbidden ranges;
 - non-finite normalization, distances, paths, values, costs, or probabilities;
 - probabilities that are negative or do not sum to one within tolerance;
@@ -323,10 +337,10 @@ horizon, fewer scenarios, optimistic execution, or current realized future.
 
 For each fold and aggregate range, C3 reports:
 
-- Perfect-Information relaxed upper bound and replay return;
+- a same-period compatible Perfect-Information relaxed bound and replay return;
 - causal Scenario Oracle, Trend zero-residual, deterministic PPO mean, and
   predeclared random-candidate comparator returns;
-- `PerfectInfo - ScenarioOracle` information/relaxation gap;
+- compatible `PerfectInfo - ScenarioOracle` information/relaxation gap;
 - `ScenarioOracle - PPO` policy approximation gap;
 - paired daily log-growth uplift, confidence interval, and p-value;
 - predicted versus realized candidate ranking, top-one regret, Spearman
@@ -334,13 +348,15 @@ For each fold and aggregate range, C3 reports:
 - predicted mean/CVaR calibration by score bucket;
 - turnover, fees, spread, impact, funding, borrow, fills, pending-order events,
   termination reasons, and maximum drawdown;
-- sensitivity under the maintained nominal and adverse execution scenarios;
+- sensitivity under maintained nominal and adverse execution scenarios;
 - scenario-neighbor distances, anchor concentration, and effective historical
   coverage.
 
-Perfect-information values are comparison bounds only. The report rejects any
-causal or executable result that exceeds the corresponding validated upper bound
-outside declared tolerance.
+Perfect-information ordering is asserted only when the bound and causal replay
+use the same realized period, initial weights, return matrix, exposure limits,
+and a documented relaxation whose feasible set contains the executable causal
+path. When those dominance conditions are not proven, the report marks the gap
+`not_comparable` instead of asserting an upper-bound violation.
 
 ## Phase A entry gate
 
@@ -360,8 +376,8 @@ all of the following on selection evidence:
 7. predicted candidate ranking has positive aggregate Spearman correlation with
    realized finite-horizon ranking and a strictly positive lower confidence
    bound;
-8. no causal or executable value exceeds the validated perfect-information bound
-   outside tolerance;
+8. every asserted perfect-information comparison satisfies the documented
+   dominance conditions and bound ordering within tolerance;
 9. nominal and required adverse execution scenarios satisfy their predeclared
    cost, turnover, drawdown, and positive-uplift gates.
 
@@ -379,15 +395,15 @@ All production behavior is introduced with RED/GREEN tests.
 - zero candidate presence and canonical deduplication;
 - monotonic-up, monotonic-down, flat, high-cost, asymmetric-tail, and
   infeasible artificial markets with known rankings;
-- CVaR, score, regret, bootstrap, and tie-break recomputation;
+- downside CVaR, score, regret, bootstrap, and tie-break recomputation;
 - isolated state cloning and no cross-candidate mutation;
 - malformed rollout evidence and artifact tampering;
 - deterministic digests across process and platform.
 
 ### C2 tests
 
-- train-only anchor closure and embargo enforcement;
-- prefix causality under arbitrary future mutations;
+- train-only and past-only anchor closure plus embargo enforcement;
+- prefix causality under arbitrary at-or-after-cutoff mutations;
 - robust train-only normalization and exact feature ordering;
 - nearest-neighbor distance and anchor-index tie-breaks;
 - insufficient-anchor failure;
@@ -401,7 +417,8 @@ All production behavior is introduced with RED/GREEN tests.
 - candidate selection persisted before realized replay;
 - exact same environment/action/execution identity for all compared policies;
 - independent fold resets and no continuous-return mislabeling;
-- upper-bound ordering and gap recomputation;
+- compatible upper-bound ordering and gap recomputation;
+- explicit `not_comparable` behavior for incompatible bounds;
 - paired inference and ranking/calibration reports;
 - sealed-ledger behavior for any outer evaluation;
 - no Phase C dependency from training, Serving, promotion, or release packages.
@@ -434,9 +451,12 @@ Phase C does not:
    direct-target experimental path.
 4. Chose a 24-hour initial horizon and 64 uniform nearest-neighbor scenarios as
    a bounded, auditable first configuration.
-5. Chose train-only conditioned historical blocks before neural scenario models
-   so evaluator correctness and prediction-model error remain separable.
+5. Chose train-only, strictly earlier conditioned historical blocks before neural
+   scenario models so evaluator correctness and prediction-model error remain
+   separable.
 6. Chose a state-action value artifact rather than extending the single-label
    teacher artifact, preserving semantic and trust boundaries.
-7. Chose strict Phase A evidence gates; weak or uncalibrated scenario values must
+7. Chose downside-only CVaR so uniformly positive advantage is not rewarded a
+   second time through a negative loss penalty.
+8. Chose strict Phase A evidence gates; weak or uncalibrated scenario values must
    not become training targets merely because the software pipeline passes CI.

@@ -23,48 +23,15 @@ jobs:
           fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-      - name: Verify patch fragments
+      - name: Apply hash-verified C1 patch
         run: |
-          test "$(git hash-object .github/c1-patch/part00)" = "ed573be8b25e2843b0afe090d3f03bf04c2e3945"
-          test "$(git hash-object .github/c1-patch/part01)" = "63d5f6154a33f1b88f3ee1fc69b425e969e7da29"
-          test "$(git hash-object .github/c1-patch/part02-00)" = "834351230333e6101d3480e9dfd801b62d943172"
-          test "$(git hash-object .github/c1-patch/part02-01)" = "9dacb4ca60fa3eda0f43dc7baaf6487597ca2ad6"
-          test "$(git hash-object .github/c1-patch/part02-02)" = "91ddfe10266a5e779d924fae7d106597d768d47f"
-          test "$(git hash-object .github/c1-patch/part02-03-00)" = "70e9b7bc2be0bdbaabbd2126aacbc8bda5be43ae"
-          test "$(git hash-object .github/c1-patch/part02-03-01)" = "879c1bbd588201d5d5bc967caa4651f16d455526"
-          test "$(git hash-object .github/c1-patch/part02-03-02)" = "f82e1998989434c530094cc62af609e64ef1a15e"
-          test "$(git hash-object .github/c1-patch/part02-03-03)" = "43f1f44c216869295f137897caa908d515b11e74"
-          test "$(git hash-object .github/c1-patch/part03)" = "b6c691c773af220c3988bfd8b7efe4aa8194f084"
-          test "$(git hash-object .github/c1-patch/part04)" = "62ed15e49281b96a13ca9708f819895a0b13cb73"
-          test "$(git hash-object .github/c1-patch/part05)" = "0c175e8eb81f43f6a84215b56ac4e9ac83c1c080"
-          test "$(git hash-object .github/c1-patch/part06)" = "0b40bf9609eb0ab0e6a3dd45e15ec7329b86a0f7"
-          test "$(git hash-object .github/c1-patch/part07)" = "fda031d5fe64a43d38fb7489bc90cc575389db82"
-      - name: Reassemble and apply verified C1 patch
-        run: |
-          cat \
-            .github/c1-patch/part00 \
-            .github/c1-patch/part01 \
-            .github/c1-patch/part02-00 \
-            .github/c1-patch/part02-01 \
-            .github/c1-patch/part02-02 \
-            .github/c1-patch/part02-03-00 \
-            .github/c1-patch/part02-03-01 \
-            .github/c1-patch/part02-03-02 \
-            .github/c1-patch/part02-03-03 \
-            .github/c1-patch/part03 \
-            .github/c1-patch/part04 \
-            .github/c1-patch/part05 \
-            .github/c1-patch/part06 \
-            .github/c1-patch/part07 \
-            > /tmp/c1.patch.gz.b64
-          echo "b52dfabbb8af16bc429770eb02d04d1490662d59b5fbd26b1795ac95e1272d46  /tmp/c1.patch.gz.b64" | sha256sum --check
-          base64 --decode /tmp/c1.patch.gz.b64 > /tmp/c1.patch.gz
-          gzip --test /tmp/c1.patch.gz
-          gzip --decompress --stdout /tmp/c1.patch.gz > /tmp/c1.patch
+          echo "cf49cfebba5a98770e69d7036b61f9e6e7737733a4a9d25173d5bfeb42e7e50e  .github/c1-v2.patch.gz" | sha256sum --check
+          gzip --test .github/c1-v2.patch.gz
+          gzip --decompress --stdout .github/c1-v2.patch.gz > /tmp/c1.patch
           git apply --check --verbose /tmp/c1.patch
           git apply --index /tmp/c1.patch
       - name: Install exact development environment
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
       - name: Format and safely lint-fix C1 files
         run: |
           FILES="trade_rl/evaluation/causal_scenario_values.py trade_rl/evaluation/causal_scenario_artifact.py trade_rl/evaluation/__init__.py tests/evaluation/test_causal_scenario_contracts.py tests/evaluation/test_causal_scenario_evaluator.py tests/evaluation/test_causal_scenario_fail_closed.py tests/evaluation/test_causal_scenario_validation.py tests/evaluation/test_causal_scenario_artifact.py tests/architecture/test_causal_scenario_evaluator_boundary.py"
@@ -85,7 +52,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: c1-mypy-diagnostics
+          name: c1-mypy-diagnostics-v2
           path: mypy-c1.log
           if-no-files-found: error
           retention-days: 1
@@ -103,6 +70,7 @@ jobs:
         run: uv run pytest -q
       - name: Commit verified C1 implementation
         run: |
+          git rm .github/c1-v2.patch.gz
           git rm .github/c1.patch.gz.b64
           git rm -r .github/c1-patch
           git rm .github/workflows/temporary-materialize-c1.yml

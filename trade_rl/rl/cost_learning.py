@@ -87,9 +87,7 @@ class CostValueSpec:
 
     def digest_payload(self) -> dict[str, object]:
         return {
-            "auxiliary_event_loss_coefficient": (
-                self.auxiliary_event_loss_coefficient
-            ),
+            "auxiliary_event_loss_coefficient": (self.auxiliary_event_loss_coefficient),
             "family": self.family.value,
             "gae_lambda": self.gae_lambda,
             "gamma": self.gamma,

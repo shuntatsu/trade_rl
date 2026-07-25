@@ -1,0 +1,27 @@
+name: Temporary Materialize C1 Workspace
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-oracle-c1
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v4
+      - name: Archive workspace
+        run: |
+          git rev-parse HEAD > MATERIALIZED_HEAD
+          tar --exclude=.git -czf ../trade-rl-c1-workspace.tar.gz .
+      - name: Upload workspace
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-rl-c1-workspace
+          path: ../trade-rl-c1-workspace.tar.gz
+          if-no-files-found: error
+          retention-days: 1

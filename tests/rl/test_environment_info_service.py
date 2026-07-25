@@ -194,15 +194,22 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "terminal_liquidation_cost",
         "pending_target_discarded",
         "action_path",
+        "action_path_policy_to_execution_intent_l1",
+        "action_path_execution_intent_to_pretrade_l1",
         "action_path_policy_to_pretrade_l1",
         "action_path_pretrade_to_feasible_l1",
         "action_path_feasible_to_submitted_l1",
         "action_path_submitted_to_filled_l1",
+        "action_path_execution_intent_to_filled_l1",
         "action_path_policy_to_filled_l1",
+        "action_path_policy_to_execution_intent_max_abs",
+        "action_path_execution_intent_to_pretrade_max_abs",
         "action_path_policy_to_pretrade_max_abs",
         "action_path_pretrade_to_feasible_max_abs",
         "action_path_feasible_to_submitted_max_abs",
         "action_path_submitted_to_filled_max_abs",
+        "action_path_policy_changed_by_execution_delay",
+        "action_path_execution_intent_changed_by_pretrade",
         "action_path_policy_changed_by_pretrade",
         "action_path_pretrade_changed_by_feasibility",
         "action_path_feasible_changed_before_submission",
@@ -232,8 +239,13 @@ def test_step_info_exposes_action_path_and_constraint_scalars() -> None:
 
     assert info["action_path"] is action_path
     assert info["constraint_costs"] is costs
+    assert info["action_path_policy_to_execution_intent_l1"] == 0.0
+    assert info["action_path_execution_intent_to_pretrade_l1"] == pytest.approx(0.3)
     assert info["action_path_policy_to_pretrade_l1"] == pytest.approx(0.3)
+    assert info["action_path_execution_intent_to_filled_l1"] == pytest.approx(0.85)
     assert info["action_path_policy_to_filled_l1"] == pytest.approx(0.85)
+    assert info["action_path_policy_changed_by_execution_delay"] is False
+    assert info["action_path_execution_intent_changed_by_pretrade"] is True
     assert info["action_path_submission_changed_by_fill"] is True
     assert info["constraint_cost_drawdown_excess"] == pytest.approx(0.01)
     assert info["constraint_cost_daily_turnover"] == pytest.approx(1.5)

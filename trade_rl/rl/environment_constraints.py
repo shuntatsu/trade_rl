@@ -8,15 +8,6 @@ from dataclasses import dataclass, field
 import numpy as np
 
 _TOLERANCE = 1e-12
-_FORCED_LIQUIDATION_REASONS = frozenset(
-    {
-        "minimum_equity",
-        "execution_cost_exhaustion",
-        "margin_call",
-        "liquidation",
-        "insolvency",
-    }
-)
 CONSTRAINT_COST_NAMES = (
     "drawdown_excess",
     "drawdown_stop_event",
@@ -25,6 +16,15 @@ CONSTRAINT_COST_NAMES = (
     "gross_exposure_request_excess",
     "daily_turnover",
     "execution_cost_fraction",
+)
+_FORCED_LIQUIDATION_REASONS = frozenset(
+    {
+        "minimum_equity",
+        "execution_cost_exhaustion",
+        "margin_call",
+        "liquidation",
+        "insolvency",
+    }
 )
 
 
@@ -64,38 +64,65 @@ class ActionPathDiagnostics:
     feasible_target: np.ndarray
     submitted_order_target: np.ndarray
     filled_weight: np.ndarray
+    execution_intent_target: np.ndarray | None = None
+    policy_to_execution_intent_l1: float = field(init=False)
+    execution_intent_to_pretrade_l1: float = field(init=False)
     policy_to_pretrade_l1: float = field(init=False)
     pretrade_to_feasible_l1: float = field(init=False)
     feasible_to_submitted_l1: float = field(init=False)
     submitted_to_filled_l1: float = field(init=False)
+    execution_intent_to_filled_l1: float = field(init=False)
     policy_to_filled_l1: float = field(init=False)
+    policy_to_execution_intent_max_abs: float = field(init=False)
+    execution_intent_to_pretrade_max_abs: float = field(init=False)
     policy_to_pretrade_max_abs: float = field(init=False)
     pretrade_to_feasible_max_abs: float = field(init=False)
     feasible_to_submitted_max_abs: float = field(init=False)
     submitted_to_filled_max_abs: float = field(init=False)
+    policy_changed_by_execution_delay: bool = field(init=False)
+    execution_intent_changed_by_pretrade: bool = field(init=False)
     policy_changed_by_pretrade: bool = field(init=False)
     pretrade_changed_by_feasibility: bool = field(init=False)
     feasible_changed_before_submission: bool = field(init=False)
     submission_changed_by_fill: bool = field(init=False)
 
     def __post_init__(self) -> None:
+        policy = _readonly_vector(self.policy_target, field_name="policy_target")
+        execution_intent = _readonly_vector(
+            policy
+            if self.execution_intent_target is None
+            else self.execution_intent_target,
+            field_name="execution_intent_target",
+        )
         names = (
-            "policy_target",
             "pretrade_target",
             "feasible_target",
             "submitted_order_target",
             "filled_weight",
         )
-        vectors = tuple(
+        remaining = tuple(
             _readonly_vector(getattr(self, name), field_name=name) for name in names
         )
-        shape = vectors[0].shape
+        vectors = (policy, execution_intent, *remaining)
+        shape = policy.shape
         if any(vector.shape != shape for vector in vectors[1:]):
             raise ValueError("all action-path vectors must have the same shape")
-        for name, vector in zip(names, vectors, strict=True):
+        object.__setattr__(self, "policy_target", policy)
+        object.__setattr__(self, "execution_intent_target", execution_intent)
+        for name, vector in zip(names, remaining, strict=True):
             object.__setattr__(self, name, vector)
 
-        policy, pretrade, feasible, submitted, filled = vectors
+        pretrade, feasible, submitted, filled = remaining
+        object.__setattr__(
+            self,
+            "policy_to_execution_intent_l1",
+            _l1(policy, execution_intent),
+        )
+        object.__setattr__(
+            self,
+            "execution_intent_to_pretrade_l1",
+            _l1(execution_intent, pretrade),
+        )
         object.__setattr__(self, "policy_to_pretrade_l1", _l1(policy, pretrade))
         object.__setattr__(self, "pretrade_to_feasible_l1", _l1(pretrade, feasible))
         object.__setattr__(
@@ -108,7 +135,22 @@ class ActionPathDiagnostics:
             "submitted_to_filled_l1",
             _l1(submitted, filled),
         )
+        object.__setattr__(
+            self,
+            "execution_intent_to_filled_l1",
+            _l1(execution_intent, filled),
+        )
         object.__setattr__(self, "policy_to_filled_l1", _l1(policy, filled))
+        object.__setattr__(
+            self,
+            "policy_to_execution_intent_max_abs",
+            _max_abs(policy, execution_intent),
+        )
+        object.__setattr__(
+            self,
+            "execution_intent_to_pretrade_max_abs",
+            _max_abs(execution_intent, pretrade),
+        )
         object.__setattr__(
             self,
             "policy_to_pretrade_max_abs",
@@ -128,6 +170,16 @@ class ActionPathDiagnostics:
             self,
             "submitted_to_filled_max_abs",
             _max_abs(submitted, filled),
+        )
+        object.__setattr__(
+            self,
+            "policy_changed_by_execution_delay",
+            _changed(policy, execution_intent),
+        )
+        object.__setattr__(
+            self,
+            "execution_intent_changed_by_pretrade",
+            _changed(execution_intent, pretrade),
         )
         object.__setattr__(
             self,
@@ -159,9 +211,11 @@ class ActionPathDiagnostics:
         feasible_target: np.ndarray,
         submitted_order_target: np.ndarray,
         filled_weight: np.ndarray,
+        execution_intent_target: np.ndarray | None = None,
     ) -> ActionPathDiagnostics:
         return cls(
             policy_target=policy_target,
+            execution_intent_target=execution_intent_target,
             pretrade_target=pretrade_target,
             feasible_target=feasible_target,
             submitted_order_target=submitted_order_target,
@@ -310,9 +364,8 @@ def calculate_constraint_costs(request: ConstraintCostRequest) -> ConstraintCost
         ),
         daily_turnover=request.filled_turnover * 24.0 / request.decision_hours,
         execution_cost_fraction=execution_cost / equity_denominator,
-        funding_credit_fraction=(
-            max(0.0, request.interval_funding) / equity_denominator
-        ),
+        funding_credit_fraction=max(0.0, request.interval_funding)
+        / equity_denominator,
     )
 
 

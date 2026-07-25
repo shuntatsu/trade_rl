@@ -145,3 +145,18 @@ def test_disabled_turnover_throttle_does_not_slice_direct_target() -> None:
     )
     np.testing.assert_allclose(result.weights, [0.4, -0.4])
     assert "max_turnover" not in result.reasons
+
+
+def test_pretrade_result_preserves_copied_pipeline_stages() -> None:
+    proposal = np.array([0.8, -0.2])
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(max_gross=1.0, max_abs_weight=0.4, max_turnover=2.0)
+    )
+
+    result = risk.constrain(proposal, current=np.zeros(2), drawdown=0.0)
+    proposal[:] = 0.0
+
+    np.testing.assert_allclose(result.proposal_weights, np.array([0.8, -0.2]))
+    np.testing.assert_allclose(result.pretrade_weights, result.weights)
+    assert result.proposal_weights is not proposal
+    assert result.pretrade_weights is not result.weights

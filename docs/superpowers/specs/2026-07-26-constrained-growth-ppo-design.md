@@ -57,8 +57,8 @@ The following properties are non-negotiable.
 2. Ordinary PPO remains the default algorithm and produces identical behavior when constraints are disabled.
 3. Constraint costs are diagnostic environment outputs, not edits to the scalar environment reward.
 4. Hard pre-trade and emergency limits remain active even when constrained PPO is disabled.
-5. No future data may enter observations, costs, sampling decisions, or normalization statistics.
-6. Cost limits, multiplier state, normalizer state, and architecture identity are checkpointed and validated on resume.
+5. No future data may enter observations, costs, sampling decisions, or running statistics.
+6. Cost limits, multiplier state, cost-statistics state, and architecture identity are checkpointed and validated on resume.
 7. Training, selection, and sealed-test metrics remain separate.
 8. A shadow comparator failure must not be treated as a true hybrid MDP termination.
 
@@ -147,13 +147,13 @@ The episode constraint compares the mean daily turnover to its configured budget
 
 ### 5.7 Execution-cost fraction
 
-Per-step cost:
+Per-step non-negative safety cost:
 
 \[
-c^{exec}_t = \frac{fees_t + spread_t + impact_t + funding_t + borrow_t}{\max(V^{net}_{t}, \epsilon)}
+c^{exec}_t = \frac{fees_t + spread_t + impact_t + funding^{paid}_t + borrow^{paid}_t}{\max(V^{net}_{t}, \epsilon)}
 \]
 
-Signed rebates are reported separately and cannot silently reduce a non-negative safety cost. The growth reward continues to use actual net equity and therefore still reflects all signed economics.
+Every numerator term is a non-negative paid cost. Funding receipts, maker rebates, or other credits are reported separately and cannot silently cancel this safety signal. The growth reward continues to use actual net equity and therefore reflects the full signed economics, including credits.
 
 ## 6. Aggregation semantics
 
@@ -340,7 +340,7 @@ The implementation fails closed when:
 
 - a configured cost cannot be produced by the environment;
 - a cost contains NaN, infinity, or an invalid negative value;
-- episode denominators are zero for an event-rate update;
+- an event-rate update is attempted with a zero denominator instead of being explicitly skipped;
 - checkpoint constraint identity differs;
 - multipliers become non-finite;
 - a cost critic output shape disagrees with enabled constraints;

@@ -1,0 +1,136 @@
+name: Temporary Split Telemetry Fix
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  split-and-clean:
+    if: github.head_ref == 'agent/perfect-information-oracle-bound'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main fix/telemetry-detached-writer-close
+
+      - name: Preserve telemetry delta
+        run: |
+          mkdir -p /tmp/telemetry-split/trade_rl/telemetry
+          mkdir -p /tmp/telemetry-split/tests/telemetry
+          mkdir -p /tmp/telemetry-split/tests/integrations
+          cp trade_rl/telemetry/_indexed_storage.py \
+            /tmp/telemetry-split/trade_rl/telemetry/_indexed_storage.py
+          cp tests/telemetry/test_indexed_process_concurrency.py \
+            /tmp/telemetry-split/tests/telemetry/test_indexed_process_concurrency.py
+          cp tests/telemetry/test_detached_writer_fail_closed.py \
+            /tmp/telemetry-split/tests/telemetry/test_detached_writer_fail_closed.py
+          cp tests/integrations/test_training_telemetry_validation.py \
+            /tmp/telemetry-split/tests/integrations/test_training_telemetry_validation.py
+
+      - name: Build isolated telemetry branch
+        run: |
+          git switch -C fix/telemetry-detached-writer-close origin/main
+          cp /tmp/telemetry-split/trade_rl/telemetry/_indexed_storage.py \
+            trade_rl/telemetry/_indexed_storage.py
+          cp /tmp/telemetry-split/tests/telemetry/test_indexed_process_concurrency.py \
+            tests/telemetry/test_indexed_process_concurrency.py
+          cp /tmp/telemetry-split/tests/telemetry/test_detached_writer_fail_closed.py \
+            tests/telemetry/test_detached_writer_fail_closed.py
+          cp /tmp/telemetry-split/tests/integrations/test_training_telemetry_validation.py \
+            tests/integrations/test_training_telemetry_validation.py
+
+      - name: Verify isolated telemetry change
+        run: |
+          uv sync --extra dev --extra train-sb3 --extra studio
+          uv run ruff check \
+            trade_rl/telemetry/_indexed_storage.py \
+            tests/telemetry/test_indexed_process_concurrency.py \
+            tests/telemetry/test_detached_writer_fail_closed.py \
+            tests/integrations/test_training_telemetry_validation.py
+          uv run ruff format --check \
+            trade_rl/telemetry/_indexed_storage.py \
+            tests/telemetry/test_indexed_process_concurrency.py \
+            tests/telemetry/test_detached_writer_fail_closed.py \
+            tests/integrations/test_training_telemetry_validation.py
+          uv run mypy
+          uv run pytest -q \
+            tests/telemetry \
+            tests/integrations/test_training_telemetry.py \
+            tests/integrations/test_training_telemetry_terminal_snapshot.py \
+            tests/integrations/test_training_telemetry_validation.py
+
+      - name: Commit and push telemetry branch
+        run: |
+          git add \
+            trade_rl/telemetry/_indexed_storage.py \
+            tests/telemetry/test_indexed_process_concurrency.py \
+            tests/telemetry/test_detached_writer_fail_closed.py \
+            tests/integrations/test_training_telemetry_validation.py
+          git commit -m "fix: close detached telemetry writers safely"
+          git push --force-with-lease origin HEAD:fix/telemetry-detached-writer-close
+
+      - name: Open telemetry pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing="$(gh pr list \
+            --head fix/telemetry-detached-writer-close \
+            --base main \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            gh pr create \
+              --head fix/telemetry-detached-writer-close \
+              --base main \
+              --title "fix: close detached telemetry writers safely" \
+              --body-file - <<'EOF'
+          ## Summary
+
+          - prevent `flush()` and `close()` from rebuilding the sparse index for a replacement inode
+          - preserve strict fail-closed identity rejection for subsequent appends and internal strict flushes
+          - add POSIX inode-replacement regressions and telemetry validation coverage
+
+          ## Focused verification
+
+          - Ruff check and format check
+          - repository-wide Mypy
+          - telemetry and training-telemetry integration suites
+
+          The standard CI, Windows/Ubuntu compatibility, training image, PostgreSQL catalog, full test suite, and critical branch-coverage ratchets remain mandatory merge gates.
+          EOF
+          fi
+
+      - name: Remove unrelated formatting from oracle branch
+        run: |
+          git switch -C agent/perfect-information-oracle-bound \
+            origin/agent/perfect-information-oracle-bound
+          git checkout origin/main -- \
+            tests/rl/test_rollout_memory.py \
+            tests/simulation/test_orders.py \
+            trade_rl/rl/policies.py \
+            trade_rl/simulation/orders.py
+          git rm .github/workflows/temporary-split-telemetry-fix.yml
+          git add \
+            tests/rl/test_rollout_memory.py \
+            tests/simulation/test_orders.py \
+            trade_rl/rl/policies.py \
+            trade_rl/simulation/orders.py
+          git commit -m "chore: remove unrelated formatting changes"
+          git push origin HEAD:agent/perfect-information-oracle-bound

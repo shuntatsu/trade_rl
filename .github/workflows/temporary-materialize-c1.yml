@@ -23,9 +23,14 @@ jobs:
           fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-      - name: Apply staged C1 patch
+      - name: Reassemble and apply verified C1 patch
         run: |
-          base64 --decode .github/c1.patch.gz.b64 | gzip --decompress > /tmp/c1.patch
+          cat .github/c1-patch/part* > /tmp/c1.patch.gz.b64
+          echo "b52dfabbb8af16bc429770eb02d04d1490662d59b5fbd26b1795ac95e1272d46  /tmp/c1.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/c1.patch.gz.b64 > /tmp/c1.patch.gz
+          gzip --test /tmp/c1.patch.gz
+          gzip --decompress --stdout /tmp/c1.patch.gz > /tmp/c1.patch
+          git apply --check --verbose /tmp/c1.patch
           git apply --index /tmp/c1.patch
       - name: Install exact development environment
         run: uv sync --extra dev --extra train-sb3
@@ -71,6 +76,7 @@ jobs:
       - name: Commit verified C1 implementation
         run: |
           git rm .github/c1.patch.gz.b64
+          git rm -r .github/c1-patch
           git rm .github/workflows/temporary-materialize-c1.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com

@@ -42,6 +42,9 @@ jobs:
           echo "a7e084d482eba890cb968e503da8217eff56fde93657bdeda756571f86472d82  /tmp/c1.patch" | sha256sum --check
           git apply --check --verbose /tmp/c1.patch
           git apply --index /tmp/c1.patch
+          echo "eec84b1d6ef7f43904c6c25d3c485c6ff25965ee145eb528315d3ee01f4327a0  .github/c1-validation-fix.patch" | sha256sum --check
+          git apply --check --verbose .github/c1-validation-fix.patch
+          git apply --index .github/c1-validation-fix.patch
 
       - name: Install exact development environment
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
@@ -133,7 +136,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rm -f .github/c1-v2.patch.gz .github/c1.patch.gz.b64
+          git rm -f .github/c1-v2.patch.gz .github/c1.patch.gz.b64 .github/c1-validation-fix.patch
           git rm -r .github/c1-patch .github/c1-v2-patch
           git rm .github/workflows/temporary-materialize-c1.yml
           git config user.name github-actions[bot]

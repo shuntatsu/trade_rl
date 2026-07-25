@@ -204,7 +204,9 @@ def test_runtime_order_transitions_do_not_rescan_terminal_archive(
         )
     )
     active = archived._add_generated(second)
-    completed = active.replace(second.cancel(processing_index=9, reason="superseded"))
+    completed = active.replace(
+        second.cancel(processing_index=9, reason="superseded")
+    )
 
     assert len(original_archive) == 1
     assert len(completed.terminal_orders) == 2

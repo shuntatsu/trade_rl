@@ -18,7 +18,9 @@ class CostReturnResult:
         advantages = np.asarray(self.advantages, dtype=np.float64).copy()
         returns = np.asarray(self.returns, dtype=np.float64).copy()
         if advantages.shape != returns.shape or advantages.ndim != 3:
-            raise ValueError("cost return result arrays must share a three-dimensional shape")
+            raise ValueError(
+                "cost return result arrays must share a three-dimensional shape"
+            )
         if not np.isfinite(advantages).all() or not np.isfinite(returns).all():
             raise ValueError("cost return result arrays must be finite")
         advantages.setflags(write=False)
@@ -121,17 +123,9 @@ def compute_cost_returns_and_advantages(
             ),
         )
         carry_advantage = ~(true_terminal | time_limit)
-        delta = (
-            costs_array[step]
-            + gamma_row * next_values
-            - values_array[step]
-        )
+        delta = costs_array[step] + gamma_row * next_values - values_array[step]
         last_advantages = (
-            delta
-            + gamma_row
-            * lambda_row
-            * carry_advantage[:, None]
-            * last_advantages
+            delta + gamma_row * lambda_row * carry_advantage[:, None] * last_advantages
         )
         advantages[step] = last_advantages
 

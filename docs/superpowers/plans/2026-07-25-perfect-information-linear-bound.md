@@ -78,8 +78,9 @@
 - [x] Verify focused Pytest: 52 passed.
 - [x] Verify focused branch coverage: 100% for both new modules.
 - [x] Verify Python compilation succeeds.
-- [ ] Run `ruff check trade_rl/evaluation/perfect_information_bound.py trade_rl/evaluation/_perfect_information_lp.py tests/evaluation/test_perfect_information_bound_*.py` in a complete development environment.
-- [ ] Run `ruff format --check trade_rl/evaluation/perfect_information_bound.py trade_rl/evaluation/_perfect_information_lp.py tests/evaluation/test_perfect_information_bound_*.py`.
-- [ ] Run `mypy trade_rl/evaluation/perfect_information_bound.py trade_rl/evaluation/_perfect_information_lp.py`.
-- [ ] Run `pytest tests/evaluation -q` in the complete repository checkout.
-- [ ] Run `pytest -q` in the complete repository checkout before merge.
+- [x] Run `ruff check trade_rl/evaluation/perfect_information_bound.py trade_rl/evaluation/_perfect_information_lp.py tests/evaluation/test_perfect_information_bound_*.py` in a complete development environment.
+- [x] Run `ruff format --check trade_rl/evaluation/perfect_information_bound.py trade_rl/evaluation/_perfect_information_lp.py tests/evaluation/test_perfect_information_bound_*.py`.
+- [x] Run repository-wide Mypy, including both new modules.
+- [x] Run `pytest tests/evaluation -q` in the complete repository checkout.
+- [x] Run `pytest -q` in the complete repository checkout: 1464 passed, 2 skipped.
+- [x] Pass critical branch-coverage ratchets, CLI smoke, Windows/Ubuntu compatibility, training-image build, packaged runtime probe, import architecture, dead-code checks, and PostgreSQL catalog gates on the exact PR head.

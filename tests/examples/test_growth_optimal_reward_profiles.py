@@ -5,7 +5,6 @@ import pytest
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
-
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
 

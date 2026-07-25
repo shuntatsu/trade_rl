@@ -364,8 +364,7 @@ def calculate_constraint_costs(request: ConstraintCostRequest) -> ConstraintCost
         ),
         daily_turnover=request.filled_turnover * 24.0 / request.decision_hours,
         execution_cost_fraction=execution_cost / equity_denominator,
-        funding_credit_fraction=max(0.0, request.interval_funding)
-        / equity_denominator,
+        funding_credit_fraction=max(0.0, request.interval_funding) / equity_denominator,
     )
 
 

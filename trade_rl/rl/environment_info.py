@@ -131,9 +131,7 @@ class EnvironmentInfoBuilder:
             "action_path_feasible_to_submitted_l1": (
                 diagnostics.feasible_to_submitted_l1
             ),
-            "action_path_submitted_to_filled_l1": (
-                diagnostics.submitted_to_filled_l1
-            ),
+            "action_path_submitted_to_filled_l1": (diagnostics.submitted_to_filled_l1),
             "action_path_policy_to_filled_l1": diagnostics.policy_to_filled_l1,
             "action_path_policy_to_pretrade_max_abs": (
                 diagnostics.policy_to_pretrade_max_abs
@@ -167,9 +165,7 @@ class EnvironmentInfoBuilder:
             "constraint_costs": costs,
             "constraint_cost_drawdown_excess": costs.drawdown_excess,
             "constraint_cost_drawdown_stop_event": costs.drawdown_stop_event,
-            "constraint_cost_margin_deficit_fraction": (
-                costs.margin_deficit_fraction
-            ),
+            "constraint_cost_margin_deficit_fraction": (costs.margin_deficit_fraction),
             "constraint_cost_forced_liquidation_event": (
                 costs.forced_liquidation_event
             ),
@@ -178,9 +174,7 @@ class EnvironmentInfoBuilder:
             ),
             "constraint_cost_daily_turnover": costs.daily_turnover,
             "constraint_cost_execution_fraction": costs.execution_cost_fraction,
-            "constraint_cost_funding_credit_fraction": (
-                costs.funding_credit_fraction
-            ),
+            "constraint_cost_funding_credit_fraction": (costs.funding_credit_fraction),
         }
 
     def step_info(self, request: EnvironmentStepInfoRequest) -> dict[str, object]:

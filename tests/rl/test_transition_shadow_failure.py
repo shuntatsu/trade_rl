@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import numpy as np
+
+from trade_rl.rl.transition import classify_economic_transition
+from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
+
+
+def _book() -> BookState:
+    return BookState.zero(
+        n_symbols=1,
+        initial_capital=100_000.0,
+        initial_prices=np.array([100.0], dtype=np.float64),
+    )
+
+
+def test_shadow_failure_truncates_without_terminating_policy_mdp() -> None:
+    hybrid = _book()
+    shadow = _book()
+    shadow.terminate(EconomicTerminationReason.MINIMUM_EQUITY)
+
+    transition = classify_economic_transition(
+        hybrid=hybrid,
+        shadow=shadow,
+        time_limit_reached=False,
+        liquidation_terminal=False,
+        liquidation_complete=True,
+    )
+
+    assert transition.terminated is False
+    assert transition.truncated is True
+    assert transition.reason == "shadow_minimum_equity"
+
+
+def test_hybrid_failure_remains_a_true_policy_termination() -> None:
+    hybrid = _book()
+    shadow = _book()
+    hybrid.terminate(EconomicTerminationReason.DRAWDOWN_STOP)
+
+    transition = classify_economic_transition(
+        hybrid=hybrid,
+        shadow=shadow,
+        time_limit_reached=False,
+        liquidation_terminal=False,
+        liquidation_complete=True,
+    )
+
+    assert transition.terminated is True
+    assert transition.truncated is False
+    assert transition.reason == EconomicTerminationReason.DRAWDOWN_STOP.value
+
+
+def test_hybrid_failure_takes_precedence_when_both_books_fail() -> None:
+    hybrid = _book()
+    shadow = _book()
+    hybrid.terminate(EconomicTerminationReason.MARGIN_CALL)
+    shadow.terminate(EconomicTerminationReason.MINIMUM_EQUITY)
+
+    transition = classify_economic_transition(
+        hybrid=hybrid,
+        shadow=shadow,
+        time_limit_reached=False,
+        liquidation_terminal=False,
+        liquidation_complete=True,
+    )
+
+    assert transition.terminated is True
+    assert transition.truncated is False
+    assert transition.reason == EconomicTerminationReason.MARGIN_CALL.value

@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/causal-scenario-walk-forward-c3
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -15,7 +18,7 @@ jobs:
       - name: Checkout exact branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Archive exact tracked tree
@@ -28,5 +31,3 @@ jobs:
           path: c3-workspace.tar.gz
           if-no-files-found: error
           retention-days: 1
-
-# Trigger after workflow registration.

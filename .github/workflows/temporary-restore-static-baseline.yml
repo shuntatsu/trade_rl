@@ -1,0 +1,51 @@
+name: Temporary Restore Static Baseline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: github.head_ref == 'fix/bc-quality-epsilon-type'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout compatibility branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Apply exact Ruff baseline formatting
+        env:
+          PYTHONPATH: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          uv sync --extra dev --extra train-sb3 --extra studio
+          uv run ruff format \
+            tests/rl/test_rollout_memory.py \
+            tests/simulation/test_orders.py \
+            trade_rl/rl/policies.py \
+            trade_rl/simulation/orders.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy
+          uv run pytest -q \
+            tests/integrations/test_sb3_training.py \
+            tests/rl/test_rollout_memory.py \
+            tests/simulation/test_orders.py
+          git rm .github/workflows/temporary-restore-static-baseline.yml
+          git add \
+            tests/rl/test_rollout_memory.py \
+            tests/simulation/test_orders.py \
+            trade_rl/rl/policies.py \
+            trade_rl/simulation/orders.py
+          git commit -m "chore: restore Ruff formatting baseline"
+          git push origin HEAD:fix/bc-quality-epsilon-type

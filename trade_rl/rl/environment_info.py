@@ -152,7 +152,9 @@ class EnvironmentInfoBuilder:
         if value is None:
             value = _HOURS_PER_YEAR / self.dataset.periods_per_year
         if not math.isfinite(value) or value <= 0.0:
-            raise RuntimeError("dataset nominal bar duration must be finite and positive")
+            raise RuntimeError(
+                "dataset nominal bar duration must be finite and positive"
+            )
         return value
 
     @staticmethod
@@ -280,7 +282,9 @@ class EnvironmentInfoBuilder:
             request.hybrid_execution.interval_borrow_cost
             + self._liquidation_metric(liquidation, "interval_borrow_cost")
         )
-        decision_hours = request.hybrid_execution.bars_advanced * self._nominal_bar_hours()
+        decision_hours = (
+            request.hybrid_execution.bars_advanced * self._nominal_bar_hours()
+        )
         return calculate_constraint_costs(
             ConstraintCostRequest(
                 policy_target=policy_target,

@@ -28,9 +28,7 @@ def _assert_growth_optimal_contract(config: TrainingRunConfig) -> None:
 
 
 def test_growth_optimal_full_training_profile_is_explicit_and_parseable() -> None:
-    config = TrainingRunConfig.from_json(
-        EXAMPLE_ROOT / "training-growth-optimal.json"
-    )
+    config = TrainingRunConfig.from_json(EXAMPLE_ROOT / "training-growth-optimal.json")
 
     _assert_growth_optimal_contract(config)
 

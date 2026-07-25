@@ -121,6 +121,8 @@ class EnvironmentRiskProjector:
             turnover_overridden=pretrade.turnover_overridden,
             proposal_weights=target,
             pretrade_weights=pretrade.weights,
+            max_gross=pretrade.max_gross,
+            drawdown_budget=pretrade.drawdown_budget,
         )
 
 

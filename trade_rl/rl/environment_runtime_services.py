@@ -130,6 +130,7 @@ class EnvironmentRuntimeServicesBuilder:
         info_builder = EnvironmentInfoBuilder(
             self.dataset,
             self.reward_tracker,
+            initial_capital=self.config.initial_capital,
         )
         termination_coordinator = EnvironmentTerminationCoordinator(
             config=self.config,

@@ -19,7 +19,6 @@ from trade_rl.rl.environment_constraints import (
 from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext
 from trade_rl.simulation.accounting import BookState
 
-_HOURS_PER_YEAR = 365.0 * 24.0
 _TOLERANCE = 1e-12
 
 
@@ -27,8 +26,7 @@ class InfoDataset(Protocol):
     @property
     def periods_per_year(self) -> int: ...
 
-    @property
-    def nominal_bar_hours(self) -> float | None: ...
+    def elapsed_hours(self, start_index: int, end_index: int) -> float: ...
 
 
 class RewardInfoSource(Protocol):
@@ -43,6 +41,9 @@ class RewardInfoSource(Protocol):
 
 
 class ExecutionInfo(Protocol):
+    @property
+    def next_index(self) -> int: ...
+
     @property
     def bars_advanced(self) -> int: ...
 
@@ -155,14 +156,11 @@ class EnvironmentInfoBuilder:
             max(0.0, 1.0 - value / max(book.peak_value, value, 1e-12)),
         )
 
-    def _nominal_bar_hours(self) -> float:
-        value = self.dataset.nominal_bar_hours
-        if value is None:
-            value = _HOURS_PER_YEAR / self.dataset.periods_per_year
+    def _decision_hours(self, execution: ExecutionInfo) -> float:
+        start_index = execution.next_index - execution.bars_advanced
+        value = self.dataset.elapsed_hours(start_index, execution.next_index)
         if not math.isfinite(value) or value <= 0.0:
-            raise RuntimeError(
-                "dataset nominal bar duration must be finite and positive"
-            )
+            raise RuntimeError("transition duration must be finite and positive")
         return value
 
     @staticmethod
@@ -200,9 +198,7 @@ class EnvironmentInfoBuilder:
             "action_path_feasible_to_submitted_l1": (
                 diagnostics.feasible_to_submitted_l1
             ),
-            "action_path_submitted_to_filled_l1": (
-                diagnostics.submitted_to_filled_l1
-            ),
+            "action_path_submitted_to_filled_l1": diagnostics.submitted_to_filled_l1,
             "action_path_execution_intent_to_filled_l1": (
                 diagnostics.execution_intent_to_filled_l1
             ),
@@ -295,7 +291,10 @@ class EnvironmentInfoBuilder:
             policy_target,
             execution_intent,
             cls._target_vector(pretrade, field_name="pretrade target"),
-            cls._target_vector(request.hybrid_risk.weights, field_name="feasible target"),
+            cls._target_vector(
+                request.hybrid_risk.weights,
+                field_name="feasible target",
+            ),
         )
 
     @classmethod
@@ -350,14 +349,11 @@ class EnvironmentInfoBuilder:
             request.hybrid_execution.interval_borrow_cost
             + self._liquidation_metric(liquidation, "interval_borrow_cost")
         )
-        decision_hours = (
-            request.hybrid_execution.bars_advanced * self._nominal_bar_hours()
-        )
         return calculate_constraint_costs(
             ConstraintCostRequest(
                 policy_target=execution_intent,
                 max_gross=max_gross,
-                decision_hours=decision_hours,
+                decision_hours=self._decision_hours(request.hybrid_execution),
                 drawdown=self.drawdown(request.hybrid),
                 drawdown_budget=drawdown_budget,
                 margin_deficit=request.hybrid.margin_deficit,
@@ -396,10 +392,12 @@ class EnvironmentInfoBuilder:
             "emergency_deleverage": request.emergency_deleverage,
             "execution_delay_warmup": request.execution_delay_warmup,
             "submitted_target": np.asarray(
-                request.submitted_target, dtype=np.float64
+                request.submitted_target,
+                dtype=np.float64,
             ).copy(),
             "executed_target": np.asarray(
-                request.executed_target, dtype=np.float64
+                request.executed_target,
+                dtype=np.float64,
             ).copy(),
             "drawdown_after": self.drawdown(request.hybrid),
             "portfolio_value_after": request.hybrid.portfolio_value,
@@ -443,7 +441,8 @@ class EnvironmentInfoBuilder:
         info.update(self._constraint_cost_info(constraint_costs))
         if request.discarded_pending_target is not None:
             info["discarded_pending_target"] = np.asarray(
-                request.discarded_pending_target, dtype=np.float64
+                request.discarded_pending_target,
+                dtype=np.float64,
             ).copy()
         if request.hybrid_liquidation is not None:
             info["hybrid_liquidation"] = request.hybrid_liquidation

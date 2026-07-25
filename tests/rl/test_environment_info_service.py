@@ -5,6 +5,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from trade_rl.rl.environment_constraints import (
+    ActionPathDiagnostics,
+    ConstraintCostVector,
+)
 from trade_rl.rl.environment_info import (
     EnvironmentInfoBuilder,
     EnvironmentStepInfoRequest,
@@ -79,6 +83,29 @@ def _execution() -> SimpleNamespace:
     )
 
 
+def _action_path() -> ActionPathDiagnostics:
+    return ActionPathDiagnostics.from_stages(
+        policy_target=np.array([0.8, -0.4]),
+        pretrade_target=np.array([0.5, -0.4]),
+        feasible_target=np.array([0.4, -0.3]),
+        submitted_order_target=np.array([0.4, -0.2]),
+        filled_weight=np.array([0.25, -0.1]),
+    )
+
+
+def _constraint_costs() -> ConstraintCostVector:
+    return ConstraintCostVector(
+        drawdown_excess=0.01,
+        drawdown_stop_event=0.0,
+        margin_deficit_fraction=0.002,
+        forced_liquidation_event=0.0,
+        gross_exposure_request_excess=0.2,
+        daily_turnover=1.5,
+        execution_cost_fraction=0.003,
+        funding_credit_fraction=0.0004,
+    )
+
+
 def _step_request(**overrides: object) -> EnvironmentStepInfoRequest:
     values: dict[str, object] = {
         "action_delta_l1": 0.3,
@@ -109,6 +136,8 @@ def _step_request(**overrides: object) -> EnvironmentStepInfoRequest:
         "discarded_pending_target": None,
         "hybrid_liquidation": None,
         "shadow_liquidation": None,
+        "action_path": _action_path(),
+        "constraint_costs": _constraint_costs(),
     }
     values.update(overrides)
     return EnvironmentStepInfoRequest(**values)  # type: ignore[arg-type]
@@ -164,9 +193,52 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "terminal_accounting_mode",
         "terminal_liquidation_cost",
         "pending_target_discarded",
+        "action_path",
+        "action_path_policy_to_pretrade_l1",
+        "action_path_pretrade_to_feasible_l1",
+        "action_path_feasible_to_submitted_l1",
+        "action_path_submitted_to_filled_l1",
+        "action_path_policy_to_filled_l1",
+        "action_path_policy_to_pretrade_max_abs",
+        "action_path_pretrade_to_feasible_max_abs",
+        "action_path_feasible_to_submitted_max_abs",
+        "action_path_submitted_to_filled_max_abs",
+        "action_path_policy_changed_by_pretrade",
+        "action_path_pretrade_changed_by_feasibility",
+        "action_path_feasible_changed_before_submission",
+        "action_path_submission_changed_by_fill",
+        "constraint_costs",
+        "constraint_cost_drawdown_excess",
+        "constraint_cost_drawdown_stop_event",
+        "constraint_cost_margin_deficit_fraction",
+        "constraint_cost_forced_liquidation_event",
+        "constraint_cost_gross_exposure_request_excess",
+        "constraint_cost_daily_turnover",
+        "constraint_cost_execution_fraction",
+        "constraint_cost_funding_credit_fraction",
     }
     assert info["reward_baseline_penalty_delta"] == 0.02
     assert info["rolling_growth_gap"] == pytest.approx(0.005)
+
+
+def test_step_info_exposes_action_path_and_constraint_scalars() -> None:
+    action_path = _action_path()
+    costs = _constraint_costs()
+    builder = EnvironmentInfoBuilder(_Dataset(), _RewardTracker())
+
+    info = builder.step_info(
+        _step_request(action_path=action_path, constraint_costs=costs)
+    )
+
+    assert info["action_path"] is action_path
+    assert info["constraint_costs"] is costs
+    assert info["action_path_policy_to_pretrade_l1"] == pytest.approx(0.3)
+    assert info["action_path_policy_to_filled_l1"] == pytest.approx(0.85)
+    assert info["action_path_submission_changed_by_fill"] is True
+    assert info["constraint_cost_drawdown_excess"] == pytest.approx(0.01)
+    assert info["constraint_cost_daily_turnover"] == pytest.approx(1.5)
+    assert info["constraint_cost_execution_fraction"] == pytest.approx(0.003)
+    assert info["constraint_cost_funding_credit_fraction"] == pytest.approx(0.0004)
 
 
 def test_step_info_copies_targets_and_adds_optional_fields() -> None:

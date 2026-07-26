@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.rl.lagrangian import (
+    CompletedEpisodeCostAccumulator,
     ConstraintAggregation,
     LagrangianConstraintSpec,
     LagrangianSchema,
@@ -37,6 +39,16 @@ def _spec(
         max_multiplier=max_multiplier,
         warmup_rollouts=warmup_rollouts,
         update_interval_rollouts=update_interval_rollouts,
+    )
+
+
+def _aggregation_schema() -> LagrangianSchema:
+    return LagrangianSchema(
+        (
+            _spec("drawdown_excess"),
+            _spec("drawdown_stop_event"),
+            _spec("gross_exposure_request_excess"),
+        )
     )
 
 
@@ -170,3 +182,184 @@ def test_lagrangian_schema_rejects_duplicates_and_reordering() -> None:
 def test_lagrangian_schema_requires_at_least_one_constraint() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         LagrangianSchema(())
+
+
+def test_completed_episode_costs_aggregate_sum_mean_and_event_rate() -> None:
+    accumulator = CompletedEpisodeCostAccumulator(
+        n_envs=2,
+        schema=_aggregation_schema(),
+    )
+    costs = np.asarray(
+        [
+            [[0.01, 0.0, 0.10], [0.02, 0.0, 0.20]],
+            [[0.02, 1.0, 0.30], [0.01, 0.0, 0.40]],
+            [[0.03, 0.0, 0.20], [0.03, 0.0, 0.60]],
+        ],
+        dtype=np.float64,
+    )
+    terminated = np.asarray(
+        [[False, False], [True, False], [False, False]],
+        dtype=np.bool_,
+    )
+    truncated = np.asarray(
+        [[False, False], [False, False], [False, True]],
+        dtype=np.bool_,
+    )
+
+    estimates = accumulator.ingest_rollout(
+        costs=costs,
+        terminated=terminated,
+        truncated=truncated,
+    )
+
+    drawdown = estimates["drawdown_excess"]
+    event = estimates["drawdown_stop_event"]
+    gross = estimates["gross_exposure_request_excess"]
+    assert drawdown is not None
+    assert event is not None
+    assert gross is not None
+    assert drawdown.numerator == pytest.approx(0.09)
+    assert drawdown.denominator == 2
+    assert drawdown.value == pytest.approx(0.045)
+    assert event.numerator == pytest.approx(1.0)
+    assert event.denominator == 2
+    assert event.value == pytest.approx(0.5)
+    assert gross.numerator == pytest.approx(0.6)
+    assert gross.denominator == 2
+    assert gross.value == pytest.approx(0.3)
+
+
+def test_completed_episode_accumulator_carries_unfinished_state_across_rollouts() -> None:
+    accumulator = CompletedEpisodeCostAccumulator(
+        n_envs=2,
+        schema=_aggregation_schema(),
+    )
+    first = accumulator.ingest_rollout(
+        costs=np.asarray(
+            [[[0.03, 0.0, 0.20], [0.01, 0.0, 0.10]]],
+            dtype=np.float64,
+        ),
+        terminated=np.zeros((1, 2), dtype=np.bool_),
+        truncated=np.zeros((1, 2), dtype=np.bool_),
+    )
+    assert all(value is None for value in first.values())
+
+    second = accumulator.ingest_rollout(
+        costs=np.asarray(
+            [[[0.04, 0.0, 0.40], [0.02, 0.0, 0.30]]],
+            dtype=np.float64,
+        ),
+        terminated=np.asarray([[True, False]], dtype=np.bool_),
+        truncated=np.zeros((1, 2), dtype=np.bool_),
+    )
+
+    drawdown = second["drawdown_excess"]
+    gross = second["gross_exposure_request_excess"]
+    assert drawdown is not None
+    assert gross is not None
+    assert drawdown.value == pytest.approx(0.07)
+    assert gross.value == pytest.approx(0.30)
+
+    state = accumulator.state_dict()
+    restored = CompletedEpisodeCostAccumulator(
+        n_envs=2,
+        schema=_aggregation_schema(),
+    )
+    restored.load_state_dict(state)
+    assert restored.state_dict() == state
+
+    original_next = accumulator.ingest_rollout(
+        costs=np.asarray(
+            [[[0.03, 0.0, 0.50], [0.03, 0.0, 0.50]]],
+            dtype=np.float64,
+        ),
+        terminated=np.asarray([[False, True]], dtype=np.bool_),
+        truncated=np.zeros((1, 2), dtype=np.bool_),
+    )
+    restored_next = restored.ingest_rollout(
+        costs=np.asarray(
+            [[[0.03, 0.0, 0.50], [0.03, 0.0, 0.50]]],
+            dtype=np.float64,
+        ),
+        terminated=np.asarray([[False, True]], dtype=np.bool_),
+        truncated=np.zeros((1, 2), dtype=np.bool_),
+    )
+    assert restored_next == original_next
+
+
+def test_completed_episode_accumulator_rejects_invalid_rollouts() -> None:
+    accumulator = CompletedEpisodeCostAccumulator(
+        n_envs=2,
+        schema=_aggregation_schema(),
+    )
+    valid_costs = np.zeros((1, 2, 3), dtype=np.float64)
+    valid_done = np.zeros((1, 2), dtype=np.bool_)
+
+    with pytest.raises(ValueError, match="shape"):
+        accumulator.ingest_rollout(
+            costs=np.zeros((1, 2, 2), dtype=np.float64),
+            terminated=valid_done,
+            truncated=valid_done,
+        )
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        invalid = valid_costs.copy()
+        invalid[0, 0, 0] = -0.01
+        accumulator.ingest_rollout(
+            costs=invalid,
+            terminated=valid_done,
+            truncated=valid_done,
+        )
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        invalid = valid_costs.copy()
+        invalid[0, 0, 0] = np.nan
+        accumulator.ingest_rollout(
+            costs=invalid,
+            terminated=valid_done,
+            truncated=valid_done,
+        )
+    with pytest.raises(ValueError, match="both terminated and truncated"):
+        both = np.asarray([[True, False]], dtype=np.bool_)
+        accumulator.ingest_rollout(
+            costs=valid_costs,
+            terminated=both,
+            truncated=both,
+        )
+
+
+def test_completed_episode_accumulator_rejects_multiple_event_hits_per_episode() -> None:
+    accumulator = CompletedEpisodeCostAccumulator(
+        n_envs=1,
+        schema=_aggregation_schema(),
+    )
+
+    with pytest.raises(ValueError, match="event cost"):
+        accumulator.ingest_rollout(
+            costs=np.asarray(
+                [[[0.0, 1.0, 0.0]], [[0.0, 1.0, 0.0]]],
+                dtype=np.float64,
+            ),
+            terminated=np.asarray([[False], [True]], dtype=np.bool_),
+            truncated=np.zeros((2, 1), dtype=np.bool_),
+        )
+
+
+def test_completed_episode_accumulator_rejects_mismatched_state() -> None:
+    source = CompletedEpisodeCostAccumulator(
+        n_envs=2,
+        schema=_aggregation_schema(),
+    )
+    state = source.state_dict()
+
+    wrong_env_count = CompletedEpisodeCostAccumulator(
+        n_envs=1,
+        schema=_aggregation_schema(),
+    )
+    with pytest.raises(ValueError, match="environment count"):
+        wrong_env_count.load_state_dict(state)
+
+    wrong_schema = CompletedEpisodeCostAccumulator(
+        n_envs=2,
+        schema=LagrangianSchema((_spec("drawdown_excess"),)),
+    )
+    with pytest.raises(ValueError, match="schema"):
+        wrong_schema.load_state_dict(state)

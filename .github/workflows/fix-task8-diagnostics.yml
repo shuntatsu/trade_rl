@@ -1,0 +1,47 @@
+name: Fix Task 8 diagnostics
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Fix adjacent sign comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/lagrangian_diagnostics.py")
+          content = path.read_text()
+          old = "zip(signs, signs[1:], strict=True)"
+          new = "zip(signs, signs[1:])"
+          if content.count(old) != 1:
+              raise SystemExit("sign comparison replacement mismatch")
+          path.write_text(content.replace(old, new))
+          PY
+          rm .github/workflows/fix-task8-diagnostics.yml
+          rm -f .github/workflows/task8-red.yml
+          git add -A
+          git diff --cached --check
+      - name: Commit diagnostics fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix: compare adjacent dual update signs"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

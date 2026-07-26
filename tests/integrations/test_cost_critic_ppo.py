@@ -184,3 +184,37 @@ def test_cost_critic_ppo_counts_event_support_across_vector_environments() -> No
         )
     finally:
         environment.close()
+
+
+def test_cost_critic_ppo_exposes_head_and_family_diagnostics() -> None:
+    environment = DummyVecEnv([lambda: _CostEnvironment(event_step=2)])
+    model = _model(environment)
+    try:
+        model.learn(total_timesteps=4)
+
+        assert tuple(model.last_cost_head_diagnostics) == model.cost_schema.names
+        event_report = model.last_cost_head_diagnostics["forced_liquidation_event"]
+        assert event_report.positive_sample_count == 1
+        assert event_report.brier_score is not None
+        assert np.isfinite(event_report.brier_score)
+        assert sum(bin_.count for bin_ in event_report.calibration_bins) == 4
+        assert event_report.precision_recall is not None
+        assert event_report.precision_recall.positive_sample_count == 1
+
+        family = model.last_cost_family_gradient_diagnostics
+        assert family.continuous_gradient_norm > 0.0
+        assert family.event_gradient_norm > 0.0
+        assert family.dense_to_rare_gradient_ratio is not None
+        assert np.isfinite(
+            model.last_cost_training_metrics[
+                "diagnostic/forced_liquidation_event/brier_score"
+            ]
+        )
+        assert (
+            model.last_cost_training_metrics[
+                "diagnostic/forced_liquidation_event/positive_sample_count"
+            ]
+            == 1.0
+        )
+    finally:
+        environment.close()

@@ -133,8 +133,23 @@ def test_lagrangian_checkpoint_identity_includes_schema_contract() -> None:
         identity = model.checkpoint_identity_payload()
 
         assert identity["algorithm"] == "lagrangian_ppo"
+        assert identity["actor_composition_mode"] == (
+            "raw_lagrangian_then_sb3_normalize_v1"
+        )
+        assert identity["completion_semantics"] == (
+            "economic_time_limit_censored_shadow_v1"
+        )
+        assert identity["lagrangian_schema"] == (
+            model.lagrangian_schema.digest_payload()
+        )
         assert identity["lagrangian_schema_digest"] == model.lagrangian_schema.digest
         assert identity["lagrangian_cost_names"] == list(CONSTRAINT_COST_NAMES)
+        assert identity["accumulator_state_version"] == (
+            model.completed_episode_cost_accumulator.state_version
+        )
+        assert identity["controller_state_version"] == (
+            model.lagrangian_controller.state_version
+        )
     finally:
         environment.close()
 

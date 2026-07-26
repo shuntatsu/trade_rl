@@ -49,6 +49,12 @@ class LagrangianPPO(CostCriticPPO):
     """Apply independent cost advantages without reward shaping."""
 
     algorithm_identifier: ClassVar[str] = "lagrangian_ppo"
+    actor_composition_mode: ClassVar[str] = (
+        "raw_lagrangian_then_sb3_normalize_v1"
+    )
+    completion_semantics: ClassVar[str] = (
+        "economic_time_limit_censored_shadow_v1"
+    )
 
     def __init__(
         self,
@@ -445,11 +451,24 @@ class LagrangianPPO(CostCriticPPO):
                 )
 
     def checkpoint_identity_payload(self) -> dict[str, object]:
-        """Bind Lagrangian schema semantics into checkpoint identity."""
+        """Bind the complete constrained-optimization contract to checkpoints."""
 
+        accumulator = self.completed_episode_cost_accumulator
+        if not isinstance(accumulator, CompletedEpisodeCostAccumulator):
+            raise RuntimeError("completed episode accumulator is unavailable")
         payload = super().checkpoint_identity_payload()
-        payload["lagrangian_schema_digest"] = self.lagrangian_schema.digest
-        payload["lagrangian_cost_names"] = list(self.lagrangian_schema.names)
+        payload.update(
+            {
+                "algorithm": self.algorithm_identifier,
+                "actor_composition_mode": self.actor_composition_mode,
+                "completion_semantics": self.completion_semantics,
+                "lagrangian_schema": self.lagrangian_schema.digest_payload(),
+                "lagrangian_schema_digest": self.lagrangian_schema.digest,
+                "lagrangian_cost_names": list(self.lagrangian_schema.names),
+                "accumulator_state_version": accumulator.state_version,
+                "controller_state_version": self.lagrangian_controller.state_version,
+            }
+        )
         return payload
 
     def train(self) -> None:

@@ -28,6 +28,7 @@ from trade_rl.learning import (
 )
 from trade_rl.rl.algorithm_configs import (
     CostCriticPPOConfig,
+    LagrangianPPOConfig,
     PPOConfig,
     SACConfig,
     TD3Config,
@@ -578,7 +579,25 @@ class StableBaselines3Backend:
                     **rollout_kwargs,
                     **common,
                 }
-                if isinstance(algorithm_config, CostCriticPPOConfig):
+                if isinstance(algorithm_config, LagrangianPPOConfig):
+                    from trade_rl.integrations.lagrangian_ppo import LagrangianPPO
+
+                    model = LagrangianPPO(
+                        policy_identifier,
+                        environment,
+                        cost_schema=algorithm_config.cost_schema,
+                        cost_learning_rate=algorithm_config.cost_learning_rate,
+                        cost_n_epochs=algorithm_config.cost_n_epochs,
+                        cost_batch_size=algorithm_config.cost_batch_size,
+                        cost_continuous_hidden_dims=(
+                            algorithm_config.cost_continuous_hidden_dims
+                        ),
+                        cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,
+                        cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
+                        lagrangian_schema=algorithm_config.lagrangian_schema,
+                        **ppo_kwargs,
+                    )
+                elif isinstance(algorithm_config, CostCriticPPOConfig):
                     from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
 
                     model = CostCriticPPO(
@@ -667,6 +686,10 @@ class StableBaselines3Backend:
                     from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
 
                     algorithm_class = CostCriticPPO
+                elif config.algorithm == "lagrangian_ppo":
+                    from trade_rl.integrations.lagrangian_ppo import LagrangianPPO
+
+                    algorithm_class = LagrangianPPO
                 elif config.algorithm == "sac":
                     algorithm_class = SAC
                 elif config.algorithm == "td3":
@@ -739,6 +762,21 @@ class StableBaselines3Backend:
                     "cost_names": algorithm_config.cost_schema.names,
                     "cost_schema_digest": algorithm_config.cost_schema.digest,
                     "event_hidden_dims": algorithm_config.cost_event_hidden_dims,
+                }
+            if isinstance(algorithm_config, LagrangianPPOConfig):
+                architecture_details["lagrangian"] = {
+                    "actor_composition_mode": (
+                        algorithm_config.actor_composition_mode
+                    ),
+                    "completion_semantics": (
+                        "economic_time_limit_censored_shadow_v1"
+                    ),
+                    "probe_episodes": algorithm_config.probe_episodes,
+                    "probe_max_steps_per_episode": (
+                        algorithm_config.probe_max_steps_per_episode
+                    ),
+                    "schema": algorithm_config.lagrangian_schema.digest_payload(),
+                    "schema_digest": algorithm_config.lagrangian_schema.digest,
                 }
             if config.sequence_encoder:
                 if sequence_metadata is None:
@@ -981,7 +1019,11 @@ class StableBaselines3Backend:
             from trade_rl.rl.checkpointing import build_checkpoint_callback
 
             if self.resume_replay_artifact is not None:
-                if config.algorithm in {"ppo", "cost_critic_ppo"}:
+                if config.algorithm in {
+                    "ppo",
+                    "cost_critic_ppo",
+                    "lagrangian_ppo",
+                }:
                     raise ValueError(
                         "PPO-family algorithms cannot resume from a replay buffer"
                     )
@@ -1040,7 +1082,11 @@ class StableBaselines3Backend:
 
             replay_buffer_path: Path | None = None
             replay_buffer_digest: str | None = None
-            if config.algorithm not in {"ppo", "cost_critic_ppo"} and hasattr(
+            if config.algorithm not in {
+                "ppo",
+                "cost_critic_ppo",
+                "lagrangian_ppo",
+            } and hasattr(
                 model, "save_replay_buffer"
             ):
                 raw_replay = output_path.parent / ".replay-buffer.tmp.pkl"

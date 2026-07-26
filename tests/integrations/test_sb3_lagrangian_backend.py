@@ -11,6 +11,10 @@ from gymnasium import spaces
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.rl.lagrangian_probe import (
+    CanonicalActionProbeEvidence,
+    CanonicalActionSemantic,
+)
 from trade_rl.rl.training import ResidualTrainingConfig
 
 
@@ -81,9 +85,15 @@ class _FakeLagrangianPPO:
 
     def checkpoint_identity_payload(self) -> dict[str, object]:
         schema = self.kwargs["lagrangian_schema"]
+        evidence = getattr(self, "canonical_action_probe_evidence", None)
         return {
             "algorithm": "lagrangian_ppo",
             "lagrangian_schema_digest": schema.digest,
+            "canonical_action_probe_digest": (
+                evidence.digest
+                if isinstance(evidence, CanonicalActionProbeEvidence)
+                else None
+            ),
         }
 
     def learn(self, **kwargs: object) -> None:
@@ -119,11 +129,31 @@ def _config() -> ResidualTrainingConfig:
     )
 
 
+def _probe_evidence() -> CanonicalActionProbeEvidence:
+    estimates = {name: 0.0 for name in CONSTRAINT_COST_NAMES}
+    denominators = {name: 2 for name in CONSTRAINT_COST_NAMES}
+    budgets = {name: 0.1 for name in CONSTRAINT_COST_NAMES}
+    return CanonicalActionProbeEvidence(
+        action_semantic=CanonicalActionSemantic.RESIDUAL_BASELINE,
+        action=np.zeros(3, dtype=np.float32),
+        estimates=estimates,
+        denominators=denominators,
+        budgets=budgets,
+        violated_costs=(),
+        completed_episode_count=2,
+        censored_episode_count=0,
+        episode_count=2,
+        max_steps_per_episode=16,
+        warning=False,
+    )
+
+
 def test_backend_constructs_lagrangian_ppo_with_full_schema(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     probe = _LagrangianProbe()
+    evidence = _probe_evidence()
     constructed: list[_FakeLagrangianPPO] = []
 
     def build_model(
@@ -138,6 +168,10 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     monkeypatch.setattr(
         "trade_rl.integrations.lagrangian_ppo.LagrangianPPO",
         build_model,
+    )
+    monkeypatch.setattr(
+        "trade_rl.rl.lagrangian_probe.run_canonical_action_feasibility_probe",
+        lambda **kwargs: evidence,
     )
     monkeypatch.setattr(
         "trade_rl.rl.checkpointing.build_checkpoint_callback",
@@ -159,6 +193,7 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
         config.cost_learning_rate
     )
     assert constructed[0].kwargs["cost_n_epochs"] == config.cost_n_epochs
+    assert constructed[0].canonical_action_probe_evidence is evidence
     assert schema.names == CONSTRAINT_COST_NAMES
     assert tuple(spec.minimum_completed_episodes for spec in schema.specs) == (
         1,
@@ -181,5 +216,8 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     assert lagrangian["schema_digest"] == schema.digest
     assert lagrangian["probe_episodes"] == 2
     assert lagrangian["probe_max_steps_per_episode"] == 16
+    probe_identity = architecture["architecture"]["lagrangian_probe"]
+    assert probe_identity["digest"] == evidence.digest
+    assert probe_identity["payload"] == evidence.digest_payload()
     assert result.actual_timesteps == 4
     assert probe.close_calls == 1

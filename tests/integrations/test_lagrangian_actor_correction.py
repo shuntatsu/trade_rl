@@ -59,6 +59,7 @@ def _schema():
         max_multipliers=(10.0,) * count,
         warmup_rollouts=(0,) * count,
         update_interval_rollouts=(1,) * count,
+        minimum_completed_episodes=(1,) * count,
     )
 
 

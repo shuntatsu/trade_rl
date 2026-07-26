@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import uuid
 from dataclasses import asdict, dataclass
@@ -56,6 +55,72 @@ def save_policy_without_runtime_state(model: Any, target: str) -> None:
             rollout_buffer_kwargs["sequence_reconstructor"] = runtime_reconstructor
 
 
+def _same_checkpoint_identity(
+    manifest: CheckpointManifest,
+    *,
+    algorithm: str,
+    seed: int,
+    requested_timestep: int,
+    observed_timestep: int,
+    environment_digest: str,
+    training_config_digest: str,
+) -> bool:
+    return (
+        manifest.requested_timestep == requested_timestep
+        and manifest.observed_timestep == observed_timestep
+        and manifest.algorithm == algorithm
+        and manifest.seed == seed
+        and manifest.environment_digest == environment_digest
+        and manifest.training_config_digest == training_config_digest
+    )
+
+
+def _checkpoint_destination(
+    checkpoint_root: Path,
+    *,
+    algorithm: str,
+    seed: int,
+    requested_timestep: int,
+    observed_timestep: int,
+    environment_digest: str,
+    training_config_digest: str,
+) -> tuple[Path, CheckpointManifest | None]:
+    primary = checkpoint_root / f"step-{observed_timestep:012d}"
+    if not primary.exists():
+        return primary, None
+    existing = load_checkpoint_manifest(primary / CHECKPOINT_MANIFEST_NAME)
+    if _same_checkpoint_identity(
+        existing,
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=requested_timestep,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+    ):
+        return primary, existing
+    if existing.observed_timestep != observed_timestep:
+        raise ValueError("checkpoint destination already has conflicting identity")
+
+    fallback = checkpoint_root / (
+        f"step-{observed_timestep:012d}-requested-{requested_timestep:012d}"
+    )
+    if not fallback.exists():
+        return fallback, None
+    fallback_existing = load_checkpoint_manifest(fallback / CHECKPOINT_MANIFEST_NAME)
+    if not _same_checkpoint_identity(
+        fallback_existing,
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=requested_timestep,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+    ):
+        raise ValueError("checkpoint destination already has conflicting identity")
+    return fallback, fallback_existing
+
+
 def publish_checkpoint(
     *,
     model: Any,
@@ -72,18 +137,16 @@ def publish_checkpoint(
     if requested_timestep <= 0 or observed_timestep < requested_timestep:
         raise ValueError("checkpoint timestep identity is invalid")
     checkpoint_root = Path(checkpoint_root)
-    destination = checkpoint_root / f"step-{observed_timestep:012d}"
-    if destination.exists():
-        existing = load_checkpoint_manifest(destination / CHECKPOINT_MANIFEST_NAME)
-        if (
-            existing.requested_timestep != requested_timestep
-            or existing.observed_timestep != observed_timestep
-            or existing.algorithm != algorithm
-            or existing.seed != seed
-            or existing.environment_digest != environment_digest
-            or existing.training_config_digest != training_config_digest
-        ):
-            raise ValueError("checkpoint destination already has conflicting identity")
+    destination, existing = _checkpoint_destination(
+        checkpoint_root,
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=requested_timestep,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+    )
+    if existing is not None:
         return existing
     checkpoint_root.mkdir(parents=True, exist_ok=True)
     staging = checkpoint_root / f".{destination.name}.staging-{uuid.uuid4().hex}"

@@ -765,12 +765,8 @@ class StableBaselines3Backend:
                 }
             if isinstance(algorithm_config, LagrangianPPOConfig):
                 architecture_details["lagrangian"] = {
-                    "actor_composition_mode": (
-                        algorithm_config.actor_composition_mode
-                    ),
-                    "completion_semantics": (
-                        "economic_time_limit_censored_shadow_v1"
-                    ),
+                    "actor_composition_mode": (algorithm_config.actor_composition_mode),
+                    "completion_semantics": ("economic_time_limit_censored_shadow_v1"),
                     "probe_episodes": algorithm_config.probe_episodes,
                     "probe_max_steps_per_episode": (
                         algorithm_config.probe_max_steps_per_episode
@@ -1086,9 +1082,7 @@ class StableBaselines3Backend:
                 "ppo",
                 "cost_critic_ppo",
                 "lagrangian_ppo",
-            } and hasattr(
-                model, "save_replay_buffer"
-            ):
+            } and hasattr(model, "save_replay_buffer"):
                 raw_replay = output_path.parent / ".replay-buffer.tmp.pkl"
                 model.save_replay_buffer(str(raw_replay))
                 replay_manifest = write_replay_buffer_artifact(

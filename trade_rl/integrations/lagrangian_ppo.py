@@ -49,12 +49,8 @@ class LagrangianPPO(CostCriticPPO):
     """Apply independent cost advantages without reward shaping."""
 
     algorithm_identifier: ClassVar[str] = "lagrangian_ppo"
-    actor_composition_mode: ClassVar[str] = (
-        "raw_lagrangian_then_sb3_normalize_v1"
-    )
-    completion_semantics: ClassVar[str] = (
-        "economic_time_limit_censored_shadow_v1"
-    )
+    actor_composition_mode: ClassVar[str] = "raw_lagrangian_then_sb3_normalize_v1"
+    completion_semantics: ClassVar[str] = "economic_time_limit_censored_shadow_v1"
 
     def __init__(
         self,

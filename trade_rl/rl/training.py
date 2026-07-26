@@ -524,12 +524,8 @@ class ResidualTrainingConfig:
                 initial_multipliers=self.lagrangian_initial_multipliers,
                 max_multipliers=self.lagrangian_max_multipliers,
                 warmup_rollouts=self.lagrangian_warmup_rollouts,
-                update_interval_rollouts=(
-                    self.lagrangian_update_interval_rollouts
-                ),
-                minimum_completed_episodes=(
-                    self.lagrangian_minimum_completed_episodes
-                ),
+                update_interval_rollouts=(self.lagrangian_update_interval_rollouts),
+                minimum_completed_episodes=(self.lagrangian_minimum_completed_episodes),
             )
         else:
             _require_inactive_defaults(
@@ -699,12 +695,8 @@ class ResidualTrainingConfig:
                 initial_multipliers=self.lagrangian_initial_multipliers,
                 max_multipliers=self.lagrangian_max_multipliers,
                 warmup_rollouts=self.lagrangian_warmup_rollouts,
-                update_interval_rollouts=(
-                    self.lagrangian_update_interval_rollouts
-                ),
-                minimum_completed_episodes=(
-                    self.lagrangian_minimum_completed_episodes
-                ),
+                update_interval_rollouts=(self.lagrangian_update_interval_rollouts),
+                minimum_completed_episodes=(self.lagrangian_minimum_completed_episodes),
             )
             payload["lagrangian"] = {
                 "actor_composition_mode": "raw_lagrangian_then_sb3_normalize_v1",

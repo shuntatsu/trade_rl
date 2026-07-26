@@ -132,9 +132,7 @@ def _cost_schema(source: ResidualTrainingConfig) -> CostLearningSchema:
         continuous_gae_lambda=source.cost_continuous_gae_lambda,
         event_gae_lambda=source.cost_event_gae_lambda,
         value_loss_coefficient=source.cost_value_loss_coefficient,
-        auxiliary_event_loss_coefficient=(
-            source.cost_auxiliary_event_loss_coefficient
-        ),
+        auxiliary_event_loss_coefficient=(source.cost_auxiliary_event_loss_coefficient),
     )
 
 
@@ -178,17 +176,13 @@ def build_algorithm_config(
                 initial_multipliers=source.lagrangian_initial_multipliers,
                 max_multipliers=source.lagrangian_max_multipliers,
                 warmup_rollouts=source.lagrangian_warmup_rollouts,
-                update_interval_rollouts=(
-                    source.lagrangian_update_interval_rollouts
-                ),
+                update_interval_rollouts=(source.lagrangian_update_interval_rollouts),
                 minimum_completed_episodes=(
                     source.lagrangian_minimum_completed_episodes
                 ),
             ),
             probe_episodes=source.lagrangian_probe_episodes,
-            probe_max_steps_per_episode=(
-                source.lagrangian_probe_max_steps_per_episode
-            ),
+            probe_max_steps_per_episode=(source.lagrangian_probe_max_steps_per_episode),
         )
     common = dict(
         timesteps=source.timesteps,

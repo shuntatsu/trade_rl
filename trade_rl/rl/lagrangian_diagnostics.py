@@ -262,7 +262,7 @@ def _sign_change_frequency(values: Sequence[float]) -> float:
     signs = [int(np.sign(value)) for value in values if abs(value) > _EPSILON]
     if len(signs) < 2:
         return 0.0
-    changes = sum(left != right for left, right in zip(signs, signs[1:], strict=True))
+    changes = sum(left != right for left, right in zip(signs, signs[1:]))
     return changes / (len(signs) - 1)
 
 

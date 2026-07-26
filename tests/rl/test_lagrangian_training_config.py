@@ -1,12 +1,15 @@
-# ruff: noqa: I001
 from __future__ import annotations
 
 import pytest
 
-from trade_rl.rl import cost_learning, training
+from trade_rl.rl.algorithm_configs import (
+    LagrangianPPOConfig,
+    build_algorithm_config,
+)
+from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.rl.training import ResidualTrainingConfig
 
 
-CONSTRAINT_COST_NAMES = cost_learning.CONSTRAINT_COST_NAMES
 _CANONICAL_SUPPORT = (1, 20, 1, 20, 1, 1, 1)
 
 
@@ -26,7 +29,7 @@ def _lagrangian_values() -> dict[str, object]:
     }
 
 
-def _config(**overrides: object) -> training.ResidualTrainingConfig:
+def _config(**overrides: object) -> ResidualTrainingConfig:
     values: dict[str, object] = {
         "timesteps": 10,
         "gamma": 1.0,
@@ -41,15 +44,10 @@ def _config(**overrides: object) -> training.ResidualTrainingConfig:
         **_lagrangian_values(),
     }
     values.update(overrides)
-    return training.ResidualTrainingConfig(**values)  # type: ignore[arg-type]
+    return ResidualTrainingConfig(**values)  # type: ignore[arg-type]
 
 
 def test_lagrangian_algorithm_builds_typed_configuration() -> None:
-    from trade_rl.rl.algorithm_configs import (
-        LagrangianPPOConfig,
-        build_algorithm_config,
-    )
-
     source = _config()
     config = build_algorithm_config(source)
 
@@ -106,7 +104,7 @@ def test_lagrangian_training_identity_tracks_every_semantic_field() -> None:
 
 
 def test_ordinary_ppo_identity_omits_inactive_lagrangian_contract() -> None:
-    config = training.ResidualTrainingConfig(
+    config = ResidualTrainingConfig(
         timesteps=8,
         gamma=1.0,
         seeds=(0,),

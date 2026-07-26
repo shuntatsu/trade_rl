@@ -153,8 +153,7 @@ class LagrangianDualController:
             ema_after = (
                 raw_estimate
                 if previous_ema is None
-                else spec.ema_beta * previous_ema
-                + (1.0 - spec.ema_beta) * raw_estimate
+                else spec.ema_beta * previous_ema + (1.0 - spec.ema_beta) * raw_estimate
             )
             if not math.isfinite(ema_after) or ema_after < 0.0:
                 raise ValueError("EMA constraint estimate became invalid")

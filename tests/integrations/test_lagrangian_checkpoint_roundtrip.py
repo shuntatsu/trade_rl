@@ -174,9 +174,7 @@ def test_lagrangian_save_load_preserves_dual_accumulator_and_critic_state(
     try:
         model.lagrangian_controller.update_after_rollout(_estimates(0.3))
         model.lagrangian_controller.update_after_rollout(_estimates(0.1))
-        model.frozen_lagrange_multipliers = (
-            model.lagrangian_controller.begin_rollout()
-        )
+        model.frozen_lagrange_multipliers = model.lagrangian_controller.begin_rollout()
 
         partial_costs = np.zeros((2, 1, len(CONSTRAINT_COST_NAMES)), dtype=np.float64)
         partial_costs[0, 0, 0] = 0.2

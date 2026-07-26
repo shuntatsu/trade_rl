@@ -75,6 +75,24 @@ def _same_checkpoint_identity(
     )
 
 
+def _same_checkpoint_run_identity(
+    manifest: CheckpointManifest,
+    *,
+    algorithm: str,
+    seed: int,
+    observed_timestep: int,
+    environment_digest: str,
+    training_config_digest: str,
+) -> bool:
+    return (
+        manifest.observed_timestep == observed_timestep
+        and manifest.algorithm == algorithm
+        and manifest.seed == seed
+        and manifest.environment_digest == environment_digest
+        and manifest.training_config_digest == training_config_digest
+    )
+
+
 def _checkpoint_destination(
     checkpoint_root: Path,
     *,
@@ -99,7 +117,14 @@ def _checkpoint_destination(
         training_config_digest=training_config_digest,
     ):
         return primary, existing
-    if existing.observed_timestep != observed_timestep:
+    if not _same_checkpoint_run_identity(
+        existing,
+        algorithm=algorithm,
+        seed=seed,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+    ):
         raise ValueError("checkpoint destination already has conflicting identity")
 
     fallback = checkpoint_root / (

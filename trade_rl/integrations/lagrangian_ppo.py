@@ -208,7 +208,7 @@ class LagrangianPPO(CostCriticPPO):
         reward_advantages: torch.Tensor,
         cost_advantages: np.ndarray,
     ) -> torch.Tensor:
-        """Return exact PPO advantages at zero lambda, otherwise constrained ones."""
+        """Compose raw Lagrangian advantages, then apply pinned PPO normalization."""
 
         if np.all(self.frozen_lagrange_multipliers == 0.0):
             advantages = reward_advantages
@@ -222,13 +222,17 @@ class LagrangianPPO(CostCriticPPO):
             reward_advantages=reward_advantages.detach().cpu().numpy(),
             cost_advantages=cost_advantages,
             multipliers=self.frozen_lagrange_multipliers,
-            normalize_reward=self.normalize_advantage and len(reward_advantages) > 1,
         )
-        return torch.as_tensor(
+        advantages = torch.as_tensor(
             combined,
             dtype=reward_advantages.dtype,
             device=reward_advantages.device,
         )
+        if self.normalize_advantage and len(advantages) > 1:
+            advantages = (advantages - advantages.mean()) / (
+                advantages.std() + 1e-8
+            )
+        return advantages
 
     def _train_actor_with_lagrangian_advantages(self) -> None:
         """Run the pinned SB3 PPO loop with only the actor advantage replaced."""

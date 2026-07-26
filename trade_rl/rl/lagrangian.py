@@ -14,7 +14,7 @@ from trade_rl.rl.lagrangian_statistics import (
     CompletedEpisodeCostAccumulator,
     ConstraintAggregation,
     ConstraintEstimate,
-    LagrangianConstraintSpec as _StatisticsConstraintSpec,
+    LagrangianConstraintSpec as BaseLagrangianConstraintSpec,
     LagrangianSchema,
     canonical_constraint_aggregation,
     canonical_constraint_unit,
@@ -22,10 +22,10 @@ from trade_rl.rl.lagrangian_statistics import (
 
 
 @dataclass(frozen=True, slots=True)
-class LagrangianConstraintSpec(_StatisticsConstraintSpec):
-    """Constraint settings including the support required for a dual update."""
+class LagrangianConstraintSpec(BaseLagrangianConstraintSpec):
+    """Constraint settings including support required for one dual update."""
 
-    minimum_completed_episodes: int = 1
+    minimum_completed_episodes: int
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -41,7 +41,7 @@ class LagrangianConstraintSpec(_StatisticsConstraintSpec):
 
 @dataclass(frozen=True, slots=True)
 class DualUpdateReport:
-    """One per-cost dual decision after a completed rollout."""
+    """One per-cost estimator and dual-actuator decision."""
 
     name: str
     raw_estimate: float | None
@@ -64,7 +64,7 @@ class DualUpdateReport:
 
     @property
     def saturated(self) -> bool:
-        """Compatibility alias for the upper-cap condition only."""
+        """Compatibility alias for upper-cap saturation only."""
 
         return self.at_upper_cap
 
@@ -107,7 +107,7 @@ class LagrangianDualController:
         return self._STATE_VERSION
 
     def begin_rollout(self) -> np.ndarray:
-        """Return a read-only multiplier snapshot frozen for the rollout."""
+        """Return a read-only multiplier snapshot frozen for one rollout."""
 
         snapshot = self._multipliers.copy()
         snapshot.flags.writeable = False
@@ -141,9 +141,13 @@ class LagrangianDualController:
         return tuple(ordered)
 
     @staticmethod
-    def _validated_censored_episode_count(value: int) -> int:
+    def _validated_non_negative_integer(
+        value: object,
+        *,
+        field_name: str,
+    ) -> int:
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError("censored_episode_count must be a non-negative integer")
+            raise ValueError(f"{field_name} must be a non-negative integer")
         return value
 
     @classmethod
@@ -158,13 +162,14 @@ class LagrangianDualController:
         self,
         estimates: Mapping[str, ConstraintEstimate | None],
         *,
-        censored_episode_count: int = 0,
+        censored_episode_count: int,
     ) -> dict[str, DualUpdateReport]:
-        """Retain every observation, then apply at most one scheduled update."""
+        """Retain observations before applying schedule and support gates."""
 
         ordered_estimates = self._validated_estimates(estimates)
-        censored_increment = self._validated_censored_episode_count(
-            censored_episode_count
+        censored_increment = self._validated_non_negative_integer(
+            censored_episode_count,
+            field_name="censored_episode_count",
         )
         next_rollout_count = self._rollout_count + 1
         next_censored_count = self._censored_episode_count + censored_increment
@@ -177,12 +182,12 @@ class LagrangianDualController:
         pending_denominators = self._pending_denominators.copy()
         reports: dict[str, DualUpdateReport] = {}
 
-        for index, (spec, estimate) in enumerate(
+        for index, (raw_spec, estimate) in enumerate(
             zip(self.schema.specs, ordered_estimates, strict=True)
         ):
-            if not isinstance(spec, LagrangianConstraintSpec):
-                raise TypeError("Lagrangian constraint spec support metadata is missing")
-
+            if not isinstance(raw_spec, LagrangianConstraintSpec):
+                raise TypeError("Lagrangian constraint support metadata is missing")
+            spec = raw_spec
             multiplier_before = float(self._multipliers[index])
             previous_ema = (
                 float(self._ema_estimates[index])
@@ -315,7 +320,7 @@ class LagrangianDualController:
         return reports
 
     def state_dict(self) -> dict[str, object]:
-        """Return deterministic JSON-compatible dual and estimator state."""
+        """Return deterministic JSON-compatible estimator and dual state."""
 
         return {
             "censored_episode_count": self._censored_episode_count,
@@ -335,18 +340,8 @@ class LagrangianDualController:
             "update_counts": self._update_counts.tolist(),
         }
 
-    @staticmethod
-    def _validated_non_negative_integer(
-        value: object,
-        *,
-        field_name: str,
-    ) -> int:
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError(f"{field_name} must be a non-negative integer")
-        return value
-
     def load_state_dict(self, state: Mapping[str, object]) -> None:
-        """Restore estimator and controller state only after full validation."""
+        """Restore estimator and controller state after complete validation."""
 
         if state.get("schema_version") != self._STATE_VERSION:
             raise ValueError("dual state schema version mismatch")
@@ -393,9 +388,11 @@ class LagrangianDualController:
 
         if not np.all(np.isfinite(multipliers)) or np.any(multipliers < 0.0):
             raise ValueError("dual state multipliers must be finite and non-negative")
-        for index, spec in enumerate(self.schema.specs):
-            if multipliers[index] > spec.max_multiplier + self._BOUNDARY_TOLERANCE:
-                raise ValueError(f"dual state multiplier exceeds cap for {spec.name}")
+        for index, raw_spec in enumerate(self.schema.specs):
+            if multipliers[index] > raw_spec.max_multiplier + self._BOUNDARY_TOLERANCE:
+                raise ValueError(
+                    f"dual state multiplier exceeds cap for {raw_spec.name}"
+                )
         if not np.all(np.isfinite(pending_numerators)) or np.any(
             pending_numerators < 0.0
         ):
@@ -492,7 +489,7 @@ def canonical_lagrangian_schema(
     max_multipliers: tuple[float, ...],
     warmup_rollouts: tuple[int, ...],
     update_interval_rollouts: tuple[int, ...],
-    minimum_completed_episodes: tuple[int, ...] | None = None,
+    minimum_completed_episodes: tuple[int, ...],
 ) -> LagrangianSchema:
     """Build an explicit schema from canonical-order configuration vectors."""
 
@@ -500,11 +497,6 @@ def canonical_lagrangian_schema(
     if not ordered_names:
         raise ValueError("names must not be empty")
     expected_length = len(ordered_names)
-    resolved_minimums = (
-        (1,) * expected_length
-        if minimum_completed_episodes is None
-        else minimum_completed_episodes
-    )
     vectors = (
         _validated_vector(
             budgets,
@@ -542,7 +534,7 @@ def canonical_lagrangian_schema(
             field_name="update_interval_rollouts",
         ),
         _validated_vector(
-            resolved_minimums,
+            minimum_completed_episodes,
             expected_length=expected_length,
             field_name="minimum_completed_episodes",
         ),

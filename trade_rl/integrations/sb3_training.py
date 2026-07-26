@@ -386,6 +386,22 @@ class StableBaselines3Backend:
             identity = _environment_identity(probe)
             _validate_training_environment(identity, config)
             algorithm_config = build_algorithm_config(config)
+            canonical_action_probe_evidence = None
+            if isinstance(algorithm_config, LagrangianPPOConfig):
+                from trade_rl.rl.lagrangian_probe import (
+                    run_canonical_action_feasibility_probe,
+                )
+
+                canonical_action_probe_evidence = (
+                    run_canonical_action_feasibility_probe(
+                        environment_factory=self.environment_factory,
+                        schema=algorithm_config.lagrangian_schema,
+                        episode_count=algorithm_config.probe_episodes,
+                        max_steps_per_episode=(
+                            algorithm_config.probe_max_steps_per_episode
+                        ),
+                    )
+                )
             rollout_buffer_bytes: int | None = None
             if isinstance(algorithm_config, PPOConfig):
                 estimator = (
@@ -595,7 +611,13 @@ class StableBaselines3Backend:
                         cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,
                         cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
                         lagrangian_schema=algorithm_config.lagrangian_schema,
+                        canonical_action_probe_evidence=(
+                            canonical_action_probe_evidence
+                        ),
                         **ppo_kwargs,
+                    )
+                    model.canonical_action_probe_evidence = (
+                        canonical_action_probe_evidence
                     )
                 elif isinstance(algorithm_config, CostCriticPPOConfig):
                     from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
@@ -773,6 +795,20 @@ class StableBaselines3Backend:
                     ),
                     "schema": algorithm_config.lagrangian_schema.digest_payload(),
                     "schema_digest": algorithm_config.lagrangian_schema.digest,
+                }
+                if canonical_action_probe_evidence is None:
+                    raise RuntimeError(
+                        "canonical action probe evidence is unavailable"
+                    )
+                architecture_details["lagrangian_probe"] = {
+                    "digest": canonical_action_probe_evidence.digest,
+                    "payload": (
+                        canonical_action_probe_evidence.digest_payload()
+                    ),
+                    "violated_costs": list(
+                        canonical_action_probe_evidence.violated_costs
+                    ),
+                    "warning": canonical_action_probe_evidence.warning,
                 }
             if config.sequence_encoder:
                 if sequence_metadata is None:

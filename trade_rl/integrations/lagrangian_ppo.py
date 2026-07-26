@@ -26,6 +26,7 @@ from trade_rl.rl.lagrangian import (
     canonical_lagrangian_schema,
 )
 from trade_rl.rl.lagrangian_advantages import combine_lagrangian_advantages
+from trade_rl.rl.lagrangian_probe import CanonicalActionProbeEvidence
 
 
 def _load_placeholder_schema() -> LagrangianSchema:
@@ -56,6 +57,9 @@ class LagrangianPPO(CostCriticPPO):
         self,
         *args: Any,
         lagrangian_schema: LagrangianSchema | None = None,
+        canonical_action_probe_evidence: (
+            CanonicalActionProbeEvidence | None
+        ) = None,
         _init_setup_model: bool = True,
         **kwargs: Any,
     ) -> None:
@@ -68,6 +72,15 @@ class LagrangianPPO(CostCriticPPO):
         else:
             raise TypeError("lagrangian_schema must be a LagrangianSchema")
 
+        if canonical_action_probe_evidence is not None and not isinstance(
+            canonical_action_probe_evidence, CanonicalActionProbeEvidence
+        ):
+            raise TypeError(
+                "canonical_action_probe_evidence has an invalid type"
+            )
+        self.canonical_action_probe_evidence = (
+            canonical_action_probe_evidence
+        )
         self.lagrangian_schema = resolved_schema
         self.lagrangian_controller = LagrangianDualController(resolved_schema)
         self.completed_episode_cost_accumulator: (
@@ -151,6 +164,15 @@ class LagrangianPPO(CostCriticPPO):
         reports = getattr(self, "last_dual_update_reports", None)
         if not isinstance(reports, dict):
             self.last_dual_update_reports = {}
+        probe_evidence = getattr(
+            self, "canonical_action_probe_evidence", None
+        )
+        if probe_evidence is not None and not isinstance(
+            probe_evidence, CanonicalActionProbeEvidence
+        ):
+            raise TypeError(
+                "canonical_action_probe_evidence has an invalid type"
+            )
 
     def collect_rollouts(
         self,
@@ -452,6 +474,7 @@ class LagrangianPPO(CostCriticPPO):
         accumulator = self.completed_episode_cost_accumulator
         if not isinstance(accumulator, CompletedEpisodeCostAccumulator):
             raise RuntimeError("completed episode accumulator is unavailable")
+        probe_evidence = self.canonical_action_probe_evidence
         payload = super().checkpoint_identity_payload()
         payload.update(
             {
@@ -463,6 +486,14 @@ class LagrangianPPO(CostCriticPPO):
                 "lagrangian_cost_names": list(self.lagrangian_schema.names),
                 "accumulator_state_version": accumulator.state_version,
                 "controller_state_version": self.lagrangian_controller.state_version,
+                "canonical_action_probe": (
+                    None
+                    if probe_evidence is None
+                    else probe_evidence.digest_payload()
+                ),
+                "canonical_action_probe_digest": (
+                    None if probe_evidence is None else probe_evidence.digest
+                ),
             }
         )
         return payload

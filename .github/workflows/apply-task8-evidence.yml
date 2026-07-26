@@ -61,19 +61,36 @@ jobs:
             tests/rl/test_lagrangian_evidence.py \
             tests/integrations/test_lagrangian_evidence_integration.py
 
-      - name: Run Task 8 tests
+      - name: Run Task 8 pytest
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           uv run pytest -q \
             tests/rl/test_lagrangian_diagnostics.py \
             tests/rl/test_lagrangian_evidence.py \
             tests/integrations/test_lagrangian_evidence_integration.py \
-            tests/integrations/test_lagrangian_checkpoint_roundtrip.py
+            tests/integrations/test_lagrangian_checkpoint_roundtrip.py \
+            2>&1 | tee task8-pytest.log
+
+      - name: Run Task 8 Mypy
+        shell: bash
+        run: |
+          set -o pipefail
           uv run mypy \
             trade_rl/integrations/lagrangian_ppo.py \
             trade_rl/rl/lagrangian_diagnostics.py \
-            trade_rl/rl/lagrangian_evidence.py
+            trade_rl/rl/lagrangian_evidence.py \
+            2>&1 | tee task8-mypy.log
+
+      - name: Upload Task 8 diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: task8-green-diagnostics
+          path: |
+            task8-pytest.log
+            task8-mypy.log
+          if-no-files-found: ignore
 
       - name: Commit Task 8 GREEN
         shell: bash

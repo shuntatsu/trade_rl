@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from trade_rl.integrations.cost_rollout_buffer import CostRolloutStorage
 from trade_rl.rl.cost_learning import canonical_cost_learning_schema
@@ -68,18 +69,17 @@ def test_explicit_info_elapsed_time_must_match_vector_source() -> None:
     )
     zeros = np.zeros((1, 7), dtype=np.float32)
 
-    storage.add_from_infos(
-        infos=(
-            {
-                "constraint_costs": _costs(elapsed_hours=0.5),
-                "transition_elapsed_hours": 0.5,
-                "termination_reason": None,
-            },
-        ),
-        cost_values=zeros,
-        terminated=np.asarray([False]),
-        truncated=np.asarray([False]),
-        terminal_cost_values=zeros,
-    )
-
-    np.testing.assert_array_equal(storage.elapsed_hours[0], [0.5])
+    with pytest.raises(ValueError, match="elapsed metadata mismatch"):
+        storage.add_from_infos(
+            infos=(
+                {
+                    "constraint_costs": _costs(elapsed_hours=0.5),
+                    "transition_elapsed_hours": 1.0,
+                    "termination_reason": None,
+                },
+            ),
+            cost_values=zeros,
+            terminated=np.asarray([False]),
+            truncated=np.asarray([False]),
+            terminal_cost_values=zeros,
+        )

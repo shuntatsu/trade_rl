@@ -49,6 +49,7 @@ def test_event_cost_head_report_has_deterministic_calibration_and_pr_inputs() ->
         calibration_bin_count=4,
     )
 
+    assert report.positive_sample_count == 3
     assert report.brier_score == pytest.approx(np.mean((probabilities - labels) ** 2))
     assert tuple(bin_.count for bin_ in report.calibration_bins) == (2, 0, 1, 2)
     assert report.calibration_bins[0].mean_probability == pytest.approx(0.125)

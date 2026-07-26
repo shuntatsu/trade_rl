@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -10,9 +11,15 @@ import numpy as np
 from trade_rl.rl.cost_learning import CostLearningSchema
 from trade_rl.rl.cost_returns import compute_cost_returns_and_advantages
 from trade_rl.rl.environment_constraints import ConstraintCostVector
+from trade_rl.rl.lagrangian_episode import (
+    EpisodeCompletionKind,
+    classify_episode_completion,
+)
 
 _FLOAT32_BYTES = int(np.dtype(np.float32).itemsize)
+_FLOAT64_BYTES = int(np.dtype(np.float64).itemsize)
 _BOOL_BYTES = int(np.dtype(np.bool_).itemsize)
+_INT8_BYTES = int(np.dtype(np.int8).itemsize)
 _COST_FLOAT_ARRAY_COUNT = 5
 _COST_BOOL_ARRAY_COUNT = 2
 
@@ -57,14 +64,18 @@ class CostRolloutStorage:
         buffer_size: int,
         n_envs: int,
         schema: CostLearningSchema,
+        require_episode_metadata: bool = False,
     ) -> None:
         self.buffer_size = _positive_integer(buffer_size, field_name="buffer_size")
         self.n_envs = _positive_integer(n_envs, field_name="n_envs")
         if not isinstance(schema, CostLearningSchema):
             raise TypeError("schema must be a CostLearningSchema")
+        if not isinstance(require_episode_metadata, bool):
+            raise TypeError("require_episode_metadata must be a boolean")
         self.schema = schema
         self.cost_names = schema.names
         self.n_costs = len(self.cost_names)
+        self.require_episode_metadata = require_episode_metadata
         self.reset()
 
     def reset(self) -> None:
@@ -77,6 +88,12 @@ class CostRolloutStorage:
         mask_shape = (self.buffer_size, self.n_envs)
         self.terminated = np.zeros(mask_shape, dtype=np.bool_)
         self.truncated = np.zeros(mask_shape, dtype=np.bool_)
+        self.elapsed_hours = np.full(mask_shape, np.nan, dtype=np.float64)
+        self.completion_kinds = np.full(
+            mask_shape,
+            EpisodeCompletionKind.NONE,
+            dtype=np.int8,
+        )
         self.pos = 0
         self.full = False
         self.finalized = False
@@ -103,6 +120,49 @@ class CostRolloutStorage:
         if np.any(matrix < 0.0):
             raise ValueError("constraint_costs must be non-negative")
         return matrix
+
+    def _episode_metadata_from_infos(
+        self,
+        *,
+        infos: Sequence[Mapping[str, object]],
+        terminated: np.ndarray,
+        truncated: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        elapsed_hours = np.full(self.n_envs, np.nan, dtype=np.float64)
+        completion_kinds = np.full(
+            self.n_envs,
+            EpisodeCompletionKind.NONE,
+            dtype=np.int8,
+        )
+        for index, info in enumerate(infos):
+            if "transition_elapsed_hours" not in info:
+                if self.require_episode_metadata:
+                    raise ValueError("info is missing transition_elapsed_hours")
+                continue
+            raw_elapsed = info["transition_elapsed_hours"]
+            if isinstance(raw_elapsed, bool):
+                raise ValueError(
+                    "transition_elapsed_hours must be finite and positive"
+                )
+            try:
+                elapsed = float(raw_elapsed)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "transition_elapsed_hours must be finite and positive"
+                ) from error
+            if not math.isfinite(elapsed) or elapsed <= 0.0:
+                raise ValueError(
+                    "transition_elapsed_hours must be finite and positive"
+                )
+            kind = classify_episode_completion(
+                terminated=bool(terminated[index]),
+                truncated=bool(truncated[index]),
+                time_limit_truncated=bool(info.get("TimeLimit.truncated", False)),
+                termination_reason=info.get("termination_reason"),
+            )
+            elapsed_hours[index] = elapsed
+            completion_kinds[index] = int(kind)
+        return elapsed_hours, completion_kinds
 
     def add_from_infos(
         self,
@@ -134,12 +194,19 @@ class CostRolloutStorage:
             raise ValueError("termination flags must have shape [environments]")
         if np.any(terminated_array & truncated_array):
             raise ValueError("a transition cannot both terminate and truncate")
+        elapsed_hours, completion_kinds = self._episode_metadata_from_infos(
+            infos=infos,
+            terminated=terminated_array,
+            truncated=truncated_array,
+        )
 
         index = self.pos
         self.costs[index] = self._cost_matrix_from_infos(infos)
         self.values[index] = value_matrix
         self.terminated[index] = terminated_array
         self.truncated[index] = truncated_array
+        self.elapsed_hours[index] = elapsed_hours
+        self.completion_kinds[index] = completion_kinds
         self.terminal_values[index] = np.where(
             truncated_array[:, None],
             terminal_value_matrix,
@@ -214,7 +281,8 @@ def estimate_cost_rollout_storage_bytes(
     transitions = steps * environments
     float_bytes = transitions * costs * _COST_FLOAT_ARRAY_COUNT * _FLOAT32_BYTES
     bool_bytes = transitions * _COST_BOOL_ARRAY_COUNT * _BOOL_BYTES
-    return float_bytes + bool_bytes
+    metadata_bytes = transitions * (_FLOAT64_BYTES + _INT8_BYTES)
+    return float_bytes + bool_bytes + metadata_bytes
 
 
 __all__ = [

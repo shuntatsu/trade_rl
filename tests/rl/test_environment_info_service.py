@@ -21,6 +21,10 @@ from trade_rl.simulation.accounting import BookState
 class _Dataset:
     periods_per_year = 365
 
+    @staticmethod
+    def elapsed_hours(start_index: int, end_index: int) -> float:
+        return float((end_index - start_index) * 3)
+
 
 class _RewardTracker:
     config = RewardConfig(baseline_underperformance_weight=0.1)
@@ -75,6 +79,7 @@ def _book(*, cash: float = 100.0) -> BookState:
 
 def _execution() -> SimpleNamespace:
     return SimpleNamespace(
+        next_index=10,
         bars_advanced=2,
         interval_cost=0.5,
         interval_funding=-0.1,
@@ -153,6 +158,7 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "action_raw_max_abs",
         "action_saturated_count",
         "bars_advanced",
+        "transition_elapsed_hours",
         "composition",
         "decision_step_index",
         "excess_log_return",
@@ -224,6 +230,7 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "constraint_cost_execution_fraction",
         "constraint_cost_funding_credit_fraction",
     }
+    assert info["transition_elapsed_hours"] == pytest.approx(6.0)
     assert info["reward_baseline_penalty_delta"] == 0.02
     assert info["rolling_growth_gap"] == pytest.approx(0.005)
 

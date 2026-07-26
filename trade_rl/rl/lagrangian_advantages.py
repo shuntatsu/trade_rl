@@ -1,4 +1,4 @@
-"""Pure advantage normalization and Lagrangian composition utilities."""
+"""Pure advantage diagnostics and raw Lagrangian composition utilities."""
 
 from __future__ import annotations
 
@@ -42,10 +42,10 @@ def normalize_advantage_vector(
     *,
     epsilon: float = _DEFAULT_EPSILON,
 ) -> NDArray[np.float64]:
-    """Normalize one advantage vector with population statistics.
+    """Normalize one vector for diagnostics with population statistics.
 
-    A vector whose population standard deviation is at or below ``epsilon``
-    maps to exact zeros. The input is never modified.
+    This helper is observational only. The PPO actor uses the pinned Torch
+    normalization after raw reward-cost composition.
     """
 
     threshold = _validated_epsilon(epsilon)
@@ -66,7 +66,7 @@ def normalize_cost_advantages(
     *,
     epsilon: float = _DEFAULT_EPSILON,
 ) -> NDArray[np.float64]:
-    """Normalize every cost-advantage column independently."""
+    """Normalize cost columns independently for diagnostics only."""
 
     threshold = _validated_epsilon(epsilon)
     matrix = _finite_float_array(
@@ -91,12 +91,9 @@ def combine_lagrangian_advantages(
     reward_advantages: ArrayLike,
     cost_advantages: ArrayLike,
     multipliers: ArrayLike,
-    normalize_reward: bool = True,
-    epsilon: float = _DEFAULT_EPSILON,
 ) -> NDArray[np.float64]:
-    """Return ``A_reward - sum(lambda_i * A_cost_i)`` in batch order."""
+    """Return raw ``A_reward - sum(lambda_i * A_cost_i)`` in batch order."""
 
-    threshold = _validated_epsilon(epsilon)
     reward_vector = _finite_float_array(
         reward_advantages,
         dimensions=1,
@@ -118,17 +115,12 @@ def combine_lagrangian_advantages(
         raise ValueError("multipliers must contain one value per cost column")
     if np.any(multiplier_vector < 0.0):
         raise ValueError("multipliers must be non-negative")
-    if not isinstance(normalize_reward, bool):
-        raise TypeError("normalize_reward must be a boolean")
 
-    reward_component = (
-        normalize_advantage_vector(reward_vector, epsilon=threshold)
-        if normalize_reward
-        else reward_vector.copy()
-    )
-    normalized_costs = normalize_cost_advantages(cost_matrix, epsilon=threshold)
-    penalty = normalized_costs @ multiplier_vector
-    return np.asarray(reward_component - penalty, dtype=np.float64)
+    penalty = cost_matrix @ multiplier_vector
+    combined = reward_vector - penalty
+    if not np.isfinite(combined).all():
+        raise ValueError("combined Lagrangian advantages must be finite")
+    return np.asarray(combined, dtype=np.float64)
 
 
 __all__ = [

@@ -288,25 +288,25 @@ def build_dual_stability_diagnostics(
 
     constraints: list[ConstraintStabilityDiagnostics] = []
     for name in names:
-        reports = tuple(entry[name] for entry in history)
-        upper_cap = tuple(report.at_upper_cap for report in reports)
-        lower_bound = tuple(report.at_lower_bound for report in reports)
+        constraint_reports = tuple(entry[name] for entry in history)
+        upper_cap = tuple(report.at_upper_cap for report in constraint_reports)
+        lower_bound = tuple(report.at_lower_bound for report in constraint_reports)
         multipliers = np.asarray(
-            [report.multiplier_after for report in reports],
+            [report.multiplier_after for report in constraint_reports],
             dtype=np.float64,
         )
         if not np.isfinite(multipliers).all():
             raise ValueError("multiplier history must be finite")
         residuals = tuple(
             float(report.constraint_residual)
-            for report in reports
+            for report in constraint_reports
             if report.constraint_residual is not None
         )
         if any(not math.isfinite(value) for value in residuals):
             raise ValueError("constraint residual history must be finite")
         deltas = tuple(
             report.multiplier_after - report.multiplier_before
-            for report in reports
+            for report in constraint_reports
             if report.updated
         )
         satisfaction = tuple(value <= 0.0 for value in residuals)
@@ -322,9 +322,9 @@ def build_dual_stability_diagnostics(
         constraints.append(
             ConstraintStabilityDiagnostics(
                 name=name,
-                rollout_count=len(reports),
-                saturation_fraction=sum(upper_cap) / len(reports),
-                lower_bound_fraction=sum(lower_bound) / len(reports),
+                rollout_count=len(constraint_reports),
+                saturation_fraction=sum(upper_cap) / len(constraint_reports),
+                lower_bound_fraction=sum(lower_bound) / len(constraint_reports),
                 longest_saturation_run=_longest_true_run(upper_cap),
                 update_sign_change_frequency=_sign_change_frequency(deltas),
                 multiplier_variance=float(np.var(multipliers)),

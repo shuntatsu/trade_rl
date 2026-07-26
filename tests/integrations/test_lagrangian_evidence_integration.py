@@ -66,7 +66,9 @@ class _EvidenceEnvironment(gym.Env[np.ndarray, np.ndarray]):
             {
                 "constraint_costs": costs,
                 "transition_elapsed_hours": 1.0,
-                "termination_reason": "evidence_episode_complete" if terminated else None,
+                "termination_reason": "evidence_episode_complete"
+                if terminated
+                else None,
             },
         )
 
@@ -133,9 +135,12 @@ def test_finalized_rollout_records_raw_diagnostics_and_evidence() -> None:
             0,
             1,
         ).reshape(4, len(CONSTRAINT_COST_NAMES))
-        expected_penalty = raw_cost_advantages * np.asarray(
-            [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        )[None, :]
+        expected_penalty = (
+            raw_cost_advantages
+            * np.asarray(
+                [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            )[None, :]
+        )
         np.testing.assert_array_equal(
             diagnostics.penalty_contributions,
             expected_penalty,
@@ -152,11 +157,15 @@ def test_finalized_rollout_records_raw_diagnostics_and_evidence() -> None:
         )
         assert evidence.completed_episode_count == 1
         assert evidence.censored_episode_count == 0
-        assert evidence.probe_evidence.digest == model.canonical_action_probe_evidence.digest
+        assert (
+            evidence.probe_evidence.digest
+            == model.canonical_action_probe_evidence.digest
+        )
         assert evidence.payload()["digest"] == evidence.digest
-        assert evidence.payload()["constraints"]["drawdown_excess"][
-            "at_upper_cap"
-        ] is False
+        assert (
+            evidence.payload()["constraints"]["drawdown_excess"]["at_upper_cap"]
+            is False
+        )
     finally:
         environment.close()
 

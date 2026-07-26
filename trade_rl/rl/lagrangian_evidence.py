@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.rl.lagrangian import (
     DualUpdateReport,
+    LagrangianConstraintSpec,
     LagrangianSchema,
     canonical_constraint_unit,
 )
@@ -70,6 +71,8 @@ class LagrangianRolloutEvidence:
         for index, (spec, report) in enumerate(
             zip(self.schema.specs, self.dual_reports, strict=True)
         ):
+            if not isinstance(spec, LagrangianConstraintSpec):
+                raise TypeError("rollout evidence schema is missing support metadata")
             consumed = report.consumed_denominator
             beta_effective = (
                 spec.ema_beta**consumed if report.updated and consumed > 0 else None
@@ -113,15 +116,9 @@ class LagrangianRolloutEvidence:
                 correlation.raw_reward_advantage_statistics.payload()
             ),
             "constraints": constraints,
-            "penalty_to_reward_l2_ratio": (
-                correlation.penalty_to_reward_l2_ratio
-            ),
-            "raw_cost_covariance": _matrix_payload(
-                correlation.raw_cost_covariance
-            ),
-            "raw_cost_correlation": _matrix_payload(
-                correlation.raw_cost_correlation
-            ),
+            "penalty_to_reward_l2_ratio": (correlation.penalty_to_reward_l2_ratio),
+            "raw_cost_covariance": _matrix_payload(correlation.raw_cost_covariance),
+            "raw_cost_correlation": _matrix_payload(correlation.raw_cost_correlation),
             "normalized_cost_advantage_correlation": (
                 None if normalized is None else _matrix_payload(normalized)
             ),

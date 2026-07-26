@@ -17,7 +17,6 @@ from trade_rl.rl.lagrangian_probe import (
     CanonicalActionSemantic,
 )
 
-
 _NAMES = ("drawdown_excess", "drawdown_stop_event")
 
 
@@ -95,7 +94,10 @@ def _probe(*, warning: bool = True) -> CanonicalActionProbeEvidence:
     return CanonicalActionProbeEvidence(
         action_semantic=CanonicalActionSemantic.TARGET_WEIGHT_CASH,
         action=np.zeros(2, dtype=np.float32),
-        estimates={"drawdown_excess": 0.3, "drawdown_stop_event": 0.0},
+        estimates={
+            "drawdown_excess": 0.3 if warning else 0.0,
+            "drawdown_stop_event": 0.0,
+        },
         denominators={"drawdown_excess": 2, "drawdown_stop_event": 2},
         budgets={"drawdown_excess": 0.2, "drawdown_stop_event": 0.1},
         violated_costs=("drawdown_excess",) if warning else (),
@@ -151,9 +153,7 @@ def test_lagrangian_evidence_records_raw_penalty_and_boundary_semantics() -> Non
     payload = evidence.payload()
 
     assert payload["schema_version"] == "lagrangian_rollout_evidence_v1"
-    assert payload["actor_composition_mode"] == (
-        "raw_lagrangian_then_sb3_normalize_v1"
-    )
+    assert payload["actor_composition_mode"] == ("raw_lagrangian_then_sb3_normalize_v1")
     assert payload["cost_names"] == list(_NAMES)
     assert payload["raw_reward_advantage_statistics"]["l2_norm"] == pytest.approx(
         np.linalg.norm([4.0, -2.0, 1.0])

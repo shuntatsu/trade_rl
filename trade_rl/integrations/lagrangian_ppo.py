@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any, ClassVar, cast
 
 import numpy as np
@@ -25,7 +25,19 @@ from trade_rl.rl.lagrangian import (
     LagrangianSchema,
     canonical_lagrangian_schema,
 )
-from trade_rl.rl.lagrangian_advantages import combine_lagrangian_advantages
+from trade_rl.rl.lagrangian_advantages import (
+    combine_lagrangian_advantages,
+    normalize_cost_advantages,
+)
+from trade_rl.rl.lagrangian_diagnostics import (
+    ConstraintCorrelationDiagnostics,
+    build_constraint_correlation_diagnostics,
+    build_dual_stability_diagnostics,
+)
+from trade_rl.rl.lagrangian_evidence import (
+    LagrangianRolloutEvidence,
+    build_lagrangian_rollout_evidence,
+)
 from trade_rl.rl.lagrangian_probe import CanonicalActionProbeEvidence
 
 
@@ -86,6 +98,11 @@ class LagrangianPPO(CostCriticPPO):
             name: None for name in resolved_schema.names
         }
         self.last_dual_update_reports: dict[str, DualUpdateReport] = {}
+        self.last_constraint_correlation_diagnostics: (
+            ConstraintCorrelationDiagnostics | None
+        ) = None
+        self.dual_report_history: list[dict[str, DualUpdateReport]] = []
+        self.last_lagrangian_rollout_evidence: LagrangianRolloutEvidence | None = None
         super().__init__(
             *args,
             _init_setup_model=_init_setup_model,
@@ -163,6 +180,33 @@ class LagrangianPPO(CostCriticPPO):
             probe_evidence, CanonicalActionProbeEvidence
         ):
             raise TypeError("canonical_action_probe_evidence has an invalid type")
+        correlation = getattr(self, "last_constraint_correlation_diagnostics", None)
+        if correlation is not None and not isinstance(
+            correlation, ConstraintCorrelationDiagnostics
+        ):
+            raise TypeError(
+                "last_constraint_correlation_diagnostics has an invalid type"
+            )
+        history = getattr(self, "dual_report_history", None)
+        if history is None:
+            self.dual_report_history = []
+        elif not isinstance(history, list):
+            raise TypeError("dual report history has an invalid type")
+        else:
+            for report_set in history:
+                if not isinstance(report_set, Mapping) or tuple(report_set) != (
+                    self.lagrangian_schema.names
+                ):
+                    raise ValueError("dual report history identity mismatch")
+                for name in self.lagrangian_schema.names:
+                    report = report_set[name]
+                    if not isinstance(report, DualUpdateReport) or report.name != name:
+                        raise ValueError("dual report history identity mismatch")
+        rollout_evidence = getattr(self, "last_lagrangian_rollout_evidence", None)
+        if rollout_evidence is not None and not isinstance(
+            rollout_evidence, LagrangianRolloutEvidence
+        ):
+            raise TypeError("last_lagrangian_rollout_evidence has an invalid type")
 
     def collect_rollouts(
         self,
@@ -458,6 +502,95 @@ class LagrangianPPO(CostCriticPPO):
                     report.constraint_residual,
                 )
 
+    def _flatten_rollout_diagnostics(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return canonical transition-order copies for observational diagnostics."""
+
+        cost_count = len(self.lagrangian_schema.names)
+        raw_cost_tensor = np.asarray(
+            self.cost_rollout_storage.costs,
+            dtype=np.float64,
+        )
+        raw_cost_advantage_tensor = np.asarray(
+            self.cost_rollout_storage.advantages,
+            dtype=np.float64,
+        )
+        expected_shape = (
+            self.n_steps,
+            self.n_envs,
+            cost_count,
+        )
+        if raw_cost_tensor.shape != expected_shape:
+            raise ValueError("raw cost rollout shape mismatch")
+        if raw_cost_advantage_tensor.shape != expected_shape:
+            raise ValueError("raw cost advantage rollout shape mismatch")
+        raw_costs = raw_cost_tensor.swapaxes(0, 1).reshape(-1, cost_count).copy()
+        raw_cost_advantages = (
+            raw_cost_advantage_tensor.swapaxes(0, 1).reshape(-1, cost_count).copy()
+        )
+
+        reward_tensor = np.asarray(
+            self.rollout_buffer.advantages,
+            dtype=np.float64,
+        )
+        if reward_tensor.ndim == 2:
+            reward_advantages = reward_tensor.swapaxes(0, 1).reshape(-1).copy()
+        elif reward_tensor.ndim == 1:
+            reward_advantages = reward_tensor.reshape(-1).copy()
+        else:
+            raise ValueError("reward advantage rollout shape mismatch")
+        if reward_advantages.shape[0] != raw_cost_advantages.shape[0]:
+            raise ValueError("reward and cost diagnostic transition counts differ")
+        return reward_advantages, raw_costs, raw_cost_advantages
+
+    def _record_lagrangian_rollout_evidence(self) -> None:
+        """Record raw actor penalties and dual evidence without mutating training data."""
+
+        reward_advantages, raw_costs, raw_cost_advantages = (
+            self._flatten_rollout_diagnostics()
+        )
+        diagnostics = build_constraint_correlation_diagnostics(
+            cost_names=self.lagrangian_schema.names,
+            raw_costs=raw_costs,
+            raw_cost_advantages=raw_cost_advantages,
+            normalized_cost_advantages=normalize_cost_advantages(raw_cost_advantages),
+            multipliers=self.frozen_lagrange_multipliers,
+            reward_advantages=reward_advantages,
+        )
+        self.last_constraint_correlation_diagnostics = diagnostics
+
+        reports = {
+            name: self.last_dual_update_reports[name]
+            for name in self.lagrangian_schema.names
+        }
+        self.dual_report_history.append(reports)
+        stability = build_dual_stability_diagnostics(
+            cost_names=self.lagrangian_schema.names,
+            report_history=tuple(self.dual_report_history),
+        )
+        batch = self.last_completed_episode_batch
+        if not isinstance(batch, CompletedEpisodeBatch):
+            raise RuntimeError("completed episode batch is unavailable")
+        probe_evidence = self.canonical_action_probe_evidence
+        if probe_evidence is None:
+            self.last_lagrangian_rollout_evidence = None
+        else:
+            self.last_lagrangian_rollout_evidence = build_lagrangian_rollout_evidence(
+                actor_composition_mode=self.actor_composition_mode,
+                schema=self.lagrangian_schema,
+                correlation_diagnostics=diagnostics,
+                stability_diagnostics=stability,
+                dual_reports=reports,
+                probe_evidence=probe_evidence,
+                completed_episode_count=batch.completed_episode_count,
+                censored_episode_count=batch.censored_episode_count,
+            )
+        self.logger.record(
+            "lagrangian/penalty_to_reward_l2_ratio",
+            diagnostics.penalty_to_reward_l2_ratio,
+        )
+
     def checkpoint_identity_payload(self) -> dict[str, object]:
         """Bind the complete constrained-optimization contract to checkpoints."""
 
@@ -494,6 +627,7 @@ class LagrangianPPO(CostCriticPPO):
         self._train_actor_with_lagrangian_advantages()
         self._train_cost_critic()
         self._update_dual_controller()
+        self._record_lagrangian_rollout_evidence()
 
 
 __all__ = ["LagrangianPPO"]

@@ -44,7 +44,9 @@ jobs:
           persist-credentials: true
 
       - name: Apply guarded implementation patch
-        run: python tools/agent_training_observability_patch.py
+        run: |
+          python tools/agent_training_observability_patch.py
+          rm -f tools/agent_training_observability_patch.py
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -160,7 +162,7 @@ jobs:
         run: npm run check:layout --prefix studio
 
       - name: Remove implementation helpers
-        run: rm -f tools/agent_training_observability_patch.py .github/workflows/agent-training-observability.yml
+        run: rm -f .github/workflows/agent-training-observability.yml
 
       - name: Commit verified implementation
         run: |

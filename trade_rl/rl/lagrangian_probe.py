@@ -107,7 +107,9 @@ class CanonicalActionProbeEvidence:
         )
         denominators = _positive_denominator_mapping(self.denominators)
         budgets = _finite_non_negative_mapping(self.budgets, field_name="budgets")
-        if tuple(estimates) != tuple(denominators) or tuple(estimates) != tuple(budgets):
+        if tuple(estimates) != tuple(denominators) or tuple(estimates) != tuple(
+            budgets
+        ):
             raise ValueError("probe evidence cost order is inconsistent")
         violated = tuple(self.violated_costs)
         if len(set(violated)) != len(violated) or any(
@@ -115,9 +117,7 @@ class CanonicalActionProbeEvidence:
         ):
             raise ValueError("violated costs must be unique known constraints")
         expected_violations = tuple(
-            name
-            for name in estimates
-            if estimates[name] > budgets[name] + _TOLERANCE
+            name for name in estimates if estimates[name] > budgets[name] + _TOLERANCE
         )
         if violated != expected_violations:
             raise ValueError("violated costs do not match estimates and budgets")
@@ -278,7 +278,9 @@ def run_canonical_action_feasibility_probe(
                 while steps_for_episode < maximum_steps:
                     transition = environment.step(action.copy())
                     if not isinstance(transition, tuple) or len(transition) != 5:
-                        raise ValueError("canonical probe step returned an invalid transition")
+                        raise ValueError(
+                            "canonical probe step returned an invalid transition"
+                        )
                     _, _, raw_terminated, raw_truncated, raw_info = transition
                     terminated = _boolean(raw_terminated, field_name="terminated")
                     truncated = _boolean(raw_truncated, field_name="truncated")

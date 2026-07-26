@@ -1,0 +1,345 @@
+"""Opt-in PPO collector with an actor-isolated Cost Critic sidecar."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, ClassVar
+
+import numpy as np
+import torch
+from gymnasium import spaces
+from stable_baselines3 import PPO
+from stable_baselines3.common.buffers import RolloutBuffer
+from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.utils import obs_as_tensor
+from stable_baselines3.common.vec_env import VecEnv
+
+from trade_rl.integrations.cost_rollout_buffer import CostRolloutStorage
+from trade_rl.rl.cost_critics import FamilySeparatedCostCritic
+from trade_rl.rl.cost_learning import CostLearningSchema
+
+
+class CostCriticPPO(PPO):
+    """Train independent Cost Critics without altering PPO's actor objective."""
+
+    algorithm_identifier: ClassVar[str] = "cost_critic_ppo"
+
+    def __init__(
+        self,
+        *args: Any,
+        cost_schema: CostLearningSchema,
+        cost_learning_rate: float = 3e-4,
+        cost_n_epochs: int = 1,
+        cost_batch_size: int | None = None,
+        cost_continuous_hidden_dims: tuple[int, ...] = (128, 64),
+        cost_event_hidden_dims: tuple[int, ...] = (128, 64),
+        cost_max_grad_norm: float = 0.5,
+        _init_setup_model: bool = True,
+        **kwargs: Any,
+    ) -> None:
+        if not isinstance(cost_schema, CostLearningSchema):
+            raise TypeError("cost_schema must be a CostLearningSchema")
+        if not np.isfinite(cost_learning_rate) or cost_learning_rate <= 0.0:
+            raise ValueError("cost_learning_rate must be finite and positive")
+        if isinstance(cost_n_epochs, bool) or cost_n_epochs <= 0:
+            raise ValueError("cost_n_epochs must be a positive integer")
+        if cost_batch_size is not None and (
+            isinstance(cost_batch_size, bool) or cost_batch_size <= 0
+        ):
+            raise ValueError("cost_batch_size must be null or a positive integer")
+        if not np.isfinite(cost_max_grad_norm) or cost_max_grad_norm <= 0.0:
+            raise ValueError("cost_max_grad_norm must be finite and positive")
+        self.cost_schema = cost_schema
+        self.cost_learning_rate = float(cost_learning_rate)
+        self.cost_n_epochs = int(cost_n_epochs)
+        self.cost_batch_size = cost_batch_size
+        self.cost_continuous_hidden_dims = tuple(cost_continuous_hidden_dims)
+        self.cost_event_hidden_dims = tuple(cost_event_hidden_dims)
+        self.cost_max_grad_norm = float(cost_max_grad_norm)
+        self.cost_update_count = 0
+        self.last_cost_training_metrics: dict[str, float] = {}
+        self._cost_support_totals = {
+            name: 0.0 for name in self.cost_schema.event_names
+        }
+        self._cost_rng = np.random.default_rng(kwargs.get("seed"))
+        super().__init__(*args, _init_setup_model=False, **kwargs)
+        if _init_setup_model:
+            self._setup_model()
+
+    @staticmethod
+    def _torch_rng_state() -> tuple[torch.Tensor, list[torch.Tensor] | None]:
+        cpu_state = torch.random.get_rng_state()
+        cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        return cpu_state, cuda_states
+
+    @staticmethod
+    def _restore_torch_rng_state(
+        state: tuple[torch.Tensor, list[torch.Tensor] | None],
+    ) -> None:
+        cpu_state, cuda_states = state
+        torch.random.set_rng_state(cpu_state)
+        if cuda_states is not None:
+            torch.cuda.set_rng_state_all(cuda_states)
+
+    def _setup_model(self) -> None:
+        super()._setup_model()
+        features_extractor = getattr(self.policy, "features_extractor", None)
+        input_dim = getattr(features_extractor, "features_dim", None)
+        if not isinstance(input_dim, int) or input_dim <= 0:
+            raise RuntimeError("policy feature dimension is unavailable for Cost Critic")
+        rng_state = self._torch_rng_state()
+        try:
+            self.cost_critic = FamilySeparatedCostCritic(
+                input_dim=input_dim,
+                schema=self.cost_schema,
+                continuous_hidden_dims=self.cost_continuous_hidden_dims,
+                event_hidden_dims=self.cost_event_hidden_dims,
+            ).to(self.device)
+        finally:
+            self._restore_torch_rng_state(rng_state)
+        self.cost_critic_optimizer = torch.optim.Adam(
+            self.cost_critic.parameters(),
+            lr=self.cost_learning_rate,
+        )
+        self.cost_rollout_storage = CostRolloutStorage(
+            buffer_size=self.n_steps,
+            n_envs=self.n_envs,
+            schema=self.cost_schema,
+        )
+        if self.cost_batch_size is None:
+            self.cost_batch_size = self.batch_size
+        transition_count = self.n_steps * self.n_envs
+        if self.cost_batch_size > transition_count:
+            raise ValueError("cost_batch_size exceeds rollout transition count")
+
+    def _cost_features(self, observations: Any) -> torch.Tensor:
+        features = self.policy.extract_features(observations)
+        if isinstance(features, tuple):
+            features = features[1]
+        if not isinstance(features, torch.Tensor):
+            raise RuntimeError("policy feature extraction did not return a tensor")
+        return features.detach()
+
+    def _predict_cost_values(self, observations: Any) -> torch.Tensor:
+        features = self._cost_features(observations)
+        return self.cost_critic(features).values
+
+    def collect_rollouts(
+        self,
+        env: VecEnv,
+        callback: BaseCallback,
+        rollout_buffer: RolloutBuffer,
+        n_rollout_steps: int,
+    ) -> bool:
+        """Collect the normal PPO rollout and aligned independent cost transitions."""
+
+        assert self._last_obs is not None, "No previous observation was provided"
+        self.policy.set_training_mode(False)
+        self.cost_critic.train(False)
+        n_steps = 0
+        rollout_buffer.reset()
+        self.cost_rollout_storage.reset()
+        if self.use_sde:
+            self.policy.reset_noise(env.num_envs)
+        callback.on_rollout_start()
+        while n_steps < n_rollout_steps:
+            if (
+                self.use_sde
+                and self.sde_sample_freq > 0
+                and n_steps % self.sde_sample_freq == 0
+            ):
+                self.policy.reset_noise(env.num_envs)
+            with torch.no_grad():
+                obs_tensor = obs_as_tensor(self._last_obs, self.device)
+                actions, values, log_probs = self.policy(obs_tensor)
+                cost_values = self._predict_cost_values(obs_tensor)
+            actions_array = actions.cpu().numpy()
+            clipped_actions = actions_array
+            if isinstance(self.action_space, spaces.Box):
+                if self.policy.squash_output:
+                    clipped_actions = self.policy.unscale_action(clipped_actions)
+                else:
+                    clipped_actions = np.clip(
+                        actions_array,
+                        self.action_space.low,
+                        self.action_space.high,
+                    )
+            new_obs, rewards, dones, infos = env.step(clipped_actions)
+            self.num_timesteps += env.num_envs
+            callback.update_locals(locals())
+            if not callback.on_step():
+                return False
+            self._update_info_buffer(infos, dones)
+            n_steps += 1
+            if isinstance(self.action_space, spaces.Discrete):
+                actions_array = actions_array.reshape(-1, 1)
+
+            truncated = np.asarray(
+                [
+                    bool(done and info.get("TimeLimit.truncated", False))
+                    for done, info in zip(dones, infos, strict=True)
+                ],
+                dtype=np.bool_,
+            )
+            terminated = np.asarray(dones, dtype=np.bool_) & ~truncated
+            terminal_cost_values = np.zeros(
+                (env.num_envs, len(self.cost_schema.names)),
+                dtype=np.float32,
+            )
+            for index, done in enumerate(dones):
+                terminal_observation = infos[index].get("terminal_observation")
+                if done and terminal_observation is not None and truncated[index]:
+                    terminal_obs = self.policy.obs_to_tensor(terminal_observation)[0]
+                    with torch.no_grad():
+                        terminal_value = self.policy.predict_values(terminal_obs)[0]
+                        terminal_cost = self._predict_cost_values(terminal_obs)[0]
+                    rewards[index] += self.gamma * float(terminal_value.item())
+                    terminal_cost_values[index] = (
+                        terminal_cost.detach().cpu().numpy().astype(np.float32)
+                    )
+
+            self.cost_rollout_storage.add_from_infos(
+                infos=infos,
+                cost_values=cost_values.detach().cpu().numpy(),
+                terminated=terminated,
+                truncated=truncated,
+                terminal_cost_values=terminal_cost_values,
+            )
+            rollout_buffer.add(
+                self._last_obs,
+                actions_array,
+                rewards,
+                self._last_episode_starts,
+                values,
+                log_probs,
+            )
+            self._last_obs = new_obs
+            self._last_episode_starts = dones
+
+        with torch.no_grad():
+            final_observations = obs_as_tensor(new_obs, self.device)
+            final_values = self.policy.predict_values(final_observations)
+            final_cost_values = self._predict_cost_values(final_observations)
+        rollout_buffer.compute_returns_and_advantage(
+            last_values=final_values,
+            dones=dones,
+        )
+        self.cost_rollout_storage.finalize(
+            last_cost_values=final_cost_values.detach().cpu().numpy()
+        )
+        callback.update_locals(locals())
+        callback.on_rollout_end()
+        return True
+
+    def _rollout_observations(self, indices: np.ndarray) -> Any:
+        getter = getattr(self.rollout_buffer, "_get_samples", None)
+        if not callable(getter):
+            raise RuntimeError("rollout buffer cannot provide indexed observations")
+        samples = getter(indices)
+        return samples.observations
+
+    def _train_cost_critic(self) -> None:
+        if not self.cost_rollout_storage.finalized:
+            raise RuntimeError("cost rollout is not finalized")
+        transition_count = self.n_steps * self.n_envs
+        batch_size = int(self.cost_batch_size or transition_count)
+        losses: list[float] = []
+        head_losses: dict[str, list[float]] = {
+            name: [] for name in self.cost_schema.names
+        }
+        rng_state = self._torch_rng_state()
+        policy_training = self.policy.training
+        self.policy.set_training_mode(False)
+        self.cost_critic.train(True)
+        try:
+            for _ in range(self.cost_n_epochs):
+                permutation = self._cost_rng.permutation(transition_count)
+                for start in range(0, transition_count, batch_size):
+                    indices = permutation[start : start + batch_size]
+                    observations = self._rollout_observations(indices)
+                    with torch.no_grad():
+                        features = self._cost_features(observations)
+                    output = self.cost_critic(features)
+                    batch = self.cost_rollout_storage.sample(indices)
+                    returns = torch.as_tensor(
+                        batch.cost_returns,
+                        dtype=output.values.dtype,
+                        device=self.device,
+                    )
+                    immediate_costs = torch.as_tensor(
+                        batch.costs,
+                        dtype=output.values.dtype,
+                        device=self.device,
+                    )
+                    total_loss = torch.zeros((), device=self.device)
+                    for index, spec in enumerate(self.cost_schema.specs):
+                        value_loss = torch.nn.functional.mse_loss(
+                            output.values[:, index],
+                            returns[:, index],
+                        )
+                        total_loss = (
+                            total_loss + spec.value_loss_coefficient * value_loss
+                        )
+                        head_losses[spec.name].append(float(value_loss.detach().cpu()))
+                    if output.auxiliary_event_logits is not None:
+                        for logit_index, name in enumerate(
+                            output.auxiliary_event_names
+                        ):
+                            schema_index = self.cost_schema.names.index(name)
+                            target = (immediate_costs[:, schema_index] > 0.0).to(
+                                dtype=output.values.dtype
+                            )
+                            coefficient = self.cost_schema[
+                                name
+                            ].auxiliary_event_loss_coefficient
+                            classification_loss = (
+                                torch.nn.functional.binary_cross_entropy_with_logits(
+                                    output.auxiliary_event_logits[:, logit_index],
+                                    target,
+                                )
+                            )
+                            total_loss = (
+                                total_loss + coefficient * classification_loss
+                            )
+                    self.cost_critic_optimizer.zero_grad()
+                    total_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        self.cost_critic.parameters(),
+                        self.cost_max_grad_norm,
+                    )
+                    self.cost_critic_optimizer.step()
+                    self.cost_update_count += 1
+                    losses.append(float(total_loss.detach().cpu()))
+        finally:
+            self.policy.set_training_mode(policy_training)
+            self._restore_torch_rng_state(rng_state)
+
+        metrics: dict[str, float] = {
+            "loss/total": float(np.mean(losses)),
+        }
+        for name, values in head_losses.items():
+            metrics[f"loss/{name}"] = float(np.mean(values))
+        for name in self.cost_schema.event_names:
+            index = self.cost_schema.names.index(name)
+            support = float(np.count_nonzero(self.cost_rollout_storage.costs[:, :, index]))
+            self._cost_support_totals[name] += support
+            metrics[f"support/{name}"] = self._cost_support_totals[name]
+        self.last_cost_training_metrics = metrics
+        for name, value in metrics.items():
+            self.logger.record(f"cost/{name}", value)
+
+    def train(self) -> None:
+        """Run the unchanged PPO update, then the isolated Cost Critic update."""
+
+        super().train()
+        self._train_cost_critic()
+
+    def _get_torch_save_params(self) -> tuple[list[str], list[str]]:
+        state_dicts, variables = super()._get_torch_save_params()
+        return (
+            [*state_dicts, "cost_critic", "cost_critic_optimizer"],
+            variables,
+        )
+
+
+__all__ = ["CostCriticPPO"]

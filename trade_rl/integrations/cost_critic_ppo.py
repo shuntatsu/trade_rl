@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from itertools import chain
 from typing import Any, ClassVar, cast
 
 import numpy as np
@@ -15,7 +17,14 @@ from stable_baselines3.common.vec_env import VecEnv
 
 from trade_rl.integrations.cost_rollout_buffer import CostRolloutStorage
 from trade_rl.rl.cost_critics import FamilySeparatedCostCritic
-from trade_rl.rl.cost_learning import CostLearningSchema
+from trade_rl.rl.cost_diagnostics import (
+    CostHeadDiagnostics,
+    FamilyGradientDiagnostics,
+    build_cost_head_diagnostics,
+    build_family_gradient_diagnostics,
+    gradient_l2_norm,
+)
+from trade_rl.rl.cost_learning import CostFamily, CostLearningSchema
 
 
 class CostCriticPPO(PPO):
@@ -57,6 +66,10 @@ class CostCriticPPO(PPO):
         self.cost_max_grad_norm = float(cost_max_grad_norm)
         self.cost_update_count = 0
         self.last_cost_training_metrics: dict[str, float] = {}
+        self.last_cost_head_diagnostics: dict[str, CostHeadDiagnostics] = {}
+        self.last_cost_family_gradient_diagnostics: (
+            FamilyGradientDiagnostics | None
+        ) = None
         self._cost_support_totals = {name: 0.0 for name in self.cost_schema.event_names}
         self._cost_rng = np.random.default_rng(kwargs.get("seed"))
         super().__init__(  # type: ignore[misc]
@@ -243,6 +256,135 @@ class CostCriticPPO(PPO):
         samples = getter(indices)
         return samples.observations
 
+    def _cost_head_parameters(
+        self,
+        name: str,
+    ) -> Iterable[torch.nn.Parameter]:
+        modules: list[torch.nn.Module] = [self.cost_critic.value_heads[name]]
+        if name in self.cost_critic.event_logit_heads:
+            modules.append(self.cost_critic.event_logit_heads[name])
+        return chain.from_iterable(module.parameters() for module in modules)
+
+    def _family_head_parameters(
+        self,
+        family: CostFamily,
+    ) -> Iterable[torch.nn.Parameter]:
+        names = tuple(
+            spec.name for spec in self.cost_schema.specs if spec.family is family
+        )
+        modules: list[torch.nn.Module] = [
+            self.cost_critic.value_heads[name] for name in names
+        ]
+        if family is CostFamily.EVENT:
+            modules.extend(self.cost_critic.event_logit_heads.values())
+        return chain.from_iterable(module.parameters() for module in modules)
+
+    def _build_cost_training_diagnostics(
+        self,
+    ) -> tuple[
+        dict[str, CostHeadDiagnostics],
+        FamilyGradientDiagnostics,
+        dict[str, float],
+    ]:
+        transition_count = self.n_steps * self.n_envs
+        indices = np.arange(transition_count, dtype=np.int64)
+        observations = self._rollout_observations(indices)
+        policy_training = self.policy.training
+        critic_training = self.cost_critic.training
+        self.policy.set_training_mode(False)
+        self.cost_critic.train(False)
+        try:
+            with torch.no_grad():
+                output = self.cost_critic(self._cost_features(observations))
+        finally:
+            self.policy.set_training_mode(policy_training)
+            self.cost_critic.train(critic_training)
+        batch = self.cost_rollout_storage.sample(indices)
+        value_predictions = output.values.detach().cpu().numpy()
+        auxiliary_probabilities: dict[str, np.ndarray] = {}
+        if output.auxiliary_event_logits is not None:
+            for index, name in enumerate(output.auxiliary_event_names):
+                auxiliary_probabilities[name] = (
+                    torch.sigmoid(output.auxiliary_event_logits[:, index])
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
+
+        family = build_family_gradient_diagnostics(
+            continuous_adapter_parameters=self.cost_critic.continuous_adapter.parameters(),
+            continuous_head_parameters=self._family_head_parameters(
+                CostFamily.CONTINUOUS
+            ),
+            event_adapter_parameters=self.cost_critic.event_adapter.parameters(),
+            event_head_parameters=self._family_head_parameters(CostFamily.EVENT),
+        )
+        reports: dict[str, CostHeadDiagnostics] = {}
+        metrics: dict[str, float] = {
+            "gradient/continuous": family.continuous_gradient_norm,
+            "gradient/event": family.event_gradient_norm,
+            "gradient/continuous_adapter": (
+                family.continuous_adapter_gradient_norm
+            ),
+            "gradient/continuous_heads": family.continuous_head_gradient_norm,
+            "gradient/event_adapter": family.event_adapter_gradient_norm,
+            "gradient/event_heads": family.event_head_gradient_norm,
+        }
+        if family.dense_to_rare_gradient_ratio is not None:
+            metrics["gradient/dense_to_rare_ratio"] = (
+                family.dense_to_rare_gradient_ratio
+            )
+
+        for index, spec in enumerate(self.cost_schema.specs):
+            event_probabilities = auxiliary_probabilities.get(spec.name)
+            event_labels = (
+                None
+                if event_probabilities is None
+                else (batch.costs[:, index] > 0.0).astype(np.float64)
+            )
+            adapter = (
+                self.cost_critic.continuous_adapter
+                if spec.family is CostFamily.CONTINUOUS
+                else self.cost_critic.event_adapter
+            )
+            report = build_cost_head_diagnostics(
+                name=spec.name,
+                predictions=value_predictions[:, index],
+                targets=batch.cost_returns[:, index],
+                adapter_gradient_norm=gradient_l2_norm(adapter.parameters()),
+                head_gradient_norm=gradient_l2_norm(
+                    self._cost_head_parameters(spec.name)
+                ),
+                event_probabilities=event_probabilities,
+                event_labels=event_labels,
+            )
+            reports[spec.name] = report
+            prefix = f"diagnostic/{spec.name}"
+            metrics[f"{prefix}/target_mean"] = report.target_mean
+            metrics[f"{prefix}/target_std"] = report.target_std
+            metrics[f"{prefix}/nonzero_rate"] = report.nonzero_rate
+            metrics[f"{prefix}/positive_sample_count"] = float(
+                report.positive_sample_count
+            )
+            metrics[f"{prefix}/value_loss"] = report.value_loss
+            metrics[f"{prefix}/explained_variance"] = report.explained_variance
+            metrics[f"{prefix}/adapter_gradient_norm"] = (
+                report.adapter_gradient_norm
+            )
+            metrics[f"{prefix}/head_gradient_norm"] = report.head_gradient_norm
+            if report.brier_score is not None:
+                metrics[f"{prefix}/brier_score"] = report.brier_score
+            for bin_index, calibration_bin in enumerate(report.calibration_bins):
+                bin_prefix = f"{prefix}/calibration/{bin_index}"
+                metrics[f"{bin_prefix}/count"] = float(calibration_bin.count)
+                if calibration_bin.mean_probability is not None:
+                    metrics[f"{bin_prefix}/mean_probability"] = (
+                        calibration_bin.mean_probability
+                    )
+                if calibration_bin.event_rate is not None:
+                    metrics[f"{bin_prefix}/event_rate"] = calibration_bin.event_rate
+        return reports, family, metrics
+
     def _train_cost_critic(self) -> None:
         if not self.cost_rollout_storage.finalized:
             raise RuntimeError("cost rollout is not finalized")
@@ -329,6 +471,10 @@ class CostCriticPPO(PPO):
             )
             self._cost_support_totals[name] += support
             metrics[f"support/{name}"] = self._cost_support_totals[name]
+        reports, family, diagnostic_metrics = self._build_cost_training_diagnostics()
+        self.last_cost_head_diagnostics = reports
+        self.last_cost_family_gradient_diagnostics = family
+        metrics.update(diagnostic_metrics)
         self.last_cost_training_metrics = metrics
         for name, value in metrics.items():
             self.logger.record(f"cost/{name}", value)

@@ -10,7 +10,6 @@ from typing import TypeVar
 import numpy as np
 
 from trade_rl.rl.lagrangian_statistics import (
-    LagrangianConstraintSpec as BaseLagrangianConstraintSpec,
     CompletedEpisodeBatch,
     CompletedEpisodeCostAccumulator,
     ConstraintAggregation,
@@ -18,6 +17,9 @@ from trade_rl.rl.lagrangian_statistics import (
     LagrangianSchema,
     canonical_constraint_aggregation,
     canonical_constraint_unit,
+)
+from trade_rl.rl.lagrangian_statistics import (
+    LagrangianConstraintSpec as BaseLagrangianConstraintSpec,
 )
 
 

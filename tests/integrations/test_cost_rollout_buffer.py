@@ -112,9 +112,7 @@ def test_cost_rollout_storage_fails_closed_on_invalid_info_or_transition() -> No
     with pytest.raises(ValueError, match="constraint_costs"):
         storage.add_from_infos(**{**valid, "infos": ({},)})
     with pytest.raises(ValueError, match="ConstraintCostVector"):
-        storage.add_from_infos(
-            **{**valid, "infos": ({"constraint_costs": object()},)}
-        )
+        storage.add_from_infos(**{**valid, "infos": ({"constraint_costs": object()},)})
     with pytest.raises(ValueError, match="both terminate and truncate"):
         storage.add_from_infos(
             **{

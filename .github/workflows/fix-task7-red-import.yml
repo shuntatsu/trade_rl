@@ -1,0 +1,51 @@
+name: Fix Task 7 RED import
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-task7-red-import-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Remove unused RED-test import
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/rl/test_lagrangian_probe_fail_closed.py")
+          content = path.read_text()
+          old = "from collections.abc import Callable\n"
+          if content.count(old) != 1:
+              raise SystemExit("RED-test import point mismatch")
+          path.write_text(content.replace(old, ""))
+          PY
+          rm .github/workflows/fix-task7-red-import.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Commit RED-test import fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "test: fix Task 7 RED imports"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

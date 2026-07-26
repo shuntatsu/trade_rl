@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import gymnasium as gym
@@ -161,5 +162,17 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
         1,
         1,
     )
+    architecture = json.loads((tmp_path / "model-architecture.json").read_text())
+    lagrangian = architecture["architecture"]["lagrangian"]
+    assert lagrangian["actor_composition_mode"] == (
+        "raw_lagrangian_then_sb3_normalize_v1"
+    )
+    assert lagrangian["completion_semantics"] == (
+        "economic_time_limit_censored_shadow_v1"
+    )
+    assert lagrangian["schema"] == schema.digest_payload()
+    assert lagrangian["schema_digest"] == schema.digest
+    assert lagrangian["probe_episodes"] == 2
+    assert lagrangian["probe_max_steps_per_episode"] == 16
     assert result.actual_timesteps == 4
     assert probe.close_calls == 1

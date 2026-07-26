@@ -384,6 +384,9 @@ class EnvironmentInfoBuilder:
             "action_raw_max_abs": request.raw_max_abs,
             "action_saturated_count": request.saturated_count,
             "bars_advanced": request.hybrid_execution.bars_advanced,
+            "transition_elapsed_hours": self._decision_hours(
+                request.hybrid_execution
+            ),
             "composition": request.composition,
             "decision_step_index": request.decision_step_index,
             "excess_log_return": (

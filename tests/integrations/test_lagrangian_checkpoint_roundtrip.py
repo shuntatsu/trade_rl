@@ -68,6 +68,7 @@ def _schema(*, budget_shift: float = 0.0, cap_shift: float = 0.0):
         max_multipliers=tuple(caps),
         warmup_rollouts=(0,) * count,
         update_interval_rollouts=(1,) * count,
+        minimum_completed_episodes=(3,) * count,
     )
 
 
@@ -173,8 +174,14 @@ def test_lagrangian_save_load_preserves_dual_accumulator_and_critic_state(
     loaded_environment = DummyVecEnv([_CheckpointEnvironment])
     model = _model(environment)
     try:
-        model.lagrangian_controller.update_after_rollout(_estimates(0.3))
-        model.lagrangian_controller.update_after_rollout(_estimates(0.1))
+        model.lagrangian_controller.update_after_rollout(
+            _estimates(0.3),
+            censored_episode_count=2,
+        )
+        model.lagrangian_controller.update_after_rollout(
+            _estimates(0.1),
+            censored_episode_count=1,
+        )
         model.frozen_lagrange_multipliers = model.lagrangian_controller.begin_rollout()
 
         partial_costs = np.zeros((2, 1, len(CONSTRAINT_COST_NAMES)), dtype=np.float64)
@@ -240,8 +247,12 @@ def test_lagrangian_save_load_preserves_dual_accumulator_and_critic_state(
         )
 
         next_estimates = _estimates(0.4)
-        assert model.lagrangian_controller.update_after_rollout(next_estimates) == (
-            loaded.lagrangian_controller.update_after_rollout(next_estimates)
+        assert model.lagrangian_controller.update_after_rollout(
+            next_estimates,
+            censored_episode_count=0,
+        ) == loaded.lagrangian_controller.update_after_rollout(
+            next_estimates,
+            censored_episode_count=0,
         )
     finally:
         environment.close()

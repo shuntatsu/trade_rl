@@ -13,6 +13,7 @@ from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 
 _SCHEMA_VERSION = "cost_critic_compute_evidence_v1"
+_ROLLOUT_SCHEMA_VERSION = "cost_rollout_storage_v2"
 _STORAGE_ARRAY_NAMES = (
     "costs",
     "values",
@@ -21,6 +22,8 @@ _STORAGE_ARRAY_NAMES = (
     "terminal_values",
     "terminated",
     "truncated",
+    "elapsed_hours",
+    "completion_kinds",
 )
 
 
@@ -186,11 +189,12 @@ def build_cost_critic_compute_evidence(
     rollout_storage_bytes = _rollout_storage_bytes(storage)
     rollout_schema_digest = content_digest(
         {
-            "schema_version": "cost_rollout_storage_v1",
+            "schema_version": _ROLLOUT_SCHEMA_VERSION,
             "buffer_size": buffer_size,
             "n_envs": n_envs,
             "cost_names": list(cost_names),
             "cost_schema_digest": cost_schema_digest,
+            "storage_arrays": list(_STORAGE_ARRAY_NAMES),
         }
     )
 

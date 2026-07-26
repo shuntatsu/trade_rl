@@ -15,6 +15,7 @@ from trade_rl.rl.lagrangian import (
     LagrangianSchema,
     canonical_lagrangian_schema,
 )
+from trade_rl.rl.lagrangian_episode import EpisodeCompletionKind
 
 
 class _CheckpointEnvironment(gym.Env[np.ndarray, np.ndarray]):
@@ -154,8 +155,10 @@ def test_lagrangian_save_load_round_trip_preserves_dual_and_partial_episode_stat
         partial_costs[0, 0, 0] = 0.2
         model.completed_episode_cost_accumulator.ingest_rollout(
             costs=partial_costs,
-            terminated=np.asarray([[False]]),
-            truncated=np.asarray([[False]]),
+            elapsed_hours=np.asarray([[6.0]], dtype=np.float64),
+            completion_kinds=np.asarray(
+                [[EpisodeCompletionKind.NONE]], dtype=np.int8
+            ),
         )
         _initialize_optimizer_state(model)
 

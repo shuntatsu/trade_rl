@@ -80,3 +80,9 @@ Logs are never requested after container removal.
 ## Failure handling
 
 Do not reuse a failed generation as if it were clean. Preserve its artifact and logs, diagnose the exact failing boundary, then start a new generation or continue the same phase only when its persisted state contract explicitly permits it. A fresh retry uses a new generation identity. A phase continuation reuses the same generation only from an allowed waiting state. selected-final training forbids injected resume checkpoints by contract.
+
+## Studio 学習診断の確認
+
+`training-full.json` と `training-growth-optimal.json` は linear learning-rate decay と TensorBoard scalar 出力を有効にしています。linear decay は候補設定であり、最適値とみなさないでください。
+
+GPU training の開始後、Studio の `Live Training` で Run と Seed を選択し、`学習診断` を開きます。event file が作成されるまでは `未出力` と表示されます。resume 後は同じ seed/run identity の event file を統合し、global step 軸を継続します。市場リプレイの JSONL telemetry は独立して継続します。

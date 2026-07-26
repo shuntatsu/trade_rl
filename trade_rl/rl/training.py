@@ -62,6 +62,10 @@ class ResidualTrainingConfig:
     gamma: float
     seeds: tuple[int, ...]
     learning_rate: float = 3e-4
+    learning_rate_schedule: str = "constant"
+    learning_rate_final_ratio: float = 0.1
+    tensorboard_enabled: bool = False
+    tensorboard_log_interval: int = 1
     n_steps: int = 2_048
     batch_size: int = 64
     n_epochs: int = 10
@@ -116,6 +120,7 @@ class ResidualTrainingConfig:
             ("n_envs", self.n_envs),
             ("batch_size", self.batch_size),
             ("n_epochs", self.n_epochs),
+            ("tensorboard_log_interval", self.tensorboard_log_interval),
             ("buffer_size", self.buffer_size),
             ("train_freq", self.train_freq),
             ("gradient_steps", self.gradient_steps),
@@ -197,6 +202,17 @@ class ResidualTrainingConfig:
             raise ValueError("gamma must be within (0, 1]")
         if not math.isfinite(self.learning_rate) or self.learning_rate <= 0.0:
             raise ValueError("learning_rate must be finite and positive")
+        if self.learning_rate_schedule not in {"constant", "linear", "cosine"}:
+            raise ValueError(
+                "learning_rate_schedule must be constant, linear, or cosine"
+            )
+        if (
+            not math.isfinite(self.learning_rate_final_ratio)
+            or not 0.0 < self.learning_rate_final_ratio <= 1.0
+        ):
+            raise ValueError("learning_rate_final_ratio must be within (0, 1]")
+        if not isinstance(self.tensorboard_enabled, bool):
+            raise ValueError("tensorboard_enabled must be a boolean")
         if not math.isfinite(self.gae_lambda) or not 0.0 < self.gae_lambda <= 1.0:
             raise ValueError("gae_lambda must be within (0, 1]")
         if not math.isfinite(self.clip_range) or self.clip_range <= 0.0:
@@ -448,6 +464,8 @@ class ResidualTrainingConfig:
             "gamma": self.gamma,
             "gradient_steps": self.gradient_steps,
             "learning_rate": self.learning_rate,
+            "learning_rate_final_ratio": self.learning_rate_final_ratio,
+            "learning_rate_schedule": self.learning_rate_schedule,
             "learning_starts": self.learning_starts,
             "log_std_init": self.log_std_init,
             "max_checkpoints": self.max_checkpoints,
@@ -470,6 +488,8 @@ class ResidualTrainingConfig:
             "sde_sample_freq": self.sde_sample_freq,
             "seeds": self.seeds,
             "target_kl": self.target_kl,
+            "tensorboard_enabled": self.tensorboard_enabled,
+            "tensorboard_log_interval": self.tensorboard_log_interval,
             "timesteps": self.timesteps,
             "train_freq": self.train_freq,
             "use_sde": self.use_sde,

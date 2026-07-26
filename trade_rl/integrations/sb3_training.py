@@ -40,6 +40,10 @@ from trade_rl.rl.rollout_memory import (
     estimate_index_backed_ppo_rollout_buffer_bytes,
     estimate_ppo_rollout_buffer_bytes,
 )
+from trade_rl.rl.schedules import build_learning_rate_schedule
+from trade_rl.rl.tensorboard_logging import (
+    build_tensorboard_metrics_callback,
+)
 from trade_rl.rl.training import (
     PolicyTrainingResult,
     ResidualTrainingConfig,
@@ -526,13 +530,19 @@ class StableBaselines3Backend:
                 else config.policy
             )
             common: dict[str, Any] = {
-                "learning_rate": algorithm_config.learning_rate,
+                "learning_rate": build_learning_rate_schedule(
+                    initial_rate=algorithm_config.learning_rate,
+                    final_ratio=algorithm_config.learning_rate_final_ratio,
+                    kind=algorithm_config.learning_rate_schedule,
+                ),
                 "gamma": algorithm_config.gamma,
                 "policy_kwargs": policy_kwargs,
                 "seed": seed,
                 "device": config.device,
                 "verbose": self.verbose,
             }
+            if config.tensorboard_enabled:
+                common["tensorboard_log"] = str(output_path.parent / "tensorboard")
             model: Any
             if isinstance(algorithm_config, PPOConfig):
                 rollout_kwargs: dict[str, Any] = {}
@@ -933,25 +943,40 @@ class StableBaselines3Backend:
                     raise ValueError("replay buffer environment identity mismatch")
                 model.load_replay_buffer(str(resume_path))
 
-            callback = build_checkpoint_callback(
+            remaining_timesteps = config.timesteps
+            starting_timestep = 0
+            if resume_manifest is not None:
+                starting_timestep = resume_manifest.observed_timestep
+                remaining_timesteps = max(0, config.timesteps - starting_timestep)
+            checkpoint_callback = build_checkpoint_callback(
                 checkpoint_root=output_path.parent / "checkpoints",
                 algorithm=config.algorithm,
                 seed=seed,
                 interval_steps=config.resolved_checkpoint_interval,
                 max_checkpoints=config.max_checkpoints,
+                total_timesteps=config.timesteps,
+                starting_timestep=starting_timestep,
                 environment_digest=str(identity["environment_digest"]),
                 training_config_digest=content_digest(config.digest_payload()),
             )
-            remaining_timesteps = config.timesteps
-            if resume_manifest is not None:
-                remaining_timesteps = max(
-                    0, config.timesteps - resume_manifest.observed_timestep
-                )
+            metrics_callback = build_tensorboard_metrics_callback(
+                enabled=config.tensorboard_enabled,
+                log_interval=config.tensorboard_log_interval,
+            )
+            callback: object = checkpoint_callback
+            if metrics_callback is not None:
+                from stable_baselines3.common.callbacks import CallbackList
+
+                callback = CallbackList([checkpoint_callback, metrics_callback])
+            if config.tensorboard_enabled:
+                model.tensorboard_log = str(output_path.parent / "tensorboard")
             if remaining_timesteps > 0:
                 learn_kwargs: dict[str, object] = {
                     "total_timesteps": remaining_timesteps,
                     "callback": callback,
                 }
+                if config.tensorboard_enabled:
+                    learn_kwargs["tb_log_name"] = f"seed-{seed}-{config.algorithm}"
                 if resume_manifest is not None:
                     learn_kwargs["reset_num_timesteps"] = False
                 model.learn(**learn_kwargs)

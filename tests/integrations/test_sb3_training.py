@@ -794,3 +794,66 @@ def test_backend_resumes_ppo_checkpoint_to_requested_total(
     assert ("learn", 1, False) in events
     resume_payload = (tmp_path / "output" / "resume.json").read_text(encoding="utf-8")
     assert manifest.digest in resume_payload
+
+
+def test_backend_wires_learning_rate_schedule_and_tensorboard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+    events: list[str] = []
+    vector_environment = VectorEnvironment(events)
+
+    class FakeParameter:
+        def numel(self) -> int:
+            return 2
+
+    class FakePolicy:
+        action_distribution_name = "squashed_diag_gaussian"
+
+        def parameters(self) -> tuple[FakeParameter, ...]:
+            return (FakeParameter(),)
+
+    class CapturingPPO:
+        device = "cpu"
+        num_timesteps = 0
+
+        def __init__(self, policy: str, environment: Any, **kwargs: Any) -> None:
+            assert environment is vector_environment
+            self.policy = FakePolicy()
+            captured["constructor"] = {"policy": policy, **kwargs}
+
+        def learn(self, **kwargs: Any) -> "CapturingPPO":
+            captured["learn"] = kwargs
+            self.num_timesteps = int(kwargs["total_timesteps"])
+            return self
+
+        def save(self, target: str) -> None:
+            Path(f"{target}.zip").write_bytes(b"policy")
+
+    monkeypatch.setattr("stable_baselines3.PPO", CapturingPPO)
+    monkeypatch.setattr(
+        sb3_training,
+        "_build_training_environment",
+        lambda *args, **kwargs: vector_environment,
+    )
+    backend = StableBaselines3Backend(lambda: TrainingProbe(events))
+    config = replace(
+        _training_config(),
+        learning_rate_schedule="linear",
+        tensorboard_enabled=True,
+    )
+
+    backend.train(
+        seed=0,
+        config=config,
+        output_path=tmp_path / "member" / "policy.zip",
+    )
+
+    constructor = captured["constructor"]
+    assert isinstance(constructor, dict)
+    assert callable(constructor["learning_rate"])
+    assert constructor["tensorboard_log"] == str(tmp_path / "member" / "tensorboard")
+    learn = captured["learn"]
+    assert isinstance(learn, dict)
+    assert learn["tb_log_name"] == "seed-0-ppo"

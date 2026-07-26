@@ -1,30 +1,4 @@
-from __future__ import annotations
-
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _write(relative: str, content: str) -> None:
-    path = ROOT / relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content.rstrip() + "\n", encoding="utf-8")
-
-
-def _replace_once(relative: str, old: str, new: str) -> None:
-    path = ROOT / relative
-    text = path.read_text(encoding="utf-8")
-    if new in text:
-        return
-    if old not in text:
-        raise RuntimeError(f"guarded replacement failed for {relative}: {old[:80]!r}")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-
-def apply() -> None:
-    _write(
-        "trade_rl/studio/training_metrics.py",
-        '''"""Fail-closed access to allowlisted TensorBoard scalar artifacts."""
+"""Fail-closed access to allowlisted TensorBoard scalar artifacts."""
 
 from __future__ import annotations
 
@@ -43,9 +17,12 @@ from trade_rl.studio.settings import StudioSettings
 
 _MAX_TAGS = 8
 _MAX_POINTS = 2_000
-_RUN_DIRECTORY = re.compile(r"^seed-(?P<seed>\\d+)-[a-z0-9_-]+(?:_\\d+)?$")
+_RUN_DIRECTORY = re.compile(r"^seed-(?P<seed>\d+)-[a-z0-9_-]+(?:_\d+)?$")
 _EVENT_PREFIX = "events.out.tfevents."
-_METRICS: dict[str, tuple[str, str, str]] = {
+MetricGroup = Literal["optimization", "policy", "value", "trading"]
+MetricUnit = Literal["raw", "rate", "percent", "currency"]
+
+_METRICS: dict[str, tuple[str, MetricGroup, MetricUnit]] = {
     "train/learning_rate": ("Learning rate", "optimization", "rate"),
     "train/loss": ("Total loss", "optimization", "raw"),
     "train/policy_gradient_loss": ("Policy gradient loss", "policy", "raw"),
@@ -114,7 +91,9 @@ class StudioTrainingMetricsReader:
         try:
             candidate.relative_to(project_root)
         except ValueError as error:
-            raise ArtifactInvalid("job artifact root escapes the Studio project") from error
+            raise ArtifactInvalid(
+                "job artifact root escapes the Studio project"
+            ) from error
         return candidate
 
     @staticmethod
@@ -135,7 +114,9 @@ class StudioTrainingMetricsReader:
             try:
                 run_root.relative_to(artifact_root)
             except ValueError as error:
-                raise ArtifactInvalid("training metric run path escapes artifact root") from error
+                raise ArtifactInvalid(
+                    "training metric run path escapes artifact root"
+                ) from error
             if not run_root.is_dir():
                 continue
             self._reject_symlink_chain(run_root, stop=artifact_root)
@@ -145,7 +126,9 @@ class StudioTrainingMetricsReader:
                 try:
                     resolved_tb.relative_to(run_root)
                 except ValueError as error:
-                    raise ArtifactInvalid("TensorBoard directory escapes run root") from error
+                    raise ArtifactInvalid(
+                        "TensorBoard directory escapes run root"
+                    ) from error
                 self._reject_symlink_chain(tensorboard_root, stop=run_root)
                 member_root = tensorboard_root.parent.resolve()
                 for candidate in sorted(tensorboard_root.iterdir()):
@@ -163,7 +146,9 @@ class StudioTrainingMetricsReader:
                         try:
                             resolved.relative_to(run_root)
                         except ValueError as error:
-                            raise ArtifactInvalid("TensorBoard event file escapes run root") from error
+                            raise ArtifactInvalid(
+                                "TensorBoard event file escapes run root"
+                            ) from error
                         if not resolved.is_file():
                             continue
                         events.append(resolved)
@@ -171,7 +156,9 @@ class StudioTrainingMetricsReader:
                         continue
                     existing = collected.get(seed)
                     if existing is not None and existing[0] != member_root:
-                        raise ArtifactInvalid(f"multiple ensemble members claim seed {seed}")
+                        raise ArtifactInvalid(
+                            f"multiple ensemble members claim seed {seed}"
+                        )
                     if existing is None:
                         collected[seed] = (member_root, [candidate.resolve()], events)
                     else:
@@ -233,8 +220,14 @@ class StudioTrainingMetricsReader:
                         step = int(item.step)
                         wall_time = float(item.wall_time)
                         value = float(item.value)
-                        if step < 0 or not math.isfinite(wall_time) or not math.isfinite(value):
-                            raise ArtifactInvalid("TensorBoard scalar contains invalid values")
+                        if (
+                            step < 0
+                            or not math.isfinite(wall_time)
+                            or not math.isfinite(value)
+                        ):
+                            raise ArtifactInvalid(
+                                "TensorBoard scalar contains invalid values"
+                            )
                         previous = points[tag].get(step)
                         if previous is None or wall_time >= previous.wall_time:
                             points[tag][step] = TrainingMetricPoint(
@@ -257,7 +250,9 @@ class StudioTrainingMetricsReader:
         try:
             return source.member_root.relative_to(project_root).as_posix()
         except ValueError as error:
-            raise ArtifactInvalid("TensorBoard source is outside the project") from error
+            raise ArtifactInvalid(
+                "TensorBoard source is outside the project"
+            ) from error
 
     def status(
         self,
@@ -335,7 +330,9 @@ class StudioTrainingMetricsReader:
         next_step = after_step
         for tag in tags:
             display_name, group, unit = _METRICS[tag]
-            selected = tuple(point for point in loaded.get(tag, ()) if point.step > after_step)[:limit]
+            selected = tuple(
+                point for point in loaded.get(tag, ()) if point.step > after_step
+            )[:limit]
             if selected:
                 next_step = max(next_step, selected[-1].step)
             response_series.append(
@@ -362,276 +359,3 @@ __all__ = [
     "TrainingMetricsResponse",
     "TrainingMetricsStatusResponse",
 ]
-''',
-    )
-
-    _replace_once(
-        "trade_rl/studio/api.py",
-        "from trade_rl.studio.telemetry import (\n",
-        "from trade_rl.studio.training_metrics import (\n"
-        "    StudioTrainingMetricsReader,\n"
-        "    TrainingMetricsResponse,\n"
-        "    TrainingMetricsStatusResponse,\n"
-        ")\n"
-        "from trade_rl.studio.telemetry import (\n",
-    )
-    _replace_once(
-        "trade_rl/studio/api.py",
-        "    telemetry_reader = StudioTelemetryReader(settings)\n",
-        "    telemetry_reader = StudioTelemetryReader(settings)\n"
-        "    training_metrics_reader = StudioTrainingMetricsReader(settings)\n",
-    )
-    _replace_once(
-        "trade_rl/studio/api.py",
-        '''    @app.get(
-        "/api/studio/jobs/{job_id}/checkpoint-evaluations",
-''',
-        '''    @app.get(
-        "/api/studio/jobs/{job_id}/training-metrics/status",
-        response_model=TrainingMetricsStatusResponse,
-    )
-    def training_metrics_status(
-        job_id: str,
-        seed: int | None = Query(default=None, ge=0),
-    ) -> TrainingMetricsStatusResponse:
-        return training_metrics_reader.status(
-            resolved_supervisor.get_job(job_id),
-            seed=seed,
-        )
-
-    @app.get(
-        "/api/studio/jobs/{job_id}/training-metrics/scalars",
-        response_model=TrainingMetricsResponse,
-    )
-    def training_metric_scalars(
-        job_id: str,
-        tag: list[str] = Query(default=[]),
-        seed: int | None = Query(default=None, ge=0),
-        after_step: int = Query(default=0, ge=0),
-        limit: int = Query(default=512, ge=1, le=2_000),
-        generation: str | None = Query(default=None, min_length=64, max_length=64),
-    ) -> TrainingMetricsResponse:
-        return training_metrics_reader.scalars(
-            resolved_supervisor.get_job(job_id),
-            seed=seed,
-            tags=tuple(tag),
-            after_step=after_step,
-            limit=limit,
-            generation=generation,
-        )
-
-    @app.get(
-        "/api/studio/jobs/{job_id}/checkpoint-evaluations",
-''',
-    )
-
-    _write(
-        "tests/studio/test_training_metrics.py",
-        '''from __future__ import annotations
-
-from pathlib import Path
-
-import pytest
-from torch.utils.tensorboard import SummaryWriter
-
-from trade_rl.studio.contracts import JobSummary
-from trade_rl.studio.errors import ArtifactInvalid, InvalidStudioRequest
-from trade_rl.studio.training_metrics import StudioTrainingMetricsReader
-
-from .test_catalog import settings
-
-
-def _job(tmp_path: Path, *, run_id: str = "run-metrics") -> JobSummary:
-    return JobSummary(
-        id="job-metrics",
-        status="running",
-        run_id=run_id,
-        config_resource_id="config-resource",
-        dataset_resource_id="dataset-resource",
-        config_digest="c" * 64,
-        dataset_id="d" * 64,
-        config_path="configs/training.json",
-        dataset_path="datasets/btc",
-        artifact_root="research",
-        submitted_at="2026-07-26T00:00:00+00:00",
-        owner_instance_id="owner",
-    )
-
-
-def _write_events(tmp_path: Path, *, seed: int = 3, suffix: str = "") -> Path:
-    run = (
-        tmp_path
-        / "research"
-        / ".staging"
-        / "run-metrics"
-        / "members"
-        / "member-000"
-        / "tensorboard"
-        / f"seed-{seed}-ppo{suffix}"
-    )
-    writer = SummaryWriter(log_dir=run)
-    writer.add_scalar("train/learning_rate", 1.2e-4, 100)
-    writer.add_scalar("train/learning_rate", 1.0e-4, 200)
-    writer.add_scalar("train/approx_kl", 0.01, 200)
-    writer.add_scalar("secret/internal", 999.0, 200)
-    writer.close()
-    return run
-
-
-def test_reader_returns_only_allowlisted_sorted_scalars(tmp_path: Path) -> None:
-    _write_events(tmp_path)
-    reader = StudioTrainingMetricsReader(settings(tmp_path))
-    job = _job(tmp_path)
-
-    status = reader.status(job, seed=3)
-    page = reader.scalars(
-        job,
-        seed=3,
-        tags=("train/learning_rate", "train/approx_kl"),
-        after_step=0,
-        limit=512,
-        generation=status.generation,
-    )
-
-    assert status.available
-    assert status.available_seeds == (3,)
-    assert "secret/internal" not in status.available_tags
-    assert [point.step for point in page.series[0].points] == [100, 200]
-    assert page.next_step == 200
-
-
-def test_reader_merges_resumed_event_directories_and_uses_cursor(tmp_path: Path) -> None:
-    _write_events(tmp_path)
-    resumed = _write_events(tmp_path, suffix="_2")
-    writer = SummaryWriter(log_dir=resumed)
-    writer.add_scalar("train/learning_rate", 8.0e-5, 300)
-    writer.close()
-    reader = StudioTrainingMetricsReader(settings(tmp_path))
-
-    page = reader.scalars(
-        _job(tmp_path),
-        seed=3,
-        tags=("train/learning_rate",),
-        after_step=200,
-        limit=512,
-        generation=None,
-    )
-    assert [point.step for point in page.series[0].points] == [300]
-
-
-def test_reader_requests_reset_when_generation_changes(tmp_path: Path) -> None:
-    _write_events(tmp_path)
-    reader = StudioTrainingMetricsReader(settings(tmp_path))
-    page = reader.scalars(
-        _job(tmp_path),
-        seed=3,
-        tags=("train/learning_rate",),
-        after_step=100,
-        limit=512,
-        generation="0" * 64,
-    )
-    assert page.reset_required
-    assert page.next_step == 0
-
-
-def test_reader_rejects_unknown_tags_and_symlinks(tmp_path: Path) -> None:
-    _write_events(tmp_path)
-    reader = StudioTrainingMetricsReader(settings(tmp_path))
-    with pytest.raises(InvalidStudioRequest, match="unknown"):
-        reader.scalars(
-            _job(tmp_path),
-            seed=3,
-            tags=("secret/internal",),
-            after_step=0,
-            limit=512,
-            generation=None,
-        )
-
-    member = tmp_path / "research" / ".staging" / "run-metrics" / "members" / "member-000"
-    target = member / "tensorboard"
-    moved = member / "real-tensorboard"
-    target.rename(moved)
-    target.symlink_to(moved, target_is_directory=True)
-    with pytest.raises(ArtifactInvalid, match="symlink"):
-        reader.status(_job(tmp_path), seed=3)
-''',
-    )
-
-    _write(
-        "tests/studio/test_training_metrics_api.py",
-        '''from __future__ import annotations
-
-from pathlib import Path
-
-from torch.utils.tensorboard import SummaryWriter
-
-from .test_api import client
-from .test_jobs import request
-
-
-def test_training_metrics_endpoints_return_status_and_allowlisted_scalars(
-    tmp_path: Path,
-) -> None:
-    api, _, catalog, _ = client(tmp_path)
-    created = api.post(
-        "/api/studio/jobs/training",
-        json=request(catalog, run_id="run-metrics").model_dump(by_alias=True),
-    )
-    job_id = created.json()["id"]
-    run = (
-        tmp_path
-        / "research"
-        / ".staging"
-        / "run-metrics"
-        / "members"
-        / "member-000"
-        / "tensorboard"
-        / "seed-7-ppo"
-    )
-    writer = SummaryWriter(log_dir=run)
-    writer.add_scalar("train/learning_rate", 1.2e-4, 100)
-    writer.add_scalar("secret/internal", 999.0, 100)
-    writer.close()
-
-    status = api.get(
-        f"/api/studio/jobs/{job_id}/training-metrics/status",
-        params={"seed": 7},
-    )
-    assert status.status_code == 200
-    assert status.json()["available"] is True
-    assert status.json()["availableTags"] == ["train/learning_rate"]
-
-    scalars = api.get(
-        f"/api/studio/jobs/{job_id}/training-metrics/scalars",
-        params=[("seed", "7"), ("tag", "train/learning_rate")],
-    )
-    assert scalars.status_code == 200
-    assert scalars.json()["series"][0]["points"][0]["step"] == 100
-
-
-def test_training_metrics_api_returns_empty_and_rejects_unknown_tags(
-    tmp_path: Path,
-) -> None:
-    api, _, catalog, _ = client(tmp_path)
-    created = api.post(
-        "/api/studio/jobs/training",
-        json=request(catalog, run_id="run-empty").model_dump(by_alias=True),
-    )
-    job_id = created.json()["id"]
-    empty = api.get(f"/api/studio/jobs/{job_id}/training-metrics/status")
-    assert empty.status_code == 200
-    assert empty.json()["available"] is False
-
-    unknown = api.get(
-        f"/api/studio/jobs/{job_id}/training-metrics/scalars",
-        params={"tag": "secret/internal"},
-    )
-    assert unknown.status_code == 400
-    assert unknown.json()["detail"]["code"] == "invalid_request"
-    assert api.get("/api/studio/jobs/missing/training-metrics/status").status_code == 404
-''',
-    )
-
-
-if __name__ == "__main__":
-    apply()

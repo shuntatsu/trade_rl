@@ -41,6 +41,11 @@ from trade_rl.studio.telemetry import (
     TelemetryEventsResponse,
     TelemetryStatusResponse,
 )
+from trade_rl.studio.training_metrics import (
+    StudioTrainingMetricsReader,
+    TrainingMetricsResponse,
+    TrainingMetricsStatusResponse,
+)
 
 _ERROR_STATUS: tuple[tuple[type[StudioError], int], ...] = (
     (ResourceNotFound, 404),
@@ -72,6 +77,7 @@ def create_app(
         catalog=resolved_catalog,
     )
     telemetry_reader = StudioTelemetryReader(settings)
+    training_metrics_reader = StudioTrainingMetricsReader(settings)
     checkpoint_reader = StudioCheckpointEvaluationReader(settings)
     app = FastAPI(
         title="Trade RL Studio API",
@@ -200,6 +206,40 @@ def create_app(
             after_sequence=after_sequence,
             limit=limit,
             stream_generation=stream_generation,
+        )
+
+    @app.get(
+        "/api/studio/jobs/{job_id}/training-metrics/status",
+        response_model=TrainingMetricsStatusResponse,
+    )
+    def training_metrics_status(
+        job_id: str,
+        seed: int | None = Query(default=None, ge=0),
+    ) -> TrainingMetricsStatusResponse:
+        return training_metrics_reader.status(
+            resolved_supervisor.get_job(job_id),
+            seed=seed,
+        )
+
+    @app.get(
+        "/api/studio/jobs/{job_id}/training-metrics/scalars",
+        response_model=TrainingMetricsResponse,
+    )
+    def training_metric_scalars(
+        job_id: str,
+        tag: list[str] = Query(default=[]),
+        seed: int | None = Query(default=None, ge=0),
+        after_step: int = Query(default=0, ge=0),
+        limit: int = Query(default=512, ge=1, le=2_000),
+        generation: str | None = Query(default=None, min_length=64, max_length=64),
+    ) -> TrainingMetricsResponse:
+        return training_metrics_reader.scalars(
+            resolved_supervisor.get_job(job_id),
+            seed=seed,
+            tags=tuple(tag),
+            after_step=after_step,
+            limit=limit,
+            generation=generation,
         )
 
     @app.get(

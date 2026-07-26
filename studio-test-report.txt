@@ -1,0 +1,20 @@
+
+> trade-rl-studio@0.1.0 test
+> vitest --run src/live/useTrainingMetrics.test.tsx src/live/TrainingMetricChart.test.tsx src/live/TrainingDiagnosticsPanel.test.tsx src/pages/LiveTrainingPage.test.tsx src/api/studioApi.test.ts src/App.test.tsx
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/home/runner/work/trade_rl/trade_rl/studio[39m
+
+ [32m✓[39m src/api/studioApi.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+ [32m✓[39m src/live/TrainingMetricChart.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 166[2mms[22m[39m
+ [32m✓[39m src/live/useTrainingMetrics.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 105[2mms[22m[39m
+ [32m✓[39m src/live/TrainingDiagnosticsPanel.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 243[2mms[22m[39m
+ [32m✓[39m src/pages/LiveTrainingPage.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 1825[2mms[22m[39m
+     [33m[2m✓[22m[39m requires explicit fold selection instead of choosing the highest checkpoint score [33m 1386[2mms[22m[39m
+ [32m✓[39m src/App.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 295[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m6 passed[39m[22m[90m (6)[39m
+[2m      Tests [22m [1m[32m18 passed[39m[22m[90m (18)[39m
+[2m   Start at [22m 15:42:32
+[2m   Duration [22m 4.23s[2m (transform 776ms, setup 1.59s, import 1.71s, tests 2.67s, environment 3.43s)[22m
+

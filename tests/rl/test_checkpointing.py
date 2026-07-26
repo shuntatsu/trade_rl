@@ -6,6 +6,7 @@ import pytest
 
 from trade_rl.rl.checkpointing import (
     load_checkpoint_manifest,
+    planned_checkpoint_steps,
     publish_checkpoint,
 )
 from trade_rl.rl.training import ResidualTrainingConfig
@@ -127,3 +128,26 @@ def test_checkpoint_save_excludes_runtime_sequence_reconstructor(
     )
     assert model.saved_kwargs == {"retained": "value"}
     assert model.rollout_buffer_kwargs["sequence_reconstructor"] is model.reconstructor
+
+
+def test_capped_checkpoints_cover_late_training() -> None:
+    steps = planned_checkpoint_steps(
+        total_timesteps=524_288,
+        interval_steps=32_768,
+        max_checkpoints=8,
+    )
+
+    assert len(steps) == 8
+    assert steps[0] > 0
+    assert steps[-1] >= 450_000
+    assert tuple(sorted(steps)) == steps
+    assert 524_288 not in steps
+
+
+def test_checkpoint_plan_skips_completed_steps_on_resume() -> None:
+    steps = planned_checkpoint_steps(
+        total_timesteps=100,
+        interval_steps=20,
+        max_checkpoints=10,
+    )
+    assert tuple(step for step in steps if step > 40) == (60, 80)

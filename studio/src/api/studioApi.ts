@@ -15,12 +15,18 @@ import type {
   TelemetryEventsResponse,
   TelemetryStatusResponse,
   TrainingJobRequest,
+  TrainingMetricsResponse,
+  TrainingMetricsStatusResponse,
 } from '../data/types'
 import {
   isCheckpointEvaluations,
   isTelemetryEvents,
   isTelemetryStatus,
 } from '../live/telemetryGuards'
+import {
+  isTrainingMetricsResponse,
+  isTrainingMetricsStatus,
+} from '../live/trainingMetricGuards'
 import {
   isConfigList,
   isDatasetList,
@@ -167,6 +173,39 @@ export function loadTelemetryEvents(
   )
 }
 
+export function loadTrainingMetricsStatus(
+  jobId: string,
+  seed: number | null = null,
+  fetcher: typeof fetch = fetch,
+): Promise<TrainingMetricsStatusResponse> {
+  const query = seed === null ? '' : `?seed=${encodeURIComponent(seed)}`
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/training-metrics/status${query}`,
+    fetcher,
+    isTrainingMetricsStatus,
+  )
+}
+
+export function loadTrainingMetricScalars(
+  jobId: string,
+  tags: string[],
+  afterStep = 0,
+  limit = 512,
+  seed: number | null = null,
+  generation: string | null = null,
+  fetcher: typeof fetch = fetch,
+): Promise<TrainingMetricsResponse> {
+  const parameters = new URLSearchParams({ after_step: String(afterStep), limit: String(limit) })
+  for (const tag of tags) parameters.append('tag', tag)
+  if (seed !== null) parameters.set('seed', String(seed))
+  if (generation !== null) parameters.set('generation', generation)
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/training-metrics/scalars?${parameters.toString()}`,
+    fetcher,
+    isTrainingMetricsResponse,
+  )
+}
+
 export function loadCheckpointEvaluations(
   jobId: string,
   fetcher: typeof fetch = fetch,
@@ -206,6 +245,8 @@ export interface StudioApi {
   loadTelemetryStatus: (jobId: string, seed?: number | null) => Promise<TelemetryStatusResponse>
   loadTelemetryEvents: (jobId: string, afterSequence?: number, limit?: number, seed?: number | null, streamGeneration?: string | null) => Promise<TelemetryEventsResponse>
   loadCheckpointEvaluations?: (jobId: string) => Promise<CheckpointEvaluationsResponse>
+  loadTrainingMetricsStatus?: (jobId: string, seed?: number | null) => Promise<TrainingMetricsStatusResponse>
+  loadTrainingMetricScalars?: (jobId: string, tags: string[], afterStep?: number, limit?: number, seed?: number | null, generation?: string | null) => Promise<TrainingMetricsResponse>
   loadRunComparison: (leftResourceId: string, rightResourceId: string) => Promise<RunComparison>
   loadEvidenceReport: (runResourceId: string) => Promise<EvidenceReport>
   loadServingMonitor: () => Promise<ServingMonitorReport>
@@ -222,6 +263,8 @@ export const studioApi: StudioApi = {
   loadTelemetryStatus,
   loadTelemetryEvents,
   loadCheckpointEvaluations,
+  loadTrainingMetricsStatus,
+  loadTrainingMetricScalars,
   loadRunComparison,
   loadEvidenceReport,
   loadServingMonitor,

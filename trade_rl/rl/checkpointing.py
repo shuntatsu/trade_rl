@@ -211,6 +211,46 @@ def checkpoint_manifests(root: Path) -> tuple[CheckpointManifest, ...]:
     )
 
 
+def planned_checkpoint_steps(
+    *,
+    total_timesteps: int,
+    interval_steps: int,
+    max_checkpoints: int,
+) -> tuple[int, ...]:
+    """Select deterministic requested steps across the complete training horizon."""
+
+    if (
+        isinstance(total_timesteps, bool)
+        or not isinstance(total_timesteps, int)
+        or total_timesteps <= 0
+    ):
+        raise ValueError("total_timesteps must be a positive integer")
+    if (
+        isinstance(interval_steps, bool)
+        or not isinstance(interval_steps, int)
+        or interval_steps < 0
+    ):
+        raise ValueError("interval_steps must be a non-negative integer")
+    if (
+        isinstance(max_checkpoints, bool)
+        or not isinstance(max_checkpoints, int)
+        or max_checkpoints <= 0
+    ):
+        raise ValueError("max_checkpoints must be a positive integer")
+    if interval_steps == 0:
+        return ()
+    candidates = tuple(range(interval_steps, total_timesteps, interval_steps))
+    if len(candidates) <= max_checkpoints:
+        return candidates
+    if max_checkpoints == 1:
+        return (candidates[-1],)
+    positions = tuple(
+        round(index * (len(candidates) - 1) / (max_checkpoints - 1))
+        for index in range(max_checkpoints)
+    )
+    return tuple(candidates[position] for position in positions)
+
+
 def build_checkpoint_callback(
     *,
     checkpoint_root: Path,
@@ -218,13 +258,20 @@ def build_checkpoint_callback(
     seed: int,
     interval_steps: int,
     max_checkpoints: int,
+    total_timesteps: int,
+    starting_timestep: int = 0,
     environment_digest: str,
     training_config_digest: str,
 ) -> Any:
-    """Build checkpoint and sampled Studio telemetry callbacks lazily."""
+    """Build full-horizon checkpoint and sampled Studio telemetry callbacks lazily."""
 
-    if interval_steps < 0 or max_checkpoints <= 0:
-        raise ValueError("checkpoint interval and maximum are invalid")
+    if (
+        isinstance(starting_timestep, bool)
+        or not isinstance(starting_timestep, int)
+        or starting_timestep < 0
+        or starting_timestep > total_timesteps
+    ):
+        raise ValueError("starting_timestep must be within the training horizon")
     from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
     checkpoint_root = Path(checkpoint_root)
@@ -232,20 +279,30 @@ def build_checkpoint_callback(
         path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
         seed=seed,
     )
-    if interval_steps == 0:
+    planned = tuple(
+        step
+        for step in planned_checkpoint_steps(
+            total_timesteps=total_timesteps,
+            interval_steps=interval_steps,
+            max_checkpoints=max_checkpoints,
+        )
+        if step > starting_timestep
+    )
+    if not planned:
         return telemetry_callback
 
     class AtomicCheckpointCallback(BaseCallback):
         def __init__(self) -> None:
             super().__init__(verbose=0)
-            self.next_timestep = interval_steps
-            self.published = 0
+            self.cursor = 0
 
         def _on_step(self) -> bool:
-            observed = int(self.model.num_timesteps)
-            if self.published >= max_checkpoints or observed < self.next_timestep:
+            if self.cursor >= len(planned):
                 return True
-            requested = self.next_timestep
+            observed = int(self.model.num_timesteps)
+            requested = planned[self.cursor]
+            if observed < requested:
+                return True
             publish_checkpoint(
                 model=self.model,
                 checkpoint_root=checkpoint_root,
@@ -256,11 +313,7 @@ def build_checkpoint_callback(
                 environment_digest=environment_digest,
                 training_config_digest=training_config_digest,
             )
-            self.published += 1
-            self.next_timestep = max(
-                self.next_timestep + interval_steps,
-                observed + interval_steps,
-            )
+            self.cursor += 1
             return True
 
     return CallbackList([AtomicCheckpointCallback(), telemetry_callback])
@@ -274,6 +327,7 @@ __all__ = [
     "build_checkpoint_callback",
     "checkpoint_manifests",
     "load_checkpoint_manifest",
+    "planned_checkpoint_steps",
     "publish_checkpoint",
     "save_policy_without_runtime_state",
 ]

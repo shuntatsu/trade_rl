@@ -9,11 +9,13 @@ import type {
   TrainingTelemetryRecord,
 } from '../data/types'
 import { MarketReplayChart } from '../live/MarketReplayChart'
+import { TrainingDiagnosticsPanel } from '../live/TrainingDiagnosticsPanel'
 import { currentEnvironmentEpisode, telemetryEnvironmentIds } from '../live/telemetryStreams'
 import { useTrainingTelemetry } from '../live/useTrainingTelemetry'
 import '../liveTraining.css'
 
 interface LiveTrainingPageProps { api?: StudioApi }
+type LiveView = 'replay' | 'diagnostics'
 type ReplayMode = 'live' | 'buffered'
 type TimelineMode = 'candles' | 'events'
 type Speed = 1 | 4 | 8
@@ -89,6 +91,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const [jobsError, setJobsError] = useState<string | null>(null)
   const [checkpointEvaluations, setCheckpointEvaluations] = useState<CheckpointEvaluationsResponse | null>(null)
   const [checkpointError, setCheckpointError] = useState<string | null>(null)
+  const [liveView, setLiveView] = useState<LiveView>('replay')
   const [replayMode, setReplayMode] = useState<ReplayMode>('buffered')
   const [timelineMode, setTimelineMode] = useState<TimelineMode>('candles')
   const [playing, setPlaying] = useState(true)
@@ -255,21 +258,21 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
               {telemetry.status?.availableSeeds.map((value) => <option key={value} value={value}>Seed {value}</option>)}
             </select>
           </label>
-          <label className="live-job-select">Environment
+          <label className="live-job-select" hidden={liveView !== 'replay'}>Environment
             <select value={effectiveEnvironmentId ?? ''} onChange={(event) => setEnvironmentId(event.target.value === '' ? null : Number(event.target.value))} aria-label="Live Training environment">
               {availableEnvironmentIds.length === 0 ? <option value="">env待機中</option> : null}
               {availableEnvironmentIds.map((value) => <option key={value} value={value}>Env {value}</option>)}
             </select>
           </label>
-          <div className="live-segment-group" aria-label="リプレイモード">
+          <div className="live-segment-group" aria-label="リプレイモード" hidden={liveView !== 'replay'}>
             <span>リプレイモード</span>
             <div className="live-segment">
               <button type="button" aria-pressed={replayMode === 'live'} onClick={() => setReplayMode('live')}>ほぼライブ</button>
               <button type="button" aria-pressed={replayMode === 'buffered'} onClick={() => setReplayMode('buffered')}>バッファ再生</button>
             </div>
           </div>
-          <div className="live-buffer"><Database size={14} aria-hidden="true" /><strong>{replayRecords.length}/{telemetry.records.length}</strong> stream/total steps</div>
-          <div className="live-segment-group" aria-label="タイム軸">
+          <div className="live-buffer" hidden={liveView !== 'replay'}><Database size={14} aria-hidden="true" /><strong>{replayRecords.length}/{telemetry.records.length}</strong> stream/total steps</div>
+          <div className="live-segment-group" aria-label="タイム軸" hidden={liveView !== 'replay'}>
             <span>タイム軸（切替可能）</span>
             <div className="live-segment">
               <button type="button" aria-pressed={timelineMode === 'candles'} onClick={() => setTimelineMode('candles')}>ローソク足ごと</button>
@@ -279,8 +282,15 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
         </div>
       </header>
 
+      <div className="live-view-selector" aria-label="Live Training view">
+        <button type="button" aria-pressed={liveView === 'replay'} onClick={() => setLiveView('replay')}>市場リプレイ</button>
+        <button type="button" aria-pressed={liveView === 'diagnostics'} onClick={() => setLiveView('diagnostics')}>学習診断</button>
+      </div>
+
       {(jobsError || telemetry.error || checkpointError) ? <div className="live-alert"><AlertTriangle size={16} aria-hidden="true" />{jobsError ?? telemetry.error ?? checkpointError}</div> : null}
 
+      <div hidden={liveView !== 'diagnostics'}><TrainingDiagnosticsPanel job={selectedJob} seed={effectiveSeed} api={api} /></div>
+      <div className="live-replay-workspace" hidden={liveView !== 'replay'}>
       <div className="live-primary-grid">
         <article className="live-market-panel">
           <div className="live-panel-title">
@@ -359,6 +369,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
           })}
         </div>
       </article>
+      </div>
     </section>
   )
 }

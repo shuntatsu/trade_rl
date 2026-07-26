@@ -1,0 +1,22 @@
+merge_status=128
+head=4165d10cb55ae0bc537e100415ea0e0b089301d6
+main=30440d083edb9ad221a865e43a413a03582fd07a
+
+=== merge output ===
+Committer identity unknown
+
+*** Please tell me who you are.
+
+Run
+
+  git config --global user.email "you@example.com"
+  git config --global user.name "Your Name"
+
+to set your account's default identity.
+Omit --global to set the identity only in this repository.
+
+fatal: empty ident name (for <runner@runnervmvrwv9.xugu5umumv0exec52ewco04jqa.phxx.internal.cloudapp.net>) not allowed
+
+=== unmerged files ===
+
+=== conflict diffs ===

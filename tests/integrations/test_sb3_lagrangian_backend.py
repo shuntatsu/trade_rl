@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import gymnasium as gym
+import numpy as np
+import pytest
+from gymnasium import spaces
+
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.integrations.sb3_training import StableBaselines3Backend
+from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.rl.training import ResidualTrainingConfig
+
+
+class _LagrangianProbe(gym.Env[np.ndarray, np.ndarray]):
+    metadata = {"render_modes": []}
+    environment_digest = "e" * 64
+    initial_capital = 1_000.0
+    decision_hours = 0.25
+    action_names = ("tilt",)
+    action_spec_digest = content_digest({"names": action_names})
+    alpha_artifact_digest = None
+    factor_artifact_digest = None
+    normalizer = None
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.observation_space = spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32)
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
+        self.close_calls = 0
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, object] | None = None,
+    ) -> tuple[np.ndarray, dict[str, object]]:
+        del options
+        super().reset(seed=seed)
+        return np.zeros(3, dtype=np.float32), {}
+
+    def step(
+        self,
+        action: np.ndarray,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        del action
+        return np.zeros(3, dtype=np.float32), 0.0, False, False, {}
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+class _FakeParameter:
+    def numel(self) -> int:
+        return 2
+
+
+class _FakePolicy:
+    action_distribution_name = "squashed_diag_gaussian"
+
+    def parameters(self) -> tuple[_FakeParameter, ...]:
+        return (_FakeParameter(),)
+
+
+class _FakeCostCritic:
+    architecture_digest = "c" * 64
+
+
+class _FakeLagrangianPPO:
+    device = "cpu"
+
+    def __init__(self, policy: object, environment: object, **kwargs: object) -> None:
+        self.policy = _FakePolicy()
+        self.cost_critic = _FakeCostCritic()
+        self.num_timesteps = 0
+        self.policy_identifier = policy
+        self.environment = environment
+        self.kwargs = kwargs
+
+    def checkpoint_identity_payload(self) -> dict[str, object]:
+        schema = self.kwargs["lagrangian_schema"]
+        return {
+            "algorithm": "lagrangian_ppo",
+            "lagrangian_schema_digest": schema.digest,
+        }
+
+    def learn(self, **kwargs: object) -> None:
+        self.num_timesteps = int(kwargs["total_timesteps"])
+
+    def save(self, target: str) -> None:
+        Path(f"{target}.zip").write_bytes(b"lagrangian-policy")
+
+
+def _config() -> ResidualTrainingConfig:
+    count = len(CONSTRAINT_COST_NAMES)
+    return ResidualTrainingConfig(
+        timesteps=4,
+        gamma=1.0,
+        seeds=(7,),
+        algorithm="lagrangian_ppo",
+        n_steps=4,
+        n_envs=1,
+        batch_size=4,
+        n_epochs=1,
+        asset_set_encoder=False,
+        device="cpu",
+        lagrangian_budgets=(0.1,) * count,
+        lagrangian_dual_learning_rates=(0.05,) * count,
+        lagrangian_ema_betas=(0.9,) * count,
+        lagrangian_initial_multipliers=(0.0,) * count,
+        lagrangian_max_multipliers=(10.0,) * count,
+        lagrangian_warmup_rollouts=(0,) * count,
+        lagrangian_update_interval_rollouts=(1,) * count,
+        lagrangian_minimum_completed_episodes=(1, 20, 1, 20, 1, 1, 1),
+        lagrangian_probe_episodes=2,
+        lagrangian_probe_max_steps_per_episode=16,
+    )
+
+
+def test_backend_constructs_lagrangian_ppo_with_full_schema(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    probe = _LagrangianProbe()
+    constructed: list[_FakeLagrangianPPO] = []
+
+    def build_model(
+        policy: object,
+        environment: object,
+        **kwargs: object,
+    ) -> _FakeLagrangianPPO:
+        model = _FakeLagrangianPPO(policy, environment, **kwargs)
+        constructed.append(model)
+        return model
+
+    monkeypatch.setattr(
+        "trade_rl.integrations.lagrangian_ppo.LagrangianPPO",
+        build_model,
+    )
+    monkeypatch.setattr(
+        "trade_rl.rl.checkpointing.build_checkpoint_callback",
+        lambda **kwargs: object(),
+    )
+
+    result = StableBaselines3Backend(lambda: probe).train(
+        seed=7,
+        config=_config(),
+        output_path=tmp_path / "policy.zip",
+    )
+
+    assert len(constructed) == 1
+    schema = constructed[0].kwargs["lagrangian_schema"]
+    assert schema.names == CONSTRAINT_COST_NAMES
+    assert tuple(spec.minimum_completed_episodes for spec in schema.specs) == (
+        1,
+        20,
+        1,
+        20,
+        1,
+        1,
+        1,
+    )
+    assert result.actual_timesteps == 4
+    assert probe.close_calls == 1

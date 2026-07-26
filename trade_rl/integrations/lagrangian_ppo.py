@@ -84,6 +84,7 @@ class LagrangianPPO(CostCriticPPO):
 
     def _setup_model(self) -> None:
         super()._setup_model()
+        self.cost_rollout_storage.require_episode_metadata = True
         if self.lagrangian_schema.names != self.cost_schema.names:
             raise ValueError(
                 "Lagrangian constraint order must match the Cost Critic schema"

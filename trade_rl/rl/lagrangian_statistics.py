@@ -261,6 +261,12 @@ class CompletedEpisodeCostAccumulator:
         self._episode_elapsed_hours = np.zeros(n_envs, dtype=np.float64)
         self._episode_step_counts = np.zeros(n_envs, dtype=np.int64)
 
+    @property
+    def state_version(self) -> str:
+        """Return the checkpoint schema version for unfinished episodes."""
+
+        return self._STATE_VERSION
+
     def _validated_rollout(
         self,
         *,

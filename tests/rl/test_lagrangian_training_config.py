@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.rl.cost_learning import CONSTRAINT_COST_NAMES
 from trade_rl.rl.training import ResidualTrainingConfig
 
 

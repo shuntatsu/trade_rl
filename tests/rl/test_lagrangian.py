@@ -1,0 +1,211 @@
+from __future__ import annotations
+
+import pytest
+
+from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.rl.lagrangian import (
+    ConstraintAggregation,
+    LagrangianConstraintSpec,
+    LagrangianSchema,
+    canonical_constraint_aggregation,
+    canonical_constraint_unit,
+)
+
+
+def _spec(
+    name: str,
+    *,
+    aggregation: ConstraintAggregation | None = None,
+    budget: float = 0.0,
+    dual_learning_rate: float = 0.05,
+    ema_beta: float = 0.9,
+    initial_multiplier: float = 0.0,
+    max_multiplier: float = 10.0,
+    warmup_rollouts: int = 2,
+    update_interval_rollouts: int = 3,
+    minimum_completed_episodes: int = 1,
+) -> LagrangianConstraintSpec:
+    return LagrangianConstraintSpec(
+        name=name,
+        aggregation=(
+            canonical_constraint_aggregation(name)
+            if aggregation is None
+            else aggregation
+        ),
+        budget=budget,
+        dual_learning_rate=dual_learning_rate,
+        ema_beta=ema_beta,
+        initial_multiplier=initial_multiplier,
+        max_multiplier=max_multiplier,
+        warmup_rollouts=warmup_rollouts,
+        update_interval_rollouts=update_interval_rollouts,
+        minimum_completed_episodes=minimum_completed_episodes,
+    )
+
+
+def test_lagrangian_schema_preserves_canonical_order_and_identity() -> None:
+    schema = LagrangianSchema(
+        (
+            _spec("drawdown_excess"),
+            _spec("drawdown_stop_event", minimum_completed_episodes=20),
+        )
+    )
+
+    assert schema.names == ("drawdown_excess", "drawdown_stop_event")
+    assert (
+        schema["drawdown_excess"].aggregation is ConstraintAggregation.EPISODE_TIME_AREA
+    )
+    assert (
+        schema["drawdown_stop_event"].aggregation
+        is ConstraintAggregation.EPISODE_EVENT_RATE
+    )
+    assert schema["drawdown_stop_event"].minimum_completed_episodes == 20
+    assert len(schema.digest) == 64
+    assert schema.digest_payload()["names"] == list(schema.names)
+    assert schema["drawdown_excess"].digest_payload()["unit"] == (
+        "drawdown_excess_area_days"
+    )
+    assert (
+        schema["drawdown_stop_event"].digest_payload()["minimum_completed_episodes"]
+        == 20
+    )
+
+
+def test_canonical_constraint_aggregations_cover_every_cost() -> None:
+    expected = {
+        "drawdown_excess": ConstraintAggregation.EPISODE_TIME_AREA,
+        "drawdown_stop_event": ConstraintAggregation.EPISODE_EVENT_RATE,
+        "margin_deficit_fraction": ConstraintAggregation.EPISODE_TIME_AREA,
+        "forced_liquidation_event": ConstraintAggregation.EPISODE_EVENT_RATE,
+        "gross_exposure_request_excess": ConstraintAggregation.EPISODE_DECISION_MEAN,
+        "daily_turnover": ConstraintAggregation.EPISODE_TIME_WEIGHTED_MEAN,
+        "execution_cost_fraction": ConstraintAggregation.EPISODE_SUM,
+    }
+
+    assert tuple(expected) == CONSTRAINT_COST_NAMES
+    assert {
+        name: canonical_constraint_aggregation(name) for name in CONSTRAINT_COST_NAMES
+    } == expected
+
+
+def test_canonical_constraint_units_cover_every_cost() -> None:
+    expected = {
+        "drawdown_excess": "drawdown_excess_area_days",
+        "drawdown_stop_event": "event_per_episode",
+        "margin_deficit_fraction": "margin_deficit_fraction_days",
+        "forced_liquidation_event": "event_per_episode",
+        "gross_exposure_request_excess": "excess_per_decision",
+        "daily_turnover": "turnover_per_day",
+        "execution_cost_fraction": "execution_cost_fraction_per_episode",
+    }
+
+    assert {
+        name: canonical_constraint_unit(name) for name in CONSTRAINT_COST_NAMES
+    } == expected
+
+
+@pytest.mark.parametrize(
+    "lookup",
+    [canonical_constraint_aggregation, canonical_constraint_unit],
+)
+def test_canonical_constraint_lookup_rejects_unknown_cost(lookup: object) -> None:
+    with pytest.raises(ValueError, match="unknown constraint cost"):
+        lookup("unknown")  # type: ignore[operator]
+
+
+def test_lagrangian_schema_digest_changes_with_dual_semantics() -> None:
+    baseline = LagrangianSchema((_spec("drawdown_excess"),))
+    changed_budget = LagrangianSchema((_spec("drawdown_excess", budget=0.01),))
+    changed_rate = LagrangianSchema((_spec("drawdown_excess", dual_learning_rate=0.1),))
+    changed_ema = LagrangianSchema((_spec("drawdown_excess", ema_beta=0.95),))
+    changed_cap = LagrangianSchema((_spec("drawdown_excess", max_multiplier=20.0),))
+    changed_schedule = LagrangianSchema(
+        (_spec("drawdown_excess", warmup_rollouts=1, update_interval_rollouts=1),)
+    )
+    changed_support = LagrangianSchema(
+        (_spec("drawdown_excess", minimum_completed_episodes=4),)
+    )
+
+    assert (
+        len(
+            {
+                baseline.digest,
+                changed_budget.digest,
+                changed_rate.digest,
+                changed_ema.digest,
+                changed_cap.digest,
+                changed_schedule.digest,
+                changed_support.digest,
+            }
+        )
+        == 7
+    )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"budget": -0.01}, "budget"),
+        ({"dual_learning_rate": 0.0}, "dual_learning_rate"),
+        ({"dual_learning_rate": float("nan")}, "dual_learning_rate"),
+        ({"ema_beta": -0.1}, "ema_beta"),
+        ({"ema_beta": 1.0}, "ema_beta"),
+        ({"initial_multiplier": -0.1}, "initial_multiplier"),
+        (
+            {"initial_multiplier": 11.0, "max_multiplier": 10.0},
+            "initial_multiplier",
+        ),
+        ({"max_multiplier": 0.0}, "max_multiplier"),
+        ({"warmup_rollouts": -1}, "warmup_rollouts"),
+        ({"update_interval_rollouts": 0}, "update_interval_rollouts"),
+        ({"minimum_completed_episodes": 0}, "minimum_completed_episodes"),
+    ],
+)
+def test_lagrangian_constraint_spec_rejects_invalid_values(
+    kwargs: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _spec("drawdown_excess", **kwargs)  # type: ignore[arg-type]
+
+
+def test_lagrangian_constraint_spec_rejects_unknown_cost() -> None:
+    with pytest.raises(ValueError, match="unknown constraint cost"):
+        LagrangianConstraintSpec(
+            name="unknown",
+            aggregation=ConstraintAggregation.EPISODE_SUM,
+            budget=0.0,
+            dual_learning_rate=0.05,
+            ema_beta=0.9,
+            initial_multiplier=0.0,
+            max_multiplier=10.0,
+            warmup_rollouts=0,
+            update_interval_rollouts=1,
+            minimum_completed_episodes=1,
+        )
+
+
+def test_lagrangian_constraint_spec_rejects_wrong_aggregation() -> None:
+    with pytest.raises(ValueError, match="aggregation mismatch"):
+        _spec(
+            "drawdown_stop_event",
+            aggregation=ConstraintAggregation.EPISODE_SUM,
+        )
+
+
+def test_lagrangian_schema_rejects_duplicates_and_reordering() -> None:
+    with pytest.raises(ValueError, match="duplicate"):
+        LagrangianSchema((_spec("drawdown_excess"), _spec("drawdown_excess")))
+
+    with pytest.raises(ValueError, match="canonical order"):
+        LagrangianSchema(
+            (
+                _spec("margin_deficit_fraction"),
+                _spec("drawdown_stop_event"),
+            )
+        )
+
+
+def test_lagrangian_schema_requires_at_least_one_constraint() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        LagrangianSchema(())

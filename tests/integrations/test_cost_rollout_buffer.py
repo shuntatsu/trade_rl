@@ -5,6 +5,7 @@ import pytest
 
 from trade_rl.rl.cost_learning import canonical_cost_learning_schema
 from trade_rl.rl.environment_constraints import ConstraintCostVector
+from trade_rl.rl.lagrangian_episode import EpisodeCompletionKind
 
 
 def _cost_vector(scale: float) -> ConstraintCostVector:
@@ -41,12 +42,20 @@ def test_cost_rollout_storage_allocates_canonical_arrays_and_resets() -> None:
     assert storage.truncated.shape == (3, 2)
     assert storage.terminated.dtype == np.bool_
     assert storage.truncated.dtype == np.bool_
+    assert storage.elapsed_hours.shape == (3, 2)
+    assert storage.elapsed_hours.dtype == np.float64
+    assert np.isnan(storage.elapsed_hours).all()
+    assert storage.completion_kinds.shape == (3, 2)
+    assert storage.completion_kinds.dtype == np.int8
+    assert not storage.completion_kinds.any()
     assert storage.cost_names == schema.names
     assert storage.pos == 0
     assert not storage.full
     assert not storage.finalized
 
     storage.costs.fill(3.0)
+    storage.elapsed_hours.fill(2.0)
+    storage.completion_kinds.fill(EpisodeCompletionKind.ECONOMIC_TERMINATION)
     storage.pos = 2
     storage.full = True
     storage.finalized = True
@@ -56,6 +65,8 @@ def test_cost_rollout_storage_allocates_canonical_arrays_and_resets() -> None:
     assert not storage.full
     assert not storage.finalized
     assert not storage.costs.any()
+    assert np.isnan(storage.elapsed_hours).all()
+    assert not storage.completion_kinds.any()
 
 
 def test_cost_rollout_storage_adds_compact_infos_in_schema_order() -> None:
@@ -91,6 +102,82 @@ def test_cost_rollout_storage_adds_compact_infos_in_schema_order() -> None:
     np.testing.assert_array_equal(storage.truncated[0], [True, False])
     np.testing.assert_array_equal(storage.terminal_values[0, 0], np.full(7, 9.0))
     np.testing.assert_array_equal(storage.terminal_values[0, 1], np.zeros(7))
+    assert np.isnan(storage.elapsed_hours[0]).all()
+    np.testing.assert_array_equal(
+        storage.completion_kinds[0],
+        [EpisodeCompletionKind.NONE, EpisodeCompletionKind.NONE],
+    )
+
+
+def test_required_episode_metadata_preserves_vector_environment_order() -> None:
+    from trade_rl.integrations.cost_rollout_buffer import CostRolloutStorage
+
+    storage = CostRolloutStorage(
+        buffer_size=1,
+        n_envs=2,
+        schema=canonical_cost_learning_schema(),
+        require_episode_metadata=True,
+    )
+    zeros = np.zeros((2, 7), dtype=np.float32)
+
+    storage.add_from_infos(
+        infos=(
+            {
+                "constraint_costs": _cost_vector(1.0),
+                "transition_elapsed_hours": 0.25,
+                "termination_reason": "margin_call",
+            },
+            {
+                "constraint_costs": _cost_vector(2.0),
+                "transition_elapsed_hours": 1.0,
+                "termination_reason": "shadow_minimum_equity",
+                "TimeLimit.truncated": True,
+            },
+        ),
+        cost_values=zeros,
+        terminated=np.asarray([True, False]),
+        truncated=np.asarray([False, True]),
+        terminal_cost_values=zeros,
+    )
+
+    np.testing.assert_array_equal(storage.elapsed_hours[0], [0.25, 1.0])
+    np.testing.assert_array_equal(
+        storage.completion_kinds[0],
+        [
+            EpisodeCompletionKind.ECONOMIC_TERMINATION,
+            EpisodeCompletionKind.CENSORED_EXTERNAL_TRUNCATION,
+        ],
+    )
+
+
+@pytest.mark.parametrize("elapsed", [None, 0.0, -1.0, float("nan"), float("inf")])
+def test_required_episode_metadata_rejects_missing_or_invalid_elapsed_time(
+    elapsed: float | None,
+) -> None:
+    from trade_rl.integrations.cost_rollout_buffer import CostRolloutStorage
+
+    storage = CostRolloutStorage(
+        buffer_size=1,
+        n_envs=1,
+        schema=canonical_cost_learning_schema(),
+        require_episode_metadata=True,
+    )
+    info: dict[str, object] = {
+        "constraint_costs": _cost_vector(1.0),
+        "termination_reason": None,
+    }
+    if elapsed is not None:
+        info["transition_elapsed_hours"] = elapsed
+    zeros = np.zeros((1, 7), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="transition_elapsed_hours"):
+        storage.add_from_infos(
+            infos=(info,),
+            cost_values=zeros,
+            terminated=np.asarray([False]),
+            truncated=np.asarray([False]),
+            terminal_cost_values=zeros,
+        )
 
 
 def test_cost_rollout_storage_fails_closed_on_invalid_info_or_transition() -> None:
@@ -214,8 +301,10 @@ def test_cost_rollout_memory_estimator_counts_all_cost_state() -> None:
         estimate_cost_rollout_storage_bytes,
     )
 
-    # Five float32 tensors plus terminated/truncated boolean matrices.
-    expected = 4 * 3 * 7 * 5 * 4 + 4 * 3 * 2
+    transitions = 4 * 3
+    # Five float32 cost tensors, two bool masks, one float64 elapsed-time matrix,
+    # and one int8 completion-kind matrix.
+    expected = 4 * 3 * 7 * 5 * 4 + transitions * 2 + transitions * 8 + transitions
     assert estimate_cost_rollout_storage_bytes(4, 3, 7) == expected
 
     with pytest.raises(ValueError, match="positive"):

@@ -120,6 +120,16 @@ class ResidualTrainingConfig:
     behavior_cloning_minimum_improvement: float = 0.0
     behavior_cloning_teacher: str = "oracle"
     behavior_cloning_required_relative_improvement: float = 0.0
+    lagrangian_budgets: tuple[float, ...] = ()
+    lagrangian_dual_learning_rates: tuple[float, ...] = ()
+    lagrangian_ema_betas: tuple[float, ...] = ()
+    lagrangian_initial_multipliers: tuple[float, ...] = ()
+    lagrangian_max_multipliers: tuple[float, ...] = ()
+    lagrangian_warmup_rollouts: tuple[int, ...] = ()
+    lagrangian_update_interval_rollouts: tuple[int, ...] = ()
+    lagrangian_minimum_completed_episodes: tuple[int, ...] = ()
+    lagrangian_probe_episodes: int = 0
+    lagrangian_probe_max_steps_per_episode: int = 0
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (
@@ -190,12 +200,20 @@ class ResidualTrainingConfig:
         ):
             raise ValueError("max_checkpoints must be a positive integer")
         algorithm = self.algorithm.lower()
-        if algorithm not in {"ppo", "cost_critic_ppo", "sac", "td3", "tqc"}:
+        if algorithm not in {
+            "ppo",
+            "cost_critic_ppo",
+            "lagrangian_ppo",
+            "sac",
+            "td3",
+            "tqc",
+        }:
             raise ValueError(
-                "algorithm must be one of ppo, cost_critic_ppo, sac, td3, or tqc"
+                "algorithm must be one of ppo, cost_critic_ppo, lagrangian_ppo, "
+                "sac, td3, or tqc"
             )
         object.__setattr__(self, "algorithm", algorithm)
-        ppo_like = algorithm in {"ppo", "cost_critic_ppo"}
+        ppo_like = algorithm in {"ppo", "cost_critic_ppo", "lagrangian_ppo"}
         rollout_size = self.n_steps * self.n_envs
         if ppo_like and rollout_size % self.batch_size != 0:
             raise ValueError("batch_size must divide the complete PPO rollout")
@@ -358,7 +376,7 @@ class ResidualTrainingConfig:
                 context=algorithm.upper(),
             )
 
-        if algorithm == "cost_critic_ppo":
+        if algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
             if (
                 not math.isfinite(self.cost_learning_rate)
                 or self.cost_learning_rate <= 0.0
@@ -448,6 +466,73 @@ class ResidualTrainingConfig:
                 context=f"algorithm={algorithm}",
             )
 
+        lagrangian_fields = (
+            ("lagrangian_budgets", self.lagrangian_budgets, ()),
+            (
+                "lagrangian_dual_learning_rates",
+                self.lagrangian_dual_learning_rates,
+                (),
+            ),
+            ("lagrangian_ema_betas", self.lagrangian_ema_betas, ()),
+            (
+                "lagrangian_initial_multipliers",
+                self.lagrangian_initial_multipliers,
+                (),
+            ),
+            ("lagrangian_max_multipliers", self.lagrangian_max_multipliers, ()),
+            ("lagrangian_warmup_rollouts", self.lagrangian_warmup_rollouts, ()),
+            (
+                "lagrangian_update_interval_rollouts",
+                self.lagrangian_update_interval_rollouts,
+                (),
+            ),
+            (
+                "lagrangian_minimum_completed_episodes",
+                self.lagrangian_minimum_completed_episodes,
+                (),
+            ),
+            ("lagrangian_probe_episodes", self.lagrangian_probe_episodes, 0),
+            (
+                "lagrangian_probe_max_steps_per_episode",
+                self.lagrangian_probe_max_steps_per_episode,
+                0,
+            ),
+        )
+        if algorithm == "lagrangian_ppo":
+            expected_count = len(canonical_cost_learning_schema().names)
+            for field_name, values, _default in lagrangian_fields[:8]:
+                if not isinstance(values, tuple) or len(values) != expected_count:
+                    raise ValueError(
+                        f"{field_name} must contain exactly {expected_count} values"
+                    )
+            for field_name, value in (
+                ("lagrangian_probe_episodes", self.lagrangian_probe_episodes),
+                (
+                    "lagrangian_probe_max_steps_per_episode",
+                    self.lagrangian_probe_max_steps_per_episode,
+                ),
+            ):
+                if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                    raise ValueError(f"{field_name} must be a positive integer")
+            from trade_rl.rl.lagrangian import canonical_lagrangian_schema
+
+            canonical_lagrangian_schema(
+                names=canonical_cost_learning_schema().names,
+                budgets=self.lagrangian_budgets,
+                dual_learning_rates=self.lagrangian_dual_learning_rates,
+                ema_betas=self.lagrangian_ema_betas,
+                initial_multipliers=self.lagrangian_initial_multipliers,
+                max_multipliers=self.lagrangian_max_multipliers,
+                warmup_rollouts=self.lagrangian_warmup_rollouts,
+                update_interval_rollouts=(self.lagrangian_update_interval_rollouts),
+                minimum_completed_episodes=(self.lagrangian_minimum_completed_episodes),
+            )
+        else:
+            _require_inactive_defaults(
+                lagrangian_fields,
+                context=f"algorithm={algorithm}",
+            )
+
         if algorithm == "td3":
             if self.use_sde or self.sde_sample_freq != -1:
                 raise ValueError("TD3 does not support SDE settings")
@@ -513,7 +598,7 @@ class ResidualTrainingConfig:
 
     @property
     def rounded_timesteps(self) -> int:
-        if self.algorithm in {"ppo", "cost_critic_ppo"}:
+        if self.algorithm in {"ppo", "cost_critic_ppo", "lagrangian_ppo"}:
             rollout_size = self.n_steps * self.n_envs
             return math.ceil(self.timesteps / rollout_size) * rollout_size
         return self.timesteps
@@ -579,7 +664,7 @@ class ResidualTrainingConfig:
             "use_sde": self.use_sde,
             "vf_coef": self.vf_coef,
         }
-        if self.algorithm == "cost_critic_ppo":
+        if self.algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
             cost_schema = canonical_cost_learning_schema(
                 continuous_gae_lambda=self.cost_continuous_gae_lambda,
                 event_gae_lambda=self.cost_event_gae_lambda,
@@ -598,6 +683,29 @@ class ResidualTrainingConfig:
                 "n_epochs": self.cost_n_epochs,
                 "schema": cost_schema.digest_payload(),
                 "schema_digest": cost_schema.digest,
+            }
+        if self.algorithm == "lagrangian_ppo":
+            from trade_rl.rl.lagrangian import canonical_lagrangian_schema
+
+            lagrangian_schema = canonical_lagrangian_schema(
+                names=cost_schema.names,
+                budgets=self.lagrangian_budgets,
+                dual_learning_rates=self.lagrangian_dual_learning_rates,
+                ema_betas=self.lagrangian_ema_betas,
+                initial_multipliers=self.lagrangian_initial_multipliers,
+                max_multipliers=self.lagrangian_max_multipliers,
+                warmup_rollouts=self.lagrangian_warmup_rollouts,
+                update_interval_rollouts=(self.lagrangian_update_interval_rollouts),
+                minimum_completed_episodes=(self.lagrangian_minimum_completed_episodes),
+            )
+            payload["lagrangian"] = {
+                "actor_composition_mode": "raw_lagrangian_then_sb3_normalize_v1",
+                "probe_episodes": self.lagrangian_probe_episodes,
+                "probe_max_steps_per_episode": (
+                    self.lagrangian_probe_max_steps_per_episode
+                ),
+                "schema": lagrangian_schema.digest_payload(),
+                "schema_digest": lagrangian_schema.digest,
             }
         return payload
 

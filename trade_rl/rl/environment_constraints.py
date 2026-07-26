@@ -306,13 +306,19 @@ class ConstraintCostVector:
     daily_turnover: float
     execution_cost_fraction: float
     funding_credit_fraction: float
+    transition_elapsed_hours: float | None = None
 
     def __post_init__(self) -> None:
-        for field_name, raw in self.as_dict().items():
-            value = float(raw)
+        for field_name in (*CONSTRAINT_COST_NAMES, "funding_credit_fraction"):
+            value = float(getattr(self, field_name))
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{field_name} must be finite and non-negative")
             object.__setattr__(self, field_name, value)
+        if self.transition_elapsed_hours is not None:
+            elapsed = float(self.transition_elapsed_hours)
+            if not math.isfinite(elapsed) or elapsed <= 0.0:
+                raise ValueError("transition_elapsed_hours must be finite and positive")
+            object.__setattr__(self, "transition_elapsed_hours", elapsed)
 
     def constraint_dict(self) -> dict[str, float]:
         """Return only the seven values eligible for constraint optimization."""
@@ -320,12 +326,15 @@ class ConstraintCostVector:
         return {name: float(getattr(self, name)) for name in CONSTRAINT_COST_NAMES}
 
     def as_dict(self) -> dict[str, float]:
-        """Return complete telemetry, including the non-constraint funding credit."""
+        """Return complete scalar telemetry that is present on this transition."""
 
-        return {
+        payload = {
             **self.constraint_dict(),
             "funding_credit_fraction": self.funding_credit_fraction,
         }
+        if self.transition_elapsed_hours is not None:
+            payload["transition_elapsed_hours"] = self.transition_elapsed_hours
+        return payload
 
 
 def calculate_constraint_costs(request: ConstraintCostRequest) -> ConstraintCostVector:
@@ -365,6 +374,7 @@ def calculate_constraint_costs(request: ConstraintCostRequest) -> ConstraintCost
         daily_turnover=request.filled_turnover * 24.0 / request.decision_hours,
         execution_cost_fraction=execution_cost / equity_denominator,
         funding_credit_fraction=max(0.0, request.interval_funding) / equity_denominator,
+        transition_elapsed_hours=request.decision_hours,
     )
 
 

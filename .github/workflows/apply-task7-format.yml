@@ -1,0 +1,44 @@
+name: Apply Task 7 formatter output
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-task7-format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply exact formatter patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/task7-format.patch
+          git apply .github/task7-format.patch
+          rm .github/task7-format.patch
+          rm .github/workflows/apply-task7-format.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Commit formatted probe wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "style: format Task 7 probe wiring"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

@@ -235,8 +235,7 @@ def build_constraint_correlation_diagnostics(
         normalized_cost_advantage_correlation=normalized_correlation,
         raw_reward_advantage_statistics=_vector_statistics(reward),
         raw_cost_advantage_statistics=tuple(
-            _vector_statistics(cost_advantages[:, index])
-            for index in range(len(names))
+            _vector_statistics(cost_advantages[:, index]) for index in range(len(names))
         ),
         raw_effective_penalty_statistics=tuple(
             _vector_statistics(penalty_contributions[:, index])
@@ -283,7 +282,9 @@ def build_dual_stability_diagnostics(
         for name in names:
             report = reports[name]
             if not isinstance(report, DualUpdateReport) or report.name != name:
-                raise ValueError("report history constraint names do not match cost_names")
+                raise ValueError(
+                    "report history constraint names do not match cost_names"
+                )
 
     constraints: list[ConstraintStabilityDiagnostics] = []
     for name in names:

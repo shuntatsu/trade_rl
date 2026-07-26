@@ -9,6 +9,7 @@ from trade_rl.rl.cost_learning import (
     CostLearningSchema,
     canonical_cost_learning_schema,
 )
+from trade_rl.rl.lagrangian import LagrangianSchema, canonical_lagrangian_schema
 
 if TYPE_CHECKING:
     from trade_rl.rl.training import ResidualTrainingConfig
@@ -53,7 +54,17 @@ class CostCriticPPOConfig(PPOConfig):
     cost_continuous_hidden_dims: tuple[int, ...]
     cost_event_hidden_dims: tuple[int, ...]
     cost_max_grad_norm: float
-    cost_architecture_variant: str = "family_separated_v1"
+    cost_architecture_variant: str
+
+
+@dataclass(frozen=True, slots=True)
+class LagrangianPPOConfig(CostCriticPPOConfig):
+    """Cost Critic PPO plus explicit constrained-optimization semantics."""
+
+    lagrangian_schema: LagrangianSchema
+    probe_episodes: int
+    probe_max_steps_per_episode: int
+    actor_composition_mode: str = "raw_lagrangian_then_sb3_normalize_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +92,14 @@ class TQCConfig(OffPolicyConfig):
     sde_sample_freq: int
 
 
-AlgorithmConfig = CostCriticPPOConfig | PPOConfig | SACConfig | TD3Config | TQCConfig
+AlgorithmConfig = (
+    LagrangianPPOConfig
+    | CostCriticPPOConfig
+    | PPOConfig
+    | SACConfig
+    | TD3Config
+    | TQCConfig
+)
 
 
 def _ppo_config_payload(source: ResidualTrainingConfig) -> dict[str, object]:
@@ -109,6 +127,17 @@ def _ppo_config_payload(source: ResidualTrainingConfig) -> dict[str, object]:
     }
 
 
+def _cost_schema(source: ResidualTrainingConfig) -> CostLearningSchema:
+    return canonical_cost_learning_schema(
+        continuous_gae_lambda=source.cost_continuous_gae_lambda,
+        event_gae_lambda=source.cost_event_gae_lambda,
+        value_loss_coefficient=source.cost_value_loss_coefficient,
+        auxiliary_event_loss_coefficient=(
+            source.cost_auxiliary_event_loss_coefficient
+        ),
+    )
+
+
 def build_algorithm_config(
     source: ResidualTrainingConfig,
     *,
@@ -120,20 +149,46 @@ def build_algorithm_config(
     if resolved == "cost_critic_ppo":
         return CostCriticPPOConfig(
             **_ppo_config_payload(source),  # type: ignore[arg-type]
-            cost_schema=canonical_cost_learning_schema(
-                continuous_gae_lambda=source.cost_continuous_gae_lambda,
-                event_gae_lambda=source.cost_event_gae_lambda,
-                value_loss_coefficient=source.cost_value_loss_coefficient,
-                auxiliary_event_loss_coefficient=(
-                    source.cost_auxiliary_event_loss_coefficient
-                ),
-            ),
+            cost_schema=_cost_schema(source),
             cost_learning_rate=source.cost_learning_rate,
             cost_n_epochs=source.cost_n_epochs,
             cost_batch_size=source.cost_batch_size,
             cost_continuous_hidden_dims=source.cost_continuous_hidden_dims,
             cost_event_hidden_dims=source.cost_event_hidden_dims,
             cost_max_grad_norm=source.cost_max_grad_norm,
+            cost_architecture_variant=source.cost_architecture_variant,
+        )
+    if resolved == "lagrangian_ppo":
+        cost_schema = _cost_schema(source)
+        return LagrangianPPOConfig(
+            **_ppo_config_payload(source),  # type: ignore[arg-type]
+            cost_schema=cost_schema,
+            cost_learning_rate=source.cost_learning_rate,
+            cost_n_epochs=source.cost_n_epochs,
+            cost_batch_size=source.cost_batch_size,
+            cost_continuous_hidden_dims=source.cost_continuous_hidden_dims,
+            cost_event_hidden_dims=source.cost_event_hidden_dims,
+            cost_max_grad_norm=source.cost_max_grad_norm,
+            cost_architecture_variant=source.cost_architecture_variant,
+            lagrangian_schema=canonical_lagrangian_schema(
+                names=cost_schema.names,
+                budgets=source.lagrangian_budgets,
+                dual_learning_rates=source.lagrangian_dual_learning_rates,
+                ema_betas=source.lagrangian_ema_betas,
+                initial_multipliers=source.lagrangian_initial_multipliers,
+                max_multipliers=source.lagrangian_max_multipliers,
+                warmup_rollouts=source.lagrangian_warmup_rollouts,
+                update_interval_rollouts=(
+                    source.lagrangian_update_interval_rollouts
+                ),
+                minimum_completed_episodes=(
+                    source.lagrangian_minimum_completed_episodes
+                ),
+            ),
+            probe_episodes=source.lagrangian_probe_episodes,
+            probe_max_steps_per_episode=(
+                source.lagrangian_probe_max_steps_per_episode
+            ),
         )
     common = dict(
         timesteps=source.timesteps,
@@ -191,6 +246,7 @@ def build_algorithm_config(
 __all__ = [
     "AlgorithmConfig",
     "CostCriticPPOConfig",
+    "LagrangianPPOConfig",
     "PPOConfig",
     "SACConfig",
     "TD3Config",

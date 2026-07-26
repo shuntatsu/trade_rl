@@ -23,12 +23,67 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Apply exact formatter diff
+      - name: Apply exact formatter replacements
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check .github/task6-format.patch
-          git apply .github/task6-format.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "trade_rl/integrations/lagrangian_ppo.py": [
+                  (
+                      '''    actor_composition_mode: ClassVar[str] = (\n        "raw_lagrangian_then_sb3_normalize_v1"\n    )\n    completion_semantics: ClassVar[str] = (\n        "economic_time_limit_censored_shadow_v1"\n    )''',
+                      '''    actor_composition_mode: ClassVar[str] = "raw_lagrangian_then_sb3_normalize_v1"\n    completion_semantics: ClassVar[str] = "economic_time_limit_censored_shadow_v1"''',
+                  ),
+              ],
+              "trade_rl/integrations/sb3_training.py": [
+                  (
+                      '''                    "actor_composition_mode": (\n                        algorithm_config.actor_composition_mode\n                    ),\n                    "completion_semantics": (\n                        "economic_time_limit_censored_shadow_v1"\n                    ),''',
+                      '''                    "actor_composition_mode": (algorithm_config.actor_composition_mode),\n                    "completion_semantics": ("economic_time_limit_censored_shadow_v1"),''',
+                  ),
+                  (
+                      '''            } and hasattr(\n                model, "save_replay_buffer"\n            ):''',
+                      '''            } and hasattr(model, "save_replay_buffer"):''',
+                  ),
+              ],
+              "trade_rl/rl/algorithm_configs.py": [
+                  (
+                      '''        auxiliary_event_loss_coefficient=(\n            source.cost_auxiliary_event_loss_coefficient\n        ),''',
+                      '''        auxiliary_event_loss_coefficient=(source.cost_auxiliary_event_loss_coefficient),''',
+                  ),
+                  (
+                      '''                update_interval_rollouts=(\n                    source.lagrangian_update_interval_rollouts\n                ),''',
+                      '''                update_interval_rollouts=(source.lagrangian_update_interval_rollouts),''',
+                  ),
+                  (
+                      '''            probe_max_steps_per_episode=(\n                source.lagrangian_probe_max_steps_per_episode\n            ),''',
+                      '''            probe_max_steps_per_episode=(source.lagrangian_probe_max_steps_per_episode),''',
+                  ),
+              ],
+              "trade_rl/rl/training.py": [
+                  (
+                      '''                update_interval_rollouts=(\n                    self.lagrangian_update_interval_rollouts\n                ),\n                minimum_completed_episodes=(\n                    self.lagrangian_minimum_completed_episodes\n                ),''',
+                      '''                update_interval_rollouts=(self.lagrangian_update_interval_rollouts),\n                minimum_completed_episodes=(self.lagrangian_minimum_completed_episodes),''',
+                  ),
+              ],
+          }
+          expected_counts = {
+              ("trade_rl/rl/training.py", 0): 2,
+          }
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              content = path.read_text()
+              for index, (old, new) in enumerate(pairs):
+                  count = content.count(old)
+                  expected = expected_counts.get((filename, index), 1)
+                  if count != expected:
+                      raise SystemExit(
+                          f"{filename} replacement {index} expected {expected}, found {count}"
+                      )
+                  content = content.replace(old, new)
+              path.write_text(content)
+          PY
           rm .github/task6-format.patch
           rm .github/workflows/apply-task6-format.yml
           git add -A

@@ -85,32 +85,45 @@ class StudioTrainingMetricsReader:
     def __init__(self, settings: StudioSettings) -> None:
         self.settings = settings
 
+    @staticmethod
+    def _reject_symlink_chain(path: Path, *, stop: Path) -> None:
+        try:
+            relative = path.relative_to(stop)
+        except ValueError as error:
+            raise ArtifactInvalid("TensorBoard artifact path is outside its root") from error
+        if any(part == ".." for part in relative.parts):
+            raise ArtifactInvalid("TensorBoard artifact path escapes its root")
+        current = stop
+        if current.is_symlink():
+            raise ArtifactInvalid("TensorBoard artifact root is a symlink")
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ArtifactInvalid("TensorBoard artifact contains a symlink")
+
     def _artifact_root(self, job: JobSummary) -> Path:
         project_root = self.settings.project_root.resolve()
-        candidate = (project_root / job.artifact_root).resolve()
+        relative = Path(job.artifact_root)
+        if relative.is_absolute() or any(part == ".." for part in relative.parts):
+            raise ArtifactInvalid("job artifact root escapes the Studio project")
+        candidate = project_root / relative
+        self._reject_symlink_chain(candidate, stop=project_root)
+        resolved = candidate.resolve()
         try:
-            candidate.relative_to(project_root)
+            resolved.relative_to(project_root)
         except ValueError as error:
             raise ArtifactInvalid(
                 "job artifact root escapes the Studio project"
             ) from error
-        return candidate
-
-    @staticmethod
-    def _reject_symlink_chain(path: Path, *, stop: Path) -> None:
-        current = path
-        while current != stop:
-            if current.is_symlink():
-                raise ArtifactInvalid("TensorBoard artifact contains a symlink")
-            current = current.parent
-        if stop.is_symlink():
-            raise ArtifactInvalid("TensorBoard artifact root is a symlink")
+        return resolved
 
     def _sources(self, job: JobSummary) -> dict[int, _SeedSource]:
         artifact_root = self._artifact_root(job)
         collected: dict[int, tuple[Path, list[Path], list[Path]]] = {}
         for namespace in (".staging", "runs", "failed"):
-            run_root = (artifact_root / namespace / job.run_id).resolve()
+            raw_run_root = artifact_root / namespace / job.run_id
+            self._reject_symlink_chain(raw_run_root, stop=artifact_root)
+            run_root = raw_run_root.resolve()
             try:
                 run_root.relative_to(artifact_root)
             except ValueError as error:
@@ -119,9 +132,9 @@ class StudioTrainingMetricsReader:
                 ) from error
             if not run_root.is_dir():
                 continue
-            self._reject_symlink_chain(run_root, stop=artifact_root)
             tensorboard_roots = sorted(run_root.glob("members/member-*/tensorboard"))
             for tensorboard_root in tensorboard_roots:
+                self._reject_symlink_chain(tensorboard_root, stop=run_root)
                 resolved_tb = tensorboard_root.resolve()
                 try:
                     resolved_tb.relative_to(run_root)
@@ -129,7 +142,6 @@ class StudioTrainingMetricsReader:
                     raise ArtifactInvalid(
                         "TensorBoard directory escapes run root"
                     ) from error
-                self._reject_symlink_chain(tensorboard_root, stop=run_root)
                 member_root = tensorboard_root.parent.resolve()
                 for candidate in sorted(tensorboard_root.iterdir()):
                     if not candidate.is_dir():

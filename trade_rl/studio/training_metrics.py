@@ -90,7 +90,9 @@ class StudioTrainingMetricsReader:
         try:
             relative = path.relative_to(stop)
         except ValueError as error:
-            raise ArtifactInvalid("TensorBoard artifact path is outside its root") from error
+            raise ArtifactInvalid(
+                "TensorBoard artifact path is outside its root"
+            ) from error
         if any(part == ".." for part in relative.parts):
             raise ArtifactInvalid("TensorBoard artifact path escapes its root")
         current = stop

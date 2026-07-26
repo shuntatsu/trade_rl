@@ -1,0 +1,99 @@
+name: Agent Training Observability Implementation
+
+on:
+  push:
+    branches:
+      - agent/training-observability-diagnostics
+    paths:
+      - tools/agent_training_observability_patch.py
+      - .github/workflows/agent-training-observability.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-training-observability
+  cancel-in-progress: true
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/training-observability-diagnostics
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply guarded implementation patch
+        run: python tools/agent_training_observability_patch.py
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Resolve Python lockfile
+        run: uv lock
+
+      - name: Install Python dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra studio
+
+      - name: Format Python changes
+        run: uv run ruff format trade_rl/rl/schedules.py trade_rl/rl/tensorboard_logging.py trade_rl/studio/training_metrics.py tests/rl/test_schedules.py tests/rl/test_tensorboard_logging.py tests/studio/test_training_metrics.py tests/studio/test_training_metrics_api.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/rl/checkpointing.py trade_rl/integrations/sb3_training.py trade_rl/studio/api.py
+
+      - name: Verify Python implementation
+        run: |
+          uv run ruff check .
+          uv run mypy .
+          uv run pytest -q \
+            tests/rl/test_schedules.py \
+            tests/rl/test_tensorboard_logging.py \
+            tests/rl/test_checkpointing.py \
+            tests/rl/test_training_config_active_fields.py \
+            tests/integrations/test_sb3_training.py \
+            tests/integrations/test_sb3_training_active_architecture.py \
+            tests/studio/test_training_metrics.py \
+            tests/studio/test_training_metrics_api.py \
+            tests/studio/test_api.py
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install Studio frontend
+        run: npm ci --prefix studio --no-audit --no-fund
+
+      - name: Verify Studio frontend
+        run: |
+          npm test --prefix studio -- --run \
+            src/live/useTrainingMetrics.test.tsx \
+            src/live/TrainingMetricChart.test.tsx \
+            src/live/TrainingDiagnosticsPanel.test.tsx \
+            src/pages/LiveTrainingPage.test.tsx \
+            src/api/studioApi.test.ts \
+            src/App.test.tsx
+          npm run typecheck --prefix studio
+          npm run build --prefix studio
+          npm run check:layout --prefix studio
+
+      - name: Remove implementation helpers
+        run: rm -f tools/agent_training_observability_patch.py .github/workflows/agent-training-observability.yml
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name "trade-rl-agent"
+          git config user.email "trade-rl-agent@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No implementation changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: add training observability diagnostics"
+          git push origin HEAD:agent/training-observability-diagnostics

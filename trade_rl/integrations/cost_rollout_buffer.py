@@ -166,9 +166,7 @@ class CostRolloutStorage:
                     raise ValueError("info is missing transition_elapsed_hours")
                 continue
             if isinstance(raw_elapsed, bool):
-                raise ValueError(
-                    "transition_elapsed_hours must be finite and positive"
-                )
+                raise ValueError("transition_elapsed_hours must be finite and positive")
             try:
                 elapsed = float(raw_elapsed)
             except (TypeError, ValueError) as error:
@@ -176,9 +174,7 @@ class CostRolloutStorage:
                     "transition_elapsed_hours must be finite and positive"
                 ) from error
             if not math.isfinite(elapsed) or elapsed <= 0.0:
-                raise ValueError(
-                    "transition_elapsed_hours must be finite and positive"
-                )
+                raise ValueError("transition_elapsed_hours must be finite and positive")
             kind = classify_episode_completion(
                 terminated=bool(terminated[index]),
                 truncated=bool(truncated[index]),

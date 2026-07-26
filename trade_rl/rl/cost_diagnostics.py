@@ -49,6 +49,10 @@ class CostHeadDiagnostics:
     brier_score: float | None
     calibration_bins: tuple[CalibrationBin, ...]
     precision_recall: PrecisionRecallInputs | None
+    zero_only_brier_score: float | None
+    beats_zero_only_baseline: bool | None
+    has_positive_support: bool | None
+    eligible_for_promotion: bool | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +246,10 @@ def build_cost_head_diagnostics(
     brier_score: float | None = None
     calibration: tuple[CalibrationBin, ...] = ()
     precision_recall: PrecisionRecallInputs | None = None
+    zero_only_brier_score: float | None = None
+    beats_zero_only_baseline: bool | None = None
+    has_positive_support: bool | None = None
+    eligible_for_promotion: bool | None = None
     if (event_probabilities is None) != (event_labels is None):
         raise ValueError("event probabilities and labels must be provided together")
     if event_probabilities is not None and event_labels is not None:
@@ -259,6 +267,10 @@ def build_cost_head_diagnostics(
             raise ValueError("event labels must be binary")
         positive_sample_count = int(np.count_nonzero(labels == 1.0))
         brier_score = float(np.mean(np.square(probabilities - labels)))
+        zero_only_brier_score = float(np.mean(np.square(labels)))
+        beats_zero_only_baseline = brier_score < zero_only_brier_score
+        has_positive_support = positive_sample_count > 0
+        eligible_for_promotion = beats_zero_only_baseline and has_positive_support
         calibration = _calibration_bins(
             probabilities,
             labels,
@@ -279,6 +291,10 @@ def build_cost_head_diagnostics(
         brier_score=brier_score,
         calibration_bins=calibration,
         precision_recall=precision_recall,
+        zero_only_brier_score=zero_only_brier_score,
+        beats_zero_only_baseline=beats_zero_only_baseline,
+        has_positive_support=has_positive_support,
+        eligible_for_promotion=eligible_for_promotion,
     )
 
 

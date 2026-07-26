@@ -317,9 +317,7 @@ class ConstraintCostVector:
         if self.transition_elapsed_hours is not None:
             elapsed = float(self.transition_elapsed_hours)
             if not math.isfinite(elapsed) or elapsed <= 0.0:
-                raise ValueError(
-                    "transition_elapsed_hours must be finite and positive"
-                )
+                raise ValueError("transition_elapsed_hours must be finite and positive")
             object.__setattr__(self, "transition_elapsed_hours", elapsed)
 
     def constraint_dict(self) -> dict[str, float]:

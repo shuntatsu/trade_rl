@@ -18,10 +18,8 @@ def _actor_stub(*, multipliers: np.ndarray, normalize: bool) -> Any:
 
 
 def test_actor_applies_pinned_normalization_after_raw_composition() -> None:
-    model = _actor_stub(
-        multipliers=np.asarray([2.0, 0.5]),
-        normalize=True,
-    )
+    multipliers = np.asarray([2.0, 0.5], dtype=np.float64)
+    model = _actor_stub(multipliers=multipliers, normalize=True)
     reward = torch.asarray([0.4, -0.2, 1.3, 0.1], dtype=torch.float32)
     costs = np.asarray(
         [[0.1, 3.0], [0.4, 2.0], [0.2, 1.0], [0.8, 4.0]],
@@ -33,17 +31,15 @@ def test_actor_applies_pinned_normalization_after_raw_composition() -> None:
         cost_advantages=costs,
     )
 
-    penalty = torch.as_tensor(costs @ np.asarray([2.0, 0.5]), dtype=reward.dtype)
-    raw = reward - penalty
+    combined_numpy = reward.detach().cpu().numpy() - costs @ multipliers
+    raw = torch.as_tensor(combined_numpy, dtype=reward.dtype)
     expected = (raw - raw.mean()) / (raw.std() + 1e-8)
     torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.0)
 
 
 def test_actor_uses_raw_composition_when_normalization_is_disabled() -> None:
-    model = _actor_stub(
-        multipliers=np.asarray([1.5]),
-        normalize=False,
-    )
+    multipliers = np.asarray([1.5], dtype=np.float64)
+    model = _actor_stub(multipliers=multipliers, normalize=False)
     reward = torch.asarray([1.0, -2.0, 4.0], dtype=torch.float32)
     costs = np.asarray([[0.2], [0.4], [0.1]], dtype=np.float64)
 
@@ -52,10 +48,8 @@ def test_actor_uses_raw_composition_when_normalization_is_disabled() -> None:
         cost_advantages=costs,
     )
 
-    expected = reward - torch.as_tensor(
-        costs[:, 0] * 1.5,
-        dtype=reward.dtype,
-    )
+    combined_numpy = reward.detach().cpu().numpy() - costs @ multipliers
+    expected = torch.as_tensor(combined_numpy, dtype=reward.dtype)
     torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.0)
 
 

@@ -119,6 +119,8 @@ jobs:
         run: exit 1
 
       - name: Focused Python tests
+        id: pytest
+        continue-on-error: true
         run: |
           uv run pytest -q \
             tests/rl/test_schedules.py \
@@ -130,7 +132,21 @@ jobs:
             tests/studio/test_training_metrics.py \
             tests/studio/test_training_metrics_api.py \
             tests/studio/test_api.py \
-            tests/examples/test_binance_multitimeframe_full_assets.py
+            tests/examples/test_binance_multitimeframe_full_assets.py \
+            > pytest-report.txt 2>&1
+
+      - name: Upload pytest report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pytest-report
+          path: pytest-report.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce focused Python tests
+        if: steps.pytest.outcome == 'failure'
+        run: exit 1
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020

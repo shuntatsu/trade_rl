@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-import torch
 
 from trade_rl.rl.lagrangian_advantages import (
     combine_lagrangian_advantages,
@@ -136,26 +135,14 @@ def test_zero_multipliers_return_exact_reward_copy_without_mutation() -> None:
     np.testing.assert_array_equal(multipliers, multipliers_before)
 
 
-def test_legacy_normalize_reward_alias_normalizes_only_final_composition() -> None:
-    reward = np.asarray([0.4, -0.2, 1.3, 0.1], dtype=np.float32)
-    costs = np.asarray(
-        [[0.1, 3.0], [0.4, 2.0], [0.2, 1.0], [0.8, 4.0]],
-        dtype=np.float64,
-    )
-    multipliers = np.asarray([2.0, 0.3], dtype=np.float64)
-
-    actual = combine_lagrangian_advantages(
-        reward_advantages=reward,
-        cost_advantages=costs,
-        multipliers=multipliers,
-        normalize_reward=True,
-    )
-    reward_tensor = torch.as_tensor(reward, dtype=torch.float32)
-    penalty_tensor = torch.as_tensor(costs @ multipliers, dtype=torch.float32)
-    raw = reward_tensor - penalty_tensor
-    expected = (raw - raw.mean()) / (raw.std() + 1e-8)
-
-    np.testing.assert_array_equal(actual, expected.numpy())
+def test_actor_composition_rejects_removed_normalization_argument() -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        combine_lagrangian_advantages(
+            reward_advantages=np.asarray([1.0, 2.0]),
+            cost_advantages=np.asarray([[1.0], [2.0]]),
+            multipliers=np.asarray([1.0]),
+            normalize_reward=True,  # type: ignore[call-arg]
+        )
 
 
 @pytest.mark.parametrize(
@@ -223,16 +210,6 @@ def test_legacy_normalize_reward_alias_normalizes_only_final_composition() -> No
                 multipliers=np.asarray([np.inf]),
             ),
             "finite",
-        ),
-        (
-            lambda: combine_lagrangian_advantages(
-                reward_advantages=np.asarray([1.0, 2.0]),
-                cost_advantages=np.asarray([[1.0], [2.0]]),
-                multipliers=np.asarray([1.0]),
-                normalize_combined=True,
-                normalize_reward=False,
-            ),
-            "disagree",
         ),
     ],
 )

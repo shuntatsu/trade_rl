@@ -260,7 +260,9 @@ def test_step_info_rejects_invalid_transition_duration(duration: float) -> None:
 
     builder = EnvironmentInfoBuilder(_InvalidDurationDataset(), _RewardTracker())
 
-    with pytest.raises(RuntimeError, match="transition duration must be finite and positive"):
+    with pytest.raises(
+        RuntimeError, match="transition duration must be finite and positive"
+    ):
         builder.step_info(_step_request())
 
 

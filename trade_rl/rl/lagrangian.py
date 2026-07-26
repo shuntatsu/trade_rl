@@ -430,13 +430,17 @@ class LagrangianDualController:
         for name in self.schema.names:
             estimate = estimates[name]
             if estimate is not None and not isinstance(estimate, ConstraintEstimate):
-                raise TypeError("constraint estimate must be a ConstraintEstimate or null")
+                raise TypeError(
+                    "constraint estimate must be a ConstraintEstimate or null"
+                )
             if estimate is not None and estimate.name != name:
                 raise ValueError(f"estimate name mismatch for {name}")
             if estimate is not None:
                 value = estimate.value
                 if not math.isfinite(value) or value < 0.0:
-                    raise ValueError("constraint estimate must be finite and non-negative")
+                    raise ValueError(
+                        "constraint estimate must be finite and non-negative"
+                    )
             ordered.append(estimate)
         return tuple(ordered)
 
@@ -497,8 +501,7 @@ class LagrangianDualController:
             ema_after = (
                 raw_estimate
                 if previous_ema is None
-                else spec.ema_beta * previous_ema
-                + (1.0 - spec.ema_beta) * raw_estimate
+                else spec.ema_beta * previous_ema + (1.0 - spec.ema_beta) * raw_estimate
             )
             if not math.isfinite(ema_after) or ema_after < 0.0:
                 raise ValueError("EMA constraint estimate became invalid")
@@ -514,8 +517,7 @@ class LagrangianDualController:
                 raise ValueError("Lagrange multiplier became non-finite")
             saturated = (
                 multiplier_after <= self._BOUNDARY_TOLERANCE
-                or multiplier_after
-                >= spec.max_multiplier - self._BOUNDARY_TOLERANCE
+                or multiplier_after >= spec.max_multiplier - self._BOUNDARY_TOLERANCE
             )
             multipliers[index] = multiplier_after
             ema_estimates[index] = ema_after
@@ -617,7 +619,9 @@ class LagrangianDualController:
                 raise ValueError("dual state EMA values must be numeric or null")
             value = float(raw_value)
             if not math.isfinite(value) or value < 0.0:
-                raise ValueError("dual state EMA values must be finite and non-negative")
+                raise ValueError(
+                    "dual state EMA values must be finite and non-negative"
+                )
             ema_estimates[index] = value
             ema_initialized[index] = True
 

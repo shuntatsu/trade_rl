@@ -10,6 +10,7 @@ on:
       - tools/agent_observability_studio.py
       - tools/agent_observability_frontend.py
       - tools/agent_observability_docs.py
+      - tools/agent_observability_fixups.py
       - .github/workflows/agent-training-observability.yml
   pull_request:
     branches:
@@ -20,6 +21,7 @@ on:
       - tools/agent_observability_studio.py
       - tools/agent_observability_frontend.py
       - tools/agent_observability_docs.py
+      - tools/agent_observability_fixups.py
       - .github/workflows/agent-training-observability.yml
 
 permissions:
@@ -97,7 +99,22 @@ jobs:
         run: uv run ruff check .
 
       - name: Mypy
-        run: uv run mypy .
+        id: mypy
+        continue-on-error: true
+        run: uv run mypy . > mypy-report.txt 2>&1
+
+      - name: Upload Mypy report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mypy-report
+          path: mypy-report.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce Mypy
+        if: steps.mypy.outcome == 'failure'
+        run: exit 1
 
       - name: Focused Python tests
         run: |

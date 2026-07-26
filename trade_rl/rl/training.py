@@ -387,20 +387,20 @@ class ResidualTrainingConfig:
                 or self.cost_max_grad_norm <= 0.0
             ):
                 raise ValueError("cost_max_grad_norm must be finite and positive")
-            for field_name, value in (
+            for field_name, lambda_value in (
                 ("cost_continuous_gae_lambda", self.cost_continuous_gae_lambda),
                 ("cost_event_gae_lambda", self.cost_event_gae_lambda),
             ):
-                if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                if not math.isfinite(lambda_value) or not 0.0 <= lambda_value <= 1.0:
                     raise ValueError(f"{field_name} must be within [0, 1]")
-            for field_name, value in (
+            for field_name, cost_coefficient in (
                 ("cost_value_loss_coefficient", self.cost_value_loss_coefficient),
                 (
                     "cost_auxiliary_event_loss_coefficient",
                     self.cost_auxiliary_event_loss_coefficient,
                 ),
             ):
-                if not math.isfinite(value) or value < 0.0:
+                if not math.isfinite(cost_coefficient) or cost_coefficient < 0.0:
                     raise ValueError(f"{field_name} must be finite and non-negative")
             if self.cost_architecture_variant != "family_separated_v1":
                 raise ValueError(

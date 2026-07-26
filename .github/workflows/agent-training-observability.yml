@@ -169,7 +169,22 @@ jobs:
         run: exit 1
 
       - name: Studio typecheck
-        run: npm run typecheck --prefix studio
+        id: studio-typecheck
+        continue-on-error: true
+        run: npm run typecheck --prefix studio > studio-typecheck-report.txt 2>&1
+
+      - name: Upload Studio typecheck report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-typecheck-report
+          path: studio-typecheck-report.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce Studio typecheck
+        if: steps.studio-typecheck.outcome == 'failure'
+        run: exit 1
 
       - name: Studio build
         run: npm run build --prefix studio

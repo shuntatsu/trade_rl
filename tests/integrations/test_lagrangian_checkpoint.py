@@ -67,6 +67,7 @@ def _schema(
         max_multipliers=(drawdown_cap, *(10.0 for _ in range(count - 1))),
         warmup_rollouts=(0,) * count,
         update_interval_rollouts=(1,) * count,
+        minimum_completed_episodes=(1,) * count,
     )
 
 
@@ -148,8 +149,14 @@ def test_lagrangian_save_load_round_trip_preserves_dual_and_partial_episode_stat
     loaded_environment = DummyVecEnv([_CheckpointEnvironment])
     model = _model(environment, schema=_schema())
     try:
-        model.lagrangian_controller.update_after_rollout(_estimates(0.5))
-        model.lagrangian_controller.update_after_rollout(_estimates(0.3))
+        model.lagrangian_controller.update_after_rollout(
+            _estimates(0.5),
+            censored_episode_count=2,
+        )
+        model.lagrangian_controller.update_after_rollout(
+            _estimates(0.3),
+            censored_episode_count=1,
+        )
         model.frozen_lagrange_multipliers = model.lagrangian_controller.begin_rollout()
         partial_costs = np.zeros((1, 1, len(CONSTRAINT_COST_NAMES)), dtype=np.float64)
         partial_costs[0, 0, 0] = 0.2
@@ -200,8 +207,14 @@ def test_lagrangian_save_load_round_trip_preserves_dual_and_partial_episode_stat
         )
 
         next_estimates = _estimates(0.4)
-        expected_next = model.lagrangian_controller.update_after_rollout(next_estimates)
-        loaded_next = loaded.lagrangian_controller.update_after_rollout(next_estimates)
+        expected_next = model.lagrangian_controller.update_after_rollout(
+            next_estimates,
+            censored_episode_count=0,
+        )
+        loaded_next = loaded.lagrangian_controller.update_after_rollout(
+            next_estimates,
+            censored_episode_count=0,
+        )
         assert loaded_next == expected_next
     finally:
         environment.close()

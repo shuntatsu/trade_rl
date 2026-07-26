@@ -19,6 +19,8 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
     tmp_path: Path,
 ) -> None:
     captured: dict[str, Any] = {}
+    events: list[str] = []
+    vector_environment = VectorEnvironment(events)
 
     class FakeParameter:
         def numel(self) -> int:
@@ -35,7 +37,7 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
         num_timesteps = 0
 
         def __init__(self, policy: str, environment: Any, **kwargs: Any) -> None:
-            del environment
+            assert environment is vector_environment
             self.policy = FakePolicy()
             captured["constructor"] = {"policy": policy, **kwargs}
 
@@ -48,7 +50,12 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
             Path(f"{target}.zip").write_bytes(b"policy")
 
     monkeypatch.setattr("stable_baselines3.PPO", CapturingPPO)
-    backend = StableBaselines3Backend(_tiny_environment_factory)
+    monkeypatch.setattr(
+        sb3_training,
+        "_build_training_environment",
+        lambda *args, **kwargs: vector_environment,
+    )
+    backend = StableBaselines3Backend(lambda: TrainingProbe(events))
     config = replace(
         _training_config(),
         learning_rate_schedule="linear",
@@ -56,7 +63,7 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
     )
 
     backend.train(
-        seed=5,
+        seed=0,
         config=config,
         output_path=tmp_path / "member" / "policy.zip",
     )
@@ -67,7 +74,7 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
     assert constructor["tensorboard_log"] == str(tmp_path / "member" / "tensorboard")
     learn = captured["learn"]
     assert isinstance(learn, dict)
-    assert learn["tb_log_name"] == "seed-5-ppo"
+    assert learn["tb_log_name"] == "seed-0-ppo"
 '''
     path.write_text(prefix.rstrip() + replacement, encoding="utf-8")
 

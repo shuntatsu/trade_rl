@@ -25,7 +25,11 @@ from trade_rl.rl.cost_diagnostics import (
     build_family_gradient_diagnostics,
     gradient_l2_norm,
 )
-from trade_rl.rl.cost_learning import CostFamily, CostLearningSchema
+from trade_rl.rl.cost_learning import (
+    CostFamily,
+    CostLearningSchema,
+    canonical_cost_learning_schema,
+)
 
 
 class CostCriticPPO(PPO):
@@ -36,7 +40,7 @@ class CostCriticPPO(PPO):
     def __init__(
         self,
         *args: Any,
-        cost_schema: CostLearningSchema,
+        cost_schema: CostLearningSchema | None = None,
         cost_learning_rate: float = 3e-4,
         cost_n_epochs: int = 1,
         cost_batch_size: int | None = None,
@@ -46,7 +50,13 @@ class CostCriticPPO(PPO):
         _init_setup_model: bool = True,
         **kwargs: Any,
     ) -> None:
-        if not isinstance(cost_schema, CostLearningSchema):
+        if cost_schema is None:
+            if _init_setup_model:
+                raise TypeError("cost_schema must be a CostLearningSchema")
+            resolved_cost_schema = canonical_cost_learning_schema()
+        elif isinstance(cost_schema, CostLearningSchema):
+            resolved_cost_schema = cost_schema
+        else:
             raise TypeError("cost_schema must be a CostLearningSchema")
         if not np.isfinite(cost_learning_rate) or cost_learning_rate <= 0.0:
             raise ValueError("cost_learning_rate must be finite and positive")
@@ -58,7 +68,7 @@ class CostCriticPPO(PPO):
             raise ValueError("cost_batch_size must be null or a positive integer")
         if not np.isfinite(cost_max_grad_norm) or cost_max_grad_norm <= 0.0:
             raise ValueError("cost_max_grad_norm must be finite and positive")
-        self.cost_schema = cost_schema
+        self.cost_schema = resolved_cost_schema
         self.cost_learning_rate = float(cost_learning_rate)
         self.cost_n_epochs = int(cost_n_epochs)
         self.cost_batch_size = cost_batch_size

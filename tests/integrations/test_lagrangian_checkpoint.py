@@ -156,9 +156,7 @@ def test_lagrangian_save_load_round_trip_preserves_dual_and_partial_episode_stat
         model.completed_episode_cost_accumulator.ingest_rollout(
             costs=partial_costs,
             elapsed_hours=np.asarray([[6.0]], dtype=np.float64),
-            completion_kinds=np.asarray(
-                [[EpisodeCompletionKind.NONE]], dtype=np.int8
-            ),
+            completion_kinds=np.asarray([[EpisodeCompletionKind.NONE]], dtype=np.int8),
         )
         _initialize_optimizer_state(model)
 

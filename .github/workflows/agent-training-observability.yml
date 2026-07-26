@@ -56,8 +56,42 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --extra dev --extra train-sb3 --extra studio
 
-      - name: Format Python changes
-        run: uv run ruff format trade_rl/rl/schedules.py trade_rl/rl/tensorboard_logging.py trade_rl/studio/training_metrics.py tests/rl/test_schedules.py tests/rl/test_tensorboard_logging.py tests/studio/test_training_metrics.py tests/studio/test_training_metrics_api.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/rl/checkpointing.py trade_rl/integrations/sb3_training.py trade_rl/studio/api.py
+      - name: Auto-fix and format Python changes
+        run: |
+          uv run ruff check --fix \
+            trade_rl/rl/schedules.py \
+            trade_rl/rl/tensorboard_logging.py \
+            trade_rl/studio/training_metrics.py \
+            tests/rl/test_schedules.py \
+            tests/rl/test_tensorboard_logging.py \
+            tests/studio/test_training_metrics.py \
+            tests/studio/test_training_metrics_api.py \
+            tests/rl/test_training_config_active_fields.py \
+            tests/rl/test_checkpointing.py \
+            tests/integrations/test_sb3_training.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py \
+            trade_rl/rl/training.py \
+            trade_rl/rl/algorithm_configs.py \
+            trade_rl/rl/checkpointing.py \
+            trade_rl/integrations/sb3_training.py \
+            trade_rl/studio/api.py
+          uv run ruff format \
+            trade_rl/rl/schedules.py \
+            trade_rl/rl/tensorboard_logging.py \
+            trade_rl/studio/training_metrics.py \
+            tests/rl/test_schedules.py \
+            tests/rl/test_tensorboard_logging.py \
+            tests/studio/test_training_metrics.py \
+            tests/studio/test_training_metrics_api.py \
+            tests/rl/test_training_config_active_fields.py \
+            tests/rl/test_checkpointing.py \
+            tests/integrations/test_sb3_training.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py \
+            trade_rl/rl/training.py \
+            trade_rl/rl/algorithm_configs.py \
+            trade_rl/rl/checkpointing.py \
+            trade_rl/integrations/sb3_training.py \
+            trade_rl/studio/api.py
 
       - name: Ruff
         run: uv run ruff check .
@@ -76,7 +110,8 @@ jobs:
             tests/integrations/test_sb3_training_active_architecture.py \
             tests/studio/test_training_metrics.py \
             tests/studio/test_training_metrics_api.py \
-            tests/studio/test_api.py
+            tests/studio/test_api.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020

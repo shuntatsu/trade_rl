@@ -164,9 +164,8 @@ class CostRolloutStorage:
         codes = np.empty(self.n_envs, dtype=np.uint8)
         for env_index, info in enumerate(infos):
             raw_elapsed = info.get("transition_elapsed_hours")
-            if (
-                isinstance(raw_elapsed, bool)
-                or not isinstance(raw_elapsed, (int, float))
+            if isinstance(raw_elapsed, bool) or not isinstance(
+                raw_elapsed, (int, float)
             ):
                 raise ValueError(
                     "transition_elapsed_hours must be a finite positive number"
@@ -180,7 +179,9 @@ class CostRolloutStorage:
 
             raw_reason = info.get("termination_reason")
             if raw_reason is not None and not isinstance(raw_reason, str):
-                raise ValueError("completion termination_reason must be a string or null")
+                raise ValueError(
+                    "completion termination_reason must be a string or null"
+                )
             raw_time_limit = info.get("TimeLimit.truncated", False)
             if not isinstance(raw_time_limit, bool):
                 raise ValueError("completion TimeLimit.truncated must be a boolean")
@@ -335,9 +336,7 @@ def estimate_cost_rollout_storage_bytes(
     float_bytes = transitions * costs * _COST_FLOAT_ARRAY_COUNT * _FLOAT32_BYTES
     bool_bytes = transitions * _COST_BOOL_ARRAY_COUNT * _BOOL_BYTES
     metadata_bytes = (
-        transitions * (_FLOAT64_BYTES + _UINT8_BYTES)
-        if store_episode_metadata
-        else 0
+        transitions * (_FLOAT64_BYTES + _UINT8_BYTES) if store_episode_metadata else 0
     )
     return float_bytes + bool_bytes + metadata_bytes
 

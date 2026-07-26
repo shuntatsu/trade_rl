@@ -50,7 +50,9 @@ def test_lagrangian_schema_preserves_canonical_order_and_identity() -> None:
     )
 
     assert schema.names == ("drawdown_excess", "drawdown_stop_event")
-    assert schema["drawdown_excess"].aggregation is ConstraintAggregation.EPISODE_TIME_AREA
+    assert (
+        schema["drawdown_excess"].aggregation is ConstraintAggregation.EPISODE_TIME_AREA
+    )
     assert (
         schema["drawdown_stop_event"].aggregation
         is ConstraintAggregation.EPISODE_EVENT_RATE

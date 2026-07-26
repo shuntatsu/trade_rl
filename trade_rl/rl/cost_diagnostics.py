@@ -238,6 +238,7 @@ def build_cost_head_diagnostics(
     ):
         raise ValueError("calibration_bin_count must be a positive integer")
 
+    positive_sample_count = int(np.count_nonzero(target > 0.0))
     brier_score: float | None = None
     calibration: tuple[CalibrationBin, ...] = ()
     precision_recall: PrecisionRecallInputs | None = None
@@ -256,6 +257,7 @@ def build_cost_head_diagnostics(
             raise ValueError("event probabilities must be within [0, 1]")
         if np.any((labels != 0.0) & (labels != 1.0)):
             raise ValueError("event labels must be binary")
+        positive_sample_count = int(np.count_nonzero(labels == 1.0))
         brier_score = float(np.mean(np.square(probabilities - labels)))
         calibration = _calibration_bins(
             probabilities,
@@ -269,7 +271,7 @@ def build_cost_head_diagnostics(
         target_mean=float(np.mean(target)),
         target_std=float(np.std(target)),
         nonzero_rate=float(np.count_nonzero(target) / target.size),
-        positive_sample_count=int(np.count_nonzero(target > 0.0)),
+        positive_sample_count=positive_sample_count,
         value_loss=float(np.mean(np.square(prediction - target))),
         explained_variance=explained_variance(target, prediction),
         adapter_gradient_norm=adapter_norm,

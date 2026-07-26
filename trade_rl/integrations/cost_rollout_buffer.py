@@ -121,6 +121,16 @@ class CostRolloutStorage:
             raise ValueError("constraint_costs must be non-negative")
         return matrix
 
+    @staticmethod
+    def _elapsed_from_info(info: Mapping[str, object]) -> object | None:
+        explicit = info.get("transition_elapsed_hours")
+        if explicit is not None:
+            return explicit
+        costs = info.get("constraint_costs")
+        if isinstance(costs, ConstraintCostVector):
+            return costs.transition_elapsed_hours
+        return None
+
     def _episode_metadata_from_infos(
         self,
         *,
@@ -135,11 +145,11 @@ class CostRolloutStorage:
             dtype=np.int8,
         )
         for index, info in enumerate(infos):
-            if "transition_elapsed_hours" not in info:
+            raw_elapsed = self._elapsed_from_info(info)
+            if raw_elapsed is None:
                 if self.require_episode_metadata:
                     raise ValueError("info is missing transition_elapsed_hours")
                 continue
-            raw_elapsed = info["transition_elapsed_hours"]
             if isinstance(raw_elapsed, bool):
                 raise ValueError(
                     "transition_elapsed_hours must be finite and positive"

@@ -65,9 +65,10 @@ def test_lagrangian_schema_preserves_canonical_order_and_identity() -> None:
     assert schema["drawdown_excess"].digest_payload()["unit"] == (
         "drawdown_excess_area_days"
     )
-    assert schema["drawdown_stop_event"].digest_payload()[
-        "minimum_completed_episodes"
-    ] == 20
+    assert (
+        schema["drawdown_stop_event"].digest_payload()["minimum_completed_episodes"]
+        == 20
+    )
 
 
 def test_canonical_constraint_aggregations_cover_every_cost() -> None:

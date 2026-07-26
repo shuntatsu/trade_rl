@@ -57,7 +57,7 @@ The rollout calculation is:
 
 These values are locked by `test_growth_optimal_profile_locks_cost_critic_resource_contract`.
 
-`build_cost_critic_compute_evidence` additionally records actual parameter bytes, initialized Adam state bytes, rollout bytes, update count, event-positive support, runtime throughput, and peak device memory when supplied by a real training run.
+`build_cost_critic_compute_evidence` additionally records actual parameter bytes, initialized Adam state bytes, rollout bytes, update count, event-positive support, runtime throughput, and peak device memory when supplied by a real training run. The payload is canonical JSON with a content digest.
 
 ## Rare-event promotion boundary
 
@@ -80,12 +80,12 @@ Tests cover:
 - normalization of restored hidden-dimension containers;
 - PPO-family rejection of replay-buffer resume.
 
-## CI evidence before the resource-contract documentation commit
+## Final implementation CI evidence
 
-Exact code head `48cb820226c45d50d7c09109f3a600aa90356797` was verified by CI run `#3152`:
+Exact implementation and resource-contract head `a869a7bf362048e781e9fb7495a9eb34af50e8f8` was verified by CI run `#3159`:
 
-- `1,656 passed`, `2 skipped`, `11 warnings`;
-- total coverage `85.75%`;
+- `1,662 passed`, `2 skipped`, `11 warnings`;
+- total coverage `85.73%`;
 - critical branch coverage passed;
 - Ruff passed;
 - format check passed;
@@ -98,7 +98,7 @@ Exact code head `48cb820226c45d50d7c09109f3a600aa90356797` was verified by CI ru
 - Windows compatibility passed;
 - complete non-root training image build and probe passed.
 
-A fresh full CI run is required for the final documentation and resource-contract-test head before PR B is marked ready.
+The ordinary-PPO equivalence test compares policy state tensors with zero tolerance after identical RNG reset, so PR B does not claim actor isolation from architecture inspection alone.
 
 ## Explicitly not claimed
 

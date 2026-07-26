@@ -7,6 +7,12 @@ on:
     paths:
       - tools/agent_training_observability_patch.py
       - .github/workflows/agent-training-observability.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/agent_training_observability_patch.py
+      - .github/workflows/agent-training-observability.yml
 
 permissions:
   contents: write

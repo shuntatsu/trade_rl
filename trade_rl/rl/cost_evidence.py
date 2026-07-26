@@ -79,7 +79,9 @@ def _event_support(model: object, event_names: tuple[str, ...]) -> dict[str, int
             raise ValueError(f"missing finite event support metric: {key}")
         value = float(raw)
         if not math.isfinite(value) or value < 0.0 or not value.is_integer():
-            raise ValueError(f"event support metric must be a non-negative integer: {key}")
+            raise ValueError(
+                f"event support metric must be a non-negative integer: {key}"
+            )
         support[name] = int(value)
     return support
 
@@ -125,9 +127,7 @@ class CostCriticComputeEvidence:
             "training_seconds": self.training_seconds,
             "environment_steps": self.environment_steps,
             "environment_steps_per_second": self.environment_steps_per_second,
-            "cost_optimizer_steps_per_second": (
-                self.cost_optimizer_steps_per_second
-            ),
+            "cost_optimizer_steps_per_second": (self.cost_optimizer_steps_per_second),
             "peak_device_memory_bytes": self.peak_device_memory_bytes,
         }
         if include_digest:

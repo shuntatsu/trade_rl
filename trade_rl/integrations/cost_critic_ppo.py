@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any, ClassVar
 
 import numpy as np
@@ -321,7 +320,9 @@ class CostCriticPPO(PPO):
             metrics[f"loss/{name}"] = float(np.mean(values))
         for name in self.cost_schema.event_names:
             index = self.cost_schema.names.index(name)
-            support = float(np.count_nonzero(self.cost_rollout_storage.costs[:, :, index]))
+            support = float(
+                np.count_nonzero(self.cost_rollout_storage.costs[:, :, index])
+            )
             self._cost_support_totals[name] += support
             metrics[f"support/{name}"] = self._cost_support_totals[name]
         self.last_cost_training_metrics = metrics

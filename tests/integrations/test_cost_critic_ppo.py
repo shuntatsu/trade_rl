@@ -201,8 +201,7 @@ def test_cost_critic_ppo_exposes_head_and_family_diagnostics() -> None:
         assert event_report.has_positive_support is True
         assert event_report.beats_zero_only_baseline is not None
         assert event_report.eligible_for_promotion == (
-            event_report.has_positive_support
-            and event_report.beats_zero_only_baseline
+            event_report.has_positive_support and event_report.beats_zero_only_baseline
         )
         assert sum(bin_.count for bin_ in event_report.calibration_bins) == 4
         assert event_report.precision_recall is not None

@@ -9,7 +9,6 @@ from trade_rl.rl.algorithm_configs import (
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.rl.training import ResidualTrainingConfig
 
-
 _CANONICAL_SUPPORT = (1, 20, 1, 20, 1, 1, 1)
 
 
@@ -54,9 +53,12 @@ def test_lagrangian_algorithm_builds_typed_configuration() -> None:
     assert isinstance(config, LagrangianPPOConfig)
     assert config.cost_schema.names == CONSTRAINT_COST_NAMES
     assert config.lagrangian_schema.names == CONSTRAINT_COST_NAMES
-    assert tuple(
-        spec.minimum_completed_episodes for spec in config.lagrangian_schema.specs
-    ) == _CANONICAL_SUPPORT
+    assert (
+        tuple(
+            spec.minimum_completed_episodes for spec in config.lagrangian_schema.specs
+        )
+        == _CANONICAL_SUPPORT
+    )
     assert config.probe_episodes == 2
     assert config.probe_max_steps_per_episode == 16
     assert config.actor_composition_mode == "raw_lagrangian_then_sb3_normalize_v1"

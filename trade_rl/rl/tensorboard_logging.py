@@ -71,11 +71,11 @@ def build_tensorboard_metrics_callback(
                         continue
                     self._extend(
                         "trade_rl/portfolio_value_mean",
-                        info.get("portfolio_value", ()),
+                        info.get("portfolio_value_after", ()),
                     )
                     self._extend(
                         "trade_rl/drawdown_mean",
-                        info.get("drawdown", ()),
+                        info.get("drawdown_after", ()),
                     )
                     self._extend(
                         "trade_rl/interval_cost_mean",

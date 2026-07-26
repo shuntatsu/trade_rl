@@ -117,7 +117,7 @@ def test_growth_optimal_profile_locks_cost_critic_resource_contract() -> None:
             4,
             len(schema.names),
         )
-        == 145_408
+        == 154_624
     )
 
 

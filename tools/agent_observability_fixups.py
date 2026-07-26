@@ -89,6 +89,17 @@ _METRICS: dict[str, tuple[str, MetricGroup, MetricUnit]] = {'''
         raise RuntimeError("generated training metric metadata annotation is missing")
     metrics_path.write_text(metrics.replace(old, new, 1), encoding="utf-8")
 
+    chart_test_path = ROOT / "studio/src/live/TrainingMetricChart.test.tsx"
+    chart_test = chart_test_path.read_text(encoding="utf-8")
+    old_assertion = "expect(screen.getByText(/Step 10/)).toBeInTheDocument()"
+    new_assertion = "expect(screen.getAllByText(/Step 10/)).toHaveLength(2)"
+    if old_assertion not in chart_test:
+        raise RuntimeError("generated chart step assertion is missing")
+    chart_test_path.write_text(
+        chart_test.replace(old_assertion, new_assertion, 1),
+        encoding="utf-8",
+    )
+
 
 if __name__ == "__main__":
     apply()

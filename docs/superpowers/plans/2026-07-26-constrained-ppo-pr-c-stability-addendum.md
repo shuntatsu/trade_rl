@@ -1,10 +1,16 @@
 # Lagrangian PPO Stability Addendum Implementation Plan
 
+> [!IMPORTANT]
+> **Superseded for actor composition, episode aggregation, estimator scheduling, and feasibility-probe behavior by:**
+> `docs/superpowers/specs/2026-07-26-pr-c-lagrangian-stability-correction.md`
+> `docs/superpowers/plans/2026-07-26-pr-c-lagrangian-stability-correction.md`
+> Where this document conflicts with those files, the correction specification and plan are normative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Complete PR C's normative review requirements by adding deterministic constraint-correlation diagnostics, multiplier saturation/oscillation tracking, and a pre-training zero-action joint-feasibility witness without changing the reward or automatically decorrelating constraints.
+**Goal:** Complete PR C's normative review requirements by adding deterministic constraint-correlation diagnostics, multiplier saturation/oscillation tracking, and a pre-training canonical-action diagnostic probe without changing the reward or automatically decorrelating constraints.
 
-**Architecture:** Keep the independent per-cost dual optimizer from the main PR C plan. Add pure diagnostic modules that consume raw rollout costs, normalized cost advantages, frozen multipliers, and dual update reports; add a separate witness evaluator that runs a fresh unwrapped environment with the minimal zero action before model construction. Backend integration records evidence and rejects only an explicitly infeasible configured constraint set.
+**Architecture:** Keep the independent per-cost dual optimizer from the main PR C plan. Add pure diagnostic modules that consume raw rollout costs, normalized cost advantages, frozen multipliers, and dual update reports; add a separate canonical-action probe that runs a fresh environment before model construction. Backend integration records warning evidence for budget violations and rejects only malformed execution, metadata, or unsupported action semantics.
 
 **Tech Stack:** Python 3.12, NumPy, Gymnasium 0.29.1, Stable-Baselines3 2.3.2, pytest, Ruff, Mypy.
 
@@ -14,25 +20,25 @@
 - Do not change the scalar all-cost net-log-growth reward.
 - Correlation diagnostics must be deterministic for constant columns and finite for every accepted input.
 - Stability diagnostics are observations and promotion warnings; they do not silently alter dual learning rates, budgets, caps, or update intervals.
-- A witness uses a fresh environment and zero action, never the training environment state.
-- A witness must complete the configured number of episodes; reaching the maximum step count without completion fails closed.
-- A witness estimate must use the same aggregation semantics and cost ordering as the Lagrangian schema.
-- Witness settings and witness evidence identity must be included in training/checkpoint identity.
-- Ordinary `ppo` and `cost_critic_ppo` cannot accept active witness settings.
+- A canonical-action probe uses a fresh environment and the maintained zero-action semantics, never the training environment state.
+- A probe must complete the configured number of valid episodes; reaching the maximum step count without completion fails closed.
+- A probe estimate must use the same aggregation semantics and cost ordering as the Lagrangian schema.
+- Probe settings and probe evidence identity must be included in training/checkpoint identity.
+- Ordinary `ppo` and `cost_critic_ppo` cannot accept active probe settings.
 
 ---
 
 ## File Structure
 
 - `trade_rl/rl/lagrangian_diagnostics.py`: correlation matrices, penalty-to-reward magnitude, and serializable per-cost stability tracker.
-- `trade_rl/rl/lagrangian_witness.py`: zero-action episode runner, joint-feasibility decision, and canonical evidence payload.
+- `trade_rl/rl/lagrangian_probe.py`: zero-action episode runner, joint-feasibility decision, and canonical evidence payload.
 - `trade_rl/integrations/lagrangian_ppo.py`: capture per-rollout correlation and stability diagnostics; no optimizer change.
-- `trade_rl/integrations/sb3_training.py`: execute witness before model construction and persist witness evidence.
-- `trade_rl/rl/training.py`: typed witness settings and fail-closed inactive-field validation.
-- `trade_rl/rl/algorithm_configs.py`: carry witness settings in `LagrangianPPOConfig`.
+- `trade_rl/integrations/sb3_training.py`: execute probe before model construction and persist probe evidence.
+- `trade_rl/rl/training.py`: typed probe settings and fail-closed inactive-field validation.
+- `trade_rl/rl/algorithm_configs.py`: carry probe settings in `LagrangianPPOConfig`.
 - `tests/rl/test_lagrangian_diagnostics.py`: pure matrix and trajectory contracts.
-- `tests/rl/test_lagrangian_witness.py`: deterministic safe/unsafe witness contracts.
-- `tests/integrations/test_sb3_lagrangian_backend.py`: witness runs before learning and rejects infeasible budgets.
+- `tests/rl/test_lagrangian_probe.py`: deterministic safe/unsafe probe contracts.
+- `tests/integrations/test_sb3_lagrangian_backend.py`: probe runs before learning and warns on budget violations without rejecting training.
 
 ---
 
@@ -69,14 +75,14 @@ Add tests that assert:
 - population covariance and correlation are symmetric;
 - a non-constant diagonal is `1.0`;
 - a constant-column row and column, including its diagonal, are `0.0`;
-- penalty contributions equal `normalized_cost_advantages * multipliers[None, :]`;
+- penalty contributions equal `raw_cost_advantages * multipliers[None, :]`;
 - `penalty_to_reward_l2_ratio` is `||sum_i lambda_i A_i||_2 / max(||A_r||_2, 1e-12)`;
 - zero reward norm with non-zero penalty yields a finite ratio using the fixed denominator;
 - shape mismatch, duplicate names, empty input, and non-finite values fail closed.
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `pytest tests/rl/test_lagrangian_diagnostics.py -q`  
+Run: `pytest tests/rl/test_lagrangian_diagnostics.py -q`
 Expected: import failure because `trade_rl.rl.lagrangian_diagnostics` does not exist.
 
 - [ ] **Step 3: Implement pure diagnostics**
@@ -149,7 +155,7 @@ Add tests for:
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `pytest tests/rl/test_lagrangian_diagnostics.py -q`  
+Run: `pytest tests/rl/test_lagrangian_diagnostics.py -q`
 Expected: missing tracker symbols.
 
 - [ ] **Step 3: Implement tracker**
@@ -185,28 +191,28 @@ git commit -m "feat: track Lagrangian multiplier stability"
 
 ---
 
-### Task C: Pre-training zero-action joint-feasibility witness
+### Task C: Pre-training zero-action joint-feasibility probe
 
 **Files:**
-- Create: `trade_rl/rl/lagrangian_witness.py`
+- Create: `trade_rl/rl/lagrangian_probe.py`
 - Modify: `trade_rl/rl/training.py`
 - Modify: `trade_rl/rl/algorithm_configs.py`
 - Modify: `trade_rl/integrations/sb3_training.py`
-- Test: `tests/rl/test_lagrangian_witness.py`
+- Test: `tests/rl/test_lagrangian_probe.py`
 - Test: `tests/rl/test_lagrangian_training_config.py`
 - Test: `tests/integrations/test_sb3_lagrangian_backend.py`
 
 **Interfaces:**
 - Consumes: a fresh Gymnasium environment factory, `LagrangianSchema`, `episode_count`, and `max_steps_per_episode`.
-- Produces: `JointFeasibilityWitnessEvidence` and `run_zero_action_joint_feasibility_witness(...)`.
+- Produces: `JointFeasibilityProbeEvidence` and `run_zero_action_joint_feasibility_probe(...)`.
 
-- [ ] **Step 1: Write failing witness tests**
+- [ ] **Step 1: Write failing probe tests**
 
 Create deterministic environments that emit `ConstraintCostVector` in `info`, terminate after three steps, and accept a continuous action. Assert:
 
 ```python
-safe = run_zero_action_joint_feasibility_witness(
-    environment_factory=lambda: WitnessEnvironment(cost=0.0),
+safe = run_zero_action_joint_feasibility_probe(
+    environment_factory=lambda: ProbeEnvironment(cost=0.0),
     schema=schema,
     episode_count=2,
     max_steps_per_episode=4,
@@ -218,7 +224,7 @@ assert safe.completed_episodes == 2
 Add tests that:
 
 - record exactly the zero action on every step;
-- reject a witness whose estimate exceeds any budget and list the violated cost names;
+- reject a probe whose estimate exceeds any budget and list the violated cost names;
 - aggregate event rates using completed episode denominators;
 - reject missing/negative/non-finite costs;
 - reject discrete or malformed action spaces;
@@ -228,43 +234,43 @@ Add tests that:
 
 - [ ] **Step 2: Run and verify RED**
 
-Run: `pytest tests/rl/test_lagrangian_witness.py -q`  
-Expected: import failure because `trade_rl.rl.lagrangian_witness` does not exist.
+Run: `pytest tests/rl/test_lagrangian_probe.py -q`
+Expected: import failure because `trade_rl.rl.lagrangian_probe` does not exist.
 
-- [ ] **Step 3: Implement witness evaluator**
+- [ ] **Step 3: Implement probe evaluator**
 
 For each episode, create a new environment from the factory, reset with seed equal to the zero-based episode index, and step `np.zeros(action_space.shape, dtype=action_space.dtype)`. Use `CompletedEpisodeCostAccumulator` with `n_envs=1`; mark the actual `terminated` and `truncated` flags. Require exactly one completed episode per fresh environment.
 
-`JointFeasibilityWitnessEvidence` contains ordered estimates, denominators, budgets, violated costs, episode count, maximum steps, action shape, and a content digest. A cost is satisfied when `estimate.value <= budget + 1e-12`.
+`JointFeasibilityProbeEvidence` contains ordered estimates, denominators, budgets, violated costs, episode count, maximum steps, action shape, and a content digest. A cost is satisfied when `estimate.value <= budget + 1e-12`.
 
 - [ ] **Step 4: Add typed configuration and backend gate**
 
 Append fields to `ResidualTrainingConfig`:
 
 ```python
-lagrangian_witness_episodes: int = 0
-lagrangian_witness_max_steps_per_episode: int = 0
+lagrangian_probe_episodes: int = 0
+lagrangian_probe_max_steps_per_episode: int = 0
 ```
 
 For `lagrangian_ppo`, both must be positive. For every other algorithm, both must be zero. Include both in config digest and `LagrangianPPOConfig`.
 
-In `StableBaselines3Backend.train(...)`, after `_validate_training_environment(...)` and `build_algorithm_config(...)` but before wrapping or constructing the training environment/model, run the witness with `self.environment_factory`. Reject with `ValueError("Lagrangian constraint witness is not jointly feasible: ...")` when `jointly_feasible` is false. Store the witness payload in the training architecture/evidence artifact and expose it on the model as `joint_feasibility_witness_evidence` so checkpoint identity can bind its digest.
+In `StableBaselines3Backend.train(...)`, after `_validate_training_environment(...)` and `build_algorithm_config(...)` but before wrapping or constructing the training environment/model, run the probe with `self.environment_factory`. Reject with `ValueError("Lagrangian constraint probe is not jointly feasible: ...")` when `jointly_feasible` is false. Store the probe payload in the training architecture/evidence artifact and expose it on the model as `joint_feasibility_probe_evidence` so checkpoint identity can bind its digest.
 
 - [ ] **Step 5: Run targeted tests and commit**
 
 ```text
-pytest tests/rl/test_lagrangian_witness.py -q
+pytest tests/rl/test_lagrangian_probe.py -q
 pytest tests/rl/test_lagrangian_training_config.py -q
 pytest tests/integrations/test_sb3_lagrangian_backend.py -q
 pytest tests/integrations/test_sb3_cost_critic_backend.py -q
-ruff check trade_rl/rl/lagrangian_witness.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py tests/rl/test_lagrangian_witness.py tests/rl/test_lagrangian_training_config.py tests/integrations/test_sb3_lagrangian_backend.py
-ruff format --check trade_rl/rl/lagrangian_witness.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py tests/rl/test_lagrangian_witness.py tests/rl/test_lagrangian_training_config.py tests/integrations/test_sb3_lagrangian_backend.py
-mypy trade_rl/rl/lagrangian_witness.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py
+ruff check trade_rl/rl/lagrangian_probe.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py tests/rl/test_lagrangian_probe.py tests/rl/test_lagrangian_training_config.py tests/integrations/test_sb3_lagrangian_backend.py
+ruff format --check trade_rl/rl/lagrangian_probe.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py tests/rl/test_lagrangian_probe.py tests/rl/test_lagrangian_training_config.py tests/integrations/test_sb3_lagrangian_backend.py
+mypy trade_rl/rl/lagrangian_probe.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py
 ```
 
 ```text
-git add trade_rl/rl/lagrangian_witness.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py tests/rl/test_lagrangian_witness.py tests/rl/test_lagrangian_training_config.py tests/integrations/test_sb3_lagrangian_backend.py
-git commit -m "feat: gate Lagrangian training with a safe witness"
+git add trade_rl/rl/lagrangian_probe.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/integrations/sb3_training.py tests/rl/test_lagrangian_probe.py tests/rl/test_lagrangian_training_config.py tests/integrations/test_sb3_lagrangian_backend.py
+git commit -m "feat: gate Lagrangian training with a safe probe"
 ```
 
 ---
@@ -317,7 +323,7 @@ git commit -m "feat: record correlated dual stability evidence"
 
 ## Self-Review
 
-- Spec coverage: raw-cost covariance/correlation, normalized-advantage correlation, effective-penalty correlation, penalty/reward magnitude, saturation, longest saturation, sign changes, rolling variances, violation area, sustained satisfaction, post-satisfaction over-constraint, and safe witness are each assigned to a testable task.
+- Spec coverage: raw-cost covariance/correlation, normalized-advantage correlation, effective-penalty correlation, penalty/reward magnitude, saturation, longest saturation, sign changes, rolling variances, violation area, sustained satisfaction, post-satisfaction over-constraint, and safe probe are each assigned to a testable task.
 - Scope boundary: no automatic decorrelation, hierarchical multiplier, covariance-aware optimizer, production budget selection, or promotion decision is added.
-- Type consistency: diagnostics use the same ordered cost names as `LagrangianSchema`; witness aggregation reuses `CompletedEpisodeCostAccumulator`; backend receives witness settings through `LagrangianPPOConfig`.
+- Type consistency: diagnostics use the same ordered cost names as `LagrangianSchema`; probe aggregation reuses `CompletedEpisodeCostAccumulator`; backend receives probe settings through `LagrangianPPOConfig`.
 - Placeholder scan: no TBD/TODO or unspecified error-handling steps remain.

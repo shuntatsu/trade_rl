@@ -1,8 +1,14 @@
 # Stabilized Lagrangian PPO Implementation Plan
 
+> [!IMPORTANT]
+> **Superseded for actor composition, episode aggregation, estimator scheduling, and feasibility-probe behavior by:**
+> `docs/superpowers/specs/2026-07-26-pr-c-lagrangian-stability-correction.md`
+> `docs/superpowers/plans/2026-07-26-pr-c-lagrangian-stability-correction.md`
+> Where this document conflicts with those files, the correction specification and plan are normative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an opt-in `lagrangian_ppo` algorithm that constrains the PPO actor with independently normalized Cost Critic advantages and stabilized per-cost dual variables, without changing ordinary PPO, PR B `cost_critic_ppo`, or the exact all-cost net-log-growth reward.
+**Goal:** Add an opt-in `lagrangian_ppo` algorithm that constrains the PPO actor with raw Cost Critic advantages, final-only combined normalization, and stabilized per-cost dual variables, without changing ordinary PPO, PR B `cost_critic_ppo`, or the exact all-cost net-log-growth reward.
 
 **Architecture:** Keep PR B's market encoder, reward critic, Cost Critics, and cost rollout storage unchanged. Add a pure typed Lagrangian layer for completed-episode aggregation, EMA/capped dual updates, and advantage composition; then add `LagrangianPPO`, a `CostCriticPPO` subclass whose PPO update uses frozen rollout multipliers and whose dual update runs once after the rollout's actor and Cost Critic updates. Configuration, telemetry, checkpoint identity, and save/load state remain explicit and fail closed.
 
@@ -13,7 +19,7 @@
 - The scalar reward remains exactly the maintained all-cost net-log-growth reward.
 - Ordinary `ppo` and PR B `cost_critic_ppo` remain behaviorally unchanged.
 - No multiplier may change during PPO epochs for a rollout.
-- Reward advantages and each cost advantage are normalized independently; cost columns are never concatenated before normalization.
+- The actor composes raw reward and raw cost advantages first; only the final combined vector uses the pinned SB3 normalization. Per-cost standardization is diagnostics-only.
 - A dual update occurs once after rollout statistics are finalized, never per minibatch.
 - Event estimates use completed-episode denominators; a zero denominator skips the update and retains previous EMA and multiplier.
 - True economic terminations and time-limit truncations both complete an episode for aggregation, but only actual event cost values enter event numerators.
@@ -26,7 +32,7 @@
 ## File Structure
 
 - `trade_rl/rl/lagrangian.py`: typed constraint aggregation, completed-episode accumulator, dual controller, state and digest identity.
-- `trade_rl/rl/lagrangian_advantages.py`: pure independent normalization and reward-minus-cost advantage composition.
+- `trade_rl/rl/lagrangian_advantages.py`: pure raw reward-minus-cost composition plus diagnostics-only normalization helpers.
 - `trade_rl/integrations/lagrangian_ppo.py`: SB3-pinned PPO training loop with aligned cost minibatches, frozen multipliers, Cost Critic update, and one post-rollout dual update.
 - `trade_rl/rl/algorithm_configs.py`: typed `LagrangianPPOConfig` view.
 - `trade_rl/rl/training.py`: opt-in vector configuration and fail-closed validation.
@@ -97,7 +103,7 @@ Add tests that reject duplicate, unknown, reordered, wrong aggregation, negative
 
 - [ ] **Step 2: Run tests and verify RED**
 
-Run: `pytest tests/rl/test_lagrangian.py -q`  
+Run: `pytest tests/rl/test_lagrangian.py -q`
 Expected: import failure because `trade_rl.rl.lagrangian` does not exist.
 
 - [ ] **Step 3: Implement immutable typed schema**
@@ -186,7 +192,7 @@ Add tests that:
 
 - [ ] **Step 2: Run test and verify RED**
 
-Run: `pytest tests/rl/test_lagrangian.py -q`  
+Run: `pytest tests/rl/test_lagrangian.py -q`
 Expected: missing accumulator symbols.
 
 - [ ] **Step 3: Implement aggregation**

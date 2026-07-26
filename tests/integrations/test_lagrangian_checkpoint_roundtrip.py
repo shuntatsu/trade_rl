@@ -14,6 +14,7 @@ from trade_rl.integrations.lagrangian_ppo import LagrangianPPO
 from trade_rl.rl.cost_learning import canonical_cost_learning_schema
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.rl.lagrangian import ConstraintEstimate, canonical_lagrangian_schema
+from trade_rl.rl.lagrangian_episode import EpisodeCompletionKind
 
 
 class _CheckpointEnvironment(gym.Env[np.ndarray, np.ndarray]):
@@ -184,8 +185,11 @@ def test_lagrangian_save_load_preserves_dual_accumulator_and_critic_state(
         assert accumulator is not None
         accumulator.ingest_rollout(
             costs=partial_costs,
-            terminated=np.zeros((2, 1), dtype=np.bool_),
-            truncated=np.zeros((2, 1), dtype=np.bool_),
+            elapsed_hours=np.asarray([[6.0], [18.0]], dtype=np.float64),
+            completion_kinds=np.asarray(
+                [[EpisodeCompletionKind.NONE], [EpisodeCompletionKind.NONE]],
+                dtype=np.int8,
+            ),
         )
 
         model.cost_critic_optimizer.zero_grad()

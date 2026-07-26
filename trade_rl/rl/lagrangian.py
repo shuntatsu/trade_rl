@@ -324,9 +324,14 @@ class CompletedEpisodeCostAccumulator:
 
         if state.get("schema_version") != self._STATE_VERSION:
             raise ValueError("accumulator state schema version mismatch")
+        raw_cost_names = state.get("cost_names")
+        if not isinstance(raw_cost_names, (list, tuple)) or not all(
+            isinstance(name, str) for name in raw_cost_names
+        ):
+            raise ValueError("accumulator state schema mismatch")
         if (
             state.get("schema_digest") != self.schema.digest
-            or tuple(state.get("cost_names", ())) != self.schema.names
+            or tuple(raw_cost_names) != self.schema.names
         ):
             raise ValueError("accumulator state schema mismatch")
         if state.get("n_envs") != self.n_envs:
@@ -334,7 +339,10 @@ class CompletedEpisodeCostAccumulator:
 
         try:
             cost_sums = np.asarray(state["episode_cost_sums"], dtype=np.float64)
-            raw_step_counts = np.asarray(state["episode_step_counts"])
+            raw_step_counts = np.asarray(
+                state["episode_step_counts"],
+                dtype=np.float64,
+            )
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("accumulator state payload is invalid") from error
         if cost_sums.shape != self._episode_cost_sums.shape:

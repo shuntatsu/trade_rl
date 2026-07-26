@@ -62,7 +62,11 @@ class FamilySeparatedCostCritic(nn.Module):
         event_hidden_dims: tuple[int, ...],
     ) -> None:
         super().__init__()
-        if isinstance(input_dim, bool) or not isinstance(input_dim, int) or input_dim <= 0:
+        if (
+            isinstance(input_dim, bool)
+            or not isinstance(input_dim, int)
+            or input_dim <= 0
+        ):
             raise ValueError("input_dim must be a positive integer")
         if not isinstance(schema, CostLearningSchema):
             raise TypeError("schema must be a CostLearningSchema")
@@ -100,10 +104,7 @@ class FamilySeparatedCostCritic(nn.Module):
         )
         self.auxiliary_event_names = auxiliary_event_names
         self.event_logit_heads = nn.ModuleDict(
-            {
-                name: nn.Linear(event_dims[-1], 1)
-                for name in auxiliary_event_names
-            }
+            {name: nn.Linear(event_dims[-1], 1) for name in auxiliary_event_names}
         )
 
     @property
@@ -130,8 +131,7 @@ class FamilySeparatedCostCritic(nn.Module):
     def forward(self, features: torch.Tensor) -> CostCriticOutput:
         if features.ndim != 2 or features.shape[1] != self.input_dim:
             raise ValueError(
-                "cost critic features must have shape "
-                f"[batch, {self.input_dim}]"
+                f"cost critic features must have shape [batch, {self.input_dim}]"
             )
         continuous_latent = self.continuous_adapter(features)
         event_latent = self.event_adapter(features)

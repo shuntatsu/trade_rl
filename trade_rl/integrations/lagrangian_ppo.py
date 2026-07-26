@@ -118,7 +118,9 @@ class LagrangianPPO(CostCriticPPO):
             if not np.all(np.isfinite(normalized_snapshot)) or np.any(
                 normalized_snapshot < 0.0
             ):
-                raise ValueError("frozen Lagrange multipliers must be finite and non-negative")
+                raise ValueError(
+                    "frozen Lagrange multipliers must be finite and non-negative"
+                )
             for index, spec in enumerate(self.lagrangian_schema.specs):
                 if normalized_snapshot[index] > spec.max_multiplier + 1e-12:
                     raise ValueError(

@@ -180,3 +180,30 @@ def test_vector_step_overshoot_publishes_every_crossed_threshold(
         for manifest in manifests
     ) == [(20, 65), (40, 65), (60, 65)]
     assert len({manifest.policy_path.parent for manifest in manifests}) == 3
+
+
+def test_checkpoint_collision_rejects_conflicting_run_identity(tmp_path: Path) -> None:
+    checkpoint_root = tmp_path / "checkpoints"
+    publish_checkpoint(
+        model=FakeModel(),
+        checkpoint_root=checkpoint_root,
+        algorithm="ppo",
+        seed=0,
+        requested_timestep=20,
+        observed_timestep=21,
+        environment_digest="e" * 64,
+        training_config_digest="a" * 64,
+    )
+
+    with pytest.raises(ValueError, match="conflicting identity"):
+        publish_checkpoint(
+            model=FakeModel(),
+            checkpoint_root=checkpoint_root,
+            algorithm="ppo",
+            seed=0,
+            requested_timestep=20,
+            observed_timestep=21,
+            environment_digest="e" * 64,
+            training_config_digest="b" * 64,
+        )
+    assert len(checkpoint_manifests(checkpoint_root)) == 1

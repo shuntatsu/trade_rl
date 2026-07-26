@@ -49,7 +49,8 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
 
     monkeypatch.setattr("stable_baselines3.PPO", CapturingPPO)
     backend = StableBaselines3Backend(_tiny_environment_factory)
-    config = _training_config(
+    config = replace(
+        _training_config(),
         learning_rate_schedule="linear",
         tensorboard_enabled=True,
     )

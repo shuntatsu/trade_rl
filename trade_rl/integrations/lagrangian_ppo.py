@@ -229,9 +229,7 @@ class LagrangianPPO(CostCriticPPO):
                 Callable[[float], float],
                 self.clip_range_vf,
             )
-            clip_range_vf = clip_range_vf_schedule(
-                self._current_progress_remaining
-            )
+            clip_range_vf = clip_range_vf_schedule(self._current_progress_remaining)
 
         entropy_losses: list[float] = []
         policy_gradient_losses: list[float] = []

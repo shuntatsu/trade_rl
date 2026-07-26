@@ -53,7 +53,9 @@ class _CheckpointEnvironment(gym.Env[np.ndarray, np.ndarray]):
         return np.zeros(3, dtype=np.float32), 0.0, False, False, {}
 
 
-def _schema(*, drawdown_budget: float = 0.1, drawdown_cap: float = 10.0) -> LagrangianSchema:
+def _schema(
+    *, drawdown_budget: float = 0.1, drawdown_cap: float = 10.0
+) -> LagrangianSchema:
     count = len(CONSTRAINT_COST_NAMES)
     return canonical_lagrangian_schema(
         names=CONSTRAINT_COST_NAMES,
@@ -147,9 +149,7 @@ def test_lagrangian_save_load_round_trip_preserves_dual_and_partial_episode_stat
     try:
         model.lagrangian_controller.update_after_rollout(_estimates(0.5))
         model.lagrangian_controller.update_after_rollout(_estimates(0.3))
-        model.frozen_lagrange_multipliers = (
-            model.lagrangian_controller.begin_rollout()
-        )
+        model.frozen_lagrange_multipliers = model.lagrangian_controller.begin_rollout()
         partial_costs = np.zeros((1, 1, len(CONSTRAINT_COST_NAMES)), dtype=np.float64)
         partial_costs[0, 0, 0] = 0.2
         model.completed_episode_cost_accumulator.ingest_rollout(

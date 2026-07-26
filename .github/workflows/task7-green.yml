@@ -1,0 +1,73 @@
+name: Task 7 GREEN
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install targeted dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Run Task 7 GREEN tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/rl/test_lagrangian_probe.py \
+            tests/rl/test_lagrangian_probe_fail_closed.py \
+            tests/integrations/test_sb3_lagrangian_probe_backend.py \
+            tests/integrations/test_sb3_lagrangian_backend.py \
+            tests/integrations/test_lagrangian_checkpoint_roundtrip.py \
+            2>&1 | tee task7-green.log
+      - name: Run Task 7 static checks
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check \
+            trade_rl/rl/lagrangian_probe.py \
+            trade_rl/integrations/lagrangian_ppo.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/rl/test_lagrangian_probe.py \
+            tests/rl/test_lagrangian_probe_fail_closed.py \
+            tests/integrations/test_sb3_lagrangian_probe_backend.py \
+            2>&1 | tee task7-ruff.log
+          uv run ruff format --check --diff \
+            trade_rl/rl/lagrangian_probe.py \
+            trade_rl/integrations/lagrangian_ppo.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/rl/test_lagrangian_probe.py \
+            tests/rl/test_lagrangian_probe_fail_closed.py \
+            tests/integrations/test_sb3_lagrangian_probe_backend.py \
+            2>&1 | tee task7-format.log
+          uv run mypy \
+            trade_rl/rl/lagrangian_probe.py \
+            trade_rl/integrations/lagrangian_ppo.py \
+            trade_rl/integrations/sb3_training.py \
+            2>&1 | tee task7-mypy.log
+      - name: Upload GREEN diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: task7-green-diagnostics
+          path: |
+            task7-green.log
+            task7-ruff.log
+            task7-format.log
+            task7-mypy.log
+          if-no-files-found: ignore

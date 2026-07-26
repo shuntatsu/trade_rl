@@ -82,6 +82,7 @@ class _LagrangianEnvironment(gym.Env[np.ndarray, np.ndarray]):
             daily_turnover=0.0,
             execution_cost_fraction=0.0,
             funding_credit_fraction=0.0,
+            transition_elapsed_hours=1.0,
         )
         return observation, 0.1, terminated, False, {"constraint_costs": costs}
 
@@ -186,6 +187,9 @@ def test_zero_multiplier_lagrangian_update_matches_cost_critic_ppo_exactly() -> 
         assert constrained.frozen_lagrange_multipliers.tolist() == pytest.approx(
             [0.0] * len(CONSTRAINT_COST_NAMES)
         )
+        assert constrained.last_completed_episode_batch is not None
+        assert constrained.last_completed_episode_batch.completed_episode_count == 1
+        assert constrained.last_completed_episode_batch.censored_episode_count == 0
     finally:
         ordinary_environment.close()
         lagrangian_environment.close()
@@ -292,6 +296,9 @@ def test_rollout_without_completed_episode_skips_every_dual_update() -> None:
         assert model.lagrangian_controller.begin_rollout().tolist() == pytest.approx(
             [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         )
+        assert model.last_completed_episode_batch is not None
+        assert model.last_completed_episode_batch.completed_episode_count == 0
+        assert model.last_completed_episode_batch.censored_episode_count == 0
         assert tuple(model.last_dual_update_reports) == CONSTRAINT_COST_NAMES
         assert all(
             report.updated is False

@@ -103,3 +103,16 @@ def test_lagrangian_training_identity_tracks_every_semantic_field() -> None:
     )
 
     assert all(item.digest_payload() != baseline for item in variations)
+
+
+def test_ordinary_ppo_identity_omits_inactive_lagrangian_contract() -> None:
+    config = training.ResidualTrainingConfig(
+        timesteps=8,
+        gamma=1.0,
+        seeds=(0,),
+        n_steps=4,
+        batch_size=4,
+        asset_set_encoder=False,
+    )
+
+    assert "lagrangian" not in config.digest_payload()

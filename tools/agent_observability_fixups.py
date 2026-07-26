@@ -100,6 +100,17 @@ _METRICS: dict[str, tuple[str, MetricGroup, MetricUnit]] = {'''
         encoding="utf-8",
     )
 
+    hook_test_path = ROOT / "studio/src/live/useTrainingMetrics.test.tsx"
+    hook_test = hook_test_path.read_text(encoding="utf-8")
+    old_cast = "  } as StudioApi\n"
+    new_cast = "  } as unknown as StudioApi\n"
+    if old_cast not in hook_test:
+        raise RuntimeError("generated partial StudioApi test cast is missing")
+    hook_test_path.write_text(
+        hook_test.replace(old_cast, new_cast, 1),
+        encoding="utf-8",
+    )
+
 
 if __name__ == "__main__":
     apply()

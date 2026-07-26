@@ -67,8 +67,7 @@ class _LagrangianEnvironment(gym.Env[np.ndarray, np.ndarray]):
         del action
         self.step_index += 1
         terminated = bool(
-            self.terminate_after is not None
-            and self.step_index >= self.terminate_after
+            self.terminate_after is not None and self.step_index >= self.terminate_after
         )
         observation = np.asarray(
             [self.step_index / 10.0, 0.5, -0.25],
@@ -286,9 +285,7 @@ def test_actor_then_cost_critic_then_dual_update_order(
 
 
 def test_rollout_without_completed_episode_skips_every_dual_update() -> None:
-    environment = DummyVecEnv(
-        [lambda: _LagrangianEnvironment(terminate_after=None)]
-    )
+    environment = DummyVecEnv([lambda: _LagrangianEnvironment(terminate_after=None)])
     model = _lagrangian_model(
         environment,
         schema=_lagrangian_schema(initial_drawdown_multiplier=1.0),
@@ -310,13 +307,9 @@ def test_rollout_without_completed_episode_skips_every_dual_update() -> None:
         environment.close()
 
 
-def test_safe_and_unsafe_completed_episodes_move_only_the_matching_multiplier() -> (
-    None
-):
+def test_safe_and_unsafe_completed_episodes_move_only_the_matching_multiplier() -> None:
     unsafe_environment = DummyVecEnv([_LagrangianEnvironment])
-    safe_environment = DummyVecEnv(
-        [lambda: _LagrangianEnvironment(drawdown_cost=0.0)]
-    )
+    safe_environment = DummyVecEnv([lambda: _LagrangianEnvironment(drawdown_cost=0.0)])
     unsafe = _lagrangian_model(
         unsafe_environment,
         schema=_lagrangian_schema(),

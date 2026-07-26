@@ -104,15 +104,21 @@ def test_growth_optimal_profile_locks_cost_critic_resource_contract() -> None:
 
     assert feature_dim == 1_475
     assert critic.parameter_count == 395_591
-    assert sum(
-        parameter.numel() * parameter.element_size()
-        for parameter in critic.parameters()
-    ) == 1_582_364
-    assert estimate_cost_rollout_storage_bytes(
-        256,
-        4,
-        len(schema.names),
-    ) == 145_408
+    assert (
+        sum(
+            parameter.numel() * parameter.element_size()
+            for parameter in critic.parameters()
+        )
+        == 1_582_364
+    )
+    assert (
+        estimate_cost_rollout_storage_bytes(
+            256,
+            4,
+            len(schema.names),
+        )
+        == 145_408
+    )
 
 
 def test_cost_critic_compute_evidence_derives_timing_rates() -> None:

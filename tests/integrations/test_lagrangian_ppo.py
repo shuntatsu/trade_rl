@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 import gymnasium as gym

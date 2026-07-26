@@ -31,6 +31,10 @@ def test_continuous_cost_head_report_uses_explicit_target_statistics() -> None:
     assert report.brier_score is None
     assert report.calibration_bins == ()
     assert report.precision_recall is None
+    assert report.zero_only_brier_score is None
+    assert report.beats_zero_only_baseline is None
+    assert report.has_positive_support is None
+    assert report.eligible_for_promotion is None
 
 
 def test_event_cost_head_report_has_deterministic_calibration_and_pr_inputs() -> None:
@@ -65,6 +69,31 @@ def test_event_cost_head_report_has_deterministic_calibration_and_pr_inputs() ->
     assert curve.precision == pytest.approx((1.0, 1.0, 2 / 3, 0.75, 0.6))
     assert curve.recall == pytest.approx((1 / 3, 2 / 3, 2 / 3, 1.0, 1.0))
     assert curve.positive_sample_count == 3
+    assert report.zero_only_brier_score == pytest.approx(0.6)
+    assert report.beats_zero_only_baseline
+    assert report.has_positive_support
+    assert report.eligible_for_promotion
+
+
+def test_zero_positive_event_support_cannot_pass_promotion_gate() -> None:
+    from trade_rl.rl.cost_diagnostics import build_cost_head_diagnostics
+
+    report = build_cost_head_diagnostics(
+        name="drawdown_stop_event",
+        predictions=np.zeros(8),
+        targets=np.zeros(8),
+        adapter_gradient_norm=0.0,
+        head_gradient_norm=0.0,
+        event_probabilities=np.zeros(8),
+        event_labels=np.zeros(8),
+        calibration_bin_count=4,
+    )
+
+    assert report.brier_score == pytest.approx(0.0)
+    assert report.zero_only_brier_score == pytest.approx(0.0)
+    assert not report.beats_zero_only_baseline
+    assert not report.has_positive_support
+    assert not report.eligible_for_promotion
 
 
 def test_constant_target_explained_variance_is_explicit() -> None:

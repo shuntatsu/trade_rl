@@ -202,7 +202,9 @@ def test_probe_budget_violation_is_warning_evidence() -> None:
     assert evidence.digest_payload()["warning"] is True
 
 
-def test_probe_fails_closed_on_missing_constraint_costs_and_closes_environment() -> None:
+def test_probe_fails_closed_on_missing_constraint_costs_and_closes_environment() -> (
+    None
+):
     actions: list[np.ndarray] = []
     closes: list[int] = []
 

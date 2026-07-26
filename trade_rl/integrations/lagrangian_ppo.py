@@ -112,9 +112,7 @@ class LagrangianPPO(CostCriticPPO):
             )
             self.completed_episode_cost_accumulator = accumulator
         elif not isinstance(accumulator, TimeAwareCompletedEpisodeCostAccumulator):
-            raise ValueError(
-                "completed episode accumulator schema version mismatch"
-            )
+            raise ValueError("completed episode accumulator schema version mismatch")
         elif (
             accumulator.n_envs != self.n_envs
             or accumulator.schema.digest != self.lagrangian_schema.digest
@@ -372,10 +370,14 @@ class LagrangianPPO(CostCriticPPO):
     def _update_dual_controller(self) -> None:
         accumulator = self.completed_episode_cost_accumulator
         if not isinstance(accumulator, TimeAwareCompletedEpisodeCostAccumulator):
-            raise RuntimeError("time-aware completed episode accumulator is unavailable")
+            raise RuntimeError(
+                "time-aware completed episode accumulator is unavailable"
+            )
         elapsed = self.cost_rollout_storage.transition_elapsed_hours
         if elapsed is None or not np.all(np.isfinite(elapsed)):
-            raise RuntimeError("Lagrangian rollout elapsed-time metadata is unavailable")
+            raise RuntimeError(
+                "Lagrangian rollout elapsed-time metadata is unavailable"
+            )
         batch = accumulator.ingest_rollout(
             costs=self.cost_rollout_storage.costs,
             transition_elapsed_hours=elapsed,
@@ -425,11 +427,11 @@ class LagrangianPPO(CostCriticPPO):
         payload["lagrangian_rollout_episode_metadata"] = True
         accumulator = self.completed_episode_cost_accumulator
         if not isinstance(accumulator, TimeAwareCompletedEpisodeCostAccumulator):
-            raise RuntimeError("time-aware completed episode accumulator is unavailable")
+            raise RuntimeError(
+                "time-aware completed episode accumulator is unavailable"
+            )
         state = accumulator.state_dict()
-        payload["lagrangian_episode_estimator_schema_version"] = state[
-            "schema_version"
-        ]
+        payload["lagrangian_episode_estimator_schema_version"] = state["schema_version"]
         return payload
 
     def train(self) -> None:

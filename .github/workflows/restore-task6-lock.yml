@@ -1,0 +1,42 @@
+name: Restore Task 6 lockfile
+
+on:
+  push:
+    branches:
+      - agent/pr191-stability-correction-v2
+
+permissions:
+  contents: write
+
+concurrency:
+  group: restore-task6-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  restore:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Restore exact pre-format lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout 3148e4696ba2c5a622e5e9aa251aa7e34ce60009 -- uv.lock
+          rm .github/workflows/restore-task6-lock.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Commit lockfile restoration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: restore exact Task 6 lockfile"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

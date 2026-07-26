@@ -169,7 +169,9 @@ class ConstraintEstimate:
             raise ValueError(f"unknown constraint cost: {self.name}")
         numerator = float(self.numerator)
         if not math.isfinite(numerator) or numerator < 0.0:
-            raise ValueError("constraint estimate numerator must be finite and non-negative")
+            raise ValueError(
+                "constraint estimate numerator must be finite and non-negative"
+            )
         if (
             isinstance(self.denominator, bool)
             or not isinstance(self.denominator, int)
@@ -322,9 +324,10 @@ class CompletedEpisodeCostAccumulator:
 
         if state.get("schema_version") != self._STATE_VERSION:
             raise ValueError("accumulator state schema version mismatch")
-        if state.get("schema_digest") != self.schema.digest or tuple(
-            state.get("cost_names", ())
-        ) != self.schema.names:
+        if (
+            state.get("schema_digest") != self.schema.digest
+            or tuple(state.get("cost_names", ())) != self.schema.names
+        ):
             raise ValueError("accumulator state schema mismatch")
         if state.get("n_envs") != self.n_envs:
             raise ValueError("accumulator state environment count mismatch")

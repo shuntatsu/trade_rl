@@ -95,7 +95,7 @@ def combine_lagrangian_advantages(
     normalize_combined: bool = False,
     normalize_reward: bool | None = None,
     epsilon: float = _DEFAULT_EPSILON,
-) -> NDArray[np.floating[Any]]:
+) -> NDArray[np.float64] | NDArray[np.float32]:
     """Compose raw Lagrangian advantages and optionally normalize the result.
 
     ``normalize_reward`` is retained as a compatibility alias for callers from
@@ -152,7 +152,10 @@ def combine_lagrangian_advantages(
     )
     if not torch.isfinite(normalized_tensor).all():
         raise ValueError("normalized Lagrangian advantages must be finite")
-    return normalized_tensor.detach().cpu().numpy()
+    normalized = normalized_tensor.detach().cpu().numpy()
+    if normalized.dtype == np.float32:
+        return np.asarray(normalized, dtype=np.float32)
+    return np.asarray(normalized, dtype=np.float64)
 
 
 __all__ = [

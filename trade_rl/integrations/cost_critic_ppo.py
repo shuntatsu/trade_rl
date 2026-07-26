@@ -67,9 +67,9 @@ class CostCriticPPO(PPO):
         self.cost_update_count = 0
         self.last_cost_training_metrics: dict[str, float] = {}
         self.last_cost_head_diagnostics: dict[str, CostHeadDiagnostics] = {}
-        self.last_cost_family_gradient_diagnostics: (
-            FamilyGradientDiagnostics | None
-        ) = None
+        self.last_cost_family_gradient_diagnostics: FamilyGradientDiagnostics | None = (
+            None
+        )
         self._cost_support_totals = {name: 0.0 for name in self.cost_schema.event_names}
         self._cost_rng = np.random.default_rng(kwargs.get("seed"))
         super().__init__(  # type: ignore[misc]
@@ -323,9 +323,7 @@ class CostCriticPPO(PPO):
         metrics: dict[str, float] = {
             "gradient/continuous": family.continuous_gradient_norm,
             "gradient/event": family.event_gradient_norm,
-            "gradient/continuous_adapter": (
-                family.continuous_adapter_gradient_norm
-            ),
+            "gradient/continuous_adapter": (family.continuous_adapter_gradient_norm),
             "gradient/continuous_heads": family.continuous_head_gradient_norm,
             "gradient/event_adapter": family.event_adapter_gradient_norm,
             "gradient/event_heads": family.event_head_gradient_norm,
@@ -368,9 +366,7 @@ class CostCriticPPO(PPO):
             )
             metrics[f"{prefix}/value_loss"] = report.value_loss
             metrics[f"{prefix}/explained_variance"] = report.explained_variance
-            metrics[f"{prefix}/adapter_gradient_norm"] = (
-                report.adapter_gradient_norm
-            )
+            metrics[f"{prefix}/adapter_gradient_norm"] = report.adapter_gradient_norm
             metrics[f"{prefix}/head_gradient_norm"] = report.head_gradient_norm
             if report.brier_score is not None:
                 metrics[f"{prefix}/brier_score"] = report.brier_score

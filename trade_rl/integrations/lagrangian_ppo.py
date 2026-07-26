@@ -17,6 +17,7 @@ from torch.nn import functional as F
 from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.rl.lagrangian import (
+    CompletedEpisodeBatch,
     CompletedEpisodeCostAccumulator,
     ConstraintEstimate,
     DualUpdateReport,
@@ -70,6 +71,7 @@ class LagrangianPPO(CostCriticPPO):
             CompletedEpisodeCostAccumulator | None
         ) = None
         self.frozen_lagrange_multipliers = self.lagrangian_controller.begin_rollout()
+        self.last_completed_episode_batch: CompletedEpisodeBatch | None = None
         self.last_constraint_estimates: dict[str, ConstraintEstimate | None] = {
             name: None for name in resolved_schema.names
         }
@@ -129,6 +131,11 @@ class LagrangianPPO(CostCriticPPO):
             normalized_snapshot.flags.writeable = False
             self.frozen_lagrange_multipliers = normalized_snapshot
 
+        completed_batch = getattr(self, "last_completed_episode_batch", None)
+        if completed_batch is not None and not isinstance(
+            completed_batch, CompletedEpisodeBatch
+        ):
+            self.last_completed_episode_batch = None
         estimates = getattr(self, "last_constraint_estimates", None)
         if (
             not isinstance(estimates, dict)
@@ -369,14 +376,23 @@ class LagrangianPPO(CostCriticPPO):
         accumulator = self.completed_episode_cost_accumulator
         if not isinstance(accumulator, CompletedEpisodeCostAccumulator):
             raise RuntimeError("completed episode accumulator is unavailable")
-        estimates = accumulator.ingest_rollout(
+        batch = accumulator.ingest_rollout(
             costs=self.cost_rollout_storage.costs,
-            terminated=self.cost_rollout_storage.terminated,
-            truncated=self.cost_rollout_storage.truncated,
+            elapsed_hours=self.cost_rollout_storage.elapsed_hours,
+            completion_kinds=self.cost_rollout_storage.completion_kinds,
         )
-        reports = self.lagrangian_controller.update_after_rollout(estimates)
-        self.last_constraint_estimates = estimates
+        reports = self.lagrangian_controller.update_after_rollout(batch.estimates)
+        self.last_completed_episode_batch = batch
+        self.last_constraint_estimates = batch.estimates
         self.last_dual_update_reports = reports
+        self.logger.record(
+            "lagrangian/completed_episode_count",
+            batch.completed_episode_count,
+        )
+        self.logger.record(
+            "lagrangian/censored_episode_count",
+            batch.censored_episode_count,
+        )
 
         for name, report in reports.items():
             prefix = f"lagrangian/{name}"

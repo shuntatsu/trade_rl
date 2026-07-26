@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from trade_rl.rl.checkpointing import (
+    build_checkpoint_callback,
+    checkpoint_manifests,
     load_checkpoint_manifest,
     planned_checkpoint_steps,
     publish_checkpoint,
@@ -13,8 +15,9 @@ from trade_rl.rl.training import ResidualTrainingConfig
 
 
 class FakeModel:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, num_timesteps: int = 0) -> None:
         self.fail = fail
+        self.num_timesteps = num_timesteps
 
     def save(self, target: str) -> None:
         if self.fail:
@@ -151,3 +154,29 @@ def test_checkpoint_plan_skips_completed_steps_on_resume() -> None:
         max_checkpoints=10,
     )
     assert tuple(step for step in steps if step > 40) == (60, 80)
+
+
+def test_vector_step_overshoot_publishes_every_crossed_threshold(
+    tmp_path: Path,
+) -> None:
+    checkpoint_root = tmp_path / "checkpoints"
+    callback = build_checkpoint_callback(
+        checkpoint_root=checkpoint_root,
+        algorithm="ppo",
+        seed=0,
+        interval_steps=20,
+        max_checkpoints=10,
+        total_timesteps=80,
+        environment_digest="e" * 64,
+        training_config_digest="a" * 64,
+    )
+    atomic_callback = callback.callbacks[0]
+    atomic_callback.model = FakeModel(num_timesteps=65)
+
+    assert atomic_callback._on_step()
+    manifests = checkpoint_manifests(checkpoint_root)
+    assert sorted(
+        (manifest.requested_timestep, manifest.observed_timestep)
+        for manifest in manifests
+    ) == [(20, 65), (40, 65), (60, 65)]
+    assert len({manifest.policy_path.parent for manifest in manifests}) == 3

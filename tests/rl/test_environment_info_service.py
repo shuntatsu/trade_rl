@@ -21,9 +21,6 @@ from trade_rl.simulation.accounting import BookState
 class _Dataset:
     periods_per_year = 365
 
-    def elapsed_hours(self, start_index: int, end_index: int) -> float:
-        return float(end_index - start_index) * 0.25
-
 
 class _RewardTracker:
     config = RewardConfig(baseline_underperformance_weight=0.1)
@@ -78,14 +75,11 @@ def _book(*, cash: float = 100.0) -> BookState:
 
 def _execution() -> SimpleNamespace:
     return SimpleNamespace(
-        next_index=6,
         bars_advanced=2,
         interval_cost=0.5,
         interval_funding=-0.1,
-        interval_borrow_cost=0.0,
         interval_gross_return=0.03,
         interval_net_return=0.02,
-        filled_turnover=0.0,
     )
 
 
@@ -196,7 +190,6 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "shadow_risk",
         "shadow_terminated",
         "termination_reason",
-        "transition_elapsed_hours",
         "terminal_accounting_mode",
         "terminal_liquidation_cost",
         "pending_target_discarded",
@@ -233,37 +226,6 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
     }
     assert info["reward_baseline_penalty_delta"] == 0.02
     assert info["rolling_growth_gap"] == pytest.approx(0.005)
-    assert info["transition_elapsed_hours"] == pytest.approx(0.5)
-
-
-def test_step_info_exposes_authoritative_transition_elapsed_hours() -> None:
-    builder = EnvironmentInfoBuilder(_Dataset(), _RewardTracker())
-    request = _step_request()
-
-    info = builder.step_info(request)
-
-    assert info["transition_elapsed_hours"] == pytest.approx(
-        builder.dataset.elapsed_hours(
-            request.hybrid_execution.next_index
-            - request.hybrid_execution.bars_advanced,
-            request.hybrid_execution.next_index,
-        )
-    )
-
-
-@pytest.mark.parametrize("duration", [0.0, -1.0, float("nan"), float("inf")])
-def test_step_info_rejects_invalid_transition_duration(duration: float) -> None:
-    class _InvalidDurationDataset(_Dataset):
-        def elapsed_hours(self, start_index: int, end_index: int) -> float:
-            del start_index, end_index
-            return duration
-
-    builder = EnvironmentInfoBuilder(_InvalidDurationDataset(), _RewardTracker())
-
-    with pytest.raises(
-        RuntimeError, match="transition duration must be finite and positive"
-    ):
-        builder.step_info(_step_request())
 
 
 def test_step_info_exposes_action_path_and_constraint_scalars() -> None:

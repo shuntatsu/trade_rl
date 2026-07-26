@@ -102,9 +102,7 @@ class LagrangianPPO(CostCriticPPO):
             )
             self.completed_episode_cost_accumulator = accumulator
         elif not isinstance(accumulator, CompletedEpisodeCostAccumulator):
-            raise TypeError(
-                "completed_episode_cost_accumulator has an invalid type"
-            )
+            raise TypeError("completed_episode_cost_accumulator has an invalid type")
         elif (
             accumulator.n_envs != self.n_envs
             or accumulator.schema.digest != self.lagrangian_schema.digest
@@ -117,7 +115,10 @@ class LagrangianPPO(CostCriticPPO):
             self.frozen_lagrange_multipliers = controller.begin_rollout()
 
         estimates = getattr(self, "last_constraint_estimates", None)
-        if not isinstance(estimates, dict) or tuple(estimates) != self.lagrangian_schema.names:
+        if (
+            not isinstance(estimates, dict)
+            or tuple(estimates) != self.lagrangian_schema.names
+        ):
             self.last_constraint_estimates = {
                 name: None for name in self.lagrangian_schema.names
             }
@@ -134,9 +135,7 @@ class LagrangianPPO(CostCriticPPO):
     ) -> bool:
         """Freeze one multiplier snapshot before collecting the rollout."""
 
-        self.frozen_lagrange_multipliers = (
-            self.lagrangian_controller.begin_rollout()
-        )
+        self.frozen_lagrange_multipliers = self.lagrangian_controller.begin_rollout()
         return super().collect_rollouts(
             env,
             callback,
@@ -281,9 +280,7 @@ class LagrangianPPO(CostCriticPPO):
                 value_losses.append(float(value_loss.detach().cpu()))
 
                 entropy_loss = (
-                    -torch.mean(-log_prob)
-                    if entropy is None
-                    else -torch.mean(entropy)
+                    -torch.mean(-log_prob) if entropy is None else -torch.mean(entropy)
                 )
                 entropy_losses.append(float(entropy_loss.detach().cpu()))
                 loss = (
@@ -296,16 +293,11 @@ class LagrangianPPO(CostCriticPPO):
                 with torch.no_grad():
                     log_ratio = log_prob - rollout_data.old_log_prob
                     approx_kl_div = float(
-                        torch.mean((torch.exp(log_ratio) - 1) - log_ratio)
-                        .cpu()
-                        .numpy()
+                        torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
                     )
                     epoch_kl_divs.append(approx_kl_div)
 
-                if (
-                    self.target_kl is not None
-                    and approx_kl_div > 1.5 * self.target_kl
-                ):
+                if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
                     continue_training = False
                     if self.verbose >= 1:
                         print(

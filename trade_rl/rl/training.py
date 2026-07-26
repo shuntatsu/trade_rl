@@ -18,6 +18,7 @@ from trade_rl.domain.common import (
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest, PolicyMember
 from trade_rl.rl.actions import ACTION_SCHEMA
+from trade_rl.rl.cost_learning import canonical_cost_learning_schema
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
 
 
@@ -97,6 +98,17 @@ class ResidualTrainingConfig:
     learning_starts: int = 10_000
     train_freq: int = 1
     gradient_steps: int = 1
+    cost_learning_rate: float = 3e-4
+    cost_n_epochs: int = 1
+    cost_batch_size: int | None = None
+    cost_continuous_hidden_dims: tuple[int, ...] = (128, 64)
+    cost_event_hidden_dims: tuple[int, ...] = (128, 64)
+    cost_max_grad_norm: float = 0.5
+    cost_continuous_gae_lambda: float = 0.95
+    cost_event_gae_lambda: float = 0.95
+    cost_value_loss_coefficient: float = 1.0
+    cost_auxiliary_event_loss_coefficient: float = 0.0
+    cost_architecture_variant: str = "family_separated_v1"
     checkpoint_interval_steps: int | None = None
     max_checkpoints: int = 5
     n_envs: int = 1
@@ -108,6 +120,16 @@ class ResidualTrainingConfig:
     behavior_cloning_minimum_improvement: float = 0.0
     behavior_cloning_teacher: str = "oracle"
     behavior_cloning_required_relative_improvement: float = 0.0
+    lagrangian_budgets: tuple[float, ...] = ()
+    lagrangian_dual_learning_rates: tuple[float, ...] = ()
+    lagrangian_ema_betas: tuple[float, ...] = ()
+    lagrangian_initial_multipliers: tuple[float, ...] = ()
+    lagrangian_max_multipliers: tuple[float, ...] = ()
+    lagrangian_warmup_rollouts: tuple[int, ...] = ()
+    lagrangian_update_interval_rollouts: tuple[int, ...] = ()
+    lagrangian_minimum_completed_episodes: tuple[int, ...] = ()
+    lagrangian_probe_episodes: int = 0
+    lagrangian_probe_max_steps_per_episode: int = 0
     learning_rate_schedule: str = "constant"
     learning_rate_final_ratio: float = 0.1
     tensorboard_enabled: bool = False
@@ -124,6 +146,7 @@ class ResidualTrainingConfig:
             ("buffer_size", self.buffer_size),
             ("train_freq", self.train_freq),
             ("gradient_steps", self.gradient_steps),
+            ("cost_n_epochs", self.cost_n_epochs),
             ("behavior_cloning_batch_size", self.behavior_cloning_batch_size),
             ("behavior_cloning_patience", self.behavior_cloning_patience),
         ):
@@ -181,16 +204,25 @@ class ResidualTrainingConfig:
             or self.max_checkpoints <= 0
         ):
             raise ValueError("max_checkpoints must be a positive integer")
-        if (
-            self.algorithm.lower() == "ppo"
-            and (self.n_steps * self.n_envs) % self.batch_size != 0
-        ):
-            raise ValueError("batch_size must divide the complete PPO rollout")
         algorithm = self.algorithm.lower()
-        if algorithm not in {"ppo", "sac", "td3", "tqc"}:
-            raise ValueError("algorithm must be one of ppo, sac, td3, or tqc")
+        if algorithm not in {
+            "ppo",
+            "cost_critic_ppo",
+            "lagrangian_ppo",
+            "sac",
+            "td3",
+            "tqc",
+        }:
+            raise ValueError(
+                "algorithm must be one of ppo, cost_critic_ppo, lagrangian_ppo, "
+                "sac, td3, or tqc"
+            )
         object.__setattr__(self, "algorithm", algorithm)
-        if self.behavior_cloning_epochs > 0 and algorithm != "ppo":
+        ppo_like = algorithm in {"ppo", "cost_critic_ppo", "lagrangian_ppo"}
+        rollout_size = self.n_steps * self.n_envs
+        if ppo_like and rollout_size % self.batch_size != 0:
+            raise ValueError("batch_size must divide the complete PPO rollout")
+        if self.behavior_cloning_epochs > 0 and not ppo_like:
             raise ValueError("behavior cloning warm start currently requires PPO")
         if (
             isinstance(self.learning_starts, bool)
@@ -290,7 +322,7 @@ class ResidualTrainingConfig:
             raise ValueError("sequence_capacity must be standard or compact")
         if self.sequence_encoder and self.policy != "MultiInputPolicy":
             raise ValueError("sequence_encoder requires MultiInputPolicy")
-        if self.sequence_encoder and self.algorithm != "ppo":
+        if self.sequence_encoder and not ppo_like:
             raise ValueError("sequence_encoder currently requires PPO")
         for field_name, value in (
             ("sequence_d_model", self.sequence_d_model),
@@ -328,7 +360,7 @@ class ResidualTrainingConfig:
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
 
-        if algorithm == "ppo":
+        if ppo_like:
             _require_inactive_defaults(
                 (
                     ("buffer_size", self.buffer_size, 100_000),
@@ -336,7 +368,7 @@ class ResidualTrainingConfig:
                     ("train_freq", self.train_freq, 1),
                     ("gradient_steps", self.gradient_steps, 1),
                 ),
-                context="PPO",
+                context=algorithm.upper(),
             )
         else:
             _require_inactive_defaults(
@@ -358,6 +390,163 @@ class ResidualTrainingConfig:
                     ),
                 ),
                 context=algorithm.upper(),
+            )
+
+        if algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
+            if (
+                not math.isfinite(self.cost_learning_rate)
+                or self.cost_learning_rate <= 0.0
+            ):
+                raise ValueError("cost_learning_rate must be finite and positive")
+            if self.cost_batch_size is not None and (
+                isinstance(self.cost_batch_size, bool)
+                or not isinstance(self.cost_batch_size, int)
+                or self.cost_batch_size <= 0
+                or self.cost_batch_size > rollout_size
+            ):
+                raise ValueError(
+                    "cost_batch_size must be null or within the complete PPO rollout"
+                )
+            for field_name, architecture in (
+                ("cost_continuous_hidden_dims", self.cost_continuous_hidden_dims),
+                ("cost_event_hidden_dims", self.cost_event_hidden_dims),
+            ):
+                if not architecture or any(
+                    isinstance(width, bool) or not isinstance(width, int) or width <= 0
+                    for width in architecture
+                ):
+                    raise ValueError(f"{field_name} must contain positive integers")
+            if (
+                not math.isfinite(self.cost_max_grad_norm)
+                or self.cost_max_grad_norm <= 0.0
+            ):
+                raise ValueError("cost_max_grad_norm must be finite and positive")
+            for field_name, lambda_value in (
+                ("cost_continuous_gae_lambda", self.cost_continuous_gae_lambda),
+                ("cost_event_gae_lambda", self.cost_event_gae_lambda),
+            ):
+                if not math.isfinite(lambda_value) or not 0.0 <= lambda_value <= 1.0:
+                    raise ValueError(f"{field_name} must be within [0, 1]")
+            for field_name, cost_coefficient in (
+                ("cost_value_loss_coefficient", self.cost_value_loss_coefficient),
+                (
+                    "cost_auxiliary_event_loss_coefficient",
+                    self.cost_auxiliary_event_loss_coefficient,
+                ),
+            ):
+                if not math.isfinite(cost_coefficient) or cost_coefficient < 0.0:
+                    raise ValueError(f"{field_name} must be finite and non-negative")
+            if self.cost_architecture_variant != "family_separated_v1":
+                raise ValueError(
+                    "cost_architecture_variant must be family_separated_v1"
+                )
+        else:
+            _require_inactive_defaults(
+                (
+                    ("cost_learning_rate", self.cost_learning_rate, 3e-4),
+                    ("cost_n_epochs", self.cost_n_epochs, 1),
+                    ("cost_batch_size", self.cost_batch_size, None),
+                    (
+                        "cost_continuous_hidden_dims",
+                        self.cost_continuous_hidden_dims,
+                        (128, 64),
+                    ),
+                    (
+                        "cost_event_hidden_dims",
+                        self.cost_event_hidden_dims,
+                        (128, 64),
+                    ),
+                    ("cost_max_grad_norm", self.cost_max_grad_norm, 0.5),
+                    (
+                        "cost_continuous_gae_lambda",
+                        self.cost_continuous_gae_lambda,
+                        0.95,
+                    ),
+                    ("cost_event_gae_lambda", self.cost_event_gae_lambda, 0.95),
+                    (
+                        "cost_value_loss_coefficient",
+                        self.cost_value_loss_coefficient,
+                        1.0,
+                    ),
+                    (
+                        "cost_auxiliary_event_loss_coefficient",
+                        self.cost_auxiliary_event_loss_coefficient,
+                        0.0,
+                    ),
+                    (
+                        "cost_architecture_variant",
+                        self.cost_architecture_variant,
+                        "family_separated_v1",
+                    ),
+                ),
+                context=f"algorithm={algorithm}",
+            )
+
+        lagrangian_fields = (
+            ("lagrangian_budgets", self.lagrangian_budgets, ()),
+            (
+                "lagrangian_dual_learning_rates",
+                self.lagrangian_dual_learning_rates,
+                (),
+            ),
+            ("lagrangian_ema_betas", self.lagrangian_ema_betas, ()),
+            (
+                "lagrangian_initial_multipliers",
+                self.lagrangian_initial_multipliers,
+                (),
+            ),
+            ("lagrangian_max_multipliers", self.lagrangian_max_multipliers, ()),
+            ("lagrangian_warmup_rollouts", self.lagrangian_warmup_rollouts, ()),
+            (
+                "lagrangian_update_interval_rollouts",
+                self.lagrangian_update_interval_rollouts,
+                (),
+            ),
+            (
+                "lagrangian_minimum_completed_episodes",
+                self.lagrangian_minimum_completed_episodes,
+                (),
+            ),
+            ("lagrangian_probe_episodes", self.lagrangian_probe_episodes, 0),
+            (
+                "lagrangian_probe_max_steps_per_episode",
+                self.lagrangian_probe_max_steps_per_episode,
+                0,
+            ),
+        )
+        if algorithm == "lagrangian_ppo":
+            expected_count = len(canonical_cost_learning_schema().names)
+            for field_name, values, _default in lagrangian_fields[:8]:
+                if not isinstance(values, tuple) or len(values) != expected_count:
+                    raise ValueError(
+                        f"{field_name} must contain exactly {expected_count} values"
+                    )
+            for field_name, value in (
+                ("lagrangian_probe_episodes", self.lagrangian_probe_episodes),
+                (
+                    "lagrangian_probe_max_steps_per_episode",
+                    self.lagrangian_probe_max_steps_per_episode,
+                ),
+            ):
+                if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                    raise ValueError(f"{field_name} must be a positive integer")
+            from trade_rl.rl.lagrangian import canonical_lagrangian_schema
+
+            canonical_lagrangian_schema(
+                names=canonical_cost_learning_schema().names,
+                budgets=self.lagrangian_budgets,
+                dual_learning_rates=self.lagrangian_dual_learning_rates,
+                ema_betas=self.lagrangian_ema_betas,
+                initial_multipliers=self.lagrangian_initial_multipliers,
+                max_multipliers=self.lagrangian_max_multipliers,
+                warmup_rollouts=self.lagrangian_warmup_rollouts,
+                update_interval_rollouts=(self.lagrangian_update_interval_rollouts),
+                minimum_completed_episodes=(self.lagrangian_minimum_completed_episodes),
+            )
+        else:
+            _require_inactive_defaults(
+                lagrangian_fields,
+                context=f"algorithm={algorithm}",
             )
 
         if algorithm == "td3":
@@ -425,7 +614,7 @@ class ResidualTrainingConfig:
 
     @property
     def rounded_timesteps(self) -> int:
-        if self.algorithm == "ppo":
+        if self.algorithm in {"ppo", "cost_critic_ppo", "lagrangian_ppo"}:
             rollout_size = self.n_steps * self.n_envs
             return math.ceil(self.timesteps / rollout_size) * rollout_size
         return self.timesteps
@@ -437,7 +626,7 @@ class ResidualTrainingConfig:
         return max(1, math.ceil(self.timesteps / self.max_checkpoints))
 
     def digest_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "algorithm": self.algorithm,
             "asset_embedding_dim": self.asset_embedding_dim,
             "asset_set_encoder": self.asset_set_encoder,
@@ -495,6 +684,50 @@ class ResidualTrainingConfig:
             "use_sde": self.use_sde,
             "vf_coef": self.vf_coef,
         }
+        if self.algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
+            cost_schema = canonical_cost_learning_schema(
+                continuous_gae_lambda=self.cost_continuous_gae_lambda,
+                event_gae_lambda=self.cost_event_gae_lambda,
+                value_loss_coefficient=self.cost_value_loss_coefficient,
+                auxiliary_event_loss_coefficient=(
+                    self.cost_auxiliary_event_loss_coefficient
+                ),
+            )
+            payload["cost_critic"] = {
+                "architecture_variant": self.cost_architecture_variant,
+                "batch_size": self.cost_batch_size,
+                "continuous_hidden_dims": self.cost_continuous_hidden_dims,
+                "event_hidden_dims": self.cost_event_hidden_dims,
+                "learning_rate": self.cost_learning_rate,
+                "max_grad_norm": self.cost_max_grad_norm,
+                "n_epochs": self.cost_n_epochs,
+                "schema": cost_schema.digest_payload(),
+                "schema_digest": cost_schema.digest,
+            }
+        if self.algorithm == "lagrangian_ppo":
+            from trade_rl.rl.lagrangian import canonical_lagrangian_schema
+
+            lagrangian_schema = canonical_lagrangian_schema(
+                names=cost_schema.names,
+                budgets=self.lagrangian_budgets,
+                dual_learning_rates=self.lagrangian_dual_learning_rates,
+                ema_betas=self.lagrangian_ema_betas,
+                initial_multipliers=self.lagrangian_initial_multipliers,
+                max_multipliers=self.lagrangian_max_multipliers,
+                warmup_rollouts=self.lagrangian_warmup_rollouts,
+                update_interval_rollouts=(self.lagrangian_update_interval_rollouts),
+                minimum_completed_episodes=(self.lagrangian_minimum_completed_episodes),
+            )
+            payload["lagrangian"] = {
+                "actor_composition_mode": "raw_lagrangian_then_sb3_normalize_v1",
+                "probe_episodes": self.lagrangian_probe_episodes,
+                "probe_max_steps_per_episode": (
+                    self.lagrangian_probe_max_steps_per_episode
+                ),
+                "schema": lagrangian_schema.digest_payload(),
+                "schema_digest": lagrangian_schema.digest,
+            }
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

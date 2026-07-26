@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -11,6 +13,10 @@ from trade_rl.rl.actions import (
     TargetWeightAction,
 )
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.environment_constraints import (
+    ActionPathDiagnostics,
+    ConstraintCostVector,
+)
 from trade_rl.rl.rewards import AbsoluteGrowthRewardConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy, TrendTargets
@@ -154,11 +160,24 @@ def test_delayed_target_executes_on_the_following_decision() -> None:
     assert first["execution_delay_warmup"] is True
     np.testing.assert_allclose(first["submitted_target"], np.array([0.40, 0.0]))
     np.testing.assert_allclose(first["executed_target"], np.zeros(2))
+    first_path = first["action_path"]
+    np.testing.assert_allclose(first_path.policy_target, np.array([0.40, 0.0]))
+    np.testing.assert_allclose(first_path.execution_intent_target, np.zeros(2))
+    assert first["action_path_policy_to_execution_intent_l1"] == pytest.approx(0.4)
+    assert first["action_path_policy_changed_by_execution_delay"] is True
 
     _, _, _, _, second = env.step(np.zeros(2, dtype=np.float32))
     assert env.hybrid.weights[0] > 0.30
     assert second["execution_delay_warmup"] is False
     np.testing.assert_allclose(second["executed_target"], np.array([0.40, 0.0]))
+    second_path = second["action_path"]
+    np.testing.assert_allclose(second_path.policy_target, np.zeros(2))
+    np.testing.assert_allclose(
+        second_path.execution_intent_target,
+        np.array([0.40, 0.0]),
+    )
+    assert second["action_path_policy_to_execution_intent_l1"] == pytest.approx(0.4)
+    assert second["action_path_policy_changed_by_execution_delay"] is True
 
 
 def test_reset_clears_delayed_target_queue() -> None:
@@ -172,3 +191,32 @@ def test_reset_clears_delayed_target_queue() -> None:
     np.testing.assert_allclose(env.hybrid.weights, np.zeros(2), atol=1e-12)
     assert info["execution_delay_warmup"] is True
     np.testing.assert_allclose(info["executed_target"], np.zeros(2))
+
+
+def test_live_environment_emits_constraint_telemetry_without_shaping_reward() -> None:
+    env = environment(target_spec(count=2))
+    env.reset(options={"start_idx": 10, "initial_state_mode": "cash"})
+
+    action = np.array([0.60, -0.40], dtype=np.float32)
+    _, reward, _, _, info = env.step(action)
+
+    assert reward == pytest.approx(info["reward_total_scaled"])
+    action_path = info["action_path"]
+    costs = info["constraint_costs"]
+    assert isinstance(action_path, ActionPathDiagnostics)
+    assert isinstance(costs, ConstraintCostVector)
+    np.testing.assert_allclose(action_path.policy_target, action)
+    np.testing.assert_allclose(action_path.execution_intent_target, action)
+    np.testing.assert_allclose(action_path.feasible_target, info["hybrid_risk"].weights)
+    np.testing.assert_allclose(action_path.filled_weight, env.hybrid.weights)
+    assert info["action_path_policy_to_execution_intent_l1"] == 0.0
+    assert info["action_path_policy_to_filled_l1"] == pytest.approx(
+        action_path.policy_to_filled_l1
+    )
+
+    for name, value in costs.as_dict().items():
+        assert math.isfinite(value), name
+        assert value >= 0.0, name
+    assert info["constraint_cost_execution_fraction"] == pytest.approx(
+        costs.execution_cost_fraction
+    )

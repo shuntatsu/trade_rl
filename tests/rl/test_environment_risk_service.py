@@ -192,3 +192,34 @@ def test_advanced_risk_uses_inputs_from_current_index() -> None:
 
     assert provider.calls == [1]
     assert any(reason.startswith("portfolio:") for reason in result.reasons)
+
+
+def test_projection_preserves_copied_proposal_and_pretrade_stages() -> None:
+    proposal = np.array([0.8, 0.3])
+    projector = EnvironmentRiskProjector(
+        _Dataset(),
+        emergency_risk_monitor=_EmergencyMonitor(
+            flatten=(False, True),
+            reasons=("market_halt",),
+        ),
+        pre_trade_risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=1.0,
+                max_abs_weight=0.4,
+                max_turnover=2.0,
+            )
+        ),
+        portfolio_risk=PortfolioRiskModel(PortfolioRiskConfig(max_net_exposure=0.2)),
+        portfolio_risk_inputs_provider=None,
+    )
+
+    result = projector.project(
+        EnvironmentRiskRequest(proposal=proposal, book=_book(), current_index=1)
+    )
+    proposal[:] = 0.0
+
+    np.testing.assert_allclose(result.proposal_weights, np.array([0.8, 0.3]))
+    np.testing.assert_allclose(result.pretrade_weights, np.array([0.4, 0.0]))
+    np.testing.assert_allclose(result.weights, np.array([0.2, 0.0]))
+    assert result.proposal_weights is not proposal
+    assert result.pretrade_weights is not result.weights

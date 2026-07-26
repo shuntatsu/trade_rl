@@ -1,21 +1,53 @@
-"""Atomic Stable-Baselines3 checkpoint artifacts and resume contracts."""
+"""Atomic, content-addressed intermediate policy checkpoints."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import uuid
 from dataclasses import asdict, dataclass
-from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from trade_rl.artifacts.hashing import canonical_json_bytes, content_digest
+from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.domain.common import require_sha256
 from trade_rl.rl.training_telemetry import build_training_telemetry_callback
 
-CHECKPOINT_MANIFEST_SCHEMA = "training_checkpoint_v1"
+CHECKPOINT_MANIFEST_SCHEMA = "policy_checkpoint_v1"
 CHECKPOINT_MANIFEST_NAME = "checkpoint.json"
 CHECKPOINT_POLICY_NAME = "policy.zip"
+
+
+class SavablePolicy(Protocol):
+    def save(self, path: str) -> None: ...
+
+
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:
+    provider = getattr(model, "checkpoint_identity_payload", None)
+    if provider is None:
+        return None
+    if not callable(provider):
+        raise TypeError("checkpoint_identity_payload must be callable")
+    raw = provider()
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("checkpoint algorithm identity must be a non-empty object")
+    if any(not isinstance(key, str) or not key for key in raw):
+        raise ValueError("checkpoint algorithm identity keys must be non-empty strings")
+    payload = dict(raw)
+    canonical_json_bytes(payload)
+    return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,30 +61,125 @@ class CheckpointManifest:
     training_config_digest: str
     policy_digest: str
     policy_path: Path
+    algorithm_identity: dict[str, object] | None = None
+    algorithm_identity_digest: str | None = None
     schema_version: str = CHECKPOINT_MANIFEST_SCHEMA
 
+    def __post_init__(self) -> None:
+        require_sha256(self.digest, field="checkpoint.digest")
+        require_sha256(self.environment_digest, field="environment_digest")
+        require_sha256(self.training_config_digest, field="training_config_digest")
+        require_sha256(self.policy_digest, field="policy_digest")
+        if not self.algorithm:
+            raise ValueError("checkpoint algorithm must be non-empty")
+        for name, value in (
+            ("seed", self.seed),
+            ("requested_timestep", self.requested_timestep),
+            ("observed_timestep", self.observed_timestep),
+        ):
+            minimum = 0 if name == "seed" else 1
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} is invalid")
+        if self.observed_timestep < self.requested_timestep:
+            raise ValueError("observed timestep cannot precede requested timestep")
+        if self.schema_version != CHECKPOINT_MANIFEST_SCHEMA:
+            raise ValueError("unsupported checkpoint manifest schema")
+        if (self.algorithm_identity is None) != (
+            self.algorithm_identity_digest is None
+        ):
+            raise ValueError("checkpoint algorithm identity is incomplete")
+        if self.algorithm_identity is not None:
+            if (
+                not isinstance(self.algorithm_identity, dict)
+                or not self.algorithm_identity
+            ):
+                raise ValueError(
+                    "checkpoint algorithm identity must be a non-empty object"
+                )
+            if any(
+                not isinstance(key, str) or not key for key in self.algorithm_identity
+            ):
+                raise ValueError(
+                    "checkpoint algorithm identity keys must be non-empty strings"
+                )
+            canonical_json_bytes(self.algorithm_identity)
+            identity_digest = self.algorithm_identity_digest
+            if not isinstance(identity_digest, str):
+                raise ValueError(
+                    "checkpoint algorithm identity digest must be a string"
+                )
+            require_sha256(identity_digest, field="algorithm_identity_digest")
+            if identity_digest != content_digest(self.algorithm_identity):
+                raise ValueError("checkpoint algorithm identity digest mismatch")
+        if self.digest != content_digest(self.digest_payload()):
+            raise ValueError("checkpoint manifest digest mismatch")
 
-def _file_digest(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    def digest_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "algorithm": self.algorithm,
+            "environment_digest": self.environment_digest,
+            "observed_timestep": self.observed_timestep,
+            "policy_digest": self.policy_digest,
+            "policy_file": CHECKPOINT_POLICY_NAME,
+            "requested_timestep": self.requested_timestep,
+            "schema_version": self.schema_version,
+            "seed": self.seed,
+            "training_config_digest": self.training_config_digest,
+        }
+        if self.algorithm_identity is not None:
+            payload["algorithm_identity"] = self.algorithm_identity
+            payload["algorithm_identity_digest"] = self.algorithm_identity_digest
+        return payload
 
 
-def save_policy_without_runtime_state(model: Any, target: str) -> None:
-    """Save an SB3 policy while excluding process-local reconstruction helpers."""
+def validate_checkpoint_algorithm_identity(
+    manifest: CheckpointManifest,
+    expected_identity: dict[str, object] | None,
+) -> None:
+    """Fail closed when a checkpoint's optional algorithm identity differs."""
 
-    rollout_buffer_kwargs = getattr(model, "rollout_buffer_kwargs", None)
-    if not isinstance(rollout_buffer_kwargs, dict):
-        model.save(target)
+    if expected_identity is None:
+        if manifest.algorithm_identity is not None:
+            raise ValueError("checkpoint algorithm identity mismatch")
         return
-    runtime_reconstructor = rollout_buffer_kwargs.pop("sequence_reconstructor", None)
+    if not isinstance(expected_identity, dict) or not expected_identity:
+        raise ValueError("expected algorithm identity must be a non-empty object")
+    if any(not isinstance(key, str) or not key for key in expected_identity):
+        raise ValueError("expected algorithm identity keys must be non-empty strings")
+    canonical_json_bytes(expected_identity)
+    if manifest.algorithm_identity is None:
+        raise ValueError("checkpoint algorithm identity is missing")
+    expected_digest = content_digest(expected_identity)
+    if (
+        manifest.algorithm_identity_digest != expected_digest
+        or manifest.algorithm_identity != expected_identity
+    ):
+        raise ValueError("checkpoint algorithm identity mismatch")
+
+
+def save_policy_without_runtime_state(model: SavablePolicy, target: str) -> None:
+    """Save without serializing dataset-bound rollout reconstruction objects."""
+
+    missing = object()
+    original = getattr(model, "rollout_buffer_kwargs", missing)
+    if isinstance(original, dict) and "sequence_reconstructor" in original:
+        sanitized = {
+            key: value
+            for key, value in original.items()
+            if key != "sequence_reconstructor"
+        }
+        setattr(model, "rollout_buffer_kwargs", sanitized)
     try:
         model.save(target)
     finally:
-        if runtime_reconstructor is not None:
-            rollout_buffer_kwargs["sequence_reconstructor"] = runtime_reconstructor
+        if original is not missing:
+            setattr(model, "rollout_buffer_kwargs", original)
+
+
+def _expected_algorithm_identity_digest(
+    algorithm_identity: dict[str, object] | None,
+) -> str | None:
+    return None if algorithm_identity is None else content_digest(algorithm_identity)
 
 
 def _same_checkpoint_identity(
@@ -64,6 +191,7 @@ def _same_checkpoint_identity(
     observed_timestep: int,
     environment_digest: str,
     training_config_digest: str,
+    algorithm_identity: dict[str, object] | None,
 ) -> bool:
     return (
         manifest.requested_timestep == requested_timestep
@@ -72,6 +200,9 @@ def _same_checkpoint_identity(
         and manifest.seed == seed
         and manifest.environment_digest == environment_digest
         and manifest.training_config_digest == training_config_digest
+        and manifest.algorithm_identity == algorithm_identity
+        and manifest.algorithm_identity_digest
+        == _expected_algorithm_identity_digest(algorithm_identity)
     )
 
 
@@ -83,6 +214,7 @@ def _same_checkpoint_run_identity(
     observed_timestep: int,
     environment_digest: str,
     training_config_digest: str,
+    algorithm_identity: dict[str, object] | None,
 ) -> bool:
     return (
         manifest.observed_timestep == observed_timestep
@@ -90,6 +222,9 @@ def _same_checkpoint_run_identity(
         and manifest.seed == seed
         and manifest.environment_digest == environment_digest
         and manifest.training_config_digest == training_config_digest
+        and manifest.algorithm_identity == algorithm_identity
+        and manifest.algorithm_identity_digest
+        == _expected_algorithm_identity_digest(algorithm_identity)
     )
 
 
@@ -102,6 +237,7 @@ def _checkpoint_destination(
     observed_timestep: int,
     environment_digest: str,
     training_config_digest: str,
+    algorithm_identity: dict[str, object] | None,
 ) -> tuple[Path, CheckpointManifest | None]:
     primary = checkpoint_root / f"step-{observed_timestep:012d}"
     if not primary.exists():
@@ -115,6 +251,7 @@ def _checkpoint_destination(
         observed_timestep=observed_timestep,
         environment_digest=environment_digest,
         training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
     ):
         return primary, existing
     if not _same_checkpoint_run_identity(
@@ -124,6 +261,7 @@ def _checkpoint_destination(
         observed_timestep=observed_timestep,
         environment_digest=environment_digest,
         training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
     ):
         raise ValueError("checkpoint destination already has conflicting identity")
 
@@ -141,6 +279,7 @@ def _checkpoint_destination(
         observed_timestep=observed_timestep,
         environment_digest=environment_digest,
         training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
     ):
         raise ValueError("checkpoint destination already has conflicting identity")
     return fallback, fallback_existing
@@ -148,7 +287,7 @@ def _checkpoint_destination(
 
 def publish_checkpoint(
     *,
-    model: Any,
+    model: SavablePolicy,
     checkpoint_root: Path,
     algorithm: str,
     seed: int,
@@ -157,11 +296,12 @@ def publish_checkpoint(
     environment_digest: str,
     training_config_digest: str,
 ) -> CheckpointManifest:
-    """Publish one checkpoint atomically with requested and observed step identity."""
+    """Publish one checkpoint atomically with full run and algorithm identity."""
 
     if requested_timestep <= 0 or observed_timestep < requested_timestep:
         raise ValueError("checkpoint timestep identity is invalid")
     checkpoint_root = Path(checkpoint_root)
+    algorithm_identity = _model_algorithm_identity(model)
     destination, existing = _checkpoint_destination(
         checkpoint_root,
         algorithm=algorithm,
@@ -170,6 +310,7 @@ def publish_checkpoint(
         observed_timestep=observed_timestep,
         environment_digest=environment_digest,
         training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
     )
     if existing is not None:
         return existing
@@ -177,25 +318,29 @@ def publish_checkpoint(
     staging = checkpoint_root / f".{destination.name}.staging-{uuid.uuid4().hex}"
     staging.mkdir(parents=False, exist_ok=False)
     try:
-        save_target = staging / CHECKPOINT_POLICY_NAME.removesuffix(".zip")
+        save_target = staging / "policy"
         save_policy_without_runtime_state(model, str(save_target))
-        created = save_target.with_suffix(".zip")
-        policy_path = staging / CHECKPOINT_POLICY_NAME
-        if created != policy_path:
-            created.replace(policy_path)
+        policy_path = save_target.with_suffix(".zip")
         if not policy_path.is_file():
-            raise RuntimeError("checkpoint policy was not created")
+            raise FileNotFoundError("checkpoint model save did not create policy.zip")
         policy_digest = _file_digest(policy_path)
-        payload = {
+        algorithm_identity_digest = _expected_algorithm_identity_digest(
+            algorithm_identity
+        )
+        payload: dict[str, object] = {
             "algorithm": algorithm,
             "environment_digest": environment_digest,
             "observed_timestep": observed_timestep,
             "policy_digest": policy_digest,
+            "policy_file": CHECKPOINT_POLICY_NAME,
             "requested_timestep": requested_timestep,
             "schema_version": CHECKPOINT_MANIFEST_SCHEMA,
             "seed": seed,
             "training_config_digest": training_config_digest,
         }
+        if algorithm_identity is not None:
+            payload["algorithm_identity"] = algorithm_identity
+            payload["algorithm_identity_digest"] = algorithm_identity_digest
         manifest = CheckpointManifest(
             digest=content_digest(payload),
             algorithm=algorithm,
@@ -206,6 +351,8 @@ def publish_checkpoint(
             training_config_digest=training_config_digest,
             policy_digest=policy_digest,
             policy_path=destination / CHECKPOINT_POLICY_NAME,
+            algorithm_identity=algorithm_identity,
+            algorithm_identity_digest=algorithm_identity_digest,
         )
         (staging / CHECKPOINT_MANIFEST_NAME).write_bytes(
             canonical_json_bytes(
@@ -231,6 +378,20 @@ def _required_integer(raw: dict[str, Any], name: str) -> int:
     return value
 
 
+def _optional_algorithm_identity(
+    raw: dict[str, Any],
+) -> tuple[dict[str, object] | None, str | None]:
+    identity = raw.get("algorithm_identity")
+    digest = raw.get("algorithm_identity_digest")
+    if identity is None and digest is None:
+        return None, None
+    if not isinstance(identity, dict) or not identity:
+        raise ValueError("checkpoint algorithm identity must be an object")
+    if not isinstance(digest, str):
+        raise ValueError("checkpoint algorithm identity digest must be a string")
+    return dict(identity), digest
+
+
 def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
     path = Path(path)
     if not path.is_file():
@@ -241,6 +402,7 @@ def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
     policy_file = raw.get("policy_path")
     if policy_file != CHECKPOINT_POLICY_NAME:
         raise ValueError("checkpoint policy file identity is invalid")
+    algorithm_identity, algorithm_identity_digest = _optional_algorithm_identity(raw)
     manifest = CheckpointManifest(
         digest=str(raw.get("digest")),
         algorithm=str(raw.get("algorithm")),
@@ -251,6 +413,8 @@ def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
         training_config_digest=str(raw.get("training_config_digest")),
         policy_digest=str(raw.get("policy_digest")),
         policy_path=path.parent / CHECKPOINT_POLICY_NAME,
+        algorithm_identity=algorithm_identity,
+        algorithm_identity_digest=algorithm_identity_digest,
         schema_version=str(raw.get("schema_version")),
     )
     if not manifest.policy_path.is_file():
@@ -276,7 +440,7 @@ def planned_checkpoint_steps(
     interval_steps: int,
     max_checkpoints: int,
 ) -> tuple[int, ...]:
-    """Select deterministic requested steps across the complete training horizon."""
+    """Select deterministic requested steps across the full training horizon."""
 
     if (
         isinstance(total_timesteps, bool)
@@ -322,8 +486,13 @@ def build_checkpoint_callback(
     environment_digest: str,
     training_config_digest: str,
 ) -> Any:
-    """Build full-horizon checkpoint and sampled Studio telemetry callbacks lazily."""
+    """Build full-horizon checkpoint and sampled Studio telemetry callbacks."""
 
+    all_planned = planned_checkpoint_steps(
+        total_timesteps=total_timesteps,
+        interval_steps=interval_steps,
+        max_checkpoints=max_checkpoints,
+    )
     if (
         isinstance(starting_timestep, bool)
         or not isinstance(starting_timestep, int)
@@ -331,21 +500,14 @@ def build_checkpoint_callback(
         or starting_timestep > total_timesteps
     ):
         raise ValueError("starting_timestep must be within the training horizon")
+    planned = tuple(step for step in all_planned if step > starting_timestep)
+
     from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
     checkpoint_root = Path(checkpoint_root)
     telemetry_callback = build_training_telemetry_callback(
         path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
         seed=seed,
-    )
-    planned = tuple(
-        step
-        for step in planned_checkpoint_steps(
-            total_timesteps=total_timesteps,
-            interval_steps=interval_steps,
-            max_checkpoints=max_checkpoints,
-        )
-        if step > starting_timestep
     )
     if not planned:
         return telemetry_callback
@@ -386,4 +548,5 @@ __all__ = [
     "planned_checkpoint_steps",
     "publish_checkpoint",
     "save_policy_without_runtime_state",
+    "validate_checkpoint_algorithm_identity",
 ]

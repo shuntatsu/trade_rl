@@ -27,6 +27,7 @@ from trade_rl.learning import (
     write_teacher_artifact,
 )
 from trade_rl.rl.algorithm_configs import (
+    CostCriticPPOConfig,
     PPOConfig,
     SACConfig,
     TD3Config,
@@ -397,6 +398,16 @@ class StableBaselines3Backend:
                     n_envs=config.n_envs,
                     action_dim=int(identity["action_size"]),
                 )
+                if isinstance(algorithm_config, CostCriticPPOConfig):
+                    from trade_rl.integrations.cost_rollout_buffer import (
+                        estimate_cost_rollout_storage_bytes,
+                    )
+
+                    rollout_buffer_bytes += estimate_cost_rollout_storage_bytes(
+                        algorithm_config.n_steps,
+                        config.n_envs,
+                        len(algorithm_config.cost_schema.names),
+                    )
                 if rollout_buffer_bytes > config.max_rollout_buffer_bytes:
                     raise ValueError(
                         "estimated PPO rollout buffer exceeds max_rollout_buffer_bytes: "
@@ -551,24 +562,41 @@ class StableBaselines3Backend:
                     rollout_kwargs["rollout_buffer_kwargs"] = {
                         "sequence_reconstructor": sequence_reconstructor
                     }
-                model = PPO(
-                    policy_identifier,
-                    environment,
-                    n_steps=algorithm_config.n_steps,
-                    batch_size=algorithm_config.batch_size,
-                    n_epochs=algorithm_config.n_epochs,
-                    gae_lambda=algorithm_config.gae_lambda,
-                    clip_range=algorithm_config.clip_range,
-                    normalize_advantage=algorithm_config.normalize_advantage,
-                    ent_coef=algorithm_config.ent_coef,
-                    vf_coef=algorithm_config.vf_coef,
-                    max_grad_norm=algorithm_config.max_grad_norm,
-                    target_kl=algorithm_config.target_kl,
-                    use_sde=algorithm_config.use_sde,
-                    sde_sample_freq=algorithm_config.sde_sample_freq,
+                ppo_kwargs: dict[str, Any] = {
+                    "n_steps": algorithm_config.n_steps,
+                    "batch_size": algorithm_config.batch_size,
+                    "n_epochs": algorithm_config.n_epochs,
+                    "gae_lambda": algorithm_config.gae_lambda,
+                    "clip_range": algorithm_config.clip_range,
+                    "normalize_advantage": algorithm_config.normalize_advantage,
+                    "ent_coef": algorithm_config.ent_coef,
+                    "vf_coef": algorithm_config.vf_coef,
+                    "max_grad_norm": algorithm_config.max_grad_norm,
+                    "target_kl": algorithm_config.target_kl,
+                    "use_sde": algorithm_config.use_sde,
+                    "sde_sample_freq": algorithm_config.sde_sample_freq,
                     **rollout_kwargs,
                     **common,
-                )
+                }
+                if isinstance(algorithm_config, CostCriticPPOConfig):
+                    from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
+
+                    model = CostCriticPPO(
+                        policy_identifier,
+                        environment,
+                        cost_schema=algorithm_config.cost_schema,
+                        cost_learning_rate=algorithm_config.cost_learning_rate,
+                        cost_n_epochs=algorithm_config.cost_n_epochs,
+                        cost_batch_size=algorithm_config.cost_batch_size,
+                        cost_continuous_hidden_dims=(
+                            algorithm_config.cost_continuous_hidden_dims
+                        ),
+                        cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,
+                        cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
+                        **ppo_kwargs,
+                    )
+                else:
+                    model = PPO(policy_identifier, environment, **ppo_kwargs)
             else:
                 off_policy: dict[str, Any] = {
                     "buffer_size": algorithm_config.buffer_size,
@@ -605,7 +633,10 @@ class StableBaselines3Backend:
             resume_manifest = None
             resume_root = self.resume_checkpoint_artifacts.get(seed)
             if resume_root is not None:
-                from trade_rl.rl.checkpointing import load_checkpoint_manifest
+                from trade_rl.rl.checkpointing import (
+                    load_checkpoint_manifest,
+                    validate_checkpoint_algorithm_identity,
+                )
 
                 manifest_path = Path(resume_root)
                 if manifest_path.is_dir():
@@ -620,9 +651,22 @@ class StableBaselines3Backend:
                     raise ValueError("checkpoint environment identity mismatch")
                 if resume_manifest.training_config_digest != expected_training_digest:
                     raise ValueError("checkpoint training configuration mismatch")
+                expected_algorithm_identity = (
+                    model.checkpoint_identity_payload()
+                    if isinstance(algorithm_config, CostCriticPPOConfig)
+                    else None
+                )
+                validate_checkpoint_algorithm_identity(
+                    resume_manifest,
+                    expected_algorithm_identity,
+                )
                 algorithm_class: Any
                 if config.algorithm == "ppo":
                     algorithm_class = PPO
+                elif config.algorithm == "cost_critic_ppo":
+                    from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
+
+                    algorithm_class = CostCriticPPO
                 elif config.algorithm == "sac":
                     algorithm_class = SAC
                 elif config.algorithm == "td3":
@@ -638,6 +682,11 @@ class StableBaselines3Backend:
                 )
                 if int(model.num_timesteps) != resume_manifest.observed_timestep:
                     raise ValueError("checkpoint timestep identity mismatch")
+                if isinstance(algorithm_config, CostCriticPPOConfig):
+                    validate_checkpoint_algorithm_identity(
+                        resume_manifest,
+                        model.checkpoint_identity_payload(),
+                    )
                 if config.sequence_encoder:
                     if sequence_reconstructor is None:
                         raise RuntimeError("sequence reconstructor was not resolved")
@@ -681,6 +730,16 @@ class StableBaselines3Backend:
                 "critic_net_arch": config.value_net_arch,
                 "sequence_encoder": config.sequence_encoder,
             }
+            if isinstance(algorithm_config, CostCriticPPOConfig):
+                architecture_details["cost_critic"] = {
+                    "architecture_digest": model.cost_critic.architecture_digest,
+                    "continuous_hidden_dims": (
+                        algorithm_config.cost_continuous_hidden_dims
+                    ),
+                    "cost_names": algorithm_config.cost_schema.names,
+                    "cost_schema_digest": algorithm_config.cost_schema.digest,
+                    "event_hidden_dims": algorithm_config.cost_event_hidden_dims,
+                }
             if config.sequence_encoder:
                 if sequence_metadata is None:
                     raise RuntimeError("sequence metadata was not resolved")
@@ -922,8 +981,10 @@ class StableBaselines3Backend:
             from trade_rl.rl.checkpointing import build_checkpoint_callback
 
             if self.resume_replay_artifact is not None:
-                if config.algorithm == "ppo":
-                    raise ValueError("PPO cannot resume from a replay buffer")
+                if config.algorithm in {"ppo", "cost_critic_ppo"}:
+                    raise ValueError(
+                        "PPO-family algorithms cannot resume from a replay buffer"
+                    )
                 replay_manifest, resume_path = load_replay_buffer_artifact(
                     self.resume_replay_artifact
                 )
@@ -979,7 +1040,9 @@ class StableBaselines3Backend:
 
             replay_buffer_path: Path | None = None
             replay_buffer_digest: str | None = None
-            if config.algorithm != "ppo" and hasattr(model, "save_replay_buffer"):
+            if config.algorithm not in {"ppo", "cost_critic_ppo"} and hasattr(
+                model, "save_replay_buffer"
+            ):
                 raw_replay = output_path.parent / ".replay-buffer.tmp.pkl"
                 model.save_replay_buffer(str(raw_replay))
                 replay_manifest = write_replay_buffer_artifact(

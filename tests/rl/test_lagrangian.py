@@ -83,25 +83,26 @@ def test_canonical_constraint_aggregation_rejects_unknown_cost() -> None:
 def test_lagrangian_schema_digest_changes_with_dual_semantics() -> None:
     baseline = LagrangianSchema((_spec("drawdown_excess"),))
     changed_budget = LagrangianSchema((_spec("drawdown_excess", budget=0.01),))
-    changed_rate = LagrangianSchema(
-        (_spec("drawdown_excess", dual_learning_rate=0.1),)
-    )
+    changed_rate = LagrangianSchema((_spec("drawdown_excess", dual_learning_rate=0.1),))
     changed_ema = LagrangianSchema((_spec("drawdown_excess", ema_beta=0.95),))
     changed_cap = LagrangianSchema((_spec("drawdown_excess", max_multiplier=20.0),))
     changed_schedule = LagrangianSchema(
         (_spec("drawdown_excess", warmup_rollouts=1, update_interval_rollouts=1),)
     )
 
-    assert len(
-        {
-            baseline.digest,
-            changed_budget.digest,
-            changed_rate.digest,
-            changed_ema.digest,
-            changed_cap.digest,
-            changed_schedule.digest,
-        }
-    ) == 6
+    assert (
+        len(
+            {
+                baseline.digest,
+                changed_budget.digest,
+                changed_rate.digest,
+                changed_ema.digest,
+                changed_cap.digest,
+                changed_schedule.digest,
+            }
+        )
+        == 6
+    )
 
 
 @pytest.mark.parametrize(

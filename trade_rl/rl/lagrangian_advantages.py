@@ -143,7 +143,9 @@ def combine_lagrangian_advantages(
     if not normalize_combined or combined.shape[0] <= 1:
         return np.asarray(combined, dtype=np.float64)
 
-    torch_dtype = torch.float32 if original_reward.dtype == np.float32 else torch.float64
+    torch_dtype = (
+        torch.float32 if original_reward.dtype == np.float32 else torch.float64
+    )
     reward_tensor = torch.as_tensor(original_reward, dtype=torch_dtype)
     penalty_tensor = torch.as_tensor(penalty, dtype=torch_dtype)
     combined_tensor = reward_tensor - penalty_tensor

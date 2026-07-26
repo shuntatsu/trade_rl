@@ -37,7 +37,7 @@ class _ProbeTrainingEnvironment(gym.Env[np.ndarray, np.ndarray]):
         risk_tilt_enabled=False,
         target_weight_count=3,
     )
-    action_spec_digest = content_digest(action_spec.digest_payload())
+    action_spec_digest = content_digest({"names": action_names})
     alpha_artifact_digest = None
     factor_artifact_digest = None
     normalizer = None

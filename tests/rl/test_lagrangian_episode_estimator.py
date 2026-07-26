@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
-from trade_rl.rl.lagrangian import canonical_lagrangian_schema
+from trade_rl.rl.lagrangian import LagrangianSchema, canonical_lagrangian_schema
 from trade_rl.rl.lagrangian_episode_estimator import (
     CompletionKind,
     TimeAwareCompletedEpisodeCostAccumulator,
@@ -12,7 +12,7 @@ from trade_rl.rl.lagrangian_episode_estimator import (
 )
 
 
-def _schema():
+def _schema() -> LagrangianSchema:
     count = len(CONSTRAINT_COST_NAMES)
     return canonical_lagrangian_schema(
         names=CONSTRAINT_COST_NAMES,
@@ -26,27 +26,41 @@ def _schema():
     )
 
 
-def test_completion_classification_distinguishes_policy_completion_and_censoring() -> None:
-    assert classify_completion_kind(
-        terminated=False,
-        truncated=False,
-        truncation_reason=None,
-    ) is CompletionKind.NONE
-    assert classify_completion_kind(
-        terminated=True,
-        truncated=False,
-        truncation_reason=None,
-    ) is CompletionKind.ECONOMIC_TERMINATION
-    assert classify_completion_kind(
-        terminated=False,
-        truncated=True,
-        truncation_reason="time_limit",
-    ) is CompletionKind.TIME_LIMIT_COMPLETION
-    assert classify_completion_kind(
-        terminated=False,
-        truncated=True,
-        truncation_reason="shadow_drawdown_stop",
-    ) is CompletionKind.CENSORED_EXTERNAL_TRUNCATION
+def test_completion_classification_distinguishes_policy_completion_and_censoring() -> (
+    None
+):
+    assert (
+        classify_completion_kind(
+            terminated=False,
+            truncated=False,
+            truncation_reason=None,
+        )
+        is CompletionKind.NONE
+    )
+    assert (
+        classify_completion_kind(
+            terminated=True,
+            truncated=False,
+            truncation_reason=None,
+        )
+        is CompletionKind.ECONOMIC_TERMINATION
+    )
+    assert (
+        classify_completion_kind(
+            terminated=False,
+            truncated=True,
+            truncation_reason="time_limit",
+        )
+        is CompletionKind.TIME_LIMIT_COMPLETION
+    )
+    assert (
+        classify_completion_kind(
+            terminated=False,
+            truncated=True,
+            truncation_reason="shadow_drawdown_stop",
+        )
+        is CompletionKind.CENSORED_EXTERNAL_TRUNCATION
+    )
 
 
 @pytest.mark.parametrize(

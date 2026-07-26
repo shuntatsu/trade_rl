@@ -1,0 +1,90 @@
+name: Temporary PR194 Anchor Diagnose
+
+on:
+  push:
+    branches:
+      - agent/training-observability-diagnostics
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/training-observability-diagnostics
+          fetch-depth: 0
+      - name: Record transformation anchor counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          set +e
+          git merge --no-commit --no-ff origin/main >/tmp/merge.log 2>&1
+          set -e
+          conflicts=(
+            trade_rl/rl/algorithm_configs.py
+            trade_rl/rl/checkpointing.py
+            trade_rl/rl/training.py
+            uv.lock
+          )
+          git checkout --theirs -- "${conflicts[@]}"
+          python - <<'PY' > /tmp/anchors.txt
+          from pathlib import Path
+
+          checks = {
+              "algorithm": (
+                  Path("trade_rl/rl/algorithm_configs.py"),
+                  [
+                      "    learning_rate: float\n    batch_size: int\n",
+                      '        "learning_rate": source.learning_rate,\n        "batch_size": source.batch_size,\n',
+                      "        learning_rate=source.learning_rate,\n        batch_size=source.batch_size,\n",
+                      "            learning_rate=source.learning_rate,\n            batch_size=source.batch_size,\n",
+                  ],
+              ),
+              "training": (
+                  Path("trade_rl/rl/training.py"),
+                  [
+                      "    lagrangian_probe_max_steps_per_episode: int = 0\n\n    def __post_init__(self) -> None:\n",
+                      '            ("n_epochs", self.n_epochs),\n            ("buffer_size", self.buffer_size),\n',
+                      "        if not math.isfinite(self.learning_rate) or self.learning_rate <= 0.0:\n            raise ValueError(\"learning_rate must be finite and positive\")\n        if not math.isfinite(self.gae_lambda) or not 0.0 < self.gae_lambda <= 1.0:\n",
+                      '            "learning_rate": self.learning_rate,\n            "learning_starts": self.learning_starts,\n',
+                      '            "target_kl": self.target_kl,\n            "timesteps": self.timesteps,\n',
+                  ],
+              ),
+              "checkpoint": (
+                  Path("trade_rl/rl/checkpointing.py"),
+                  [
+                      "import tempfile\n",
+                      "\n\ndef publish_checkpoint(",
+                      "def publish_checkpoint(",
+                      "\ndef _required_integer",
+                      "def build_checkpoint_callback(",
+                      "\n\n__all__ =",
+                      '    "load_checkpoint_manifest",\n    "publish_checkpoint",\n',
+                  ],
+              ),
+          }
+          for group, (path, anchors) in checks.items():
+              text = path.read_text(encoding="utf-8")
+              print(f"[{group}] {path}")
+              for index, anchor in enumerate(anchors, 1):
+                  print(f"anchor_{index}={text.count(anchor)}")
+          PY
+          mkdir -p .integration
+          {
+            cat /tmp/merge.log
+            echo
+            git diff --name-only --diff-filter=U
+            echo
+            cat /tmp/anchors.txt
+          } > .integration/pr194-anchor-report.txt
+          git merge --abort
+          git add .integration/pr194-anchor-report.txt
+          git commit -m "chore: record PR 194 resolver anchors"
+          git push origin HEAD:agent/training-observability-diagnostics

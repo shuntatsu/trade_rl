@@ -149,9 +149,8 @@ class StudioTrainingMetricsReader:
                             raise ArtifactInvalid(
                                 "TensorBoard event file escapes run root"
                             ) from error
-                        if not resolved.is_file():
-                            continue
-                        events.append(resolved)
+                        if resolved.is_file():
+                            events.append(resolved)
                     if not events:
                         continue
                     existing = collected.get(seed)
@@ -175,17 +174,19 @@ class StudioTrainingMetricsReader:
 
     @staticmethod
     def _generation(source: _SeedSource) -> str:
+        """Identify an event-file set without changing when an event file grows."""
+
         return content_digest(
             {
-                "files": tuple(
-                    (
-                        event.as_posix(),
-                        event.stat().st_size,
-                        event.stat().st_mtime_ns,
-                    )
+                "event_files": tuple(
+                    event.relative_to(source.member_root).as_posix()
                     for event in source.event_files
                 ),
-                "schema_version": "studio_training_metrics_generation_v1",
+                "run_directories": tuple(
+                    directory.relative_to(source.member_root).as_posix()
+                    for directory in source.run_directories
+                ),
+                "schema_version": "studio_training_metrics_generation_v2",
             }
         )
 

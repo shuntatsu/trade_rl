@@ -1,0 +1,186 @@
+name: Apply Task 7 backend wiring
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-task7-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply context-safe backend wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              content = path.read_text()
+              if content.count(old) != 1:
+                  raise SystemExit(f"replacement point mismatch: {path}: {old[:80]!r}")
+              path.write_text(content.replace(old, new))
+
+          model_path = Path("trade_rl/integrations/lagrangian_ppo.py")
+          replace_once(
+              model_path,
+              "from trade_rl.rl.lagrangian_advantages import combine_lagrangian_advantages\n",
+              "from trade_rl.rl.lagrangian_advantages import combine_lagrangian_advantages\n"
+              "from trade_rl.rl.lagrangian_probe import CanonicalActionProbeEvidence\n",
+          )
+          replace_once(
+              model_path,
+              "        lagrangian_schema: LagrangianSchema | None = None,\n"
+              "        _init_setup_model: bool = True,\n",
+              "        lagrangian_schema: LagrangianSchema | None = None,\n"
+              "        canonical_action_probe_evidence: (\n"
+              "            CanonicalActionProbeEvidence | None\n"
+              "        ) = None,\n"
+              "        _init_setup_model: bool = True,\n",
+          )
+          replace_once(
+              model_path,
+              "        self.lagrangian_schema = resolved_schema\n",
+              "        if canonical_action_probe_evidence is not None and not isinstance(\n"
+              "            canonical_action_probe_evidence, CanonicalActionProbeEvidence\n"
+              "        ):\n"
+              "            raise TypeError(\n"
+              "                \"canonical_action_probe_evidence has an invalid type\"\n"
+              "            )\n"
+              "        self.canonical_action_probe_evidence = (\n"
+              "            canonical_action_probe_evidence\n"
+              "        )\n"
+              "        self.lagrangian_schema = resolved_schema\n",
+          )
+          replace_once(
+              model_path,
+              "        reports = getattr(self, \"last_dual_update_reports\", None)\n"
+              "        if not isinstance(reports, dict):\n"
+              "            self.last_dual_update_reports = {}\n\n"
+              "    def collect_rollouts(\n",
+              "        reports = getattr(self, \"last_dual_update_reports\", None)\n"
+              "        if not isinstance(reports, dict):\n"
+              "            self.last_dual_update_reports = {}\n"
+              "        probe_evidence = getattr(\n"
+              "            self, \"canonical_action_probe_evidence\", None\n"
+              "        )\n"
+              "        if probe_evidence is not None and not isinstance(\n"
+              "            probe_evidence, CanonicalActionProbeEvidence\n"
+              "        ):\n"
+              "            raise TypeError(\n"
+              "                \"canonical_action_probe_evidence has an invalid type\"\n"
+              "            )\n\n"
+              "    def collect_rollouts(\n",
+          )
+          replace_once(
+              model_path,
+              "        payload = super().checkpoint_identity_payload()\n",
+              "        probe_evidence = self.canonical_action_probe_evidence\n"
+              "        payload = super().checkpoint_identity_payload()\n",
+          )
+          replace_once(
+              model_path,
+              "                \"controller_state_version\": self.lagrangian_controller.state_version,\n",
+              "                \"controller_state_version\": self.lagrangian_controller.state_version,\n"
+              "                \"canonical_action_probe\": (\n"
+              "                    None\n"
+              "                    if probe_evidence is None\n"
+              "                    else probe_evidence.digest_payload()\n"
+              "                ),\n"
+              "                \"canonical_action_probe_digest\": (\n"
+              "                    None if probe_evidence is None else probe_evidence.digest\n"
+              "                ),\n",
+          )
+
+          backend_path = Path("trade_rl/integrations/sb3_training.py")
+          replace_once(
+              backend_path,
+              "            algorithm_config = build_algorithm_config(config)\n"
+              "            rollout_buffer_bytes: int | None = None\n",
+              "            algorithm_config = build_algorithm_config(config)\n"
+              "            canonical_action_probe_evidence = None\n"
+              "            if isinstance(algorithm_config, LagrangianPPOConfig):\n"
+              "                from trade_rl.rl.lagrangian_probe import (\n"
+              "                    run_canonical_action_feasibility_probe,\n"
+              "                )\n\n"
+              "                canonical_action_probe_evidence = (\n"
+              "                    run_canonical_action_feasibility_probe(\n"
+              "                        environment_factory=self.environment_factory,\n"
+              "                        schema=algorithm_config.lagrangian_schema,\n"
+              "                        episode_count=algorithm_config.probe_episodes,\n"
+              "                        max_steps_per_episode=(\n"
+              "                            algorithm_config.probe_max_steps_per_episode\n"
+              "                        ),\n"
+              "                    )\n"
+              "                )\n"
+              "            rollout_buffer_bytes: int | None = None\n",
+          )
+          replace_once(
+              backend_path,
+              "                        lagrangian_schema=algorithm_config.lagrangian_schema,\n"
+              "                        **ppo_kwargs,\n"
+              "                    )\n"
+              "                elif isinstance(algorithm_config, CostCriticPPOConfig):\n",
+              "                        lagrangian_schema=algorithm_config.lagrangian_schema,\n"
+              "                        canonical_action_probe_evidence=(\n"
+              "                            canonical_action_probe_evidence\n"
+              "                        ),\n"
+              "                        **ppo_kwargs,\n"
+              "                    )\n"
+              "                    model.canonical_action_probe_evidence = (\n"
+              "                        canonical_action_probe_evidence\n"
+              "                    )\n"
+              "                elif isinstance(algorithm_config, CostCriticPPOConfig):\n",
+          )
+          replace_once(
+              backend_path,
+              "                    \"schema_digest\": algorithm_config.lagrangian_schema.digest,\n"
+              "                }\n"
+              "            if config.sequence_encoder:\n",
+              "                    \"schema_digest\": algorithm_config.lagrangian_schema.digest,\n"
+              "                }\n"
+              "                if canonical_action_probe_evidence is None:\n"
+              "                    raise RuntimeError(\n"
+              "                        \"canonical action probe evidence is unavailable\"\n"
+              "                    )\n"
+              "                architecture_details[\"lagrangian_probe\"] = {\n"
+              "                    \"digest\": canonical_action_probe_evidence.digest,\n"
+              "                    \"payload\": (\n"
+              "                        canonical_action_probe_evidence.digest_payload()\n"
+              "                    ),\n"
+              "                    \"violated_costs\": list(\n"
+              "                        canonical_action_probe_evidence.violated_costs\n"
+              "                    ),\n"
+              "                    \"warning\": canonical_action_probe_evidence.warning,\n"
+              "                }\n"
+              "            if config.sequence_encoder:\n",
+          )
+          PY
+          rm .github/task7-backend.patch
+          rm .github/workflows/apply-task7-backend.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Commit probe backend wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "feat: wire canonical probe into Lagrangian backend"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

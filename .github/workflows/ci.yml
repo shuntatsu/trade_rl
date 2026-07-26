@@ -102,6 +102,15 @@ jobs:
             ruff.log
             format.log
             mypy.log
+            trade_rl/rl/training.py
+            trade_rl/rl/algorithm_configs.py
+            trade_rl/integrations/sb3_training.py
+            trade_rl/integrations/lagrangian_ppo.py
+            tests/rl/test_cost_critic_training_config.py
+            tests/integrations/test_sb3_cost_critic_backend.py
+            tests/integrations/test_lagrangian_checkpoint_roundtrip.py
+            tests/rl/test_lagrangian_checkpoint_identity.py
+            tests/integrations/test_sb3_training.py
           if-no-files-found: ignore
 
       - name: Import architecture

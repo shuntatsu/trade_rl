@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import torch
@@ -59,7 +59,11 @@ class CostCriticPPO(PPO):
         self.last_cost_training_metrics: dict[str, float] = {}
         self._cost_support_totals = {name: 0.0 for name in self.cost_schema.event_names}
         self._cost_rng = np.random.default_rng(kwargs.get("seed"))
-        super().__init__(*args, _init_setup_model=False, **kwargs)
+        super().__init__(  # type: ignore[misc]
+            *args,
+            _init_setup_model=False,
+            **kwargs,
+        )
         if _init_setup_model:
             self._setup_model()
 
@@ -151,7 +155,7 @@ class CostCriticPPO(PPO):
             ):
                 self.policy.reset_noise(env.num_envs)
             with torch.no_grad():
-                obs_tensor = obs_as_tensor(self._last_obs, self.device)
+                obs_tensor = obs_as_tensor(cast(Any, self._last_obs), self.device)
                 actions, values, log_probs = self.policy(obs_tensor)
                 cost_values = self._predict_cost_values(obs_tensor)
             actions_array = actions.cpu().numpy()
@@ -207,18 +211,18 @@ class CostCriticPPO(PPO):
                 terminal_cost_values=terminal_cost_values,
             )
             rollout_buffer.add(
-                self._last_obs,
+                cast(Any, self._last_obs),
                 actions_array,
                 rewards,
-                self._last_episode_starts,
+                cast(Any, self._last_episode_starts),
                 values,
                 log_probs,
             )
-            self._last_obs = new_obs
+            self._last_obs = cast(Any, new_obs)
             self._last_episode_starts = dones
 
         with torch.no_grad():
-            final_observations = obs_as_tensor(new_obs, self.device)
+            final_observations = obs_as_tensor(cast(Any, new_obs), self.device)
             final_values = self.policy.predict_values(final_observations)
             final_cost_values = self._predict_cost_values(final_observations)
         rollout_buffer.compute_returns_and_advantage(

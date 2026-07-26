@@ -267,9 +267,10 @@ def run_canonical_action_feasibility_probe(
                 if canonical_semantic is None:
                     canonical_semantic = semantic
                     canonical_action = action.copy()
-                elif semantic is not canonical_semantic or not np.array_equal(
-                    action,
-                    canonical_action,
+                elif (
+                    semantic is not canonical_semantic
+                    or canonical_action is None
+                    or not np.array_equal(action, canonical_action)
                 ):
                     raise ValueError("canonical probe environment contract changed")
 

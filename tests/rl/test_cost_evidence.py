@@ -136,6 +136,28 @@ def test_cost_critic_compute_evidence_derives_timing_rates() -> None:
     assert evidence.peak_device_memory_bytes == 4096
 
 
+def test_cost_critic_runtime_measurements_are_bound_into_the_digest() -> None:
+    model = _trained_model()
+    baseline = build_cost_critic_compute_evidence(model)
+    first = build_cost_critic_compute_evidence(
+        model,
+        training_seconds=2.0,
+        environment_steps=8,
+        peak_device_memory_bytes=4096,
+    )
+    second = build_cost_critic_compute_evidence(
+        model,
+        training_seconds=2.0,
+        environment_steps=8,
+        peak_device_memory_bytes=4096,
+    )
+
+    assert first == second
+    assert first.digest != baseline.digest
+    assert first.payload(include_digest=False)["training_seconds"] == pytest.approx(2.0)
+    assert first.payload(include_digest=False)["peak_device_memory_bytes"] == 4096
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [

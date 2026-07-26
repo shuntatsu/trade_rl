@@ -41,6 +41,7 @@ def _load_placeholder_schema() -> LagrangianSchema:
         max_multipliers=(1.0,) * count,
         warmup_rollouts=(0,) * count,
         update_interval_rollouts=(1,) * count,
+        minimum_completed_episodes=(1,) * count,
     )
 
 
@@ -382,7 +383,10 @@ class LagrangianPPO(CostCriticPPO):
             elapsed_hours=self.cost_rollout_storage.elapsed_hours,
             completion_kinds=self.cost_rollout_storage.completion_kinds,
         )
-        reports = self.lagrangian_controller.update_after_rollout(batch.estimates)
+        reports = self.lagrangian_controller.update_after_rollout(
+            batch.estimates,
+            censored_episode_count=batch.censored_episode_count,
+        )
         self.last_completed_episode_batch = batch
         self.last_constraint_estimates = batch.estimates
         self.last_dual_update_reports = reports
@@ -408,6 +412,24 @@ class LagrangianPPO(CostCriticPPO):
             )
             self.logger.record(f"{prefix}/updated", float(report.updated))
             self.logger.record(f"{prefix}/saturated", float(report.saturated))
+            self.logger.record(f"{prefix}/at_lower_bound", float(report.at_lower_bound))
+            self.logger.record(f"{prefix}/at_upper_cap", float(report.at_upper_cap))
+            self.logger.record(
+                f"{prefix}/pending_numerator_before",
+                report.pending_numerator_before,
+            )
+            self.logger.record(
+                f"{prefix}/pending_denominator_before",
+                report.pending_denominator_before,
+            )
+            self.logger.record(
+                f"{prefix}/consumed_denominator",
+                report.consumed_denominator,
+            )
+            self.logger.record(
+                f"{prefix}/censored_episode_count",
+                report.censored_episode_count,
+            )
             self.logger.record(f"{prefix}/rollout_count", report.rollout_count)
             self.logger.record(f"{prefix}/update_count", report.update_count)
             if report.raw_estimate is not None:
@@ -416,6 +438,11 @@ class LagrangianPPO(CostCriticPPO):
                 self.logger.record(f"{prefix}/ema_estimate", report.ema_estimate)
             if report.denominator is not None:
                 self.logger.record(f"{prefix}/denominator", report.denominator)
+            if report.constraint_residual is not None:
+                self.logger.record(
+                    f"{prefix}/constraint_residual",
+                    report.constraint_residual,
+                )
 
     def checkpoint_identity_payload(self) -> dict[str, object]:
         """Bind Lagrangian schema semantics into checkpoint identity."""

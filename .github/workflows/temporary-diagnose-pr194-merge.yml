@@ -6,29 +6,48 @@ on:
       - agent/training-observability-diagnostics
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   diagnose:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Diagnose merge with main
+      - name: Record merge conflicts with main
         shell: bash
         run: |
           set +e
           git fetch origin main
-          git merge --no-commit --no-ff origin/main
+          output_file="/tmp/pr194-merge-output.txt"
+          git merge --no-commit --no-ff origin/main >"$output_file" 2>&1
           status=$?
-          echo "merge_status=$status"
-          echo "=== unmerged files ==="
-          git diff --name-only --diff-filter=U
-          echo "=== conflict summaries ==="
-          while IFS= read -r file; do
-            [ -n "$file" ] || continue
-            echo "--- $file ---"
-            git diff --cc -- "$file" | sed -n '1,240p'
-          done < <(git diff --name-only --diff-filter=U)
-          exit "$status"
+          mkdir -p .integration
+          {
+            echo "merge_status=$status"
+            echo "head=$(git rev-parse HEAD)"
+            echo "main=$(git rev-parse origin/main)"
+            echo ""
+            echo "=== merge output ==="
+            cat "$output_file"
+            echo ""
+            echo "=== unmerged files ==="
+            git diff --name-only --diff-filter=U
+            echo ""
+            echo "=== conflict diffs ==="
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              echo "--- $file ---"
+              git diff --cc -- "$file" | sed -n '1,400p'
+            done < <(git diff --name-only --diff-filter=U)
+          } > .integration/pr194-conflict-report.txt
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git merge --abort
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .integration/pr194-conflict-report.txt
+          git commit -m "chore: record PR 194 merge conflicts"
+          git push origin HEAD:agent/training-observability-diagnostics

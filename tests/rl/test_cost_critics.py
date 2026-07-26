@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import torch
 
 from trade_rl.rl.cost_learning import (
@@ -8,9 +10,9 @@ from trade_rl.rl.cost_learning import (
 )
 
 
-def _gradient_norm(parameters: object) -> float:
+def _gradient_norm(parameters: Iterable[torch.nn.Parameter]) -> float:
     total = 0.0
-    for parameter in parameters:  # type: ignore[union-attr]
+    for parameter in parameters:
         gradient = parameter.grad
         if gradient is not None:
             total += float(gradient.detach().abs().sum())
@@ -29,11 +31,15 @@ def test_family_separated_cost_critic_preserves_schema_order() -> None:
     )
     with torch.no_grad():
         for index, name in enumerate(schema.names):
-            critic.value_heads[name].weight.zero_()
-            critic.value_heads[name].bias.fill_(float(index))
+            head = critic.value_heads[name]
+            assert isinstance(head, torch.nn.Linear)
+            head.weight.zero_()
+            head.bias.fill_(float(index))
         for index, name in enumerate(schema.event_names):
-            critic.event_logit_heads[name].weight.zero_()
-            critic.event_logit_heads[name].bias.fill_(float(10 + index))
+            head = critic.event_logit_heads[name]
+            assert isinstance(head, torch.nn.Linear)
+            head.weight.zero_()
+            head.bias.fill_(float(10 + index))
 
     output = critic(torch.zeros(5, 6))
 

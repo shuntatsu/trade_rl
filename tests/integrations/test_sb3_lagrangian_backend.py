@@ -158,6 +158,7 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     assert constructed[0].kwargs["cost_learning_rate"] == pytest.approx(
         config.cost_learning_rate
     )
+    assert constructed[0].kwargs["cost_n_epochs"] == config.cost_n_epochs
     assert schema.names == CONSTRAINT_COST_NAMES
     assert tuple(spec.minimum_completed_episodes for spec in schema.specs) == (
         1,

@@ -63,39 +63,23 @@ jobs:
       - name: Auto-fix and format Python changes
         run: |
           uv run ruff check --fix --exit-zero \
-            trade_rl/rl/schedules.py \
-            trade_rl/rl/tensorboard_logging.py \
-            trade_rl/studio/training_metrics.py \
-            tests/rl/test_schedules.py \
-            tests/rl/test_tensorboard_logging.py \
-            tests/studio/test_training_metrics.py \
-            tests/studio/test_training_metrics_api.py \
-            tests/rl/test_training_config_active_fields.py \
-            tests/rl/test_checkpointing.py \
-            tests/integrations/test_sb3_training.py \
-            tests/examples/test_binance_multitimeframe_full_assets.py \
-            trade_rl/rl/training.py \
-            trade_rl/rl/algorithm_configs.py \
-            trade_rl/rl/checkpointing.py \
-            trade_rl/integrations/sb3_training.py \
-            trade_rl/studio/api.py
+            trade_rl/rl/schedules.py trade_rl/rl/tensorboard_logging.py \
+            trade_rl/studio/training_metrics.py tests/rl/test_schedules.py \
+            tests/rl/test_tensorboard_logging.py tests/studio/test_training_metrics.py \
+            tests/studio/test_training_metrics_api.py tests/rl/test_training_config_active_fields.py \
+            tests/rl/test_checkpointing.py tests/integrations/test_sb3_training.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py trade_rl/rl/training.py \
+            trade_rl/rl/algorithm_configs.py trade_rl/rl/checkpointing.py \
+            trade_rl/integrations/sb3_training.py trade_rl/studio/api.py
           uv run ruff format \
-            trade_rl/rl/schedules.py \
-            trade_rl/rl/tensorboard_logging.py \
-            trade_rl/studio/training_metrics.py \
-            tests/rl/test_schedules.py \
-            tests/rl/test_tensorboard_logging.py \
-            tests/studio/test_training_metrics.py \
-            tests/studio/test_training_metrics_api.py \
-            tests/rl/test_training_config_active_fields.py \
-            tests/rl/test_checkpointing.py \
-            tests/integrations/test_sb3_training.py \
-            tests/examples/test_binance_multitimeframe_full_assets.py \
-            trade_rl/rl/training.py \
-            trade_rl/rl/algorithm_configs.py \
-            trade_rl/rl/checkpointing.py \
-            trade_rl/integrations/sb3_training.py \
-            trade_rl/studio/api.py
+            trade_rl/rl/schedules.py trade_rl/rl/tensorboard_logging.py \
+            trade_rl/studio/training_metrics.py tests/rl/test_schedules.py \
+            tests/rl/test_tensorboard_logging.py tests/studio/test_training_metrics.py \
+            tests/studio/test_training_metrics_api.py tests/rl/test_training_config_active_fields.py \
+            tests/rl/test_checkpointing.py tests/integrations/test_sb3_training.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py trade_rl/rl/training.py \
+            trade_rl/rl/algorithm_configs.py trade_rl/rl/checkpointing.py \
+            trade_rl/integrations/sb3_training.py trade_rl/studio/api.py
 
       - name: Ruff
         run: uv run ruff check .
@@ -159,6 +143,8 @@ jobs:
         run: npm ci --prefix studio --no-audit --no-fund
 
       - name: Studio tests
+        id: studio-tests
+        continue-on-error: true
         run: |
           npm test --prefix studio -- --run \
             src/live/useTrainingMetrics.test.tsx \
@@ -166,7 +152,21 @@ jobs:
             src/live/TrainingDiagnosticsPanel.test.tsx \
             src/pages/LiveTrainingPage.test.tsx \
             src/api/studioApi.test.ts \
-            src/App.test.tsx
+            src/App.test.tsx \
+            > studio-test-report.txt 2>&1
+
+      - name: Upload Studio test report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-test-report
+          path: studio-test-report.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce Studio tests
+        if: steps.studio-tests.outcome == 'failure'
+        run: exit 1
 
       - name: Studio typecheck
         run: npm run typecheck --prefix studio

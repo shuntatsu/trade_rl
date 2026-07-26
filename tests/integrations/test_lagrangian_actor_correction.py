@@ -101,10 +101,8 @@ def test_actor_normalizes_only_the_final_raw_combined_advantage() -> None:
             reward_advantages=reward,
             cost_advantages=costs,
         )
-        raw = reward - torch.as_tensor(
-            costs @ multipliers,
-            dtype=reward.dtype,
-        )
+        combined_numpy = reward.detach().cpu().numpy() - costs @ multipliers
+        raw = torch.as_tensor(combined_numpy, dtype=reward.dtype)
         expected = (raw - raw.mean()) / (raw.std() + 1e-8)
 
         torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.0)

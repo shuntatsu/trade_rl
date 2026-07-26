@@ -15,9 +15,9 @@ from stable_baselines3.common.vec_env import VecEnv
 from torch.nn import functional as F
 
 from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
+from trade_rl.integrations.cost_rollout_buffer import CostRolloutStorage
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.rl.lagrangian import (
-    CompletedEpisodeCostAccumulator,
     ConstraintEstimate,
     DualUpdateReport,
     LagrangianDualController,
@@ -25,6 +25,9 @@ from trade_rl.rl.lagrangian import (
     canonical_lagrangian_schema,
 )
 from trade_rl.rl.lagrangian_advantages import combine_lagrangian_advantages
+from trade_rl.rl.lagrangian_episode_estimator import (
+    TimeAwareCompletedEpisodeCostAccumulator,
+)
 
 
 def _load_placeholder_schema() -> LagrangianSchema:
@@ -67,7 +70,7 @@ class LagrangianPPO(CostCriticPPO):
         self.lagrangian_schema = resolved_schema
         self.lagrangian_controller = LagrangianDualController(resolved_schema)
         self.completed_episode_cost_accumulator: (
-            CompletedEpisodeCostAccumulator | None
+            TimeAwareCompletedEpisodeCostAccumulator | None
         ) = None
         self.frozen_lagrange_multipliers = self.lagrangian_controller.begin_rollout()
         self.last_constraint_estimates: dict[str, ConstraintEstimate | None] = {
@@ -87,6 +90,13 @@ class LagrangianPPO(CostCriticPPO):
                 "Lagrangian constraint order must match the Cost Critic schema"
             )
 
+        self.cost_rollout_storage = CostRolloutStorage(
+            buffer_size=self.n_steps,
+            n_envs=self.n_envs,
+            schema=self.cost_schema,
+            store_episode_metadata=True,
+        )
+
         controller = getattr(self, "lagrangian_controller", None)
         if not isinstance(controller, LagrangianDualController):
             controller = LagrangianDualController(self.lagrangian_schema)
@@ -96,13 +106,15 @@ class LagrangianPPO(CostCriticPPO):
 
         accumulator = getattr(self, "completed_episode_cost_accumulator", None)
         if accumulator is None:
-            accumulator = CompletedEpisodeCostAccumulator(
+            accumulator = TimeAwareCompletedEpisodeCostAccumulator(
                 n_envs=self.n_envs,
                 schema=self.lagrangian_schema,
             )
             self.completed_episode_cost_accumulator = accumulator
-        elif not isinstance(accumulator, CompletedEpisodeCostAccumulator):
-            raise TypeError("completed_episode_cost_accumulator has an invalid type")
+        elif not isinstance(accumulator, TimeAwareCompletedEpisodeCostAccumulator):
+            raise ValueError(
+                "completed episode accumulator schema version mismatch"
+            )
         elif (
             accumulator.n_envs != self.n_envs
             or accumulator.schema.digest != self.lagrangian_schema.digest
@@ -359,16 +371,28 @@ class LagrangianPPO(CostCriticPPO):
 
     def _update_dual_controller(self) -> None:
         accumulator = self.completed_episode_cost_accumulator
-        if not isinstance(accumulator, CompletedEpisodeCostAccumulator):
-            raise RuntimeError("completed episode accumulator is unavailable")
-        estimates = accumulator.ingest_rollout(
+        if not isinstance(accumulator, TimeAwareCompletedEpisodeCostAccumulator):
+            raise RuntimeError("time-aware completed episode accumulator is unavailable")
+        elapsed = self.cost_rollout_storage.transition_elapsed_hours
+        if elapsed is None or not np.all(np.isfinite(elapsed)):
+            raise RuntimeError("Lagrangian rollout elapsed-time metadata is unavailable")
+        batch = accumulator.ingest_rollout(
             costs=self.cost_rollout_storage.costs,
-            terminated=self.cost_rollout_storage.terminated,
-            truncated=self.cost_rollout_storage.truncated,
+            transition_elapsed_hours=elapsed,
+            completion_kinds=self.cost_rollout_storage.completion_kinds,
         )
+        estimates = batch.estimates
         reports = self.lagrangian_controller.update_after_rollout(estimates)
         self.last_constraint_estimates = estimates
         self.last_dual_update_reports = reports
+        self.logger.record(
+            "lagrangian/completed_episode_count",
+            batch.completed_episode_count,
+        )
+        self.logger.record(
+            "lagrangian/censored_episode_count",
+            batch.censored_episode_count,
+        )
 
         for name, report in reports.items():
             prefix = f"lagrangian/{name}"
@@ -393,11 +417,19 @@ class LagrangianPPO(CostCriticPPO):
                 self.logger.record(f"{prefix}/denominator", report.denominator)
 
     def checkpoint_identity_payload(self) -> dict[str, object]:
-        """Bind Lagrangian schema semantics into checkpoint identity."""
+        """Bind Lagrangian and episode-estimator semantics into checkpoint identity."""
 
         payload = super().checkpoint_identity_payload()
         payload["lagrangian_schema_digest"] = self.lagrangian_schema.digest
         payload["lagrangian_cost_names"] = list(self.lagrangian_schema.names)
+        payload["lagrangian_rollout_episode_metadata"] = True
+        accumulator = self.completed_episode_cost_accumulator
+        if not isinstance(accumulator, TimeAwareCompletedEpisodeCostAccumulator):
+            raise RuntimeError("time-aware completed episode accumulator is unavailable")
+        state = accumulator.state_dict()
+        payload["lagrangian_episode_estimator_schema_version"] = state[
+            "schema_version"
+        ]
         return payload
 
     def train(self) -> None:

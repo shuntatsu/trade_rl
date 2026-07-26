@@ -124,12 +124,27 @@ class CostRolloutStorage:
     @staticmethod
     def _elapsed_from_info(info: Mapping[str, object]) -> object | None:
         explicit = info.get("transition_elapsed_hours")
-        if explicit is not None:
-            return explicit
         costs = info.get("constraint_costs")
-        if isinstance(costs, ConstraintCostVector):
-            return costs.transition_elapsed_hours
-        return None
+        vector_elapsed = (
+            costs.transition_elapsed_hours
+            if isinstance(costs, ConstraintCostVector)
+            else None
+        )
+        if explicit is not None and vector_elapsed is not None:
+            try:
+                explicit_value = float(explicit)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "transition_elapsed_hours must be finite and positive"
+                ) from error
+            if not math.isclose(
+                explicit_value,
+                vector_elapsed,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                raise ValueError("transition elapsed metadata mismatch")
+        return explicit if explicit is not None else vector_elapsed
 
     def _episode_metadata_from_infos(
         self,

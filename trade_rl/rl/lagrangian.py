@@ -164,9 +164,7 @@ def _validated_vector(
 ) -> tuple[_T, ...]:
     result = tuple(values)
     if len(result) != expected_length:
-        raise ValueError(
-            f"{field_name} must contain exactly {expected_length} values"
-        )
+        raise ValueError(f"{field_name} must contain exactly {expected_length} values")
     return result
 
 

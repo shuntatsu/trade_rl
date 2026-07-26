@@ -24,7 +24,7 @@ from trade_rl.rl.training import ResidualTrainingConfig
 
 class _ProbeTrainingEnvironment(gym.Env[np.ndarray, np.ndarray]):
     metadata = {"render_modes": []}
-    environment_digest = "p" * 64
+    environment_digest = "a" * 64
     initial_capital = 1_000.0
     decision_hours = 0.25
     action_names = (

@@ -44,6 +44,18 @@ def _finite_matrix(
     return array
 
 
+def _finite_positive_elapsed(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(
+        value,
+        (int, float, np.integer, np.floating),
+    ):
+        raise ValueError("transition_elapsed_hours must be finite and positive")
+    elapsed = float(value)
+    if not math.isfinite(elapsed) or elapsed <= 0.0:
+        raise ValueError("transition_elapsed_hours must be finite and positive")
+    return elapsed
+
+
 @dataclass(frozen=True, slots=True)
 class CostRolloutBatch:
     """One flattened cost-learning minibatch in canonical head order."""
@@ -131,12 +143,7 @@ class CostRolloutStorage:
             else None
         )
         if explicit is not None and vector_elapsed is not None:
-            try:
-                explicit_value = float(explicit)
-            except (TypeError, ValueError) as error:
-                raise ValueError(
-                    "transition_elapsed_hours must be finite and positive"
-                ) from error
+            explicit_value = _finite_positive_elapsed(explicit)
             if not math.isclose(
                 explicit_value,
                 vector_elapsed,
@@ -165,16 +172,7 @@ class CostRolloutStorage:
                 if self.require_episode_metadata:
                     raise ValueError("info is missing transition_elapsed_hours")
                 continue
-            if isinstance(raw_elapsed, bool):
-                raise ValueError("transition_elapsed_hours must be finite and positive")
-            try:
-                elapsed = float(raw_elapsed)
-            except (TypeError, ValueError) as error:
-                raise ValueError(
-                    "transition_elapsed_hours must be finite and positive"
-                ) from error
-            if not math.isfinite(elapsed) or elapsed <= 0.0:
-                raise ValueError("transition_elapsed_hours must be finite and positive")
+            elapsed = _finite_positive_elapsed(raw_elapsed)
             kind = classify_episode_completion(
                 terminated=bool(terminated[index]),
                 truncated=bool(truncated[index]),

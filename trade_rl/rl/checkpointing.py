@@ -1,35 +1,22 @@
-"""Atomic, content-addressed intermediate policy checkpoints."""
+"""Atomic Stable-Baselines3 checkpoint artifacts and resume contracts."""
 
 from __future__ import annotations
 
-import hashlib
 import json
+import os
 import shutil
-import tempfile
+import uuid
 from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
-from trade_rl.artifacts.codec import canonical_json_bytes
-from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.common import require_sha256
+from trade_rl.artifacts.hashing import canonical_json_bytes, content_digest
 from trade_rl.rl.training_telemetry import build_training_telemetry_callback
 
-CHECKPOINT_MANIFEST_SCHEMA = "policy_checkpoint_v1"
+CHECKPOINT_MANIFEST_SCHEMA = "training_checkpoint_v1"
 CHECKPOINT_MANIFEST_NAME = "checkpoint.json"
 CHECKPOINT_POLICY_NAME = "policy.zip"
-
-
-class SavablePolicy(Protocol):
-    def save(self, path: str) -> None: ...
-
-
-def _file_digest(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,64 +32,33 @@ class CheckpointManifest:
     policy_path: Path
     schema_version: str = CHECKPOINT_MANIFEST_SCHEMA
 
-    def __post_init__(self) -> None:
-        require_sha256(self.digest, field="checkpoint.digest")
-        require_sha256(self.environment_digest, field="environment_digest")
-        require_sha256(self.training_config_digest, field="training_config_digest")
-        require_sha256(self.policy_digest, field="policy_digest")
-        if not self.algorithm:
-            raise ValueError("checkpoint algorithm must be non-empty")
-        for name, value in (
-            ("seed", self.seed),
-            ("requested_timestep", self.requested_timestep),
-            ("observed_timestep", self.observed_timestep),
-        ):
-            minimum = 0 if name == "seed" else 1
-            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-                raise ValueError(f"{name} is invalid")
-        if self.observed_timestep < self.requested_timestep:
-            raise ValueError("observed timestep cannot precede requested timestep")
-        if self.schema_version != CHECKPOINT_MANIFEST_SCHEMA:
-            raise ValueError("unsupported checkpoint manifest schema")
-        if self.digest != content_digest(self.digest_payload()):
-            raise ValueError("checkpoint manifest digest mismatch")
 
-    def digest_payload(self) -> dict[str, object]:
-        return {
-            "algorithm": self.algorithm,
-            "environment_digest": self.environment_digest,
-            "observed_timestep": self.observed_timestep,
-            "policy_digest": self.policy_digest,
-            "policy_file": CHECKPOINT_POLICY_NAME,
-            "requested_timestep": self.requested_timestep,
-            "schema_version": self.schema_version,
-            "seed": self.seed,
-            "training_config_digest": self.training_config_digest,
-        }
+def _file_digest(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
-def save_policy_without_runtime_state(model: SavablePolicy, target: str) -> None:
-    """Save without serializing dataset-bound rollout reconstruction objects."""
+def save_policy_without_runtime_state(model: Any, target: str) -> None:
+    """Save an SB3 policy while excluding process-local reconstruction helpers."""
 
-    missing = object()
-    original = getattr(model, "rollout_buffer_kwargs", missing)
-    if isinstance(original, dict) and "sequence_reconstructor" in original:
-        sanitized = {
-            key: value
-            for key, value in original.items()
-            if key != "sequence_reconstructor"
-        }
-        setattr(model, "rollout_buffer_kwargs", sanitized)
+    rollout_buffer_kwargs = getattr(model, "rollout_buffer_kwargs", None)
+    if not isinstance(rollout_buffer_kwargs, dict):
+        model.save(target)
+        return
+    runtime_reconstructor = rollout_buffer_kwargs.pop("sequence_reconstructor", None)
     try:
         model.save(target)
     finally:
-        if original is not missing:
-            setattr(model, "rollout_buffer_kwargs", original)
+        if runtime_reconstructor is not None:
+            rollout_buffer_kwargs["sequence_reconstructor"] = runtime_reconstructor
 
 
 def publish_checkpoint(
     *,
-    model: SavablePolicy,
+    model: Any,
     checkpoint_root: Path,
     algorithm: str,
     seed: int,
@@ -111,27 +67,42 @@ def publish_checkpoint(
     environment_digest: str,
     training_config_digest: str,
 ) -> CheckpointManifest:
-    """Save one model checkpoint into an atomically published step directory."""
+    """Publish one checkpoint atomically with requested and observed step identity."""
 
+    if requested_timestep <= 0 or observed_timestep < requested_timestep:
+        raise ValueError("checkpoint timestep identity is invalid")
     checkpoint_root = Path(checkpoint_root)
     destination = checkpoint_root / f"step-{observed_timestep:012d}"
     if destination.exists():
-        raise FileExistsError(f"checkpoint already exists: {destination}")
+        existing = load_checkpoint_manifest(destination / CHECKPOINT_MANIFEST_NAME)
+        if (
+            existing.requested_timestep != requested_timestep
+            or existing.observed_timestep != observed_timestep
+            or existing.algorithm != algorithm
+            or existing.seed != seed
+            or existing.environment_digest != environment_digest
+            or existing.training_config_digest != training_config_digest
+        ):
+            raise ValueError("checkpoint destination already has conflicting identity")
+        return existing
     checkpoint_root.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".checkpoint-staging-", dir=checkpoint_root))
+    staging = checkpoint_root / f".{destination.name}.staging-{uuid.uuid4().hex}"
+    staging.mkdir(parents=False, exist_ok=False)
     try:
-        save_target = staging / "policy"
+        save_target = staging / CHECKPOINT_POLICY_NAME.removesuffix(".zip")
         save_policy_without_runtime_state(model, str(save_target))
-        policy_path = save_target.with_suffix(".zip")
+        created = save_target.with_suffix(".zip")
+        policy_path = staging / CHECKPOINT_POLICY_NAME
+        if created != policy_path:
+            created.replace(policy_path)
         if not policy_path.is_file():
-            raise FileNotFoundError("checkpoint model save did not create policy.zip")
+            raise RuntimeError("checkpoint policy was not created")
         policy_digest = _file_digest(policy_path)
         payload = {
             "algorithm": algorithm,
             "environment_digest": environment_digest,
             "observed_timestep": observed_timestep,
             "policy_digest": policy_digest,
-            "policy_file": CHECKPOINT_POLICY_NAME,
             "requested_timestep": requested_timestep,
             "schema_version": CHECKPOINT_MANIFEST_SCHEMA,
             "seed": seed,
@@ -297,23 +268,20 @@ def build_checkpoint_callback(
             self.cursor = 0
 
         def _on_step(self) -> bool:
-            if self.cursor >= len(planned):
-                return True
             observed = int(self.model.num_timesteps)
-            requested = planned[self.cursor]
-            if observed < requested:
-                return True
-            publish_checkpoint(
-                model=self.model,
-                checkpoint_root=checkpoint_root,
-                algorithm=algorithm,
-                seed=seed,
-                requested_timestep=requested,
-                observed_timestep=observed,
-                environment_digest=environment_digest,
-                training_config_digest=training_config_digest,
-            )
-            self.cursor += 1
+            while self.cursor < len(planned) and observed >= planned[self.cursor]:
+                requested = planned[self.cursor]
+                publish_checkpoint(
+                    model=self.model,
+                    checkpoint_root=checkpoint_root,
+                    algorithm=algorithm,
+                    seed=seed,
+                    requested_timestep=requested,
+                    observed_timestep=observed,
+                    environment_digest=environment_digest,
+                    training_config_digest=training_config_digest,
+                )
+                self.cursor += 1
             return True
 
     return CallbackList([AtomicCheckpointCallback(), telemetry_callback])

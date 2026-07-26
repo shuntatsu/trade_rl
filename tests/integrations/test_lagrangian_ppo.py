@@ -209,16 +209,12 @@ def test_multiplier_snapshot_is_frozen_for_every_minibatch_and_epoch(
         reward_advantages: object,
         cost_advantages: object,
         multipliers: object,
-        normalize_reward: bool = True,
-        epsilon: float = 1e-8,
     ) -> np.ndarray:
         observed.append(np.asarray(multipliers, dtype=np.float64).copy())
         return original(
             reward_advantages=reward_advantages,
             cost_advantages=cost_advantages,
             multipliers=multipliers,
-            normalize_reward=normalize_reward,
-            epsilon=epsilon,
         )
 
     monkeypatch.setattr(

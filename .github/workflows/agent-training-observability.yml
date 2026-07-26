@@ -107,16 +107,12 @@ jobs:
         continue-on-error: true
         run: |
           uv run pytest -q \
-            tests/rl/test_schedules.py \
-            tests/rl/test_tensorboard_logging.py \
-            tests/rl/test_checkpointing.py \
-            tests/rl/test_training_config_active_fields.py \
+            tests/rl/test_schedules.py tests/rl/test_tensorboard_logging.py \
+            tests/rl/test_checkpointing.py tests/rl/test_training_config_active_fields.py \
             tests/integrations/test_sb3_training.py \
             tests/integrations/test_sb3_training_active_architecture.py \
-            tests/studio/test_training_metrics.py \
-            tests/studio/test_training_metrics_api.py \
-            tests/studio/test_api.py \
-            tests/examples/test_binance_multitimeframe_full_assets.py \
+            tests/studio/test_training_metrics.py tests/studio/test_training_metrics_api.py \
+            tests/studio/test_api.py tests/examples/test_binance_multitimeframe_full_assets.py \
             > pytest-report.txt 2>&1
 
       - name: Upload pytest report
@@ -151,8 +147,7 @@ jobs:
             src/live/TrainingMetricChart.test.tsx \
             src/live/TrainingDiagnosticsPanel.test.tsx \
             src/pages/LiveTrainingPage.test.tsx \
-            src/api/studioApi.test.ts \
-            src/App.test.tsx \
+            src/api/studioApi.test.ts src/App.test.tsx \
             > studio-test-report.txt 2>&1
 
       - name: Upload Studio test report
@@ -190,7 +185,26 @@ jobs:
         run: npm run build --prefix studio
 
       - name: Studio fixed layout
-        run: npm run check:layout --prefix studio
+        id: studio-layout
+        continue-on-error: true
+        env:
+          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
+        run: npm run check:layout --prefix studio > studio-layout-report.txt 2>&1
+
+      - name: Upload Studio layout report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-layout-report
+          path: |
+            studio-layout-report.txt
+            studio/qa-screenshots
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce Studio fixed layout
+        if: steps.studio-layout.outcome == 'failure'
+        run: exit 1
 
       - name: Remove implementation helpers
         run: rm -f .github/workflows/agent-training-observability.yml

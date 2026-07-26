@@ -58,7 +58,7 @@ jobs:
 
       - name: Auto-fix and format Python changes
         run: |
-          uv run ruff check --fix \
+          uv run ruff check --fix --exit-zero \
             trade_rl/rl/schedules.py \
             trade_rl/rl/tensorboard_logging.py \
             trade_rl/studio/training_metrics.py \

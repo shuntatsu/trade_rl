@@ -105,7 +105,9 @@ class CheckpointManifest:
             canonical_json_bytes(self.algorithm_identity)
             identity_digest = self.algorithm_identity_digest
             if not isinstance(identity_digest, str):
-                raise ValueError("checkpoint algorithm identity digest must be a string")
+                raise ValueError(
+                    "checkpoint algorithm identity digest must be a string"
+                )
             require_sha256(identity_digest, field="algorithm_identity_digest")
             if identity_digest != content_digest(self.algorithm_identity):
                 raise ValueError("checkpoint algorithm identity digest mismatch")

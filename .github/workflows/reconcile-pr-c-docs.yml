@@ -25,6 +25,17 @@ jobs:
           set -o pipefail
           {
             python .github/scripts/reconcile_pr_c_docs.py
+            python - <<'PY'
+            from pathlib import Path
+
+            paths = (
+                Path("docs/superpowers/plans/2026-07-26-constrained-ppo-pr-c-lagrangian.md"),
+                Path("docs/superpowers/plans/2026-07-26-constrained-ppo-pr-c-stability-addendum.md"),
+            )
+            for path in paths:
+                lines = path.read_text().splitlines()
+                path.write_text("\n".join(line.rstrip() for line in lines) + "\n")
+            PY
             rm .github/scripts/reconcile_pr_c_docs.py
             rm .github/workflows/reconcile-pr-c-docs.yml
             git add -A

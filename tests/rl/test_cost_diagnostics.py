@@ -8,23 +8,23 @@ import torch
 def test_continuous_cost_head_report_uses_explicit_target_statistics() -> None:
     from trade_rl.rl.cost_diagnostics import build_cost_head_diagnostics
 
+    predictions = np.array([0.1, 0.2, 0.4, 0.5])
+    targets = np.array([0.0, 0.2, 0.3, 0.7])
     report = build_cost_head_diagnostics(
         name="daily_turnover",
-        predictions=np.array([0.1, 0.2, 0.4, 0.5]),
-        targets=np.array([0.0, 0.2, 0.3, 0.7]),
+        predictions=predictions,
+        targets=targets,
         adapter_gradient_norm=2.0,
         head_gradient_norm=0.5,
     )
 
     assert report.name == "daily_turnover"
     assert report.target_mean == pytest.approx(0.3)
-    assert report.target_std == pytest.approx(np.std([0.0, 0.2, 0.3, 0.7]))
+    assert report.target_std == pytest.approx(np.std(targets))
     assert report.nonzero_rate == pytest.approx(0.75)
     assert report.positive_sample_count == 3
     assert report.value_loss == pytest.approx(0.015)
-    expected_variance = 1.0 - np.var(np.array([0.0, 0.0, -0.1, 0.2])) / np.var(
-        np.array([0.0, 0.2, 0.3, 0.7])
-    )
+    expected_variance = 1.0 - np.var(targets - predictions) / np.var(targets)
     assert report.explained_variance == pytest.approx(expected_variance)
     assert report.adapter_gradient_norm == 2.0
     assert report.head_gradient_norm == 0.5

@@ -229,7 +229,9 @@ def test_completed_episode_costs_aggregate_sum_mean_and_event_rate() -> None:
     assert gross.value == pytest.approx(0.3)
 
 
-def test_completed_episode_accumulator_carries_unfinished_state_across_rollouts() -> None:
+def test_completed_episode_accumulator_carries_unfinished_state_across_rollouts() -> (
+    None
+):
     accumulator = CompletedEpisodeCostAccumulator(
         n_envs=2,
         schema=_aggregation_schema(),
@@ -326,7 +328,9 @@ def test_completed_episode_accumulator_rejects_invalid_rollouts() -> None:
         )
 
 
-def test_completed_episode_accumulator_rejects_multiple_event_hits_per_episode() -> None:
+def test_completed_episode_accumulator_rejects_multiple_event_hits_per_episode() -> (
+    None
+):
     accumulator = CompletedEpisodeCostAccumulator(
         n_envs=1,
         schema=_aggregation_schema(),

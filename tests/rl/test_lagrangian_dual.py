@@ -266,9 +266,7 @@ def test_successful_update_resets_pending_but_skipped_updates_retain_it() -> Non
 
 
 def test_validation_failure_leaves_controller_state_unchanged() -> None:
-    controller = LagrangianDualController(
-        _schema(minimum_completed_episodes=3)
-    )
+    controller = LagrangianDualController(_schema(minimum_completed_episodes=3))
     _update(controller, _estimate("drawdown_excess", 0.2))
     before = copy.deepcopy(controller.state_dict())
 
@@ -282,9 +280,7 @@ def test_validation_failure_leaves_controller_state_unchanged() -> None:
 
 
 def test_censored_episode_count_is_cumulative_and_reported() -> None:
-    controller = LagrangianDualController(
-        _schema(minimum_completed_episodes=2)
-    )
+    controller = LagrangianDualController(_schema(minimum_completed_episodes=2))
 
     first = _update(
         controller,

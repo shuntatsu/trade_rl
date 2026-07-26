@@ -261,6 +261,7 @@ class TimeAwareCompletedEpisodeCostAccumulator:
             raise
 
         self._censored_episode_count = previous_censored_count + censored_count
+        estimates: dict[str, ConstraintEstimate | None]
         if completed_count == 0:
             estimates = {name: None for name in self.schema.names}
         else:

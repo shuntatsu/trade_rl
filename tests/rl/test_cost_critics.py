@@ -99,17 +99,23 @@ def test_continuous_loss_does_not_update_rare_event_adapter() -> None:
     loss.backward()
 
     assert _gradient_norm(critic.continuous_adapter.parameters()) > 0.0
-    assert _gradient_norm(
-        parameter
-        for name in schema.continuous_names
-        for parameter in critic.value_heads[name].parameters()
-    ) > 0.0
+    assert (
+        _gradient_norm(
+            parameter
+            for name in schema.continuous_names
+            for parameter in critic.value_heads[name].parameters()
+        )
+        > 0.0
+    )
     assert _gradient_norm(critic.event_adapter.parameters()) == 0.0
-    assert _gradient_norm(
-        parameter
-        for name in schema.event_names
-        for parameter in critic.value_heads[name].parameters()
-    ) == 0.0
+    assert (
+        _gradient_norm(
+            parameter
+            for name in schema.event_names
+            for parameter in critic.value_heads[name].parameters()
+        )
+        == 0.0
+    )
 
 
 def test_positive_event_targets_produce_rare_adapter_gradients() -> None:
@@ -134,16 +140,22 @@ def test_positive_event_targets_produce_rare_adapter_gradients() -> None:
     (cumulative_loss + classification_loss).backward()
 
     assert _gradient_norm(critic.event_adapter.parameters()) > 0.0
-    assert _gradient_norm(
-        parameter
-        for name in schema.event_names
-        for parameter in critic.value_heads[name].parameters()
-    ) > 0.0
-    assert _gradient_norm(
-        parameter
-        for name in schema.event_names
-        for parameter in critic.event_logit_heads[name].parameters()
-    ) > 0.0
+    assert (
+        _gradient_norm(
+            parameter
+            for name in schema.event_names
+            for parameter in critic.value_heads[name].parameters()
+        )
+        > 0.0
+    )
+    assert (
+        _gradient_norm(
+            parameter
+            for name in schema.event_names
+            for parameter in critic.event_logit_heads[name].parameters()
+        )
+        > 0.0
+    )
 
 
 def test_cost_critic_architecture_identity_tracks_schema_and_widths() -> None:
@@ -162,9 +174,7 @@ def test_cost_critic_architecture_identity_tracks_schema_and_widths() -> None:
         continuous_hidden_dims=(9, 4),
         event_hidden_dims=(7, 3),
     )
-    event_schema = canonical_cost_learning_schema(
-        auxiliary_event_loss_coefficient=0.25
-    )
+    event_schema = canonical_cost_learning_schema(auxiliary_event_loss_coefficient=0.25)
     auxiliary = FamilySeparatedCostCritic(
         input_dim=6,
         schema=event_schema,

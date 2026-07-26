@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.rl.cost_learning import CONSTRAINT_COST_NAMES
-from trade_rl.rl.training import ResidualTrainingConfig
+from trade_rl.rl import cost_learning, training
 
 
+CONSTRAINT_COST_NAMES = cost_learning.CONSTRAINT_COST_NAMES
 _CANONICAL_SUPPORT = (1, 20, 1, 20, 1, 1, 1)
 
 
@@ -25,7 +25,7 @@ def _lagrangian_values() -> dict[str, object]:
     }
 
 
-def _config(**overrides: object) -> ResidualTrainingConfig:
+def _config(**overrides: object) -> training.ResidualTrainingConfig:
     values: dict[str, object] = {
         "timesteps": 10,
         "gamma": 1.0,
@@ -40,7 +40,7 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         **_lagrangian_values(),
     }
     values.update(overrides)
-    return ResidualTrainingConfig(**values)  # type: ignore[arg-type]
+    return training.ResidualTrainingConfig(**values)  # type: ignore[arg-type]
 
 
 def test_lagrangian_algorithm_builds_typed_configuration() -> None:

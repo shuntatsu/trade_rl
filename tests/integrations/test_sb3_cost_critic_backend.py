@@ -72,11 +72,16 @@ class _FakePolicy:
         return (_FakeParameter(),)
 
 
+class _FakeCostCritic:
+    architecture_digest = "c" * 64
+
+
 class _FakeCostCriticPPO:
     device = "cpu"
 
     def __init__(self, policy: object, environment: object, **kwargs: object) -> None:
         self.policy = _FakePolicy()
+        self.cost_critic = _FakeCostCritic()
         self.num_timesteps = 0
         self.policy_identifier = policy
         self.environment = environment

@@ -144,9 +144,10 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
         lambda **kwargs: object(),
     )
 
+    config = _config()
     result = StableBaselines3Backend(lambda: probe).train(
         seed=7,
-        config=_config(),
+        config=config,
         output_path=tmp_path / "policy.zip",
     )
 
@@ -154,6 +155,9 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     cost_schema = constructed[0].kwargs["cost_schema"]
     schema = constructed[0].kwargs["lagrangian_schema"]
     assert cost_schema.names == CONSTRAINT_COST_NAMES
+    assert constructed[0].kwargs["cost_learning_rate"] == pytest.approx(
+        config.cost_learning_rate
+    )
     assert schema.names == CONSTRAINT_COST_NAMES
     assert tuple(spec.minimum_completed_episodes for spec in schema.specs) == (
         1,

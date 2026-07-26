@@ -187,3 +187,15 @@ npm run check:layout --prefix studio
 ```
 
 詳細は[アーキテクチャ](docs/ARCHITECTURE.md)、[研究結果の扱い](docs/RESEARCH_STATUS.md)、[Binance Public Data Workflow](docs/BINANCE.md)、[2026-07-22初回アーキテクチャ監査](docs/verification/2026-07-22-documentation-and-architecture-audit.md)、[同日Post-remediation監査](docs/verification/2026-07-22-post-merge-architecture-audit.md)を参照してください。
+
+### 学習診断グラフ
+
+維持対象の full training 設定では TensorBoard scalar を出力できます。Studio で `Live Training → Run選択 → Seed選択 → 学習診断` と進むと、TensorBoard server を別途起動せずに学習率、PPO最適化指標、価値関数指標、取引・リスク指標を確認できます。
+
+主な指標は `train/learning_rate`、`train/approx_kl`、`train/clip_fraction`、`train/entropy_loss`、`train/value_loss`、`train/explained_variance`、`trade_rl/drawdown_mean`、`trade_rl/interval_cost_mean` です。グラフが滑らかなことを理由にモデルやscheduleを選択してはいけません。Checkpoint検証とWalk-forward評価を固定した後に判断します。
+
+生のTensorBoard画面をエンジニアリング診断に使う場合のみ、任意で次を実行できます。
+
+```bash
+uv run tensorboard --logdir var --host 127.0.0.1 --port 6006
+```

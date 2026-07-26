@@ -99,3 +99,24 @@ def test_disabled_asset_set_encoder_rejects_non_default_embedding_parameters() -
 def test_disabled_behavior_cloning_rejects_non_default_cloning_parameters() -> None:
     with pytest.raises(ValueError, match="behavior_cloning_patience.*behavior cloning"):
         _config(behavior_cloning_patience=5)
+
+
+def test_learning_rate_schedule_and_tensorboard_fields_are_identity_bound() -> None:
+    baseline = _config()
+    configured = _config(
+        learning_rate_schedule="linear",
+        learning_rate_final_ratio=0.2,
+        tensorboard_enabled=True,
+        tensorboard_log_interval=2,
+    )
+    typed = build_algorithm_config(configured)
+
+    assert typed.learning_rate_schedule == "linear"
+    assert typed.learning_rate_final_ratio == pytest.approx(0.2)
+    assert configured.digest_payload() != baseline.digest_payload()
+    with pytest.raises(ValueError, match="learning_rate_schedule"):
+        _config(learning_rate_schedule="step")
+    with pytest.raises(ValueError, match="learning_rate_final_ratio"):
+        _config(learning_rate_final_ratio=0.0)
+    with pytest.raises(ValueError, match="tensorboard_log_interval"):
+        _config(tensorboard_log_interval=0)

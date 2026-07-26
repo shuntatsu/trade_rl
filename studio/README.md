@@ -120,3 +120,11 @@ uv run lint-imports
 ```
 
 UIから開始できるのは既存の`trade-rl train run`を使うExploratory trainingだけです。Serving MonitorはRead-onlyで、Bundle activation、取引所注文、API key入力、Live資金操作を行いません。
+
+## 学習診断（TensorBoard scalar）
+
+Studio の `Live Training` には `市場リプレイ` と `学習診断` の2つの表示があります。Run と Seed を選択し、`学習診断` を開くと、学習率、損失、Approx KL、Clip fraction、Explained variance、報酬、ポートフォリオ価値、ドローダウン、コスト、行動量を global step 軸で確認できます。
+
+Studio は各 ensemble member のローカル TensorBoard event file を loopback API 経由で読みます。ブラウザは event file や TensorBoard server に直接接続せず、明示的な allowlist に含まれる有限 scalar だけを受け取ります。通常の利用では TensorBoard server の起動は不要です。
+
+学習曲線は最適化状態の診断であり、汎化性能や収益性の証拠ではありません。モデル選択は Checkpoint 検証と Walk-forward 評価で行います。

@@ -3,8 +3,8 @@
     "alpha_enabled": false,
     "mode": "residual",
     "n_factors": 0,
-    "risk_tilt_enabled": false,
     "residual_scale": 0.25,
+    "risk_tilt_enabled": false,
     "target_weight_count": 0,
     "validation_mode": "clip"
   },
@@ -116,6 +116,8 @@
     "gae_lambda": 0.95,
     "gamma": 0.998969062762624,
     "learning_rate": 0.00012,
+    "learning_rate_final_ratio": 0.1,
+    "learning_rate_schedule": "linear",
     "log_std_init": -2.3,
     "max_checkpoints": 8,
     "max_policy_parameters": 12000000,
@@ -141,6 +143,8 @@
     "sequence_dropout": 0.05,
     "sequence_encoder": true,
     "target_kl": 0.02,
+    "tensorboard_enabled": true,
+    "tensorboard_log_interval": 1,
     "timesteps": 524288,
     "value_net_arch": [
       512,

@@ -140,3 +140,16 @@ describe('studio audit API', () => {
     await expect(loadServingMonitor(fetcher)).rejects.toMatchObject({ status: 502 })
   })
 })
+
+describe('training metrics API', () => {
+  it('loads and validates allowlisted training metrics', async () => {
+    const { loadTrainingMetricScalars, loadTrainingMetricsStatus } = await import('./studioApi')
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input)
+      if (path.includes('/status')) return new Response(JSON.stringify({ available: true, selectedSeed: 3, availableSeeds: [3], availableTags: ['train/learning_rate'], lastStep: 20, source: 'events', generation: 'a'.repeat(64) }))
+      return new Response(JSON.stringify({ seed: 3, series: [{ tag: 'train/learning_rate', displayName: 'Learning rate', group: 'optimization', unit: 'rate', points: [{ step: 20, wallTime: 1, value: 0.0001 }] }], nextStep: 20, generation: 'a'.repeat(64), resetRequired: false }))
+    })
+    await expect(loadTrainingMetricsStatus('job-1', 3, fetcher)).resolves.toMatchObject({ selectedSeed: 3 })
+    await expect(loadTrainingMetricScalars('job-1', ['train/learning_rate'], 0, 512, 3, null, fetcher)).resolves.toMatchObject({ nextStep: 20 })
+  })
+})

@@ -370,3 +370,38 @@ export interface ServingMonitorReport {
   paperSnapshot: PaperInferenceSnapshot | null
   validationError: string | null
 }
+
+export interface TrainingMetricPoint {
+  step: number
+  wallTime: number
+  value: number
+}
+
+export type TrainingMetricGroup = 'optimization' | 'policy' | 'value' | 'trading'
+export type TrainingMetricUnit = 'raw' | 'rate' | 'percent' | 'currency'
+
+export interface TrainingMetricSeries {
+  tag: string
+  displayName: string
+  group: TrainingMetricGroup
+  unit: TrainingMetricUnit
+  points: TrainingMetricPoint[]
+}
+
+export interface TrainingMetricsStatusResponse {
+  available: boolean
+  selectedSeed: number | null
+  availableSeeds: number[]
+  availableTags: string[]
+  lastStep: number
+  source: string | null
+  generation: string | null
+}
+
+export interface TrainingMetricsResponse {
+  seed: number | null
+  series: TrainingMetricSeries[]
+  nextStep: number
+  generation: string | null
+  resetRequired: boolean
+}

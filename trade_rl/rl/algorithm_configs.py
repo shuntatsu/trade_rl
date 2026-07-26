@@ -20,6 +20,8 @@ class CommonAlgorithmConfig:
     timesteps: int
     gamma: float
     learning_rate: float
+    learning_rate_schedule: str
+    learning_rate_final_ratio: float
     batch_size: int
     policy: str
     device: str
@@ -107,6 +109,8 @@ def _ppo_config_payload(source: ResidualTrainingConfig) -> dict[str, object]:
         "timesteps": source.timesteps,
         "gamma": source.gamma,
         "learning_rate": source.learning_rate,
+        "learning_rate_schedule": source.learning_rate_schedule,
+        "learning_rate_final_ratio": source.learning_rate_final_ratio,
         "batch_size": source.batch_size,
         "policy": source.policy,
         "device": source.device,
@@ -188,6 +192,8 @@ def build_algorithm_config(
         timesteps=source.timesteps,
         gamma=source.gamma,
         learning_rate=source.learning_rate,
+        learning_rate_schedule=source.learning_rate_schedule,
+        learning_rate_final_ratio=source.learning_rate_final_ratio,
         batch_size=source.batch_size,
         policy=source.policy,
         device=source.device,
@@ -203,6 +209,8 @@ def build_algorithm_config(
             timesteps=source.timesteps,
             gamma=source.gamma,
             learning_rate=source.learning_rate,
+            learning_rate_schedule=source.learning_rate_schedule,
+            learning_rate_final_ratio=source.learning_rate_final_ratio,
             batch_size=source.batch_size,
             policy=source.policy,
             device=source.device,
@@ -222,6 +230,8 @@ def build_algorithm_config(
             timesteps=source.timesteps,
             gamma=source.gamma,
             learning_rate=source.learning_rate,
+            learning_rate_schedule=source.learning_rate_schedule,
+            learning_rate_final_ratio=source.learning_rate_final_ratio,
             batch_size=source.batch_size,
             policy=source.policy,
             device=source.device,

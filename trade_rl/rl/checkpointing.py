@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import tempfile
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -176,6 +176,115 @@ def save_policy_without_runtime_state(model: SavablePolicy, target: str) -> None
             setattr(model, "rollout_buffer_kwargs", original)
 
 
+def _expected_algorithm_identity_digest(
+    algorithm_identity: dict[str, object] | None,
+) -> str | None:
+    return None if algorithm_identity is None else content_digest(algorithm_identity)
+
+
+def _same_checkpoint_identity(
+    manifest: CheckpointManifest,
+    *,
+    algorithm: str,
+    seed: int,
+    requested_timestep: int,
+    observed_timestep: int,
+    environment_digest: str,
+    training_config_digest: str,
+    algorithm_identity: dict[str, object] | None,
+) -> bool:
+    return (
+        manifest.requested_timestep == requested_timestep
+        and manifest.observed_timestep == observed_timestep
+        and manifest.algorithm == algorithm
+        and manifest.seed == seed
+        and manifest.environment_digest == environment_digest
+        and manifest.training_config_digest == training_config_digest
+        and manifest.algorithm_identity == algorithm_identity
+        and manifest.algorithm_identity_digest
+        == _expected_algorithm_identity_digest(algorithm_identity)
+    )
+
+
+def _same_checkpoint_run_identity(
+    manifest: CheckpointManifest,
+    *,
+    algorithm: str,
+    seed: int,
+    observed_timestep: int,
+    environment_digest: str,
+    training_config_digest: str,
+    algorithm_identity: dict[str, object] | None,
+) -> bool:
+    return (
+        manifest.observed_timestep == observed_timestep
+        and manifest.algorithm == algorithm
+        and manifest.seed == seed
+        and manifest.environment_digest == environment_digest
+        and manifest.training_config_digest == training_config_digest
+        and manifest.algorithm_identity == algorithm_identity
+        and manifest.algorithm_identity_digest
+        == _expected_algorithm_identity_digest(algorithm_identity)
+    )
+
+
+def _checkpoint_destination(
+    checkpoint_root: Path,
+    *,
+    algorithm: str,
+    seed: int,
+    requested_timestep: int,
+    observed_timestep: int,
+    environment_digest: str,
+    training_config_digest: str,
+    algorithm_identity: dict[str, object] | None,
+) -> tuple[Path, CheckpointManifest | None]:
+    primary = checkpoint_root / f"step-{observed_timestep:012d}"
+    if not primary.exists():
+        return primary, None
+    existing = load_checkpoint_manifest(primary / CHECKPOINT_MANIFEST_NAME)
+    if _same_checkpoint_identity(
+        existing,
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=requested_timestep,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
+    ):
+        return primary, existing
+    if not _same_checkpoint_run_identity(
+        existing,
+        algorithm=algorithm,
+        seed=seed,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
+    ):
+        raise ValueError("checkpoint destination already has conflicting identity")
+
+    fallback = checkpoint_root / (
+        f"step-{observed_timestep:012d}-requested-{requested_timestep:012d}"
+    )
+    if not fallback.exists():
+        return fallback, None
+    fallback_existing = load_checkpoint_manifest(fallback / CHECKPOINT_MANIFEST_NAME)
+    if not _same_checkpoint_identity(
+        fallback_existing,
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=requested_timestep,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
+    ):
+        raise ValueError("checkpoint destination already has conflicting identity")
+    return fallback, fallback_existing
+
+
 def publish_checkpoint(
     *,
     model: SavablePolicy,
@@ -187,14 +296,27 @@ def publish_checkpoint(
     environment_digest: str,
     training_config_digest: str,
 ) -> CheckpointManifest:
-    """Save one model checkpoint into an atomically published step directory."""
+    """Publish one checkpoint atomically with full run and algorithm identity."""
 
+    if requested_timestep <= 0 or observed_timestep < requested_timestep:
+        raise ValueError("checkpoint timestep identity is invalid")
     checkpoint_root = Path(checkpoint_root)
-    destination = checkpoint_root / f"step-{observed_timestep:012d}"
-    if destination.exists():
-        raise FileExistsError(f"checkpoint already exists: {destination}")
+    algorithm_identity = _model_algorithm_identity(model)
+    destination, existing = _checkpoint_destination(
+        checkpoint_root,
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=requested_timestep,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=training_config_digest,
+        algorithm_identity=algorithm_identity,
+    )
+    if existing is not None:
+        return existing
     checkpoint_root.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".checkpoint-staging-", dir=checkpoint_root))
+    staging = checkpoint_root / f".{destination.name}.staging-{uuid.uuid4().hex}"
+    staging.mkdir(parents=False, exist_ok=False)
     try:
         save_target = staging / "policy"
         save_policy_without_runtime_state(model, str(save_target))
@@ -202,9 +324,8 @@ def publish_checkpoint(
         if not policy_path.is_file():
             raise FileNotFoundError("checkpoint model save did not create policy.zip")
         policy_digest = _file_digest(policy_path)
-        algorithm_identity = _model_algorithm_identity(model)
-        algorithm_identity_digest = (
-            None if algorithm_identity is None else content_digest(algorithm_identity)
+        algorithm_identity_digest = _expected_algorithm_identity_digest(
+            algorithm_identity
         )
         payload: dict[str, object] = {
             "algorithm": algorithm,
@@ -313,6 +434,46 @@ def checkpoint_manifests(root: Path) -> tuple[CheckpointManifest, ...]:
     )
 
 
+def planned_checkpoint_steps(
+    *,
+    total_timesteps: int,
+    interval_steps: int,
+    max_checkpoints: int,
+) -> tuple[int, ...]:
+    """Select deterministic requested steps across the full training horizon."""
+
+    if (
+        isinstance(total_timesteps, bool)
+        or not isinstance(total_timesteps, int)
+        or total_timesteps <= 0
+    ):
+        raise ValueError("total_timesteps must be a positive integer")
+    if (
+        isinstance(interval_steps, bool)
+        or not isinstance(interval_steps, int)
+        or interval_steps < 0
+    ):
+        raise ValueError("interval_steps must be a non-negative integer")
+    if (
+        isinstance(max_checkpoints, bool)
+        or not isinstance(max_checkpoints, int)
+        or max_checkpoints <= 0
+    ):
+        raise ValueError("max_checkpoints must be a positive integer")
+    if interval_steps == 0:
+        return ()
+    candidates = tuple(range(interval_steps, total_timesteps, interval_steps))
+    if len(candidates) <= max_checkpoints:
+        return candidates
+    if max_checkpoints == 1:
+        return (candidates[-1],)
+    positions = tuple(
+        round(index * (len(candidates) - 1) / (max_checkpoints - 1))
+        for index in range(max_checkpoints)
+    )
+    return tuple(candidates[position] for position in positions)
+
+
 def build_checkpoint_callback(
     *,
     checkpoint_root: Path,
@@ -320,13 +481,27 @@ def build_checkpoint_callback(
     seed: int,
     interval_steps: int,
     max_checkpoints: int,
+    total_timesteps: int,
+    starting_timestep: int = 0,
     environment_digest: str,
     training_config_digest: str,
 ) -> Any:
-    """Build checkpoint and sampled Studio telemetry callbacks lazily."""
+    """Build full-horizon checkpoint and sampled Studio telemetry callbacks."""
 
-    if interval_steps < 0 or max_checkpoints <= 0:
-        raise ValueError("checkpoint interval and maximum are invalid")
+    all_planned = planned_checkpoint_steps(
+        total_timesteps=total_timesteps,
+        interval_steps=interval_steps,
+        max_checkpoints=max_checkpoints,
+    )
+    if (
+        isinstance(starting_timestep, bool)
+        or not isinstance(starting_timestep, int)
+        or starting_timestep < 0
+        or starting_timestep > total_timesteps
+    ):
+        raise ValueError("starting_timestep must be within the training horizon")
+    planned = tuple(step for step in all_planned if step > starting_timestep)
+
     from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
     checkpoint_root = Path(checkpoint_root)
@@ -334,35 +509,29 @@ def build_checkpoint_callback(
         path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
         seed=seed,
     )
-    if interval_steps == 0:
+    if not planned:
         return telemetry_callback
 
     class AtomicCheckpointCallback(BaseCallback):
         def __init__(self) -> None:
             super().__init__(verbose=0)
-            self.next_timestep = interval_steps
-            self.published = 0
+            self.cursor = 0
 
         def _on_step(self) -> bool:
             observed = int(self.model.num_timesteps)
-            if self.published >= max_checkpoints or observed < self.next_timestep:
-                return True
-            requested = self.next_timestep
-            publish_checkpoint(
-                model=self.model,
-                checkpoint_root=checkpoint_root,
-                algorithm=algorithm,
-                seed=seed,
-                requested_timestep=requested,
-                observed_timestep=observed,
-                environment_digest=environment_digest,
-                training_config_digest=training_config_digest,
-            )
-            self.published += 1
-            self.next_timestep = max(
-                self.next_timestep + interval_steps,
-                observed + interval_steps,
-            )
+            while self.cursor < len(planned) and observed >= planned[self.cursor]:
+                requested = planned[self.cursor]
+                publish_checkpoint(
+                    model=self.model,
+                    checkpoint_root=checkpoint_root,
+                    algorithm=algorithm,
+                    seed=seed,
+                    requested_timestep=requested,
+                    observed_timestep=observed,
+                    environment_digest=environment_digest,
+                    training_config_digest=training_config_digest,
+                )
+                self.cursor += 1
             return True
 
     return CallbackList([AtomicCheckpointCallback(), telemetry_callback])
@@ -376,6 +545,7 @@ __all__ = [
     "build_checkpoint_callback",
     "checkpoint_manifests",
     "load_checkpoint_manifest",
+    "planned_checkpoint_steps",
     "publish_checkpoint",
     "save_policy_without_runtime_state",
     "validate_checkpoint_algorithm_identity",

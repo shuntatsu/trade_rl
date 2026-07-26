@@ -924,3 +924,21 @@ def test_signed_rule_history_is_authoritative_and_reproducible(
     assert verified.metadata["BTCUSDT"]["listed_at"].startswith("2020-01-01")
     assert verified.metadata["BTCUSDT"]["tick_size"] == pytest.approx(0.01)
     assert len(verified.execution_rule_histories["BTCUSDT"]) == 2
+
+
+def test_maintained_full_configs_enable_training_diagnostics() -> None:
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for name in ("training-full.json", "training-growth-optimal.json"):
+        payload = json.loads(
+            (root / "examples" / "binance-multitimeframe" / name).read_text(
+                encoding="utf-8"
+            )
+        )
+        training = payload["training"]
+        assert training["learning_rate_schedule"] == "linear"
+        assert training["learning_rate_final_ratio"] == 0.1
+        assert training["tensorboard_enabled"] is True
+        assert training["tensorboard_log_interval"] == 1

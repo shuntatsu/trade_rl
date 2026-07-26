@@ -1,0 +1,44 @@
+name: Apply Task 6 accumulator state version
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-task6-state-version-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply exact state-version patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/task6-state-version.patch
+          git apply .github/task6-state-version.patch
+          rm .github/task6-state-version.patch
+          rm .github/workflows/apply-task6-state-version.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Commit accumulator identity fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix: expose accumulator state version"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

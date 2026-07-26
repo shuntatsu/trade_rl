@@ -90,6 +90,31 @@ def test_cost_critic_compute_evidence_is_deterministic_and_complete(tmp_path) ->
     assert payload["event_positive_support"] == first.event_positive_support
 
 
+def test_growth_optimal_profile_locks_cost_critic_resource_contract() -> None:
+    schema = canonical_cost_learning_schema()
+    n_symbols = 3
+    d_model = 336
+    feature_dim = n_symbols * d_model + d_model + 128 + n_symbols
+    critic = FamilySeparatedCostCritic(
+        input_dim=feature_dim,
+        schema=schema,
+        continuous_hidden_dims=(128, 64),
+        event_hidden_dims=(128, 64),
+    )
+
+    assert feature_dim == 1_475
+    assert critic.parameter_count == 395_591
+    assert sum(
+        parameter.numel() * parameter.element_size()
+        for parameter in critic.parameters()
+    ) == 1_582_364
+    assert estimate_cost_rollout_storage_bytes(
+        256,
+        4,
+        len(schema.names),
+    ) == 145_408
+
+
 def test_cost_critic_compute_evidence_derives_timing_rates() -> None:
     evidence = build_cost_critic_compute_evidence(
         _trained_model(),

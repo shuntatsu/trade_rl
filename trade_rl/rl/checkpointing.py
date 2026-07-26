@@ -89,8 +89,13 @@ class CheckpointManifest:
         ):
             raise ValueError("checkpoint algorithm identity is incomplete")
         if self.algorithm_identity is not None:
-            if not isinstance(self.algorithm_identity, dict) or not self.algorithm_identity:
-                raise ValueError("checkpoint algorithm identity must be a non-empty object")
+            if (
+                not isinstance(self.algorithm_identity, dict)
+                or not self.algorithm_identity
+            ):
+                raise ValueError(
+                    "checkpoint algorithm identity must be a non-empty object"
+                )
             if any(
                 not isinstance(key, str) or not key for key in self.algorithm_identity
             ):
@@ -199,9 +204,7 @@ def publish_checkpoint(
         policy_digest = _file_digest(policy_path)
         algorithm_identity = _model_algorithm_identity(model)
         algorithm_identity_digest = (
-            None
-            if algorithm_identity is None
-            else content_digest(algorithm_identity)
+            None if algorithm_identity is None else content_digest(algorithm_identity)
         )
         payload: dict[str, object] = {
             "algorithm": algorithm,

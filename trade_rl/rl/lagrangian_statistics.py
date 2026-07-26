@@ -391,8 +391,7 @@ class CompletedEpisodeCostAccumulator:
                     if spec.aggregation is ConstraintAggregation.EPISODE_TIME_AREA:
                         contribution = weighted_sum
                     elif (
-                        spec.aggregation
-                        is ConstraintAggregation.EPISODE_DECISION_MEAN
+                        spec.aggregation is ConstraintAggregation.EPISODE_DECISION_MEAN
                     ):
                         contribution = raw_sum / episode_steps
                     elif (
@@ -476,12 +475,8 @@ class CompletedEpisodeCostAccumulator:
             weighted_sums = np.asarray(
                 state["episode_time_weighted_sums"], dtype=np.float64
             )
-            elapsed_hours = np.asarray(
-                state["episode_elapsed_hours"], dtype=np.float64
-            )
-            raw_step_counts = np.asarray(
-                state["episode_step_counts"], dtype=np.float64
-            )
+            elapsed_hours = np.asarray(state["episode_elapsed_hours"], dtype=np.float64)
+            raw_step_counts = np.asarray(state["episode_step_counts"], dtype=np.float64)
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("accumulator state payload is invalid") from error
 
@@ -520,7 +515,9 @@ class CompletedEpisodeCostAccumulator:
         if np.any(np.abs(elapsed_hours[empty]) > self._EVENT_TOLERANCE):
             raise ValueError("accumulator empty episodes must have zero elapsed time")
         if np.any((step_counts > 0) & (elapsed_hours <= 0.0)):
-            raise ValueError("accumulator active episodes require positive elapsed time")
+            raise ValueError(
+                "accumulator active episodes require positive elapsed time"
+            )
 
         self._episode_cost_sums = cost_sums.copy()
         self._episode_time_weighted_sums = weighted_sums.copy()

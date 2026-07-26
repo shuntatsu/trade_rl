@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from typing import Any
 
 import gymnasium as gym
@@ -93,6 +94,12 @@ def _model(environment: Any, *, seed: int = 13) -> Any:
     )
 
 
+def _reset_training_rng(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+
 def test_cost_critic_ppo_collects_and_trains_without_actor_penalty() -> None:
     environment = DummyVecEnv([lambda: _CostEnvironment()])
     model = _model(environment)
@@ -139,7 +146,9 @@ def test_cost_critic_sidecar_does_not_change_reward_ppo_update() -> None:
     )
     cost_model = _model(cost_environment, seed=29)
     try:
+        _reset_training_rng(29)
         ordinary.learn(total_timesteps=4)
+        _reset_training_rng(29)
         cost_model.learn(total_timesteps=4)
 
         ordinary_state = ordinary.policy.state_dict()

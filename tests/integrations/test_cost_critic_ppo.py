@@ -104,7 +104,9 @@ def test_cost_critic_ppo_collects_and_trains_without_actor_penalty() -> None:
         assert model.cost_update_count == 4
         assert np.isfinite(model.last_cost_training_metrics["loss/total"])
         assert model.last_cost_training_metrics["support/drawdown_stop_event"] > 0.0
-        assert model.last_cost_training_metrics["support/forced_liquidation_event"] > 0.0
+        assert (
+            model.last_cost_training_metrics["support/forced_liquidation_event"] > 0.0
+        )
         assert not hasattr(model, "lagrange_multipliers")
     finally:
         environment.close()
@@ -168,6 +170,8 @@ def test_cost_critic_ppo_counts_event_support_across_vector_environments() -> No
         model.learn(total_timesteps=8)
 
         assert model.last_cost_training_metrics["support/drawdown_stop_event"] == 2.0
-        assert model.last_cost_training_metrics["support/forced_liquidation_event"] == 2.0
+        assert (
+            model.last_cost_training_metrics["support/forced_liquidation_event"] == 2.0
+        )
     finally:
         environment.close()

@@ -15,6 +15,10 @@ from trade_rl.rl.cost_learning import canonical_cost_learning_schema
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.rl.lagrangian import ConstraintEstimate, canonical_lagrangian_schema
 from trade_rl.rl.lagrangian_episode import EpisodeCompletionKind
+from trade_rl.rl.lagrangian_probe import (
+    CanonicalActionProbeEvidence,
+    CanonicalActionSemantic,
+)
 
 
 class _CheckpointEnvironment(gym.Env[np.ndarray, np.ndarray]):
@@ -72,7 +76,31 @@ def _schema(*, budget_shift: float = 0.0, cap_shift: float = 0.0):
     )
 
 
-def _model(environment: Any, *, schema: Any | None = None) -> LagrangianPPO:
+def _probe_evidence() -> CanonicalActionProbeEvidence:
+    estimates = {name: 0.0 for name in CONSTRAINT_COST_NAMES}
+    denominators = {name: 2 for name in CONSTRAINT_COST_NAMES}
+    budgets = {name: 0.2 for name in CONSTRAINT_COST_NAMES}
+    return CanonicalActionProbeEvidence(
+        action_semantic=CanonicalActionSemantic.RESIDUAL_BASELINE,
+        action=np.zeros(3, dtype=np.float32),
+        estimates=estimates,
+        denominators=denominators,
+        budgets=budgets,
+        violated_costs=(),
+        completed_episode_count=2,
+        censored_episode_count=1,
+        episode_count=2,
+        max_steps_per_episode=16,
+        warning=False,
+    )
+
+
+def _model(
+    environment: Any,
+    *,
+    schema: Any | None = None,
+    probe_evidence: CanonicalActionProbeEvidence | None = None,
+) -> LagrangianPPO:
     return LagrangianPPO(
         "MlpPolicy",
         environment,
@@ -88,6 +116,7 @@ def _model(environment: Any, *, schema: Any | None = None) -> LagrangianPPO:
         cost_continuous_hidden_dims=(12,),
         cost_event_hidden_dims=(10,),
         lagrangian_schema=_schema() if schema is None else schema,
+        canonical_action_probe_evidence=probe_evidence,
     )
 
 
@@ -128,7 +157,8 @@ def _assert_nested_state_equal(left: object, right: object) -> None:
 
 def test_lagrangian_checkpoint_identity_includes_schema_contract() -> None:
     environment = DummyVecEnv([_CheckpointEnvironment])
-    model = _model(environment)
+    evidence = _probe_evidence()
+    model = _model(environment, probe_evidence=evidence)
     try:
         identity = model.checkpoint_identity_payload()
 
@@ -150,6 +180,8 @@ def test_lagrangian_checkpoint_identity_includes_schema_contract() -> None:
         assert identity["controller_state_version"] == (
             model.lagrangian_controller.state_version
         )
+        assert identity["canonical_action_probe"] == evidence.digest_payload()
+        assert identity["canonical_action_probe_digest"] == evidence.digest
     finally:
         environment.close()
 
@@ -187,7 +219,8 @@ def test_lagrangian_save_load_preserves_dual_accumulator_and_critic_state(
 ) -> None:
     environment = DummyVecEnv([_CheckpointEnvironment])
     loaded_environment = DummyVecEnv([_CheckpointEnvironment])
-    model = _model(environment)
+    evidence = _probe_evidence()
+    model = _model(environment, probe_evidence=evidence)
     try:
         model.lagrangian_controller.update_after_rollout(
             _estimates(0.3),
@@ -240,6 +273,10 @@ def test_lagrangian_save_load_preserves_dual_accumulator_and_critic_state(
         )
 
         assert loaded.checkpoint_identity_payload() == expected_identity
+        loaded_probe = loaded.canonical_action_probe_evidence
+        assert isinstance(loaded_probe, CanonicalActionProbeEvidence)
+        assert loaded_probe.digest == evidence.digest
+        assert loaded_probe.digest_payload() == evidence.digest_payload()
         assert loaded.lagrangian_controller.state_dict() == expected_dual_state
         loaded_accumulator = loaded.completed_episode_cost_accumulator
         assert loaded_accumulator is not None

@@ -200,20 +200,24 @@ class TimeAwareCompletedEpisodeCostAccumulator:
             transition_elapsed_hours=transition_elapsed_hours,
             completion_kinds=completion_kinds,
         )
-        raw_sums = self._episode_raw_sums.copy()
-        weighted_sums = self._episode_time_weighted_sums.copy()
-        elapsed_sums = self._episode_elapsed_hours.copy()
-        step_counts = self._episode_step_counts.copy()
+        committed_raw_sums = self._episode_raw_sums
+        committed_weighted_sums = self._episode_time_weighted_sums
+        committed_elapsed_sums = self._episode_elapsed_hours
+        committed_step_counts = self._episode_step_counts
+        working_raw_sums = committed_raw_sums.copy()
+        working_weighted_sums = committed_weighted_sums.copy()
+        working_elapsed_sums = committed_elapsed_sums.copy()
+        working_step_counts = committed_step_counts.copy()
         previous_censored_count = self._censored_episode_count
         numerators = np.zeros(len(self.schema.names), dtype=np.float64)
         completed_count = 0
         censored_count = 0
 
         try:
-            self._episode_raw_sums = raw_sums
-            self._episode_time_weighted_sums = weighted_sums
-            self._episode_elapsed_hours = elapsed_sums
-            self._episode_step_counts = step_counts
+            self._episode_raw_sums = working_raw_sums
+            self._episode_time_weighted_sums = working_weighted_sums
+            self._episode_elapsed_hours = working_elapsed_sums
+            self._episode_step_counts = working_step_counts
             for step_index in range(cost_array.shape[0]):
                 for env_index in range(self.n_envs):
                     hours = float(elapsed[step_index, env_index])
@@ -253,10 +257,10 @@ class TimeAwareCompletedEpisodeCostAccumulator:
                     completed_count += 1
                     self._clear_environment(env_index)
         except Exception:
-            self._episode_raw_sums = raw_sums
-            self._episode_time_weighted_sums = weighted_sums
-            self._episode_elapsed_hours = elapsed_sums
-            self._episode_step_counts = step_counts
+            self._episode_raw_sums = committed_raw_sums
+            self._episode_time_weighted_sums = committed_weighted_sums
+            self._episode_elapsed_hours = committed_elapsed_sums
+            self._episode_step_counts = committed_step_counts
             self._censored_episode_count = previous_censored_count
             raise
 

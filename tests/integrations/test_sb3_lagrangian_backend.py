@@ -151,7 +151,9 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     )
 
     assert len(constructed) == 1
+    cost_schema = constructed[0].kwargs["cost_schema"]
     schema = constructed[0].kwargs["lagrangian_schema"]
+    assert cost_schema.names == CONSTRAINT_COST_NAMES
     assert schema.names == CONSTRAINT_COST_NAMES
     assert tuple(spec.minimum_completed_episodes for spec in schema.specs) == (
         1,

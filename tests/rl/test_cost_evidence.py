@@ -151,9 +151,16 @@ def test_cost_critic_runtime_measurements_are_bound_into_the_digest() -> None:
         environment_steps=8,
         peak_device_memory_bytes=4096,
     )
+    different_peak_memory = build_cost_critic_compute_evidence(
+        model,
+        training_seconds=2.0,
+        environment_steps=8,
+        peak_device_memory_bytes=8192,
+    )
 
     assert first == second
     assert first.digest != baseline.digest
+    assert first.digest != different_peak_memory.digest
     assert first.payload(include_digest=False)["training_seconds"] == pytest.approx(2.0)
     assert first.payload(include_digest=False)["peak_device_memory_bytes"] == 4096
 

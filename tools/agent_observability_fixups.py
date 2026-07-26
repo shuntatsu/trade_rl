@@ -70,6 +70,17 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
 '''
     path.write_text(prefix.rstrip() + replacement, encoding="utf-8")
 
+    metrics_path = ROOT / "trade_rl/studio/training_metrics.py"
+    metrics = metrics_path.read_text(encoding="utf-8")
+    old = '_METRICS: dict[str, tuple[str, str, str]] = {'
+    new = '''MetricGroup = Literal["optimization", "policy", "value", "trading"]
+MetricUnit = Literal["raw", "rate", "percent", "currency"]
+
+_METRICS: dict[str, tuple[str, MetricGroup, MetricUnit]] = {'''
+    if old not in metrics:
+        raise RuntimeError("generated training metric metadata annotation is missing")
+    metrics_path.write_text(metrics.replace(old, new, 1), encoding="utf-8")
+
 
 if __name__ == "__main__":
     apply()

@@ -57,9 +57,7 @@ class CostCriticPPO(PPO):
         self.cost_max_grad_norm = float(cost_max_grad_norm)
         self.cost_update_count = 0
         self.last_cost_training_metrics: dict[str, float] = {}
-        self._cost_support_totals = {
-            name: 0.0 for name in self.cost_schema.event_names
-        }
+        self._cost_support_totals = {name: 0.0 for name in self.cost_schema.event_names}
         self._cost_rng = np.random.default_rng(kwargs.get("seed"))
         super().__init__(*args, _init_setup_model=False, **kwargs)
         if _init_setup_model:
@@ -68,7 +66,9 @@ class CostCriticPPO(PPO):
     @staticmethod
     def _torch_rng_state() -> tuple[torch.Tensor, list[torch.Tensor] | None]:
         cpu_state = torch.random.get_rng_state()
-        cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        cuda_states = (
+            torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        )
         return cpu_state, cuda_states
 
     @staticmethod
@@ -85,7 +85,9 @@ class CostCriticPPO(PPO):
         features_extractor = getattr(self.policy, "features_extractor", None)
         input_dim = getattr(features_extractor, "features_dim", None)
         if not isinstance(input_dim, int) or input_dim <= 0:
-            raise RuntimeError("policy feature dimension is unavailable for Cost Critic")
+            raise RuntimeError(
+                "policy feature dimension is unavailable for Cost Critic"
+            )
         rng_state = self._torch_rng_state()
         try:
             self.cost_critic = FamilySeparatedCostCritic(
@@ -297,9 +299,7 @@ class CostCriticPPO(PPO):
                                     target,
                                 )
                             )
-                            total_loss = (
-                                total_loss + coefficient * classification_loss
-                            )
+                            total_loss = total_loss + coefficient * classification_loss
                     self.cost_critic_optimizer.zero_grad()
                     total_loss.backward()
                     torch.nn.utils.clip_grad_norm_(

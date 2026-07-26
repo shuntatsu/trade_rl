@@ -1,11 +1,14 @@
-"""Typed constraint aggregation and dual-optimization identity."""
+"""Typed constraint aggregation and stabilized dual-optimization state."""
 
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import TypeVar
+
+import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
@@ -153,6 +156,208 @@ class LagrangianSchema:
         return content_digest(self.digest_payload())
 
 
+@dataclass(frozen=True, slots=True)
+class ConstraintEstimate:
+    """One completed-episode rollout estimate for a maintained constraint."""
+
+    name: str
+    numerator: float
+    denominator: int
+
+    def __post_init__(self) -> None:
+        if self.name not in CONSTRAINT_COST_NAMES:
+            raise ValueError(f"unknown constraint cost: {self.name}")
+        numerator = float(self.numerator)
+        if not math.isfinite(numerator) or numerator < 0.0:
+            raise ValueError("constraint estimate numerator must be finite and non-negative")
+        if (
+            isinstance(self.denominator, bool)
+            or not isinstance(self.denominator, int)
+            or self.denominator <= 0
+        ):
+            raise ValueError("constraint estimate denominator must be positive")
+        object.__setattr__(self, "numerator", numerator)
+
+    @property
+    def value(self) -> float:
+        value = self.numerator / self.denominator
+        if not math.isfinite(value) or value < 0.0:
+            raise RuntimeError("constraint estimate value became invalid")
+        return value
+
+
+class CompletedEpisodeCostAccumulator:
+    """Aggregate completed episodes without losing cross-rollout partial state."""
+
+    _STATE_VERSION = "completed_episode_cost_accumulator_v1"
+    _EVENT_TOLERANCE = 1e-12
+
+    def __init__(self, *, n_envs: int, schema: LagrangianSchema) -> None:
+        if isinstance(n_envs, bool) or not isinstance(n_envs, int) or n_envs <= 0:
+            raise ValueError("n_envs must be a positive integer")
+        if not isinstance(schema, LagrangianSchema):
+            raise TypeError("schema must be a LagrangianSchema")
+        self.n_envs = n_envs
+        self.schema = schema
+        self._episode_cost_sums = np.zeros(
+            (n_envs, len(schema.names)),
+            dtype=np.float64,
+        )
+        self._episode_step_counts = np.zeros(n_envs, dtype=np.int64)
+
+    def _validated_rollout(
+        self,
+        *,
+        costs: np.ndarray,
+        terminated: np.ndarray,
+        truncated: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        cost_array = np.asarray(costs, dtype=np.float64)
+        expected_suffix = (self.n_envs, len(self.schema.names))
+        if cost_array.ndim != 3 or cost_array.shape[1:] != expected_suffix:
+            raise ValueError(
+                "cost rollout shape must be [steps, n_envs, n_costs] "
+                f"with suffix {expected_suffix}"
+            )
+        if cost_array.shape[0] <= 0:
+            raise ValueError("cost rollout must contain at least one step")
+        if not np.all(np.isfinite(cost_array)) or np.any(cost_array < 0.0):
+            raise ValueError("cost rollout values must be finite and non-negative")
+
+        done_shape = (cost_array.shape[0], self.n_envs)
+        terminated_array = np.asarray(terminated, dtype=np.bool_)
+        truncated_array = np.asarray(truncated, dtype=np.bool_)
+        if terminated_array.shape != done_shape or truncated_array.shape != done_shape:
+            raise ValueError(f"termination arrays must have shape {done_shape}")
+        if np.any(terminated_array & truncated_array):
+            raise ValueError("a transition cannot be both terminated and truncated")
+
+        for index, spec in enumerate(self.schema.specs):
+            if spec.aggregation is ConstraintAggregation.EPISODE_EVENT_RATE and np.any(
+                cost_array[:, :, index] > 1.0 + self._EVENT_TOLERANCE
+            ):
+                raise ValueError(f"event cost {spec.name} must be within [0, 1]")
+        return cost_array, terminated_array, truncated_array
+
+    def ingest_rollout(
+        self,
+        *,
+        costs: np.ndarray,
+        terminated: np.ndarray,
+        truncated: np.ndarray,
+    ) -> dict[str, ConstraintEstimate | None]:
+        """Consume one aligned rollout and estimate only completed episodes."""
+
+        cost_array, terminated_array, truncated_array = self._validated_rollout(
+            costs=costs,
+            terminated=terminated,
+            truncated=truncated,
+        )
+        episode_cost_sums = self._episode_cost_sums.copy()
+        episode_step_counts = self._episode_step_counts.copy()
+        numerators = np.zeros(len(self.schema.names), dtype=np.float64)
+        completed_episode_count = 0
+
+        for step in range(cost_array.shape[0]):
+            for env_index in range(self.n_envs):
+                episode_cost_sums[env_index] += cost_array[step, env_index]
+                episode_step_counts[env_index] += 1
+                if not (
+                    terminated_array[step, env_index]
+                    or truncated_array[step, env_index]
+                ):
+                    continue
+
+                episode_steps = int(episode_step_counts[env_index])
+                if episode_steps <= 0:
+                    raise RuntimeError("completed episode has no steps")
+                for cost_index, spec in enumerate(self.schema.specs):
+                    episode_value = float(episode_cost_sums[env_index, cost_index])
+                    if spec.aggregation is ConstraintAggregation.EPISODE_SUM:
+                        contribution = episode_value
+                    elif spec.aggregation is ConstraintAggregation.EPISODE_MEAN:
+                        contribution = episode_value / episode_steps
+                    else:
+                        if episode_value > 1.0 + self._EVENT_TOLERANCE:
+                            raise ValueError(
+                                f"event cost {spec.name} occurred more than once "
+                                "within one episode"
+                            )
+                        contribution = min(episode_value, 1.0)
+                    if not math.isfinite(contribution) or contribution < 0.0:
+                        raise RuntimeError("constraint aggregation became invalid")
+                    numerators[cost_index] += contribution
+
+                completed_episode_count += 1
+                episode_cost_sums[env_index].fill(0.0)
+                episode_step_counts[env_index] = 0
+
+        self._episode_cost_sums = episode_cost_sums
+        self._episode_step_counts = episode_step_counts
+        if completed_episode_count == 0:
+            return {name: None for name in self.schema.names}
+        return {
+            name: ConstraintEstimate(
+                name=name,
+                numerator=float(numerators[index]),
+                denominator=completed_episode_count,
+            )
+            for index, name in enumerate(self.schema.names)
+        }
+
+    def state_dict(self) -> dict[str, object]:
+        """Return JSON-compatible unfinished-episode state."""
+
+        return {
+            "cost_names": list(self.schema.names),
+            "episode_cost_sums": self._episode_cost_sums.tolist(),
+            "episode_step_counts": self._episode_step_counts.tolist(),
+            "n_envs": self.n_envs,
+            "schema_digest": self.schema.digest,
+            "schema_version": self._STATE_VERSION,
+        }
+
+    def load_state_dict(self, state: Mapping[str, object]) -> None:
+        """Restore unfinished episodes only when identity and shapes match."""
+
+        if state.get("schema_version") != self._STATE_VERSION:
+            raise ValueError("accumulator state schema version mismatch")
+        if state.get("schema_digest") != self.schema.digest or tuple(
+            state.get("cost_names", ())
+        ) != self.schema.names:
+            raise ValueError("accumulator state schema mismatch")
+        if state.get("n_envs") != self.n_envs:
+            raise ValueError("accumulator state environment count mismatch")
+
+        try:
+            cost_sums = np.asarray(state["episode_cost_sums"], dtype=np.float64)
+            raw_step_counts = np.asarray(state["episode_step_counts"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("accumulator state payload is invalid") from error
+        if cost_sums.shape != self._episode_cost_sums.shape:
+            raise ValueError("accumulator state cost shape mismatch")
+        if raw_step_counts.shape != self._episode_step_counts.shape:
+            raise ValueError("accumulator state step shape mismatch")
+        if not np.all(np.isfinite(cost_sums)) or np.any(cost_sums < 0.0):
+            raise ValueError("accumulator state costs must be finite and non-negative")
+        if not np.all(np.isfinite(raw_step_counts)):
+            raise ValueError("accumulator state steps must be finite")
+        step_counts = raw_step_counts.astype(np.int64)
+        if np.any(step_counts < 0) or not np.array_equal(raw_step_counts, step_counts):
+            raise ValueError("accumulator state steps must be non-negative integers")
+        for index, spec in enumerate(self.schema.specs):
+            if spec.aggregation is ConstraintAggregation.EPISODE_EVENT_RATE and np.any(
+                cost_sums[:, index] > 1.0 + self._EVENT_TOLERANCE
+            ):
+                raise ValueError(f"accumulator event cost {spec.name} is invalid")
+        empty = step_counts == 0
+        if np.any(np.abs(cost_sums[empty]) > self._EVENT_TOLERANCE):
+            raise ValueError("accumulator empty episodes must have zero cost state")
+
+        self._episode_cost_sums = cost_sums.copy()
+        self._episode_step_counts = step_counts.copy()
+
+
 _T = TypeVar("_T")
 
 
@@ -250,7 +455,9 @@ def canonical_lagrangian_schema(
 
 
 __all__ = [
+    "CompletedEpisodeCostAccumulator",
     "ConstraintAggregation",
+    "ConstraintEstimate",
     "LagrangianConstraintSpec",
     "LagrangianSchema",
     "canonical_constraint_aggregation",

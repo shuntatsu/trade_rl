@@ -62,10 +62,6 @@ class ResidualTrainingConfig:
     gamma: float
     seeds: tuple[int, ...]
     learning_rate: float = 3e-4
-    learning_rate_schedule: str = "constant"
-    learning_rate_final_ratio: float = 0.1
-    tensorboard_enabled: bool = False
-    tensorboard_log_interval: int = 1
     n_steps: int = 2_048
     batch_size: int = 64
     n_epochs: int = 10
@@ -112,6 +108,10 @@ class ResidualTrainingConfig:
     behavior_cloning_minimum_improvement: float = 0.0
     behavior_cloning_teacher: str = "oracle"
     behavior_cloning_required_relative_improvement: float = 0.0
+    learning_rate_schedule: str = "constant"
+    learning_rate_final_ratio: float = 0.1
+    tensorboard_enabled: bool = False
+    tensorboard_log_interval: int = 1
 
     def __post_init__(self) -> None:
         for integer_field_name, integer_value in (

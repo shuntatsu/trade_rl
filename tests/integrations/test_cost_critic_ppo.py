@@ -197,6 +197,13 @@ def test_cost_critic_ppo_exposes_head_and_family_diagnostics() -> None:
         assert event_report.positive_sample_count == 1
         assert event_report.brier_score is not None
         assert np.isfinite(event_report.brier_score)
+        assert event_report.zero_only_brier_score == pytest.approx(0.25)
+        assert event_report.has_positive_support is True
+        assert event_report.beats_zero_only_baseline is not None
+        assert event_report.eligible_for_promotion == (
+            event_report.has_positive_support
+            and event_report.beats_zero_only_baseline
+        )
         assert sum(bin_.count for bin_ in event_report.calibration_bins) == 4
         assert event_report.precision_recall is not None
         assert event_report.precision_recall.positive_sample_count == 1
@@ -205,16 +212,13 @@ def test_cost_critic_ppo_exposes_head_and_family_diagnostics() -> None:
         assert family.continuous_gradient_norm > 0.0
         assert family.event_gradient_norm > 0.0
         assert family.dense_to_rare_gradient_ratio is not None
-        assert np.isfinite(
-            model.last_cost_training_metrics[
-                "diagnostic/forced_liquidation_event/brier_score"
-            ]
-        )
-        assert (
-            model.last_cost_training_metrics[
-                "diagnostic/forced_liquidation_event/positive_sample_count"
-            ]
-            == 1.0
-        )
+        metrics = model.last_cost_training_metrics
+        prefix = "diagnostic/forced_liquidation_event"
+        assert np.isfinite(metrics[f"{prefix}/brier_score"])
+        assert metrics[f"{prefix}/zero_only_brier_score"] == pytest.approx(0.25)
+        assert metrics[f"{prefix}/has_positive_support"] == 1.0
+        assert metrics[f"{prefix}/beats_zero_only_baseline"] in (0.0, 1.0)
+        assert metrics[f"{prefix}/eligible_for_promotion"] in (0.0, 1.0)
+        assert metrics[f"{prefix}/positive_sample_count"] == 1.0
     finally:
         environment.close()

@@ -37,7 +37,9 @@ jobs:
         run: |
           set -euo pipefail
           python .github/scripts/apply_task8_evidence.py
+          python .github/scripts/apply_task8_mypy.py
           rm .github/scripts/apply_task8_evidence.py
+          rm .github/scripts/apply_task8_mypy.py
           rm .github/workflows/apply-task8-evidence.yml
           rm -f .github/workflows/task8-evidence-red.yml
           rm -f .github/workflows/task8-red.yml

@@ -6,12 +6,20 @@ on:
       - agent/training-observability-diagnostics
     paths:
       - tools/agent_training_observability_patch.py
+      - tools/agent_observability_backend.py
+      - tools/agent_observability_studio.py
+      - tools/agent_observability_frontend.py
+      - tools/agent_observability_docs.py
       - .github/workflows/agent-training-observability.yml
   pull_request:
     branches:
       - main
     paths:
       - tools/agent_training_observability_patch.py
+      - tools/agent_observability_backend.py
+      - tools/agent_observability_studio.py
+      - tools/agent_observability_frontend.py
+      - tools/agent_observability_docs.py
       - .github/workflows/agent-training-observability.yml
 
 permissions:
@@ -51,10 +59,14 @@ jobs:
       - name: Format Python changes
         run: uv run ruff format trade_rl/rl/schedules.py trade_rl/rl/tensorboard_logging.py trade_rl/studio/training_metrics.py tests/rl/test_schedules.py tests/rl/test_tensorboard_logging.py tests/studio/test_training_metrics.py tests/studio/test_training_metrics_api.py trade_rl/rl/training.py trade_rl/rl/algorithm_configs.py trade_rl/rl/checkpointing.py trade_rl/integrations/sb3_training.py trade_rl/studio/api.py
 
-      - name: Verify Python implementation
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy .
+
+      - name: Focused Python tests
         run: |
-          uv run ruff check .
-          uv run mypy .
           uv run pytest -q \
             tests/rl/test_schedules.py \
             tests/rl/test_tensorboard_logging.py \
@@ -76,7 +88,7 @@ jobs:
       - name: Install Studio frontend
         run: npm ci --prefix studio --no-audit --no-fund
 
-      - name: Verify Studio frontend
+      - name: Studio tests
         run: |
           npm test --prefix studio -- --run \
             src/live/useTrainingMetrics.test.tsx \
@@ -85,9 +97,15 @@ jobs:
             src/pages/LiveTrainingPage.test.tsx \
             src/api/studioApi.test.ts \
             src/App.test.tsx
-          npm run typecheck --prefix studio
-          npm run build --prefix studio
-          npm run check:layout --prefix studio
+
+      - name: Studio typecheck
+        run: npm run typecheck --prefix studio
+
+      - name: Studio build
+        run: npm run build --prefix studio
+
+      - name: Studio fixed layout
+        run: npm run check:layout --prefix studio
 
       - name: Remove implementation helpers
         run: rm -f tools/agent_training_observability_patch.py .github/workflows/agent-training-observability.yml

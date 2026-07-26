@@ -68,9 +68,7 @@ class TimeAwareCompletedEpisodeCostAccumulator:
     _STATE_VERSION = "time_aware_completed_episode_cost_accumulator_v1"
     _EVENT_TOLERANCE = 1e-12
     _AREA_COSTS = frozenset({"drawdown_excess", "margin_deficit_fraction"})
-    _EVENT_COSTS = frozenset(
-        {"drawdown_stop_event", "forced_liquidation_event"}
-    )
+    _EVENT_COSTS = frozenset({"drawdown_stop_event", "forced_liquidation_event"})
     _DECISION_MEAN_COSTS = frozenset({"gross_exposure_request_excess"})
     _TIME_WEIGHTED_RATE_COSTS = frozenset({"daily_turnover"})
     _EPISODE_SUM_COSTS = frozenset({"execution_cost_fraction"})
@@ -88,7 +86,9 @@ class TimeAwareCompletedEpisodeCostAccumulator:
             | self._EPISODE_SUM_COSTS
         )
         if set(schema.names) != maintained:
-            raise ValueError("episode estimator requires the complete canonical cost schema")
+            raise ValueError(
+                "episode estimator requires the complete canonical cost schema"
+            )
         self.n_envs = n_envs
         self.schema = schema
         shape = (n_envs, len(schema.names))
@@ -124,7 +124,9 @@ class TimeAwareCompletedEpisodeCostAccumulator:
         transition_shape = (cost_array.shape[0], self.n_envs)
         elapsed = np.asarray(transition_elapsed_hours, dtype=np.float64)
         if elapsed.shape != transition_shape:
-            raise ValueError(f"transition elapsed hours must have shape {transition_shape}")
+            raise ValueError(
+                f"transition elapsed hours must have shape {transition_shape}"
+            )
         if not np.all(np.isfinite(elapsed)) or np.any(elapsed <= 0.0):
             raise ValueError("transition elapsed hours must be finite and positive")
 
@@ -153,9 +155,7 @@ class TimeAwareCompletedEpisodeCostAccumulator:
         name: str,
     ) -> float:
         raw_sum = float(self._episode_raw_sums[env_index, cost_index])
-        weighted_sum = float(
-            self._episode_time_weighted_sums[env_index, cost_index]
-        )
+        weighted_sum = float(self._episode_time_weighted_sums[env_index, cost_index])
         elapsed_hours = float(self._episode_elapsed_hours[env_index])
         step_count = int(self._episode_step_counts[env_index])
         if elapsed_hours <= 0.0 or step_count <= 0:
@@ -164,7 +164,9 @@ class TimeAwareCompletedEpisodeCostAccumulator:
             contribution = weighted_sum / 24.0
         elif name in self._EVENT_COSTS:
             if raw_sum > 1.0 + self._EVENT_TOLERANCE:
-                raise ValueError(f"event cost {name} occurred more than once in one episode")
+                raise ValueError(
+                    f"event cost {name} occurred more than once in one episode"
+                )
             contribution = min(raw_sum, 1.0)
         elif name in self._DECISION_MEAN_COSTS:
             contribution = raw_sum / step_count
@@ -299,7 +301,10 @@ class TimeAwareCompletedEpisodeCostAccumulator:
         if state.get("schema_version") != self._STATE_VERSION:
             raise ValueError("episode estimator state schema version mismatch")
         raw_names = state.get("cost_names")
-        if not isinstance(raw_names, (list, tuple)) or tuple(raw_names) != self.schema.names:
+        if (
+            not isinstance(raw_names, (list, tuple))
+            or tuple(raw_names) != self.schema.names
+        ):
             raise ValueError("episode estimator state cost schema mismatch")
         if state.get("schema_digest") != self.schema.digest:
             raise ValueError("episode estimator state schema digest mismatch")
@@ -318,7 +323,10 @@ class TimeAwareCompletedEpisodeCostAccumulator:
             raise ValueError("episode estimator state payload is invalid") from error
         expected_cost_shape = self._episode_raw_sums.shape
         expected_env_shape = self._episode_elapsed_hours.shape
-        if raw_sums.shape != expected_cost_shape or weighted_sums.shape != expected_cost_shape:
+        if (
+            raw_sums.shape != expected_cost_shape
+            or weighted_sums.shape != expected_cost_shape
+        ):
             raise ValueError("episode estimator state cost shape mismatch")
         if elapsed.shape != expected_env_shape or raw_steps.shape != expected_env_shape:
             raise ValueError("episode estimator state environment shape mismatch")

@@ -323,7 +323,7 @@ class CostCriticPPO(PPO):
         metrics: dict[str, float] = {
             "gradient/continuous": family.continuous_gradient_norm,
             "gradient/event": family.event_gradient_norm,
-            "gradient/continuous_adapter": (family.continuous_adapter_gradient_norm),
+            "gradient/continuous_adapter": family.continuous_adapter_gradient_norm,
             "gradient/continuous_heads": family.continuous_head_gradient_norm,
             "gradient/event_adapter": family.event_adapter_gradient_norm,
             "gradient/event_heads": family.event_head_gradient_norm,
@@ -370,6 +370,22 @@ class CostCriticPPO(PPO):
             metrics[f"{prefix}/head_gradient_norm"] = report.head_gradient_norm
             if report.brier_score is not None:
                 metrics[f"{prefix}/brier_score"] = report.brier_score
+            if report.zero_only_brier_score is not None:
+                metrics[f"{prefix}/zero_only_brier_score"] = (
+                    report.zero_only_brier_score
+                )
+            if report.has_positive_support is not None:
+                metrics[f"{prefix}/has_positive_support"] = float(
+                    report.has_positive_support
+                )
+            if report.beats_zero_only_baseline is not None:
+                metrics[f"{prefix}/beats_zero_only_baseline"] = float(
+                    report.beats_zero_only_baseline
+                )
+            if report.eligible_for_promotion is not None:
+                metrics[f"{prefix}/eligible_for_promotion"] = float(
+                    report.eligible_for_promotion
+                )
             for bin_index, calibration_bin in enumerate(report.calibration_bins):
                 bin_prefix = f"{prefix}/calibration/{bin_index}"
                 metrics[f"{bin_prefix}/count"] = float(calibration_bin.count)

@@ -32,6 +32,24 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:
+    provider = getattr(model, "checkpoint_identity_payload", None)
+    if provider is None:
+        return None
+    if not callable(provider):
+        raise TypeError("checkpoint_identity_payload must be callable")
+    raw = provider()
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("checkpoint algorithm identity must be a non-empty object")
+    if any(not isinstance(key, str) or not key for key in raw):
+        raise ValueError("checkpoint algorithm identity keys must be non-empty strings")
+    payload = dict(raw)
+    canonical_json_bytes(payload)
+    return payload
+
+
 @dataclass(frozen=True, slots=True)
 class CheckpointManifest:
     digest: str
@@ -43,6 +61,8 @@ class CheckpointManifest:
     training_config_digest: str
     policy_digest: str
     policy_path: Path
+    algorithm_identity: dict[str, object] | None = None
+    algorithm_identity_digest: str | None = None
     schema_version: str = CHECKPOINT_MANIFEST_SCHEMA
 
     def __post_init__(self) -> None:
@@ -64,11 +84,33 @@ class CheckpointManifest:
             raise ValueError("observed timestep cannot precede requested timestep")
         if self.schema_version != CHECKPOINT_MANIFEST_SCHEMA:
             raise ValueError("unsupported checkpoint manifest schema")
+        if (self.algorithm_identity is None) != (
+            self.algorithm_identity_digest is None
+        ):
+            raise ValueError("checkpoint algorithm identity is incomplete")
+        if self.algorithm_identity is not None:
+            if not isinstance(self.algorithm_identity, dict) or not self.algorithm_identity:
+                raise ValueError("checkpoint algorithm identity must be a non-empty object")
+            if any(
+                not isinstance(key, str) or not key for key in self.algorithm_identity
+            ):
+                raise ValueError(
+                    "checkpoint algorithm identity keys must be non-empty strings"
+                )
+            canonical_json_bytes(self.algorithm_identity)
+            require_sha256(
+                self.algorithm_identity_digest,
+                field="algorithm_identity_digest",
+            )
+            if self.algorithm_identity_digest != content_digest(
+                self.algorithm_identity
+            ):
+                raise ValueError("checkpoint algorithm identity digest mismatch")
         if self.digest != content_digest(self.digest_payload()):
             raise ValueError("checkpoint manifest digest mismatch")
 
     def digest_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "algorithm": self.algorithm,
             "environment_digest": self.environment_digest,
             "observed_timestep": self.observed_timestep,
@@ -79,6 +121,35 @@ class CheckpointManifest:
             "seed": self.seed,
             "training_config_digest": self.training_config_digest,
         }
+        if self.algorithm_identity is not None:
+            payload["algorithm_identity"] = self.algorithm_identity
+            payload["algorithm_identity_digest"] = self.algorithm_identity_digest
+        return payload
+
+
+def validate_checkpoint_algorithm_identity(
+    manifest: CheckpointManifest,
+    expected_identity: dict[str, object] | None,
+) -> None:
+    """Fail closed when a checkpoint's optional algorithm identity differs."""
+
+    if expected_identity is None:
+        if manifest.algorithm_identity is not None:
+            raise ValueError("checkpoint algorithm identity mismatch")
+        return
+    if not isinstance(expected_identity, dict) or not expected_identity:
+        raise ValueError("expected algorithm identity must be a non-empty object")
+    if any(not isinstance(key, str) or not key for key in expected_identity):
+        raise ValueError("expected algorithm identity keys must be non-empty strings")
+    canonical_json_bytes(expected_identity)
+    if manifest.algorithm_identity is None:
+        raise ValueError("checkpoint algorithm identity is missing")
+    expected_digest = content_digest(expected_identity)
+    if (
+        manifest.algorithm_identity_digest != expected_digest
+        or manifest.algorithm_identity != expected_identity
+    ):
+        raise ValueError("checkpoint algorithm identity mismatch")
 
 
 def save_policy_without_runtime_state(model: SavablePolicy, target: str) -> None:
@@ -126,7 +197,13 @@ def publish_checkpoint(
         if not policy_path.is_file():
             raise FileNotFoundError("checkpoint model save did not create policy.zip")
         policy_digest = _file_digest(policy_path)
-        payload = {
+        algorithm_identity = _model_algorithm_identity(model)
+        algorithm_identity_digest = (
+            None
+            if algorithm_identity is None
+            else content_digest(algorithm_identity)
+        )
+        payload: dict[str, object] = {
             "algorithm": algorithm,
             "environment_digest": environment_digest,
             "observed_timestep": observed_timestep,
@@ -137,6 +214,9 @@ def publish_checkpoint(
             "seed": seed,
             "training_config_digest": training_config_digest,
         }
+        if algorithm_identity is not None:
+            payload["algorithm_identity"] = algorithm_identity
+            payload["algorithm_identity_digest"] = algorithm_identity_digest
         manifest = CheckpointManifest(
             digest=content_digest(payload),
             algorithm=algorithm,
@@ -147,6 +227,8 @@ def publish_checkpoint(
             training_config_digest=training_config_digest,
             policy_digest=policy_digest,
             policy_path=destination / CHECKPOINT_POLICY_NAME,
+            algorithm_identity=algorithm_identity,
+            algorithm_identity_digest=algorithm_identity_digest,
         )
         (staging / CHECKPOINT_MANIFEST_NAME).write_bytes(
             canonical_json_bytes(
@@ -172,6 +254,20 @@ def _required_integer(raw: dict[str, Any], name: str) -> int:
     return value
 
 
+def _optional_algorithm_identity(
+    raw: dict[str, Any],
+) -> tuple[dict[str, object] | None, str | None]:
+    identity = raw.get("algorithm_identity")
+    digest = raw.get("algorithm_identity_digest")
+    if identity is None and digest is None:
+        return None, None
+    if not isinstance(identity, dict) or not identity:
+        raise ValueError("checkpoint algorithm identity must be an object")
+    if not isinstance(digest, str):
+        raise ValueError("checkpoint algorithm identity digest must be a string")
+    return dict(identity), digest
+
+
 def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
     path = Path(path)
     if not path.is_file():
@@ -182,6 +278,7 @@ def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
     policy_file = raw.get("policy_path")
     if policy_file != CHECKPOINT_POLICY_NAME:
         raise ValueError("checkpoint policy file identity is invalid")
+    algorithm_identity, algorithm_identity_digest = _optional_algorithm_identity(raw)
     manifest = CheckpointManifest(
         digest=str(raw.get("digest")),
         algorithm=str(raw.get("algorithm")),
@@ -192,6 +289,8 @@ def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
         training_config_digest=str(raw.get("training_config_digest")),
         policy_digest=str(raw.get("policy_digest")),
         policy_path=path.parent / CHECKPOINT_POLICY_NAME,
+        algorithm_identity=algorithm_identity,
+        algorithm_identity_digest=algorithm_identity_digest,
         schema_version=str(raw.get("schema_version")),
     )
     if not manifest.policy_path.is_file():
@@ -276,4 +375,5 @@ __all__ = [
     "load_checkpoint_manifest",
     "publish_checkpoint",
     "save_policy_without_runtime_state",
+    "validate_checkpoint_algorithm_identity",
 ]

@@ -6,6 +6,7 @@ import math
 from typing import Final
 
 import numpy as np
+import torch
 from numpy.typing import ArrayLike, NDArray
 
 _DEFAULT_EPSILON: Final[float] = 1e-8
@@ -91,9 +92,28 @@ def combine_lagrangian_advantages(
     reward_advantages: ArrayLike,
     cost_advantages: ArrayLike,
     multipliers: ArrayLike,
-) -> NDArray[np.float64]:
-    """Return raw ``A_reward - sum(lambda_i * A_cost_i)`` in batch order."""
+    normalize_combined: bool = False,
+    normalize_reward: bool | None = None,
+    epsilon: float = _DEFAULT_EPSILON,
+) -> NDArray[np.floating[Any]]:
+    """Compose raw Lagrangian advantages and optionally normalize the result.
 
+    ``normalize_reward`` is retained as a compatibility alias for callers from
+    the first PR C draft. It now controls normalization of the final combined
+    vector; reward and cost columns are never normalized separately.
+    """
+
+    if not isinstance(normalize_combined, bool):
+        raise TypeError("normalize_combined must be a boolean")
+    if normalize_reward is not None:
+        if not isinstance(normalize_reward, bool):
+            raise TypeError("normalize_reward must be a boolean")
+        if normalize_combined and not normalize_reward:
+            raise ValueError("normalization flags disagree")
+        normalize_combined = normalize_reward
+    threshold = _validated_epsilon(epsilon)
+
+    original_reward = np.asarray(reward_advantages)
     reward_vector = _finite_float_array(
         reward_advantages,
         dimensions=1,
@@ -120,7 +140,19 @@ def combine_lagrangian_advantages(
     combined = reward_vector - penalty
     if not np.isfinite(combined).all():
         raise ValueError("combined Lagrangian advantages must be finite")
-    return np.asarray(combined, dtype=np.float64)
+    if not normalize_combined or combined.shape[0] <= 1:
+        return np.asarray(combined, dtype=np.float64)
+
+    torch_dtype = torch.float32 if original_reward.dtype == np.float32 else torch.float64
+    reward_tensor = torch.as_tensor(original_reward, dtype=torch_dtype)
+    penalty_tensor = torch.as_tensor(penalty, dtype=torch_dtype)
+    combined_tensor = reward_tensor - penalty_tensor
+    normalized_tensor = (combined_tensor - combined_tensor.mean()) / (
+        combined_tensor.std() + threshold
+    )
+    if not torch.isfinite(normalized_tensor).all():
+        raise ValueError("normalized Lagrangian advantages must be finite")
+    return normalized_tensor.detach().cpu().numpy()
 
 
 __all__ = [

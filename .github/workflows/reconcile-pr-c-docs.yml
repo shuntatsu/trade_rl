@@ -1,0 +1,39 @@
+name: Reconcile PR C documents
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Reconcile superseded contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/reconcile_pr_c_docs.py
+          rm .github/scripts/reconcile_pr_c_docs.py
+          rm .github/workflows/reconcile-pr-c-docs.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Commit reconciled documents
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "docs: supersede outdated PR C semantics"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

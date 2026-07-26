@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import gymnasium as gym
 import numpy as np
+import torch
 from gymnasium import spaces
 from stable_baselines3.common.vec_env import DummyVecEnv
 
@@ -112,3 +115,40 @@ def test_cost_checkpoint_identity_changes_with_lambda_or_architecture() -> None:
         baseline_environment.close()
         lambda_environment.close()
         width_environment.close()
+
+
+def test_cost_critic_ppo_save_load_round_trip_preserves_identity_and_state(
+    tmp_path: Path,
+) -> None:
+    from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
+
+    model, environment = _model(event_gae_lambda=1.0, event_hidden_dims=(16, 8))
+    loaded_environment = DummyVecEnv([_IdentityEnvironment])
+    try:
+        with torch.no_grad():
+            for index, parameter in enumerate(model.cost_critic.parameters()):
+                parameter.fill_(0.01 * (index + 1))
+        expected_identity = model.checkpoint_identity_payload()
+        expected_state = {
+            name: value.detach().clone()
+            for name, value in model.cost_critic.state_dict().items()
+        }
+        target = tmp_path / "cost-policy"
+        model.save(str(target))
+
+        loaded = CostCriticPPO.load(
+            str(target),
+            env=loaded_environment,
+            device="cpu",
+        )
+
+        assert loaded.checkpoint_identity_payload() == expected_identity
+        assert loaded.cost_schema.digest == model.cost_schema.digest
+        assert loaded.cost_continuous_hidden_dims == model.cost_continuous_hidden_dims
+        assert loaded.cost_event_hidden_dims == model.cost_event_hidden_dims
+        assert loaded.cost_critic.state_dict().keys() == expected_state.keys()
+        for name, expected in expected_state.items():
+            torch.testing.assert_close(loaded.cost_critic.state_dict()[name], expected)
+    finally:
+        environment.close()
+        loaded_environment.close()

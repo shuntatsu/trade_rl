@@ -1,0 +1,88 @@
+name: Format Task 7 GREEN
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Apply exact formatter replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("trade_rl/integrations/lagrangian_ppo.py"): [
+                  (
+                      '''        canonical_action_probe_evidence: (\n            CanonicalActionProbeEvidence | None\n        ) = None,''',
+                      '''        canonical_action_probe_evidence: (CanonicalActionProbeEvidence | None) = None,''',
+                  ),
+                  (
+                      '''            raise TypeError(\n                "canonical_action_probe_evidence has an invalid type"\n            )\n        self.canonical_action_probe_evidence = (\n            canonical_action_probe_evidence\n        )''',
+                      '''            raise TypeError("canonical_action_probe_evidence has an invalid type")\n        self.canonical_action_probe_evidence = canonical_action_probe_evidence''',
+                  ),
+                  (
+                      '''        probe_evidence = getattr(\n            self, "canonical_action_probe_evidence", None\n        )''',
+                      '''        probe_evidence = getattr(self, "canonical_action_probe_evidence", None)''',
+                  ),
+                  (
+                      '''            raise TypeError(\n                "canonical_action_probe_evidence has an invalid type"\n            )''',
+                      '''            raise TypeError("canonical_action_probe_evidence has an invalid type")''',
+                  ),
+                  (
+                      '''                "canonical_action_probe": (\n                    None\n                    if probe_evidence is None\n                    else probe_evidence.digest_payload()\n                ),''',
+                      '''                "canonical_action_probe": (\n                    None if probe_evidence is None else probe_evidence.digest_payload()\n                ),''',
+                  ),
+              ],
+              Path("trade_rl/integrations/sb3_training.py"): [
+                  (
+                      '''                    raise RuntimeError(\n                        "canonical action probe evidence is unavailable"\n                    )''',
+                      '''                    raise RuntimeError("canonical action probe evidence is unavailable")''',
+                  ),
+                  (
+                      '''                    "payload": (\n                        canonical_action_probe_evidence.digest_payload()\n                    ),''',
+                      '''                    "payload": (canonical_action_probe_evidence.digest_payload()),''',
+                  ),
+              ],
+          }
+          expected = {
+              (Path("trade_rl/integrations/lagrangian_ppo.py"), 3): 1,
+          }
+          for path, pairs in replacements.items():
+              content = path.read_text()
+              for index, (old, new) in enumerate(pairs):
+                  count = content.count(old)
+                  required = expected.get((path, index), 1)
+                  if count != required:
+                      raise SystemExit(
+                          f"{path} replacement {index}: expected {required}, found {count}"
+                      )
+                  content = content.replace(old, new)
+              path.write_text(content)
+          PY
+          rm .github/workflows/format-task7-green.yml
+          rm -f .github/workflows/task7-green.yml
+          git add -A
+          git diff --cached --check
+      - name: Commit formatted Task 7 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "style: format Task 7 probe wiring"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

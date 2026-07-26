@@ -1,0 +1,57 @@
+name: Format Task 8 diagnostics
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Apply exact formatter diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/lagrangian_diagnostics.py")
+          content = path.read_text()
+          replacements = (
+              (
+                  '''        raw_cost_advantage_statistics=tuple(\n            _vector_statistics(cost_advantages[:, index])\n            for index in range(len(names))\n        ),''',
+                  '''        raw_cost_advantage_statistics=tuple(\n            _vector_statistics(cost_advantages[:, index]) for index in range(len(names))\n        ),''',
+              ),
+              (
+                  '''            if not isinstance(report, DualUpdateReport) or report.name != name:\n                raise ValueError("report history constraint names do not match cost_names")''',
+                  '''            if not isinstance(report, DualUpdateReport) or report.name != name:\n                raise ValueError(\n                    "report history constraint names do not match cost_names"\n                )''',
+              ),
+          )
+          for index, (old, new) in enumerate(replacements):
+              if content.count(old) != 1:
+                  raise SystemExit(f"formatter replacement {index} mismatch")
+              content = content.replace(old, new)
+          path.write_text(content)
+          PY
+          rm .github/workflows/format-task8-diagnostics.yml
+          rm -f .github/workflows/task8-diagnostics-green.yml
+          git add -A
+          git diff --cached --check
+      - name: Commit formatted diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "style: format Lagrangian diagnostics"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"

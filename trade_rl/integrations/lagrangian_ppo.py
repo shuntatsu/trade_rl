@@ -113,6 +113,19 @@ class LagrangianPPO(CostCriticPPO):
         expected_shape = (len(self.lagrangian_schema.names),)
         if not isinstance(snapshot, np.ndarray) or snapshot.shape != expected_shape:
             self.frozen_lagrange_multipliers = controller.begin_rollout()
+        else:
+            normalized_snapshot = np.asarray(snapshot, dtype=np.float64).copy()
+            if not np.all(np.isfinite(normalized_snapshot)) or np.any(
+                normalized_snapshot < 0.0
+            ):
+                raise ValueError("frozen Lagrange multipliers must be finite and non-negative")
+            for index, spec in enumerate(self.lagrangian_schema.specs):
+                if normalized_snapshot[index] > spec.max_multiplier + 1e-12:
+                    raise ValueError(
+                        f"frozen Lagrange multiplier exceeds cap for {spec.name}"
+                    )
+            normalized_snapshot.flags.writeable = False
+            self.frozen_lagrange_multipliers = normalized_snapshot
 
         estimates = getattr(self, "last_constraint_estimates", None)
         if (
@@ -382,6 +395,14 @@ class LagrangianPPO(CostCriticPPO):
                 self.logger.record(f"{prefix}/ema_estimate", report.ema_estimate)
             if report.denominator is not None:
                 self.logger.record(f"{prefix}/denominator", report.denominator)
+
+    def checkpoint_identity_payload(self) -> dict[str, object]:
+        """Bind Lagrangian schema semantics into checkpoint identity."""
+
+        payload = super().checkpoint_identity_payload()
+        payload["lagrangian_schema_digest"] = self.lagrangian_schema.digest
+        payload["lagrangian_cost_names"] = list(self.lagrangian_schema.names)
+        return payload
 
     def train(self) -> None:
         """Train actor/value, then Cost Critics, then update dual state once."""

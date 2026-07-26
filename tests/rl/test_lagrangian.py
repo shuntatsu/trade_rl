@@ -50,10 +50,7 @@ def test_lagrangian_schema_preserves_canonical_order_and_identity() -> None:
     )
 
     assert schema.names == ("drawdown_excess", "drawdown_stop_event")
-    assert (
-        schema["drawdown_excess"].aggregation
-        is ConstraintAggregation.EPISODE_TIME_AREA
-    )
+    assert schema["drawdown_excess"].aggregation is ConstraintAggregation.EPISODE_TIME_AREA
     assert (
         schema["drawdown_stop_event"].aggregation
         is ConstraintAggregation.EPISODE_EVENT_RATE
@@ -110,13 +107,9 @@ def test_canonical_constraint_lookup_rejects_unknown_cost(lookup: object) -> Non
 def test_lagrangian_schema_digest_changes_with_dual_semantics() -> None:
     baseline = LagrangianSchema((_spec("drawdown_excess"),))
     changed_budget = LagrangianSchema((_spec("drawdown_excess", budget=0.01),))
-    changed_rate = LagrangianSchema(
-        (_spec("drawdown_excess", dual_learning_rate=0.1),)
-    )
+    changed_rate = LagrangianSchema((_spec("drawdown_excess", dual_learning_rate=0.1),))
     changed_ema = LagrangianSchema((_spec("drawdown_excess", ema_beta=0.95),))
-    changed_cap = LagrangianSchema(
-        (_spec("drawdown_excess", max_multiplier=20.0),)
-    )
+    changed_cap = LagrangianSchema((_spec("drawdown_excess", max_multiplier=20.0),))
     changed_schedule = LagrangianSchema(
         (_spec("drawdown_excess", warmup_rollouts=1, update_interval_rollouts=1),)
     )

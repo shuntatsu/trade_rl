@@ -17,7 +17,7 @@ def _actor_stub(*, multipliers: np.ndarray, normalize: bool) -> Any:
     return model
 
 
-def test_actor_normalizes_only_after_raw_lagrangian_composition() -> None:
+def test_actor_applies_pinned_normalization_after_raw_composition() -> None:
     model = _actor_stub(
         multipliers=np.asarray([2.0, 0.5]),
         normalize=True,

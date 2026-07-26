@@ -105,6 +105,7 @@ def _lagrangian_schema(
         max_multipliers=(10.0,) * cost_count,
         warmup_rollouts=(0,) * cost_count,
         update_interval_rollouts=(1,) * cost_count,
+        minimum_completed_episodes=(1,) * cost_count,
     )
 
 
@@ -262,9 +263,14 @@ def test_actor_then_cost_critic_then_dual_update_order(
 
     def dual_update(
         estimates: Mapping[str, object],
+        *,
+        censored_episode_count: int,
     ) -> object:
         events.append("dual")
-        return original_dual_update(estimates)  # type: ignore[arg-type]
+        return original_dual_update(
+            estimates,  # type: ignore[arg-type]
+            censored_episode_count=censored_episode_count,
+        )
 
     monkeypatch.setattr(model.policy.optimizer, "step", policy_step)
     monkeypatch.setattr(model, "_train_cost_critic", cost_train)
@@ -302,7 +308,7 @@ def test_rollout_without_completed_episode_skips_every_dual_update() -> None:
         assert tuple(model.last_dual_update_reports) == CONSTRAINT_COST_NAMES
         assert all(
             report.updated is False
-            and report.skip_reason == "missing_estimate"
+            and report.skip_reason == "missing_estimate_or_pending_support"
             and report.denominator is None
             for report in model.last_dual_update_reports.values()
         )

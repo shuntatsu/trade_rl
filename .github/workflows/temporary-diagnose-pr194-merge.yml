@@ -1,0 +1,34 @@
+name: Temporary Diagnose PR194 Merge
+
+on:
+  push:
+    branches:
+      - agent/training-observability-diagnostics
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Diagnose merge with main
+        shell: bash
+        run: |
+          set +e
+          git fetch origin main
+          git merge --no-commit --no-ff origin/main
+          status=$?
+          echo "merge_status=$status"
+          echo "=== unmerged files ==="
+          git diff --name-only --diff-filter=U
+          echo "=== conflict summaries ==="
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            echo "--- $file ---"
+            git diff --cc -- "$file" | sed -n '1,240p'
+          done < <(git diff --name-only --diff-filter=U)
+          exit "$status"

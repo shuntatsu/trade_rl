@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, ClassVar, cast
 
 import numpy as np
@@ -152,6 +152,7 @@ class LagrangianPPO(CostCriticPPO):
         if bool(buffer.generator_ready):
             return
 
+        tensor_names: tuple[str, ...]
         if isinstance(buffer, DictRolloutBuffer):
             for key, observation in tuple(buffer.observations.items()):
                 buffer.observations[key] = buffer.swap_and_flatten(observation)
@@ -219,12 +220,18 @@ class LagrangianPPO(CostCriticPPO):
 
         self.policy.set_training_mode(True)
         self._update_learning_rate(self.policy.optimizer)
-        clip_range = self.clip_range(self._current_progress_remaining)
-        clip_range_vf = (
-            None
-            if self.clip_range_vf is None
-            else self.clip_range_vf(self._current_progress_remaining)
-        )
+        clip_range_schedule = cast(Callable[[float], float], self.clip_range)
+        clip_range = clip_range_schedule(self._current_progress_remaining)
+        if self.clip_range_vf is None:
+            clip_range_vf = None
+        else:
+            clip_range_vf_schedule = cast(
+                Callable[[float], float],
+                self.clip_range_vf,
+            )
+            clip_range_vf = clip_range_vf_schedule(
+                self._current_progress_remaining
+            )
 
         entropy_losses: list[float] = []
         policy_gradient_losses: list[float] = []

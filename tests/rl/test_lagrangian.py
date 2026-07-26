@@ -23,6 +23,7 @@ def _spec(
     max_multiplier: float = 10.0,
     warmup_rollouts: int = 2,
     update_interval_rollouts: int = 3,
+    minimum_completed_episodes: int = 1,
 ) -> LagrangianConstraintSpec:
     return LagrangianConstraintSpec(
         name=name,
@@ -38,6 +39,7 @@ def _spec(
         max_multiplier=max_multiplier,
         warmup_rollouts=warmup_rollouts,
         update_interval_rollouts=update_interval_rollouts,
+        minimum_completed_episodes=minimum_completed_episodes,
     )
 
 
@@ -45,7 +47,7 @@ def test_lagrangian_schema_preserves_canonical_order_and_identity() -> None:
     schema = LagrangianSchema(
         (
             _spec("drawdown_excess"),
-            _spec("drawdown_stop_event"),
+            _spec("drawdown_stop_event", minimum_completed_episodes=20),
         )
     )
 
@@ -57,11 +59,15 @@ def test_lagrangian_schema_preserves_canonical_order_and_identity() -> None:
         schema["drawdown_stop_event"].aggregation
         is ConstraintAggregation.EPISODE_EVENT_RATE
     )
+    assert schema["drawdown_stop_event"].minimum_completed_episodes == 20
     assert len(schema.digest) == 64
     assert schema.digest_payload()["names"] == list(schema.names)
     assert schema["drawdown_excess"].digest_payload()["unit"] == (
         "drawdown_excess_area_days"
     )
+    assert schema["drawdown_stop_event"].digest_payload()[
+        "minimum_completed_episodes"
+    ] == 20
 
 
 def test_canonical_constraint_aggregations_cover_every_cost() -> None:
@@ -115,6 +121,9 @@ def test_lagrangian_schema_digest_changes_with_dual_semantics() -> None:
     changed_schedule = LagrangianSchema(
         (_spec("drawdown_excess", warmup_rollouts=1, update_interval_rollouts=1),)
     )
+    changed_support = LagrangianSchema(
+        (_spec("drawdown_excess", minimum_completed_episodes=4),)
+    )
 
     assert (
         len(
@@ -125,9 +134,10 @@ def test_lagrangian_schema_digest_changes_with_dual_semantics() -> None:
                 changed_ema.digest,
                 changed_cap.digest,
                 changed_schedule.digest,
+                changed_support.digest,
             }
         )
-        == 6
+        == 7
     )
 
 
@@ -147,6 +157,7 @@ def test_lagrangian_schema_digest_changes_with_dual_semantics() -> None:
         ({"max_multiplier": 0.0}, "max_multiplier"),
         ({"warmup_rollouts": -1}, "warmup_rollouts"),
         ({"update_interval_rollouts": 0}, "update_interval_rollouts"),
+        ({"minimum_completed_episodes": 0}, "minimum_completed_episodes"),
     ],
 )
 def test_lagrangian_constraint_spec_rejects_invalid_values(
@@ -169,6 +180,7 @@ def test_lagrangian_constraint_spec_rejects_unknown_cost() -> None:
             max_multiplier=10.0,
             warmup_rollouts=0,
             update_interval_rollouts=1,
+            minimum_completed_episodes=1,
         )
 
 

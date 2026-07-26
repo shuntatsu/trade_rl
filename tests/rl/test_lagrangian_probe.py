@@ -183,7 +183,7 @@ def test_probe_budget_violation_is_warning_evidence() -> None:
             mode=ActionMode.TARGET_WEIGHT,
             recorded_actions=actions,
             close_calls=closes,
-            cost_value=0.5,
+            cost_value=12.0,
         ),
         schema=_schema(budget=0.1),
         episode_count=2,

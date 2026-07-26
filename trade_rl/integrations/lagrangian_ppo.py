@@ -229,9 +229,7 @@ class LagrangianPPO(CostCriticPPO):
             device=reward_advantages.device,
         )
         if self.normalize_advantage and len(advantages) > 1:
-            advantages = (advantages - advantages.mean()) / (
-                advantages.std() + 1e-8
-            )
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         return advantages
 
     def _train_actor_with_lagrangian_advantages(self) -> None:

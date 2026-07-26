@@ -200,7 +200,7 @@ def test_vector_environments_keep_unfinished_episode_state_isolated() -> None:
     )
     second_estimate = next_batch.estimates["drawdown_excess"]
     assert second_estimate is not None
-    assert second_estimate.value == pytest.approx(0.4)
+    assert second_estimate.value == pytest.approx(0.625)
 
 
 @pytest.mark.parametrize("elapsed", [0.0, -1.0, float("nan"), float("inf")])

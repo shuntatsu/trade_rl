@@ -15,6 +15,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.utils import obs_as_tensor
 from stable_baselines3.common.vec_env import VecEnv
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.integrations.cost_rollout_buffer import CostRolloutStorage
 from trade_rl.rl.cost_critics import FamilySeparatedCostCritic
 from trade_rl.rl.cost_diagnostics import (
@@ -490,6 +491,24 @@ class CostCriticPPO(PPO):
         self.last_cost_training_metrics = metrics
         for name, value in metrics.items():
             self.logger.record(f"cost/{name}", value)
+
+    def checkpoint_identity_payload(self) -> dict[str, object]:
+        """Return deterministic Cost Critic and rollout identity for checkpoints."""
+
+        rollout_schema = {
+            "schema_version": "cost_rollout_storage_v1",
+            "buffer_size": self.cost_rollout_storage.buffer_size,
+            "n_envs": self.cost_rollout_storage.n_envs,
+            "cost_names": list(self.cost_schema.names),
+            "cost_schema_digest": self.cost_schema.digest,
+        }
+        return {
+            "algorithm": self.algorithm_identifier,
+            "architecture_digest": self.cost_critic.architecture_digest,
+            "cost_names": list(self.cost_schema.names),
+            "cost_schema_digest": self.cost_schema.digest,
+            "rollout_schema_digest": content_digest(rollout_schema),
+        }
 
     def train(self) -> None:
         """Run the unchanged PPO update, then the isolated Cost Critic update."""

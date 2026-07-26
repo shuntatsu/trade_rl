@@ -80,9 +80,7 @@ class LagrangianDualController:
     def __init__(self, schema: LagrangianSchema) -> None:
         if not isinstance(schema, LagrangianSchema):
             raise TypeError("schema must be a LagrangianSchema")
-        if any(
-            not isinstance(spec, LagrangianConstraintSpec) for spec in schema.specs
-        ):
+        if any(not isinstance(spec, LagrangianConstraintSpec) for spec in schema.specs):
             raise TypeError(
                 "schema constraint specs must include minimum completed episode support"
             )
@@ -270,9 +268,7 @@ class LagrangianDualController:
             residual = ema_after - spec.budget
             if not math.isfinite(residual):
                 raise ValueError("constraint residual became non-finite")
-            proposed_multiplier = (
-                multiplier_before + spec.dual_learning_rate * residual
-            )
+            proposed_multiplier = multiplier_before + spec.dual_learning_rate * residual
             if not math.isfinite(proposed_multiplier):
                 raise ValueError("Lagrange multiplier update became non-finite")
             multiplier_after = float(

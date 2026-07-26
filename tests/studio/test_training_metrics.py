@@ -92,6 +92,42 @@ def test_reader_merges_resumed_event_directories_and_uses_cursor(
     assert [point.step for point in page.series[0].points] == [300]
 
 
+def test_generation_remains_stable_when_event_file_is_appended(tmp_path: Path) -> None:
+    run = (
+        tmp_path
+        / "research"
+        / ".staging"
+        / "run-metrics"
+        / "members"
+        / "member-000"
+        / "tensorboard"
+        / "seed-3-ppo"
+    )
+    writer = SummaryWriter(log_dir=run)
+    writer.add_scalar("train/learning_rate", 1.2e-4, 100)
+    writer.flush()
+    reader = StudioTrainingMetricsReader(settings(tmp_path))
+    job = _job(tmp_path)
+    initial = reader.status(job, seed=3)
+
+    writer.add_scalar("train/learning_rate", 1.0e-4, 200)
+    writer.flush()
+    updated = reader.status(job, seed=3)
+    page = reader.scalars(
+        job,
+        seed=3,
+        tags=("train/learning_rate",),
+        after_step=100,
+        limit=512,
+        generation=initial.generation,
+    )
+    writer.close()
+
+    assert updated.generation == initial.generation
+    assert not page.reset_required
+    assert [point.step for point in page.series[0].points] == [200]
+
+
 def test_reader_requests_reset_when_generation_changes(tmp_path: Path) -> None:
     _write_events(tmp_path)
     reader = StudioTrainingMetricsReader(settings(tmp_path))

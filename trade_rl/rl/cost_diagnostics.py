@@ -190,7 +190,9 @@ def _precision_recall_inputs(
         true_positive = int(
             np.count_nonzero(predicted_positive & np.equal(labels, 1.0))
         )
-        precision.append(0.0 if predicted_count == 0 else true_positive / predicted_count)
+        precision.append(
+            0.0 if predicted_count == 0 else true_positive / predicted_count
+        )
         recall.append(0.0 if positive_count == 0 else true_positive / positive_count)
     return PrecisionRecallInputs(
         thresholds=tuple(float(value) for value in thresholds),

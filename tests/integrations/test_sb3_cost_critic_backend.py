@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -9,7 +8,6 @@ import pytest
 from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.integrations import sb3_training
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.rl.rollout_memory import estimate_ppo_rollout_buffer_bytes
 from trade_rl.rl.training import ResidualTrainingConfig

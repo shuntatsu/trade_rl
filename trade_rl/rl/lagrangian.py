@@ -10,11 +10,11 @@ from typing import TypeVar
 import numpy as np
 
 from trade_rl.rl.lagrangian_statistics import (
+    LagrangianConstraintSpec as BaseLagrangianConstraintSpec,
     CompletedEpisodeBatch,
     CompletedEpisodeCostAccumulator,
     ConstraintAggregation,
     ConstraintEstimate,
-    LagrangianConstraintSpec as BaseLagrangianConstraintSpec,
     LagrangianSchema,
     canonical_constraint_aggregation,
     canonical_constraint_unit,
@@ -28,13 +28,13 @@ class LagrangianConstraintSpec(BaseLagrangianConstraintSpec):
     minimum_completed_episodes: int
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        BaseLagrangianConstraintSpec.__post_init__(self)
         value = self.minimum_completed_episodes
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError("minimum_completed_episodes must be a positive integer")
 
     def digest_payload(self) -> dict[str, object]:
-        payload = super().digest_payload()
+        payload = BaseLagrangianConstraintSpec.digest_payload(self)
         payload["minimum_completed_episodes"] = self.minimum_completed_episodes
         return payload
 

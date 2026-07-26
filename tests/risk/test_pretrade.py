@@ -3,7 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.risk.pretrade import (
+    PreTradeRisk,
+    PreTradeRiskConfig,
+    RiskConstrainedTarget,
+)
 
 
 def test_soft_turnover_limit_applies_to_valid_rebalance() -> None:
@@ -145,3 +149,32 @@ def test_disabled_turnover_throttle_does_not_slice_direct_target() -> None:
     )
     np.testing.assert_allclose(result.weights, [0.4, -0.4])
     assert "max_turnover" not in result.reasons
+
+
+def test_pretrade_result_preserves_copied_pipeline_stages() -> None:
+    proposal = np.array([0.8, -0.2])
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(max_gross=1.0, max_abs_weight=0.4, max_turnover=2.0)
+    )
+
+    result = risk.constrain(proposal, current=np.zeros(2), drawdown=0.0)
+    proposal[:] = 0.0
+
+    np.testing.assert_allclose(result.proposal_weights, np.array([0.8, -0.2]))
+    np.testing.assert_allclose(result.pretrade_weights, result.weights)
+    assert result.proposal_weights is not proposal
+    assert result.pretrade_weights is not result.weights
+
+
+def test_risk_target_rejects_mismatched_pipeline_stage_shapes() -> None:
+    with pytest.raises(ValueError, match="pipeline stages must have the same shape"):
+        RiskConstrainedTarget(
+            weights=np.array([0.1, -0.1]),
+            requested_turnover=0.2,
+            constrained_turnover=0.2,
+            was_constrained=False,
+            reasons=(),
+            risk_scale=1.0,
+            proposal_weights=np.array([0.1]),
+            pretrade_weights=np.array([0.1, -0.1]),
+        )

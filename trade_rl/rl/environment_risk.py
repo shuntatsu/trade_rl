@@ -119,6 +119,10 @@ class EnvironmentRiskProjector:
             risk_scale=pretrade.risk_scale,
             projection_l1=float(np.abs(target - final_weights).sum()),
             turnover_overridden=pretrade.turnover_overridden,
+            proposal_weights=target,
+            pretrade_weights=pretrade.weights,
+            max_gross=pretrade.max_gross,
+            drawdown_budget=pretrade.drawdown_budget,
         )
 
 

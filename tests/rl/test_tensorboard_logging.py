@@ -26,8 +26,16 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
         "rewards": np.array([1.0, 3.0]),
         "actions": np.array([[-0.25, 0.75]]),
         "infos": [
-            {"portfolio_value": 101.0, "drawdown": 0.1, "interval_cost": 0.5},
-            {"portfolio_value": 103.0, "drawdown": 0.2, "interval_cost": 0.7},
+            {
+                "portfolio_value_after": 101.0,
+                "drawdown_after": 0.1,
+                "interval_cost": 0.5,
+            },
+            {
+                "portfolio_value_after": 103.0,
+                "drawdown_after": 0.2,
+                "interval_cost": 0.7,
+            },
         ],
     }
     assert callback._on_step()
@@ -40,6 +48,21 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
     assert logger.values["trade_rl/action_abs_max"] == pytest.approx(0.75)
 
 
+def test_tensorboard_callback_ignores_noncanonical_info_aliases() -> None:
+    callback = build_tensorboard_metrics_callback(enabled=True)
+    assert callback is not None
+    logger = FakeLogger()
+    callback.model = SimpleNamespace(logger=logger)
+    callback.locals = {
+        "rewards": (),
+        "actions": (),
+        "infos": [{"portfolio_value": 101.0, "drawdown": 0.1}],
+    }
+    assert callback._on_step()
+    callback._on_rollout_end()
+    assert logger.values == {}
+
+
 def test_tensorboard_callback_skips_missing_malformed_and_non_finite_values() -> None:
     callback = build_tensorboard_metrics_callback(enabled=True)
     assert callback is not None
@@ -48,7 +71,7 @@ def test_tensorboard_callback_skips_missing_malformed_and_non_finite_values() ->
     callback.locals = {
         "rewards": [float("nan"), "bad"],
         "actions": None,
-        "infos": [{"portfolio_value": float("inf")}, object()],
+        "infos": [{"portfolio_value_after": float("inf")}, object()],
     }
     assert callback._on_step()
     callback._on_rollout_end()

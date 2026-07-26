@@ -797,14 +797,10 @@ class StableBaselines3Backend:
                     "schema_digest": algorithm_config.lagrangian_schema.digest,
                 }
                 if canonical_action_probe_evidence is None:
-                    raise RuntimeError(
-                        "canonical action probe evidence is unavailable"
-                    )
+                    raise RuntimeError("canonical action probe evidence is unavailable")
                 architecture_details["lagrangian_probe"] = {
                     "digest": canonical_action_probe_evidence.digest,
-                    "payload": (
-                        canonical_action_probe_evidence.digest_payload()
-                    ),
+                    "payload": (canonical_action_probe_evidence.digest_payload()),
                     "violated_costs": list(
                         canonical_action_probe_evidence.violated_costs
                     ),

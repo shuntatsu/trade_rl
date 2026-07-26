@@ -22,12 +22,22 @@ jobs:
       - name: Reconcile superseded contracts
         shell: bash
         run: |
-          set -euo pipefail
-          python .github/scripts/reconcile_pr_c_docs.py
-          rm .github/scripts/reconcile_pr_c_docs.py
-          rm .github/workflows/reconcile-pr-c-docs.yml
-          git add -A
-          git diff --cached --check
+          set -o pipefail
+          {
+            python .github/scripts/reconcile_pr_c_docs.py
+            rm .github/scripts/reconcile_pr_c_docs.py
+            rm .github/workflows/reconcile-pr-c-docs.yml
+            git add -A
+            git diff --cached --check
+          } 2>&1 | tee reconcile-pr-c.log
+
+      - name: Upload reconciliation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reconcile-pr-c-diagnostics
+          path: reconcile-pr-c.log
+          if-no-files-found: ignore
 
       - name: Commit reconciled documents
         shell: bash

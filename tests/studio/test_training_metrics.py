@@ -143,6 +143,18 @@ def test_reader_requests_reset_when_generation_changes(tmp_path: Path) -> None:
     assert page.next_step == 0
 
 
+def test_reader_rejects_symlinked_artifact_root_before_resolution(
+    tmp_path: Path,
+) -> None:
+    real_root = tmp_path / "real-research"
+    real_root.mkdir()
+    (tmp_path / "research").symlink_to(real_root, target_is_directory=True)
+    reader = StudioTrainingMetricsReader(settings(tmp_path))
+
+    with pytest.raises(ArtifactInvalid, match="symlink"):
+        reader.status(_job(tmp_path), seed=3)
+
+
 def test_reader_rejects_unknown_tags_and_symlinks(tmp_path: Path) -> None:
     _write_events(tmp_path)
     reader = StudioTrainingMetricsReader(settings(tmp_path))

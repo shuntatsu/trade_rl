@@ -109,6 +109,8 @@ class CostCriticPPO(PPO):
             torch.cuda.set_rng_state_all(cuda_states)
 
     def _setup_model(self) -> None:
+        self.cost_continuous_hidden_dims = tuple(self.cost_continuous_hidden_dims)
+        self.cost_event_hidden_dims = tuple(self.cost_event_hidden_dims)
         super()._setup_model()
         features_extractor = getattr(self.policy, "features_extractor", None)
         input_dim = getattr(features_extractor, "features_dim", None)

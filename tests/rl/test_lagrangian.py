@@ -75,6 +75,11 @@ def test_canonical_constraint_aggregations_cover_every_cost() -> None:
     } == expected
 
 
+def test_canonical_constraint_aggregation_rejects_unknown_cost() -> None:
+    with pytest.raises(ValueError, match="unknown constraint cost"):
+        canonical_constraint_aggregation("unknown")
+
+
 def test_lagrangian_schema_digest_changes_with_dual_semantics() -> None:
     baseline = LagrangianSchema((_spec("drawdown_excess"),))
     changed_budget = LagrangianSchema((_spec("drawdown_excess", budget=0.01),))

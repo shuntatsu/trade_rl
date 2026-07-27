@@ -29,9 +29,7 @@ _PROTECTED_ROOTS = (
     _PACKAGE_ROOT / "workflows",
     _PACKAGE_ROOT / "integrations",
 )
-_WALK_FORWARD_CONFIG = Path(
-    "examples/binance-multitimeframe/walk-forward-full.json"
-)
+_WALK_FORWARD_CONFIG = Path("examples/binance-multitimeframe/walk-forward-full.json")
 
 
 def test_c2_public_api_is_available() -> None:

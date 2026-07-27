@@ -1,0 +1,66 @@
+name: PR226 profile parser updater
+
+on:
+  push:
+    branches:
+      - agent/constrained-ppo-pr-d-profiles
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr226-profile-parser-updater
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout profile branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/constrained-ppo-pr-d-profiles
+          fetch-depth: 0
+
+      - name: Extend JSON tuple normalization
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/training_run.py")
+          source = path.read_text(encoding="utf-8")
+          old = '''        training_data = _tuple_fields(
+              _mapping(payload.get("training"), field="training"),
+              "seeds",
+              "policy_net_arch",
+              "value_net_arch",
+          )'''
+          new = '''        training_data = _tuple_fields(
+              _mapping(payload.get("training"), field="training"),
+              "seeds",
+              "policy_net_arch",
+              "value_net_arch",
+              "cost_continuous_hidden_dims",
+              "cost_event_hidden_dims",
+              "lagrangian_budgets",
+              "lagrangian_dual_learning_rates",
+              "lagrangian_ema_betas",
+              "lagrangian_initial_multipliers",
+              "lagrangian_max_multipliers",
+              "lagrangian_warmup_rollouts",
+              "lagrangian_update_interval_rollouts",
+              "lagrangian_minimum_completed_episodes",
+          )'''
+          if source.count(old) != 1:
+              raise SystemExit("expected exactly one training tuple normalization block")
+          path.write_text(source.replace(old, new), encoding="utf-8")
+          PY
+
+          rm .github/workflows/pr226-profile-parser-updater.yml
+
+          git config user.name "trade-rl profile updater"
+          git config user.email "actions@users.noreply.github.com"
+          git add trade_rl/workflows/training_run.py .github/workflows/pr226-profile-parser-updater.yml
+          git commit -m "fix: parse constrained profile tuple fields"
+          git push origin HEAD:agent/constrained-ppo-pr-d-profiles

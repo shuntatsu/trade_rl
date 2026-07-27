@@ -143,25 +143,92 @@ class C3PredictionEvidence:
             raise ValueError("C3 prediction scores do not match persisted decision")
 
 
+def create_c3_prediction_evidence(
+    *,
+    result_digest: str,
+    scenario_library_digest: str,
+    scenario_set_digest: str,
+    candidate_digests: tuple[str, ...],
+    predicted_score: np.ndarray,
+    predicted_mean_advantage: np.ndarray,
+    predicted_loss_cvar: np.ndarray,
+    predicted_expected_turnover: np.ndarray,
+    scenario_anchor_indices: np.ndarray,
+    scenario_distances: np.ndarray,
+) -> C3PredictionEvidence:
+    """Create prediction evidence with a canonical digest."""
+
+    provisional = C3PredictionEvidence.__new__(C3PredictionEvidence)
+    object.__setattr__(provisional, "result_digest", result_digest)
+    object.__setattr__(provisional, "scenario_library_digest", scenario_library_digest)
+    object.__setattr__(provisional, "scenario_set_digest", scenario_set_digest)
+    object.__setattr__(provisional, "candidate_digests", candidate_digests)
+    object.__setattr__(provisional, "predicted_score", predicted_score)
+    object.__setattr__(provisional, "predicted_mean_advantage", predicted_mean_advantage)
+    object.__setattr__(provisional, "predicted_loss_cvar", predicted_loss_cvar)
+    object.__setattr__(
+        provisional, "predicted_expected_turnover", predicted_expected_turnover
+    )
+    object.__setattr__(provisional, "scenario_anchor_indices", scenario_anchor_indices)
+    object.__setattr__(provisional, "scenario_distances", scenario_distances)
+    object.__setattr__(provisional, "schema_version", C3_PREDICTION_EVIDENCE_SCHEMA)
+    object.__setattr__(provisional, "evidence_digest", "0" * 64)
+
+    candidate_count = len(candidate_digests)
+    score = _readonly_float_vector(
+        "predicted_score", predicted_score, size=candidate_count
+    )
+    mean_advantage = _readonly_float_vector(
+        "predicted_mean_advantage", predicted_mean_advantage, size=candidate_count
+    )
+    loss_cvar = _readonly_float_vector(
+        "predicted_loss_cvar", predicted_loss_cvar, size=candidate_count
+    )
+    expected_turnover = _readonly_float_vector(
+        "predicted_expected_turnover",
+        predicted_expected_turnover,
+        size=candidate_count,
+    )
+    anchors = _readonly_int_vector(
+        "scenario_anchor_indices", scenario_anchor_indices
+    )
+    distances = _readonly_float_vector(
+        "scenario_distances", scenario_distances, size=anchors.size
+    )
+    payload = {
+        "candidate_digests": candidate_digests,
+        "predicted_expected_turnover": _array_payload(expected_turnover),
+        "predicted_loss_cvar": _array_payload(loss_cvar),
+        "predicted_mean_advantage": _array_payload(mean_advantage),
+        "predicted_score": _array_payload(score),
+        "result_digest": result_digest,
+        "scenario_anchor_indices": _array_payload(anchors),
+        "scenario_distances": _array_payload(distances),
+        "scenario_library_digest": scenario_library_digest,
+        "scenario_set_digest": scenario_set_digest,
+        "schema_version": C3_PREDICTION_EVIDENCE_SCHEMA,
+    }
+    return C3PredictionEvidence(
+        result_digest=result_digest,
+        scenario_library_digest=scenario_library_digest,
+        scenario_set_digest=scenario_set_digest,
+        candidate_digests=candidate_digests,
+        predicted_score=score,
+        predicted_mean_advantage=mean_advantage,
+        predicted_loss_cvar=loss_cvar,
+        predicted_expected_turnover=expected_turnover,
+        scenario_anchor_indices=anchors,
+        scenario_distances=distances,
+        evidence_digest=content_digest(payload),
+    )
+
+
 def build_c3_prediction_evidence(
     result: CausalScenarioEvaluationResult,
 ) -> C3PredictionEvidence:
     if not isinstance(result, CausalScenarioEvaluationResult):
         raise TypeError("result must be CausalScenarioEvaluationResult")
-    payload = {
-        "candidate_digests": result.candidate_digests,
-        "predicted_expected_turnover": _array_payload(result.expected_filled_turnover),
-        "predicted_loss_cvar": _array_payload(result.loss_cvar),
-        "predicted_mean_advantage": _array_payload(result.mean_advantage),
-        "predicted_score": _array_payload(result.score),
-        "result_digest": result.result_digest,
-        "scenario_anchor_indices": _array_payload(result.scenario_anchor_indices),
-        "scenario_distances": _array_payload(result.scenario_distances),
-        "scenario_library_digest": result.scenario_library_digest,
-        "scenario_set_digest": result.scenario_set_digest,
-        "schema_version": C3_PREDICTION_EVIDENCE_SCHEMA,
-    }
-    return C3PredictionEvidence(
+    return create_c3_prediction_evidence(
         result_digest=result.result_digest,
         scenario_library_digest=result.scenario_library_digest,
         scenario_set_digest=result.scenario_set_digest,
@@ -172,7 +239,6 @@ def build_c3_prediction_evidence(
         predicted_expected_turnover=result.expected_filled_turnover,
         scenario_anchor_indices=result.scenario_anchor_indices,
         scenario_distances=result.scenario_distances,
-        evidence_digest=content_digest(payload),
     )
 
 
@@ -180,4 +246,5 @@ __all__ = [
     "C3_PREDICTION_EVIDENCE_SCHEMA",
     "C3PredictionEvidence",
     "build_c3_prediction_evidence",
+    "create_c3_prediction_evidence",
 ]

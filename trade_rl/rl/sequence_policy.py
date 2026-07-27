@@ -204,10 +204,6 @@ class SequencePolicyArchitecture:
             )
         if any(value <= 0 for value in self.input_channels.values()):
             raise ValueError("sequence input channels must be positive")
-        if any(value % 3 != 0 for value in self.input_channels.values()):
-            raise ValueError(
-                "sequence input channels must contain values/availability/staleness planes"
-            )
         if any(value <= 0 for value in self.window_lengths.values()):
             raise ValueError("sequence window lengths must be positive")
         if any(value <= 0 for value in self.latent_dims.values()):

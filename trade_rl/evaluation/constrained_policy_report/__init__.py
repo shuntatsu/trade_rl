@@ -16,7 +16,6 @@ from trade_rl.evaluation.constrained_policy_report._observations import (
     ConstraintPolicyObservation,
 )
 
-
 __all__ = [
     "ConstrainedPolicyEligibility",
     "ConstrainedPolicyReport",

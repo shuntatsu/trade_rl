@@ -14,6 +14,8 @@ from trade_rl.domain.constraint_contracts import (
     ConstraintAggregation,
     canonical_constraint_aggregation,
     canonical_constraint_unit,
+)
+from trade_rl.domain.constraint_contracts import (
     validate_constraint_name as _validate_constraint_name,
 )
 from trade_rl.rl.lagrangian_episode import EpisodeCompletionKind

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,16 +110,28 @@ def _constant_bool(node: ast.expr) -> bool | None:
     return None
 
 
-def _resolve_constant_if_expression(node: ast.IfExp) -> ast.expr | None:
-    current: ast.expr = node
-    changed = False
-    while isinstance(current, ast.IfExp):
-        condition = _constant_bool(current.test)
+class _ConstantIfSimplifier(ast.NodeTransformer):
+    def __init__(self) -> None:
+        self.changed = False
+
+    def visit_IfExp(self, node: ast.IfExp) -> ast.expr:
+        node = self.generic_visit(node)
+        if not isinstance(node, ast.IfExp):
+            return node
+        condition = _constant_bool(node.test)
         if condition is None:
-            return current if changed else None
-        current = current.body if condition else current.orelse
-        changed = True
-    return current if changed else None
+            return node
+        self.changed = True
+        chosen = node.body if condition else node.orelse
+        return ast.copy_location(chosen, node)
+
+
+def _resolved_expression(node: ast.IfExp) -> ast.expr | None:
+    simplifier = _ConstantIfSimplifier()
+    resolved = simplifier.visit(copy.deepcopy(node))
+    if not simplifier.changed or not isinstance(resolved, ast.expr):
+        return None
+    return ast.fix_missing_locations(resolved)
 
 
 def _char_column(line: str, byte_column: int) -> int:
@@ -139,7 +152,7 @@ def _simplify_constant_ternaries(path: Path) -> int:
     for node in ast.walk(tree):
         if not isinstance(node, ast.IfExp):
             continue
-        resolved = _resolve_constant_if_expression(node)
+        resolved = _resolved_expression(node)
         if resolved is None or node.end_lineno is None or node.end_col_offset is None:
             continue
         start = _absolute_offset(lines, node.lineno, node.col_offset)

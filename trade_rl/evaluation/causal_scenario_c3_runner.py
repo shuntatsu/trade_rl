@@ -131,24 +131,29 @@ def _validate_ppo_action(action: np.ndarray, *, dimension: int) -> np.ndarray:
     return value
 
 
-def _random_candidate_index(
-    decision: PersistedScenarioDecision, config: CausalScenarioC3Config
-) -> int:
+def _random_candidate_indices(
+    decision: PersistedScenarioDecision,
+    config: CausalScenarioC3Config,
+) -> tuple[int, ...]:
     candidates = tuple(
         index
         for index in range(len(decision.candidate_digests))
         if index != decision.zero_candidate_index
     )
     if not candidates:
-        return decision.zero_candidate_index
-    digest = content_digest(
-        {
-            "config_digest": config.digest,
-            "decision_digest": decision.decision_digest,
-            "schema_version": "causal_scenario_c3_random_candidate_v1",
-        }
-    )
-    return candidates[int(digest[:16], 16) % len(candidates)]
+        return (decision.zero_candidate_index,) * config.random_comparator_count
+    selected: list[int] = []
+    for draw_index in range(config.random_comparator_count):
+        digest = content_digest(
+            {
+                "config_digest": config.digest,
+                "decision_digest": decision.decision_digest,
+                "draw_index": draw_index,
+                "schema_version": "causal_scenario_c3_random_candidate_v2",
+            }
+        )
+        selected.append(candidates[int(digest[:16], 16) % len(candidates)])
+    return tuple(selected)
 
 
 def run_c3_query_comparison(
@@ -188,8 +193,15 @@ def run_c3_query_comparison(
     selected_regret = best_realized - float(
         realized_advantages[decision.selected_candidate_index]
     )
-    random_index = _random_candidate_index(decision, config)
-    random_regret = best_realized - float(realized_advantages[random_index])
+
+    random_indices = _random_candidate_indices(decision, config)
+    random_outcomes = tuple(candidate_outcomes[index] for index in random_indices)
+    random_regrets = np.asarray(
+        [best_realized - float(realized_advantages[index]) for index in random_indices],
+        dtype=np.float64,
+    )
+    random_regrets = np.maximum(random_regrets, 0.0)
+    random_regrets.setflags(write=False)
 
     trend = replay.run(
         np.zeros(action_dimension, dtype=np.float64),
@@ -209,18 +221,15 @@ def run_c3_query_comparison(
         zero_residual_after_first=True,
         policy_kind="ppo_mean",
     )
-    random_candidate = replay.run(
-        decision.raw_candidate_actions[random_index],
-        horizon_decisions=config.horizon_decisions,
-        zero_residual_after_first=True,
-        policy_kind="random_candidate",
-    )
     return CausalScenarioQueryComparison(
         decision_digest=decision.decision_digest,
         trend=trend,
         scenario_oracle=scenario_oracle,
         ppo_mean=ppo_mean,
-        random_candidate=random_candidate,
+        random_candidate=random_outcomes[0],
+        random_candidate_indices=random_indices,
+        random_candidate_outcomes=random_outcomes,
+        random_realized_regrets=random_regrets,
         candidate_outcomes=candidate_outcomes,
         realized_candidate_advantages=realized_advantages,
         predicted_realized_spearman=_spearman(
@@ -229,7 +238,7 @@ def run_c3_query_comparison(
             tolerance=config.ranking_tolerance,
         ),
         selected_realized_regret=max(selected_regret, 0.0),
-        random_realized_regret=max(random_regret, 0.0),
+        random_realized_regret=float(random_regrets.mean()),
         perfect_information=(
             PerfectInformationComparison.not_evaluated()
             if perfect_information is None

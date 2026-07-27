@@ -1,0 +1,79 @@
+name: Finalize PR227 Policy Identity
+
+on:
+  push:
+    branches:
+      - agent/cross-timeframe-attention
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-pr227-policy-identity-v2
+  cancel-in-progress: true
+
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Install verification environment
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Apply policy identity integration
+        run: uv run python tools/finalize_pr227_policy_identity.py
+
+      - name: Verify policy identity integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy .
+          uv run pytest -q \
+            tests/integrations/test_sb3_policy_identity_v2.py \
+            tests/integrations/test_sb3_checkpoint_assembly.py \
+            tests/integrations/test_sb3_model_assembly.py \
+            tests/integrations/test_sb3_model_construction.py \
+            tests/rl/test_cost_checkpoint_identity.py \
+            tests/rl/test_lagrangian_checkpoint_identity.py
+
+      - name: Publish verified implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/finalize-pr227-policy-identity.yml \
+            tools/finalize_pr227_policy_identity.py \
+            docs/verification/.finalize-pr227-policy-identity-trigger.md \
+            docs/verification/.finalize-pr227-policy-identity-trigger-2.md \
+            docs/verification/.normalize-pr227-generated-expressions-trigger.md \
+            docs/verification/.normalize-pr227-generated-expressions-trigger-2.md \
+            docs/verification/.normalize-pr227-generated-expressions-trigger-3.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat: bind sequence architecture identity to SB3 checkpoints'
+          git push origin HEAD:agent/cross-timeframe-attention
+
+      - name: Report failure to PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh pr comment 227 --body "Policy identity finalization failed in Actions run ${GITHUB_RUN_ID}."

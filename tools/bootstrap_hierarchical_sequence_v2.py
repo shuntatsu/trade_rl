@@ -45,7 +45,7 @@ replacement = '''    shared_transformer_config = (
         label="asset transformer config",
     )
 '''
-updated, count = pattern.subn(replacement, text, count=1)
+updated, count = pattern.subn(lambda _match: replacement, text, count=1)
 if count != 1:
     raise RuntimeError("could not patch duplicate transformer migration block")
 TARGET.write_text(updated, encoding="utf-8")

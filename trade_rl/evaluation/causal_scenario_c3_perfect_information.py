@@ -30,7 +30,13 @@ def _finite_float(name: str, value: object) -> float:
     return result
 
 
-def _readonly_vector(name: str, value: object, *, positive: bool = False) -> np.ndarray:
+def _readonly_vector(
+    name: str,
+    value: object,
+    *,
+    positive: bool = False,
+    non_negative: bool = False,
+) -> np.ndarray:
     try:
         array = np.asarray(value, dtype=np.float64).copy(order="C")
     except (TypeError, ValueError) as error:
@@ -41,7 +47,7 @@ def _readonly_vector(name: str, value: object, *, positive: bool = False) -> np.
         raise ValueError(f"{name} must contain only finite values")
     if positive and np.any(array <= 0.0):
         raise ValueError(f"{name} must be positive")
-    if not positive and np.any(array < 0.0):
+    if non_negative and np.any(array < 0.0):
         raise ValueError(f"{name} must be non-negative")
     array[array == 0.0] = 0.0
     array.setflags(write=False)
@@ -111,16 +117,24 @@ class PerfectInformationCompatibilityEvidence:
             "bound_max_abs_weight", self.bound_max_abs_weight, positive=True
         )
         causal_transaction = _readonly_vector(
-            "causal_transaction_cost_rate", self.causal_transaction_cost_rate
+            "causal_transaction_cost_rate",
+            self.causal_transaction_cost_rate,
+            non_negative=True,
         )
         bound_transaction = _readonly_vector(
-            "bound_transaction_cost_rate", self.bound_transaction_cost_rate
+            "bound_transaction_cost_rate",
+            self.bound_transaction_cost_rate,
+            non_negative=True,
         )
         causal_liquidation = _readonly_vector(
-            "causal_liquidation_cost_rate", self.causal_liquidation_cost_rate
+            "causal_liquidation_cost_rate",
+            self.causal_liquidation_cost_rate,
+            non_negative=True,
         )
         bound_liquidation = _readonly_vector(
-            "bound_liquidation_cost_rate", self.bound_liquidation_cost_rate
+            "bound_liquidation_cost_rate",
+            self.bound_liquidation_cost_rate,
+            non_negative=True,
         )
         for name, array in (
             ("causal_max_abs_weight", causal_abs),

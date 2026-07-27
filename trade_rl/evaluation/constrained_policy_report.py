@@ -240,9 +240,7 @@ class ConstraintCostObservation:
             "budget": self.budget,
             "censored_episode_count": self.censored_episode_count,
             "completed_episode_denominator": self.completed_episode_denominator,
-            "cost_critic_explained_variance": (
-                self.cost_critic_explained_variance
-            ),
+            "cost_critic_explained_variance": (self.cost_critic_explained_variance),
             "cost_critic_loss": self.cost_critic_loss,
             "ema_estimate": self.ema_estimate,
             "lower_bound_fraction": self.lower_bound_fraction,
@@ -384,12 +382,8 @@ class ConstraintPolicyObservation:
                 else tuple(cost.digest_payload() for cost in self.costs)
             ),
             "economic_cost_fraction": self.economic_cost_fraction,
-            "evaluated_member_policy_digests": (
-                self.evaluated_member_policy_digests
-            ),
-            "expected_member_policy_digests": (
-                self.expected_member_policy_digests
-            ),
+            "evaluated_member_policy_digests": (self.evaluated_member_policy_digests),
+            "expected_member_policy_digests": (self.expected_member_policy_digests),
             "maximum_drawdown": self.maximum_drawdown,
             "penalty_to_reward_l2_ratio": self.penalty_to_reward_l2_ratio,
             "policy_digest": self.policy_digest,
@@ -432,7 +426,10 @@ class ConstraintFoldEvidence:
             raise ValueError("seed observations require a seed")
         if any(observation.seed is not None for observation in ensembles):
             raise ValueError("ensemble observations cannot declare a seed")
-        if any(observation.constrained != self.constrained for observation in (*seeds, *ensembles)):
+        if any(
+            observation.constrained != self.constrained
+            for observation in (*seeds, *ensembles)
+        ):
             if self.constrained:
                 raise ValueError("constrained fold requires constraint evidence")
             raise ValueError("ordinary PPO cannot contain constraint evidence")
@@ -514,9 +511,7 @@ class ConstraintCostSummary:
             "budget": self.budget,
             "censored_episode_count": self.censored_episode_count,
             "completed_episode_denominator": self.completed_episode_denominator,
-            "cost_critic_explained_variance": (
-                self.cost_critic_explained_variance
-            ),
+            "cost_critic_explained_variance": (self.cost_critic_explained_variance),
             "cost_critic_loss": self.cost_critic_loss,
             "ema_estimate": self.ema_estimate,
             "lower_bound_fraction": self.lower_bound_fraction,
@@ -565,17 +560,11 @@ class ConstraintFoldSummary:
             ),
             "eligibility": self.eligibility.digest_payload(),
             "ensemble_policy_digest": self.ensemble_policy_digest,
-            "evaluated_member_policy_digests": (
-                self.evaluated_member_policy_digests
-            ),
-            "expected_member_policy_digests": (
-                self.expected_member_policy_digests
-            ),
+            "evaluated_member_policy_digests": (self.evaluated_member_policy_digests),
+            "expected_member_policy_digests": (self.expected_member_policy_digests),
             "fold_index": self.fold_index,
             "maximum_drawdown": self.maximum_drawdown,
-            "maximum_economic_cost_fraction": (
-                self.maximum_economic_cost_fraction
-            ),
+            "maximum_economic_cost_fraction": (self.maximum_economic_cost_fraction),
             "maximum_turnover_per_day": self.maximum_turnover_per_day,
             "mean_raw_to_filled_distortion": self.mean_raw_to_filled_distortion,
             "penalty_to_reward_l2_ratio": self.penalty_to_reward_l2_ratio,
@@ -618,9 +607,7 @@ class ConstraintAggregateSummary:
             "eligibility": self.eligibility.digest_payload(),
             "fold_count": self.fold_count,
             "maximum_drawdown": self.maximum_drawdown,
-            "maximum_economic_cost_fraction": (
-                self.maximum_economic_cost_fraction
-            ),
+            "maximum_economic_cost_fraction": (self.maximum_economic_cost_fraction),
             "maximum_turnover_per_day": self.maximum_turnover_per_day,
             "mean_raw_to_filled_distortion": self.mean_raw_to_filled_distortion,
             "mean_total_return": self.mean_total_return,
@@ -688,12 +675,8 @@ def _cost_summary(
         censored_episode_count=max(
             cost.censored_episode_count for cost in observations
         ),
-        raw_estimate=_complete_mean(
-            tuple(cost.raw_estimate for cost in observations)
-        ),
-        ema_estimate=_complete_mean(
-            tuple(cost.ema_estimate for cost in observations)
-        ),
+        raw_estimate=_complete_mean(tuple(cost.raw_estimate for cost in observations)),
+        ema_estimate=_complete_mean(tuple(cost.ema_estimate for cost in observations)),
         multiplier_mean=_complete_mean(
             tuple(cost.multiplier_mean for cost in observations)
         ),
@@ -728,7 +711,10 @@ def _scenario_reasons(
     ensemble: ConstraintPolicyObservation,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
-    if ensemble.expected_member_policy_digests != ensemble.evaluated_member_policy_digests:
+    if (
+        ensemble.expected_member_policy_digests
+        != ensemble.evaluated_member_policy_digests
+    ):
         reasons.append(
             f"member_identity_mismatch:fold={fold_index}:scenario={scenario}"
         )
@@ -759,10 +745,7 @@ def _scenario_reasons(
                     f"fold={fold_index}:scenario={scenario}:cost={cost.name}:"
                     f"scope={_scope(observation)}"
                 )
-            if (
-                cost.completed_episode_denominator
-                < cost.minimum_completed_episodes
-            ):
+            if cost.completed_episode_denominator < cost.minimum_completed_episodes:
                 reasons.append(
                     "constraint_support_below_minimum:"
                     f"fold={fold_index}:scenario={scenario}:cost={cost.name}:"
@@ -814,12 +797,8 @@ def _fold_summary(
         scenario=scenario,
         seed_count=len(seeds),
         ensemble_policy_digest=ensemble.policy_digest,
-        expected_member_policy_digests=(
-            ensemble.expected_member_policy_digests
-        ),
-        evaluated_member_policy_digests=(
-            ensemble.evaluated_member_policy_digests
-        ),
+        expected_member_policy_digests=(ensemble.expected_member_policy_digests),
+        evaluated_member_policy_digests=(ensemble.evaluated_member_policy_digests),
         total_return=ensemble.total_return,
         worst_seed_total_return=min(seed.total_return for seed in seeds),
         maximum_drawdown=max(item.maximum_drawdown for item in observations),
@@ -879,9 +858,7 @@ def _aggregate_cost(
             tuple(summary.lower_bound_fraction for summary in summaries)
         ),
         cost_critic_explained_variance=_complete_mean(
-            tuple(
-                summary.cost_critic_explained_variance for summary in summaries
-            )
+            tuple(summary.cost_critic_explained_variance for summary in summaries)
         ),
         cost_critic_loss=_complete_mean(
             tuple(summary.cost_critic_loss for summary in summaries)

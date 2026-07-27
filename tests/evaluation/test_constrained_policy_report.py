@@ -53,9 +53,7 @@ def _costs(
             completed_episode_denominator=completed_episode_denominator,
             censored_episode_count=2,
             minimum_completed_episodes=(
-                20
-                if name in {"drawdown_stop_event", "forced_liquidation_event"}
-                else 1
+                20 if name in {"drawdown_stop_event", "forced_liquidation_event"} else 1
             ),
             raw_estimate=values[name] * 0.9,
             ema_estimate=(
@@ -125,9 +123,7 @@ def _ensemble_observation(
     missing_ema: bool = False,
 ) -> ConstraintPolicyObservation:
     expected = (_digest("a"), _digest("b"))
-    evaluated = (
-        (_digest("a"), _digest("c")) if identity_mismatch else expected
-    )
+    evaluated = (_digest("a"), _digest("c")) if identity_mismatch else expected
     return ConstraintPolicyObservation(
         scenario=scenario,
         seed=None,
@@ -198,9 +194,7 @@ def _fold(
                 completed_episode_denominator=denominator,
                 upper_cap_fraction=upper_cap_fraction,
                 lower_bound_fraction=lower_bound_fraction,
-                identity_mismatch=(
-                    identity_mismatch and scenario == "joint_2x"
-                ),
+                identity_mismatch=(identity_mismatch and scenario == "joint_2x"),
                 daily_turnover=(
                     1.2 if budget_violation and scenario == "joint_2x" else 0.4
                 ),
@@ -280,9 +274,7 @@ def test_rare_event_support_below_minimum_is_ineligible() -> None:
 
 def test_member_identity_mismatch_and_missing_required_scenario_fail_closed() -> None:
     mismatch = build_constrained_policy_report((_fold(0, identity_mismatch=True),))
-    missing = build_constrained_policy_report(
-        (_fold(0, omit_scenario="joint_2x"),)
-    )
+    missing = build_constrained_policy_report((_fold(0, omit_scenario="joint_2x"),))
 
     assert mismatch.eligibility.eligible is False
     assert (
@@ -321,8 +313,7 @@ def test_ordinary_ppo_preserves_absent_constraint_evidence() -> None:
     assert all(summary.constraints is None for summary in report.fold_summaries)
     assert all(summary.constraints is None for summary in report.aggregate_summaries)
     assert all(
-        summary.penalty_to_reward_l2_ratio is None
-        for summary in report.fold_summaries
+        summary.penalty_to_reward_l2_ratio is None for summary in report.fold_summaries
     )
 
     ordinary = _ensemble_observation(
@@ -331,7 +322,9 @@ def test_ordinary_ppo_preserves_absent_constraint_evidence() -> None:
         constrained=False,
         drawdown_excess=0.1,
     )
-    with pytest.raises(ValueError, match="ordinary PPO cannot contain constraint evidence"):
+    with pytest.raises(
+        ValueError, match="ordinary PPO cannot contain constraint evidence"
+    ):
         replace(ordinary, costs=_costs(drawdown_excess=0.1))
 
 

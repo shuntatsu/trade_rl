@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main() -> None:
     pattern = re.compile(
-        r"(?P<indent>[ \t]+)sequences=sequences,\n"
-        r"(?P=indent)available=available,\n"
+        r"(?P<indent>[ \t]+)sequences=(?P<sequences>[^,\n]+),\n"
+        r"(?P=indent)available=(?P<available>[^,\n]+),\n"
         r"(?P=indent)snapshot="
     )
     for path in (ROOT / "tests").rglob("*.py"):
@@ -19,14 +19,16 @@ def main() -> None:
 
         def replacement(match: re.Match[str]) -> str:
             indent = match.group("indent")
+            sequences = match.group("sequences")
+            available = match.group("available")
             return (
-                f"{indent}sequences=sequences,\n"
-                f"{indent}available=available,\n"
+                f"{indent}sequences={sequences},\n"
+                f"{indent}available={available},\n"
                 f"{indent}staleness={{\n"
                 f'{indent}    key: __import__("torch").zeros_like(\n'
                 f"{indent}        value, dtype=__import__(\"torch\").float32\n"
                 f"{indent}    )\n"
-                f"{indent}    for key, value in available.items()\n"
+                f"{indent}    for key, value in {available}.items()\n"
                 f"{indent}}},\n"
                 f"{indent}snapshot="
             )

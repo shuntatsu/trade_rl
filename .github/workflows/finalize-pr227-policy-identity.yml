@@ -43,6 +43,7 @@ jobs:
       - name: Verify policy identity integration
         shell: bash
         run: |
+          exec > >(tee -a policy-identity-finalizer.log) 2>&1
           set -euo pipefail
           uv run ruff format .
           uv run ruff check --fix .
@@ -63,6 +64,7 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/workflows/finalize-pr227-policy-identity.yml \
+            .github/workflows/pr227-policy-identity-diagnostics.yml \
             tools/finalize_pr227_policy_identity.py \
             policy-identity-finalizer.log \
             docs/verification/.finalize-pr227-policy-identity-trigger.md \
@@ -84,6 +86,7 @@ jobs:
           name: pr227-policy-identity-finalizer-${{ github.run_id }}
           path: policy-identity-finalizer.log
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Report failure to PR
         if: failure()
@@ -100,4 +103,7 @@ jobs:
             fi
             printf '\n```\n'
           } > /tmp/pr227-policy-identity-failure.md
-          gh pr comment 227 --body-file /tmp/pr227-policy-identity-failure.md
+          body="$(cat /tmp/pr227-policy-identity-failure.md)"
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/issues/comments/5095337009" \
+            -f body="$body"

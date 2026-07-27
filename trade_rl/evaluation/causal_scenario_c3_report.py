@@ -272,8 +272,11 @@ class CausalScenarioFoldReport:
             not isinstance(item, CausalScenarioQueryComparison) for item in comparisons
         ):
             raise ValueError("comparisons must contain C3 query comparisons")
-        if len({item.decision_digest for item in comparisons}) != len(comparisons):
-            raise ValueError("comparison decision digests must be unique within a fold")
+        comparison_keys = tuple(
+            (item.decision_digest, item.execution_scenario) for item in comparisons
+        )
+        if len(set(comparison_keys)) != len(comparisons):
+            raise ValueError("comparison decision and scenario pairs must be unique")
         object.__setattr__(self, "comparisons", comparisons)
         days = _readonly_day_indices(self.day_indices)
         uplift = _readonly_vector("uplift", self.uplift)
@@ -287,8 +290,17 @@ class CausalScenarioFoldReport:
             == len(regret_margin)
         ):
             raise ValueError("daily fold metric vectors must match effective_days")
-        if tuple(sorted({item.day_index for item in comparisons})) != tuple(days):
-            raise ValueError("day_indices do not match query comparisons")
+        nominal_days = tuple(
+            sorted(
+                {
+                    item.day_index
+                    for item in comparisons
+                    if item.execution_scenario == "nominal"
+                }
+            )
+        )
+        if nominal_days != tuple(days):
+            raise ValueError("day_indices do not match nominal query comparisons")
         object.__setattr__(self, "day_indices", days)
         object.__setattr__(self, "uplift", uplift)
         object.__setattr__(self, "spearman", spearman)
@@ -530,8 +542,11 @@ def build_c3_fold_report(
     items = tuple(comparisons)
     if not items:
         raise ValueError("comparisons must not be empty")
+    nominal_items = tuple(item for item in items if item.execution_scenario == "nominal")
+    if not nominal_items:
+        raise ValueError("each fold requires nominal C3 comparisons")
     grouped: dict[int, list[CausalScenarioQueryComparison]] = defaultdict(list)
-    for item in items:
+    for item in nominal_items:
         grouped[item.day_index].append(item)
     day_indices = np.asarray(sorted(grouped), dtype=np.int64)
     uplift = np.asarray(
@@ -588,9 +603,9 @@ def build_c3_fold_report(
         spearman=spearman,
         regret_margin=regret_margin,
         scenario_oracle_max_drawdown=max(
-            item.scenario_oracle.max_drawdown for item in items
+            item.scenario_oracle.max_drawdown for item in nominal_items
         ),
-        trend_max_drawdown=max(item.trend.max_drawdown for item in items),
+        trend_max_drawdown=max(item.trend.max_drawdown for item in nominal_items),
         required_adverse_passed=required_adverse_passed,
         perfect_information_valid=perfect_valid,
         failure_reasons=failure_reasons,
@@ -724,6 +739,11 @@ def build_c3_aggregate_report(
     spearman = np.concatenate([item.spearman for item in items])
     regret_margin = np.concatenate([item.regret_margin for item in items])
     comparisons = tuple(item for fold in items for item in fold.comparisons)
+    nominal_comparisons = tuple(
+        item for item in comparisons if item.execution_scenario == "nominal"
+    )
+    if not nominal_comparisons:
+        raise ValueError("aggregate C3 report requires nominal comparisons")
     fold_digests = tuple(item.digest for item in items)
     common_seed = {
         "bootstrap_block_days": block_days,
@@ -748,8 +768,12 @@ def build_c3_aggregate_report(
         block_days=block_days,
         seed_payload={**common_seed, "metric": "regret_margin"},
     )
-    distances = np.concatenate([item.scenario_distances for item in comparisons])
-    anchors = np.concatenate([item.scenario_anchor_indices for item in comparisons])
+    distances = np.concatenate(
+        [item.scenario_distances for item in nominal_comparisons]
+    )
+    anchors = np.concatenate(
+        [item.scenario_anchor_indices for item in nominal_comparisons]
+    )
     unique_anchors, anchor_counts = np.unique(anchors, return_counts=True)
     total_anchor_samples = int(anchor_counts.sum())
     anchor_shares = anchor_counts.astype(np.float64) / total_anchor_samples
@@ -775,7 +799,7 @@ def build_c3_aggregate_report(
             item.scenario_oracle_max_drawdown for item in items
         ),
         worst_trend_drawdown=max(item.trend_max_drawdown for item in items),
-        calibration_buckets=_calibration_buckets(comparisons),
+        calibration_buckets=_calibration_buckets(nominal_comparisons),
         neighbor_distance_p50=float(np.quantile(distances, 0.50)),
         neighbor_distance_p90=float(np.quantile(distances, 0.90)),
         neighbor_distance_p99=float(np.quantile(distances, 0.99)),

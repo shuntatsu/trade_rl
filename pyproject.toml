@@ -62,6 +62,7 @@ include = ["trade_rl*"]
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+extend-exclude = ["trade_rl/evaluation/causal_scenario_c3_adverse_source.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

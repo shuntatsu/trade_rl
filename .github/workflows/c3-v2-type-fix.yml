@@ -1,0 +1,95 @@
+name: One-shot C3 V2 type fix
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3-execution-reporting-v2
+    paths:
+      - .github/workflows/c3-v2-type-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3-execution-reporting-v2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Apply minimal type corrections
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/causal_scenario/c3_evaluation.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "from trade_rl.evaluation.causal_scenario_c3_adverse_source import (\n"
+          insertion = (
+              "from trade_rl.evaluation.causal_scenario_c3_adverse import (\n"
+              "    C3AdverseFoldEvidence,\n"
+              ")\n"
+          )
+          if insertion not in text:
+              text = text.replace(marker, insertion + marker, 1)
+          text = text.replace(
+              "required_adverse_evidence: dict[str, object] = {}",
+              "required_adverse_evidence: dict[str, C3AdverseFoldEvidence] = {}",
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+
+          path = Path("trade_rl/cli/causal_scenario.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace(
+              "from typing import TextIO",
+              "from typing import TYPE_CHECKING, TextIO",
+              1,
+          )
+          text = text.replace(
+              "from trade_rl.evaluation.causal_scenario_c3_markdown import (\n    VerifiedC3Evidence,",
+              "from trade_rl.evaluation.causal_scenario_c3_markdown import (\n    LoadedC3MarkdownArtifact,\n    VerifiedC3Evidence,",
+              1,
+          )
+          marker = "\n\nPRODUCTION_STATUS = \"NO-GO\""
+          type_block = (
+              "\n\nif TYPE_CHECKING:\n"
+              "    from trade_rl.workflows.causal_scenario.c3_evaluation import (\n"
+              "        C3EvaluationResult,\n"
+              "    )"
+          )
+          if type_block not in text:
+              text = text.replace(marker, type_block + marker, 1)
+          text = text.replace(
+              "def _execute(request: Path, *, output_root: Path):",
+              "def _execute(request: Path, *, output_root: Path) -> C3EvaluationResult:",
+              1,
+          )
+          text = text.replace(
+              "    gate_root: Path,\n):\n    return write_c3_markdown_artifact(",
+              "    gate_root: Path,\n) -> LoadedC3MarkdownArtifact:\n    return write_c3_markdown_artifact(",
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
+          uv run ruff check --fix trade_rl/workflows/causal_scenario/c3_evaluation.py trade_rl/cli/causal_scenario.py
+          uv run ruff format trade_rl/workflows/causal_scenario/c3_evaluation.py trade_rl/cli/causal_scenario.py
+      - name: Verify correction
+        run: |
+          uv run mypy .
+          uv run pytest -q tests/workflows/test_causal_scenario_c3_execution_lane.py tests/evaluation/test_causal_scenario_c3_markdown.py tests/cli/test_causal_scenario_c3_execution_cli.py tests/workflows/test_causal_scenario_c3_gpu_assets.py
+      - name: Commit correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/c3-v2-type-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/c3-v2-type-fix.yml trade_rl/workflows/causal_scenario/c3_evaluation.py trade_rl/cli/causal_scenario.py
+          git commit -m "fix: type C3 execution boundaries"
+          git push origin HEAD:agent/causal-scenario-c3-execution-reporting-v2

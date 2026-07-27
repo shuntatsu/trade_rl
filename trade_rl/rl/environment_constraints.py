@@ -7,16 +7,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from trade_rl.domain.constraint_contracts import CONSTRAINT_COST_NAMES
+
 _TOLERANCE = 1e-12
-CONSTRAINT_COST_NAMES = (
-    "drawdown_excess",
-    "drawdown_stop_event",
-    "margin_deficit_fraction",
-    "forced_liquidation_event",
-    "gross_exposure_request_excess",
-    "daily_turnover",
-    "execution_cost_fraction",
-)
 _FORCED_LIQUIDATION_REASONS = frozenset(
     {
         "minimum_equity",

@@ -176,7 +176,9 @@ class ArtificialReplay:
         assert horizon_decisions == 96
         assert zero_residual_after_first is True
         self.labels.append(policy_kind)
-        value = 0.01 + 0.02 * float(raw_residual[0]) + 0.005 * float(raw_residual[1])
+        value = 0.01 + 0.02 * float(raw_residual[0]) + 0.005 * float(
+            raw_residual[1]
+        )
         return outcome(policy_kind, gross_log_return=value)
 
 
@@ -286,14 +288,21 @@ def _comparison(tmp_path: Path, *, uplift: float, spearman_positive: bool = True
         "scenario_oracle", gross_log_return=0.01 + uplift, max_drawdown=0.09
     )
     random = outcome("random_candidate", gross_log_return=0.005)
+    candidate_outcomes = list(result.candidate_outcomes)
+    candidate_outcomes[0] = random
     scores = result.realized_candidate_advantages
     if not spearman_positive:
         scores = scores[::-1].copy()
+    random_regrets = np.asarray([0.02], dtype=np.float64)
     return replace(
         result,
         trend=trend,
         scenario_oracle=oracle,
         random_candidate=random,
+        random_candidate_indices=(0,),
+        random_candidate_outcomes=(random,),
+        random_realized_regrets=random_regrets,
+        candidate_outcomes=tuple(candidate_outcomes),
         realized_candidate_advantages=scores,
         predicted_realized_spearman=(0.5 if spearman_positive else -0.5),
         selected_realized_regret=0.0,

@@ -34,109 +34,8 @@ jobs:
       - name: Install verification environment
         run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
 
-      - name: Normalize structured manifest type boundaries
-        shell: bash
-        run: |
-          python - <<'PY'
-          import ast
-          from pathlib import Path
-
-          path = Path('trade_rl/rl/structured_export.py')
-          text = path.read_text(encoding='utf-8')
-
-          build_start = text.index('        payload = {', text.index('    def build('))
-          build_end = text.index('\n\n\nclass _StructuredDeterministicActor', build_start)
-          build_body = '''        model_digest = _file_digest(model_path)
-          model_size_bytes = model_path.stat().st_size
-          policy_identity_digest = content_digest(policy_payload)
-          payload = {
-              "action_size": action_size,
-              "architecture_digest": architecture_digest,
-              "inputs": inputs,
-              "max_abs_error": max_abs_error,
-              "model_digest": model_digest,
-              "model_path": STRUCTURED_EXPORT_MODEL_NAME,
-              "model_size_bytes": model_size_bytes,
-              "policy_identity": policy_payload,
-              "policy_identity_digest": policy_identity_digest,
-              "schema_version": STRUCTURED_EXPORT_SCHEMA,
-              "tolerance": tolerance,
-          }
-          return cls(
-              digest=content_digest(payload),
-              model_path=STRUCTURED_EXPORT_MODEL_NAME,
-              model_digest=model_digest,
-              model_size_bytes=model_size_bytes,
-              policy_identity=policy_payload,
-              policy_identity_digest=policy_identity_digest,
-              architecture_digest=architecture_digest,
-              inputs=inputs,
-              action_size=action_size,
-              tolerance=tolerance,
-              max_abs_error=max_abs_error,
-              schema_version=STRUCTURED_EXPORT_SCHEMA,
-          )'''
-          text = text[:build_start] + build_body + text[build_end:]
-          text = text.replace('  # type: ignore[attr-defined]', '', 1)
-
-          helper_start = text.index('def _mapping(value: object, *, field: str)')
-          loader_start = text.index('def load_structured_export_manifest', helper_start)
-          helpers = '''def _mapping(value: object, *, field: str) -> Mapping[str, object]:
-              if not isinstance(value, Mapping):
-                  raise ValueError(f"{field} must be a mapping")
-              return value
-
-
-          def _string(value: object, *, field: str) -> str:
-              if not isinstance(value, str):
-                  raise ValueError(f"{field} must be a string")
-              return value
-
-
-          def _integer(value: object, *, field: str) -> int:
-              if isinstance(value, bool) or not isinstance(value, int):
-                  raise ValueError(f"{field} must be an integer")
-              return value
-
-
-          def _number(value: object, *, field: str) -> float:
-              if isinstance(value, bool) or not isinstance(value, (int, float)):
-                  raise ValueError(f"{field} must be numeric")
-              return float(value)
-
-
-          '''
-          text = text[:helper_start] + helpers + text[loader_start:]
-
-          constructor_start = text.index(
-              '    return StructuredExportManifest(',
-              text.index('def load_structured_export_manifest'),
-          )
-          constructor_end = text.index('\n\n\n__all__', constructor_start)
-          constructor = '''    return StructuredExportManifest(
-              digest=_string(payload["digest"], field="digest"),
-              model_path=_string(payload["model_path"], field="model_path"),
-              model_digest=_string(payload["model_digest"], field="model_digest"),
-              model_size_bytes=_integer(
-                  payload["model_size_bytes"], field="model_size_bytes"
-              ),
-              policy_identity=dict(policy_identity),
-              policy_identity_digest=_string(
-                  payload["policy_identity_digest"], field="policy_identity_digest"
-              ),
-              architecture_digest=_string(
-                  payload["architecture_digest"], field="architecture_digest"
-              ),
-              inputs=tuple(inputs),
-              action_size=_integer(payload["action_size"], field="action_size"),
-              tolerance=_number(payload["tolerance"], field="tolerance"),
-              max_abs_error=_number(payload["max_abs_error"], field="max_abs_error"),
-              schema_version=_string(payload["schema_version"], field="schema_version"),
-          )'''
-          text = text[:constructor_start] + constructor + text[constructor_end:]
-          ast.parse(text, filename=str(path))
-          path.write_text(text, encoding='utf-8')
-          PY
+      - name: Normalize structured serving implementation
+        run: uv run python tools/finalize_pr227_structured_serving.py
 
       - name: Verify structured export and canonical loader
         shell: bash
@@ -162,6 +61,7 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/workflows/finalize-pr227-structured-serving.yml \
+            tools/finalize_pr227_structured_serving.py \
             structured-serving-finalizer.log
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

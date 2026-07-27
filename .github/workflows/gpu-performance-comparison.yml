@@ -40,13 +40,21 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: candidate
+          fetch-depth: 0
           persist-credentials: false
-      - name: Checkout verified baseline
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: ${{ inputs.baseline_ref }}
-          path: baseline
-          persist-credentials: false
+      - name: Create verified baseline worktree
+        shell: bash
+        env:
+          REQUESTED_BASELINE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUESTED_BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "baseline_ref must be a lowercase 40-character commit" >&2
+            exit 2
+          fi
+          git -C candidate cat-file -e "${REQUESTED_BASELINE_REF}^{commit}"
+          git -C candidate worktree add --detach ../baseline "$REQUESTED_BASELINE_REF"
+          echo "REQUESTED_BASELINE_REF=$REQUESTED_BASELINE_REF" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
@@ -57,7 +65,7 @@ jobs:
           set -euo pipefail
           baseline_sha="$(git -C baseline rev-parse HEAD)"
           candidate_sha="$(git -C candidate rev-parse HEAD)"
-          test "$baseline_sha" = "${{ inputs.baseline_ref }}"
+          test "$baseline_sha" = "$REQUESTED_BASELINE_REF"
           test "$candidate_sha" = "${GITHUB_SHA}"
           echo "BASELINE_SHA=$baseline_sha" >> "$GITHUB_ENV"
           echo "CANDIDATE_SHA=$candidate_sha" >> "$GITHUB_ENV"

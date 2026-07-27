@@ -306,8 +306,8 @@ jobs:
             tests/evaluation/test_causal_scenario_c3_identity_daily.py \
             tests/evaluation/test_causal_scenario_c3_perfect_information.py \
             tests/evaluation/test_causal_scenario_c3_plan_closure.py \
-            -q
-          status=$?
+            -q 2>&1 | tee c3-red.log
+          status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -eq 0 ]; then
             echo "C3 RED tests unexpectedly passed before production modules existed" >&2
@@ -339,8 +339,10 @@ jobs:
             git show "$SOURCE:$path" > "$path"
           done
 
-      - name: Verify focused GREEN
+      - name: Focused C3 tests
+        shell: bash
         run: |
+          set -o pipefail
           uv run pytest \
             tests/evaluation/test_causal_scenario_c3.py \
             tests/evaluation/test_causal_scenario_c3_adverse.py \
@@ -349,10 +351,38 @@ jobs:
             tests/evaluation/test_causal_scenario_c3_identity_daily.py \
             tests/evaluation/test_causal_scenario_c3_perfect_information.py \
             tests/evaluation/test_causal_scenario_c3_plan_closure.py \
-            -q
-          uv run ruff check trade_rl/evaluation/bootstrap.py trade_rl/evaluation/__init__.py trade_rl/evaluation/causal_scenario_c3_*.py tests/evaluation/test_causal_scenario_c3*.py
-          uv run ruff format --check trade_rl/evaluation/bootstrap.py trade_rl/evaluation/__init__.py trade_rl/evaluation/causal_scenario_c3_*.py tests/evaluation/test_causal_scenario_c3*.py
-          uv run mypy trade_rl/evaluation/bootstrap.py trade_rl/evaluation/causal_scenario_c3_*.py
+            -q 2>&1 | tee c3-pytest.log
+
+      - name: C3 Ruff
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check trade_rl/evaluation/bootstrap.py trade_rl/evaluation/__init__.py trade_rl/evaluation/causal_scenario_c3_*.py tests/evaluation/test_causal_scenario_c3*.py 2>&1 | tee c3-ruff.log
+
+      - name: C3 Format
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff format --check trade_rl/evaluation/bootstrap.py trade_rl/evaluation/__init__.py trade_rl/evaluation/causal_scenario_c3_*.py tests/evaluation/test_causal_scenario_c3*.py 2>&1 | tee c3-format.log
+
+      - name: C3 Mypy
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy trade_rl/evaluation/bootstrap.py trade_rl/evaluation/causal_scenario_c3_*.py 2>&1 | tee c3-mypy.log
+
+      - name: Upload C3 extractor diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: c3-core-extractor-diagnostics
+          path: |
+            c3-red.log
+            c3-pytest.log
+            c3-ruff.log
+            c3-format.log
+            c3-mypy.log
+          if-no-files-found: ignore
 
       - name: Restore CI, remove temporary extractor, commit, and push
         run: |

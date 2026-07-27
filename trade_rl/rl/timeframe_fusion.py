@@ -157,14 +157,14 @@ class CrossTimeframeFusion(nn.Module):
             gate_bias=gate_bias,
         )
 
-    def forward(
+    def _prepared_tokens(
         self,
         *,
         latents: Mapping[str, torch.Tensor],
         available: Mapping[str, torch.Tensor],
         staleness: Mapping[str, torch.Tensor],
         context: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor, int, int]:
         if tuple(latents) != self.timeframes:
             raise ValueError("latents must use ordered 15m/1h/4h/1d timeframes")
         if tuple(available) != self.timeframes or tuple(staleness) != self.timeframes:
@@ -208,8 +208,45 @@ class CrossTimeframeFusion(nn.Module):
         valid = torch.stack(valid_tokens, dim=2)
         flattened = stacked.reshape(batch * assets, len(tokens), self.d_model)
         flattened_valid = valid.reshape(batch * assets, len(tokens))
-        contextual = self.transformer(flattened, valid=flattened_valid)
+        return flattened, flattened_valid, batch, assets
+
+    def forward(
+        self,
+        *,
+        latents: Mapping[str, torch.Tensor],
+        available: Mapping[str, torch.Tensor],
+        staleness: Mapping[str, torch.Tensor],
+        context: torch.Tensor,
+    ) -> torch.Tensor:
+        flattened, valid, batch, assets = self._prepared_tokens(
+            latents=latents,
+            available=available,
+            staleness=staleness,
+            context=context,
+        )
+        contextual = self.transformer(flattened, valid=valid)
         return contextual[:, 0].reshape(batch, assets, self.d_model)
+
+    def diagnostic_forward(
+        self,
+        *,
+        latents: Mapping[str, torch.Tensor],
+        available: Mapping[str, torch.Tensor],
+        staleness: Mapping[str, torch.Tensor],
+        context: torch.Tensor,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, ...], torch.Tensor]:
+        flattened, valid, batch, assets = self._prepared_tokens(
+            latents=latents,
+            available=available,
+            staleness=staleness,
+            context=context,
+        )
+        contextual, weights = self.transformer.diagnostic_forward(
+            flattened,
+            valid=valid,
+        )
+        output = contextual[:, 0].reshape(batch, assets, self.d_model)
+        return output, weights, valid
 
 
 __all__ = ["CrossTimeframeFusion"]

@@ -529,8 +529,11 @@ def build_checkpoint_callback(
         path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
         seed=seed,
     )
+    from trade_rl.rl.sequence_diagnostics import build_sequence_diagnostics_callback
+
+    diagnostics_callback = build_sequence_diagnostics_callback()
     if not planned:
-        return telemetry_callback
+        return CallbackList([telemetry_callback, diagnostics_callback])
 
     class AtomicCheckpointCallback(BaseCallback):
         def __init__(self) -> None:
@@ -554,7 +557,9 @@ def build_checkpoint_callback(
                 self.cursor += 1
             return True
 
-    return CallbackList([AtomicCheckpointCallback(), telemetry_callback])
+    return CallbackList(
+        [AtomicCheckpointCallback(), telemetry_callback, diagnostics_callback]
+    )
 
 
 __all__ = [

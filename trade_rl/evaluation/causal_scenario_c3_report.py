@@ -455,7 +455,9 @@ class CausalScenarioAggregateReport:
         if not 0.0 < self.historical_coverage_fraction <= 1.0:
             raise ValueError("historical_coverage_fraction must be in (0, 1]")
         buckets = tuple(self.calibration_buckets)
-        if not buckets or any(not isinstance(item, C3CalibrationBucket) for item in buckets):
+        if not buckets or any(
+            not isinstance(item, C3CalibrationBucket) for item in buckets
+        ):
             raise ValueError("calibration_buckets must contain C3 buckets")
         if tuple(item.bucket_index for item in buckets) != tuple(range(len(buckets))):
             raise ValueError("calibration bucket indices must be contiguous")
@@ -486,7 +488,9 @@ class CausalScenarioAggregateReport:
 
     @property
     def execution_scenario_names(self) -> tuple[str, ...]:
-        return tuple(sorted({item.execution_scenario for item in self.execution_summaries}))
+        return tuple(
+            sorted({item.execution_scenario for item in self.execution_summaries})
+        )
 
     @property
     def digest(self) -> str:
@@ -542,7 +546,9 @@ def build_c3_fold_report(
     items = tuple(comparisons)
     if not items:
         raise ValueError("comparisons must not be empty")
-    nominal_items = tuple(item for item in items if item.execution_scenario == "nominal")
+    nominal_items = tuple(
+        item for item in items if item.execution_scenario == "nominal"
+    )
     if not nominal_items:
         raise ValueError("each fold requires nominal C3 comparisons")
     grouped: dict[int, list[CausalScenarioQueryComparison]] = defaultdict(list)
@@ -644,7 +650,9 @@ def _calibration_buckets(
     )
     order = np.argsort(scores, kind="mergesort")
     groups = tuple(
-        group for group in np.array_split(order, min(bucket_count, order.size)) if group.size
+        group
+        for group in np.array_split(order, min(bucket_count, order.size))
+        if group.size
     )
     return tuple(
         C3CalibrationBucket(

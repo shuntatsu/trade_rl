@@ -8,6 +8,7 @@ import pytest
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.causal_scenario_c3_contracts import (
+    C3ReplayIdentity,
     CausalScenarioC3Config,
     PerfectInformationComparison,
     PerfectInformationComparisonStatus,
@@ -26,6 +27,8 @@ from trade_rl.evaluation.causal_scenario_c3_report import (
 )
 from trade_rl.evaluation.causal_scenario_c3_runner import run_c3_query_comparison
 
+_DAY_NS = 86_400_000_000_000
+
 
 def sha(char: str) -> str:
     return char * 64
@@ -33,6 +36,8 @@ def sha(char: str) -> str:
 
 def _decision_payload(
     *,
+    query_index: int,
+    query_timestamp_ns: int,
     selected_index: int,
     zero_index: int,
     candidate_digests: tuple[str, ...],
@@ -42,22 +47,29 @@ def _decision_payload(
     regret: np.ndarray,
 ) -> dict[str, object]:
     return {
+        "action_spec_digest": sha("d"),
         "candidate_digests": candidate_digests,
         "candidate_generator_digest": sha("6"),
         "created_before_realized_replay": True,
         "dataset_id": sha("a"),
+        "environment_digest": sha("c"),
+        "execution_policy_digest": sha("f"),
         "fold_digest": sha("b"),
+        "observation_digest": sha("e"),
         "projected_targets": projected_targets.tolist(),
-        "query_index": 10_000,
-        "query_timestamp_ns": 1_800_000_000_000_000_000,
+        "query_index": query_index,
+        "query_timestamp_ns": query_timestamp_ns,
         "raw_candidate_actions": raw_actions.tolist(),
+        "realized_stop_index": query_index + 96,
         "regret": regret.tolist(),
+        "risk_digest": sha("1"),
         "scenario_library_digest": sha("3"),
         "scenario_set_digest": sha("4"),
         "schema_version": "causal_scenario_c3_decision_v1",
         "score": score.tolist(),
         "selected_candidate_digest": candidate_digests[selected_index],
         "selected_candidate_index": selected_index,
+        "starting_equity": 100_000.0,
         "state_snapshot_digest": sha("2"),
         "tie_candidate_indices": (selected_index,),
         "value_result_digest": sha("5"),
@@ -65,7 +77,11 @@ def _decision_payload(
     }
 
 
-def decision() -> PersistedScenarioDecision:
+def decision(
+    *,
+    query_index: int = 10_000,
+    query_timestamp_ns: int = 100 * _DAY_NS,
+) -> PersistedScenarioDecision:
     raw_actions = np.asarray(
         [
             [0.0, 0.0, 0.0],
@@ -80,6 +96,7 @@ def decision() -> PersistedScenarioDecision:
         content_digest(
             {
                 "candidate": index,
+                "query_index": query_index,
                 "raw_action": action.tolist(),
                 "schema_version": "test_candidate_v1",
             }
@@ -89,6 +106,8 @@ def decision() -> PersistedScenarioDecision:
     score = np.asarray([0.0, 0.04, -0.03, 0.01], dtype=np.float64)
     regret = score.max() - score
     payload = _decision_payload(
+        query_index=query_index,
+        query_timestamp_ns=query_timestamp_ns,
         selected_index=1,
         zero_index=0,
         candidate_digests=candidate_digests,
@@ -100,9 +119,16 @@ def decision() -> PersistedScenarioDecision:
     return PersistedScenarioDecision(
         dataset_id=sha("a"),
         fold_digest=sha("b"),
-        query_index=10_000,
-        query_timestamp_ns=1_800_000_000_000_000_000,
+        query_index=query_index,
+        query_timestamp_ns=query_timestamp_ns,
         state_snapshot_digest=sha("2"),
+        observation_digest=sha("e"),
+        environment_digest=sha("c"),
+        action_spec_digest=sha("d"),
+        execution_policy_digest=sha("f"),
+        risk_digest=sha("1"),
+        starting_equity=100_000.0,
+        realized_stop_index=query_index + 96,
         scenario_library_digest=sha("3"),
         scenario_set_digest=sha("4"),
         candidate_generator_digest=sha("6"),
@@ -162,8 +188,16 @@ def outcome(
 
 
 class ArtificialReplay:
-    def __init__(self) -> None:
-        self.labels: list[str] = []
+    def __init__(
+        self,
+        identity: C3ReplayIdentity,
+        labels: list[str] | None = None,
+    ) -> None:
+        self.identity = identity
+        self.labels = [] if labels is None else labels
+
+    def clone_for_replay(self) -> ArtificialReplay:
+        return ArtificialReplay(self.identity, self.labels)
 
     def run(
         self,
@@ -203,8 +237,9 @@ def test_decision_is_immutable_and_digest_bound() -> None:
     created = decision()
     assert created.raw_candidate_actions.flags.writeable is False
     assert created.selected_candidate_digest == created.candidate_digests[1]
+    assert created.replay_identity.aum == 100_000.0
     with pytest.raises(ValueError, match="decision_digest"):
-        replace(created, decision_digest=sha("f"))
+        replace(created, decision_digest=sha("9"))
     with pytest.raises(ValueError, match="selected_candidate_digest"):
         replace(created, selected_candidate_digest=created.candidate_digests[0])
 
@@ -220,6 +255,7 @@ def test_decision_artifact_is_exact_idempotent_and_tamper_evident(
     loaded = load_c3_decision_artifact(root)
     assert isinstance(loaded, LoadedC3Decision)
     assert loaded.decision.decision_digest == created.decision_digest
+    assert loaded.decision.replay_identity.digest == created.replay_identity.digest
     assert loaded.artifact_digest == first
 
     (root / "extra.txt").write_text("unexpected", encoding="utf-8")
@@ -230,16 +266,17 @@ def test_decision_artifact_is_exact_idempotent_and_tamper_evident(
 def test_runner_requires_loaded_decision_and_persists_before_replay(
     tmp_path: Path,
 ) -> None:
-    replay = ArtificialReplay()
+    created = decision()
+    replay = ArtificialReplay(created.replay_identity)
     with pytest.raises(TypeError, match="LoadedC3Decision"):
         run_c3_query_comparison(  # type: ignore[arg-type]
-            decision(),
+            created,
             replay=replay,
             ppo_mean_action=np.asarray([0.5, 0.0, 0.0]),
             config=CausalScenarioC3Config(random_comparator_count=1),
         )
     root = tmp_path / "decision"
-    write_c3_decision_artifact(root, decision())
+    write_c3_decision_artifact(root, created)
     loaded = load_c3_decision_artifact(root)
     result = run_c3_query_comparison(
         loaded,
@@ -272,14 +309,23 @@ def test_perfect_information_comparison_is_explicitly_not_comparable() -> None:
         )
 
 
-def _comparison(tmp_path: Path, *, uplift: float, spearman_positive: bool = True):
-    created = decision()
+def _comparison(
+    tmp_path: Path,
+    *,
+    uplift: float,
+    query_offset: int,
+    spearman_positive: bool = True,
+):
+    created = decision(
+        query_index=10_000 + query_offset,
+        query_timestamp_ns=(100 + query_offset) * _DAY_NS,
+    )
     root = tmp_path / created.decision_digest
     write_c3_decision_artifact(root, created)
     loaded = load_c3_decision_artifact(root)
     result = run_c3_query_comparison(
         loaded,
-        replay=ArtificialReplay(),
+        replay=ArtificialReplay(created.replay_identity),
         ppo_mean_action=np.asarray([0.5, 0.0, 0.0]),
         config=CausalScenarioC3Config(random_comparator_count=1),
     )
@@ -321,8 +367,9 @@ def test_six_fold_report_passes_all_phase_a_gates(tmp_path: Path) -> None:
             _comparison(
                 tmp_path / f"fold-{fold_index}",
                 uplift=0.02 + 0.001 * query_index,
+                query_offset=fold_index * 100 + query_index,
             )
-            for query_index in range(32)
+            for query_index in range(30)
         )
         folds.append(
             build_c3_fold_report(
@@ -335,6 +382,7 @@ def test_six_fold_report_passes_all_phase_a_gates(tmp_path: Path) -> None:
     report = build_c3_aggregate_report(tuple(folds), bootstrap_resamples=256)
     gate = evaluate_phase_a_entry_gate(report)
     assert report.total_selection_days == 180
+    assert report.total_effective_days == 180
     assert report.positive_uplift_folds == 6
     assert report.uplift_lower_ci > 0.0
     assert report.spearman_lower_ci > 0.0
@@ -347,7 +395,12 @@ def test_missing_adverse_evidence_fails_gate(tmp_path: Path) -> None:
     folds = []
     for fold_index in range(6):
         comparisons = tuple(
-            _comparison(tmp_path / f"bad-{fold_index}", uplift=0.02) for _ in range(32)
+            _comparison(
+                tmp_path / f"bad-{fold_index}",
+                uplift=0.02,
+                query_offset=fold_index * 100 + query_index,
+            )
+            for query_index in range(30)
         )
         folds.append(
             build_c3_fold_report(

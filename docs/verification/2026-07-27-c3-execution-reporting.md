@@ -30,6 +30,7 @@ The exact pull-request head must pass:
 
 - Request JSON and walk-forward configuration must be canonical.
 - Request paths must remain inside the request root and contain no symbolic-link components.
+- Request fold identities must be valid SHA-256 digests and match the frozen C1 value artifacts.
 - Fold support and required adverse status are derived from the validated source run, never accepted from request self-reporting.
 - `report.json` and `gate.json` from the merged C3 core are authoritative.
 - `report.md` is derivative and binds the report and gate artifact digests.

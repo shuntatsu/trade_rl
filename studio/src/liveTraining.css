@@ -14,7 +14,7 @@
   min-height: 0;
   padding: 14px 16px 12px;
   display: grid;
-  grid-template-rows: auto minmax(300px, 1fr) 132px 164px;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
   overflow: hidden;
   color: var(--live-text);
@@ -179,7 +179,8 @@
 }
 
 @media (max-height: 900px) {
-  .live-page { grid-template-rows: auto minmax(280px, 1fr) 116px 142px; padding-top: 10px; }
+  .live-page { grid-template-rows: auto auto minmax(0, 1fr); padding-top: 10px; }
+  .live-replay-workspace { grid-template-rows: minmax(280px, 1fr) 116px 142px; }
   .live-title-block p { display: none; }
   .live-sparkline { height: 56px; }
   .live-agent-panel dl > div { padding: 7px 0; }
@@ -188,9 +189,9 @@
 .live-view-selector { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: rgba(10, 18, 30, .72); }
 .live-view-selector button { border: 0; border-radius: 7px; padding: 7px 15px; background: transparent; color: var(--text-muted); font-weight: 700; }
 .live-view-selector button[aria-pressed="true"] { background: var(--accent); color: #07111f; }
-.live-replay-workspace { display: contents; }
+.live-replay-workspace { min-height: 0; display: grid; grid-template-rows: minmax(300px, 1fr) 132px 164px; gap: 10px; overflow: hidden; }
 .live-replay-workspace[hidden], [hidden] { display: none !important; }
-.training-diagnostics { min-height: 0; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(8, 15, 27, .86); overflow: hidden; }
+.training-diagnostics { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(8, 15, 27, .86); overflow: hidden; }
 .training-diagnostics-warning, .training-diagnostics-error, .training-diagnostics-empty { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(245, 158, 11, .12); color: #f6d28b; font-size: 12px; }
 .training-diagnostics-tabs { display: flex; gap: 5px; }
 .training-diagnostics-tabs button { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; background: transparent; color: var(--text-muted); }

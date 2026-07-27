@@ -99,7 +99,9 @@ def _fields(payload: dict[str, object], expected: set[str], *, field: str) -> No
 def _relative_path(root: Path, value: object, *, field: str) -> Path:
     raw = _string(value, field=field)
     relative = PurePosixPath(raw)
-    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
         raise ValueError(f"{field} must be a safe relative path")
     resolved_root = root.resolve()
     resolved = (root / Path(*relative.parts)).resolve()
@@ -153,9 +155,7 @@ def _load_outcome(value: object, *, field: str) -> RealizedPolicyOutcome:
         fees=_number(payload["fees"], field=f"{field}.fees"),
         spread_cost=_number(payload["spread_cost"], field=f"{field}.spread_cost"),
         impact_cost=_number(payload["impact_cost"], field=f"{field}.impact_cost"),
-        funding_paid=_number(
-            payload["funding_paid"], field=f"{field}.funding_paid"
-        ),
+        funding_paid=_number(payload["funding_paid"], field=f"{field}.funding_paid"),
         borrow_paid=_number(payload["borrow_paid"], field=f"{field}.borrow_paid"),
         fill_ratio=_number(payload["fill_ratio"], field=f"{field}.fill_ratio"),
         fill_count=_integer(payload["fill_count"], field=f"{field}.fill_count"),
@@ -165,9 +165,7 @@ def _load_outcome(value: object, *, field: str) -> RealizedPolicyOutcome:
         cancel_replace_events=_integer(
             payload["cancel_replace_events"], field=f"{field}.cancel_replace_events"
         ),
-        max_drawdown=_number(
-            payload["max_drawdown"], field=f"{field}.max_drawdown"
-        ),
+        max_drawdown=_number(payload["max_drawdown"], field=f"{field}.max_drawdown"),
         terminal_equity=_number(
             payload["terminal_equity"], field=f"{field}.terminal_equity"
         ),
@@ -272,7 +270,10 @@ class ArtifactBackedC3Replay:
         zero_residual_after_first: bool,
         policy_kind: str,
     ) -> RealizedPolicyOutcome:
-        if horizon_decisions != self.identity.realized_stop_index - self.identity.query_index:
+        if (
+            horizon_decisions
+            != self.identity.realized_stop_index - self.identity.query_index
+        ):
             raise ValueError("artifact replay horizon does not match identity")
         if zero_residual_after_first is not True:
             raise ValueError("artifact replay requires one-shot residual semantics")
@@ -329,7 +330,9 @@ def _load_config(value: object) -> CausalScenarioC3Config:
     )
     return CausalScenarioC3Config(
         horizon_decisions=_integer(
-            payload["horizon_decisions"], field="config.horizon_decisions", positive=True
+            payload["horizon_decisions"],
+            field="config.horizon_decisions",
+            positive=True,
         ),
         scenario_count=_integer(
             payload["scenario_count"], field="config.scenario_count", positive=True
@@ -527,7 +530,9 @@ def execute_c3_evaluation_request(
             if not test_start <= value_result.query_index < test_stop:
                 raise ValueError("C1 query lies outside the source fold test range")
             if value_result.query_index + config.horizon_decisions > test_stop:
-                raise ValueError("C1 realized horizon exceeds the source fold test range")
+                raise ValueError(
+                    "C1 realized horizon exceeds the source fold test range"
+                )
             if value_result.scenario_library_digest != library.library_digest:
                 raise ValueError("C1 value does not bind the frozen C2 library")
             if (
@@ -570,7 +575,9 @@ def execute_c3_evaluation_request(
                 )
             )
         if "nominal" not in scenarios:
-            raise ValueError("each C3 request fold requires a nominal execution scenario")
+            raise ValueError(
+                "each C3 request fold requires a nominal execution scenario"
+            )
         if required_adverse_passed[fold_id] and scenarios == {"nominal"}:
             raise ValueError("required adverse evidence is missing from C3 request")
 

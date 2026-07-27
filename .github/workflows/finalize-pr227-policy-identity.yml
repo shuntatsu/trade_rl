@@ -1,9 +1,11 @@
 name: Finalize PR227 Policy Identity
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/cross-timeframe-attention
+      - main
+    types:
+      - synchronize
 
 permissions:
   contents: write
@@ -15,13 +17,14 @@ concurrency:
 
 jobs:
   verify-and-publish:
+    if: github.event.pull_request.number == 227
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - name: Checkout exact branch head
+      - name: Checkout exact feature branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
+          ref: agent/cross-timeframe-attention
           fetch-depth: 0
           persist-credentials: true
 

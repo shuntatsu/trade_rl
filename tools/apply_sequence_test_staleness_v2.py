@@ -16,15 +16,21 @@ def main() -> None:
     )
     for path in (ROOT / "tests").rglob("*.py"):
         text = path.read_text(encoding="utf-8")
-        replacement = (
-            r"\g<indent>sequences=sequences,\n"
-            r"\g<indent>available=available,\n"
-            r"\g<indent>staleness={\n"
-            r"\g<indent>    key: __import__(\"torch\").zeros_like(value, dtype=__import__(\"torch\").float32)\n"
-            r"\g<indent>    for key, value in available.items()\n"
-            r"\g<indent>},\n"
-            r"\g<indent>snapshot="
-        )
+
+        def replacement(match: re.Match[str]) -> str:
+            indent = match.group("indent")
+            return (
+                f"{indent}sequences=sequences,\n"
+                f"{indent}available=available,\n"
+                f"{indent}staleness={{\n"
+                f'{indent}    key: __import__("torch").zeros_like(\n'
+                f"{indent}        value, dtype=__import__(\"torch\").float32\n"
+                f"{indent}    )\n"
+                f"{indent}    for key, value in available.items()\n"
+                f"{indent}}},\n"
+                f"{indent}snapshot="
+            )
+
         updated = pattern.sub(replacement, text)
         if updated != text:
             path.write_text(updated, encoding="utf-8")

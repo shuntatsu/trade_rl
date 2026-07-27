@@ -204,7 +204,7 @@ def _load_perfect_information(
         _string(payload["reason"], field=f"{field}.reason")
     )
     if status is PerfectInformationComparisonStatus.COMPARABLE:
-        evidence = _string(
+        comparable_evidence = _string(
             payload["compatibility_evidence_digest"],
             field=f"{field}.compatibility_evidence_digest",
         )
@@ -215,7 +215,7 @@ def _load_perfect_information(
             causal_log_return=_number(
                 payload["causal_log_return"], field=f"{field}.causal_log_return"
             ),
-            compatibility_evidence_digest=evidence,
+            compatibility_evidence_digest=comparable_evidence,
         )
     if any(
         payload[name] is not None
@@ -223,7 +223,7 @@ def _load_perfect_information(
     ):
         raise ValueError(f"{field} non-comparable returns must be null")
     evidence_raw = payload["compatibility_evidence_digest"]
-    evidence = (
+    optional_evidence = (
         None
         if evidence_raw is None
         else _string(evidence_raw, field=f"{field}.compatibility_evidence_digest")
@@ -234,7 +234,7 @@ def _load_perfect_information(
         return PerfectInformationComparison.not_evaluated()
     return PerfectInformationComparison.not_comparable(
         reason,
-        compatibility_evidence_digest=evidence,
+        compatibility_evidence_digest=optional_evidence,
     )
 
 

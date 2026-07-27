@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: hierarchical-sequence-v2-${{ github.ref }}
@@ -18,31 +18,28 @@ concurrency:
 
 jobs:
   migrate-and-verify:
-    if: ${{ github.actor != 'github-actions[bot]' && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[v2-generated]')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: agent/cross-timeframe-attention
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
 
       - name: Install verification environment
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[dev,train-sb3,export]'
+        run: uv sync --extra dev --extra train-sb3 --extra export
 
       - name: Apply deterministic v2 migration
         run: |
           cp tools/apply_hierarchical_sequence_v2.py /tmp/apply_hierarchical_sequence_v2.py
-          python tools/bootstrap_hierarchical_sequence_v2.py
-          python tools/bootstrap_hierarchical_sequence_v2_scan.py
-          python - <<'PY'
+          uv run python tools/bootstrap_hierarchical_sequence_v2.py
+          uv run python tools/bootstrap_hierarchical_sequence_v2_scan.py
+          uv run python - <<'PY'
           import importlib.util
           from pathlib import Path
 
@@ -61,10 +58,10 @@ jobs:
           module._migrate_json_configs()
           module._add_contract_tests()
           PY
-          python tools/apply_legacy_mapping_keys_v2.py
-          python tools/apply_sequence_architecture_identity_v2.py
-          python tools/apply_sequence_test_staleness_v2.py
-          python - <<'PY'
+          uv run python tools/apply_legacy_mapping_keys_v2.py
+          uv run python tools/apply_sequence_architecture_identity_v2.py
+          uv run python tools/apply_sequence_test_staleness_v2.py
+          uv run python - <<'PY'
           import importlib.util
           from pathlib import Path
 
@@ -80,14 +77,14 @@ jobs:
 
       - name: Format and lint migrated tree
         run: |
-          ruff format .
-          ruff check --fix .
-          ruff format --check .
-          ruff check .
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff format --check .
+          uv run ruff check .
 
       - name: Verify focused v2 contracts
         run: |
-          pytest -q \
+          uv run pytest -q \
             tests/rl/test_observation_encoder_v2.py \
             tests/rl/test_gated_transformer.py \
             tests/rl/test_timeframe_fusion.py \
@@ -100,19 +97,69 @@ jobs:
             tests/integrations/test_sb3_training_active_architecture.py
 
       - name: Type-check production package
-        run: mypy trade_rl
+        run: uv run mypy trade_rl
 
       - name: Compile production package
-        run: python -m compileall trade_rl
+        run: uv run python -m compileall trade_rl
 
-      - name: Commit verified migration
+      - name: Package verified changes
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if git diff --cached --quiet; then
-            echo 'No generated migration changes.'
-          else
-            git commit -m 'refactor: migrate observation encoder contract to v2 [v2-generated]'
-            git push origin HEAD:agent/cross-timeframe-attention
-          fi
+          uv run python - <<'PY'
+          import json
+          import shutil
+          import subprocess
+          import zipfile
+          from pathlib import Path
+
+          root = Path.cwd()
+          output = root / 'hierarchical-v2-artifact'
+          files_root = output / 'files'
+          output.mkdir()
+          files_root.mkdir()
+          raw = subprocess.check_output(
+              ['git', 'status', '--porcelain=v1', '-z'], text=False
+          )
+          entries = [item for item in raw.decode('utf-8').split('\0') if item]
+          changed: list[str] = []
+          deleted: list[str] = []
+          for entry in entries:
+              status = entry[:2]
+              path = entry[3:]
+              if ' -> ' in path:
+                  path = path.split(' -> ', 1)[1]
+              if 'D' in status:
+                  deleted.append(path)
+                  continue
+              source = root / path
+              if source.is_file():
+                  destination = files_root / path
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, destination)
+                  changed.append(path)
+          manifest = {
+              'base_sha': subprocess.check_output(
+                  ['git', 'rev-parse', 'HEAD'], text=True
+              ).strip(),
+              'changed': sorted(changed),
+              'deleted': sorted(deleted),
+              'schema_version': 'hierarchical_sequence_v2_migration_artifact_v1',
+          }
+          (output / 'manifest.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          with zipfile.ZipFile(
+              output / 'files.zip', 'w', compression=zipfile.ZIP_DEFLATED
+          ) as archive:
+              for path in sorted(files_root.rglob('*')):
+                  if path.is_file():
+                      archive.write(path, path.relative_to(files_root).as_posix())
+          PY
+
+      - name: Upload verified migration
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-sequence-v2-migration
+          path: hierarchical-v2-artifact
+          if-no-files-found: error
+          retention-days: 7

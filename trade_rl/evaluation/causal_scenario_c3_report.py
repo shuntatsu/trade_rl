@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass
 from numbers import Integral, Real
 from typing import Final
@@ -55,10 +56,25 @@ def _readonly_vector(name: str, value: object) -> np.ndarray:
     return array
 
 
+def _readonly_day_indices(value: object) -> np.ndarray:
+    raw = np.asarray(value)
+    if raw.dtype.kind not in "iu":
+        raise ValueError("day_indices must be integers")
+    array = np.asarray(raw, dtype=np.int64).copy(order="C")
+    if array.ndim != 1 or array.size == 0:
+        raise ValueError("day_indices must be a non-empty vector")
+    if np.any(array < 0) or np.any(np.diff(array) <= 0):
+        raise ValueError("day_indices must be strictly increasing and non-negative")
+    array.setflags(write=False)
+    return array
+
+
 @dataclass(frozen=True, slots=True)
 class CausalScenarioFoldReport:
     fold_id: str
     selection_days: int
+    effective_days: int
+    day_indices: np.ndarray
     comparisons: tuple[CausalScenarioQueryComparison, ...]
     uplift: np.ndarray
     spearman: np.ndarray
@@ -75,22 +91,35 @@ class CausalScenarioFoldReport:
         if not fold_id:
             raise ValueError("fold_id must be non-empty")
         object.__setattr__(self, "fold_id", fold_id)
-        object.__setattr__(
-            self,
-            "selection_days",
-            _positive_int("selection_days", self.selection_days),
-        )
+        selection_days = _positive_int("selection_days", self.selection_days)
+        effective_days = _positive_int("effective_days", self.effective_days)
+        if effective_days > selection_days:
+            raise ValueError("effective_days must not exceed selection_days")
+        object.__setattr__(self, "selection_days", selection_days)
+        object.__setattr__(self, "effective_days", effective_days)
         comparisons = tuple(self.comparisons)
         if not comparisons or any(
             not isinstance(item, CausalScenarioQueryComparison) for item in comparisons
         ):
             raise ValueError("comparisons must contain C3 query comparisons")
+        if len({item.decision_digest for item in comparisons}) != len(comparisons):
+            raise ValueError("comparison decision digests must be unique within a fold")
         object.__setattr__(self, "comparisons", comparisons)
+        days = _readonly_day_indices(self.day_indices)
         uplift = _readonly_vector("uplift", self.uplift)
         spearman = _readonly_vector("spearman", self.spearman)
         regret_margin = _readonly_vector("regret_margin", self.regret_margin)
-        if not (len(uplift) == len(spearman) == len(regret_margin) == len(comparisons)):
-            raise ValueError("fold metric vectors must match comparison count")
+        if not (
+            len(days)
+            == effective_days
+            == len(uplift)
+            == len(spearman)
+            == len(regret_margin)
+        ):
+            raise ValueError("daily fold metric vectors must match effective_days")
+        if tuple(sorted({item.day_index for item in comparisons})) != tuple(days):
+            raise ValueError("day_indices do not match query comparisons")
+        object.__setattr__(self, "day_indices", days)
         object.__setattr__(self, "uplift", uplift)
         object.__setattr__(self, "spearman", spearman)
         object.__setattr__(self, "regret_margin", regret_margin)
@@ -127,6 +156,8 @@ class CausalScenarioFoldReport:
         return content_digest(
             {
                 "comparison_digests": tuple(item.digest for item in self.comparisons),
+                "day_indices": self.day_indices.tolist(),
+                "effective_days": self.effective_days,
                 "failure_reasons": self.failure_reasons,
                 "fold_id": self.fold_id,
                 "perfect_information_valid": self.perfect_information_valid,
@@ -146,6 +177,7 @@ class CausalScenarioFoldReport:
 class CausalScenarioAggregateReport:
     folds: tuple[CausalScenarioFoldReport, ...]
     total_selection_days: int
+    total_effective_days: int
     positive_uplift_folds: int
     mean_uplift: float
     uplift_lower_ci: float
@@ -180,6 +212,13 @@ class CausalScenarioAggregateReport:
             "total_selection_days",
             _positive_int("total_selection_days", self.total_selection_days),
         )
+        object.__setattr__(
+            self,
+            "total_effective_days",
+            _positive_int("total_effective_days", self.total_effective_days),
+        )
+        if self.total_effective_days > self.total_selection_days:
+            raise ValueError("total_effective_days exceeds total_selection_days")
         positive = _non_negative_int(
             "positive_uplift_folds", self.positive_uplift_folds
         )
@@ -250,6 +289,7 @@ class CausalScenarioAggregateReport:
                 "schema_version": self.schema_version,
                 "spearman_lower_ci": self.spearman_lower_ci,
                 "spearman_upper_ci": self.spearman_upper_ci,
+                "total_effective_days": self.total_effective_days,
                 "total_selection_days": self.total_selection_days,
                 "uplift_lower_ci": self.uplift_lower_ci,
                 "uplift_p_value": self.uplift_p_value,
@@ -271,18 +311,48 @@ def build_c3_fold_report(
     items = tuple(comparisons)
     if not items:
         raise ValueError("comparisons must not be empty")
+    grouped: dict[int, list[CausalScenarioQueryComparison]] = defaultdict(list)
+    for item in items:
+        grouped[item.day_index].append(item)
+    day_indices = np.asarray(sorted(grouped), dtype=np.int64)
     uplift = np.asarray(
         [
-            item.scenario_oracle.gross_log_return - item.trend.gross_log_return
-            for item in items
+            sum(
+                item.scenario_oracle.gross_log_return
+                - item.trend.gross_log_return
+                for item in grouped[int(day)]
+            )
+            for day in day_indices
         ],
         dtype=np.float64,
     )
     spearman = np.asarray(
-        [item.predicted_realized_spearman for item in items], dtype=np.float64
+        [
+            float(
+                np.mean(
+                    [
+                        item.predicted_realized_spearman
+                        for item in grouped[int(day)]
+                    ]
+                )
+            )
+            for day in day_indices
+        ],
+        dtype=np.float64,
     )
     regret_margin = np.asarray(
-        [item.random_realized_regret - item.selected_realized_regret for item in items],
+        [
+            float(
+                np.mean(
+                    [
+                        item.random_realized_regret
+                        - item.selected_realized_regret
+                        for item in grouped[int(day)]
+                    ]
+                )
+            )
+            for day in day_indices
+        ],
         dtype=np.float64,
     )
     perfect_valid = all(
@@ -296,6 +366,8 @@ def build_c3_fold_report(
     return CausalScenarioFoldReport(
         fold_id=fold_id,
         selection_days=selection_days,
+        effective_days=len(day_indices),
+        day_indices=day_indices,
         comparisons=items,
         uplift=uplift,
         spearman=spearman,
@@ -371,6 +443,7 @@ def build_c3_aggregate_report(
     return CausalScenarioAggregateReport(
         folds=items,
         total_selection_days=sum(item.selection_days for item in items),
+        total_effective_days=sum(item.effective_days for item in items),
         positive_uplift_folds=sum(item.mean_uplift > 0.0 for item in items),
         mean_uplift=float(uplift.mean()),
         uplift_lower_ci=uplift_lower,

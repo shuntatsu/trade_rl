@@ -48,7 +48,7 @@ replacement = r'''def _assert_legacy_contract_removed() -> None:
 
 
 def main() -> None:'''
-updated, count = pattern.subn(replacement, text, count=1)
+updated, count = pattern.subn(lambda _match: replacement, text, count=1)
 if count != 1:
     raise RuntimeError("could not patch syntax-aware legacy scan")
 TARGET.write_text(updated, encoding="utf-8")

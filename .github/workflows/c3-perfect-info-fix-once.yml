@@ -1,0 +1,42 @@
+name: C3 Perfect Information Fix Once
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3
+          fetch-depth: 0
+      - name: Correct enum reference and remove temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/causal_scenario/c3_evaluation.py")
+          source = path.read_text(encoding="utf-8")
+          old = "PerfectInformationComparisonReason.COMPATIBLE"
+          new = "PerfectInformationComparisonReason.DOMINANCE_VERIFIED"
+          if source.count(old) != 1:
+              raise SystemExit(f"expected exactly one enum typo, found {source.count(old)}")
+          path.write_text(source.replace(old, new), encoding="utf-8")
+          PY
+          rm -f .github/workflows/c3-perfect-info-fix-once.yml
+          rm -f .github/c3-perfect-info-fix-trigger.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/workflows/causal_scenario/c3_evaluation.py .github/workflows/c3-perfect-info-fix-once.yml .github/c3-perfect-info-fix-trigger.txt
+          git commit -m "fix: validate Perfect Information dominance reason"
+          git push origin HEAD:agent/causal-scenario-c3

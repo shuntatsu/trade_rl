@@ -43,7 +43,9 @@ jobs:
           path.write_text(source, encoding='utf-8')
           PY
       - name: Apply reviewed H3 GREEN patch
-        run: uv run python .github/scripts/apply_h3_sequence_runtime.py
+        run: |
+          uv run python .github/scripts/apply_h3_sequence_runtime.py
+          uv run python .github/scripts/fix_h3_sequence_transfer_default.py
       - name: Format and organize imports
         run: |
           uv run ruff check --fix \
@@ -102,6 +104,7 @@ jobs:
       - name: Commit verified H3 implementation
         run: |
           rm -f .github/scripts/apply_h3_sequence_runtime.py
+          rm -f .github/scripts/fix_h3_sequence_transfer_default.py
           rm -f .github/workflows/temporary-h3-red.yml
           rm -f .github/workflows/temporary-h3-updater.yml
           rm -f h3-green.log h3-green.status

@@ -150,7 +150,9 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
         self.visit(node.value)
         self._bind(node.target, self._strings(node.value))
 
-    def _visit_scoped(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+    def _visit_scoped(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+    ) -> None:
         outer_strings = self.string_values
         outer_importlib_modules = self.importlib_modules
         outer_builtins_modules = self.builtins_modules
@@ -243,7 +245,9 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
     @staticmethod
     def _looks_like_module(value: str) -> bool:
         candidate = value.lstrip(".")
-        return bool(candidate) and all(part.isidentifier() for part in candidate.split("."))
+        return bool(candidate) and all(
+            part.isidentifier() for part in candidate.split(".")
+        )
 
     def _module_candidates(self, node: ast.expr | None) -> tuple[str, ...]:
         literal = self._literal_string(node)
@@ -253,9 +257,7 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
             value for value in self._strings(node) if self._looks_like_module(value)
         )
         if any("." in value.lstrip(".") for value in candidates):
-            candidates = [
-                value for value in candidates if "." in value.lstrip(".")
-            ]
+            candidates = [value for value in candidates if "." in value.lstrip(".")]
         return tuple(candidates)
 
     @staticmethod

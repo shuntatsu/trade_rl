@@ -145,13 +145,7 @@ def _config(algorithm: str) -> ResidualTrainingConfig:
             {
                 "n_steps": 8,
                 "n_epochs": 1,
-                "observation_encoder": "invalid_legacy_combination"
-                if (False) and (True)
-                else "hierarchical_sequence_v2"
-                if (False)
-                else "asset_set"
-                if (True)
-                else "flat_mlp",
+                "observation_encoder": "asset_set",
                 "asset_embedding_dim": 8,
                 "global_embedding_dim": 8,
             }
@@ -163,13 +157,7 @@ def _config(algorithm: str) -> ResidualTrainingConfig:
                 "learning_starts": 0,
                 "train_freq": 1,
                 "gradient_steps": 1,
-                "observation_encoder": "invalid_legacy_combination"
-                if (False) and (False)
-                else "hierarchical_sequence_v2"
-                if (False)
-                else "asset_set"
-                if (False)
-                else "flat_mlp",
+                "observation_encoder": "flat_mlp",
             }
         )
         if algorithm in {"sac", "tqc"}:
@@ -399,15 +387,7 @@ def _residual_feature_training(root: Path) -> dict[str, object]:
         n_epochs=1,
         policy_net_arch=(16, 8),
         value_net_arch=(24, 12),
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (False) and (False)
-            else "hierarchical_sequence_v2"
-            if (False)
-            else "asset_set"
-            if (False)
-            else "flat_mlp"
-        ),
+        observation_encoder="flat_mlp",
         device="cpu",
     )
     output = root / "residual-all-controls" / "policy.zip"
@@ -464,15 +444,7 @@ def _behavior_cloning_training(root: Path) -> dict[str, object]:
         n_epochs=1,
         policy_net_arch=(16, 8),
         value_net_arch=(24, 12),
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (False) and (False)
-            else "hierarchical_sequence_v2"
-            if (False)
-            else "asset_set"
-            if (False)
-            else "flat_mlp"
-        ),
+        observation_encoder="flat_mlp",
         behavior_cloning_epochs=1,
         behavior_cloning_batch_size=16,
         behavior_cloning_validation_fraction=0.1,
@@ -586,15 +558,7 @@ def _sequence_training(root: Path) -> dict[str, object]:
         policy="MultiInputPolicy",
         policy_net_arch=(16, 8),
         value_net_arch=(24, 12),
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (True) and (False)
-            else "hierarchical_sequence_v2"
-            if (True)
-            else "asset_set"
-            if (False)
-            else "flat_mlp"
-        ),
+        observation_encoder="hierarchical_sequence_v2",
         sequence_d_model=32,
         sequence_timeframe_attention_heads=4,
         sequence_asset_attention_heads=4,
@@ -618,13 +582,7 @@ def _sequence_training(root: Path) -> dict[str, object]:
         "actual_timesteps": result.actual_timesteps,
         "observation_schema": result.observation_schema,
         "parameter_count": result.parameter_count,
-        "observation_encoder": "invalid_legacy_combination"
-        if (architecture["architecture"].get("encoder")) and (True)
-        else "hierarchical_sequence_v2"
-        if (architecture["architecture"].get("encoder"))
-        else "asset_set"
-        if (True)
-        else "flat_mlp",
+        "observation_encoder": "hierarchical_sequence_v2",
         "status": "pass",
     }
 

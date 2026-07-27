@@ -35,6 +35,7 @@ The exact pull-request head must pass:
 - `report.json` and `gate.json` from the merged C3 core are authoritative.
 - `report.md` is derivative and binds the report and gate artifact digests.
 - Workflow execution is manual-only and third-party actions are pinned by full commit SHA.
+- Unit tests use the concrete C3 configuration contract; production type checks are not weakened for test doubles.
 - A passing Phase A gate authorizes only the next research phase.
 - Production status remains `NO-GO`.
 

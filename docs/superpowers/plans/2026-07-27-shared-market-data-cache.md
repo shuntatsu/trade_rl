@@ -4,7 +4,7 @@
 
 **Goal:** Add a separate persistent Binance Vision archive volume, incremental missing-only synchronization, legacy-cache import, and a fail-closed training startup cache check.
 
-**Architecture:** A package-level cache planner owns deterministic URL planning, cache inspection, and synchronization. A one-shot sync container imports the old cache read-only, writes the new archive volume, and downloads only remaining gaps. The existing training-data volume remains mounted at `/workspace/var` so current runs and teacher artifacts are preserved. A host launcher runs sync then trainer for every canonical training invocation.
+**Architecture:** A package-level cache planner owns deterministic URL planning, cache inspection, and synchronization. A one-shot sync container imports the old cache read-only, writes the new archive volume, and downloads only remaining gaps. The existing training-data volume remains mounted at `/workspace/var` so current runs and teacher artifacts are preserved. A maintained example launcher runs sync then trainer for every canonical local training invocation, while the protected GPU workflow performs the same explicit sequence.
 
 **Tech Stack:** Python 3.12, Docker Compose, pytest, existing Binance integration.
 
@@ -57,16 +57,18 @@
 **Files:**
 - Modify: `compose.training.yaml`
 - Modify: `Dockerfile.training`
-- Create: `scripts/run_docker_training.py`
+- Create: `examples/binance-multitimeframe/run_docker_training.py`
+- Modify: `.github/workflows/launch-binance-frozen-226.yml`
 - Test: `tests/test_training_compose_contract.py`
 - Test: `tests/scripts/test_run_docker_training.py`
+- Test: `tests/test_training_workflow_market_sync.py`
 
 **Interfaces:**
-- Produces: `market-data-sync` service, RW new archive mount, RO trainer archive mount, RO legacy cache source for migration, preserved `/workspace/var`, and sequential sync/trainer launcher.
+- Produces: `market-data-sync` service, RW new archive mount, RO trainer archive mount, RO legacy cache source for migration, preserved `/workspace/var`, sequential sync/trainer launcher, and explicit protected-workflow synchronization.
 
-- [ ] Write tests that parse the Compose contract and assert RW sync versus RO trainer mounts, legacy training-volume preservation, and launcher command ordering.
+- [ ] Write tests that parse the Compose and workflow contracts and assert RW sync versus RO trainer mounts, legacy training-volume preservation, and launcher command ordering.
 - [ ] Run focused tests and confirm expected failures.
-- [ ] Update Compose services/volumes, switch the image CMD to bootstrap, and implement the host launcher.
+- [ ] Update Compose services/volumes, route the trainer service through bootstrap, and implement both local and protected-workflow sync-before-training paths.
 - [ ] Run focused tests and confirm they pass.
 - [ ] Commit Docker and launcher changes.
 

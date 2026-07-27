@@ -25,6 +25,16 @@ def _resolved(references: tuple[ImportReference, ...]) -> tuple[tuple[str, str],
     )
 
 
+def _dynamic_targets(references: tuple[ImportReference, ...]) -> tuple[str, ...]:
+    return tuple(
+        reference.target
+        for reference in references
+        if reference.kind == "dynamic"
+        and not reference.unresolved
+        and reference.target is not None
+    )
+
+
 def test_module_name_from_path_handles_modules_and_packages() -> None:
     package_root = Path("trade_rl")
 
@@ -137,7 +147,7 @@ importlib.import_module(
     )
 
 
-def test_scanner_fails_closed_for_non_literal_dynamic_targets(tmp_path: Path) -> None:
+def test_scanner_resolves_assigned_literal_dynamic_targets(tmp_path: Path) -> None:
     references = _scan(
         tmp_path,
         """
@@ -151,14 +161,69 @@ __import__(module_name)
 """,
     )
 
+    assert _dynamic_targets(references) == (
+        "trade_rl.workflows.causal_scenario",
+        "trade_rl.workflows.causal_scenario.replay",
+        "trade_rl.workflows.causal_scenario",
+    )
+
+
+def test_scanner_resolves_finite_lazy_export_maps(tmp_path: Path) -> None:
+    references = _scan(
+        tmp_path,
+        """
+from importlib import import_module
+
+_EXPORTS = {
+    "Alpha": ("trade_rl.integrations.alpha", "Alpha"),
+    "Beta": ("trade_rl.integrations.beta", "Beta"),
+}
+
+
+def load(name: str) -> object:
+    target = _EXPORTS.get(name)
+    module_name, attribute = target
+    return getattr(import_module(module_name), attribute)
+
+_MODULE_EXPORTS = {
+    "trade_rl.rl.actions": ("Action",),
+    "trade_rl.rl.rewards": ("Reward",),
+}
+_FLAT_EXPORTS = {
+    exported: module
+    for module, names in _MODULE_EXPORTS.items()
+    for exported in names
+}
+
+
+def load_flat(name: str) -> object:
+    module_name = _FLAT_EXPORTS.get(name)
+    return import_module(module_name)
+""",
+    )
+
+    assert _dynamic_targets(references) == (
+        "trade_rl.integrations.alpha",
+        "trade_rl.integrations.beta",
+        "trade_rl.rl.actions",
+        "trade_rl.rl.rewards",
+    )
+
+
+def test_scanner_fails_closed_for_unknown_dynamic_targets(tmp_path: Path) -> None:
+    references = _scan(
+        tmp_path,
+        """
+import importlib
+module_name = resolve_module_name()
+importlib.import_module(module_name)
+""",
+    )
+
     unresolved = tuple(reference for reference in references if reference.unresolved)
     assert [
         (reference.kind, reference.target, reference.line) for reference in unresolved
-    ] == [
-        ("dynamic", None, 6),
-        ("dynamic", None, 7),
-        ("dynamic", None, 8),
-    ]
+    ] == [("dynamic", None, 4)]
 
 
 def test_comments_docstrings_and_ordinary_strings_are_not_dependencies(

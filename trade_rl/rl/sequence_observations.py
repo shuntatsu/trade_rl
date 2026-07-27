@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
 from types import MappingProxyType
@@ -18,6 +21,27 @@ from trade_rl.rl.observations import ObservationLayout
 
 SEQUENCE_OBSERVATION_SCHEMA = "native_timeframe_sequence_observation_v2"
 _FLOAT16_MAX = float(np.finfo(np.float16).max)
+_SEQUENCE_POLICY_PLANE_MATERIALIZATION: ContextVar[bool] = ContextVar(
+    "sequence_policy_plane_materialization",
+    default=True,
+)
+
+
+@contextmanager
+def sequence_policy_plane_materialization(enabled: bool) -> Iterator[None]:
+    """Temporarily control policy-plane construction for worker environments."""
+
+    if not isinstance(enabled, bool):
+        raise TypeError("sequence policy-plane materialization flag must be boolean")
+    token = _SEQUENCE_POLICY_PLANE_MATERIALIZATION.set(enabled)
+    try:
+        yield
+    finally:
+        _SEQUENCE_POLICY_PLANE_MATERIALIZATION.reset(token)
+
+
+def should_materialize_sequence_policy_plane() -> bool:
+    return bool(_SEQUENCE_POLICY_PLANE_MATERIALIZATION.get())
 
 
 class SequenceNormalizerProtocol(Protocol):
@@ -505,6 +529,8 @@ __all__ = [
     "SequenceWindowSpec",
     "build_sequence_policy_plane",
     "build_structured_current_observation",
+    "sequence_policy_plane_materialization",
+    "should_materialize_sequence_policy_plane",
     "build_structured_policy_observation",
     "sequence_policy_values",
 ]

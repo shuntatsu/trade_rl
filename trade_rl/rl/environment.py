@@ -210,7 +210,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._observation_contract_digest = (
             observation_contract.observation_contract_digest
         )
-        self.observation_space = observation_contract.observation_space
+        self._install_observation_transport(observation_contract.observation_space)
         self.action_space = observation_contract.action_space
         self._minimum_start_index = observation_contract.minimum_start_index
         runtime_services = EnvironmentRuntimeServicesBuilder(
@@ -246,6 +246,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
         )
         self._install_initial_state(initial_state)
+
+    def _install_observation_transport(
+        self,
+        observation_space: gym.spaces.Space[Any],
+    ) -> None:
+        self.observation_space = observation_space
+        self._full_observation_space = observation_space
+        self._compact_sequence_training_observations = False
 
     def _install_reward_execution_resources(
         self, resources: EnvironmentRewardExecutionResources
@@ -519,9 +527,37 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             execution_policy_digest=self.execution_policy_digest,
         )
 
+    def set_compact_sequence_training_observations(self, enabled: bool) -> None:
+        """Switch only the runtime transport, never the observation identity."""
+
+        if not isinstance(enabled, bool):
+            raise TypeError("compact sequence observation flag must be boolean")
+        if enabled and self.sequence_observation_builder is None:
+            raise RuntimeError(
+                "compact sequence observations require a sequence contract"
+            )
+        self._compact_sequence_training_observations = enabled
+        if not enabled:
+            self.observation_space = self._full_observation_space
+            return
+        if not isinstance(self._full_observation_space, gym.spaces.Dict):
+            raise RuntimeError("compact sequence observations require a Dict space")
+        self.observation_space = gym.spaces.Dict(
+            {
+                key: value
+                for key, value in self._full_observation_space.spaces.items()
+                if not key.startswith("sequence_")
+            }
+        )
+
     def _observation(self) -> np.ndarray | dict[str, np.ndarray]:
         trends, alpha, factor_basis = self._market_inputs()
-        return self._observation_assembler.observation(
+        builder = (
+            self._observation_assembler.compact_observation
+            if self._compact_sequence_training_observations
+            else self._observation_assembler.observation
+        )
+        return builder(
             self._observation_runtime(),
             trends=trends,
             alpha=alpha,

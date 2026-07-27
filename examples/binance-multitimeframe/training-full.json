@@ -153,7 +153,8 @@
     ],
     "sequence_compile": true,
     "sequence_compile_mode": "reduce-overhead",
-    "sequence_transfer_mode": "pinned_non_blocking"
+    "sequence_transfer_mode": "pinned_non_blocking",
+    "vector_environment_mode": "subprocess"
   },
   "trend": {
     "base_hours": 168.0,

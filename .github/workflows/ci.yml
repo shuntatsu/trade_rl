@@ -243,7 +243,7 @@ jobs:
 
   c3-core-extract:
     name: C3 core extractor
-    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'agent/causal-scenario-c3-core' && !contains(github.event.pull_request.head.label, 'c3-core-extracted') }}
+    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'agent/causal-scenario-c3-core' }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -331,7 +331,6 @@ jobs:
             trade_rl/evaluation/causal_scenario_c3_adverse_source.py
             trade_rl/evaluation/causal_scenario_c3_adverse.py
             trade_rl/evaluation/causal_scenario_c3_report.py
-            trade_rl/evaluation/causal_scenario_c3_adverse_report_binding.py
             trade_rl/evaluation/causal_scenario_c3_artifact.py
             trade_rl/evaluation/causal_scenario_c3_gate.py
           )

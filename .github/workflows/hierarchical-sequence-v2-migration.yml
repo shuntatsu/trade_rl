@@ -41,6 +41,7 @@ jobs:
           cp tools/apply_hierarchical_sequence_v2.py /tmp/apply_hierarchical_sequence_v2.py
           uv run python tools/bootstrap_hierarchical_sequence_v2.py
           uv run python tools/bootstrap_hierarchical_sequence_v2_scan.py
+          uv run python tools/bootstrap_hierarchical_sequence_v2_dynamic.py
           uv run python - <<'PY'
           import importlib.util
           from pathlib import Path

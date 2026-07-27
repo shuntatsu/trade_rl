@@ -20,6 +20,40 @@ The training image is tagged by the exact Git commit and binds:
 
 The image build and runtime both recompute source and lock identities. A caller-supplied commit string alone is never accepted as provenance. The process also records generation identity, phase, runtime/container identity, heartbeat, terminal state, and retained evidence paths before cleanup.
 
+## Shared market-data archives
+
+Binance Vision ZIP archives are stored in the independent Docker volume `trade-rl-market-archives`. They are not stored inside a training generation or PostgreSQL. The one-shot `market-data-sync` service mounts this volume read-write; `trainer` mounts it read-only.
+
+Use the canonical launcher for every phase start:
+
+```bash
+python scripts/run_docker_training.py
+```
+
+The launcher executes these operations in order:
+
+1. plan the exact archive URLs required by the maintained symbols, native timeframes and fixed research interval;
+2. inspect the shared cache and download only missing or empty archives;
+3. stop immediately if synchronization fails;
+4. start `trainer` without rerunning dependencies.
+
+Manual synchronization is available when only the archive volume should be updated:
+
+```bash
+docker compose -f compose.training.yaml run --rm market-data-sync
+```
+
+A direct trainer invocation still declares `market-data-sync` as a completed dependency, but the canonical launcher is preferred because it explicitly runs synchronization on every invocation. The training image also performs a read-only completeness check before CUDA preflight. If the archive volume is incomplete, training fails closed and prints the synchronization command instead of downloading from the read-only mount.
+
+The maintained research end time remains authoritative. Advancing it in the pipeline causes only newly required URL-addressed archives to be downloaded; unchanged archives are read from the shared cache. The trailing incomplete USDⓈ-M funding month remains a REST responsibility of the existing dataset path because Binance Vision publishes funding archives monthly.
+
+The other persistent payload volumes are separate:
+
+- `trade-rl-training-runs`: generation directories, logs, checkpoints and evaluation artifacts;
+- `trade-rl-teacher-cache`: reusable teacher artifacts.
+
+Removing `trade-rl-training-runs` does not remove the market archive cache. Remove `trade-rl-market-archives` only when a complete redownload is intentional.
+
 ## Evidence and public keys
 
 Set `TRADE_RL_EVIDENCE_ROOT` as a host path readable by the runner. Mount only public verification material into the trainer:

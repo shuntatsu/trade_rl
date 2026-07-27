@@ -128,7 +128,30 @@ jobs:
             mkdir -p "$(dirname "$path")"
             git show "$SOURCE:$path" > "$path"
           done
-          uv run ruff format trade_rl/evaluation/causal_scenario_c3_adverse_source.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/causal_scenario_c3_adverse.py")
+          text = path.read_text(encoding="utf-8")
+          old = "    return C3AdverseThresholds(config_digest=content_digest(payload), **payload)\n"
+          new = """    return C3AdverseThresholds(
+              required_scenario=required_scenario,
+              decision_hours=decision_hours,
+              minimum_selected_return=minimum_return,
+              minimum_baseline_uplift=minimum_uplift,
+              maximum_cost_fraction=selection_cost,
+              maximum_turnover_per_day=selection_turnover,
+              maximum_drawdown=min(selection_drawdown, sensitivity_drawdown),
+              config_digest=content_digest(payload),
+          )
+          """
+          if text.count(old) != 1:
+              raise SystemExit("typed adverse-threshold construction target not found")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+          uv run ruff format \
+            trade_rl/evaluation/causal_scenario_c3_adverse.py \
+            trade_rl/evaluation/causal_scenario_c3_adverse_source.py
 
       - name: Focused C3 tests
         shell: bash

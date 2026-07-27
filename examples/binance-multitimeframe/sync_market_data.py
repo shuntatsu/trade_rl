@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,6 +44,40 @@ def build_maintained_plan() -> BinanceVisionCachePlan:
     )
 
 
+def _is_cache_payload(relative: Path) -> bool:
+    if len(relative.parts) != 2 or relative.suffix != ".bin":
+        return False
+    directory, filename = relative.parts
+    stem = Path(filename).stem
+    hexadecimal = set("0123456789abcdef")
+    return (
+        len(directory) == 2
+        and set(directory) <= hexadecimal
+        and len(stem) == 64
+        and set(stem) <= hexadecimal
+        and stem.startswith(directory)
+    )
+
+
+def import_legacy_cache(*, source_root: Path, destination_root: Path) -> int:
+    """Copy valid nonempty legacy cache files without overwriting new storage."""
+
+    if not source_root.is_dir():
+        return 0
+    copied = 0
+    for source in sorted(source_root.rglob("*.bin")):
+        relative = source.relative_to(source_root)
+        if not _is_cache_payload(relative) or source.stat().st_size <= 0:
+            continue
+        destination = destination_root / relative
+        if destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        copied += 1
+    return copied
+
+
 def _atomic_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
@@ -56,10 +91,17 @@ def _atomic_json(path: Path, payload: object) -> None:
 def run_sync(
     *,
     cache_root: Path,
+    legacy_cache_root: Path | None = None,
     transport_factory: Callable[..., BinancePublicTransport] = BinancePublicTransport,
 ) -> dict[str, object]:
     root = cache_root.resolve()
     root.mkdir(parents=True, exist_ok=True)
+    legacy_imported_count = 0
+    if legacy_cache_root is not None:
+        legacy_imported_count = import_legacy_cache(
+            source_root=legacy_cache_root,
+            destination_root=root,
+        )
     plan = build_maintained_plan()
     transport = transport_factory(
         timeout_seconds=60.0,
@@ -70,6 +112,7 @@ def run_sync(
     report = sync_binance_vision_cache(plan, transport=transport)
     payload = {
         "schema_version": "binance_vision_cache_sync_v1",
+        "legacy_imported_count": legacy_imported_count,
         **plan.to_dict(),
         **report.to_dict(),
     }
@@ -89,8 +132,21 @@ def main(argv: list[str] | None = None) -> int:
             )
         ),
     )
+    parser.add_argument(
+        "--legacy-cache-root",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "TRADE_RL_LEGACY_MARKET_DATA_CACHE_ROOT",
+                "/workspace/legacy-var/cache/binance-vision",
+            )
+        ),
+    )
     args = parser.parse_args(argv)
-    result = run_sync(cache_root=args.cache_root)
+    result = run_sync(
+        cache_root=args.cache_root,
+        legacy_cache_root=args.legacy_cache_root,
+    )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 

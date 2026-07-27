@@ -318,8 +318,7 @@ def build_c3_fold_report(
     uplift = np.asarray(
         [
             sum(
-                item.scenario_oracle.gross_log_return
-                - item.trend.gross_log_return
+                item.scenario_oracle.gross_log_return - item.trend.gross_log_return
                 for item in grouped[int(day)]
             )
             for day in day_indices
@@ -330,10 +329,7 @@ def build_c3_fold_report(
         [
             float(
                 np.mean(
-                    [
-                        item.predicted_realized_spearman
-                        for item in grouped[int(day)]
-                    ]
+                    [item.predicted_realized_spearman for item in grouped[int(day)]]
                 )
             )
             for day in day_indices
@@ -345,8 +341,7 @@ def build_c3_fold_report(
             float(
                 np.mean(
                     [
-                        item.random_realized_regret
-                        - item.selected_realized_regret
+                        item.random_realized_regret - item.selected_realized_regret
                         for item in grouped[int(day)]
                     ]
                 )

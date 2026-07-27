@@ -163,9 +163,7 @@ class _Replay:
     ) -> RealizedPolicyOutcome:
         assert horizon_decisions == 96
         assert zero_residual_after_first is True
-        value = 0.01 + 0.02 * float(raw_residual[0]) + 0.005 * float(
-            raw_residual[1]
-        )
+        value = 0.01 + 0.02 * float(raw_residual[0]) + 0.005 * float(raw_residual[1])
         return _outcome(policy_kind, value)
 
 
@@ -198,7 +196,10 @@ def test_random_comparator_count_materializes_complete_evidence(tmp_path: Path) 
         comparison.random_candidate_outcomes,
         strict=True,
     ):
-        assert outcome.outcome_digest == comparison.candidate_outcomes[index].outcome_digest
+        assert (
+            outcome.outcome_digest
+            == comparison.candidate_outcomes[index].outcome_digest
+        )
 
 
 def test_explicit_moving_block_size_is_preserved() -> None:

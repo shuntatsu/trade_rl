@@ -580,9 +580,7 @@ class CausalScenarioQueryComparison:
         object.__setattr__(
             self,
             "replay_identity_digest",
-            require_sha256(
-                self.replay_identity_digest, field="replay_identity_digest"
-            ),
+            require_sha256(self.replay_identity_digest, field="replay_identity_digest"),
         )
         object.__setattr__(
             self,
@@ -620,7 +618,9 @@ class CausalScenarioQueryComparison:
             raise ValueError("random comparators must contain realized outcomes")
         for index, outcome in zip(random_indices, random_outcomes, strict=True):
             if outcome.outcome_digest != outcomes[index].outcome_digest:
-                raise ValueError("random comparator outcome does not match candidate index")
+                raise ValueError(
+                    "random comparator outcome does not match candidate index"
+                )
         if self.random_candidate.outcome_digest != random_outcomes[0].outcome_digest:
             raise ValueError("random_candidate must be the first random comparator")
         random_regrets = _readonly_float_array(
@@ -695,9 +695,7 @@ class CausalScenarioQueryComparison:
                     outcome.outcome_digest for outcome in self.random_candidate_outcomes
                 ),
                 "random_realized_regret": self.random_realized_regret,
-                "random_realized_regrets": _array_payload(
-                    self.random_realized_regrets
-                ),
+                "random_realized_regrets": _array_payload(self.random_realized_regrets),
                 "realized_candidate_advantages": _array_payload(
                     self.realized_candidate_advantages
                 ),

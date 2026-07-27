@@ -45,7 +45,9 @@ def _identity(*, query_index: int, query_timestamp_ns: int) -> C3ReplayIdentity:
     )
 
 
-def _decision(*, query_index: int, query_timestamp_ns: int) -> PersistedScenarioDecision:
+def _decision(
+    *, query_index: int, query_timestamp_ns: int
+) -> PersistedScenarioDecision:
     raw = np.asarray([[0.0], [1.0], [-1.0]], dtype=np.float64)
     projected = raw * 0.25
     candidate_digests = tuple(
@@ -235,10 +237,13 @@ def test_every_policy_uses_a_fresh_replay_clone(tmp_path: Path) -> None:
         query_timestamp_ns=10 * _DAY_NS,
         starts=starts,
     )
-    assert result.replay_identity_digest == _identity(
-        query_index=10_000,
-        query_timestamp_ns=10 * _DAY_NS,
-    ).digest
+    assert (
+        result.replay_identity_digest
+        == _identity(
+            query_index=10_000,
+            query_timestamp_ns=10 * _DAY_NS,
+        ).digest
+    )
     assert starts
     assert set(starts) == {0}
 

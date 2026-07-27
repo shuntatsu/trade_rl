@@ -210,9 +210,7 @@ class ArtificialReplay:
         assert horizon_decisions == 96
         assert zero_residual_after_first is True
         self.labels.append(policy_kind)
-        value = 0.01 + 0.02 * float(raw_residual[0]) + 0.005 * float(
-            raw_residual[1]
-        )
+        value = 0.01 + 0.02 * float(raw_residual[0]) + 0.005 * float(raw_residual[1])
         return outcome(policy_kind, gross_log_return=value)
 
 

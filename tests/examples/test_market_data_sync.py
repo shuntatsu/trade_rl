@@ -41,10 +41,10 @@ def test_import_legacy_cache_copies_only_missing_nonempty_payloads(
     module = _load_module()
     legacy = tmp_path / "legacy"
     destination = tmp_path / "destination"
-    source_payload = legacy / "ab" / ("1" * 64 + ".bin")
-    empty_payload = legacy / "cd" / ("2" * 64 + ".bin")
-    existing_payload = destination / "ef" / ("3" * 64 + ".bin")
-    replacement_source = legacy / "ef" / ("3" * 64 + ".bin")
+    source_payload = legacy / "ab" / ("ab" + "1" * 62 + ".bin")
+    empty_payload = legacy / "cd" / ("cd" + "2" * 62 + ".bin")
+    existing_payload = destination / "ef" / ("ef" + "3" * 62 + ".bin")
+    replacement_source = legacy / "ef" / ("ef" + "3" * 62 + ".bin")
     source_payload.parent.mkdir(parents=True)
     empty_payload.parent.mkdir(parents=True)
     existing_payload.parent.mkdir(parents=True)

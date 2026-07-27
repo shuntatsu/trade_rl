@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from architecture_import_references import (
+from tests.architecture.import_references import (
     ImportReference,
     module_name_from_path,
     scan_import_references,

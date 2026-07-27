@@ -29,6 +29,13 @@ def check_maintained_cache(cache_root: Path) -> BinanceVisionCacheReport:
     )
 
 
+def ensure_cache_root_argument(argv: list[str], cache_root: Path) -> list[str]:
+    result = list(argv)
+    if "--cache-root" not in result:
+        result.extend(("--cache-root", str(cache_root)))
+    return result
+
+
 def run_bootstrap(
     *,
     cache_root: Path,
@@ -67,6 +74,7 @@ def main() -> int:
             "/workspace/market-data/binance-vision",
         )
     )
+    sys.argv[:] = ensure_cache_root_argument(sys.argv, cache_root)
     return run_bootstrap(cache_root=cache_root)
 
 

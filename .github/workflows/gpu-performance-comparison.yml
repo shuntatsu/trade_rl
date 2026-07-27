@@ -3,11 +3,6 @@ name: GPU Performance Comparison
 on:
   workflow_dispatch:
     inputs:
-      baseline_ref:
-        description: Verified H1 baseline commit
-        required: true
-        type: string
-        default: 1f597caf85fe5200fe7abc34461236b65ebb8b1d
       timesteps:
         description: PPO timesteps per sample
         required: false
@@ -45,13 +40,9 @@ jobs:
       - name: Create verified baseline worktree
         shell: bash
         env:
-          REQUESTED_BASELINE_REF: ${{ inputs.baseline_ref }}
+          REQUESTED_BASELINE_REF: 1f597caf85fe5200fe7abc34461236b65ebb8b1d
         run: |
           set -euo pipefail
-          if [[ ! "$REQUESTED_BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "baseline_ref must be a lowercase 40-character commit" >&2
-            exit 2
-          fi
           git -C candidate cat-file -e "${REQUESTED_BASELINE_REF}^{commit}"
           git -C candidate worktree add --detach ../baseline "$REQUESTED_BASELINE_REF"
           echo "REQUESTED_BASELINE_REF=$REQUESTED_BASELINE_REF" >> "$GITHUB_ENV"
@@ -164,6 +155,7 @@ jobs:
           path = Path("gpu-comparison-evidence/gpu-performance-comparison.json")
           evidence = json.loads(path.read_text(encoding="utf-8"))
           assert evidence["schema_version"] == "gpu_training_performance_comparison_v1"
+          assert evidence["baseline"]["ref"] == "1f597caf85fe5200fe7abc34461236b65ebb8b1d"
           assert evidence["baseline"]["runtime_profile"] == "compatibility"
           assert evidence["candidate"]["runtime_profile"] == "accelerated"
           assert evidence["baseline"]["sample_count"] == evidence["candidate"]["sample_count"]

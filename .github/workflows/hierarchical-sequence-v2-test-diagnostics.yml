@@ -91,3 +91,18 @@ jobs:
           path: hierarchical-v2-tests.log
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Run MyPy
+        run: |
+          exec > >(tee hierarchical-v2-mypy.log) 2>&1
+          set -o pipefail
+          uv run mypy trade_rl
+
+      - name: Upload MyPy diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-sequence-v2-mypy-diagnostics
+          path: hierarchical-v2-mypy.log
+          if-no-files-found: warn
+          retention-days: 7

@@ -32,7 +32,7 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:
+def _model_algorithm_identity(model: object) -> dict[str, object] | None:
     provider = getattr(model, "checkpoint_identity_payload", None)
     if provider is None:
         return None
@@ -46,6 +46,26 @@ def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:
     if any(not isinstance(key, str) or not key for key in raw):
         raise ValueError("checkpoint algorithm identity keys must be non-empty strings")
     payload = dict(raw)
+    canonical_json_bytes(payload)
+    return payload
+
+
+def checkpoint_identity_payload_for_model(
+    model: object,
+) -> dict[str, object] | None:
+    """Compose the actual policy architecture with algorithm-specific identity."""
+
+    from trade_rl.integrations.sb3_policy_identity import model_sb3_policy_identity
+
+    policy_identity = model_sb3_policy_identity(model)
+    algorithm_identity = _model_algorithm_identity(model)
+    if policy_identity is None:
+        return algorithm_identity
+    payload: dict[str, object] = {
+        "schema_version": "sb3_checkpoint_identity_v2",
+        "policy": policy_identity,
+        "algorithm": algorithm_identity,
+    }
     canonical_json_bytes(payload)
     return payload
 
@@ -301,7 +321,7 @@ def publish_checkpoint(
     if requested_timestep <= 0 or observed_timestep < requested_timestep:
         raise ValueError("checkpoint timestep identity is invalid")
     checkpoint_root = Path(checkpoint_root)
-    algorithm_identity = _model_algorithm_identity(model)
+    algorithm_identity = checkpoint_identity_payload_for_model(model)
     destination, existing = _checkpoint_destination(
         checkpoint_root,
         algorithm=algorithm,
@@ -543,6 +563,7 @@ __all__ = [
     "CHECKPOINT_POLICY_NAME",
     "CheckpointManifest",
     "build_checkpoint_callback",
+    "checkpoint_identity_payload_for_model",
     "checkpoint_manifests",
     "load_checkpoint_manifest",
     "planned_checkpoint_steps",

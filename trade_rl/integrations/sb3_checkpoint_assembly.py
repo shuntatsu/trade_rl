@@ -20,6 +20,7 @@ from trade_rl.rl.algorithm_configs import (
 from trade_rl.rl.checkpointing import (
     CHECKPOINT_MANIFEST_NAME,
     CheckpointManifest,
+    checkpoint_identity_payload_for_model,
     load_checkpoint_manifest,
     validate_checkpoint_algorithm_identity,
 )
@@ -45,15 +46,8 @@ def _checkpoint_algorithm_identity(
     model: object,
     algorithm_config: AlgorithmConfig,
 ) -> dict[str, object] | None:
-    if not isinstance(algorithm_config, CostCriticPPOConfig):
-        return None
-    provider = getattr(model, "checkpoint_identity_payload", None)
-    if not callable(provider):
-        raise TypeError("checkpoint_identity_payload must be callable")
-    value = provider()
-    if not isinstance(value, dict) or not value:
-        raise ValueError("checkpoint algorithm identity must be a non-empty object")
-    return value
+    del algorithm_config
+    return checkpoint_identity_payload_for_model(model)
 
 
 def _checkpoint_loader(algorithm_config: AlgorithmConfig) -> object:
@@ -122,9 +116,11 @@ def load_sb3_checkpoint_model(
     )
     if int(model.num_timesteps) != manifest.observed_timestep:
         raise ValueError("checkpoint timestep identity mismatch")
-    if isinstance(algorithm_config, CostCriticPPOConfig):
-        loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)
-        validate_checkpoint_algorithm_identity(manifest, loaded_identity)
+    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity
+
+    bind_sb3_policy_identity(model, policy)
+    loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)
+    validate_checkpoint_algorithm_identity(manifest, loaded_identity)
     if config.observation_encoder == "hierarchical_sequence_v2":
         reconstructor = policy.sequence_reconstructor
         if reconstructor is None:

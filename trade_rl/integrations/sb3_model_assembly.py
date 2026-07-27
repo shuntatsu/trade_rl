@@ -39,6 +39,9 @@ class SB3PolicyAssembly:
     sequence_metadata: Mapping[str, Any] | None
     sequence_reconstructor: object | None
     uses_shared_asset_actor: bool
+    observation_encoder: str = "flat_mlp"
+    sequence_symbols: tuple[str, ...] | None = None
+    sequence_action_names: tuple[str, ...] | None = None
     rollout_buffer_class: object | None = None
     rollout_buffer_kwargs: Mapping[str, object] | None = None
 
@@ -198,6 +201,8 @@ def resolve_sb3_policy_assembly(
     sequence_metadata: dict[str, object] | None = None
     sequence_reconstructor: object | None = None
     uses_shared_asset_actor = False
+    sequence_symbols: tuple[str, ...] | None = None
+    sequence_action_names: tuple[str, ...] | None = None
     rollout_buffer_class: object | None = None
     rollout_buffer_kwargs: dict[str, object] | None = None
     if config.observation_encoder == "hierarchical_sequence_v2":
@@ -212,6 +217,17 @@ def resolve_sb3_policy_assembly(
             identity=identity,
             config=config,
         )
+        sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)
+        dataset = getattr(sequence_unwrapped, "dataset", None)
+        raw_symbols = getattr(dataset, "symbols", None)
+        if (
+            not isinstance(raw_symbols, (tuple, list))
+            or not raw_symbols
+            or any(not isinstance(item, str) or not item for item in raw_symbols)
+        ):
+            raise ValueError("sequence training requires ordered dataset symbols")
+        sequence_symbols = tuple(raw_symbols)
+        sequence_action_names = _action_names(identity)
         rollout_buffer_class = IndexBackedDictRolloutBuffer
         rollout_buffer_kwargs = {
             "sequence_reconstructor": sequence_reconstructor,
@@ -263,6 +279,9 @@ def resolve_sb3_policy_assembly(
         sequence_metadata=sequence_metadata,
         sequence_reconstructor=sequence_reconstructor,
         uses_shared_asset_actor=uses_shared_asset_actor,
+        observation_encoder=config.observation_encoder,
+        sequence_symbols=sequence_symbols,
+        sequence_action_names=sequence_action_names,
         rollout_buffer_class=rollout_buffer_class,
         rollout_buffer_kwargs=rollout_buffer_kwargs,
     )
@@ -317,6 +336,13 @@ def build_sb3_model(
         verbose=verbose,
         output_root=output_root,
     )
+
+    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity
+
+    def _bind_identity(model: Any) -> Any:
+        bind_sb3_policy_identity(model, policy)
+        return model
+
     if isinstance(algorithm_config, PPOConfig):
         ppo_kwargs: dict[str, object] = {
             "n_steps": algorithm_config.n_steps,
@@ -359,12 +385,12 @@ def build_sb3_model(
                 **ppo_kwargs,
             )
             model.canonical_action_probe_evidence = canonical_action_probe_evidence
-            return model
+            return _bind_identity(model)
         if isinstance(algorithm_config, CostCriticPPOConfig):
             from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
 
             constructor = CostCriticPPO
-            return constructor(
+            model = constructor(
                 policy.policy_identifier,
                 environment,
                 cost_schema=algorithm_config.cost_schema,
@@ -378,8 +404,11 @@ def build_sb3_model(
                 cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
                 **ppo_kwargs,
             )
+            return _bind_identity(model)
         constructor = stable_baselines3.PPO
-        return constructor(policy.policy_identifier, environment, **ppo_kwargs)
+        return _bind_identity(
+            constructor(policy.policy_identifier, environment, **ppo_kwargs)
+        )
 
     off_policy: dict[str, object] = {
         "buffer_size": algorithm_config.buffer_size,
@@ -414,7 +443,9 @@ def build_sb3_model(
                 "sde_sample_freq": algorithm_config.sde_sample_freq,
             }
         )
-    return constructor(policy.policy_identifier, environment, **off_policy)
+    return _bind_identity(
+        constructor(policy.policy_identifier, environment, **off_policy)
+    )
 
 
 __all__ = [

@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
-from trade_rl.catalog.service import (
-    market_dataset_registration,
-    register_artifact_if_configured,
-)
 from trade_rl.data.artifact_codec import (
     DATASET_ARRAYS_NAME as MARKET_ARTIFACT_ARRAYS,
 )
@@ -46,10 +43,30 @@ class PublishedDatasetArtifact:
     schema_version: str = MARKET_ARTIFACT_SCHEMA
 
 
+def inspect_published_market_dataset_artifact(
+    root: str | Path,
+) -> PublishedDatasetArtifact:
+    """Validate and reconstruct the typed identity of an existing artifact."""
+
+    artifact_root = Path(root)
+    load_dataset_files(artifact_root)
+    manifest_path = artifact_root / MARKET_ARTIFACT_MANIFEST
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_digest = manifest.get("artifact_digest")
+    if not isinstance(artifact_digest, str):
+        raise ValueError("dataset artifact manifest is missing artifact_digest")
+    return PublishedDatasetArtifact(
+        root=artifact_root,
+        manifest_path=manifest_path,
+        arrays_path=artifact_root / MARKET_ARTIFACT_ARRAYS,
+        artifact_digest=artifact_digest,
+    )
+
+
 def publish_market_dataset_artifact(
     root: str | Path, dataset: MarketDataset
 ) -> PublishedDatasetArtifact:
-    """Atomically publish one immutable artifact into a new destination."""
+    """Atomically publish one immutable filesystem artifact."""
 
     if not dataset.identity_verified:
         raise ValueError("market dataset publication requires a canonical identity")
@@ -69,14 +86,12 @@ def publish_market_dataset_artifact(
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    published = PublishedDatasetArtifact(
+    return PublishedDatasetArtifact(
         root=output,
         manifest_path=output / MARKET_ARTIFACT_MANIFEST,
         arrays_path=output / MARKET_ARTIFACT_ARRAYS,
         artifact_digest=files.artifact_digest,
     )
-    register_artifact_if_configured(market_dataset_registration(published, dataset))
-    return published
 
 
 def write_market_dataset_artifact(root: str | Path, dataset: MarketDataset) -> str:
@@ -100,6 +115,7 @@ __all__ = [
     "MARKET_ARTIFACT_MANIFEST",
     "MARKET_ARTIFACT_SCHEMA",
     "PublishedDatasetArtifact",
+    "inspect_published_market_dataset_artifact",
     "load_market_dataset_artifact",
     "publish_market_dataset_artifact",
     "write_market_dataset_artifact",

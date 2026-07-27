@@ -8,7 +8,7 @@ on:
       - .github/workflows/c3-symlink-diagnostic.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   diagnose:
@@ -17,8 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
+          ref: agent/causal-scenario-c3-execution-reporting
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
@@ -27,7 +26,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p docs/verification
           uv run python - <<'PY'
+          import json
           import os
           import stat
           import tempfile
@@ -39,13 +40,43 @@ jobs:
               link = root / "summary.json"
               target.write_text("{}\n", encoding="utf-8")
               link.symlink_to(target)
-              mode = os.lstat(link).st_mode
-              print({
+              payload = {
                   "path_is_symlink": link.is_symlink(),
                   "os_path_islink": os.path.islink(link),
-                  "lstat_is_symlink": stat.S_ISLNK(mode),
+                  "lstat_is_symlink": stat.S_ISLNK(os.lstat(link).st_mode),
                   "resolved": str(link.resolve()),
-              })
+              }
+          Path("/tmp/c3-symlink-probe.json").write_text(
+              json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+          )
           PY
       - name: Run focused failing contract
-        run: uv run pytest -q -vv -s tests/workflows/test_causal_scenario_c3_execution_entrypoint.py::test_execute_c3_evaluation_request_rejects_symlinked_backend_summary
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q -vv -s tests/workflows/test_causal_scenario_c3_execution_entrypoint.py::test_execute_c3_evaluation_request_rejects_symlinked_backend_summary > /tmp/c3-focused-pytest.log 2>&1
+          code=$?
+          echo "$code" > /tmp/c3-focused-pytest-exit.txt
+          exit 0
+      - name: Commit diagnostic evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/c3-symlink-probe.json").read_text(encoding="utf-8"))
+          payload["focused_pytest_exit_code"] = int(Path("/tmp/c3-focused-pytest-exit.txt").read_text().strip())
+          payload["focused_pytest_log"] = Path("/tmp/c3-focused-pytest.log").read_text(encoding="utf-8")
+          payload["schema_version"] = "c3_symlink_diagnostic_v1"
+          Path("docs/verification/c3-symlink-diagnostic.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/verification/c3-symlink-diagnostic.json
+          git commit -m "test: record C3 symlink diagnostic"
+          git push origin HEAD:agent/causal-scenario-c3-execution-reporting

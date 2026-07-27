@@ -168,6 +168,7 @@ def execute_c3_batch(
     report = build_c3_aggregate_report(
         folds,
         bootstrap_resamples=config.bootstrap_resamples,
+        bootstrap_block_days=config.bootstrap_block_days,
     )
     gate = evaluate_phase_a_entry_gate(report, config=config)
     destination = Path(output_root)

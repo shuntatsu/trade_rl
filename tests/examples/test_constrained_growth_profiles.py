@@ -119,9 +119,13 @@ def test_canonical_constrained_profile_closes_all_seven_costs() -> None:
     assert tuple(spec.budget for spec in algorithm.lagrangian_schema.specs) == (
         EXPECTED_BUDGETS
     )
-    assert tuple(
-        spec.minimum_completed_episodes for spec in algorithm.lagrangian_schema.specs
-    ) == EXPECTED_MINIMUM_SUPPORT
+    assert (
+        tuple(
+            spec.minimum_completed_episodes
+            for spec in algorithm.lagrangian_schema.specs
+        )
+        == EXPECTED_MINIMUM_SUPPORT
+    )
     assert tuple(spec.gamma for spec in algorithm.cost_schema.specs) == (1.0,) * 7
 
 
@@ -170,9 +174,10 @@ def test_walk_forward_profile_binds_all_four_candidates_and_joint_stress() -> No
         EXPECTED_CANDIDATE_NAMES[3]: _load_training(DISCOUNTED),
     }
     for candidate in config.candidates:
-        assert candidate.run.candidate_digest_payload() == standalone[
-            candidate.name
-        ].candidate_digest_payload()
+        assert (
+            candidate.run.candidate_digest_payload()
+            == standalone[candidate.name].candidate_digest_payload()
+        )
 
     scenario_names = tuple(
         scenario.name for scenario in config.execution_sensitivity.scenarios

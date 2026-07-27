@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: hierarchical-sequence-v2-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   migrate-and-verify:
@@ -36,6 +36,8 @@ jobs:
 
       - name: Apply deterministic v2 migration
         run: |
+          exec > >(tee hierarchical-v2-migration.log) 2>&1
+          set -euo pipefail
           cp tools/apply_hierarchical_sequence_v2.py /tmp/apply_hierarchical_sequence_v2.py
           uv run python tools/bootstrap_hierarchical_sequence_v2.py
           uv run python tools/bootstrap_hierarchical_sequence_v2_scan.py
@@ -74,6 +76,15 @@ jobs:
           module._assert_legacy_contract_removed()
           PY
           mv /tmp/apply_hierarchical_sequence_v2.py tools/apply_hierarchical_sequence_v2.py
+
+      - name: Upload migration diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-sequence-v2-diagnostics
+          path: hierarchical-v2-migration.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Format and lint migrated tree
         run: |

@@ -25,4 +25,20 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
       - name: Expected RED feature-cache tests
-        run: uv run pytest tests/integrations/test_cost_critic_feature_cache.py -q
+        shell: bash
+        run: |
+          set +e
+          uv run pytest tests/integrations/test_cost_critic_feature_cache.py -q 2>&1 | tee h2-red.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > h2-red.status
+          exit 0
+      - name: Upload RED evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: h2-red-evidence
+          path: |
+            h2-red.log
+            h2-red.status
+          if-no-files-found: error
+      - name: Enforce expected failure
+        run: test "$(cat h2-red.status)" != 0

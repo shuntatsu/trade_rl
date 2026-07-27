@@ -17,6 +17,7 @@ from trade_rl.evaluation.causal_scenario_c3_contracts import (
     RealizedPolicyOutcome,
 )
 from trade_rl.evaluation.causal_scenario_c3_decision_artifact import LoadedC3Decision
+from trade_rl.evaluation.causal_scenario_c3_prediction import C3PredictionEvidence
 from trade_rl.evaluation.causal_scenario_values import CausalScenarioEvaluationResult
 
 
@@ -150,6 +151,13 @@ def _validate_ppo_action(action: np.ndarray, *, dimension: int) -> np.ndarray:
     return value
 
 
+def _execution_scenario(value: str) -> str:
+    result = value.strip()
+    if not result:
+        raise ValueError("execution_scenario must be non-empty")
+    return result
+
+
 def _random_candidate_indices(
     decision: PersistedScenarioDecision,
     config: CausalScenarioC3Config,
@@ -217,19 +225,26 @@ def run_c3_query_comparison(
     replay: C3RealizedReplay,
     ppo_mean_action: np.ndarray,
     config: CausalScenarioC3Config,
+    prediction_evidence: C3PredictionEvidence,
+    execution_scenario: str = "nominal",
     perfect_information: PerfectInformationComparison | None = None,
 ) -> CausalScenarioQueryComparison:
-    """Run realized C3 replay only from a verified persisted decision artifact."""
+    """Run realized C3 replay only from verified prediction and decision evidence."""
 
     if not isinstance(loaded_decision, LoadedC3Decision):
         raise TypeError("loaded_decision must be LoadedC3Decision")
     if not isinstance(config, CausalScenarioC3Config):
         raise TypeError("config must be CausalScenarioC3Config")
+    if not isinstance(prediction_evidence, C3PredictionEvidence):
+        raise TypeError("prediction_evidence must be C3PredictionEvidence")
     decision = loaded_decision.decision
+    prediction_evidence.validate_for_decision(decision)
     expected_identity = decision.replay_identity
     _validate_replay_identity(replay, expected=expected_identity)
     if decision.realized_stop_index - decision.query_index != config.horizon_decisions:
         raise ValueError("C3 replay horizon does not match persisted decision")
+    if prediction_evidence.scenario_anchor_indices.size != config.scenario_count:
+        raise ValueError("C3 prediction scenario count does not match C3 config")
     action_dimension = int(decision.raw_candidate_actions.shape[1])
     ppo_action = _validate_ppo_action(ppo_mean_action, dimension=action_dimension)
 
@@ -288,6 +303,14 @@ def run_c3_query_comparison(
         decision_digest=decision.decision_digest,
         query_timestamp_ns=decision.query_timestamp_ns,
         replay_identity_digest=expected_identity.digest,
+        execution_scenario=_execution_scenario(execution_scenario),
+        prediction_result_digest=prediction_evidence.result_digest,
+        predicted_score=prediction_evidence.predicted_score,
+        predicted_mean_advantage=prediction_evidence.predicted_mean_advantage,
+        predicted_loss_cvar=prediction_evidence.predicted_loss_cvar,
+        predicted_expected_turnover=prediction_evidence.predicted_expected_turnover,
+        scenario_anchor_indices=prediction_evidence.scenario_anchor_indices,
+        scenario_distances=prediction_evidence.scenario_distances,
         trend=trend,
         scenario_oracle=scenario_oracle,
         ppo_mean=ppo_mean,
@@ -298,7 +321,7 @@ def run_c3_query_comparison(
         candidate_outcomes=candidate_outcomes,
         realized_candidate_advantages=realized_advantages,
         predicted_realized_spearman=_spearman(
-            decision.score,
+            prediction_evidence.predicted_score,
             realized_advantages,
             tolerance=config.ranking_tolerance,
         ),

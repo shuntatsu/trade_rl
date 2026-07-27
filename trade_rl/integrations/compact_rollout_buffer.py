@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import torch
 from gymnasium import spaces
 from stable_baselines3.common.buffers import DictRolloutBuffer
 from stable_baselines3.common.type_aliases import DictRolloutBufferSamples
@@ -26,6 +27,15 @@ from trade_rl.rl.training_performance import (
 _SEQUENCE_PREFIX = "sequence_"
 _DECISION_INDEX_KEY = "decision_index"
 _FLOAT16_MAX = float(np.finfo(np.float16).max)
+_SEQUENCE_TRANSFER_MODES = frozenset({"synchronous", "pinned_non_blocking"})
+
+
+def _validate_sequence_transfer_mode(value: str) -> str:
+    if value not in _SEQUENCE_TRANSFER_MODES:
+        raise ValueError(
+            "sequence_transfer_mode must be synchronous or pinned_non_blocking"
+        )
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +112,7 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         n_envs: int = 1,
         *,
         sequence_reconstructor: SequenceRolloutReconstructor | None = None,
+        sequence_transfer_mode: str = "synchronous",
     ) -> None:
         if _DECISION_INDEX_KEY not in observation_space.spaces:
             raise ValueError("index-backed rollout requires decision_index observation")
@@ -114,6 +125,9 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             key for key in observation_space.spaces if key not in self._sequence_keys
         )
         self.sequence_reconstructor = sequence_reconstructor
+        self.sequence_transfer_mode = _validate_sequence_transfer_mode(
+            sequence_transfer_mode
+        )
         super().__init__(
             buffer_size,
             observation_space,
@@ -125,11 +139,18 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         )
 
     def bind_sequence_reconstructor(
-        self, reconstructor: SequenceRolloutReconstructor
+        self,
+        reconstructor: SequenceRolloutReconstructor,
+        *,
+        sequence_transfer_mode: str | None = None,
     ) -> None:
         if not isinstance(reconstructor, SequenceRolloutReconstructor):
             raise TypeError("sequence reconstructor has an invalid type")
         self.sequence_reconstructor = reconstructor
+        if sequence_transfer_mode is not None:
+            self.sequence_transfer_mode = _validate_sequence_transfer_mode(
+                sequence_transfer_mode
+            )
 
     def reset(self) -> None:
         self._materialized_sequence_observations: dict[str, Any] | None = None
@@ -155,6 +176,26 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         self.pos = 0
         self.full = False
 
+    def _sequence_to_torch(self, value: np.ndarray) -> Any:
+        # Convert one reconstructed sequence tensor using the configured path.
+
+        mode = _validate_sequence_transfer_mode(
+            getattr(self, "sequence_transfer_mode", "synchronous")
+        )
+        if mode == "synchronous":
+            return self.to_torch(value)
+        device = torch.device(self.device)
+        if device.type != "cuda":
+            raise RuntimeError(
+                "pinned_non_blocking sequence transfer requires a CUDA device"
+            )
+        cpu_tensor = torch.as_tensor(value)
+        if not cpu_tensor.is_contiguous():
+            cpu_tensor = cpu_tensor.contiguous()
+        pinned = torch.empty_like(cpu_tensor, device="cpu", pin_memory=True)
+        pinned.copy_(cpu_tensor)
+        return pinned.to(device, non_blocking=True)
+
     def _materialize_sequence_observations(
         self, reconstructor: SequenceRolloutReconstructor
     ) -> dict[str, Any]:
@@ -166,7 +207,10 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         with measure_sequence_reconstruction():
             reconstructed = reconstructor.reconstruct(decision_indices)
         with measure_sequence_tensor_conversion():
-            cached = {key: self.to_torch(value) for key, value in reconstructed.items()}
+            cached = {
+                key: self._sequence_to_torch(value)
+                for key, value in reconstructed.items()
+            }
         self._materialized_sequence_observations = cached
         return cached
 

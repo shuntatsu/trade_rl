@@ -147,7 +147,10 @@
             512,
             384,
             256
-          ]
+          ],
+          "sequence_compile": true,
+          "sequence_compile_mode": "reduce-overhead",
+          "sequence_transfer_mode": "pinned_non_blocking"
         },
         "trend": {
           "base_hours": 168.0,

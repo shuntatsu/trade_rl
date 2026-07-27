@@ -95,6 +95,43 @@ def _configure_torch_cuda_runtime(torch: Any, device: object) -> dict[str, objec
     }
 
 
+def _configure_sequence_runtime(
+    torch: Any,
+    model: Any,
+    config: ResidualTrainingConfig,
+) -> dict[str, object]:
+    # Apply the identity-bound sequence runtime after construction or load.
+
+    compile_enabled = bool(config.sequence_compile)
+    compile_target: str | None = None
+    if compile_enabled:
+        resolved_device = torch.device(model.device)
+        if resolved_device.type != "cuda":
+            raise RuntimeError("sequence_compile requires a resolved CUDA device")
+        extractor = getattr(getattr(model, "policy", None), "features_extractor", None)
+        compile_module = getattr(extractor, "compile", None)
+        if not callable(compile_module):
+            raise RuntimeError(
+                "sequence feature extractor does not support in-place compile"
+            )
+        compile_module(
+            mode=config.sequence_compile_mode,
+            fullgraph=False,
+            dynamic=False,
+        )
+        compile_target = type(extractor).__name__
+    return {
+        "compile_enabled": compile_enabled,
+        "compile_mode": config.sequence_compile_mode,
+        "compile_target": compile_target,
+        "fullgraph": False,
+        "dynamic": False,
+        "sequence_transfer_mode": config.sequence_transfer_mode,
+        "torch_version": str(torch.__version__),
+        "schema_version": "sequence_runtime_v1",
+    }
+
+
 def _teacher_cache_key(
     *,
     dataset_id: str,
@@ -592,7 +629,8 @@ class StableBaselines3Backend:
                         IndexBackedDictRolloutBuffer
                     )
                     rollout_kwargs["rollout_buffer_kwargs"] = {
-                        "sequence_reconstructor": sequence_reconstructor
+                        "sequence_reconstructor": sequence_reconstructor,
+                        "sequence_transfer_mode": config.sequence_transfer_mode,
                     }
                 ppo_kwargs: dict[str, Any] = {
                     "n_steps": algorithm_config.n_steps,
@@ -758,15 +796,20 @@ class StableBaselines3Backend:
                         raise ValueError(
                             "checkpoint rollout buffer cannot bind sequences"
                         )
-                    binder(sequence_reconstructor)
+                    binder(
+                        sequence_reconstructor,
+                        sequence_transfer_mode=config.sequence_transfer_mode,
+                    )
                     model.rollout_buffer_kwargs = {
-                        "sequence_reconstructor": sequence_reconstructor
+                        "sequence_reconstructor": sequence_reconstructor,
+                        "sequence_transfer_mode": config.sequence_transfer_mode,
                     }
 
             # Stable-Baselines3 seeds CUDA during model construction/loading and
             # resets cuDNN to its deterministic, slow dilated-convolution path.
             # Capture and persist the effective post-construction runtime state.
             torch_runtime = _configure_torch_cuda_runtime(torch, config.device)
+            sequence_runtime = _configure_sequence_runtime(torch, model, config)
 
             parameter_count = sum(
                 int(parameter.numel()) for parameter in model.policy.parameters()
@@ -885,6 +928,7 @@ class StableBaselines3Backend:
                         ),
                         "rollout_buffer_bytes": rollout_buffer_bytes,
                         "torch_runtime": torch_runtime,
+                        "sequence_runtime": sequence_runtime,
                         "rollout_buffer": (
                             "index_backed_dict"
                             if config.sequence_encoder

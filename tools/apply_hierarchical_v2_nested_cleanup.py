@@ -87,20 +87,26 @@ def _remove_dangling_projection_parentheses() -> None:
             path.write_text(updated, encoding="utf-8")
 
 
-def _exclude_diagnostic_copy_from_tools() -> None:
+def _exclude_migration_diagnostics_and_tools() -> None:
     exclude = ROOT / ".git" / "info" / "exclude"
-    entry = "hierarchical-v2-migrated-source/"
-    text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
-    if entry not in text.splitlines():
+    entries = (
+        "hierarchical-v2-migrated-source/",
+        "tools/apply_hierarchical_sequence_v2.py",
+    )
+    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    lines = existing.splitlines()
+    missing = [entry for entry in entries if entry not in lines]
+    if missing:
         exclude.parent.mkdir(parents=True, exist_ok=True)
-        exclude.write_text(text.rstrip() + f"\n{entry}\n", encoding="utf-8")
+        suffix = "\n".join(missing)
+        exclude.write_text(existing.rstrip() + f"\n{suffix}\n", encoding="utf-8")
 
 
 def main() -> None:
     _migrate_json()
     _migrate_local_helper_names()
     _remove_dangling_projection_parentheses()
-    _exclude_diagnostic_copy_from_tools()
+    _exclude_migration_diagnostics_and_tools()
 
 
 if __name__ == "__main__":

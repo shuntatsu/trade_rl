@@ -1,0 +1,113 @@
+name: C3 Adverse Test Migration Once
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout latest branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3
+          fetch-depth: 0
+      - name: Migrate C3 adverse fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/causal-scenario-c3
+          git reset --hard origin/agent/causal-scenario-c3
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          targets = (
+              Path("tests/evaluation/test_causal_scenario_c3.py"),
+              Path("tests/evaluation/test_causal_scenario_c3_identity_daily.py"),
+              Path("tests/evaluation/test_causal_scenario_c3_integration.py"),
+              Path("tests/evaluation/test_causal_scenario_c3_plan_closure.py"),
+          )
+          changed = 0
+          pattern = re.compile(
+              r"(?P<indent>\s*)required_adverse_passed=True,\n"
+              r"(?!\s*required_adverse_evidence_digest=)"
+          )
+          for path in targets:
+              source = path.read_text(encoding="utf-8")
+              source, count = pattern.subn(
+                  lambda match: (
+                      f"{match.group('indent')}required_adverse_passed=True,\n"
+                      f"{match.group('indent')}required_adverse_evidence_digest=\"a\" * 64,\n"
+                  ),
+                  source,
+              )
+              if count:
+                  path.write_text(source, encoding="utf-8")
+                  changed += count
+          if changed != 5:
+              raise SystemExit(f"expected five fold-report fixtures, changed {changed}")
+
+          integration = Path("tests/evaluation/test_causal_scenario_c3_integration.py")
+          source = integration.read_text(encoding="utf-8")
+          old_import = "from trade_rl.cli.extended import main\n"
+          new_import = (
+              "from trade_rl.cli.extended import main\n"
+              "from trade_rl.evaluation.causal_scenario_c3_adverse import (\n"
+              "    C3AdverseFoldEvidence,\n"
+              ")\n"
+          )
+          if source.count(old_import) != 1:
+              raise SystemExit("integration import anchor mismatch")
+          source = source.replace(old_import, new_import, 1)
+          old_assignment = "            adverse[fold_id] = True\n"
+          new_assignment = (
+              "            adverse[fold_id] = C3AdverseFoldEvidence(\n"
+              "                fold_index=fold_index,\n"
+              "                source_artifact_digest=sha(\"a\"),\n"
+              "                thresholds_digest=sha(\"b\"),\n"
+              "                required_scenario=\"adverse_cost_2x\",\n"
+              "                selected_return=0.02,\n"
+              "                baseline_uplift=0.01,\n"
+              "                cost_fraction=0.01,\n"
+              "                turnover_per_day=0.5,\n"
+              "                maximum_drawdown=0.1,\n"
+              "                failed_conditions=(),\n"
+              "            )\n"
+          )
+          if source.count(old_assignment) != 1:
+              raise SystemExit("integration adverse assignment anchor mismatch")
+          source = source.replace(old_assignment, new_assignment, 1)
+          old_argument = "        required_adverse_passed=adverse,\n"
+          new_argument = "        required_adverse_evidence=adverse,\n"
+          if source.count(old_argument) != 1:
+              raise SystemExit("integration batch argument anchor mismatch")
+          source = source.replace(old_argument, new_argument, 1)
+          integration.write_text(source, encoding="utf-8")
+          PY
+          python -m pip install --quiet ruff==0.15.0
+          ruff format \
+            tests/evaluation/test_causal_scenario_c3.py \
+            tests/evaluation/test_causal_scenario_c3_identity_daily.py \
+            tests/evaluation/test_causal_scenario_c3_integration.py \
+            tests/evaluation/test_causal_scenario_c3_plan_closure.py
+          rm -f .github/workflows/c3-adverse-test-migration-once.yml
+          rm -f .github/c3-adverse-test-migration-trigger.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            tests/evaluation/test_causal_scenario_c3.py \
+            tests/evaluation/test_causal_scenario_c3_identity_daily.py \
+            tests/evaluation/test_causal_scenario_c3_integration.py \
+            tests/evaluation/test_causal_scenario_c3_plan_closure.py \
+            .github/workflows/c3-adverse-test-migration-once.yml \
+            .github/c3-adverse-test-migration-trigger.txt
+          git commit -m "test: bind C3 fixtures to adverse evidence"
+          git pull --rebase origin agent/causal-scenario-c3
+          git push origin HEAD:agent/causal-scenario-c3

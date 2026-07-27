@@ -51,3 +51,29 @@ def test_bootstrap_does_not_start_training_when_cache_is_incomplete(
         )
 
     assert calls == []
+
+
+def test_bootstrap_forwards_shared_cache_root_to_full_entrypoint(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+
+    argv = module.ensure_cache_root_argument(["training_bootstrap.py"], tmp_path)
+
+    assert argv == [
+        "training_bootstrap.py",
+        "--cache-root",
+        str(tmp_path),
+    ]
+
+
+def test_bootstrap_preserves_explicit_cache_root(tmp_path: Path) -> None:
+    module = _load_module()
+    explicit = tmp_path / "explicit"
+
+    argv = module.ensure_cache_root_argument(
+        ["training_bootstrap.py", "--cache-root", str(explicit)],
+        tmp_path,
+    )
+
+    assert argv == ["training_bootstrap.py", "--cache-root", str(explicit)]

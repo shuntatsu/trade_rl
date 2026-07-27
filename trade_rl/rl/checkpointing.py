@@ -55,7 +55,7 @@ def checkpoint_identity_payload_for_model(
 ) -> dict[str, object] | None:
     """Compose the actual policy architecture with algorithm-specific identity."""
 
-    from trade_rl.integrations.sb3_policy_identity import model_sb3_policy_identity
+    from trade_rl.rl.policy_identity import model_sb3_policy_identity
 
     policy_identity = model_sb3_policy_identity(model)
     algorithm_identity = _model_algorithm_identity(model)

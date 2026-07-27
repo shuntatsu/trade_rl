@@ -116,7 +116,7 @@ def load_sb3_checkpoint_model(
     )
     if int(model.num_timesteps) != manifest.observed_timestep:
         raise ValueError("checkpoint timestep identity mismatch")
-    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity
+    from trade_rl.rl.policy_identity import bind_sb3_policy_identity
 
     bind_sb3_policy_identity(model, policy)
     loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)

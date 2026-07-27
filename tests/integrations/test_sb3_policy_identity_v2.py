@@ -6,12 +6,12 @@ from types import SimpleNamespace
 import pytest
 
 from trade_rl.integrations.sb3_model_assembly import SB3PolicyAssembly, build_sb3_model
-from trade_rl.integrations.sb3_policy_identity import (
+from trade_rl.rl.checkpointing import checkpoint_identity_payload_for_model
+from trade_rl.rl.policy_identity import (
     bind_sb3_policy_identity,
     model_sb3_policy_identity,
     validate_model_sb3_policy_identity,
 )
-from trade_rl.rl.checkpointing import checkpoint_identity_payload_for_model
 from trade_rl.rl.sequence_policy import SequencePolicyArchitecture
 
 

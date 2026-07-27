@@ -11,9 +11,7 @@ def replace_once(path: str, old: str, new: str) -> None:
     text = target.read_text(encoding="utf-8")
     count = text.count(old)
     if count != 1:
-        raise RuntimeError(
-            f"{path}: expected one anchor, found {count}: {old[:100]!r}"
-        )
+        raise RuntimeError(f"{path}: expected one anchor, found {count}: {old[:100]!r}")
     updated = text.replace(old, new, 1)
     ast.parse(updated, filename=path)
     target.write_text(updated, encoding="utf-8")
@@ -23,7 +21,7 @@ def update_gated_transformer() -> None:
     path = "trade_rl/rl/gated_transformer.py"
     replace_once(
         path,
-        '''    def forward(self, value: torch.Tensor, *, valid: torch.Tensor) -> torch.Tensor:
+        """    def forward(self, value: torch.Tensor, *, valid: torch.Tensor) -> torch.Tensor:
         normalized = self.attention_norm(value)
         branch, _ = self.attention(
             normalized,
@@ -37,8 +35,8 @@ def update_gated_transformer() -> None:
         branch = self.ffn(self.ffn_norm(value))
         value = self.ffn_gate(value, branch)
         return self._zero_invalid(value, valid)
-''',
-        '''    def _forward(
+""",
+        """    def _forward(
         self,
         value: torch.Tensor,
         *,
@@ -74,11 +72,11 @@ def update_gated_transformer() -> None:
         if weights is None:
             raise RuntimeError("diagnostic attention weights were not produced")
         return output, weights
-''',
+""",
     )
     replace_once(
         path,
-        '''    def forward(self, value: torch.Tensor, *, valid: torch.Tensor) -> torch.Tensor:
+        """    def forward(self, value: torch.Tensor, *, valid: torch.Tensor) -> torch.Tensor:
         if value.ndim != 3 or value.shape[-1] != self.d_model:
             raise ValueError("transformer stack expects [batch, tokens, d_model]")
         if valid.shape != value.shape[:2]:
@@ -91,8 +89,8 @@ def update_gated_transformer() -> None:
             value = block(value, valid=valid)
         value = self.output_norm(value)
         return value * valid.unsqueeze(-1).to(dtype=value.dtype)
-''',
-        '''    def _validated_inputs(
+""",
+        """    def _validated_inputs(
         self,
         value: torch.Tensor,
         valid: torch.Tensor,
@@ -127,7 +125,7 @@ def update_gated_transformer() -> None:
         value = self.output_norm(value)
         output = value * valid.unsqueeze(-1).to(dtype=value.dtype)
         return output, tuple(weights)
-''',
+""",
     )
 
 
@@ -135,7 +133,7 @@ def update_timeframe_fusion() -> None:
     path = "trade_rl/rl/timeframe_fusion.py"
     replace_once(
         path,
-        '''    def forward(
+        """    def forward(
         self,
         *,
         latents: Mapping[str, torch.Tensor],
@@ -188,8 +186,8 @@ def update_timeframe_fusion() -> None:
         flattened_valid = valid.reshape(batch * assets, len(tokens))
         contextual = self.transformer(flattened, valid=flattened_valid)
         return contextual[:, 0].reshape(batch, assets, self.d_model)
-''',
-        '''    def _prepared_tokens(
+""",
+        """    def _prepared_tokens(
         self,
         *,
         latents: Mapping[str, torch.Tensor],
@@ -279,7 +277,7 @@ def update_timeframe_fusion() -> None:
         )
         output = contextual[:, 0].reshape(batch, assets, self.d_model)
         return output, weights, valid
-''',
+""",
     )
 
 
@@ -537,14 +535,14 @@ def update_checkpoint_callback() -> None:
     path = "trade_rl/rl/checkpointing.py"
     replace_once(
         path,
-        '''    telemetry_callback = build_training_telemetry_callback(
+        """    telemetry_callback = build_training_telemetry_callback(
         path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
         seed=seed,
     )
     if not planned:
         return telemetry_callback
-''',
-        '''    telemetry_callback = build_training_telemetry_callback(
+""",
+        """    telemetry_callback = build_training_telemetry_callback(
         path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
         seed=seed,
     )
@@ -553,22 +551,22 @@ def update_checkpoint_callback() -> None:
     diagnostics_callback = build_sequence_diagnostics_callback()
     if not planned:
         return CallbackList([telemetry_callback, diagnostics_callback])
-''',
+""",
     )
     replace_once(
         path,
         "    return CallbackList([AtomicCheckpointCallback(), telemetry_callback])\n",
-        '''    return CallbackList(
+        """    return CallbackList(
         [AtomicCheckpointCallback(), telemetry_callback, diagnostics_callback]
     )
-''',
+""",
     )
 
 
 def write_tests() -> None:
     path = ROOT / "tests/rl/test_sequence_diagnostics.py"
     path.write_text(
-        '''from __future__ import annotations
+        """from __future__ import annotations
 
 import math
 
@@ -691,7 +689,7 @@ def test_sequence_diagnostic_payload_is_finite_and_quality_aware() -> None:
         for timeframe in ("15m", "1h", "4h", "1d")
     )
     assert 0.0 < total_share <= 1.25
-''',
+""",
         encoding="utf-8",
     )
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

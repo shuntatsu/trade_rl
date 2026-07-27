@@ -337,7 +337,7 @@ def build_sb3_model(
         output_root=output_root,
     )
 
-    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity
+    from trade_rl.rl.policy_identity import bind_sb3_policy_identity
 
     def _bind_identity(model: Any) -> Any:
         bind_sb3_policy_identity(model, policy)

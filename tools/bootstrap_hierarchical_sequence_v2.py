@@ -24,25 +24,27 @@ replacement = '''    shared_transformer_config = (
         "            dropout=architecture.dropout,\\n"
         "            gate_bias=architecture.attention_gate_bias,\\n"
     )
-    text = _replace_once(
-        text,
+    if text.count(shared_transformer_config) != 2:
+        raise RuntimeError(
+            "expected exactly two shared transformer configuration blocks"
+        )
+    text = text.replace(
         shared_transformer_config,
         "            heads=architecture.timeframe_attention_heads,\\n"
         "            layers=architecture.timeframe_attention_layers,\\n"
         "            ffn_multiplier=architecture.timeframe_ffn_multiplier,\\n"
         "            dropout=architecture.dropout,\\n"
         "            gate_bias=architecture.timeframe_gate_bias,\\n",
-        label="timeframe transformer config",
+        1,
     )
-    text = _replace_once(
-        text,
+    text = text.replace(
         shared_transformer_config,
         "            heads=architecture.asset_attention_heads,\\n"
         "            layers=architecture.asset_attention_layers,\\n"
         "            ffn_multiplier=architecture.asset_ffn_multiplier,\\n"
         "            dropout=architecture.dropout,\\n"
         "            gate_bias=architecture.asset_gate_bias,\\n",
-        label="asset transformer config",
+        1,
     )
 '''
 updated, count = pattern.subn(lambda _match: replacement, text, count=1)

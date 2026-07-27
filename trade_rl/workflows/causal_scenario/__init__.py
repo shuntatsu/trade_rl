@@ -1,11 +1,5 @@
-"""Research-only causal scenario library and C3 workflow adapters."""
+"""Research-only causal scenario library workflow adapters."""
 
-from trade_rl.workflows.causal_scenario.c3 import (
-    PRODUCTION_STATUS,
-    C3BatchQuery,
-    C3BatchResult,
-    execute_c3_batch,
-)
 from trade_rl.workflows.causal_scenario.conditions import (
     CausalConditionConfig,
     CausalConditionLayout,
@@ -40,9 +34,6 @@ __all__ = [
     "CAUSAL_SCENARIO_LIBRARY_ARRAYS_NAME",
     "CAUSAL_SCENARIO_LIBRARY_ARTIFACT_SCHEMA",
     "CAUSAL_SCENARIO_LIBRARY_MANIFEST_NAME",
-    "PRODUCTION_STATUS",
-    "C3BatchQuery",
-    "C3BatchResult",
     "CausalConditionConfig",
     "CausalConditionLayout",
     "CausalScenarioLibraryConfig",
@@ -56,7 +47,6 @@ __all__ = [
     "build_causal_condition_layout",
     "build_causal_scenario_library",
     "compute_raw_causal_condition",
-    "execute_c3_batch",
     "fit_train_condition_normalizer",
     "load_causal_scenario_library_artifact",
     "materialize_causal_scenario_dataset",

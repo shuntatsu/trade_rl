@@ -86,9 +86,92 @@ def _enable_sequence_bc_to_ppo_audit() -> None:
     )
 
 
+def _constant_bool(node: ast.expr) -> bool | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        value = _constant_bool(node.operand)
+        return None if value is None else not value
+    if isinstance(node, ast.BoolOp):
+        values = [_constant_bool(value) for value in node.values]
+        if any(value is None for value in values):
+            return None
+        resolved = [bool(value) for value in values]
+        if isinstance(node.op, ast.And):
+            return all(resolved)
+        if isinstance(node.op, ast.Or):
+            return any(resolved)
+    return None
+
+
+def _resolve_constant_if_expression(node: ast.IfExp) -> ast.expr | None:
+    current: ast.expr = node
+    changed = False
+    while isinstance(current, ast.IfExp):
+        condition = _constant_bool(current.test)
+        if condition is None:
+            return current if changed else None
+        current = current.body if condition else current.orelse
+        changed = True
+    return current if changed else None
+
+
+def _char_column(line: str, byte_column: int) -> int:
+    return len(line.encode("utf-8")[:byte_column].decode("utf-8"))
+
+
+def _absolute_offset(lines: list[str], line_number: int, byte_column: int) -> int:
+    return sum(len(line) for line in lines[: line_number - 1]) + _char_column(
+        lines[line_number - 1], byte_column
+    )
+
+
+def _simplify_constant_ternaries(path: Path) -> int:
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text, filename=str(path))
+    lines = text.splitlines(keepends=True)
+    candidates: list[tuple[int, int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.IfExp):
+            continue
+        resolved = _resolve_constant_if_expression(node)
+        if resolved is None or node.end_lineno is None or node.end_col_offset is None:
+            continue
+        start = _absolute_offset(lines, node.lineno, node.col_offset)
+        end = _absolute_offset(lines, node.end_lineno, node.end_col_offset)
+        candidates.append((start, end, ast.unparse(resolved)))
+    candidates.sort(key=lambda item: (item[0], -item[1]))
+    selected: list[tuple[int, int, str]] = []
+    for candidate in candidates:
+        start, end, _replacement = candidate
+        if any(start >= outer_start and end <= outer_end for outer_start, outer_end, _ in selected):
+            continue
+        selected.append(candidate)
+    if not selected:
+        return 0
+    updated = text
+    for start, end, replacement in sorted(selected, reverse=True):
+        updated = updated[:start] + replacement + updated[end:]
+    ast.parse(updated, filename=str(path))
+    path.write_text(updated, encoding="utf-8")
+    return len(selected)
+
+
+def _normalize_migrated_test_expressions() -> None:
+    changed = 0
+    for root_name in ("tests", "examples", "tools"):
+        for path in sorted((ROOT / root_name).rglob("*.py")):
+            if path.resolve() == Path(__file__).resolve():
+                continue
+            changed += _simplify_constant_ternaries(path)
+    if changed <= 0:
+        raise RuntimeError("expected migrated constant ternaries to be normalized")
+
+
 def main() -> None:
     _normalize_gpu_smoke()
     _enable_sequence_bc_to_ppo_audit()
+    _normalize_migrated_test_expressions()
 
 
 if __name__ == "__main__":

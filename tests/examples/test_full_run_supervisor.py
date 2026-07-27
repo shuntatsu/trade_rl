@@ -49,11 +49,12 @@ def test_start_refuses_an_existing_supervised_container() -> None:
         )
 
 
-def test_start_labels_and_reports_the_detached_container() -> None:
+def test_start_syncs_market_data_then_labels_and_reports_detached_container() -> None:
     start = _namespace()["start_supervised_run"]
     runner = _Runner(
         [
             _completed(""),
+            _completed("sync-complete\n"),
             _completed("container-id\n"),
             _completed(
                 json.dumps(
@@ -92,7 +93,12 @@ def test_start_labels_and_reports_the_detached_container() -> None:
         runner=runner,
     )
 
-    launch = runner.commands[1]
+    sync = runner.commands[1]
+    launch = runner.commands[2]
+    assert sync[-1] == "market-data-sync"
+    assert "--rm" in sync
+    assert launch[-1] == "trainer"
+    assert "--no-deps" in launch
     assert "--label" in launch
     assert "trade-rl.supervised=true" in launch
     assert evidence["state"] == "running"

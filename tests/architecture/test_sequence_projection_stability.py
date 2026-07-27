@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-# Temporary path-filter trigger for the PR227 correction artifact; removed after use.
 _SEQUENCE_POLICY_TEST = Path("tests/rl/test_sequence_policy_core.py")
 _REQUIRED_TESTS = {
     "test_projection_after_selection_matches_legacy_in_float64",

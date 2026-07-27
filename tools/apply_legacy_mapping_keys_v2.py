@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,10 +32,58 @@ def _extend_comma(text: str, end: int) -> int:
     return cursor
 
 
-def _literal_bool(node: ast.expr, *, path: Path) -> bool:
-    if not isinstance(node, ast.Constant) or not isinstance(node.value, bool):
-        raise RuntimeError(f"legacy encoder mapping must use booleans: {path}")
-    return node.value
+def _source(text: str, offsets: list[int], node: ast.expr) -> str:
+    return text[
+        _absolute(offsets, node.lineno, node.col_offset) : _absolute(
+            offsets, node.end_lineno, node.end_col_offset
+        )
+    ]
+
+
+def _resolved_encoder_projection(source: str, *, legacy_key: str) -> str | None:
+    direct_suffix = f".{legacy_key}"
+    stripped = source.strip()
+    if stripped.endswith(direct_suffix):
+        return stripped[: -len(direct_suffix)] + ".observation_encoder"
+    expected = "asset_set" if legacy_key == "asset_set_encoder" else "hierarchical_sequence_v2"
+    match = re.fullmatch(
+        rf"\(?\s*(?P<base>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.observation_encoder"
+        rf"\s*==\s*['\"]{expected}['\"]\s*\)?",
+        stripped,
+    )
+    if match is None:
+        return None
+    return f"{match.group('base')}.observation_encoder"
+
+
+def _encoder_expression(
+    text: str,
+    offsets: list[int],
+    encoder_entries: dict[str, tuple[ast.expr, ast.expr]],
+) -> str:
+    if len(encoder_entries) == 1:
+        legacy_key = next(iter(encoder_entries))
+        projection = _resolved_encoder_projection(
+            _source(text, offsets, encoder_entries[legacy_key][1]),
+            legacy_key=legacy_key,
+        )
+        if projection is not None:
+            return projection
+
+    expressions: dict[str, str] = {}
+    for key, (_key_node, value) in encoder_entries.items():
+        if isinstance(value, ast.Constant) and isinstance(value.value, bool):
+            expressions[key] = repr(value.value)
+        else:
+            expressions[key] = _source(text, offsets, value)
+    sequence = expressions.get("sequence_encoder", "False")
+    asset = expressions.get("asset_set_encoder", "True")
+    return (
+        '"invalid_legacy_combination" '
+        f"if ({sequence}) and ({asset}) else "
+        f'"hierarchical_sequence_v2" if ({sequence}) else '
+        f'"asset_set" if ({asset}) else "flat_mlp"'
+    )
 
 
 def _migrate(path: Path) -> None:
@@ -66,24 +115,6 @@ def _migrate(path: Path) -> None:
             if key in {"sequence_encoder", "asset_set_encoder"}
         }
         if encoder_entries:
-            sequence = (
-                _literal_bool(encoder_entries["sequence_encoder"][1], path=path)
-                if "sequence_encoder" in encoder_entries
-                else False
-            )
-            asset = (
-                _literal_bool(encoder_entries["asset_set_encoder"][1], path=path)
-                if "asset_set_encoder" in encoder_entries
-                else True
-            )
-            if sequence and asset:
-                encoder = "invalid_legacy_combination"
-            elif sequence:
-                encoder = "hierarchical_sequence_v2"
-            elif asset:
-                encoder = "asset_set"
-            else:
-                encoder = "flat_mlp"
             ordered = sorted(
                 encoder_entries.values(),
                 key=lambda pair: (pair[0].lineno, pair[0].col_offset),
@@ -91,17 +122,13 @@ def _migrate(path: Path) -> None:
             first_key, first_value = ordered[0]
             start = _absolute(offsets, first_key.lineno, first_key.col_offset)
             end = _absolute(offsets, first_value.end_lineno, first_value.end_col_offset)
-            quote = '"'
-            edits.append(
-                (start, end, f'{quote}observation_encoder{quote}: {quote}{encoder}{quote}')
-            )
+            expression = _encoder_expression(text, offsets, encoder_entries)
+            edits.append((start, end, f'"observation_encoder": {expression}'))
             for key, value in ordered[1:]:
                 start = _absolute(offsets, key.lineno, key.col_offset)
                 end = _absolute(offsets, value.end_lineno, value.end_col_offset)
                 edits.append((start, _extend_comma(text, end), ""))
-        rename = {
-            "sequence_capacity": "sequence_tcn_capacity",
-        }
+        rename = {"sequence_capacity": "sequence_tcn_capacity"}
         duplicate = {
             "sequence_attention_heads": (
                 "sequence_timeframe_attention_heads",
@@ -125,15 +152,13 @@ def _migrate(path: Path) -> None:
             key, value = entries[old]
             start = _absolute(offsets, key.lineno, key.col_offset)
             end = _absolute(offsets, value.end_lineno, value.end_col_offset)
-            value_start = _absolute(offsets, value.lineno, value.col_offset)
-            value_end = _absolute(offsets, value.end_lineno, value.end_col_offset)
-            source = text[value_start:value_end]
+            source = _source(text, offsets, value)
             indent = " " * key.col_offset
             edits.append(
                 (
                     start,
                     end,
-                    f'{first!r}: {source},\n{indent}{second!r}: {source}',
+                    f"{first!r}: {source},\n{indent}{second!r}: {source}",
                 )
             )
     for start, end, replacement in sorted(edits, reverse=True):

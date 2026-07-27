@@ -13,10 +13,11 @@ import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.provenance import capture_runtime_provenance
 from trade_rl.artifacts.run_manifest import (
-    TrainingRunManifest,
-    validate_training_run_directory,
-    write_training_run_manifest,
+    WalkForwardRunManifest,
+    validate_walk_forward_run_directory,
+    write_walk_forward_run_manifest,
 )
 from trade_rl.artifacts.store import ArtifactStore
 from trade_rl.catalog.postgres import PostgresArtifactCatalog
@@ -1092,7 +1093,7 @@ def _artifact_paths(root: Path) -> tuple[str, ...]:
 
 
 def _validate_for_store(path: Path) -> bool:
-    validate_training_run_directory(path)
+    validate_walk_forward_run_directory(path)
     return True
 
 
@@ -1121,12 +1122,27 @@ def execute_market_walk_forward(
     config = MarketWalkForwardConfig.from_json(config_path, n_bars=dataset.n_bars)
     resolved_signal = resolve_signal_digest(config, dataset_id=dataset.dataset_id)
     config = replace(config, signal_digest=resolved_signal)
+    config_digest = content_digest(config.digest_payload())
+    provenance = capture_runtime_provenance(
+        Path(__file__).resolve().parents[2],
+        deterministic_seed_config={
+            "candidate_seeds": tuple(
+                {
+                    "name": item.name,
+                    "seeds": item.run.training.seeds,
+                }
+                for item in config.candidates
+            ),
+            "workflow_config_digest": config_digest,
+        },
+    )
     experiment_plan_digest = _experiment_plan_digest(
         config,
         dataset_id=dataset.dataset_id,
     )
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
+    _write_json(stage / "provenance.json", asdict(provenance))
     registry: dict[str, _PolicyRecord] = {}
     candidate_map = {item.name: item.run for item in config.candidates}
     trainer = MarketCandidateTrainer(
@@ -1306,20 +1322,21 @@ def execute_market_walk_forward(
                 "schema_version": "walk_forward_environment_set_v1",
             }
         )
-        config_digest = content_digest(config.digest_payload())
-        run_manifest = TrainingRunManifest.build(
+        run_manifest = WalkForwardRunManifest.build(
             root=stage,
             run_id=resolved_run_id,
             dataset_id=dataset.dataset_id,
             environment_digest=environment_digest,
-            ensemble_digest=policy_digest,
-            training_config_digest=config_digest,
-            provenance_digest=config_digest,
+            evaluation_digest=result.evaluation_digest,
+            workflow_config_digest=config_digest,
+            policy_set_digest=policy_digest,
+            provenance_digest=provenance.digest,
+            fold_count=len(result.folds),
             artifact_paths=_artifact_paths(stage),
             created_at=resolved_created_at,
         )
-        write_training_run_manifest(stage, run_manifest)
-        validate_training_run_directory(stage)
+        write_walk_forward_run_manifest(stage, run_manifest)
+        validate_walk_forward_run_directory(stage)
         published = store.publish_run(resolved_run_id, validate=_validate_for_store)
         return WalkForwardRunResult(
             run_id=resolved_run_id,

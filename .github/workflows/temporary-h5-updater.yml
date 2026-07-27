@@ -104,8 +104,10 @@ jobs:
           rm -f .github/scripts/apply_h5_gpu_comparison.py
           rm -f .github/scripts/fix_h5_comparison_message.py
           rm -f .github/scripts/fix_h5_docker_asset_schema.py
-          rm -f .github/workflows/temporary-h5-updater.yml
           rm -f h5-focused.log h5-focused.status
+          git restore \
+            .github/workflows/gpu-nightly.yml \
+            .github/workflows/gpu-performance-comparison.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           {

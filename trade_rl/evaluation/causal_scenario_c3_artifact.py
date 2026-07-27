@@ -165,17 +165,13 @@ def _load_outcome(value: object, *, field: str) -> RealizedPolicyOutcome:
         fees=_number(payload["fees"], field=f"{field}.fees"),
         spread_cost=_number(payload["spread_cost"], field=f"{field}.spread_cost"),
         impact_cost=_number(payload["impact_cost"], field=f"{field}.impact_cost"),
-        funding_paid=_number(
-            payload["funding_paid"], field=f"{field}.funding_paid"
-        ),
+        funding_paid=_number(payload["funding_paid"], field=f"{field}.funding_paid"),
         borrow_paid=_number(payload["borrow_paid"], field=f"{field}.borrow_paid"),
         fill_count=_integer(payload["fill_count"], field=f"{field}.fill_count"),
         pending_order_events=_integer(
             payload["pending_order_events"], field=f"{field}.pending_order_events"
         ),
-        max_drawdown=_number(
-            payload["max_drawdown"], field=f"{field}.max_drawdown"
-        ),
+        max_drawdown=_number(payload["max_drawdown"], field=f"{field}.max_drawdown"),
         terminal_equity=_number(
             payload["terminal_equity"], field=f"{field}.terminal_equity"
         ),
@@ -465,7 +461,9 @@ def _write_artifact(
     if root.exists() and any(root.iterdir()):
         existing = _verify_exact_file(root, filename, label=label).read_bytes()
         if existing != encoded:
-            raise FileExistsError(f"conflicting {label} artifact already exists: {root}")
+            raise FileExistsError(
+                f"conflicting {label} artifact already exists: {root}"
+            )
         return artifact_digest
     root.mkdir(parents=True, exist_ok=True)
     _atomic_write(root / filename, encoded)
@@ -564,9 +562,7 @@ def load_c3_aggregate_report_artifact(
             ),
             failure_reasons=reasons,
         )
-        if rebuilt.digest != _string(
-            fold["fold_digest"], field=f"{field}.fold_digest"
-        ):
+        if rebuilt.digest != _string(fold["fold_digest"], field=f"{field}.fold_digest"):
             raise ValueError("C3 fold report digest mismatch")
         folds.append(rebuilt)
     report = build_c3_aggregate_report(
@@ -658,9 +654,7 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGate:
         raise ValueError("Phase A gate manifest is not canonical JSON")
     raw_conditions = tuple(
         _object(item, field=f"conditions[{index}]")
-        for index, item in enumerate(
-            _list(manifest["conditions"], field="conditions")
-        )
+        for index, item in enumerate(_list(manifest["conditions"], field="conditions"))
     )
     for index, condition in enumerate(raw_conditions):
         _require_fields(
@@ -671,12 +665,8 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGate:
     conditions = tuple(
         GateConditionResult(
             name=_string(condition["name"], field=f"conditions[{index}].name"),
-            passed=_boolean(
-                condition["passed"], field=f"conditions[{index}].passed"
-            ),
-            detail=_string(
-                condition["detail"], field=f"conditions[{index}].detail"
-            ),
+            passed=_boolean(condition["passed"], field=f"conditions[{index}].passed"),
+            detail=_string(condition["detail"], field=f"conditions[{index}].detail"),
         )
         for index, condition in enumerate(raw_conditions)
     )

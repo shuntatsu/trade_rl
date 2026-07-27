@@ -150,9 +150,7 @@ def test_batch_rejects_missing_adverse_fold_mapping(tmp_path: Path) -> None:
             output_root=tmp_path,
             fold_selection_days={"fold-0": 30},
             required_adverse_evidence={},
-            config=CausalScenarioC3Config(
-                required_folds=1, required_selection_days=30
-            ),
+            config=CausalScenarioC3Config(required_folds=1, required_selection_days=30),
         )
 
 

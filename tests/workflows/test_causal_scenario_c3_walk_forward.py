@@ -244,7 +244,9 @@ def test_published_run_lifecycle_validates_and_publishes(
     monkeypatch.setattr(
         module,
         "write_c3_decision_artifact",
-        lambda root, created: calls.append(f"write:{root.name}") or created.decision_digest,
+        lambda root, created: (
+            calls.append(f"write:{root.name}") or created.decision_digest
+        ),
     )
     monkeypatch.setattr(
         module,
@@ -256,7 +258,9 @@ def test_published_run_lifecycle_validates_and_publishes(
         "_load_replay_outcomes",
         lambda *args, **kwargs: {_sha("7"): _outcome("trend", 0.0)},
     )
-    monkeypatch.setattr(module, "C3BatchQuery", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(
+        module, "C3BatchQuery", lambda **kwargs: SimpleNamespace(**kwargs)
+    )
     batch = SimpleNamespace(production_status="NO-GO")
     monkeypatch.setattr(
         module,

@@ -30,18 +30,31 @@ jobs:
           from pathlib import Path
 
           path = Path("trade_rl/workflows/training_run.py")
-          source = path.read_text(encoding="utf-8")
-          old = '''        training_data = _tuple_fields(
-              _mapping(payload.get("training"), field="training"),
-              "seeds",
-              "policy_net_arch",
-              "value_net_arch",
-          )'''
-          new = '''        training_data = _tuple_fields(
-              _mapping(payload.get("training"), field="training"),
-              "seeds",
-              "policy_net_arch",
-              "value_net_arch",
+          lines = path.read_text(encoding="utf-8").splitlines()
+          target = [
+              "training_data = _tuple_fields(",
+              '_mapping(payload.get("training"), field="training"),',
+              '"seeds",',
+              '"policy_net_arch",',
+              '"value_net_arch",',
+              ")",
+          ]
+          matches = [
+              index
+              for index in range(len(lines) - len(target) + 1)
+              if [line.strip() for line in lines[index : index + len(target)]]
+              == target
+          ]
+          if len(matches) != 1:
+              raise SystemExit(
+                  f"expected one training tuple normalization block, found {len(matches)}"
+              )
+          index = matches[0]
+          if any("lagrangian_budgets" in line for line in lines[index : index + 20]):
+              raise SystemExit("constrained tuple fields are already present")
+          value_line = lines[index + 4]
+          indentation = value_line[: len(value_line) - len(value_line.lstrip())]
+          fields = [
               "cost_continuous_hidden_dims",
               "cost_event_hidden_dims",
               "lagrangian_budgets",
@@ -52,10 +65,11 @@ jobs:
               "lagrangian_warmup_rollouts",
               "lagrangian_update_interval_rollouts",
               "lagrangian_minimum_completed_episodes",
-          )'''
-          if source.count(old) != 1:
-              raise SystemExit("expected exactly one training tuple normalization block")
-          path.write_text(source.replace(old, new), encoding="utf-8")
+          ]
+          lines[index + 5 : index + 5] = [
+              f'{indentation}"{field}",' for field in fields
+          ]
+          path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
 
           rm .github/workflows/pr226-profile-parser-updater.yml

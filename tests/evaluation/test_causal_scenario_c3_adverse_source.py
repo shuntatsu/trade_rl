@@ -8,7 +8,7 @@ import pytest
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.evaluation.causal_scenario_c3_adverse import (
+from trade_rl.evaluation.causal_scenario_c3_adverse_source import (
     load_c3_source_adverse_evidence,
 )
 

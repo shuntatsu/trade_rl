@@ -44,30 +44,9 @@ jobs:
           path = Path('trade_rl/rl/structured_export.py')
           text = path.read_text(encoding='utf-8')
 
-          def replace_once(old: str, new: str) -> None:
-              global text
-              count = text.count(old)
-              if count != 1:
-                  raise RuntimeError(f'structured export anchor count={count}: {old[:80]!r}')
-              text = text.replace(old, new, 1)
-
-          replace_once(
-              '''        payload = {
-              "action_size": action_size,
-              "architecture_digest": architecture_digest,
-              "inputs": inputs,
-              "max_abs_error": max_abs_error,
-              "model_digest": _file_digest(model_path),
-              "model_path": STRUCTURED_EXPORT_MODEL_NAME,
-              "model_size_bytes": model_path.stat().st_size,
-              "policy_identity": policy_payload,
-              "policy_identity_digest": content_digest(policy_payload),
-              "schema_version": STRUCTURED_EXPORT_SCHEMA,
-              "tolerance": tolerance,
-          }
-          return cls(digest=content_digest(payload), **payload)
-          ''',
-              '''        model_digest = _file_digest(model_path)
+          build_start = text.index('        payload = {', text.index('    def build('))
+          build_end = text.index('\n\n\nclass _StructuredDeterministicActor', build_start)
+          build_body = '''        model_digest = _file_digest(model_path)
           model_size_bytes = model_path.stat().st_size
           policy_identity_digest = content_digest(policy_payload)
           payload = {
@@ -96,23 +75,13 @@ jobs:
               tolerance=tolerance,
               max_abs_error=max_abs_error,
               schema_version=STRUCTURED_EXPORT_SCHEMA,
-          )
-          ''',
-          )
-          replace_once(
-              '        prediction = self.policy._predict(observation, deterministic=True)  # type: ignore[attr-defined]\n',
-              '        prediction = self.policy._predict(observation, deterministic=True)\n',
-          )
-          replace_once(
-              '''def _mapping(value: object, *, field: str) -> Mapping[str, object]:
-              if not isinstance(value, Mapping):
-                  raise ValueError(f"{field} must be a mapping")
-              return value
+          )'''
+          text = text[:build_start] + build_body + text[build_end:]
+          text = text.replace('  # type: ignore[attr-defined]', '', 1)
 
-
-          def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
-          ''',
-              '''def _mapping(value: object, *, field: str) -> Mapping[str, object]:
+          helper_start = text.index('def _mapping(value: object, *, field: str)')
+          loader_start = text.index('def load_structured_export_manifest', helper_start)
+          helpers = '''def _mapping(value: object, *, field: str) -> Mapping[str, object]:
               if not isinstance(value, Mapping):
                   raise ValueError(f"{field} must be a mapping")
               return value
@@ -136,37 +105,16 @@ jobs:
               return float(value)
 
 
-          def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
-          ''',
+          '''
+          text = text[:helper_start] + helpers + text[loader_start:]
+
+          constructor_start = text.index(
+              '    return StructuredExportManifest(',
+              text.index('def load_structured_export_manifest'),
           )
-          replace_once(
-              '''                name=str(item["name"]),
-                  shape=tuple(int(value) for value in raw_shape),
-                  dtype=str(item["dtype"]),
-          ''',
-              '''                name=_string(item["name"], field=f"inputs[{index}].name"),
-                  shape=tuple(
-                      _integer(value, field=f"inputs[{index}].shape")
-                      for value in raw_shape
-                  ),
-                  dtype=_string(item["dtype"], field=f"inputs[{index}].dtype"),
-          ''',
-          )
-          replace_once(
-              '''        digest=str(payload["digest"]),
-              model_path=str(payload["model_path"]),
-              model_digest=str(payload["model_digest"]),
-              model_size_bytes=int(payload["model_size_bytes"]),
-              policy_identity=dict(policy_identity),
-              policy_identity_digest=str(payload["policy_identity_digest"]),
-              architecture_digest=str(payload["architecture_digest"]),
-              inputs=tuple(inputs),
-              action_size=int(payload["action_size"]),
-              tolerance=float(payload["tolerance"]),
-              max_abs_error=float(payload["max_abs_error"]),
-              schema_version=str(payload["schema_version"]),
-          ''',
-              '''        digest=_string(payload["digest"], field="digest"),
+          constructor_end = text.index('\n\n\n__all__', constructor_start)
+          constructor = '''    return StructuredExportManifest(
+              digest=_string(payload["digest"], field="digest"),
               model_path=_string(payload["model_path"], field="model_path"),
               model_digest=_string(payload["model_digest"], field="model_digest"),
               model_size_bytes=_integer(
@@ -184,8 +132,8 @@ jobs:
               tolerance=_number(payload["tolerance"], field="tolerance"),
               max_abs_error=_number(payload["max_abs_error"], field="max_abs_error"),
               schema_version=_string(payload["schema_version"], field="schema_version"),
-          ''',
-          )
+          )'''
+          text = text[:constructor_start] + constructor + text[constructor_end:]
           ast.parse(text, filename=str(path))
           path.write_text(text, encoding='utf-8')
           PY

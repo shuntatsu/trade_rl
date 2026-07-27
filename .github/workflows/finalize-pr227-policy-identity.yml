@@ -69,7 +69,7 @@ jobs:
                   path,
                   "    algorithm_identity = _model_algorithm_identity(model)\\n",
                   "    algorithm_identity = checkpoint_identity_payload_for_model(model)\\n",
-                  expected_count=2,
+                  expected_count=1,
               )
               replace_once(path, anchor, replacement)
           '''

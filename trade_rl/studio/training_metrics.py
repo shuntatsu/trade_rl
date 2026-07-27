@@ -320,11 +320,7 @@ class StudioTrainingMetricsReader:
                 step = int(item.step)
                 wall_time = float(item.wall_time)
                 value = float(item.value)
-                if (
-                    step < 0
-                    or not math.isfinite(wall_time)
-                    or not math.isfinite(value)
-                ):
+                if step < 0 or not math.isfinite(wall_time) or not math.isfinite(value):
                     raise ArtifactInvalid("TensorBoard scalar contains invalid values")
                 previous = points[tag].get(step)
                 if previous is None or wall_time >= previous.wall_time:
@@ -389,9 +385,7 @@ class StudioTrainingMetricsReader:
                 files: dict[Path, _EventFileSnapshot] = {}
                 for event_file in source.event_files:
                     fingerprint = fingerprints[event_file]
-                    previous = (
-                        None if cached is None else cached.files.get(event_file)
-                    )
+                    previous = None if cached is None else cached.files.get(event_file)
                     if previous is not None and previous.fingerprint == fingerprint:
                         files[event_file] = previous
                         continue

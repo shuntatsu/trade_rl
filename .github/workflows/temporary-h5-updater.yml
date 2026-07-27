@@ -29,6 +29,7 @@ jobs:
         run: |
           uv run python .github/scripts/apply_h5_gpu_comparison.py
           uv run python .github/scripts/fix_h5_comparison_message.py
+          uv run python .github/scripts/fix_h5_docker_asset_schema.py
       - name: Format implementation
         run: |
           uv run ruff check --fix \
@@ -38,7 +39,8 @@ jobs:
             tests/examples/test_gpu_runtime_profiles.py \
             tests/examples/test_compare_gpu_training_smoke.py \
             tests/examples/test_gpu_training_performance_assets.py \
-            tests/examples/test_gpu_performance_comparison_assets.py
+            tests/examples/test_gpu_performance_comparison_assets.py \
+            tests/examples/test_docker_training_assets.py
           uv run ruff format \
             examples/binance-multitimeframe/run_gpu_training_smoke.py \
             examples/binance-multitimeframe/compare_gpu_training_smoke.py \
@@ -46,7 +48,8 @@ jobs:
             tests/examples/test_gpu_runtime_profiles.py \
             tests/examples/test_compare_gpu_training_smoke.py \
             tests/examples/test_gpu_training_performance_assets.py \
-            tests/examples/test_gpu_performance_comparison_assets.py
+            tests/examples/test_gpu_performance_comparison_assets.py \
+            tests/examples/test_docker_training_assets.py
       - name: Focused H5 tests
         shell: bash
         run: |
@@ -82,7 +85,8 @@ jobs:
             tests/examples/test_gpu_runtime_profiles.py \
             tests/examples/test_compare_gpu_training_smoke.py \
             tests/examples/test_gpu_training_performance_assets.py \
-            tests/examples/test_gpu_performance_comparison_assets.py
+            tests/examples/test_gpu_performance_comparison_assets.py \
+            tests/examples/test_docker_training_assets.py
           uv run ruff format --check \
             examples/binance-multitimeframe/run_gpu_training_smoke.py \
             examples/binance-multitimeframe/compare_gpu_training_smoke.py \
@@ -90,12 +94,14 @@ jobs:
             tests/examples/test_gpu_runtime_profiles.py \
             tests/examples/test_compare_gpu_training_smoke.py \
             tests/examples/test_gpu_training_performance_assets.py \
-            tests/examples/test_gpu_performance_comparison_assets.py
+            tests/examples/test_gpu_performance_comparison_assets.py \
+            tests/examples/test_docker_training_assets.py
           uv run python .github/check_workflow_security.py .
       - name: Commit verified H5 implementation
         run: |
           rm -f .github/scripts/apply_h5_gpu_comparison.py
           rm -f .github/scripts/fix_h5_comparison_message.py
+          rm -f .github/scripts/fix_h5_docker_asset_schema.py
           rm -f .github/workflows/temporary-h5-updater.yml
           rm -f h5-focused.log h5-focused.status
           git config user.name "github-actions[bot]"

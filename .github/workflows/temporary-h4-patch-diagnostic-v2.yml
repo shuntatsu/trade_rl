@@ -1,0 +1,57 @@
+name: Temporary H4 patch diagnostic v2
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Capture normalized patch failure
+        shell: bash
+        run: |
+          set +e
+          uv run python .github/scripts/fix_h4_patch_seam.py 2>&1 | tee h4-patch-v2.log
+          s0=${PIPESTATUS[0]}
+          if [ "$s0" = 0 ]; then
+            uv run python .github/scripts/apply_h4_parallel_sequence_env.py 2>&1 | tee -a h4-patch-v2.log
+            s1=${PIPESTATUS[0]}
+          else
+            s1=0
+          fi
+          if [ "$s0" = 0 ] && [ "$s1" = 0 ]; then
+            uv run python .github/scripts/fix_h4_observation_fallback.py 2>&1 | tee -a h4-patch-v2.log
+            s2=${PIPESTATUS[0]}
+          else
+            s2=0
+          fi
+          printf '%s\n' "$s0" > h4-patch-v2-0.status
+          printf '%s\n' "$s1" > h4-patch-v2-1.status
+          printf '%s\n' "$s2" > h4-patch-v2-2.status
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: h4-patch-diagnostics-v2
+          path: |
+            h4-patch-v2.log
+            h4-patch-v2-0.status
+            h4-patch-v2-1.status
+            h4-patch-v2-2.status
+          if-no-files-found: error

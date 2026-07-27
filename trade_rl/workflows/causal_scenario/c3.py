@@ -15,6 +15,7 @@ from trade_rl.evaluation.causal_scenario_c3_artifact import (
     write_phase_a_gate_artifact,
 )
 from trade_rl.evaluation.causal_scenario_c3_contracts import (
+    C3ReplayIdentity,
     CausalScenarioC3Config,
     CausalScenarioQueryComparison,
     PerfectInformationComparison,
@@ -72,6 +73,12 @@ class C3BatchQuery:
         )
         if not isinstance(self.perfect_information, PerfectInformationComparison):
             raise ValueError("perfect_information must be PerfectInformationComparison")
+        identity = getattr(self.replay, "identity", None)
+        if not isinstance(identity, C3ReplayIdentity):
+            raise ValueError("replay must expose a C3ReplayIdentity")
+        clone = getattr(self.replay, "clone_for_replay", None)
+        if clone is None or not callable(clone):
+            raise ValueError("replay must expose a callable clone_for_replay method")
         run = getattr(self.replay, "run", None)
         if run is None or not callable(run):
             raise ValueError("replay must expose a callable run method")
@@ -145,6 +152,8 @@ def execute_c3_batch(
         loaded = load_c3_decision_artifact(item.decision_root)
         if loaded.decision.decision_digest in seen_decisions:
             raise ValueError("duplicate C3 decision artifact in batch")
+        if loaded.decision.fold_digest != item.replay.identity.fold_digest:
+            raise ValueError("C3 batch fold identity does not match replay")
         seen_decisions.add(loaded.decision.decision_digest)
         by_fold[item.fold_id].append(
             run_c3_query_comparison(

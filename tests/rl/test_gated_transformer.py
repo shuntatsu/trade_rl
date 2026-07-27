@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-import torch
+import importlib
+import importlib.util
 
-import trade_rl.rl.sequence_policy as sequence_policy
+import torch
 
 
 def _stack_type():
-    stack_type = getattr(sequence_policy, "GatedTransformerStack", None)
+    module_name = "trade_rl.rl.gated_transformer"
+    assert importlib.util.find_spec(module_name) is not None, (
+        "gated_transformer module is not implemented"
+    )
+    module = importlib.import_module(module_name)
+    stack_type = getattr(module, "GatedTransformerStack", None)
     assert stack_type is not None, "GatedTransformerStack is not implemented"
     return stack_type
 

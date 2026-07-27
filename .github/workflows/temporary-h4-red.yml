@@ -1,0 +1,45 @@
+name: Temporary H4 RED
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Expected H4 RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest tests/integrations/test_parallel_sequence_environments.py -q 2>&1 | tee h4-red.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > h4-red.status
+          exit 0
+      - name: Upload H4 RED evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: h4-red-evidence
+          path: |
+            h4-red.log
+            h4-red.status
+          if-no-files-found: error
+      - name: Enforce expected failure
+        run: test "$(cat h4-red.status)" != 0

@@ -32,6 +32,7 @@ from trade_rl.evaluation.causal_scenario_c3_contracts import (
     CausalScenarioC3Config,
     CausalScenarioQueryComparison,
     PerfectInformationComparison,
+    PerfectInformationComparisonReason,
     PerfectInformationComparisonStatus,
     PersistedScenarioDecision,
     RealizedPolicyOutcome,
@@ -46,6 +47,11 @@ from trade_rl.evaluation.causal_scenario_c3_gate import (
     GateConditionResult,
     PhaseAEntryGateEvidence,
     evaluate_phase_a_entry_gate,
+)
+from trade_rl.evaluation.causal_scenario_c3_perfect_information import (
+    PERFECT_INFORMATION_COMPATIBILITY_SCHEMA,
+    PerfectInformationCompatibilityEvidence,
+    evaluate_perfect_information_compatibility,
 )
 from trade_rl.evaluation.causal_scenario_c3_report import (
     C3_AGGREGATE_REPORT_SCHEMA,
@@ -139,6 +145,7 @@ __all__ = [
     "PAPER_RECONCILIATION_FILE_NAME",
     "PAPER_RECONCILIATION_SCHEMA",
     "PERFECT_INFORMATION_BOUND_SCHEMA",
+    "PERFECT_INFORMATION_COMPATIBILITY_SCHEMA",
     "PHASE_A_ENTRY_GATE_SCHEMA",
     "PHASE_A_GATE_ARTIFACT_SCHEMA",
     "PairedComparison",
@@ -146,7 +153,9 @@ __all__ = [
     "PerfectInformationBoundConfig",
     "PerfectInformationBoundResult",
     "PerfectInformationComparison",
+    "PerfectInformationComparisonReason",
     "PerfectInformationComparisonStatus",
+    "PerfectInformationCompatibilityEvidence",
     "PerformanceMetrics",
     "PersistedScenarioDecision",
     "PhaseAEntryGateEvidence",
@@ -162,6 +171,7 @@ __all__ = [
     "compound_return",
     "evaluate_capacity_grid",
     "evaluate_causal_scenario_actions",
+    "evaluate_perfect_information_compatibility",
     "evaluate_performance",
     "evaluate_phase_a_entry_gate",
     "generate_residual_candidates",

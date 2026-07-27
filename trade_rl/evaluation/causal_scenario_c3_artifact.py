@@ -143,18 +143,12 @@ def _load_outcome(payload: object, *, field: str) -> RealizedPolicyOutcome:
             item["filled_turnover"], field=f"{field}.filled_turnover"
         ),
         fees=_strict_number(item["fees"], field=f"{field}.fees"),
-        spread_cost=_strict_number(
-            item["spread_cost"], field=f"{field}.spread_cost"
-        ),
-        impact_cost=_strict_number(
-            item["impact_cost"], field=f"{field}.impact_cost"
-        ),
+        spread_cost=_strict_number(item["spread_cost"], field=f"{field}.spread_cost"),
+        impact_cost=_strict_number(item["impact_cost"], field=f"{field}.impact_cost"),
         funding_paid=_strict_number(
             item["funding_paid"], field=f"{field}.funding_paid"
         ),
-        borrow_paid=_strict_number(
-            item["borrow_paid"], field=f"{field}.borrow_paid"
-        ),
+        borrow_paid=_strict_number(item["borrow_paid"], field=f"{field}.borrow_paid"),
         fill_count=_strict_int(item["fill_count"], field=f"{field}.fill_count"),
         pending_order_events=_strict_int(
             item["pending_order_events"], field=f"{field}.pending_order_events"
@@ -216,7 +210,10 @@ def _load_perfect_information(
             ),
             gap=_strict_number(item["gap"], field=f"{field}.gap"),
         )
-    if any(item[name] is not None for name in ("bound_log_return", "causal_log_return", "gap")):
+    if any(
+        item[name] is not None
+        for name in ("bound_log_return", "causal_log_return", "gap")
+    ):
         raise ValueError(f"{field} non-comparable values must be null")
     return PerfectInformationComparison(
         status=status,
@@ -251,9 +248,7 @@ def _comparison_payload(
     }
 
 
-def _load_comparison(
-    payload: object, *, field: str
-) -> CausalScenarioQueryComparison:
+def _load_comparison(payload: object, *, field: str) -> CausalScenarioQueryComparison:
     item = _strict_object(payload, field=field)
     expected = {
         "candidate_outcomes",
@@ -275,7 +270,9 @@ def _load_comparison(
     candidates = tuple(
         _load_outcome(value, field=f"{field}.candidate_outcomes[{index}]")
         for index, value in enumerate(
-            _strict_list(item["candidate_outcomes"], field=f"{field}.candidate_outcomes")
+            _strict_list(
+                item["candidate_outcomes"], field=f"{field}.candidate_outcomes"
+            )
         )
     )
     advantages = _strict_list(
@@ -331,8 +328,7 @@ def _report_base_payload(report: CausalScenarioAggregateReport) -> dict[str, obj
         "folds": [
             {
                 "comparisons": [
-                    _comparison_payload(comparison)
-                    for comparison in fold.comparisons
+                    _comparison_payload(comparison) for comparison in fold.comparisons
                 ],
                 "failure_reasons": fold.failure_reasons,
                 "fold_digest": fold.digest,
@@ -395,7 +391,9 @@ def _write_single_json_artifact(
     if root.exists() and any(root.iterdir()):
         existing = _verify_exact_file(root, filename, label=label).read_bytes()
         if existing != encoded:
-            raise FileExistsError(f"conflicting {label} artifact already exists: {root}")
+            raise FileExistsError(
+                f"conflicting {label} artifact already exists: {root}"
+            )
         return artifact_digest
     root.mkdir(parents=True, exist_ok=True)
     _atomic_write(root / filename, encoded)
@@ -540,9 +538,7 @@ def _gate_base_payload(gate: PhaseAEntryGateEvidence) -> dict[str, object]:
     }
 
 
-def write_phase_a_gate_artifact(
-    root: str | Path, gate: PhaseAEntryGateEvidence
-) -> str:
+def write_phase_a_gate_artifact(root: str | Path, gate: PhaseAEntryGateEvidence) -> str:
     if not isinstance(gate, PhaseAEntryGateEvidence):
         raise TypeError("gate must be PhaseAEntryGateEvidence")
     destination = Path(root)
@@ -614,12 +610,8 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGate:
     ):
         raise ValueError("Phase A gate condition field closure mismatch")
     gate = PhaseAEntryGateEvidence(
-        report_digest=_strict_string(
-            manifest["report_digest"], field="report_digest"
-        ),
-        config_digest=_strict_string(
-            manifest["config_digest"], field="config_digest"
-        ),
+        report_digest=_strict_string(manifest["report_digest"], field="report_digest"),
+        config_digest=_strict_string(manifest["config_digest"], field="config_digest"),
         conditions=conditions,
         passed=_strict_bool(manifest["passed"], field="passed"),
         schema_version=_strict_string(

@@ -67,7 +67,9 @@ class C3BatchQuery:
             raise ValueError("fold_id must be non-empty")
         object.__setattr__(self, "fold_id", fold_id)
         object.__setattr__(self, "decision_root", Path(self.decision_root))
-        object.__setattr__(self, "ppo_mean_action", _readonly_action(self.ppo_mean_action))
+        object.__setattr__(
+            self, "ppo_mean_action", _readonly_action(self.ppo_mean_action)
+        )
         if not isinstance(self.perfect_information, PerfectInformationComparison):
             raise ValueError("perfect_information must be PerfectInformationComparison")
         run = getattr(self.replay, "run", None)
@@ -93,7 +95,9 @@ class C3BatchResult:
             raise ValueError("gate must be PhaseAEntryGateEvidence")
         if self.gate.report_digest != self.report.digest:
             raise ValueError("gate does not bind the aggregate report")
-        object.__setattr__(self, "report_artifact_root", Path(self.report_artifact_root))
+        object.__setattr__(
+            self, "report_artifact_root", Path(self.report_artifact_root)
+        )
         object.__setattr__(self, "gate_artifact_root", Path(self.gate_artifact_root))
         if self.comparison_count <= 0:
             raise ValueError("comparison_count must be positive")
@@ -129,7 +133,10 @@ def execute_c3_batch(
     fold_ids = {item.fold_id for item in items}
     if _mapping_keys(fold_selection_days, field="fold_selection_days") != fold_ids:
         raise ValueError("fold_selection_days must exactly match query folds")
-    if _mapping_keys(required_adverse_passed, field="required_adverse_passed") != fold_ids:
+    if (
+        _mapping_keys(required_adverse_passed, field="required_adverse_passed")
+        != fold_ids
+    ):
         raise ValueError("required_adverse_passed must exactly match query folds")
 
     by_fold: dict[str, list[CausalScenarioQueryComparison]] = defaultdict(list)

@@ -204,7 +204,9 @@ def test_report_and_gate_artifacts_round_trip_and_fail_closed(tmp_path: Path) ->
         load_c3_aggregate_report_artifact(report_root)
 
 
-def test_batch_publishes_report_and_gate_from_verified_decisions(tmp_path: Path) -> None:
+def test_batch_publishes_report_and_gate_from_verified_decisions(
+    tmp_path: Path,
+) -> None:
     queries = []
     fold_days = {}
     adverse = {}

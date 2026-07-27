@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TextIO
 
 from trade_rl.catalog import (
@@ -17,6 +18,9 @@ from trade_rl.catalog import (
 )
 from trade_rl.catalog.contracts import thaw_json
 from trade_rl.catalog.postgres import PostgresArtifactCatalog
+from trade_rl.workflows.dataset_catalog_reconciliation import (
+    reconcile_market_dataset_catalog,
+)
 
 catalog_factory = PostgresArtifactCatalog
 
@@ -104,6 +108,16 @@ def _register(args: argparse.Namespace, stdout: TextIO) -> int:
     return 0
 
 
+def _reconcile_market_dataset(args: argparse.Namespace, stdout: TextIO) -> int:
+    catalog = catalog_factory(_database_url(args))
+    record = reconcile_market_dataset_catalog(Path(args.artifact_root), catalog)
+    _write_json(
+        stdout,
+        {**_record_payload(record), "schema": "artifact_catalog_record_v1"},
+    )
+    return 0
+
+
 def _find(args: argparse.Namespace, stdout: TextIO) -> int:
     record = catalog_factory(_database_url(args)).find(
         ArtifactKind(args.kind),
@@ -176,6 +190,14 @@ def add_catalog_parser(subparsers: argparse._SubParsersAction) -> None:
         default=ArtifactStatus.READY.value,
     )
     register.set_defaults(handler=_register)
+
+    reconcile_dataset = commands.add_parser(
+        "reconcile-market-dataset",
+        help="register an existing immutable market dataset artifact",
+    )
+    _add_database_url(reconcile_dataset)
+    reconcile_dataset.add_argument("--artifact-root", required=True)
+    reconcile_dataset.set_defaults(handler=_reconcile_market_dataset)
 
     find = commands.add_parser("find", help="find an exact reusable artifact")
     _add_database_url(find)

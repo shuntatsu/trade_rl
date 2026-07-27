@@ -96,7 +96,14 @@ def evaluate_phase_a_entry_gate(
     if not isinstance(resolved, CausalScenarioC3Config):
         raise TypeError("config must be CausalScenarioC3Config")
 
-    no_failures = not report.failure_reasons
+    diagnostics_complete = (
+        bool(report.calibration_buckets)
+        and bool(report.execution_summaries)
+        and report.unique_anchor_count > 0
+        and report.effective_anchor_count > 0.0
+        and report.historical_coverage_fraction > 0.0
+    )
+    no_failures = not report.failure_reasons and diagnostics_complete
     support = (
         report.fold_count >= resolved.required_folds
         and report.total_selection_days >= resolved.required_selection_days
@@ -112,15 +119,26 @@ def evaluate_phase_a_entry_gate(
     regret = report.regret_margin_lower_ci > 0.0
     ranking = report.mean_spearman > 0.0 and report.spearman_lower_ci > 0.0
     perfect_information = report.all_perfect_information_valid
-    adverse = report.all_required_adverse_passed
+    scenarios = report.execution_scenario_names
+    adverse_names = tuple(name for name in scenarios if name != "nominal")
+    adverse = (
+        report.all_required_adverse_passed
+        and "nominal" in scenarios
+        and bool(adverse_names)
+    )
 
     conditions = (
         _condition(
             "integrity_and_determinism",
             no_failures,
-            "no leakage, identity, replay, artifact, or determinism failures"
-            if no_failures
-            else f"failures={report.failure_reasons}",
+            (
+                "no leakage, identity, replay, artifact, determinism, or diagnostic failures"
+                if no_failures
+                else (
+                    f"failures={report.failure_reasons}; "
+                    f"diagnostics_complete={diagnostics_complete}"
+                )
+            ),
         ),
         _condition(
             "fold_and_day_support",
@@ -177,9 +195,14 @@ def evaluate_phase_a_entry_gate(
         _condition(
             "required_adverse_execution",
             adverse,
-            "all required adverse scenarios passed"
-            if adverse
-            else "required adverse evidence is missing or failed",
+            (
+                f"nominal=true; adverse={adverse_names}; all_passed=true"
+                if adverse
+                else (
+                    f"scenarios={scenarios}; adverse={adverse_names}; "
+                    f"all_passed={report.all_required_adverse_passed}"
+                )
+            ),
         ),
     )
     return PhaseAEntryGateEvidence(

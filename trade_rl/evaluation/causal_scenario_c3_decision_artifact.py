@@ -101,6 +101,7 @@ def _base_manifest(
     metadata: dict[str, dict[str, object]],
 ) -> dict[str, object]:
     return {
+        "action_spec_digest": decision.action_spec_digest,
         "array_metadata": metadata,
         "arrays_digest": arrays_digest,
         "arrays_file": _ARRAYS_NAME,
@@ -110,14 +111,20 @@ def _base_manifest(
         "dataset_id": decision.dataset_id,
         "decision_digest": decision.decision_digest,
         "decision_schema_version": decision.schema_version,
+        "environment_digest": decision.environment_digest,
+        "execution_policy_digest": decision.execution_policy_digest,
         "fold_digest": decision.fold_digest,
+        "observation_digest": decision.observation_digest,
         "query_index": decision.query_index,
         "query_timestamp_ns": decision.query_timestamp_ns,
+        "realized_stop_index": decision.realized_stop_index,
+        "risk_digest": decision.risk_digest,
         "scenario_library_digest": decision.scenario_library_digest,
         "scenario_set_digest": decision.scenario_set_digest,
         "schema_version": C3_DECISION_ARTIFACT_SCHEMA,
         "selected_candidate_digest": decision.selected_candidate_digest,
         "selected_candidate_index": decision.selected_candidate_index,
+        "starting_equity": decision.starting_equity,
         "state_snapshot_digest": decision.state_snapshot_digest,
         "value_result_digest": decision.value_result_digest,
         "zero_candidate_index": decision.zero_candidate_index,
@@ -192,6 +199,15 @@ def _expect_int(value: object, *, field: str) -> int:
     return value
 
 
+def _expect_number(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
 def load_c3_decision_artifact(root: str | Path) -> LoadedC3Decision:
     source = Path(root)
     _verify_exact_files(source)
@@ -203,6 +219,7 @@ def load_c3_decision_artifact(root: str | Path) -> LoadedC3Decision:
         raise ValueError("C3 decision manifest is invalid") from error
     manifest = _expect_mapping(manifest_raw, field="manifest")
     expected_fields = {
+        "action_spec_digest",
         "array_metadata",
         "arrays_digest",
         "arrays_file",
@@ -213,14 +230,20 @@ def load_c3_decision_artifact(root: str | Path) -> LoadedC3Decision:
         "dataset_id",
         "decision_digest",
         "decision_schema_version",
+        "environment_digest",
+        "execution_policy_digest",
         "fold_digest",
+        "observation_digest",
         "query_index",
         "query_timestamp_ns",
+        "realized_stop_index",
+        "risk_digest",
         "scenario_library_digest",
         "scenario_set_digest",
         "schema_version",
         "selected_candidate_digest",
         "selected_candidate_index",
+        "starting_equity",
         "state_snapshot_digest",
         "value_result_digest",
         "zero_candidate_index",
@@ -300,6 +323,25 @@ def load_c3_decision_artifact(root: str | Path) -> LoadedC3Decision:
         ),
         state_snapshot_digest=_expect_string(
             manifest["state_snapshot_digest"], field="state_snapshot_digest"
+        ),
+        observation_digest=_expect_string(
+            manifest["observation_digest"], field="observation_digest"
+        ),
+        environment_digest=_expect_string(
+            manifest["environment_digest"], field="environment_digest"
+        ),
+        action_spec_digest=_expect_string(
+            manifest["action_spec_digest"], field="action_spec_digest"
+        ),
+        execution_policy_digest=_expect_string(
+            manifest["execution_policy_digest"], field="execution_policy_digest"
+        ),
+        risk_digest=_expect_string(manifest["risk_digest"], field="risk_digest"),
+        starting_equity=_expect_number(
+            manifest["starting_equity"], field="starting_equity"
+        ),
+        realized_stop_index=_expect_int(
+            manifest["realized_stop_index"], field="realized_stop_index"
         ),
         scenario_library_digest=_expect_string(
             manifest["scenario_library_digest"], field="scenario_library_digest"

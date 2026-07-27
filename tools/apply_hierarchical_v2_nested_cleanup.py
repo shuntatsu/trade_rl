@@ -75,9 +75,22 @@ def _migrate_local_helper_names() -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _remove_dangling_projection_parentheses() -> None:
+    expression = re.compile(
+        r"(?P<field>['\"]observation_encoder['\"]\s*:\s*"
+        r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\.observation_encoder)\),"
+    )
+    for path in (ROOT / "trade_rl").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        updated = expression.sub(r"\g<field>,", text)
+        if updated != text:
+            path.write_text(updated, encoding="utf-8")
+
+
 def main() -> None:
     _migrate_json()
     _migrate_local_helper_names()
+    _remove_dangling_projection_parentheses()
 
 
 if __name__ == "__main__":

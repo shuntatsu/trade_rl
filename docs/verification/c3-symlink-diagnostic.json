@@ -1,0 +1,9 @@
+{
+  "focused_pytest_exit_code": 0,
+  "focused_pytest_log": "============================= test session starts ==============================\nplatform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0 -- /home/runner/work/trade_rl/trade_rl/.venv/bin/python3\ncachedir: .pytest_cache\nhypothesis profile 'ci' -> database=None, deadline=None, print_blob=True, derandomize=True, suppress_health_check=(HealthCheck.too_slow,)\nrootdir: /home/runner/work/trade_rl/trade_rl\nconfigfile: pyproject.toml\nplugins: hypothesis-6.156.6, cov-7.1.0, anyio-4.14.2\ncollecting ... collected 1 item\n\ntests/workflows/test_causal_scenario_c3_execution_entrypoint.py::test_execute_c3_evaluation_request_rejects_symlinked_backend_summary PASSED\n\n============================== 1 passed in 0.97s ===============================\n",
+  "lstat_is_symlink": true,
+  "os_path_islink": true,
+  "path_is_symlink": true,
+  "resolved": "/tmp/tmpp6hndjqp/target.json",
+  "schema_version": "c3_symlink_diagnostic_v1"
+}

@@ -93,9 +93,9 @@ def _observation() -> dict[str, np.ndarray]:
         "active": np.asarray([1.0, 1.0, 0.0], dtype=np.float32),
     }
     for timeframe in ("15m", "1h", "4h", "1d"):
-        observation[f"sequence_{timeframe}_values"] = rng.normal(
-            size=(3, 4, 2)
-        ).astype(np.float32)
+        observation[f"sequence_{timeframe}_values"] = rng.normal(size=(3, 4, 2)).astype(
+            np.float32
+        )
         observation[f"sequence_{timeframe}_available"] = np.ones(
             (3, 4, 2), dtype=np.float32
         )
@@ -155,7 +155,10 @@ def test_structured_export_round_trip_and_canonical_loader(tmp_path: Any) -> Non
     action = standalone.predict(observation)
     with torch.no_grad():
         expected = model.policy._predict(
-            {key: torch.from_numpy(value).unsqueeze(0) for key, value in observation.items()}
+            {
+                key: torch.from_numpy(value).unsqueeze(0)
+                for key, value in observation.items()
+            }
         )[0].numpy()
     np.testing.assert_allclose(action, expected, rtol=0.0, atol=1e-6)
 
@@ -163,7 +166,9 @@ def test_structured_export_round_trip_and_canonical_loader(tmp_path: Any) -> Non
         expected_architecture_digest=manifest.architecture_digest
     )
     policy = loader.load(_bundle(tmp_path, manifest))
-    np.testing.assert_allclose(policy.predict(observation), expected, rtol=0.0, atol=1e-6)
+    np.testing.assert_allclose(
+        policy.predict(observation), expected, rtol=0.0, atol=1e-6
+    )
     smoke = policy.smoke_observation()
     assert tuple(smoke) == canonical_structured_observation_keys()
     assert policy.predict(smoke).shape == (3,)

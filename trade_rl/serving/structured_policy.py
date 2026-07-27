@@ -68,7 +68,9 @@ class StructuredTorchScriptPolicy:
             raise ValueError(f"structured observation shape mismatch: {spec.name}")
         if not np.isfinite(array).all():
             raise ValueError(f"structured observation must be finite: {spec.name}")
-        return torch.as_tensor(array.reshape((1, *spec.shape)), dtype=_torch_dtype(spec.dtype))
+        return torch.as_tensor(
+            array.reshape((1, *spec.shape)), dtype=_torch_dtype(spec.dtype)
+        )
 
     def predict(self, observation: Mapping[str, np.ndarray]) -> np.ndarray:
         if set(observation) != set(self._by_name):
@@ -80,7 +82,10 @@ class StructuredTorchScriptPolicy:
         with torch.no_grad():
             raw = self.model(*inputs)
         action = raw.detach().cpu().numpy().astype(np.float32, copy=False).reshape(-1)
-        if action.shape != (self.manifest.action_size,) or not np.isfinite(action).all():
+        if (
+            action.shape != (self.manifest.action_size,)
+            or not np.isfinite(action).all()
+        ):
             raise ValueError("structured policy output violates action contract")
         return action.copy()
 
@@ -108,21 +113,27 @@ class CanonicalStructuredPolicyLoader:
 
     def load(self, bundle: ServingBundle) -> StructuredTorchScriptPolicy:
         if bundle.manifest.observation_schema != SEQUENCE_OBSERVATION_SCHEMA:
-            raise ValueError("structured policy loader requires sequence observation schema")
+            raise ValueError(
+                "structured policy loader requires sequence observation schema"
+            )
         manifest_path = bundle.root / STRUCTURED_EXPORT_MANIFEST_NAME
         if not manifest_path.is_file():
             raise FileNotFoundError("structured export manifest is missing from bundle")
         bundle_files = {item.path: item for item in bundle.manifest.files}
         manifest_file = bundle_files.get(STRUCTURED_EXPORT_MANIFEST_NAME)
         if manifest_file is None:
-            raise ValueError("structured export manifest is not bound to serving bundle")
+            raise ValueError(
+                "structured export manifest is not bound to serving bundle"
+            )
         if manifest_path.stat().st_size != manifest_file.size_bytes:
             raise ValueError("structured export manifest size mismatch")
         if _file_digest(manifest_path) != manifest_file.digest:
             raise ValueError("structured export manifest digest mismatch")
         manifest = load_structured_export_manifest(manifest_path)
         if manifest.architecture_digest != self.expected_architecture_digest:
-            raise ValueError("structured policy architecture does not match serving runtime")
+            raise ValueError(
+                "structured policy architecture does not match serving runtime"
+            )
         model_file = bundle_files.get(manifest.model_path)
         if model_file is None:
             raise ValueError("structured policy model is not bound to serving bundle")

@@ -109,17 +109,17 @@ class StructuredExportManifest:
         policy_payload = dict(self.policy_identity)
         if content_digest(policy_payload) != self.policy_identity_digest:
             raise ValueError("structured export policy identity digest mismatch")
-        if (
-            policy_payload.get("observation_encoder")
-            != "hierarchical_sequence_v2"
-        ):
+        if policy_payload.get("observation_encoder") != "hierarchical_sequence_v2":
             raise ValueError("structured export requires hierarchical sequence policy")
         if (
             policy_payload.get("sequence_architecture_digest")
             != self.architecture_digest
         ):
             raise ValueError("structured export architecture digest mismatch")
-        if tuple(item.name for item in self.inputs) != canonical_structured_observation_keys():
+        if (
+            tuple(item.name for item in self.inputs)
+            != canonical_structured_observation_keys()
+        ):
             raise ValueError("structured export input order is not canonical")
         if self.action_size <= 0:
             raise ValueError("structured export action_size must be positive")
@@ -164,20 +164,36 @@ class StructuredExportManifest:
         architecture_digest = policy_payload.get("sequence_architecture_digest")
         if not isinstance(architecture_digest, str):
             raise ValueError("structured export policy lacks architecture digest")
+        model_digest = _file_digest(model_path)
+        model_size_bytes = model_path.stat().st_size
+        policy_identity_digest = content_digest(policy_payload)
         payload = {
             "action_size": action_size,
             "architecture_digest": architecture_digest,
             "inputs": inputs,
             "max_abs_error": max_abs_error,
-            "model_digest": _file_digest(model_path),
+            "model_digest": model_digest,
             "model_path": STRUCTURED_EXPORT_MODEL_NAME,
-            "model_size_bytes": model_path.stat().st_size,
+            "model_size_bytes": model_size_bytes,
             "policy_identity": policy_payload,
-            "policy_identity_digest": content_digest(policy_payload),
+            "policy_identity_digest": policy_identity_digest,
             "schema_version": STRUCTURED_EXPORT_SCHEMA,
             "tolerance": tolerance,
         }
-        return cls(digest=content_digest(payload), **payload)
+        return cls(
+            digest=content_digest(payload),
+            model_path=STRUCTURED_EXPORT_MODEL_NAME,
+            model_digest=model_digest,
+            model_size_bytes=model_size_bytes,
+            policy_identity=policy_payload,
+            policy_identity_digest=policy_identity_digest,
+            architecture_digest=architecture_digest,
+            inputs=inputs,
+            action_size=action_size,
+            tolerance=tolerance,
+            max_abs_error=max_abs_error,
+            schema_version=STRUCTURED_EXPORT_SCHEMA,
+        )
 
 
 class _StructuredDeterministicActor(nn.Module):
@@ -188,7 +204,7 @@ class _StructuredDeterministicActor(nn.Module):
 
     def forward(self, *inputs: torch.Tensor) -> torch.Tensor:
         observation = {self.keys[index]: value for index, value in enumerate(inputs)}
-        prediction = self.policy._predict(observation, deterministic=True)  # type: ignore[attr-defined]
+        prediction = self.policy._predict(observation, deterministic=True)
         return prediction
 
 
@@ -244,7 +260,9 @@ def _validated_example(
     tensors: list[torch.Tensor] = []
     batch_size: int | None = None
     for item in specs:
-        value = np.asarray(example_observation[item.name], dtype=_numpy_dtype(item.dtype))
+        value = np.asarray(
+            example_observation[item.name], dtype=_numpy_dtype(item.dtype)
+        )
         if value.shape == item.shape:
             value = value.reshape((1, *item.shape))
         if value.ndim != len(item.shape) + 1 or value.shape[1:] != item.shape:
@@ -277,15 +295,22 @@ def _parity_corpus(
     for position, value in enumerate(example):
         if value.dtype == torch.bool:
             alternating.append(torch.ones_like(value))
-        elif specs[position].name.endswith("_available") or specs[position].name == "active":
+        elif (
+            specs[position].name.endswith("_available")
+            or specs[position].name == "active"
+        ):
             alternating.append(torch.ones_like(value))
         else:
-            pattern = torch.arange(value.numel(), device=value.device).reshape(value.shape)
+            pattern = torch.arange(value.numel(), device=value.device).reshape(
+                value.shape
+            )
             alternating.append((pattern.remainder(2).to(value.dtype) * 2.0) - 1.0)
     return original, zeros, tuple(stressed), tuple(alternating)
 
 
-def _actions(actor: nn.Module, inputs: Sequence[torch.Tensor], action_size: int) -> np.ndarray:
+def _actions(
+    actor: nn.Module, inputs: Sequence[torch.Tensor], action_size: int
+) -> np.ndarray:
     with torch.no_grad():
         output = actor(*inputs)
     resolved = output.detach().cpu().numpy().astype(np.float32, copy=False)
@@ -324,7 +349,9 @@ def export_structured_policy_actor(
     policy.eval()
     specs = _observation_specs(model)
     example = _validated_example(example_observation, specs)
-    actor = _StructuredDeterministicActor(policy, tuple(item.name for item in specs)).eval()
+    actor = _StructuredDeterministicActor(
+        policy, tuple(item.name for item in specs)
+    ).eval()
     corpus = _parity_corpus(example, specs)
 
     output_dir = Path(output_dir)
@@ -370,6 +397,24 @@ def _mapping(value: object, *, field: str) -> Mapping[str, object]:
     return value
 
 
+def _string(value: object, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    return value
+
+
+def _integer(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
+def _number(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    return float(value)
+
+
 def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     payload = _mapping(raw, field="structured export manifest")
@@ -402,25 +447,34 @@ def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
             raise ValueError("structured input shape must be a list")
         inputs.append(
             StructuredInputSpec(
-                name=str(item["name"]),
-                shape=tuple(int(value) for value in raw_shape),
-                dtype=str(item["dtype"]),
+                name=_string(item["name"], field=f"inputs[{index}].name"),
+                shape=tuple(
+                    _integer(value, field=f"inputs[{index}].shape")
+                    for value in raw_shape
+                ),
+                dtype=_string(item["dtype"], field=f"inputs[{index}].dtype"),
             )
         )
     policy_identity = _mapping(payload["policy_identity"], field="policy_identity")
     return StructuredExportManifest(
-        digest=str(payload["digest"]),
-        model_path=str(payload["model_path"]),
-        model_digest=str(payload["model_digest"]),
-        model_size_bytes=int(payload["model_size_bytes"]),
+        digest=_string(payload["digest"], field="digest"),
+        model_path=_string(payload["model_path"], field="model_path"),
+        model_digest=_string(payload["model_digest"], field="model_digest"),
+        model_size_bytes=_integer(
+            payload["model_size_bytes"], field="model_size_bytes"
+        ),
         policy_identity=dict(policy_identity),
-        policy_identity_digest=str(payload["policy_identity_digest"]),
-        architecture_digest=str(payload["architecture_digest"]),
+        policy_identity_digest=_string(
+            payload["policy_identity_digest"], field="policy_identity_digest"
+        ),
+        architecture_digest=_string(
+            payload["architecture_digest"], field="architecture_digest"
+        ),
         inputs=tuple(inputs),
-        action_size=int(payload["action_size"]),
-        tolerance=float(payload["tolerance"]),
-        max_abs_error=float(payload["max_abs_error"]),
-        schema_version=str(payload["schema_version"]),
+        action_size=_integer(payload["action_size"], field="action_size"),
+        tolerance=_number(payload["tolerance"], field="tolerance"),
+        max_abs_error=_number(payload["max_abs_error"], field="max_abs_error"),
+        schema_version=_string(payload["schema_version"], field="schema_version"),
     )
 
 

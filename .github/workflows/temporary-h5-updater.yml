@@ -26,7 +26,9 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
       - name: Apply reviewed H5 patch
-        run: uv run python .github/scripts/apply_h5_gpu_comparison.py
+        run: |
+          uv run python .github/scripts/apply_h5_gpu_comparison.py
+          uv run python .github/scripts/fix_h5_comparison_message.py
       - name: Format implementation
         run: |
           uv run ruff check --fix \
@@ -77,6 +79,7 @@ jobs:
       - name: Commit verified H5 implementation
         run: |
           rm -f .github/scripts/apply_h5_gpu_comparison.py
+          rm -f .github/scripts/fix_h5_comparison_message.py
           rm -f .github/workflows/temporary-h5-updater.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

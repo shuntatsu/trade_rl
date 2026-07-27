@@ -18,7 +18,9 @@ def _imports(tree: ast.AST) -> dict[str, str]:
     return imported
 
 
-def _class_method(tree: ast.Module, class_name: str, method_name: str) -> ast.FunctionDef:
+def _class_method(
+    tree: ast.Module, class_name: str, method_name: str
+) -> ast.FunctionDef:
     class_node = next(
         node
         for node in tree.body

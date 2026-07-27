@@ -17,10 +17,14 @@ services:
       - examples/binance-multitimeframe/sync_market_data.py
       - --cache-root
       - /workspace/market-data/binance-vision
+      - --legacy-cache-root
+      - /workspace/legacy-var/cache/binance-vision
     environment:
       TRADE_RL_MARKET_DATA_CACHE_ROOT: /workspace/market-data/binance-vision
+      TRADE_RL_LEGACY_MARKET_DATA_CACHE_ROOT: /workspace/legacy-var/cache/binance-vision
     volumes:
       - trade-rl-market-archives:/workspace/market-data/binance-vision
+      - trade-rl-training-data:/workspace/legacy-var:ro
     restart: "no"
 
   trainer:
@@ -48,8 +52,7 @@ services:
       MKL_NUM_THREADS: "8"
     volumes:
       - trade-rl-market-archives:/workspace/market-data/binance-vision:ro
-      - trade-rl-training-runs:/workspace/var/runs
-      - trade-rl-teacher-cache:/workspace/var/cache/teacher-artifacts
+      - trade-rl-training-data:/workspace/var
       - type: bind
         source: ${TRADE_RL_EVIDENCE_ROOT:-./var/evidence}
         target: /workspace/evidence
@@ -58,7 +61,5 @@ services:
 volumes:
   trade-rl-market-archives:
     name: trade-rl-market-archives
-  trade-rl-training-runs:
-    name: trade-rl-training-runs
-  trade-rl-teacher-cache:
-    name: trade-rl-teacher-cache
+  trade-rl-training-data:
+    name: trade-rl-training-data

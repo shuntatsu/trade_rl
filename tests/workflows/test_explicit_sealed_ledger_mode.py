@@ -103,9 +103,7 @@ def test_local_mode_ignores_database_environment(
         lambda _: pytest.fail("local mode constructed PostgreSQL catalog"),
     )
 
-    ledger = workflow_module._sealed_test_ledger(
-        SealedTestLedgerMode.LOCAL_EXPLORATORY
-    )
+    ledger = workflow_module._sealed_test_ledger(SealedTestLedgerMode.LOCAL_EXPLORATORY)
 
     assert isinstance(ledger, SealedTestLedger)
 
@@ -137,9 +135,7 @@ def test_durable_mode_constructs_ledger_without_migration(
     monkeypatch.setattr(workflow_module, "PostgresArtifactCatalog", Catalog)
     monkeypatch.setattr(workflow_module, "PostgresSealedTestLedger", Ledger)
 
-    ledger = workflow_module._sealed_test_ledger(
-        SealedTestLedgerMode.DURABLE_POSTGRES
-    )
+    ledger = workflow_module._sealed_test_ledger(SealedTestLedgerMode.DURABLE_POSTGRES)
 
     assert isinstance(ledger, Ledger)
     assert observed["database_url"] == "postgresql://explicit"

@@ -74,3 +74,73 @@ jobs:
           name: sequence-projection-stability-${{ runner.os }}
           path: sequence-projection-stability.log
           if-no-files-found: error
+
+  build-capability-audit-correction:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export
+      - name: Build and verify corrected source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/run_training_capability_audit.py')
+          text = path.read_text(encoding='utf-8')
+          ppo = '''                "observation_encoder": "invalid_legacy_combination"
+                if (False) and (True)
+                else "hierarchical_sequence_v2"
+                if (False)
+                else "asset_set"
+                if (True)
+                else "flat_mlp",
+'''
+          off_policy = '''                "observation_encoder": "invalid_legacy_combination"
+                if (False) and (False)
+                else "hierarchical_sequence_v2"
+                if (False)
+                else "asset_set"
+                if (False)
+                else "flat_mlp",
+'''
+          flat = '''        observation_encoder=(
+            "invalid_legacy_combination"
+            if (False) and (False)
+            else "hierarchical_sequence_v2"
+            if (False)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
+'''
+          if text.count(ppo) != 1 or text.count(off_policy) != 1 or text.count(flat) != 2:
+              raise RuntimeError('capability audit migration anchors do not match')
+          text = text.replace(ppo, '                "observation_encoder": "asset_set",\n')
+          text = text.replace(
+              off_policy,
+              '                "observation_encoder": "flat_mlp",\n',
+          )
+          text = text.replace(flat, '        observation_encoder="flat_mlp",\n')
+          path.write_text(text, encoding='utf-8')
+          PY
+          uv run ruff format tools/run_training_capability_audit.py
+          uv run ruff check tools/run_training_capability_audit.py
+          uv run mypy tools/run_training_capability_audit.py
+      - name: Upload corrected capability audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr227-corrected-capability-audit
+          path: tools/run_training_capability_audit.py
+          if-no-files-found: error
+          retention-days: 7

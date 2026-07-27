@@ -20,6 +20,7 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.causal_scenario_artifact import (
     load_causal_scenario_value_artifact,
 )
+from trade_rl.evaluation.causal_scenario_c3_adverse import C3AdverseFoldEvidence
 from trade_rl.evaluation.causal_scenario_c3_adverse_source import (
     load_c3_source_adverse_evidence,
 )
@@ -516,7 +517,7 @@ def execute_c3_evaluation_request(
     destination = Path(output_root)
     batch_queries: list[C3BatchQuery] = []
     fold_selection_days: dict[str, int] = {}
-    required_adverse_evidence: dict[str, object] = {}
+    required_adverse_evidence: dict[str, C3AdverseFoldEvidence] = {}
     seen_fold_indices: set[int] = set()
     seen_fold_ids: set[str] = set()
     for fold_position, raw_fold in enumerate(_list(raw["folds"], field="folds")):

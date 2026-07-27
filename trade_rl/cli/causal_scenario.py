@@ -7,13 +7,17 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from trade_rl.evaluation.causal_scenario_c3_markdown import (
+    LoadedC3MarkdownArtifact,
     VerifiedC3Evidence,
     verify_c3_evidence,
     write_c3_markdown_artifact,
 )
+
+if TYPE_CHECKING:
+    from trade_rl.workflows.causal_scenario.c3_evaluation import C3EvaluationResult
 
 PRODUCTION_STATUS = "NO-GO"
 
@@ -70,7 +74,7 @@ def _verify_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _execute(request: Path, *, output_root: Path):
+def _execute(request: Path, *, output_root: Path) -> C3EvaluationResult:
     from trade_rl.workflows.causal_scenario.c3_evaluation import (
         execute_c3_evaluation_request,
     )
@@ -83,7 +87,7 @@ def _publish_markdown(
     *,
     report_root: Path,
     gate_root: Path,
-):
+) -> LoadedC3MarkdownArtifact:
     return write_c3_markdown_artifact(
         output,
         report_root=report_root,

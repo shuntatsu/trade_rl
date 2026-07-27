@@ -6,17 +6,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def replace_once(path: str, old: str, new: str) -> None:
+def replace_exact(
+    path: str,
+    old: str,
+    new: str,
+    *,
+    expected_count: int = 1,
+) -> None:
     target = ROOT / path
     text = target.read_text(encoding="utf-8")
     count = text.count(old)
-    if count != 1:
+    if count != expected_count:
         raise RuntimeError(
-            f"{path}: expected one anchor, found {count}: {old[:100]!r}"
+            f"{path}: expected {expected_count} anchors, found {count}: {old[:100]!r}"
         )
-    updated = text.replace(old, new, 1)
+    updated = text.replace(old, new, expected_count)
     ast.parse(updated, filename=path)
     target.write_text(updated, encoding="utf-8")
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    replace_exact(path, old, new, expected_count=1)
 
 
 def update_model_assembly() -> None:
@@ -200,9 +210,9 @@ def checkpoint_identity_payload_for_model(
     if policy_identity is None:
         return algorithm_identity
     payload: dict[str, object] = {
-        "schema_version": "sb3_checkpoint_identity_v2",
-        "policy": policy_identity,
-        "algorithm": algorithm_identity,
+        \"schema_version\": \"sb3_checkpoint_identity_v2\",
+        \"policy\": policy_identity,
+        \"algorithm\": algorithm_identity,
     }
     canonical_json_bytes(payload)
     return payload
@@ -211,10 +221,11 @@ def checkpoint_identity_payload_for_model(
 @dataclass(frozen=True, slots=True)
 """
     replace_once(path, anchor, replacement)
-    replace_once(
+    replace_exact(
         path,
         "    algorithm_identity = _model_algorithm_identity(model)\n",
         "    algorithm_identity = checkpoint_identity_payload_for_model(model)\n",
+        expected_count=2,
     )
     replace_once(
         path,

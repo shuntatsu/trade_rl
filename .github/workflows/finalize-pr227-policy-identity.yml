@@ -38,6 +38,27 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/finalize_pr227_policy_identity.py')
+          text = path.read_text(encoding='utf-8')
+          old_unwrapped = '        unwrapped: Any = getattr(probe, "unwrapped", probe)\n'
+          old_dataset = '        dataset = getattr(unwrapped, "dataset", None)\n'
+          if text.count(old_unwrapped) != 1 or text.count(old_dataset) != 1:
+              raise RuntimeError('policy identity finalizer local-name anchors are invalid')
+          text = text.replace(
+              old_unwrapped,
+              '        sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)\n',
+              1,
+          )
+          text = text.replace(
+              old_dataset,
+              '        dataset = getattr(sequence_unwrapped, "dataset", None)\n',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
           uv run python tools/finalize_pr227_policy_identity.py 2>&1 | tee policy-identity-finalizer.log
 
       - name: Verify policy identity integration

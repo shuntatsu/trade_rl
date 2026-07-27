@@ -441,6 +441,9 @@ class CausalScenarioQueryComparison:
     scenario_oracle: RealizedPolicyOutcome
     ppo_mean: RealizedPolicyOutcome
     random_candidate: RealizedPolicyOutcome
+    random_candidate_indices: tuple[int, ...]
+    random_candidate_outcomes: tuple[RealizedPolicyOutcome, ...]
+    random_realized_regrets: np.ndarray
     candidate_outcomes: tuple[RealizedPolicyOutcome, ...]
     realized_candidate_advantages: np.ndarray
     predicted_realized_spearman: float
@@ -457,6 +460,10 @@ class CausalScenarioQueryComparison:
         )
         if self.schema_version != C3_QUERY_COMPARISON_SCHEMA:
             raise ValueError("unsupported C3 query comparison schema")
+        for name in ("trend", "scenario_oracle", "ppo_mean", "random_candidate"):
+            if not isinstance(getattr(self, name), RealizedPolicyOutcome):
+                raise ValueError(f"{name} must be a realized outcome")
+
         outcomes = tuple(self.candidate_outcomes)
         if not outcomes:
             raise ValueError("candidate_outcomes must not be empty")
@@ -468,8 +475,37 @@ class CausalScenarioQueryComparison:
             ndim=1,
             shape=(len(outcomes),),
         )
+
+        random_indices = tuple(
+            _non_negative_int("random_candidate_indices", index)
+            for index in self.random_candidate_indices
+        )
+        random_outcomes = tuple(self.random_candidate_outcomes)
+        if not random_indices or len(random_indices) != len(random_outcomes):
+            raise ValueError("random comparator evidence count mismatch")
+        if any(index >= len(outcomes) for index in random_indices):
+            raise ValueError("random comparator index is outside candidate range")
+        if any(not isinstance(item, RealizedPolicyOutcome) for item in random_outcomes):
+            raise ValueError("random comparators must contain realized outcomes")
+        for index, outcome in zip(random_indices, random_outcomes, strict=True):
+            if outcome.outcome_digest != outcomes[index].outcome_digest:
+                raise ValueError("random comparator outcome does not match candidate index")
+        if self.random_candidate.outcome_digest != random_outcomes[0].outcome_digest:
+            raise ValueError("random_candidate must be the first random comparator")
+        random_regrets = _readonly_float_array(
+            "random_realized_regrets",
+            self.random_realized_regrets,
+            ndim=1,
+            shape=(len(random_indices),),
+        )
+        if np.any(random_regrets < 0.0):
+            raise ValueError("random_realized_regrets must be non-negative")
+
         object.__setattr__(self, "candidate_outcomes", outcomes)
         object.__setattr__(self, "realized_candidate_advantages", advantages)
+        object.__setattr__(self, "random_candidate_indices", random_indices)
+        object.__setattr__(self, "random_candidate_outcomes", random_outcomes)
+        object.__setattr__(self, "random_realized_regrets", random_regrets)
         object.__setattr__(
             self,
             "predicted_realized_spearman",
@@ -479,11 +515,24 @@ class CausalScenarioQueryComparison:
         )
         if not -1.0 <= self.predicted_realized_spearman <= 1.0:
             raise ValueError("predicted_realized_spearman must be in [-1, 1]")
-        for field in ("selected_realized_regret", "random_realized_regret"):
-            value = _finite_float(field, getattr(self, field))
-            if value < 0.0:
-                raise ValueError(f"{field} must be non-negative")
-            object.__setattr__(self, field, value)
+        selected_regret = _finite_float(
+            "selected_realized_regret", self.selected_realized_regret
+        )
+        random_regret = _finite_float(
+            "random_realized_regret", self.random_realized_regret
+        )
+        if selected_regret < 0.0 or random_regret < 0.0:
+            raise ValueError("realized regrets must be non-negative")
+        expected_random_regret = float(random_regrets.mean())
+        if not math.isclose(
+            random_regret,
+            expected_random_regret,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise ValueError("random_realized_regret must equal mean random regret")
+        object.__setattr__(self, "selected_realized_regret", selected_regret)
+        object.__setattr__(self, "random_realized_regret", random_regret)
         if not isinstance(self.perfect_information, PerfectInformationComparison):
             raise ValueError("perfect_information has invalid type")
 
@@ -505,7 +554,14 @@ class CausalScenarioQueryComparison:
                 "ppo_mean": self.ppo_mean.outcome_digest,
                 "predicted_realized_spearman": self.predicted_realized_spearman,
                 "random_candidate": self.random_candidate.outcome_digest,
+                "random_candidate_indices": self.random_candidate_indices,
+                "random_candidate_outcomes": tuple(
+                    outcome.outcome_digest for outcome in self.random_candidate_outcomes
+                ),
                 "random_realized_regret": self.random_realized_regret,
+                "random_realized_regrets": _array_payload(
+                    self.random_realized_regrets
+                ),
                 "realized_candidate_advantages": _array_payload(
                     self.realized_candidate_advantages
                 ),

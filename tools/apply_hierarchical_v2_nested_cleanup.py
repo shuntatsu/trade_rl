@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 from pathlib import Path
 from typing import Any
 
@@ -102,10 +103,18 @@ def _exclude_migration_diagnostics_and_tools() -> None:
         exclude.write_text(existing.rstrip() + f"\n{suffix}\n", encoding="utf-8")
 
 
+def _apply_focused_contract_cleanup() -> None:
+    runpy.run_path(
+        str(ROOT / "tools" / "apply_hierarchical_v2_contract_cleanup.py"),
+        run_name="__main__",
+    )
+
+
 def main() -> None:
     _migrate_json()
     _migrate_local_helper_names()
     _remove_dangling_projection_parentheses()
+    _apply_focused_contract_cleanup()
     _exclude_migration_diagnostics_and_tools()
 
 

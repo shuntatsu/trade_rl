@@ -1,0 +1,60 @@
+name: Temporary C3 Fixture Fix
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3
+    paths:
+      - .github/workflows/temporary-c3-fixture-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3
+          fetch-depth: 0
+      - name: Patch fixture and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/evaluation/test_causal_scenario_c3_integration.py")
+          text = path.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  "def _decision() -> PersistedScenarioDecision:\n",
+                  "def _decision(\n    *, query_index: int = 10_000, fold_digest: str | None = None\n) -> PersistedScenarioDecision:\n",
+              ),
+              (
+                  "    raw = np.asarray([[0.0], [1.0], [-1.0]], dtype=np.float64)\n",
+                  "    resolved_fold_digest = sha(\"b\") if fold_digest is None else fold_digest\n    raw = np.asarray([[0.0], [1.0], [-1.0]], dtype=np.float64)\n",
+              ),
+              ('        "fold_digest": sha("b"),\n', '        "fold_digest": resolved_fold_digest,\n'),
+              ('        "query_index": 10_000,\n', '        "query_index": query_index,\n'),
+              ('        fold_digest=sha("b"),\n', '        fold_digest=resolved_fold_digest,\n'),
+              ('        query_index=10_000,\n', '        query_index=query_index,\n'),
+              (
+                  "            write_c3_decision_artifact(decision_root, _decision())\n",
+                  "            write_c3_decision_artifact(\n                decision_root,\n                _decision(\n                    query_index=10_000 + fold_index * 100 + query_index,\n                    fold_digest=content_digest({\"fold_id\": fold_id}),\n                ),\n            )\n",
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one occurrence of {old!r}, found {count}")
+              text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/temporary-c3-fixture-fix.yml
+          git add tests/evaluation/test_causal_scenario_c3_integration.py
+          git commit -m "test: use unique C3 batch decision identities"
+          git push origin HEAD:agent/causal-scenario-c3

@@ -57,7 +57,9 @@ jobs:
             trade_rl/integrations/sb3_training.py \
             tests/integrations/test_sequence_runtime_acceleration.py
       - name: Focused H3 tests
+        shell: bash
         run: |
+          set +e
           uv run pytest \
             tests/integrations/test_sequence_runtime_acceleration.py \
             tests/integrations/test_compact_rollout_performance.py \
@@ -66,7 +68,21 @@ jobs:
             tests/rl/test_training_config_active_fields.py \
             tests/rl/test_checkpointing.py \
             tests/examples/test_binance_multitimeframe_full_assets.py \
-            -q
+            -q 2>&1 | tee h3-green.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > h3-green.status
+          exit 0
+      - name: Upload H3 focused diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: h3-green-diagnostics
+          path: |
+            h3-green.log
+            h3-green.status
+          if-no-files-found: error
+      - name: Enforce focused tests
+        run: test "$(cat h3-green.status)" = 0
       - name: Static verification
         run: |
           uv run ruff check \
@@ -88,6 +104,7 @@ jobs:
           rm -f .github/scripts/apply_h3_sequence_runtime.py
           rm -f .github/workflows/temporary-h3-red.yml
           rm -f .github/workflows/temporary-h3-updater.yml
+          rm -f h3-green.log h3-green.status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A

@@ -24,6 +24,8 @@ The image build and runtime both recompute source and lock identities. A caller-
 
 Binance Vision ZIP archives are stored in the independent Docker volume `trade-rl-market-archives`. They are not stored inside a training generation or PostgreSQL. The one-shot `market-data-sync` service mounts this volume read-write; `trainer` mounts it read-only.
 
+The existing `trade-rl-training-data` volume remains mounted at `/workspace/var`. Existing generation directories, checkpoints, logs and teacher artifacts therefore remain available. During synchronization the same legacy volume is mounted read-only at `/workspace/legacy-var`; valid nonempty files from `/workspace/legacy-var/cache/binance-vision` are copied into the new archive volume only when the destination file does not already exist. This avoids a one-time full redownload while preserving new-volume ownership.
+
 Use the canonical launcher for every phase start:
 
 ```bash
@@ -32,10 +34,11 @@ python scripts/run_docker_training.py
 
 The launcher executes these operations in order:
 
-1. plan the exact archive URLs required by the maintained symbols, native timeframes and fixed research interval;
-2. inspect the shared cache and download only missing or empty archives;
-3. stop immediately if synchronization fails;
-4. start `trainer` without rerunning dependencies.
+1. import reusable files from the former cache location;
+2. plan the exact archive URLs required by the maintained symbols, native timeframes and fixed research interval;
+3. inspect the shared cache and download only missing or empty archives;
+4. stop immediately if synchronization fails;
+5. start `trainer` without rerunning dependencies.
 
 Manual synchronization is available when only the archive volume should be updated:
 
@@ -43,16 +46,11 @@ Manual synchronization is available when only the archive volume should be updat
 docker compose -f compose.training.yaml run --rm market-data-sync
 ```
 
-A direct trainer invocation still declares `market-data-sync` as a completed dependency, but the canonical launcher is preferred because it explicitly runs synchronization on every invocation. The training image also performs a read-only completeness check before CUDA preflight. If the archive volume is incomplete, training fails closed and prints the synchronization command instead of downloading from the read-only mount.
+A direct trainer invocation declares `market-data-sync` as a completed dependency, but the canonical launcher is preferred because it explicitly runs synchronization on every invocation. The training image also performs a read-only completeness check before CUDA preflight and forwards the same cache root to the full-research command. If the archive volume is incomplete, training fails closed and prints the synchronization command instead of downloading into the read-only mount.
 
 The maintained research end time remains authoritative. Advancing it in the pipeline causes only newly required URL-addressed archives to be downloaded; unchanged archives are read from the shared cache. The trailing incomplete USDⓈ-M funding month remains a REST responsibility of the existing dataset path because Binance Vision publishes funding archives monthly.
 
-The other persistent payload volumes are separate:
-
-- `trade-rl-training-runs`: generation directories, logs, checkpoints and evaluation artifacts;
-- `trade-rl-teacher-cache`: reusable teacher artifacts.
-
-Removing `trade-rl-training-runs` does not remove the market archive cache. Remove `trade-rl-market-archives` only when a complete redownload is intentional.
+Removing `trade-rl-training-data` still removes run artifacts and teacher cache, as before. Removing `trade-rl-market-archives` removes only the reusable public archive cache and causes the next sync to re-import any surviving legacy cache files and download the remaining gaps.
 
 ## Evidence and public keys
 

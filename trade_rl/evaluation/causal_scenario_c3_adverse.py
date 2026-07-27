@@ -152,7 +152,9 @@ class C3AdverseFoldEvidence:
             raise ValueError("adverse cost and turnover must be non-negative")
         if not 0.0 <= self.maximum_drawdown <= 1.0:
             raise ValueError("adverse maximum_drawdown must be in [0, 1]")
-        failures = tuple(_string(item, field="failed_conditions") for item in self.failed_conditions)
+        failures = tuple(
+            _string(item, field="failed_conditions") for item in self.failed_conditions
+        )
         if len(set(failures)) != len(failures):
             raise ValueError("failed_conditions must be unique")
         object.__setattr__(self, "failed_conditions", failures)
@@ -195,7 +197,9 @@ def build_c3_adverse_thresholds(
         raise ValueError("candidates must not be empty")
     first = _mapping(candidates[0], field="candidates[0]")
     run = _mapping(first.get("run"), field="candidates[0].run")
-    environment = _mapping(run.get("environment"), field="candidates[0].run.environment")
+    environment = _mapping(
+        run.get("environment"), field="candidates[0].run.environment"
+    )
     decision_hours = _number(
         environment.get("decision_hours"),
         field="candidates[0].run.environment.decision_hours",
@@ -213,7 +217,9 @@ def build_c3_adverse_thresholds(
         sensitivity.get("required_scenario"),
         field="execution_sensitivity.required_scenario",
     )
-    scenarios = _sequence(sensitivity.get("scenarios"), field="execution_sensitivity.scenarios")
+    scenarios = _sequence(
+        sensitivity.get("scenarios"), field="execution_sensitivity.scenarios"
+    )
     matching = [
         _mapping(item, field="execution_sensitivity.scenarios[]")
         for item in scenarios
@@ -221,9 +227,13 @@ def build_c3_adverse_thresholds(
         == required_scenario
     ]
     if len(matching) != 1:
-        raise ValueError("required execution sensitivity scenario is missing or duplicated")
+        raise ValueError(
+            "required execution sensitivity scenario is missing or duplicated"
+        )
     if matching[0].get("report_only") is True:
-        raise ValueError("required execution sensitivity scenario cannot be report-only")
+        raise ValueError(
+            "required execution sensitivity scenario cannot be report-only"
+        )
 
     selection_cost = _number(
         config.get("maximum_selection_cost_fraction"),
@@ -289,8 +299,12 @@ def selection_days_from_source_fold(
         raise ValueError("selection_range stop must be greater than start")
     days = (stop - start) * thresholds.decision_hours / 24.0
     rounded = round(days)
-    if rounded <= 0 or not math.isclose(days, float(rounded), rel_tol=0.0, abs_tol=1e-9):
-        raise ValueError("selection range does not resolve to a positive whole day count")
+    if rounded <= 0 or not math.isclose(
+        days, float(rounded), rel_tol=0.0, abs_tol=1e-9
+    ):
+        raise ValueError(
+            "selection range does not resolve to a positive whole day count"
+        )
     return int(rounded)
 
 
@@ -305,7 +319,9 @@ def evaluate_c3_adverse_fold(
 
     result = dict(_mapping(scenario_result, field="scenario_result"))
     stored_digest = require_sha256(
-        _string(result.pop("scenario_result_digest", None), field="scenario_result_digest"),
+        _string(
+            result.pop("scenario_result_digest", None), field="scenario_result_digest"
+        ),
         field="scenario_result_digest",
     )
     if content_digest(result) != stored_digest:
@@ -313,7 +329,9 @@ def evaluate_c3_adverse_fold(
     scenario = _mapping(result.get("scenario"), field="scenario_result.scenario")
     name = _string(scenario.get("name"), field="scenario_result.scenario.name")
     if name != thresholds.required_scenario:
-        raise ValueError("adverse scenario does not match the predeclared required scenario")
+        raise ValueError(
+            "adverse scenario does not match the predeclared required scenario"
+        )
     if result.get("report_only") is True or scenario.get("report_only") is True:
         raise ValueError("required adverse scenario cannot be report-only")
     selected = _mapping(result.get("selected"), field="scenario_result.selected")

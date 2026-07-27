@@ -207,7 +207,9 @@ def test_decision_is_immutable_and_digest_bound() -> None:
         replace(created, selected_candidate_digest=created.candidate_digests[0])
 
 
-def test_decision_artifact_is_exact_idempotent_and_tamper_evident(tmp_path: Path) -> None:
+def test_decision_artifact_is_exact_idempotent_and_tamper_evident(
+    tmp_path: Path,
+) -> None:
     created = decision()
     root = tmp_path / "decision"
     first = write_c3_decision_artifact(root, created)
@@ -223,7 +225,9 @@ def test_decision_artifact_is_exact_idempotent_and_tamper_evident(tmp_path: Path
         load_c3_decision_artifact(root)
 
 
-def test_runner_requires_loaded_decision_and_persists_before_replay(tmp_path: Path) -> None:
+def test_runner_requires_loaded_decision_and_persists_before_replay(
+    tmp_path: Path,
+) -> None:
     replay = ArtificialReplay()
     with pytest.raises(TypeError, match="LoadedC3Decision"):
         run_c3_query_comparison(  # type: ignore[arg-type]
@@ -278,7 +282,9 @@ def _comparison(tmp_path: Path, *, uplift: float, spearman_positive: bool = True
         config=CausalScenarioC3Config(random_comparator_count=1),
     )
     trend = outcome("trend", gross_log_return=0.01, max_drawdown=0.08)
-    oracle = outcome("scenario_oracle", gross_log_return=0.01 + uplift, max_drawdown=0.09)
+    oracle = outcome(
+        "scenario_oracle", gross_log_return=0.01 + uplift, max_drawdown=0.09
+    )
     random = outcome("random_candidate", gross_log_return=0.005)
     scores = result.realized_candidate_advantages
     if not spearman_positive:
@@ -332,8 +338,7 @@ def test_missing_adverse_evidence_fails_gate(tmp_path: Path) -> None:
     folds = []
     for fold_index in range(6):
         comparisons = tuple(
-            _comparison(tmp_path / f"bad-{fold_index}", uplift=0.02)
-            for _ in range(32)
+            _comparison(tmp_path / f"bad-{fold_index}", uplift=0.02) for _ in range(32)
         )
         folds.append(
             build_c3_fold_report(

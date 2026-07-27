@@ -167,9 +167,7 @@ def run_c3_query_comparison(
         raise TypeError("config must be CausalScenarioC3Config")
     decision = loaded_decision.decision
     action_dimension = int(decision.raw_candidate_actions.shape[1])
-    ppo_action = _validate_ppo_action(
-        ppo_mean_action, dimension=action_dimension
-    )
+    ppo_action = _validate_ppo_action(ppo_mean_action, dimension=action_dimension)
 
     candidate_outcomes = tuple(
         replay.run(

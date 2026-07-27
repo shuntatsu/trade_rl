@@ -76,17 +76,14 @@ class CausalScenarioFoldReport:
         )
         comparisons = tuple(self.comparisons)
         if not comparisons or any(
-            not isinstance(item, CausalScenarioQueryComparison)
-            for item in comparisons
+            not isinstance(item, CausalScenarioQueryComparison) for item in comparisons
         ):
             raise ValueError("comparisons must contain C3 query comparisons")
         object.__setattr__(self, "comparisons", comparisons)
         uplift = _readonly_vector("uplift", self.uplift)
         spearman = _readonly_vector("spearman", self.spearman)
         regret_margin = _readonly_vector("regret_margin", self.regret_margin)
-        if not (
-            len(uplift) == len(spearman) == len(regret_margin) == len(comparisons)
-        ):
+        if not (len(uplift) == len(spearman) == len(regret_margin) == len(comparisons)):
             raise ValueError("fold metric vectors must match comparison count")
         object.__setattr__(self, "uplift", uplift)
         object.__setattr__(self, "spearman", spearman)
@@ -164,7 +161,9 @@ class CausalScenarioAggregateReport:
 
     def __post_init__(self) -> None:
         folds = tuple(self.folds)
-        if not folds or any(not isinstance(item, CausalScenarioFoldReport) for item in folds):
+        if not folds or any(
+            not isinstance(item, CausalScenarioFoldReport) for item in folds
+        ):
             raise ValueError("folds must contain C3 fold reports")
         if len({item.fold_id for item in folds}) != len(folds):
             raise ValueError("fold IDs must be unique")
@@ -174,9 +173,7 @@ class CausalScenarioAggregateReport:
             "total_selection_days",
             _positive_int("total_selection_days", self.total_selection_days),
         )
-        positive = _positive_int(
-            "positive_uplift_folds", self.positive_uplift_folds
-        )
+        positive = _positive_int("positive_uplift_folds", self.positive_uplift_folds)
         if positive > len(folds):
             raise ValueError("positive_uplift_folds exceeds fold count")
         object.__setattr__(self, "positive_uplift_folds", positive)
@@ -270,15 +267,11 @@ def build_c3_fold_report(
         [item.predicted_realized_spearman for item in items], dtype=np.float64
     )
     regret_margin = np.asarray(
-        [
-            item.random_realized_regret - item.selected_realized_regret
-            for item in items
-        ],
+        [item.random_realized_regret - item.selected_realized_regret for item in items],
         dtype=np.float64,
     )
     perfect_valid = all(
-        item.perfect_information.status
-        is PerfectInformationComparisonStatus.COMPARABLE
+        item.perfect_information.status is PerfectInformationComparisonStatus.COMPARABLE
         and item.perfect_information.bound_log_return is not None
         and item.perfect_information.causal_log_return is not None
         and item.perfect_information.bound_log_return
@@ -355,9 +348,7 @@ def build_c3_aggregate_report(
         },
     )
     failures = tuple(
-        f"{item.fold_id}:{reason}"
-        for item in items
-        for reason in item.failure_reasons
+        f"{item.fold_id}:{reason}" for item in items for reason in item.failure_reasons
     )
     return CausalScenarioAggregateReport(
         folds=items,
@@ -377,9 +368,7 @@ def build_c3_aggregate_report(
             item.scenario_oracle_max_drawdown for item in items
         ),
         worst_trend_drawdown=max(item.trend_max_drawdown for item in items),
-        all_required_adverse_passed=all(
-            item.required_adverse_passed for item in items
-        ),
+        all_required_adverse_passed=all(item.required_adverse_passed for item in items),
         all_perfect_information_valid=all(
             item.perfect_information_valid for item in items
         ),

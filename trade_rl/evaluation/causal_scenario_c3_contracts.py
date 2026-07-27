@@ -95,9 +95,7 @@ class CausalScenarioC3Config:
             "required_selection_days",
             "bootstrap_resamples",
         ):
-            object.__setattr__(
-                self, field, _positive_int(field, getattr(self, field))
-            )
+            object.__setattr__(self, field, _positive_int(field, getattr(self, field)))
         tolerance = _finite_float("ranking_tolerance", self.ranking_tolerance)
         if tolerance < 0.0:
             raise ValueError("ranking_tolerance must be non-negative")
@@ -177,9 +175,7 @@ class PersistedScenarioDecision:
         if self.schema_version != C3_DECISION_SCHEMA:
             raise ValueError("unsupported C3 decision schema")
         query_index = _non_negative_int("query_index", self.query_index)
-        query_timestamp = _positive_int(
-            "query_timestamp_ns", self.query_timestamp_ns
-        )
+        query_timestamp = _positive_int("query_timestamp_ns", self.query_timestamp_ns)
         candidate_digests = tuple(
             require_sha256(value, field="candidate_digests")
             for value in require_unique_non_empty(
@@ -400,7 +396,9 @@ class RealizedPolicyOutcome:
             raise ValueError("max_drawdown must be in [0, 1]")
         if self.terminal_equity <= 0.0:
             raise ValueError("terminal_equity must be positive")
-        object.__setattr__(self, "fill_count", _non_negative_int("fill_count", self.fill_count))
+        object.__setattr__(
+            self, "fill_count", _non_negative_int("fill_count", self.fill_count)
+        )
         object.__setattr__(
             self,
             "pending_order_events",

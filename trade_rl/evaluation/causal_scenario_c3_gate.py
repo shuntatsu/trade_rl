@@ -55,7 +55,9 @@ class PhaseAEntryGateEvidence:
 
     @property
     def failed_condition_names(self) -> tuple[str, ...]:
-        return tuple(condition.name for condition in self.conditions if not condition.passed)
+        return tuple(
+            condition.name for condition in self.conditions if not condition.passed
+        )
 
     @property
     def digest(self) -> str:
@@ -104,8 +106,7 @@ def evaluate_phase_a_entry_gate(
     positive_uplift_ci = report.uplift_lower_ci > 0.0
     drawdown = (
         report.worst_scenario_oracle_drawdown <= 0.20
-        and report.worst_scenario_oracle_drawdown
-        <= report.worst_trend_drawdown + 0.02
+        and report.worst_scenario_oracle_drawdown <= report.worst_trend_drawdown + 0.02
     )
     regret = report.regret_margin_lower_ci > 0.0
     ranking = report.mean_spearman > 0.0 and report.spearman_lower_ci > 0.0

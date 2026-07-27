@@ -7,8 +7,8 @@
           "alpha_enabled": false,
           "mode": "residual",
           "n_factors": 0,
-          "risk_tilt_enabled": false,
           "residual_scale": 0.25,
+          "risk_tilt_enabled": false,
           "target_weight_count": 0,
           "validation_mode": "clip"
         },
@@ -110,7 +110,6 @@
         "schema_version": "training_run_config_v1",
         "training": {
           "algorithm": "ppo",
-          "asset_set_encoder": false,
           "batch_size": 256,
           "checkpoint_interval_steps": 32768,
           "decision_hours": 0.25,
@@ -125,6 +124,7 @@
           "n_envs": 4,
           "n_epochs": 10,
           "n_steps": 256,
+          "observation_encoder": "hierarchical_sequence_v2",
           "policy": "MultiInputPolicy",
           "policy_net_arch": [
             384,
@@ -136,12 +136,17 @@
             1,
             2
           ],
-          "sequence_attention_heads": 8,
-          "sequence_attention_layers": 2,
-          "sequence_capacity": "standard",
+          "sequence_asset_attention_heads": 8,
+          "sequence_asset_attention_layers": 2,
+          "sequence_asset_ffn_multiplier": 3,
+          "sequence_asset_gate_bias": -2.0,
           "sequence_d_model": 336,
           "sequence_dropout": 0.05,
-          "sequence_encoder": true,
+          "sequence_tcn_capacity": "standard",
+          "sequence_timeframe_attention_heads": 8,
+          "sequence_timeframe_attention_layers": 2,
+          "sequence_timeframe_ffn_multiplier": 3,
+          "sequence_timeframe_gate_bias": -2.0,
           "target_kl": 0.02,
           "timesteps": 524288,
           "value_net_arch": [
@@ -212,7 +217,8 @@
   "minimum_selection_score": 0.0,
   "minimum_selection_uplift": 0.001,
   "minimum_worst_seed_uplift": 0.0,
-  "schema_version": "market_walk_forward_config_v1",
+  "schema_version": "training_run_config_v2",
+  "sealed_test_ledger_mode": "durable_postgres",
   "workflow": {
     "checkpoint_bars": 2880,
     "expanding_train": true,
@@ -222,6 +228,5 @@
     "step_bars": 2880,
     "test_bars": 2880,
     "train_bars": 20000
-  },
-  "sealed_test_ledger_mode": "durable_postgres"
+  }
 }

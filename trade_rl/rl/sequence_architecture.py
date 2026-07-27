@@ -38,10 +38,14 @@ class SequenceArchitectureIdentity:
     snapshot_width: int
     n_symbols: int
     d_model: int
-    attention_heads: int
-    attention_layers: int
-    attention_ffn_multiplier: int
-    attention_gate_bias: float
+    timeframe_attention_heads: int
+    timeframe_attention_layers: int
+    timeframe_ffn_multiplier: int
+    timeframe_gate_bias: float
+    asset_attention_heads: int
+    asset_attention_layers: int
+    asset_ffn_multiplier: int
+    asset_gate_bias: float
     dropout: float
     symbols: tuple[str, ...]
     action_names: tuple[str, ...]
@@ -63,7 +67,10 @@ class SequenceArchitectureIdentity:
         ):
             if len(values) != width:
                 raise ValueError(f"{field_name} must match maintained timeframes")
-        if len(self.symbols) != self.n_symbols or len(self.action_names) != self.n_symbols:
+        if (
+            len(self.symbols) != self.n_symbols
+            or len(self.action_names) != self.n_symbols
+        ):
             raise ValueError("symbol and action counts must match n_symbols")
         if not self.symbols or any(not value for value in self.symbols):
             raise ValueError("symbols must be non-empty")
@@ -78,11 +85,11 @@ class SequenceArchitectureIdentity:
     def digest_payload(self) -> dict[str, object]:
         return {
             "action_names": self.action_names,
+            "asset_attention_heads": self.asset_attention_heads,
+            "asset_attention_layers": self.asset_attention_layers,
+            "asset_ffn_multiplier": self.asset_ffn_multiplier,
+            "asset_gate_bias": self.asset_gate_bias,
             "asset_state_width": self.asset_state_width,
-            "attention_ffn_multiplier": self.attention_ffn_multiplier,
-            "attention_gate_bias": self.attention_gate_bias,
-            "attention_heads": self.attention_heads,
-            "attention_layers": self.attention_layers,
             "d_model": self.d_model,
             "dilations": self.dilations,
             "dropout": self.dropout,
@@ -93,6 +100,10 @@ class SequenceArchitectureIdentity:
             "schema_version": self.schema_version,
             "snapshot_width": self.snapshot_width,
             "symbols": self.symbols,
+            "timeframe_attention_heads": self.timeframe_attention_heads,
+            "timeframe_attention_layers": self.timeframe_attention_layers,
+            "timeframe_ffn_multiplier": self.timeframe_ffn_multiplier,
+            "timeframe_gate_bias": self.timeframe_gate_bias,
             "timeframes": self.timeframes,
             "window_lengths": self.window_lengths,
         }
@@ -117,9 +128,7 @@ def sequence_architecture_identity(
         raise ValueError("architecture encoder widths were not resolved")
     return SequenceArchitectureIdentity(
         input_channels=tuple(architecture.input_channels[item] for item in _TIMEFRAMES),
-        window_lengths=tuple(
-            architecture.window_lengths[item] for item in _TIMEFRAMES
-        ),
+        window_lengths=tuple(architecture.window_lengths[item] for item in _TIMEFRAMES),
         latent_dims=tuple(architecture.latent_dims[item] for item in _TIMEFRAMES),
         encoder_widths=tuple(tuple(widths[item]) for item in _TIMEFRAMES),
         dilations=tuple(
@@ -130,10 +139,14 @@ def sequence_architecture_identity(
         snapshot_width=architecture.snapshot_width,
         n_symbols=architecture.n_symbols,
         d_model=architecture.d_model,
-        attention_heads=architecture.attention_heads,
-        attention_layers=architecture.attention_layers,
-        attention_ffn_multiplier=architecture.attention_ffn_multiplier,
-        attention_gate_bias=architecture.attention_gate_bias,
+        timeframe_attention_heads=architecture.timeframe_attention_heads,
+        timeframe_attention_layers=architecture.timeframe_attention_layers,
+        timeframe_ffn_multiplier=architecture.timeframe_ffn_multiplier,
+        timeframe_gate_bias=architecture.timeframe_gate_bias,
+        asset_attention_heads=architecture.asset_attention_heads,
+        asset_attention_layers=architecture.asset_attention_layers,
+        asset_ffn_multiplier=architecture.asset_ffn_multiplier,
+        asset_gate_bias=architecture.asset_gate_bias,
         dropout=architecture.dropout,
         symbols=tuple(symbols),
         action_names=tuple(action_names),

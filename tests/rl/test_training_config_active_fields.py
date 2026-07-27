@@ -14,7 +14,13 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_steps": 2_048,
         "batch_size": 64,
         "n_epochs": 10,
-        "asset_set_encoder": False,
+        "observation_encoder": "invalid_legacy_combination"
+        if (False) and (False)
+        else "hierarchical_sequence_v2"
+        if (False)
+        else "asset_set"
+        if (False)
+        else "flat_mlp",
         "device": "cpu",
     }
     values.update(overrides)
@@ -66,33 +72,60 @@ def test_off_policy_rejects_non_default_ppo_only_parameters() -> None:
         )
 
 
-def test_disabled_sequence_encoder_rejects_non_default_sequence_parameters() -> None:
-    with pytest.raises(ValueError, match="sequence_d_model.*sequence_encoder"):
+def test_non_sequence_observation_encoder_rejects_sequence_parameters() -> None:
+    with pytest.raises(ValueError, match="sequence_d_model.*observation_encoder"):
         _config(sequence_d_model=64)
-    with pytest.raises(ValueError, match="sequence_capacity.*sequence_encoder"):
-        _config(sequence_capacity="compact")
+    with pytest.raises(ValueError, match="sequence_tcn_capacity.*observation_encoder"):
+        _config(sequence_tcn_capacity="compact")
 
 
 def test_compact_sequence_capacity_is_explicit_and_identity_bound() -> None:
-    standard = _config(sequence_encoder=True, policy="MultiInputPolicy")
+    standard = _config(
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (True) and (False)
+            else "hierarchical_sequence_v2"
+            if (True)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
+        policy="MultiInputPolicy",
+    )
     compact = _config(
-        sequence_encoder=True,
-        sequence_capacity="compact",
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (True) and (False)
+            else "hierarchical_sequence_v2"
+            if (True)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
+        sequence_tcn_capacity="compact",
         policy="MultiInputPolicy",
     )
 
-    assert compact.sequence_capacity == "compact"
+    assert compact.sequence_tcn_capacity == "compact"
     assert compact.digest_payload() != standard.digest_payload()
-    with pytest.raises(ValueError, match="sequence_capacity"):
+    with pytest.raises(ValueError, match="sequence_tcn_capacity"):
         _config(
-            sequence_encoder=True,
-            sequence_capacity="tiny",
+            observation_encoder=(
+                "invalid_legacy_combination"
+                if (True) and (False)
+                else "hierarchical_sequence_v2"
+                if (True)
+                else "asset_set"
+                if (False)
+                else "flat_mlp"
+            ),
+            sequence_tcn_capacity="tiny",
             policy="MultiInputPolicy",
         )
 
 
-def test_disabled_asset_set_encoder_rejects_non_default_embedding_parameters() -> None:
-    with pytest.raises(ValueError, match="asset_embedding_dim.*asset_set_encoder"):
+def test_non_asset_set_observation_encoder_rejects_embedding_parameters() -> None:
+    with pytest.raises(ValueError, match="asset_embedding_dim.*observation_encoder"):
         _config(asset_embedding_dim=32)
 
 

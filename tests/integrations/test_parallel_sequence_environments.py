@@ -41,7 +41,13 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_envs": 2,
         "batch_size": 8,
         "n_epochs": 1,
-        "asset_set_encoder": False,
+        "observation_encoder": "invalid_legacy_combination"
+        if (False) and (False)
+        else "hierarchical_sequence_v2"
+        if (False)
+        else "asset_set"
+        if (False)
+        else "flat_mlp",
         "device": "cpu",
     }
     values.update(overrides)
@@ -499,7 +505,15 @@ def test_effective_vector_environment_kind_is_explicit(
         n_envs=n_envs,
         n_steps=8 if n_envs == 1 else 4,
         batch_size=8,
-        sequence_encoder=sequence,
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (sequence) and (False)
+            else "hierarchical_sequence_v2"
+            if (sequence)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
         policy="MultiInputPolicy" if sequence else "MlpPolicy",
         vector_environment_mode=mode,
     )

@@ -125,7 +125,7 @@ def load_sb3_checkpoint_model(
     if isinstance(algorithm_config, CostCriticPPOConfig):
         loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)
         validate_checkpoint_algorithm_identity(manifest, loaded_identity)
-    if config.sequence_encoder:
+    if config.observation_encoder == "hierarchical_sequence_v2":
         reconstructor = policy.sequence_reconstructor
         if reconstructor is None:
             raise RuntimeError("sequence reconstructor was not resolved")

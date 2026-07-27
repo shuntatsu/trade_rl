@@ -68,7 +68,7 @@ def _rollout_buffer_bytes(
         return None
     estimator = (
         estimate_index_backed_ppo_rollout_buffer_bytes
-        if config.sequence_encoder
+        if config.observation_encoder == "hierarchical_sequence_v2"
         else estimate_ppo_rollout_buffer_bytes
     )
     observation_space = getattr(probe, "observation_space", None)
@@ -146,10 +146,16 @@ def _sequence_policy_assembly(
         "features_extractor_class": SequenceAssetFeatureExtractor,
         "features_extractor_kwargs": {
             **sequence_metadata,
-            "sequence_capacity": config.sequence_capacity,
+            "sequence_tcn_capacity": config.sequence_tcn_capacity,
             "d_model": config.sequence_d_model,
-            "attention_heads": config.sequence_attention_heads,
-            "attention_layers": config.sequence_attention_layers,
+            "timeframe_attention_heads": (config.sequence_timeframe_attention_heads),
+            "timeframe_attention_layers": (config.sequence_timeframe_attention_layers),
+            "timeframe_ffn_multiplier": (config.sequence_timeframe_ffn_multiplier),
+            "timeframe_gate_bias": config.sequence_timeframe_gate_bias,
+            "asset_attention_heads": config.sequence_asset_attention_heads,
+            "asset_attention_layers": config.sequence_asset_attention_layers,
+            "asset_ffn_multiplier": config.sequence_asset_ffn_multiplier,
+            "asset_gate_bias": config.sequence_asset_gate_bias,
             "dropout": config.sequence_dropout,
         },
     }
@@ -194,7 +200,7 @@ def resolve_sb3_policy_assembly(
     uses_shared_asset_actor = False
     rollout_buffer_class: object | None = None
     rollout_buffer_kwargs: dict[str, object] | None = None
-    if config.sequence_encoder:
+    if config.observation_encoder == "hierarchical_sequence_v2":
         (
             policy_identifier,
             policy_kwargs,
@@ -229,7 +235,7 @@ def resolve_sb3_policy_assembly(
         }
     if isinstance(algorithm_config, PPOConfig):
         policy_kwargs["log_std_init"] = algorithm_config.log_std_init
-    if config.asset_set_encoder:
+    if config.observation_encoder == "asset_set":
         from trade_rl.rl.policies import AssetSetFeatureExtractor
 
         unwrapped: Any = getattr(probe, "unwrapped", probe)

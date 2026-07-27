@@ -75,7 +75,13 @@ def _smoke_config_payload(
         raise ValueError("quickstart training template has no training object")
     training.update(
         {
-            "asset_set_encoder": False,
+            "observation_encoder": "invalid_legacy_combination"
+            if (True) and (False)
+            else "hierarchical_sequence_v2"
+            if (True)
+            else "asset_set"
+            if (False)
+            else "flat_mlp",
             "asset_embedding_dim": 64,
             "global_embedding_dim": 64,
             "batch_size": 32,
@@ -86,11 +92,12 @@ def _smoke_config_payload(
             "policy": "MultiInputPolicy",
             "policy_net_arch": [128, 64],
             "value_net_arch": [192, 96],
-            "sequence_encoder": True,
-            "sequence_capacity": "compact",
+            "sequence_tcn_capacity": "compact",
             "sequence_d_model": 128,
-            "sequence_attention_heads": 4,
-            "sequence_attention_layers": 1,
+            "sequence_timeframe_attention_heads": 4,
+            "sequence_asset_attention_heads": 4,
+            "sequence_timeframe_attention_layers": 1,
+            "sequence_asset_attention_layers": 1,
             "sequence_dropout": 0.05,
             "sequence_compile": accelerated,
             "sequence_compile_mode": "reduce-overhead",

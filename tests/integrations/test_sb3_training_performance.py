@@ -108,7 +108,15 @@ def test_backend_writes_member_training_performance_artifact(
             n_envs=1,
             batch_size=1,
             n_epochs=1,
-            asset_set_encoder=False,
+            observation_encoder=(
+                "invalid_legacy_combination"
+                if (False) and (False)
+                else "hierarchical_sequence_v2"
+                if (False)
+                else "asset_set"
+                if (False)
+                else "flat_mlp"
+            ),
             device="cpu",
         ),
         output_path=tmp_path / "policy.zip",

@@ -186,10 +186,14 @@ class SequencePolicyArchitecture:
     snapshot_width: int
     n_symbols: int
     d_model: int = 320
-    attention_heads: int = 8
-    attention_layers: int = 2
-    attention_ffn_multiplier: int = 3
-    attention_gate_bias: float = -2.0
+    timeframe_attention_heads: int = 8
+    timeframe_attention_layers: int = 2
+    timeframe_ffn_multiplier: int = 3
+    timeframe_gate_bias: float = -2.0
+    asset_attention_heads: int = 8
+    asset_attention_layers: int = 2
+    asset_ffn_multiplier: int = 3
+    asset_gate_bias: float = -2.0
     dropout: float = 0.05
     encoder_widths: Mapping[str, tuple[int, ...]] | None = None
 
@@ -218,14 +222,26 @@ class SequencePolicyArchitecture:
             <= 0
         ):
             raise ValueError("sequence architecture widths must be positive")
-        if self.d_model % self.attention_heads != 0:
-            raise ValueError("d_model must be divisible by attention_heads")
-        if self.attention_layers <= 0:
-            raise ValueError("attention_layers must be positive")
-        if self.attention_ffn_multiplier <= 0:
-            raise ValueError("attention_ffn_multiplier must be positive")
-        if not math.isfinite(self.attention_gate_bias):
-            raise ValueError("attention_gate_bias must be finite")
+        for field_name, heads in (
+            ("timeframe_attention_heads", self.timeframe_attention_heads),
+            ("asset_attention_heads", self.asset_attention_heads),
+        ):
+            if self.d_model % heads != 0:
+                raise ValueError(f"d_model must be divisible by {field_name}")
+        for field_name, value in (
+            ("timeframe_attention_layers", self.timeframe_attention_layers),
+            ("timeframe_ffn_multiplier", self.timeframe_ffn_multiplier),
+            ("asset_attention_layers", self.asset_attention_layers),
+            ("asset_ffn_multiplier", self.asset_ffn_multiplier),
+        ):
+            if value <= 0:
+                raise ValueError(f"{field_name} must be positive")
+        for field_name, gate_value in (
+            ("timeframe_gate_bias", self.timeframe_gate_bias),
+            ("asset_gate_bias", self.asset_gate_bias),
+        ):
+            if not math.isfinite(gate_value):
+                raise ValueError(f"{field_name} must be finite")
         if not 0.0 <= self.dropout <= 0.05:
             raise ValueError("sequence dropout must be within [0, 0.05]")
         widths = self.encoder_widths or _DEFAULT_WIDTHS
@@ -286,22 +302,22 @@ class MultiTimeframeAssetEncoder(nn.Module):
             latent_dims=architecture.latent_dims,
             window_lengths=architecture.window_lengths,
             d_model=architecture.d_model,
-            heads=architecture.attention_heads,
-            layers=architecture.attention_layers,
-            ffn_multiplier=architecture.attention_ffn_multiplier,
+            heads=architecture.timeframe_attention_heads,
+            layers=architecture.timeframe_attention_layers,
+            ffn_multiplier=architecture.timeframe_ffn_multiplier,
             dropout=architecture.dropout,
-            gate_bias=architecture.attention_gate_bias,
+            gate_bias=architecture.timeframe_gate_bias,
         )
         self.symbol_embedding = nn.Embedding(
             architecture.n_symbols, architecture.d_model
         )
         self.cross_asset = GatedTransformerStack(
             d_model=architecture.d_model,
-            heads=architecture.attention_heads,
-            layers=architecture.attention_layers,
-            ffn_multiplier=architecture.attention_ffn_multiplier,
+            heads=architecture.asset_attention_heads,
+            layers=architecture.asset_attention_layers,
+            ffn_multiplier=architecture.asset_ffn_multiplier,
             dropout=architecture.dropout,
-            gate_bias=architecture.attention_gate_bias,
+            gate_bias=architecture.asset_gate_bias,
         )
 
     def forward(
@@ -309,6 +325,7 @@ class MultiTimeframeAssetEncoder(nn.Module):
         *,
         sequences: Mapping[str, torch.Tensor],
         available: Mapping[str, torch.Tensor],
+        staleness: Mapping[str, torch.Tensor],
         snapshot: torch.Tensor,
         asset_state: torch.Tensor,
         active: torch.Tensor,
@@ -334,18 +351,17 @@ class MultiTimeframeAssetEncoder(nn.Module):
                 raise ValueError("sequence length does not match architecture")
             if sequence.shape[-1] != self.architecture.input_channels[timeframe]:
                 raise ValueError("sequence channel count does not match architecture")
-            if availability.ndim not in {3, 4} or availability.shape[:3] != sequence.shape[:3]:
+            if (
+                availability.ndim not in {3, 4}
+                or availability.shape[:3] != sequence.shape[:3]
+            ):
                 raise ValueError("sequence availability shape is invalid")
-            feature_count = self.architecture.input_channels[timeframe] // 3
-            logged_staleness = sequence[..., 2 * feature_count :]
-            if availability.ndim == 4:
-                if availability.shape[-1] != feature_count:
-                    raise ValueError("sequence availability channel count is invalid")
-                staleness = torch.expm1(logged_staleness).clamp_min(0.0)
-                timestep_mask = availability.any(dim=-1)
-            else:
-                staleness = torch.expm1(logged_staleness).clamp_min(0.0).mean(dim=-1)
-                timestep_mask = availability
+            raw_staleness = staleness[timeframe]
+            if raw_staleness.shape != availability.shape:
+                raise ValueError("sequence staleness must match sequence availability")
+            timestep_mask = (
+                availability.any(dim=-1) if availability.ndim == 4 else availability
+            )
             flattened = sequence.reshape(
                 batch * assets, sequence.shape[2], sequence.shape[3]
             )
@@ -353,10 +369,13 @@ class MultiTimeframeAssetEncoder(nn.Module):
             encoded = self.timeframe_encoders[timeframe](flattened, flattened_mask)
             latents[timeframe] = encoded.reshape(batch, assets, -1)
             quality_available[timeframe] = availability
-            quality_staleness[timeframe] = staleness
+            quality_staleness[timeframe] = raw_staleness
         context = self.context_encoder(
             torch.cat(
-                (self.snapshot_encoder(snapshot), self.asset_state_encoder(asset_state)),
+                (
+                    self.snapshot_encoder(snapshot),
+                    self.asset_state_encoder(asset_state),
+                ),
                 dim=-1,
             )
         )

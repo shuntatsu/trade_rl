@@ -22,7 +22,13 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_steps": 4,
         "batch_size": 4,
         "n_epochs": 1,
-        "asset_set_encoder": False,
+        "observation_encoder": "invalid_legacy_combination"
+        if (False) and (False)
+        else "hierarchical_sequence_v2"
+        if (False)
+        else "asset_set"
+        if (False)
+        else "flat_mlp",
         "device": "cuda",
     }
     values.update(overrides)
@@ -30,9 +36,28 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
 
 
 def test_sequence_runtime_settings_are_identity_bound_and_sequence_only() -> None:
-    baseline = _config(sequence_encoder=True, policy="MultiInputPolicy")
+    baseline = _config(
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (True) and (False)
+            else "hierarchical_sequence_v2"
+            if (True)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
+        policy="MultiInputPolicy",
+    )
     accelerated = _config(
-        sequence_encoder=True,
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (True) and (False)
+            else "hierarchical_sequence_v2"
+            if (True)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
         policy="MultiInputPolicy",
         sequence_compile=True,
         sequence_compile_mode="reduce-overhead",
@@ -50,14 +75,30 @@ def test_sequence_runtime_settings_are_identity_bound_and_sequence_only() -> Non
         _config(sequence_transfer_mode="pinned_non_blocking")
     with pytest.raises(ValueError, match="sequence_compile_mode"):
         _config(
-            sequence_encoder=True,
+            observation_encoder=(
+                "invalid_legacy_combination"
+                if (True) and (False)
+                else "hierarchical_sequence_v2"
+                if (True)
+                else "asset_set"
+                if (False)
+                else "flat_mlp"
+            ),
             policy="MultiInputPolicy",
             sequence_compile=True,
             sequence_compile_mode="unsafe-mode",
         )
     with pytest.raises(ValueError, match="sequence_transfer_mode"):
         _config(
-            sequence_encoder=True,
+            observation_encoder=(
+                "invalid_legacy_combination"
+                if (True) and (False)
+                else "hierarchical_sequence_v2"
+                if (True)
+                else "asset_set"
+                if (False)
+                else "flat_mlp"
+            ),
             policy="MultiInputPolicy",
             sequence_transfer_mode="background-magic",
         )
@@ -201,7 +242,13 @@ class _FakeCompileTorch:
 
 def _runtime_config(**overrides: object) -> object:
     values: dict[str, object] = {
-        "sequence_encoder": True,
+        "observation_encoder": "invalid_legacy_combination"
+        if (True) and (True)
+        else "hierarchical_sequence_v2"
+        if (True)
+        else "asset_set"
+        if (True)
+        else "flat_mlp",
         "sequence_compile": True,
         "sequence_compile_mode": "reduce-overhead",
         "sequence_transfer_mode": "pinned_non_blocking",

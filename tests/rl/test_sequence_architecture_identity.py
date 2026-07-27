@@ -17,10 +17,14 @@ def _architecture() -> SequencePolicyArchitecture:
         snapshot_width=64,
         n_symbols=3,
         d_model=336,
-        attention_heads=8,
-        attention_layers=2,
-        attention_ffn_multiplier=3,
-        attention_gate_bias=-2.0,
+        timeframe_attention_heads=8,
+        asset_attention_heads=8,
+        timeframe_attention_layers=2,
+        asset_attention_layers=2,
+        timeframe_ffn_multiplier=3,
+        asset_ffn_multiplier=3,
+        timeframe_gate_bias=-2.0,
+        asset_gate_bias=-2.0,
         dropout=0.05,
     )
 
@@ -53,7 +57,7 @@ def test_sequence_architecture_identity_is_deterministic() -> None:
 
 def test_sequence_architecture_digest_changes_with_model_semantics() -> None:
     base = _architecture()
-    deeper = replace(base, attention_layers=3)
+    deeper = replace(base, timeframe_attention_layers=3)
     base_identity = sequence_architecture_identity(
         base,
         symbols=("BTCUSDT", "ETHUSDT", "BNBUSDT"),

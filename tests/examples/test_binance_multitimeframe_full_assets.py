@@ -28,7 +28,7 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
         config.training.policy,
         config.training.policy_net_arch,
         config.training.value_net_arch,
-        config.training.sequence_encoder,
+        (config.training.observation_encoder == "hierarchical_sequence_v2"),
     ) == ("cuda", 4, "MultiInputPolicy", (384, 256, 128), (512, 384, 256), True)
     assert config.training.seeds == (0, 1, 2)
     assert config.training.timesteps >= 524_288
@@ -38,10 +38,10 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.n_epochs == 10
     assert config.training.ent_coef == 0.0
     assert config.training.log_std_init == pytest.approx(-2.3)
-    assert config.training.sequence_capacity == "standard"
+    assert config.training.sequence_tcn_capacity == "standard"
     assert config.training.sequence_d_model == 336
-    assert config.training.sequence_attention_heads == 8
-    assert config.training.sequence_attention_layers == 2
+    assert config.training.sequence_timeframe_attention_heads == 8
+    assert config.training.sequence_timeframe_attention_layers == 2
     assert config.training.max_policy_parameters == 12_000_000
     assert config.training.gamma == pytest.approx(0.998969062762624)
     assert config.training.decision_hours == 0.25
@@ -94,10 +94,10 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert oracle.training.log_std_init == pytest.approx(-2.3)
     assert oracle.training.policy_net_arch == (384, 256, 128)
     assert oracle.training.value_net_arch == (512, 384, 256)
-    assert oracle.training.sequence_capacity == "standard"
+    assert oracle.training.sequence_tcn_capacity == "standard"
     assert oracle.training.sequence_d_model == 336
-    assert oracle.training.sequence_attention_heads == 8
-    assert oracle.training.sequence_attention_layers == 2
+    assert oracle.training.sequence_timeframe_attention_heads == 8
+    assert oracle.training.sequence_timeframe_attention_layers == 2
     assert oracle.training.max_policy_parameters == 12_000_000
     assert oracle.training.seeds == (0, 1, 2)
     assert oracle.training.timesteps >= 524_288

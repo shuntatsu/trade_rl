@@ -211,7 +211,9 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
         use_sde=args.use_sde,
         sde_sample_freq=args.sde_sample_freq,
         policy_net_arch=tuple(args.policy_net_arch),
-        asset_set_encoder=not args.no_asset_set_encoder,
+        observation_encoder=(
+            "asset_set" if not args.no_asset_set_encoder else "flat_mlp"
+        ),
         asset_embedding_dim=args.asset_embedding_dim,
         global_embedding_dim=args.global_embedding_dim,
         algorithm=args.algorithm,
@@ -228,7 +230,7 @@ def _train_config(args: argparse.Namespace, stdout: TextIO) -> int:
             "actual_timesteps": config.rounded_timesteps,
             "algorithm": config.algorithm,
             "asset_embedding_dim": config.asset_embedding_dim,
-            "asset_set_encoder": config.asset_set_encoder,
+            "observation_encoder": config.observation_encoder,
             "batch_size": config.batch_size,
             "buffer_size": config.buffer_size,
             "checkpoint_interval_steps": config.checkpoint_interval_steps,

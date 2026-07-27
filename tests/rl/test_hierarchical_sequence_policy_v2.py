@@ -19,8 +19,10 @@ def _case(*, requires_grad: bool = False):
         snapshot_width=8,
         n_symbols=3,
         d_model=16,
-        attention_heads=4,
-        attention_layers=1,
+        timeframe_attention_heads=4,
+        asset_attention_heads=4,
+        timeframe_attention_layers=1,
+        asset_attention_layers=1,
         dropout=0.0,
         encoder_widths={timeframe: (8, 8) for timeframe in _TIMEFRAMES},
     )
@@ -50,6 +52,12 @@ def test_hierarchical_encoder_shapes_masks_and_parameter_budget() -> None:
     tokens, pooled = encoder(
         sequences=sequences,
         available=available,
+        staleness={
+            key: __import__("torch").zeros_like(
+                value, dtype=__import__("torch").float32
+            )
+            for key, value in available.items()
+        },
         snapshot=snapshot,
         asset_state=asset_state,
         active=active,
@@ -75,6 +83,12 @@ def test_every_valid_native_timeframe_receives_gradient() -> None:
     tokens, pooled = encoder(
         sequences=sequences,
         available=available,
+        staleness={
+            key: __import__("torch").zeros_like(
+                value, dtype=__import__("torch").float32
+            )
+            for key, value in available.items()
+        },
         snapshot=snapshot,
         asset_state=asset_state,
         active=active,
@@ -97,6 +111,12 @@ def test_fully_missing_timeframe_is_invariant_through_both_attention_axes() -> N
         left = encoder(
             sequences=sequences,
             available=available,
+            staleness={
+                key: __import__("torch").zeros_like(
+                    value, dtype=__import__("torch").float32
+                )
+                for key, value in available.items()
+            },
             snapshot=snapshot,
             asset_state=asset_state,
             active=active,
@@ -104,6 +124,12 @@ def test_fully_missing_timeframe_is_invariant_through_both_attention_axes() -> N
         right = encoder(
             sequences=changed,
             available=available,
+            staleness={
+                key: __import__("torch").zeros_like(
+                    value, dtype=__import__("torch").float32
+                )
+                for key, value in available.items()
+            },
             snapshot=snapshot,
             asset_state=asset_state,
             active=active,

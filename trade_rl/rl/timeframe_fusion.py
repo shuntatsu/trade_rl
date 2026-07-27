@@ -36,7 +36,9 @@ def _quality_summary(
     window_length: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if available.ndim not in {3, 4}:
-        raise ValueError("availability must be [batch, assets, time] or include channels")
+        raise ValueError(
+            "availability must be [batch, assets, time] or include channels"
+        )
     if staleness.shape != available.shape:
         raise ValueError("staleness must match availability shape")
     if available.shape[2] != window_length:
@@ -49,11 +51,15 @@ def _quality_summary(
     last_index = positions.masked_fill(~usable, -1).max(dim=-1).values
     safe_index = last_index.clamp_min(0)
     available_fraction = usable.to(dtype=torch.float32).mean(dim=-1)
-    last_fraction = safe_index.to(dtype=torch.float32) / float(max(window_length - 1, 1))
+    last_fraction = safe_index.to(dtype=torch.float32) / float(
+        max(window_length - 1, 1)
+    )
 
     if available.ndim == 4:
         channels = available.shape[-1]
-        gather_index = safe_index.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 1, channels)
+        gather_index = (
+            safe_index.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 1, channels)
+        )
         selected_available = available.gather(2, gather_index).squeeze(2)
         selected_staleness = staleness.gather(2, gather_index).squeeze(2)
         selected_fraction = selected_available.to(dtype=torch.float32).mean(dim=-1)
@@ -162,14 +168,14 @@ class CrossTimeframeFusion(nn.Module):
         if tuple(latents) != self.timeframes:
             raise ValueError("latents must use ordered 15m/1h/4h/1d timeframes")
         if tuple(available) != self.timeframes or tuple(staleness) != self.timeframes:
-            raise ValueError(
-                "quality planes must use ordered 15m/1h/4h/1d timeframes"
-            )
+            raise ValueError("quality planes must use ordered 15m/1h/4h/1d timeframes")
         if context.ndim != 3 or context.shape[-1] != self.d_model:
             raise ValueError("context must be [batch, assets, d_model]")
         batch, assets, _ = context.shape
         tokens = [self.context_norm(context)]
-        valid_tokens = [torch.ones(batch, assets, dtype=torch.bool, device=context.device)]
+        valid_tokens = [
+            torch.ones(batch, assets, dtype=torch.bool, device=context.device)
+        ]
         duration = self.duration_encoder(
             self.duration_features.to(device=context.device, dtype=context.dtype)
         )

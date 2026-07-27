@@ -38,7 +38,13 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_envs": 2,
         "batch_size": 8,
         "n_epochs": 1,
-        "asset_set_encoder": False,
+        "observation_encoder": "invalid_legacy_combination"
+        if (False) and (False)
+        else "hierarchical_sequence_v2"
+        if (False)
+        else "asset_set"
+        if (False)
+        else "flat_mlp",
         "device": "cpu",
         **_lagrangian_values(),
     }
@@ -112,7 +118,15 @@ def test_ordinary_ppo_identity_omits_inactive_lagrangian_contract() -> None:
         seeds=(0,),
         n_steps=4,
         batch_size=4,
-        asset_set_encoder=False,
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (False) and (False)
+            else "hierarchical_sequence_v2"
+            if (False)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
     )
 
     assert "lagrangian" not in config.digest_payload()

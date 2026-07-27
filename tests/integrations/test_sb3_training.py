@@ -184,7 +184,7 @@ class VectorEnvironment:
         self.events.append("vector-close")
 
 
-def _training_config(*, asset_set_encoder: bool = False) -> ResidualTrainingConfig:
+def _training_config(*, asset_set_enabled: bool = False) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(
         timesteps=2,
         gamma=0.99,
@@ -193,7 +193,15 @@ def _training_config(*, asset_set_encoder: bool = False) -> ResidualTrainingConf
         n_envs=2,
         batch_size=2,
         n_epochs=1,
-        asset_set_encoder=asset_set_encoder,
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (False) and (asset_set_enabled)
+            else "hierarchical_sequence_v2"
+            if (False)
+            else "asset_set"
+            if (asset_set_enabled)
+            else "flat_mlp"
+        ),
         device="cpu",
     )
 
@@ -375,7 +383,17 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
 
     result = StableBaselines3Backend(factory).train(
         seed=0,
-        config=_training_config(asset_set_encoder=True),
+        config=_training_config(
+            observation_encoder=(
+                "invalid_legacy_combination"
+                if (False) and (True)
+                else "hierarchical_sequence_v2"
+                if (False)
+                else "asset_set"
+                if (True)
+                else "flat_mlp"
+            )
+        ),
         output_path=tmp_path / "policy.zip",
     )
 
@@ -458,7 +476,15 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
             n_envs=1,
             batch_size=2,
             n_epochs=1,
-            asset_set_encoder=False,
+            observation_encoder=(
+                "invalid_legacy_combination"
+                if (False) and (False)
+                else "hierarchical_sequence_v2"
+                if (False)
+                else "asset_set"
+                if (False)
+                else "flat_mlp"
+            ),
             device="cpu",
             behavior_cloning_epochs=1,
             behavior_cloning_batch_size=16,
@@ -725,7 +751,15 @@ def test_backend_resumes_ppo_checkpoint_to_requested_total(
         n_envs=1,
         batch_size=1,
         n_epochs=1,
-        asset_set_encoder=False,
+        observation_encoder=(
+            "invalid_legacy_combination"
+            if (False) and (False)
+            else "hierarchical_sequence_v2"
+            if (False)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
         device="cpu",
     )
 

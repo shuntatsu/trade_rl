@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import trade_rl.workflows._market_walk_forward_core as _core
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.provenance import capture_runtime_provenance
 from trade_rl.artifacts.run_manifest import (
@@ -23,7 +24,6 @@ from trade_rl.evaluation.walk_forward.sealed_test import (
     SealedTestLedger,
     SealedTestLedgerProtocol,
 )
-import trade_rl.workflows._market_walk_forward_core as _core
 from trade_rl.workflows.market_walk_forward_config import (
     MarketWalkForwardConfig,
     NamedCandidateRun,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 
@@ -38,7 +39,6 @@ def test_load_c3_aggregate_summary_accepts_canonical_valid_payload(
         (lambda payload: payload.__setitem__("unknown", True), "field closure"),
         (lambda payload: payload.__setitem__("summary_digest", "0" * 64), "digest"),
         (lambda payload: payload.__setitem__("production_status", "GO"), "NO-GO"),
-        (lambda payload: payload.__setitem__("uplift_lower_ci", float("inf")), "finite"),
         (
             lambda payload: payload["folds"].__setitem__(
                 1, deepcopy(payload["folds"][0])
@@ -77,6 +77,22 @@ def test_load_c3_aggregate_summary_rejects_invalid_evidence(
         load_c3_aggregate_summary(path)
 
 
+def test_load_c3_aggregate_summary_rejects_non_finite_number(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    payload = c3_reporting.valid_summary_payload()
+    payload["uplift_lower_ci"] = float("inf")
+    path = tmp_path / "summary.json"
+    path.write_text(
+        json.dumps(payload, allow_nan=True, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="finite"):
+        load_c3_aggregate_summary(path)
+
+
 def test_load_c3_aggregate_summary_rejects_non_canonical_json(
     tmp_path: Path,
     c3_reporting,
@@ -111,6 +127,9 @@ def test_phase_a_gate_reports_specific_failed_conditions(
     c3_reporting,
 ) -> None:
     payload = c3_reporting.valid_summary_payload()
+    for fold in payload["folds"][2:]:
+        fold["mean_uplift"] = -0.001
+    payload["folds"][0]["required_adverse_passed"] = False
     payload["positive_uplift_folds"] = 2
     payload["uplift_lower_ci"] = -0.001
     payload["all_required_adverse_passed"] = False

@@ -31,6 +31,9 @@ from trade_rl.evaluation.causal_scenario_c3_perfect_information import (
     PerfectInformationCompatibilityEvidence,
     evaluate_perfect_information_compatibility,
 )
+from trade_rl.evaluation.causal_scenario_c3_prediction import (
+    create_c3_prediction_evidence,
+)
 from trade_rl.evaluation.causal_scenario_c3_report import (
     build_c3_aggregate_report,
     build_c3_fold_report,
@@ -127,21 +130,44 @@ def _decision(
     )
 
 
-def _outcome(kind: str, value: float) -> RealizedPolicyOutcome:
+def _prediction(created: PersistedScenarioDecision):
+    return create_c3_prediction_evidence(
+        result_digest=created.value_result_digest,
+        scenario_library_digest=created.scenario_library_digest,
+        scenario_set_digest=created.scenario_set_digest,
+        candidate_digests=created.candidate_digests,
+        predicted_score=created.score,
+        predicted_mean_advantage=np.asarray([0.0, 0.018, -0.018]),
+        predicted_loss_cvar=np.asarray([0.0, 0.005, 0.025]),
+        predicted_expected_turnover=np.asarray([0.0, 0.25, 0.25]),
+        scenario_anchor_indices=np.arange(64, dtype=np.int64),
+        scenario_distances=np.linspace(0.0, 1.0, 64),
+    )
+
+
+def _outcome(
+    kind: str,
+    value: float,
+    *,
+    cost_multiplier: float = 1.0,
+) -> RealizedPolicyOutcome:
     terminal = 100_000.0 * float(np.exp(value))
+    cost = 0.0001 * cost_multiplier
     payload = {
         "borrow_paid": 0.0,
-        "fees": 0.0001,
+        "cancel_replace_events": (1 if cost_multiplier > 1.0 else 0),
+        "fees": cost,
         "fill_count": 1,
+        "fill_ratio": (0.9 if cost_multiplier > 1.0 else 1.0),
         "filled_turnover": 0.1,
         "funding_paid": 0.0,
         "gross_log_return": value,
-        "impact_cost": 0.0001,
+        "impact_cost": cost,
         "max_drawdown": 0.08 if kind == "trend" else 0.09,
-        "pending_order_events": 0,
+        "pending_order_events": (1 if cost_multiplier > 1.0 else 0),
         "policy_kind": kind,
         "schema_version": "causal_scenario_c3_realized_outcome_v1",
-        "spread_cost": 0.0001,
+        "spread_cost": cost,
         "terminal_equity": terminal,
         "termination_reason": "horizon",
     }
@@ -149,13 +175,15 @@ def _outcome(kind: str, value: float) -> RealizedPolicyOutcome:
         policy_kind=kind,
         gross_log_return=value,
         filled_turnover=0.1,
-        fees=0.0001,
-        spread_cost=0.0001,
-        impact_cost=0.0001,
+        fees=cost,
+        spread_cost=cost,
+        impact_cost=cost,
         funding_paid=0.0,
         borrow_paid=0.0,
+        fill_ratio=(0.9 if cost_multiplier > 1.0 else 1.0),
         fill_count=1,
-        pending_order_events=0,
+        pending_order_events=(1 if cost_multiplier > 1.0 else 0),
+        cancel_replace_events=(1 if cost_multiplier > 1.0 else 0),
         max_drawdown=0.08 if kind == "trend" else 0.09,
         terminal_equity=terminal,
         termination_reason="horizon",
@@ -164,11 +192,17 @@ def _outcome(kind: str, value: float) -> RealizedPolicyOutcome:
 
 
 class Replay:
-    def __init__(self, identity: C3ReplayIdentity) -> None:
+    def __init__(
+        self,
+        identity: C3ReplayIdentity,
+        *,
+        cost_multiplier: float = 1.0,
+    ) -> None:
         self.identity = identity
+        self.cost_multiplier = cost_multiplier
 
     def clone_for_replay(self) -> Replay:
-        return Replay(self.identity)
+        return Replay(self.identity, cost_multiplier=self.cost_multiplier)
 
     def run(
         self,
@@ -180,7 +214,11 @@ class Replay:
     ) -> RealizedPolicyOutcome:
         assert horizon_decisions == 96
         assert zero_residual_after_first is True
-        return _outcome(policy_kind, 0.01 + 0.02 * float(raw_residual[0]))
+        return _outcome(
+            policy_kind,
+            0.01 + 0.02 * float(raw_residual[0]),
+            cost_multiplier=self.cost_multiplier,
+        )
 
 
 def _perfect_information(*, causal_log_return: float) -> PerfectInformationComparison:
@@ -210,7 +248,7 @@ def _perfect_information(*, causal_log_return: float) -> PerfectInformationCompa
     return evaluate_perfect_information_compatibility(evidence)
 
 
-def _query_comparison(tmp_path: Path, *, fold_index: int, day_index: int):
+def _query_comparisons(tmp_path: Path, *, fold_index: int, day_index: int):
     fold_id = f"fold-{fold_index}"
     created = _decision(
         query_index=10_000 + fold_index * 100 + day_index,
@@ -218,12 +256,27 @@ def _query_comparison(tmp_path: Path, *, fold_index: int, day_index: int):
     )
     root = tmp_path / "decisions" / fold_id / str(day_index)
     write_c3_decision_artifact(root, created)
-    return run_c3_query_comparison(
-        load_c3_decision_artifact(root),
-        replay=Replay(created.replay_identity),
-        ppo_mean_action=np.asarray([0.5]),
-        config=CausalScenarioC3Config(random_comparator_count=1),
-        perfect_information=_perfect_information(causal_log_return=0.03),
+    loaded = load_c3_decision_artifact(root)
+    evidence = _prediction(created)
+    return (
+        run_c3_query_comparison(
+            loaded,
+            replay=Replay(created.replay_identity),
+            ppo_mean_action=np.asarray([0.5]),
+            config=CausalScenarioC3Config(random_comparator_count=1),
+            prediction_evidence=evidence,
+            execution_scenario="nominal",
+            perfect_information=_perfect_information(causal_log_return=0.03),
+        ),
+        run_c3_query_comparison(
+            loaded,
+            replay=Replay(created.replay_identity, cost_multiplier=2.0),
+            ppo_mean_action=np.asarray([0.5]),
+            config=CausalScenarioC3Config(random_comparator_count=1),
+            prediction_evidence=evidence,
+            execution_scenario="adverse_cost_2x",
+            perfect_information=_perfect_information(causal_log_return=0.03),
+        ),
     )
 
 
@@ -233,12 +286,13 @@ def _aggregate(tmp_path: Path):
             fold_id=f"fold-{fold_index}",
             selection_days=30,
             comparisons=tuple(
-                _query_comparison(
+                comparison
+                for day_index in range(30)
+                for comparison in _query_comparisons(
                     tmp_path,
                     fold_index=fold_index,
                     day_index=day_index,
                 )
-                for day_index in range(30)
             ),
             required_adverse_passed=True,
         )
@@ -255,6 +309,8 @@ def test_report_and_gate_artifacts_round_trip_and_fail_closed(tmp_path: Path) ->
     assert loaded_report.artifact_digest == report_digest
     assert loaded_report.report.digest == report.digest
     assert loaded_report.report.total_effective_days == 180
+    assert loaded_report.report.calibration_buckets == report.calibration_buckets
+    assert loaded_report.report.execution_summaries == report.execution_summaries
 
     gate = evaluate_phase_a_entry_gate(loaded_report.report)
     gate_root = tmp_path / "gate"
@@ -286,13 +342,26 @@ def test_batch_publishes_report_and_gate_from_verified_decisions(
             )
             decision_root = tmp_path / "batch-decisions" / fold_id / str(day_index)
             write_c3_decision_artifact(decision_root, created)
-            queries.append(
-                C3BatchQuery(
-                    fold_id=fold_id,
-                    decision_root=decision_root,
-                    replay=Replay(created.replay_identity),
-                    ppo_mean_action=np.asarray([0.5]),
-                    perfect_information=_perfect_information(causal_log_return=0.03),
+            evidence = _prediction(created)
+            common = {
+                "fold_id": fold_id,
+                "decision_root": decision_root,
+                "ppo_mean_action": np.asarray([0.5]),
+                "prediction_evidence": evidence,
+                "perfect_information": _perfect_information(causal_log_return=0.03),
+            }
+            queries.extend(
+                (
+                    C3BatchQuery(
+                        **common,
+                        replay=Replay(created.replay_identity),
+                        execution_scenario="nominal",
+                    ),
+                    C3BatchQuery(
+                        **common,
+                        replay=Replay(created.replay_identity, cost_multiplier=2.0),
+                        execution_scenario="adverse_cost_2x",
+                    ),
                 )
             )
     result = execute_c3_batch(
@@ -305,6 +374,7 @@ def test_batch_publishes_report_and_gate_from_verified_decisions(
     assert result.gate.passed is True
     assert result.report.total_selection_days == 180
     assert result.report.total_effective_days == 180
+    assert result.comparison_count == 360
     assert result.report_artifact_root.is_dir()
     assert result.gate_artifact_root.is_dir()
     assert result.production_status == "NO-GO"

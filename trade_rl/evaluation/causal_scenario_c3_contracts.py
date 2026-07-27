@@ -14,6 +14,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256, require_unique_non_empty
 
 C3_CONFIG_SCHEMA: Final = "causal_scenario_c3_config_v1"
+C3_REPLAY_IDENTITY_SCHEMA: Final = "causal_scenario_c3_replay_identity_v1"
 C3_DECISION_SCHEMA: Final = "causal_scenario_c3_decision_v1"
 C3_REALIZED_OUTCOME_SCHEMA: Final = "causal_scenario_c3_realized_outcome_v1"
 C3_QUERY_COMPARISON_SCHEMA: Final = "causal_scenario_c3_query_comparison_v1"
@@ -53,9 +54,12 @@ def _readonly_float_array(
         raise ValueError(f"{name} must be a numeric array") from error
     if array.ndim != ndim:
         raise ValueError(f"{name} must have rank {ndim}")
-    if shape is not None and any(
-        expected is not None and actual != expected
-        for actual, expected in zip(array.shape, shape, strict=True)
+    if shape is not None and (
+        len(shape) != array.ndim
+        or any(
+            expected is not None and actual != expected
+            for actual, expected in zip(array.shape, shape, strict=True)
+        )
     ):
         raise ValueError(f"{name} has an invalid shape")
     if not np.isfinite(array).all():
@@ -132,12 +136,88 @@ class CausalScenarioC3Config:
 
 
 @dataclass(frozen=True, slots=True)
+class C3ReplayIdentity:
+    dataset_id: str
+    fold_digest: str
+    environment_digest: str
+    action_spec_digest: str
+    observation_digest: str
+    execution_policy_digest: str
+    risk_digest: str
+    initial_state_digest: str
+    query_index: int
+    query_timestamp_ns: int
+    realized_stop_index: int
+    aum: float
+    schema_version: str = C3_REPLAY_IDENTITY_SCHEMA
+
+    def __post_init__(self) -> None:
+        for field in (
+            "dataset_id",
+            "fold_digest",
+            "environment_digest",
+            "action_spec_digest",
+            "observation_digest",
+            "execution_policy_digest",
+            "risk_digest",
+            "initial_state_digest",
+        ):
+            object.__setattr__(
+                self,
+                field,
+                require_sha256(str(getattr(self, field)), field=field),
+            )
+        query_index = _non_negative_int("query_index", self.query_index)
+        query_timestamp = _positive_int("query_timestamp_ns", self.query_timestamp_ns)
+        realized_stop = _positive_int("realized_stop_index", self.realized_stop_index)
+        if realized_stop <= query_index:
+            raise ValueError("realized_stop_index must be greater than query_index")
+        aum = _finite_float("aum", self.aum)
+        if aum <= 0.0:
+            raise ValueError("aum must be positive")
+        if self.schema_version != C3_REPLAY_IDENTITY_SCHEMA:
+            raise ValueError("unsupported C3 replay identity schema")
+        object.__setattr__(self, "query_index", query_index)
+        object.__setattr__(self, "query_timestamp_ns", query_timestamp)
+        object.__setattr__(self, "realized_stop_index", realized_stop)
+        object.__setattr__(self, "aum", aum)
+
+    def digest_payload(self) -> dict[str, object]:
+        return {
+            "action_spec_digest": self.action_spec_digest,
+            "aum": self.aum,
+            "dataset_id": self.dataset_id,
+            "environment_digest": self.environment_digest,
+            "execution_policy_digest": self.execution_policy_digest,
+            "fold_digest": self.fold_digest,
+            "initial_state_digest": self.initial_state_digest,
+            "observation_digest": self.observation_digest,
+            "query_index": self.query_index,
+            "query_timestamp_ns": self.query_timestamp_ns,
+            "realized_stop_index": self.realized_stop_index,
+            "risk_digest": self.risk_digest,
+            "schema_version": self.schema_version,
+        }
+
+    @property
+    def digest(self) -> str:
+        return content_digest(self.digest_payload())
+
+
+@dataclass(frozen=True, slots=True)
 class PersistedScenarioDecision:
     dataset_id: str
     fold_digest: str
     query_index: int
     query_timestamp_ns: int
     state_snapshot_digest: str
+    observation_digest: str
+    environment_digest: str
+    action_spec_digest: str
+    execution_policy_digest: str
+    risk_digest: str
+    starting_equity: float
+    realized_stop_index: int
     scenario_library_digest: str
     scenario_set_digest: str
     candidate_generator_digest: str
@@ -160,6 +240,11 @@ class PersistedScenarioDecision:
             "dataset_id",
             "fold_digest",
             "state_snapshot_digest",
+            "observation_digest",
+            "environment_digest",
+            "action_spec_digest",
+            "execution_policy_digest",
+            "risk_digest",
             "scenario_library_digest",
             "scenario_set_digest",
             "candidate_generator_digest",
@@ -176,6 +261,12 @@ class PersistedScenarioDecision:
             raise ValueError("unsupported C3 decision schema")
         query_index = _non_negative_int("query_index", self.query_index)
         query_timestamp = _positive_int("query_timestamp_ns", self.query_timestamp_ns)
+        realized_stop = _positive_int("realized_stop_index", self.realized_stop_index)
+        if realized_stop <= query_index:
+            raise ValueError("realized_stop_index must be greater than query_index")
+        starting_equity = _finite_float("starting_equity", self.starting_equity)
+        if starting_equity <= 0.0:
+            raise ValueError("starting_equity must be positive")
         candidate_digests = tuple(
             require_sha256(value, field="candidate_digests")
             for value in require_unique_non_empty(
@@ -229,6 +320,8 @@ class PersistedScenarioDecision:
 
         object.__setattr__(self, "query_index", query_index)
         object.__setattr__(self, "query_timestamp_ns", query_timestamp)
+        object.__setattr__(self, "realized_stop_index", realized_stop)
+        object.__setattr__(self, "starting_equity", starting_equity)
         object.__setattr__(self, "candidate_digests", candidate_digests)
         object.__setattr__(self, "raw_candidate_actions", raw)
         object.__setattr__(self, "projected_targets", projected)
@@ -242,24 +335,48 @@ class PersistedScenarioDecision:
         if self.decision_digest != expected:
             raise ValueError("decision_digest does not match C3 decision")
 
+    @property
+    def replay_identity(self) -> C3ReplayIdentity:
+        return C3ReplayIdentity(
+            dataset_id=self.dataset_id,
+            fold_digest=self.fold_digest,
+            environment_digest=self.environment_digest,
+            action_spec_digest=self.action_spec_digest,
+            observation_digest=self.observation_digest,
+            execution_policy_digest=self.execution_policy_digest,
+            risk_digest=self.risk_digest,
+            initial_state_digest=self.state_snapshot_digest,
+            query_index=self.query_index,
+            query_timestamp_ns=self.query_timestamp_ns,
+            realized_stop_index=self.realized_stop_index,
+            aum=self.starting_equity,
+        )
+
     def digest_payload(self) -> dict[str, object]:
         return {
+            "action_spec_digest": self.action_spec_digest,
             "candidate_digests": self.candidate_digests,
             "candidate_generator_digest": self.candidate_generator_digest,
             "created_before_realized_replay": self.created_before_realized_replay,
             "dataset_id": self.dataset_id,
+            "environment_digest": self.environment_digest,
+            "execution_policy_digest": self.execution_policy_digest,
             "fold_digest": self.fold_digest,
+            "observation_digest": self.observation_digest,
             "projected_targets": self.projected_targets.tolist(),
             "query_index": self.query_index,
             "query_timestamp_ns": self.query_timestamp_ns,
             "raw_candidate_actions": self.raw_candidate_actions.tolist(),
+            "realized_stop_index": self.realized_stop_index,
             "regret": self.regret.tolist(),
+            "risk_digest": self.risk_digest,
             "scenario_library_digest": self.scenario_library_digest,
             "scenario_set_digest": self.scenario_set_digest,
             "schema_version": self.schema_version,
             "score": self.score.tolist(),
             "selected_candidate_digest": self.selected_candidate_digest,
             "selected_candidate_index": self.selected_candidate_index,
+            "starting_equity": self.starting_equity,
             "state_snapshot_digest": self.state_snapshot_digest,
             "tie_candidate_indices": self.tie_candidate_indices,
             "value_result_digest": self.value_result_digest,
@@ -437,6 +554,8 @@ class RealizedPolicyOutcome:
 @dataclass(frozen=True, slots=True)
 class CausalScenarioQueryComparison:
     decision_digest: str
+    query_timestamp_ns: int
+    replay_identity_digest: str
     trend: RealizedPolicyOutcome
     scenario_oracle: RealizedPolicyOutcome
     ppo_mean: RealizedPolicyOutcome
@@ -457,6 +576,18 @@ class CausalScenarioQueryComparison:
             self,
             "decision_digest",
             require_sha256(self.decision_digest, field="decision_digest"),
+        )
+        object.__setattr__(
+            self,
+            "replay_identity_digest",
+            require_sha256(
+                self.replay_identity_digest, field="replay_identity_digest"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "query_timestamp_ns",
+            _positive_int("query_timestamp_ns", self.query_timestamp_ns),
         )
         if self.schema_version != C3_QUERY_COMPARISON_SCHEMA:
             raise ValueError("unsupported C3 query comparison schema")
@@ -537,6 +668,10 @@ class CausalScenarioQueryComparison:
             raise ValueError("perfect_information has invalid type")
 
     @property
+    def day_index(self) -> int:
+        return self.query_timestamp_ns // 86_400_000_000_000
+
+    @property
     def digest(self) -> str:
         return content_digest(
             {
@@ -553,6 +688,7 @@ class CausalScenarioQueryComparison:
                 },
                 "ppo_mean": self.ppo_mean.outcome_digest,
                 "predicted_realized_spearman": self.predicted_realized_spearman,
+                "query_timestamp_ns": self.query_timestamp_ns,
                 "random_candidate": self.random_candidate.outcome_digest,
                 "random_candidate_indices": self.random_candidate_indices,
                 "random_candidate_outcomes": tuple(
@@ -565,6 +701,7 @@ class CausalScenarioQueryComparison:
                 "realized_candidate_advantages": _array_payload(
                     self.realized_candidate_advantages
                 ),
+                "replay_identity_digest": self.replay_identity_digest,
                 "scenario_oracle": self.scenario_oracle.outcome_digest,
                 "schema_version": self.schema_version,
                 "selected_realized_regret": self.selected_realized_regret,

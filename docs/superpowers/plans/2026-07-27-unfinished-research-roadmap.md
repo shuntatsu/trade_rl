@@ -46,7 +46,7 @@ uv run ruff format --check .
 uv run mypy .
 uv run lint-imports
 uv run pytest -q
-uv run python tools/check_critical_coverage.py
+uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
 ```
 
 ### Milestone 2: Complete constrained PPO PR D

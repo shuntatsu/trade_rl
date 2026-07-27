@@ -326,7 +326,7 @@ uv run ruff format --check .
 uv run mypy .
 uv run lint-imports
 uv run pytest -q
-uv run python tools/check_critical_coverage.py
+uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
 ```
 
 Run Ubuntu, Windows, training-image, and PostgreSQL workflows on the exact head. Record run IDs, test count, total/branch coverage, focused module coverage, commit SHA, and artifact digests in the verification document.

@@ -44,23 +44,18 @@ jobs:
 
           path = Path('trade_rl/rl/sequence_diagnostics.py')
           text = path.read_text(encoding='utf-8')
-          old = '''            policy = getattr(self.model, "policy", None)
-              feature_extractor = getattr(policy, "features_extractor", None)
-              if feature_extractor is None or not hasattr(
-          '''
-          new = '''            policy = getattr(self.model, "policy", None)
-              obs_to_tensor = getattr(policy, "obs_to_tensor", None)
+          old_feature = '            feature_extractor = getattr(policy, "features_extractor", None)\n'
+          new_feature = '''            obs_to_tensor = getattr(policy, "obs_to_tensor", None)
               if not callable(obs_to_tensor):
                   return
               feature_extractor = getattr(policy, "features_extractor", None)
-              if feature_extractor is None or not hasattr(
           '''
           old_call = '            tensor_observation, _ = policy.obs_to_tensor(last_observation)\n'
           new_call = '            tensor_observation, _ = obs_to_tensor(last_observation)\n'
-          if text.count(old) != 1 or text.count(old_call) != 1:
-              raise RuntimeError('generated sequence diagnostics callback anchors are invalid')
+          if text.count(old_feature) != 1 or text.count(old_call) != 1:
+              raise RuntimeError('generated sequence diagnostics callback line anchors are invalid')
           path.write_text(
-              text.replace(old, new, 1).replace(old_call, new_call, 1),
+              text.replace(old_feature, new_feature, 1).replace(old_call, new_call, 1),
               encoding='utf-8',
           )
           PY

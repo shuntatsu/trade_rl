@@ -58,9 +58,14 @@ def _packaged_git_provenance() -> tuple[str, bool]:
     return commit, dirty == "true"
 
 
-def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
+def _smoke_config_payload(
+    timesteps: int, runtime_profile: str = "compatibility"
+) -> dict[str, Any]:
     if isinstance(timesteps, bool) or not isinstance(timesteps, int) or timesteps <= 0:
         raise ValueError("timesteps must be a positive integer")
+    if runtime_profile not in {"compatibility", "accelerated"}:
+        raise ValueError("runtime_profile must be compatibility or accelerated")
+    accelerated = runtime_profile == "accelerated"
     payload = _load_template()
     git_commit, git_dirty = _packaged_git_provenance()
     payload["git_commit"] = git_commit
@@ -87,6 +92,12 @@ def _smoke_config_payload(timesteps: int) -> dict[str, Any]:
             "sequence_attention_heads": 4,
             "sequence_attention_layers": 1,
             "sequence_dropout": 0.05,
+            "sequence_compile": accelerated,
+            "sequence_compile_mode": "reduce-overhead",
+            "sequence_transfer_mode": (
+                "pinned_non_blocking" if accelerated else "synchronous"
+            ),
+            "vector_environment_mode": ("subprocess" if accelerated else "in_process"),
             "max_policy_parameters": 2_500_000,
             "max_rollout_buffer_bytes": 268_435_456,
             "checkpoint_interval_steps": max(1, timesteps // 2),
@@ -178,10 +189,14 @@ def _build_sequence_smoke_dataset(n_bars: int = 5_680) -> MarketDataset:
     return dataset.with_content_identity({"source": "sequence-gpu-smoke-v1"})
 
 
-def build_smoke_config(timesteps: int) -> TrainingRunConfig:
+def build_smoke_config(
+    timesteps: int, runtime_profile: str = "compatibility"
+) -> TrainingRunConfig:
     """Build the tiny run while retaining maintained CUDA/model dimensions."""
 
-    return TrainingRunConfig.from_mapping(_smoke_config_payload(timesteps))
+    return TrainingRunConfig.from_mapping(
+        _smoke_config_payload(timesteps, runtime_profile=runtime_profile)
+    )
 
 
 def _gpu_memory_mib() -> int:
@@ -295,7 +310,9 @@ def _load_training_performance(member_root: Path) -> dict[str, object]:
     return dict(payload)
 
 
-def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, object]:
+def run_gpu_training_smoke(
+    *, work_root: Path, timesteps: int, runtime_profile: str = "compatibility"
+) -> dict[str, object]:
     """Preflight CUDA, train one seed, and persist inspectable smoke evidence."""
 
     import torch
@@ -314,7 +331,7 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
 
     dataset_path = work_root / "dataset"
     write_market_dataset_files(dataset_path, _build_sequence_smoke_dataset())
-    config_payload = _smoke_config_payload(timesteps)
+    config_payload = _smoke_config_payload(timesteps, runtime_profile=runtime_profile)
     config_path = work_root / "training.json"
     config_path.write_text(
         json.dumps(config_payload, indent=2, sort_keys=True) + "\n",
@@ -369,6 +386,8 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
         raise RuntimeError("GPU smoke resume evidence is missing")
     evidence: dict[str, object] = {
         "actual_timesteps": int(ensemble["actual_timesteps"]),
+        "git_commit": config.git_commit,
+        "runtime_profile": runtime_profile,
         "checkpoint": {
             "digest": ensemble["members"][0]["checkpoint_digest"],
             "path": str(policy),
@@ -393,7 +412,7 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
                 "training_artifact": resumed_training_performance,
             },
         },
-        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v6",
+        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v7",
     }
     evidence_path = work_root / "gpu-training-smoke.json"
     evidence_path.write_text(
@@ -411,6 +430,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("var/gpu-training-smoke"),
     )
     parser.add_argument("--timesteps", type=int, default=128)
+    parser.add_argument(
+        "--runtime-profile",
+        choices=("compatibility", "accelerated"),
+        default="compatibility",
+    )
     return parser
 
 
@@ -422,6 +446,7 @@ def main() -> int:
     evidence = run_gpu_training_smoke(
         work_root=work_root,
         timesteps=args.timesteps,
+        runtime_profile=args.runtime_profile,
     )
     print(json.dumps(evidence, sort_keys=True))
     return 0

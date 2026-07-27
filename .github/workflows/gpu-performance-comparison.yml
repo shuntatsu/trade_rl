@@ -1,0 +1,175 @@
+name: GPU Performance Comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      timesteps:
+        description: PPO timesteps per sample
+        required: false
+        type: number
+        default: 4096
+      repeats:
+        description: Samples per side
+        required: false
+        type: number
+        default: 3
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-performance-comparison
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/main'
+    environment: gpu-full-training
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    timeout-minutes: 360
+    steps:
+      - name: Checkout candidate exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create verified baseline worktree
+        shell: bash
+        env:
+          REQUESTED_BASELINE_REF: 1f597caf85fe5200fe7abc34461236b65ebb8b1d
+        run: |
+          set -euo pipefail
+          git -C candidate cat-file -e "${REQUESTED_BASELINE_REF}^{commit}"
+          git -C candidate worktree add --detach ../baseline "$REQUESTED_BASELINE_REF"
+          echo "REQUESTED_BASELINE_REF=$REQUESTED_BASELINE_REF" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Resolve immutable identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_sha="$(git -C baseline rev-parse HEAD)"
+          candidate_sha="$(git -C candidate rev-parse HEAD)"
+          test "$baseline_sha" = "$REQUESTED_BASELINE_REF"
+          test "$candidate_sha" = "${GITHUB_SHA}"
+          echo "BASELINE_SHA=$baseline_sha" >> "$GITHUB_ENV"
+          echo "CANDIDATE_SHA=$candidate_sha" >> "$GITHUB_ENV"
+      - name: Install both exact refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd baseline && uv sync --extra dev --extra train-sb3)
+          (cd candidate && uv sync --extra dev --extra train-sb3)
+      - name: Resolve source and lock identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_source="$(cd baseline && uv run python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          candidate_source="$(cd candidate && uv run python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          baseline_lock="$(sha256sum baseline/uv.lock | cut -d' ' -f1)"
+          candidate_lock="$(sha256sum candidate/uv.lock | cut -d' ' -f1)"
+          echo "BASELINE_SOURCE_DIGEST=$baseline_source" >> "$GITHUB_ENV"
+          echo "CANDIDATE_SOURCE_DIGEST=$candidate_source" >> "$GITHUB_ENV"
+          echo "BASELINE_LOCK_DIGEST=$baseline_lock" >> "$GITHUB_ENV"
+          echo "CANDIDATE_LOCK_DIGEST=$candidate_lock" >> "$GITHUB_ENV"
+      - name: CUDA device evidence
+        run: nvidia-smi
+      - name: Run matched repeated samples
+        shell: bash
+        env:
+          REQUESTED_TIMESTEPS: ${{ inputs.timesteps }}
+          REQUESTED_REPEATS: ${{ inputs.repeats }}
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_REPEATS" in
+            ''|*[!0-9]*) echo "repeats must be an integer" >&2; exit 2 ;;
+          esac
+          if [ "$REQUESTED_REPEATS" -lt 1 ] || [ "$REQUESTED_REPEATS" -gt 9 ]; then
+            echo "repeats must be within [1, 9]" >&2
+            exit 2
+          fi
+          mkdir -p gpu-comparison-evidence
+          for sample in $(seq 1 "$REQUESTED_REPEATS"); do
+            (
+              cd baseline
+              TRADE_RL_GIT_COMMIT="$BASELINE_SHA" \
+              TRADE_RL_GIT_DIRTY=false \
+              TRADE_RL_SOURCE_TREE_DIGEST="$BASELINE_SOURCE_DIGEST" \
+              TRADE_RL_LOCKFILE_DIGEST="$BASELINE_LOCK_DIGEST" \
+              uv run python examples/binance-multitimeframe/run_gpu_training_smoke.py \
+                --work-root "var/gpu-comparison/baseline-$sample" \
+                --timesteps "$REQUESTED_TIMESTEPS"
+            )
+            cp "baseline/var/gpu-comparison/baseline-$sample/gpu-training-smoke.json" \
+              "gpu-comparison-evidence/baseline-$sample.json"
+            (
+              cd candidate
+              TRADE_RL_GIT_COMMIT="$CANDIDATE_SHA" \
+              TRADE_RL_GIT_DIRTY=false \
+              TRADE_RL_SOURCE_TREE_DIGEST="$CANDIDATE_SOURCE_DIGEST" \
+              TRADE_RL_LOCKFILE_DIGEST="$CANDIDATE_LOCK_DIGEST" \
+              uv run python examples/binance-multitimeframe/run_gpu_training_smoke.py \
+                --work-root "var/gpu-comparison/candidate-$sample" \
+                --timesteps "$REQUESTED_TIMESTEPS" \
+                --runtime-profile accelerated
+            )
+            cp "candidate/var/gpu-comparison/candidate-$sample/gpu-training-smoke.json" \
+              "gpu-comparison-evidence/candidate-$sample.json"
+          done
+      - name: Build canonical comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_args=()
+          candidate_args=()
+          for path in gpu-comparison-evidence/baseline-*.json; do
+            baseline_args+=(--baseline "$path")
+          done
+          for path in gpu-comparison-evidence/candidate-*.json; do
+            candidate_args+=(--candidate "$path")
+          done
+          candidate/.venv/bin/python \
+            candidate/examples/binance-multitimeframe/compare_gpu_training_smoke.py \
+            "${baseline_args[@]}" \
+            "${candidate_args[@]}" \
+            --baseline-ref "$BASELINE_SHA" \
+            --candidate-ref "$CANDIDATE_SHA" \
+            --output gpu-comparison-evidence/gpu-performance-comparison.json
+      - name: Verify comparison evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from trade_rl.artifacts.hashing import content_digest
+
+          path = Path("gpu-comparison-evidence/gpu-performance-comparison.json")
+          evidence = json.loads(path.read_text(encoding="utf-8"))
+          assert evidence["schema_version"] == "gpu_training_performance_comparison_v1"
+          assert evidence["baseline"]["ref"] == "1f597caf85fe5200fe7abc34461236b65ebb8b1d"
+          assert evidence["baseline"]["runtime_profile"] == "compatibility"
+          assert evidence["candidate"]["runtime_profile"] == "accelerated"
+          assert evidence["baseline"]["sample_count"] == evidence["candidate"]["sample_count"]
+          assert evidence["baseline"]["sample_count"] > 0
+          assert evidence["acceptance"]["speedup_threshold_enforced"] is False
+          assert all(float(value) > 0.0 for value in evidence["ratios"].values())
+          digest = evidence["digest"]
+          unsigned = dict(evidence)
+          unsigned.pop("digest")
+          assert digest == content_digest(unsigned)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: gpu-performance-comparison-evidence
+          path: gpu-comparison-evidence
+          if-no-files-found: error

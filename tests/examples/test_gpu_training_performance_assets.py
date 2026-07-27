@@ -13,7 +13,9 @@ def test_gpu_nightly_requires_internal_training_performance_evidence() -> None:
         ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.py"
     ).read_text(encoding="utf-8")
 
-    assert "gpu_sequence_target_oracle_bc_training_smoke_v6" in workflow
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v7" in workflow
+    assert "--runtime-profile accelerated" in workflow
+    assert 'evidence["runtime_profile"] == "accelerated"' in workflow
     assert 'evidence["performance"]["training_artifact"]' in workflow
     assert 'evidence["resume"]["performance"]["training_artifact"]' in workflow
     assert 'performance["device_type"] == "cuda"' in workflow

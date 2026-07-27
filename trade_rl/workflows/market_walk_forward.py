@@ -63,7 +63,9 @@ def __getattr__(name: str) -> Any:
     try:
         return getattr(_core, name)
     except AttributeError as error:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from error
+        raise AttributeError(
+            f"module {__name__!r} has no attribute {name!r}"
+        ) from error
 
 
 def _validate_for_store(path: Path) -> bool:
@@ -77,8 +79,7 @@ def _sealed_test_ledger(mode: SealedTestLedgerMode) -> SealedTestLedgerProtocol:
     database_url = os.environ.get("TRADE_RL_DATABASE_URL", "").strip()
     if not database_url:
         raise ValueError(
-            "durable PostgreSQL sealed-test ledger requires "
-            "TRADE_RL_DATABASE_URL"
+            "durable PostgreSQL sealed-test ledger requires TRADE_RL_DATABASE_URL"
         )
     catalog = PostgresArtifactCatalog(database_url)
     return PostgresSealedTestLedger(catalog)
@@ -249,8 +250,7 @@ def execute_market_walk_forward(
             "folds": tuple(folds_payload),
             "production_status": "NO-GO",
             "sealed_test_ledger_durable": (
-                config.sealed_test_ledger_mode
-                is SealedTestLedgerMode.DURABLE_POSTGRES
+                config.sealed_test_ledger_mode is SealedTestLedgerMode.DURABLE_POSTGRES
             ),
             "sealed_test_ledger_mode": config.sealed_test_ledger_mode.value,
             "schema_version": "market_walk_forward_run_v5_deployable_ensemble",

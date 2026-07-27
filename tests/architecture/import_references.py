@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.util import resolve_name
 from pathlib import Path
@@ -189,8 +190,74 @@ def scan_import_references(
     return tuple(visitor.references)
 
 
+def _is_prohibited_target(target: str, *, prohibited_prefix: str) -> bool:
+    return target == prohibited_prefix or target.startswith(f"{prohibited_prefix}.")
+
+
+def causal_scenario_dependency_violations(
+    *,
+    protected_roots: tuple[Path, ...],
+    excluded_root: Path,
+    package_root: Path,
+    root_package: str,
+    prohibited_prefix: str,
+) -> tuple[str, ...]:
+    """Return stable violations from protected Python dependency roots."""
+
+    violations: list[str] = []
+    for root in protected_roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.py")):
+            if path.is_relative_to(excluded_root):
+                continue
+            module_name = module_name_from_path(
+                path,
+                package_root=package_root,
+                root_package=root_package,
+            )
+            for reference in scan_import_references(path, module_name=module_name):
+                if reference.kind == "dynamic" and reference.unresolved:
+                    violations.append(
+                        f"{path}:{reference.line}:dynamic:<unresolved>"
+                    )
+                    continue
+                if reference.target is not None and _is_prohibited_target(
+                    reference.target,
+                    prohibited_prefix=prohibited_prefix,
+                ):
+                    violations.append(
+                        f"{path}:{reference.line}:{reference.kind}:{reference.target}"
+                    )
+    return tuple(sorted(violations))
+
+
+def forbidden_json_key_paths(payload: object, *, key: str) -> tuple[str, ...]:
+    """Return JSON paths containing an exact forbidden mapping key."""
+
+    if not key:
+        raise ValueError("key must be non-empty")
+    violations: list[str] = []
+
+    def visit(value: object, path: str) -> None:
+        if isinstance(value, Mapping):
+            if key in value:
+                violations.append(f"{path}.{key}")
+            for child_key in sorted(value, key=str):
+                visit(value[child_key], f"{path}.{child_key}")
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                visit(item, f"{path}[{index}]")
+
+    visit(payload, "$")
+    return tuple(violations)
+
+
 __all__ = [
     "ImportReference",
+    "causal_scenario_dependency_violations",
+    "forbidden_json_key_paths",
     "module_name_from_path",
     "scan_import_references",
 ]

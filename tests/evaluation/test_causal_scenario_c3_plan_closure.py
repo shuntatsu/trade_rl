@@ -244,6 +244,7 @@ def test_c3_aggregate_report_binds_full_diagnostics(tmp_path: Path) -> None:
             selection_days=30,
             comparisons=(comparison,),
             required_adverse_passed=True,
+            required_adverse_evidence_digest="a" * 64,
         )
         for index in range(6)
     )

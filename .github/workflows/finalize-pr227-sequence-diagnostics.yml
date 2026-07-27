@@ -93,7 +93,7 @@ jobs:
             tests/rl/test_gated_transformer.py \
             tests/rl/test_timeframe_fusion.py \
             tests/rl/test_sequence_policy_core.py \
-            tests/rl/test_training_telemetry.py \
+            tests/integrations/test_training_telemetry.py \
             tests/rl/test_checkpointing.py
 
       - name: Publish verified diagnostics implementation

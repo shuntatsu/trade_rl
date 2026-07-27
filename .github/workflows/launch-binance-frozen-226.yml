@@ -109,6 +109,13 @@ jobs:
             "trade-rl-training:${TRADE_RL_GIT_COMMIT}" \
             -c 'import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
 
+      - name: Synchronize shared market archives
+        if: env.TRADE_RL_OPERATION == 'start'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f compose.training.yaml run --rm market-data-sync
+
       - name: Start supervised research phase
         if: env.TRADE_RL_OPERATION == 'start'
         shell: bash

@@ -62,7 +62,11 @@ class C3PredictionEvidence:
     schema_version: str = C3_PREDICTION_EVIDENCE_SCHEMA
 
     def __post_init__(self) -> None:
-        for field in ("result_digest", "scenario_library_digest", "scenario_set_digest"):
+        for field in (
+            "result_digest",
+            "scenario_library_digest",
+            "scenario_set_digest",
+        ):
             object.__setattr__(
                 self,
                 field,
@@ -116,9 +120,7 @@ class C3PredictionEvidence:
                 self.predicted_expected_turnover
             ),
             "predicted_loss_cvar": _array_payload(self.predicted_loss_cvar),
-            "predicted_mean_advantage": _array_payload(
-                self.predicted_mean_advantage
-            ),
+            "predicted_mean_advantage": _array_payload(self.predicted_mean_advantage),
             "predicted_score": _array_payload(self.predicted_score),
             "result_digest": self.result_digest,
             "scenario_anchor_indices": _array_payload(self.scenario_anchor_indices),
@@ -136,7 +138,9 @@ class C3PredictionEvidence:
         if self.scenario_library_digest != decision.scenario_library_digest:
             raise ValueError("C3 prediction library does not match persisted decision")
         if self.scenario_set_digest != decision.scenario_set_digest:
-            raise ValueError("C3 prediction scenario set does not match persisted decision")
+            raise ValueError(
+                "C3 prediction scenario set does not match persisted decision"
+            )
         if self.candidate_digests != decision.candidate_digests:
             raise ValueError("C3 prediction candidates do not match persisted decision")
         if not np.array_equal(self.predicted_score, decision.score):
@@ -173,9 +177,7 @@ def create_c3_prediction_evidence(
         predicted_expected_turnover,
         size=candidate_count,
     )
-    anchors = _readonly_int_vector(
-        "scenario_anchor_indices", scenario_anchor_indices
-    )
+    anchors = _readonly_int_vector("scenario_anchor_indices", scenario_anchor_indices)
     distances = _readonly_float_vector(
         "scenario_distances", scenario_distances, size=anchors.size
     )

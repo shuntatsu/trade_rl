@@ -4,9 +4,12 @@ import ast
 from pathlib import Path
 
 
+def _parsed(path: str) -> ast.Module:
+    return ast.parse(Path(path).read_text(encoding="utf-8"))
+
+
 def test_sb3_backend_routes_model_lifecycle_through_typed_assembly() -> None:
-    source = Path("trade_rl/integrations/sb3_training.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    tree = _parsed("trade_rl/integrations/sb3_training.py")
 
     imported: dict[str, str] = {}
     for node in ast.walk(tree):
@@ -47,3 +50,45 @@ def test_sb3_backend_routes_model_lifecycle_through_typed_assembly() -> None:
         node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
     }
     assert forbidden_backend_names.isdisjoint(referenced_names)
+
+
+def test_external_sb3_runtime_values_remain_dynamically_typed() -> None:
+    model_tree = _parsed("trade_rl/integrations/sb3_model_assembly.py")
+    checkpoint_tree = _parsed("trade_rl/integrations/sb3_checkpoint_assembly.py")
+
+    build_function = next(
+        node
+        for node in model_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "build_sb3_model"
+    )
+    assert isinstance(build_function.returns, ast.Name)
+    assert build_function.returns.id == "Any"
+
+    policy_class = next(
+        node
+        for node in model_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "SB3PolicyAssembly"
+    )
+    sequence_metadata = next(
+        node
+        for node in policy_class.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "sequence_metadata"
+    )
+    assert "Any" in ast.unparse(sequence_metadata.annotation)
+
+    checkpoint_class = next(
+        node
+        for node in checkpoint_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "LoadedSB3Checkpoint"
+    )
+    model_field = next(
+        node
+        for node in checkpoint_class.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "model"
+    )
+    assert isinstance(model_field.annotation, ast.Name)
+    assert model_field.annotation.id == "Any"

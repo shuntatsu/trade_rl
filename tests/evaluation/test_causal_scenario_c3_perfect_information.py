@@ -67,14 +67,19 @@ def test_initial_weights_mismatch_is_not_comparable() -> None:
     result = evaluate_perfect_information_compatibility(
         replace(_evidence(), bound_initial_weights=np.asarray([0.0, 0.0]))
     )
-    assert result.reason == PerfectInformationComparisonReason.INITIAL_WEIGHTS_MISMATCH.value
+    assert (
+        result.reason
+        == PerfectInformationComparisonReason.INITIAL_WEIGHTS_MISMATCH.value
+    )
 
 
 def test_return_matrix_and_aum_must_match() -> None:
     matrix = evaluate_perfect_information_compatibility(
         replace(_evidence(), bound_return_matrix_digest=_sha("e"))
     )
-    assert matrix.reason == PerfectInformationComparisonReason.RETURN_MATRIX_MISMATCH.value
+    assert (
+        matrix.reason == PerfectInformationComparisonReason.RETURN_MATRIX_MISMATCH.value
+    )
     aum = evaluate_perfect_information_compatibility(
         replace(_evidence(), bound_aum=99_999.0)
     )
@@ -85,7 +90,9 @@ def test_bound_constraints_must_contain_causal_feasible_set() -> None:
     exposure = evaluate_perfect_information_compatibility(
         replace(_evidence(), bound_max_gross=0.80)
     )
-    assert exposure.reason == PerfectInformationComparisonReason.EXPOSURE_NOT_RELAXED.value
+    assert (
+        exposure.reason == PerfectInformationComparisonReason.EXPOSURE_NOT_RELAXED.value
+    )
     cost = evaluate_perfect_information_compatibility(
         replace(
             _evidence(),
@@ -99,5 +106,7 @@ def test_asserted_bound_must_dominate_realized_causal_result() -> None:
     result = evaluate_perfect_information_compatibility(
         replace(_evidence(), bound_log_return=0.04)
     )
-    assert result.reason == PerfectInformationComparisonReason.BOUND_ORDER_VIOLATION.value
+    assert (
+        result.reason == PerfectInformationComparisonReason.BOUND_ORDER_VIOLATION.value
+    )
     assert result.gap is None

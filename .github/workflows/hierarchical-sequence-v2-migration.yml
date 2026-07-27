@@ -35,6 +35,7 @@ jobs:
         run: uv sync --extra dev --extra train-sb3 --extra export
 
       - name: Apply deterministic v2 migration
+        id: migrate
         run: |
           exec > >(tee hierarchical-v2-migration.log) 2>&1
           set -euo pipefail
@@ -88,12 +89,88 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Format and lint migrated tree
+      - name: Package migrated source diagnostics
+        if: ${{ steps.migrate.outcome == 'success' }}
         run: |
+          uv run python - <<'PY'
+          import json
+          import shutil
+          import subprocess
+          import zipfile
+          from pathlib import Path
+
+          root = Path.cwd()
+          output = root / 'hierarchical-v2-migrated-source'
+          files_root = output / 'files'
+          output.mkdir()
+          files_root.mkdir()
+          raw = subprocess.check_output(
+              ['git', 'status', '--porcelain=v1', '-z'], text=False
+          )
+          entries = [item for item in raw.decode('utf-8').split('\0') if item]
+          changed: list[str] = []
+          deleted: list[str] = []
+          for entry in entries:
+              status = entry[:2]
+              path = entry[3:]
+              if ' -> ' in path:
+                  path = path.split(' -> ', 1)[1]
+              if 'D' in status:
+                  deleted.append(path)
+                  continue
+              source = root / path
+              if source.is_file():
+                  destination = files_root / path
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(source, destination)
+                  changed.append(path)
+          manifest = {
+              'base_sha': subprocess.check_output(
+                  ['git', 'rev-parse', 'HEAD'], text=True
+              ).strip(),
+              'changed': sorted(changed),
+              'deleted': sorted(deleted),
+              'schema_version': 'hierarchical_sequence_v2_migrated_source_v1',
+          }
+          (output / 'manifest.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          with zipfile.ZipFile(
+              output / 'files.zip', 'w', compression=zipfile.ZIP_DEFLATED
+          ) as archive:
+              for path in sorted(files_root.rglob('*')):
+                  if path.is_file():
+                      archive.write(path, path.relative_to(files_root).as_posix())
+          PY
+
+      - name: Upload migrated source diagnostics
+        if: ${{ steps.migrate.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-sequence-v2-migrated-source
+          path: hierarchical-v2-migrated-source
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Format and lint migrated tree
+        id: lint
+        run: |
+          exec > >(tee hierarchical-v2-lint.log) 2>&1
+          set -euo pipefail
           uv run ruff format .
           uv run ruff check --fix .
           uv run ruff format --check .
           uv run ruff check .
+
+      - name: Upload lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-sequence-v2-lint-diagnostics
+          path: hierarchical-v2-lint.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Verify focused v2 contracts
         run: |

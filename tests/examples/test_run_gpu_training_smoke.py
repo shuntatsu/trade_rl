@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+from trade_rl.artifacts.hashing import content_digest
 
 ROOT = Path(__file__).resolve().parents[2]
 SMOKE = ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.py"
@@ -76,3 +79,70 @@ def test_smoke_config_fails_closed_without_valid_packaged_git_provenance(
 
     with pytest.raises(ValueError, match="TRADE_RL_GIT_"):
         _load_smoke().build_smoke_config(timesteps=128)
+
+
+def _performance_payload() -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "training_performance_evidence_v1",
+        "device_type": "cuda",
+        "requested_environment_steps": 128,
+        "observed_environment_steps": 128,
+        "wall_clock_seconds": 2.0,
+        "environment_steps_per_second": 64.0,
+        "collect_rollouts_seconds": 1.0,
+        "optimization_seconds": 0.8,
+        "environment_step_seconds": 0.4,
+        "feature_extraction_host_seconds": 0.5,
+        "sequence_reconstruction_seconds": 0.2,
+        "sequence_tensor_conversion_seconds": 0.1,
+        "collect_rollouts_calls": 2,
+        "optimization_calls": 2,
+        "environment_step_calls": 16,
+        "feature_extraction_calls": 24,
+        "sequence_reconstruction_calls": 2,
+        "sequence_tensor_conversion_calls": 2,
+        "peak_cuda_allocated_bytes": 1_024,
+        "peak_cuda_reserved_bytes": 2_048,
+        "component_timers_overlap": True,
+    }
+    payload["digest"] = content_digest(payload)
+    return payload
+
+
+def test_load_training_performance_validates_schema_and_digest(tmp_path: Path) -> None:
+    member = tmp_path / "member-000"
+    member.mkdir()
+    payload = _performance_payload()
+    (member / "training-performance.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    assert _load_smoke()._load_training_performance(member) == payload
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ({"schema_version": "wrong"}, "schema"),
+        ({"digest": "0" * 64}, "digest"),
+        ({"observed_environment_steps": 0}, "observed"),
+        ({"wall_clock_seconds": 0.0}, "wall"),
+    ),
+)
+def test_load_training_performance_fails_closed(
+    tmp_path: Path,
+    mutation: dict[str, object],
+    message: str,
+) -> None:
+    member = tmp_path / "member-000"
+    member.mkdir()
+    payload = _performance_payload()
+    payload.update(mutation)
+    (member / "training-performance.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises((RuntimeError, ValueError), match=message):
+        _load_smoke()._load_training_performance(member)

@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   verify-and-publish:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -54,34 +53,133 @@ jobs:
           assembly_path = "trade_rl/integrations/sb3_model_assembly.py"
           replace_once(
               assembly_path,
-              """    uses_shared_asset_actor: bool\n    rollout_buffer_class: object | None = None\n""",
-              """    uses_shared_asset_actor: bool\n    observation_encoder: str\n    sequence_symbols: tuple[str, ...] | None\n    sequence_action_names: tuple[str, ...] | None\n    rollout_buffer_class: object | None = None\n""",
+              """    uses_shared_asset_actor: bool
+    rollout_buffer_class: object | None = None
+""",
+              """    uses_shared_asset_actor: bool
+    observation_encoder: str
+    sequence_symbols: tuple[str, ...] | None
+    sequence_action_names: tuple[str, ...] | None
+    rollout_buffer_class: object | None = None
+""",
           )
           replace_once(
               assembly_path,
-              """    uses_shared_asset_actor = False\n    rollout_buffer_class: object | None = None\n""",
-              """    uses_shared_asset_actor = False\n    sequence_symbols: tuple[str, ...] | None = None\n    sequence_action_names: tuple[str, ...] | None = None\n    rollout_buffer_class: object | None = None\n""",
+              """    uses_shared_asset_actor = False
+    rollout_buffer_class: object | None = None
+""",
+              """    uses_shared_asset_actor = False
+    sequence_symbols: tuple[str, ...] | None = None
+    sequence_action_names: tuple[str, ...] | None = None
+    rollout_buffer_class: object | None = None
+""",
           )
           replace_once(
               assembly_path,
-              """        ) = _sequence_policy_assembly(\n            probe=probe,\n            identity=identity,\n            config=config,\n        )\n        rollout_buffer_class = IndexBackedDictRolloutBuffer\n""",
-              """        ) = _sequence_policy_assembly(\n            probe=probe,\n            identity=identity,\n            config=config,\n        )\n        unwrapped: Any = getattr(probe, \"unwrapped\", probe)\n        dataset = getattr(unwrapped, \"dataset\", None)\n        raw_symbols = getattr(dataset, \"symbols\", None)\n        if (\n            not isinstance(raw_symbols, (tuple, list))\n            or not raw_symbols\n            or any(not isinstance(item, str) or not item for item in raw_symbols)\n        ):\n            raise ValueError(\"sequence training requires ordered dataset symbols\")\n        sequence_symbols = tuple(raw_symbols)\n        sequence_action_names = _action_names(identity)\n        rollout_buffer_class = IndexBackedDictRolloutBuffer\n""",
+              """        ) = _sequence_policy_assembly(
+            probe=probe,
+            identity=identity,
+            config=config,
+        )
+        rollout_buffer_class = IndexBackedDictRolloutBuffer
+""",
+              """        ) = _sequence_policy_assembly(
+            probe=probe,
+            identity=identity,
+            config=config,
+        )
+        unwrapped: Any = getattr(probe, "unwrapped", probe)
+        dataset = getattr(unwrapped, "dataset", None)
+        raw_symbols = getattr(dataset, "symbols", None)
+        if (
+            not isinstance(raw_symbols, (tuple, list))
+            or not raw_symbols
+            or any(not isinstance(item, str) or not item for item in raw_symbols)
+        ):
+            raise ValueError("sequence training requires ordered dataset symbols")
+        sequence_symbols = tuple(raw_symbols)
+        sequence_action_names = _action_names(identity)
+        rollout_buffer_class = IndexBackedDictRolloutBuffer
+""",
           )
           replace_once(
               assembly_path,
-              """        uses_shared_asset_actor=uses_shared_asset_actor,\n        rollout_buffer_class=rollout_buffer_class,\n""",
-              """        uses_shared_asset_actor=uses_shared_asset_actor,\n        observation_encoder=config.observation_encoder,\n        sequence_symbols=sequence_symbols,\n        sequence_action_names=sequence_action_names,\n        rollout_buffer_class=rollout_buffer_class,\n""",
+              """        uses_shared_asset_actor=uses_shared_asset_actor,
+        rollout_buffer_class=rollout_buffer_class,
+""",
+              """        uses_shared_asset_actor=uses_shared_asset_actor,
+        observation_encoder=config.observation_encoder,
+        sequence_symbols=sequence_symbols,
+        sequence_action_names=sequence_action_names,
+        rollout_buffer_class=rollout_buffer_class,
+""",
           )
           replace_once(
               assembly_path,
-              """    common = _common_model_kwargs(\n        seed=seed,\n        config=config,\n        algorithm_config=algorithm_config,\n        policy=policy,\n        verbose=verbose,\n        output_root=output_root,\n    )\n    if isinstance(algorithm_config, PPOConfig):\n""",
-              """    common = _common_model_kwargs(\n        seed=seed,\n        config=config,\n        algorithm_config=algorithm_config,\n        policy=policy,\n        verbose=verbose,\n        output_root=output_root,\n    )\n\n    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity\n\n    def _bind_identity(model: Any) -> Any:\n        bind_sb3_policy_identity(model, policy)\n        return model\n\n    if isinstance(algorithm_config, PPOConfig):\n""",
+              """    common = _common_model_kwargs(
+        seed=seed,
+        config=config,
+        algorithm_config=algorithm_config,
+        policy=policy,
+        verbose=verbose,
+        output_root=output_root,
+    )
+    if isinstance(algorithm_config, PPOConfig):
+""",
+              """    common = _common_model_kwargs(
+        seed=seed,
+        config=config,
+        algorithm_config=algorithm_config,
+        policy=policy,
+        verbose=verbose,
+        output_root=output_root,
+    )
+
+    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity
+
+    def _bind_identity(model: Any) -> Any:
+        bind_sb3_policy_identity(model, policy)
+        return model
+
+    if isinstance(algorithm_config, PPOConfig):
+""",
           )
           replace_once(assembly_path, "            return model\n", "            return _bind_identity(model)\n")
           replace_once(
               assembly_path,
-              """            constructor = CostCriticPPO\n            return constructor(\n                policy.policy_identifier,\n                environment,\n                cost_schema=algorithm_config.cost_schema,\n                cost_learning_rate=algorithm_config.cost_learning_rate,\n                cost_n_epochs=algorithm_config.cost_n_epochs,\n                cost_batch_size=algorithm_config.cost_batch_size,\n                cost_continuous_hidden_dims=(\n                    algorithm_config.cost_continuous_hidden_dims\n                ),\n                cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,\n                cost_max_grad_norm=algorithm_config.cost_max_grad_norm,\n                **ppo_kwargs,\n            )\n""",
-              """            constructor = CostCriticPPO\n            model = constructor(\n                policy.policy_identifier,\n                environment,\n                cost_schema=algorithm_config.cost_schema,\n                cost_learning_rate=algorithm_config.cost_learning_rate,\n                cost_n_epochs=algorithm_config.cost_n_epochs,\n                cost_batch_size=algorithm_config.cost_batch_size,\n                cost_continuous_hidden_dims=(\n                    algorithm_config.cost_continuous_hidden_dims\n                ),\n                cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,\n                cost_max_grad_norm=algorithm_config.cost_max_grad_norm,\n                **ppo_kwargs,\n            )\n            return _bind_identity(model)\n""",
+              """            constructor = CostCriticPPO
+            return constructor(
+                policy.policy_identifier,
+                environment,
+                cost_schema=algorithm_config.cost_schema,
+                cost_learning_rate=algorithm_config.cost_learning_rate,
+                cost_n_epochs=algorithm_config.cost_n_epochs,
+                cost_batch_size=algorithm_config.cost_batch_size,
+                cost_continuous_hidden_dims=(
+                    algorithm_config.cost_continuous_hidden_dims
+                ),
+                cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,
+                cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
+                **ppo_kwargs,
+            )
+""",
+              """            constructor = CostCriticPPO
+            model = constructor(
+                policy.policy_identifier,
+                environment,
+                cost_schema=algorithm_config.cost_schema,
+                cost_learning_rate=algorithm_config.cost_learning_rate,
+                cost_n_epochs=algorithm_config.cost_n_epochs,
+                cost_batch_size=algorithm_config.cost_batch_size,
+                cost_continuous_hidden_dims=(
+                    algorithm_config.cost_continuous_hidden_dims
+                ),
+                cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,
+                cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
+                **ppo_kwargs,
+            )
+            return _bind_identity(model)
+""",
           )
           replace_once(
               assembly_path,
@@ -97,8 +195,64 @@ jobs:
           checkpoint_path = "trade_rl/rl/checkpointing.py"
           replace_once(
               checkpoint_path,
-              """def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:\n    provider = getattr(model, \"checkpoint_identity_payload\", None)\n    if provider is None:\n        return None\n    if not callable(provider):\n        raise TypeError(\"checkpoint_identity_payload must be callable\")\n    raw = provider()\n    if raw is None:\n        return None\n    if not isinstance(raw, dict) or not raw:\n        raise ValueError(\"checkpoint algorithm identity must be a non-empty object\")\n    if any(not isinstance(key, str) or not key for key in raw):\n        raise ValueError(\"checkpoint algorithm identity keys must be non-empty strings\")\n    payload = dict(raw)\n    canonical_json_bytes(payload)\n    return payload\n\n\n""",
-              """def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:\n    provider = getattr(model, \"checkpoint_identity_payload\", None)\n    if provider is None:\n        return None\n    if not callable(provider):\n        raise TypeError(\"checkpoint_identity_payload must be callable\")\n    raw = provider()\n    if raw is None:\n        return None\n    if not isinstance(raw, dict) or not raw:\n        raise ValueError(\"checkpoint algorithm identity must be a non-empty object\")\n    if any(not isinstance(key, str) or not key for key in raw):\n        raise ValueError(\"checkpoint algorithm identity keys must be non-empty strings\")\n    payload = dict(raw)\n    canonical_json_bytes(payload)\n    return payload\n\n\ndef checkpoint_identity_payload_for_model(\n    model: SavablePolicy,\n) -> dict[str, object] | None:\n    \"\"\"Compose the bound policy identity with any algorithm-specific identity.\"\"\"\n\n    from trade_rl.integrations.sb3_policy_identity import model_sb3_policy_identity\n\n    policy_identity = model_sb3_policy_identity(model)\n    algorithm_identity = _model_algorithm_identity(model)\n    if policy_identity is None:\n        return algorithm_identity\n    payload: dict[str, object] = {\n        \"schema_version\": \"sb3_checkpoint_identity_v2\",\n        \"policy\": policy_identity,\n        \"algorithm\": algorithm_identity,\n    }\n    canonical_json_bytes(payload)\n    return payload\n\n\n""",
+              """def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:
+    provider = getattr(model, "checkpoint_identity_payload", None)
+    if provider is None:
+        return None
+    if not callable(provider):
+        raise TypeError("checkpoint_identity_payload must be callable")
+    raw = provider()
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("checkpoint algorithm identity must be a non-empty object")
+    if any(not isinstance(key, str) or not key for key in raw):
+        raise ValueError("checkpoint algorithm identity keys must be non-empty strings")
+    payload = dict(raw)
+    canonical_json_bytes(payload)
+    return payload
+
+
+""",
+              """def _model_algorithm_identity(model: SavablePolicy) -> dict[str, object] | None:
+    provider = getattr(model, "checkpoint_identity_payload", None)
+    if provider is None:
+        return None
+    if not callable(provider):
+        raise TypeError("checkpoint_identity_payload must be callable")
+    raw = provider()
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("checkpoint algorithm identity must be a non-empty object")
+    if any(not isinstance(key, str) or not key for key in raw):
+        raise ValueError("checkpoint algorithm identity keys must be non-empty strings")
+    payload = dict(raw)
+    canonical_json_bytes(payload)
+    return payload
+
+
+def checkpoint_identity_payload_for_model(
+    model: SavablePolicy,
+) -> dict[str, object] | None:
+    """Compose the bound policy identity with any algorithm-specific identity."""
+
+    from trade_rl.integrations.sb3_policy_identity import model_sb3_policy_identity
+
+    policy_identity = model_sb3_policy_identity(model)
+    algorithm_identity = _model_algorithm_identity(model)
+    if policy_identity is None:
+        return algorithm_identity
+    payload: dict[str, object] = {
+        "schema_version": "sb3_checkpoint_identity_v2",
+        "policy": policy_identity,
+        "algorithm": algorithm_identity,
+    }
+    canonical_json_bytes(payload)
+    return payload
+
+
+""",
           )
           replace_once(
               checkpoint_path,
@@ -107,25 +261,68 @@ jobs:
           )
           replace_once(
               checkpoint_path,
-              """    \"build_checkpoint_callback\",\n    \"checkpoint_manifests\",\n""",
-              """    \"build_checkpoint_callback\",\n    \"checkpoint_identity_payload_for_model\",\n    \"checkpoint_manifests\",\n""",
+              """    "build_checkpoint_callback",
+    "checkpoint_manifests",
+""",
+              """    "build_checkpoint_callback",
+    "checkpoint_identity_payload_for_model",
+    "checkpoint_manifests",
+""",
           )
 
           load_path = "trade_rl/integrations/sb3_checkpoint_assembly.py"
           replace_once(
               load_path,
-              """    CheckpointManifest,\n    load_checkpoint_manifest,\n    validate_checkpoint_algorithm_identity,\n""",
-              """    CheckpointManifest,\n    checkpoint_identity_payload_for_model,\n    load_checkpoint_manifest,\n    validate_checkpoint_algorithm_identity,\n""",
+              """    CheckpointManifest,
+    load_checkpoint_manifest,
+    validate_checkpoint_algorithm_identity,
+""",
+              """    CheckpointManifest,
+    checkpoint_identity_payload_for_model,
+    load_checkpoint_manifest,
+    validate_checkpoint_algorithm_identity,
+""",
           )
           replace_once(
               load_path,
-              """def _checkpoint_algorithm_identity(\n    model: object,\n    algorithm_config: AlgorithmConfig,\n) -> dict[str, object] | None:\n    if not isinstance(algorithm_config, CostCriticPPOConfig):\n        return None\n    provider = getattr(model, \"checkpoint_identity_payload\", None)\n    if not callable(provider):\n        raise TypeError(\"checkpoint_identity_payload must be callable\")\n    value = provider()\n    if not isinstance(value, dict) or not value:\n        raise ValueError(\"checkpoint algorithm identity must be a non-empty object\")\n    return value\n""",
-              """def _checkpoint_algorithm_identity(\n    model: object,\n    algorithm_config: AlgorithmConfig,\n) -> dict[str, object] | None:\n    del algorithm_config\n    return checkpoint_identity_payload_for_model(model)\n""",
+              """def _checkpoint_algorithm_identity(
+    model: object,
+    algorithm_config: AlgorithmConfig,
+) -> dict[str, object] | None:
+    if not isinstance(algorithm_config, CostCriticPPOConfig):
+        return None
+    provider = getattr(model, "checkpoint_identity_payload", None)
+    if not callable(provider):
+        raise TypeError("checkpoint_identity_payload must be callable")
+    value = provider()
+    if not isinstance(value, dict) or not value:
+        raise ValueError("checkpoint algorithm identity must be a non-empty object")
+    return value
+""",
+              """def _checkpoint_algorithm_identity(
+    model: object,
+    algorithm_config: AlgorithmConfig,
+) -> dict[str, object] | None:
+    del algorithm_config
+    return checkpoint_identity_payload_for_model(model)
+""",
           )
           replace_once(
               load_path,
-              """    if int(model.num_timesteps) != manifest.observed_timestep:\n        raise ValueError(\"checkpoint timestep identity mismatch\")\n    if isinstance(algorithm_config, CostCriticPPOConfig):\n        loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)\n        validate_checkpoint_algorithm_identity(manifest, loaded_identity)\n""",
-              """    if int(model.num_timesteps) != manifest.observed_timestep:\n        raise ValueError(\"checkpoint timestep identity mismatch\")\n    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity\n\n    bind_sb3_policy_identity(model, policy)\n    loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)\n    validate_checkpoint_algorithm_identity(manifest, loaded_identity)\n""",
+              """    if int(model.num_timesteps) != manifest.observed_timestep:
+        raise ValueError("checkpoint timestep identity mismatch")
+    if isinstance(algorithm_config, CostCriticPPOConfig):
+        loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)
+        validate_checkpoint_algorithm_identity(manifest, loaded_identity)
+""",
+              """    if int(model.num_timesteps) != manifest.observed_timestep:
+        raise ValueError("checkpoint timestep identity mismatch")
+    from trade_rl.integrations.sb3_policy_identity import bind_sb3_policy_identity
+
+    bind_sb3_policy_identity(model, policy)
+    loaded_identity = _checkpoint_algorithm_identity(model, algorithm_config)
+    validate_checkpoint_algorithm_identity(manifest, loaded_identity)
+""",
           )
           PY
 
@@ -150,7 +347,10 @@ jobs:
         run: |
           rm -f \
             .github/workflows/normalize-pr227-generated-encoder-expressions.yml \
-            docs/verification/.normalize-pr227-generated-expressions-trigger.md
+            docs/verification/.normalize-pr227-generated-expressions-trigger.md \
+            docs/verification/.normalize-pr227-generated-expressions-trigger-2.md \
+            docs/verification/.normalize-pr227-generated-expressions-trigger-3.md \
+            docs/verification/.finalize-pr227-policy-identity-trigger.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A

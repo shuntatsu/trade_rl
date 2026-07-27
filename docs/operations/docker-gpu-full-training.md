@@ -26,7 +26,7 @@ Binance Vision ZIP archives are stored in the independent Docker volume `trade-r
 
 The existing `trade-rl-training-data` volume remains mounted at `/workspace/var`. Existing generation directories, checkpoints, logs and teacher artifacts therefore remain available. During synchronization the same legacy volume is mounted read-only at `/workspace/legacy-var`; valid nonempty files from `/workspace/legacy-var/cache/binance-vision` are copied into the new archive volume only when the destination file does not already exist. This avoids a one-time full redownload while preserving new-volume ownership.
 
-Use the canonical launcher for every phase start:
+Use the canonical launcher for every local phase start:
 
 ```bash
 python scripts/run_docker_training.py
@@ -38,7 +38,7 @@ The launcher executes these operations in order:
 2. plan the exact archive URLs required by the maintained symbols, native timeframes and fixed research interval;
 3. inspect the shared cache and download only missing or empty archives;
 4. stop immediately if synchronization fails;
-5. start `trainer` without rerunning dependencies.
+5. start `trainer` with `--no-deps`.
 
 Manual synchronization is available when only the archive volume should be updated:
 
@@ -46,7 +46,9 @@ Manual synchronization is available when only the archive volume should be updat
 docker compose -f compose.training.yaml run --rm market-data-sync
 ```
 
-A direct trainer invocation declares `market-data-sync` as a completed dependency, but the canonical launcher is preferred because it explicitly runs synchronization on every invocation. The training image also performs a read-only completeness check before CUDA preflight and forwards the same cache root to the full-research command. If the archive volume is incomplete, training fails closed and prints the synchronization command instead of downloading into the read-only mount.
+A direct `docker compose ... run trainer` invocation does not perform synchronization. The training bootstrap still performs a read-only completeness check before CUDA preflight and forwards the same cache root to the full-research command. If the archive volume is incomplete, training fails closed and prints the synchronization command instead of downloading into the read-only mount.
+
+The protected **Control Binance frozen 226 full generation** workflow also runs `market-data-sync` explicitly before handing control to the durable trainer supervisor. This ensures every supervised phase start performs the same missing-only synchronization rather than relying on the lifecycle state of a previous Compose service container.
 
 The maintained research end time remains authoritative. Advancing it in the pipeline causes only newly required URL-addressed archives to be downloaded; unchanged archives are read from the shared cache. The trailing incomplete USDⓈ-M funding month remains a REST responsibility of the existing dataset path because Binance Vision publishes funding archives monthly.
 
@@ -75,7 +77,7 @@ Use **Control Binance frozen 226 full generation** from `main`. Supply:
 - phase: `develop`, `train-selected`, or `finalize`
 - generation: one stable identifier reused across the three phases
 
-The workflow checks out `${{ github.sha }}`, verifies the source/lock labels of the commit-tagged image, requires a real CUDA device, then starts one supervised container. `develop` may finish in `awaiting_selection_authorization`; `train-selected` may finish in `awaiting_fresh_confirmation`. These are successful persisted states.
+The workflow checks out `${{ github.sha }}`, verifies the source/lock labels of the commit-tagged image, requires a real CUDA device, synchronizes the shared market archive volume, then starts one supervised container. `develop` may finish in `awaiting_selection_authorization`; `train-selected` may finish in `awaiting_fresh_confirmation`. These are successful persisted states.
 
 Every generation stores its own:
 
@@ -115,6 +117,6 @@ Do not reuse a failed generation as if it were clean. Preserve its artifact and 
 
 ## Studio 学習診断の確認
 
-`training-full.json` と `training-growth-optimal.json` は linear learning-rate decay と TensorBoard scalar 出力を有効にしています。linear decay は候補設定であり、最適値とみなさないでください。
+`training-full.json` と `training-growth-optimal.json` は linear learning-rate decay と TensorBoard scalar outputを有効にしています。linear decay は候補設定であり、最適値とみなさないでください。
 
 GPU training の開始後、Studio の `Live Training` で Run と Seed を選択し、`学習診断` を開きます。event file が作成されるまでは `未出力` と表示されます。resume 後は同じ seed/run identity の event file を統合し、global step 軸を継続します。市場リプレイの JSONL telemetry は独立して継続します。

@@ -52,18 +52,24 @@ class _CostEnvironment(gym.Env[np.ndarray, np.ndarray]):
         self.step_index += 1
         event = float(self.step_index == 2)
         observation = np.full(3, self.step_index / 10.0, dtype=np.float32)
-        return observation, 0.1, False, False, {
-            "constraint_costs": ConstraintCostVector(
-                drawdown_excess=0.01 * self.step_index,
-                drawdown_stop_event=event,
-                margin_deficit_fraction=0.0,
-                forced_liquidation_event=event,
-                gross_exposure_request_excess=0.0,
-                daily_turnover=0.2,
-                execution_cost_fraction=0.001,
-                funding_credit_fraction=0.0,
-            )
-        }
+        return (
+            observation,
+            0.1,
+            False,
+            False,
+            {
+                "constraint_costs": ConstraintCostVector(
+                    drawdown_excess=0.01 * self.step_index,
+                    drawdown_stop_event=event,
+                    margin_deficit_fraction=0.0,
+                    forced_liquidation_event=event,
+                    gross_exposure_request_excess=0.0,
+                    daily_turnover=0.2,
+                    execution_cost_fraction=0.001,
+                    funding_credit_fraction=0.0,
+                )
+            },
+        )
 
 
 def _model(
@@ -118,7 +124,9 @@ def test_cost_critic_update_extracts_policy_features_exactly_six_times() -> None
         environment.close()
 
 
-def test_policy_feature_capture_returns_exact_detached_tensor_and_restores_binding() -> None:
+def test_policy_feature_capture_returns_exact_detached_tensor_and_restores_binding() -> (
+    None
+):
     environment = DummyVecEnv([lambda: _CostEnvironment()])
     model = _model(environment)
     raw_observation = np.asarray([[0.1, -0.2, 0.3]], dtype=np.float32)

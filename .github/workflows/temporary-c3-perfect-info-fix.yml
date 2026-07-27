@@ -1,0 +1,179 @@
+name: Temporary C3 Perfect Information Fix
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3
+    paths:
+      - .github/workflows/temporary-c3-perfect-info-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Apply focused fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one anchor, found {count}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          perfect = "trade_rl/evaluation/causal_scenario_c3_perfect_information.py"
+          replace_once(
+              perfect,
+              "def _readonly_vector(name: str, value: object, *, positive: bool = False) -> np.ndarray:\n",
+              "def _readonly_vector(\n    name: str,\n    value: object,\n    *,\n    positive: bool = False,\n    non_negative: bool = False,\n) -> np.ndarray:\n",
+          )
+          replace_once(
+              perfect,
+              "    if not positive and np.any(array < 0.0):\n        raise ValueError(f\"{name} must be non-negative\")\n",
+              "    if non_negative and np.any(array < 0.0):\n        raise ValueError(f\"{name} must be non-negative\")\n",
+          )
+          for field in (
+              "causal_transaction_cost_rate",
+              "bound_transaction_cost_rate",
+              "causal_liquidation_cost_rate",
+              "bound_liquidation_cost_rate",
+          ):
+              old = f'''        {field.removesuffix('_rate').replace('causal_', 'causal_').replace('bound_', 'bound_')} = _readonly_vector(\n            "{field}", self.{field}\n        )'''
+          # Use explicit source anchors so signed weights remain allowed while costs stay non-negative.
+          replacements = {
+              '''        causal_transaction = _readonly_vector(\n            "causal_transaction_cost_rate", self.causal_transaction_cost_rate\n        )''': '''        causal_transaction = _readonly_vector(\n            "causal_transaction_cost_rate",\n            self.causal_transaction_cost_rate,\n            non_negative=True,\n        )''',
+              '''        bound_transaction = _readonly_vector(\n            "bound_transaction_cost_rate", self.bound_transaction_cost_rate\n        )''': '''        bound_transaction = _readonly_vector(\n            "bound_transaction_cost_rate",\n            self.bound_transaction_cost_rate,\n            non_negative=True,\n        )''',
+              '''        causal_liquidation = _readonly_vector(\n            "causal_liquidation_cost_rate", self.causal_liquidation_cost_rate\n        )''': '''        causal_liquidation = _readonly_vector(\n            "causal_liquidation_cost_rate",\n            self.causal_liquidation_cost_rate,\n            non_negative=True,\n        )''',
+              '''        bound_liquidation = _readonly_vector(\n            "bound_liquidation_cost_rate", self.bound_liquidation_cost_rate\n        )''': '''        bound_liquidation = _readonly_vector(\n            "bound_liquidation_cost_rate",\n            self.bound_liquidation_cost_rate,\n            non_negative=True,\n        )''',
+          }
+          for old, new in replacements.items():
+              replace_once(perfect, old, new)
+
+          test_unit = "tests/evaluation/test_causal_scenario_c3.py"
+          replace_once(
+              test_unit,
+              "    PerfectInformationComparison,\n    PerfectInformationComparisonStatus,\n",
+              "    PerfectInformationComparison,\n    PerfectInformationComparisonReason,\n    PerfectInformationComparisonStatus,\n",
+          )
+          replace_once(
+              test_unit,
+              "from trade_rl.evaluation.causal_scenario_c3_gate import evaluate_phase_a_entry_gate\n",
+              '''from trade_rl.evaluation.causal_scenario_c3_gate import evaluate_phase_a_entry_gate\nfrom trade_rl.evaluation.causal_scenario_c3_perfect_information import (\n    PerfectInformationCompatibilityEvidence,\n    evaluate_perfect_information_compatibility,\n)\n''',
+          )
+          helper = '''\n\ndef _perfect_information(*, causal_log_return: float) -> PerfectInformationComparison:\n    dimension = 3\n    evidence = PerfectInformationCompatibilityEvidence(\n        causal_period_digest=sha("7"),\n        bound_period_digest=sha("7"),\n        causal_return_matrix_digest=sha("8"),\n        bound_return_matrix_digest=sha("8"),\n        causal_initial_weights=np.zeros(dimension, dtype=np.float64),\n        bound_initial_weights=np.zeros(dimension, dtype=np.float64),\n        causal_aum=100_000.0,\n        bound_aum=100_000.0,\n        causal_max_abs_weight=np.full(dimension, 0.45),\n        bound_max_abs_weight=np.full(dimension, 0.50),\n        causal_max_gross=0.90,\n        bound_max_gross=1.00,\n        causal_max_net_exposure=0.40,\n        bound_max_net_exposure=0.50,\n        causal_transaction_cost_rate=np.full(dimension, 0.0010),\n        bound_transaction_cost_rate=np.full(dimension, 0.0005),\n        causal_liquidation_cost_rate=np.full(dimension, 0.0010),\n        bound_liquidation_cost_rate=np.full(dimension, 0.0005),\n        bound_result_digest=sha("9"),\n        bound_log_return=0.08,\n        causal_log_return=causal_log_return,\n    )\n    comparison = evaluate_perfect_information_compatibility(evidence)\n    assert comparison.status is PerfectInformationComparisonStatus.COMPARABLE\n    return comparison\n'''
+          replace_once(
+              test_unit,
+              "\ndef test_perfect_information_comparison_is_explicitly_not_comparable() -> None:\n",
+              helper + "\ndef test_perfect_information_comparison_is_explicitly_not_comparable() -> None:\n",
+          )
+          replace_once(
+              test_unit,
+              '            reason="mismatch",\n',
+              "            reason=PerfectInformationComparisonReason.INITIAL_WEIGHTS_MISMATCH.value,\n",
+          )
+          replace_once(
+              test_unit,
+              '''        perfect_information=PerfectInformationComparison.comparable(\n            bound_log_return=0.08,\n            causal_log_return=0.01 + uplift,\n        ),''',
+              '''        perfect_information=_perfect_information(\n            causal_log_return=0.01 + uplift\n        ),''',
+          )
+
+          test_integration = "tests/evaluation/test_causal_scenario_c3_integration.py"
+          replace_once(
+              test_integration,
+              "from trade_rl.evaluation.causal_scenario_c3_gate import evaluate_phase_a_entry_gate\n",
+              '''from trade_rl.evaluation.causal_scenario_c3_gate import evaluate_phase_a_entry_gate\nfrom trade_rl.evaluation.causal_scenario_c3_perfect_information import (\n    PerfectInformationCompatibilityEvidence,\n    evaluate_perfect_information_compatibility,\n)\n''',
+          )
+          integration_helper = '''\n\ndef _perfect_information(*, causal_log_return: float) -> PerfectInformationComparison:\n    evidence = PerfectInformationCompatibilityEvidence(\n        causal_period_digest=sha("7"),\n        bound_period_digest=sha("7"),\n        causal_return_matrix_digest=sha("8"),\n        bound_return_matrix_digest=sha("8"),\n        causal_initial_weights=np.asarray([0.0]),\n        bound_initial_weights=np.asarray([0.0]),\n        causal_aum=100_000.0,\n        bound_aum=100_000.0,\n        causal_max_abs_weight=np.asarray([0.45]),\n        bound_max_abs_weight=np.asarray([0.50]),\n        causal_max_gross=0.90,\n        bound_max_gross=1.00,\n        causal_max_net_exposure=0.40,\n        bound_max_net_exposure=0.50,\n        causal_transaction_cost_rate=np.asarray([0.0010]),\n        bound_transaction_cost_rate=np.asarray([0.0005]),\n        causal_liquidation_cost_rate=np.asarray([0.0010]),\n        bound_liquidation_cost_rate=np.asarray([0.0005]),\n        bound_result_digest=sha("9"),\n        bound_log_return=0.08,\n        causal_log_return=causal_log_return,\n    )\n    comparison = evaluate_perfect_information_compatibility(evidence)\n    assert comparison.status.value == "comparable"\n    return comparison\n'''
+          replace_once(
+              test_integration,
+              "\ndef _query_comparison(tmp_path: Path, *, fold_index: int, day_index: int):\n",
+              integration_helper + "\ndef _query_comparison(tmp_path: Path, *, fold_index: int, day_index: int):\n",
+          )
+          integration_path = Path(test_integration)
+          integration_text = integration_path.read_text(encoding="utf-8")
+          old = '''PerfectInformationComparison.comparable(\n            bound_log_return=0.08,\n            causal_log_return=0.03,\n        )'''
+          if integration_text.count(old) != 1:
+              raise SystemExit(
+                  f"{test_integration}: expected one query comparison anchor, "
+                  f"found {integration_text.count(old)}"
+              )
+          integration_text = integration_text.replace(
+              old, "_perfect_information(causal_log_return=0.03)", 1
+          )
+          old_nested = '''PerfectInformationComparison.comparable(\n                        bound_log_return=0.08,\n                        causal_log_return=0.03,\n                    )'''
+          if integration_text.count(old_nested) != 1:
+              raise SystemExit(
+                  f"{test_integration}: expected one batch comparison anchor, "
+                  f"found {integration_text.count(old_nested)}"
+              )
+          integration_text = integration_text.replace(
+              old_nested, "_perfect_information(causal_log_return=0.03)", 1
+          )
+          integration_path.write_text(integration_text, encoding="utf-8")
+
+          public_api = "trade_rl/evaluation/__init__.py"
+          replace_once(
+              public_api,
+              "    PerfectInformationComparison,\n    PerfectInformationComparisonStatus,\n",
+              "    PerfectInformationComparison,\n    PerfectInformationComparisonReason,\n    PerfectInformationComparisonStatus,\n",
+          )
+          replace_once(
+              public_api,
+              "from trade_rl.evaluation.causal_scenario_c3_report import (\n",
+              '''from trade_rl.evaluation.causal_scenario_c3_perfect_information import (\n    PERFECT_INFORMATION_COMPATIBILITY_SCHEMA,\n    PerfectInformationCompatibilityEvidence,\n    evaluate_perfect_information_compatibility,\n)\nfrom trade_rl.evaluation.causal_scenario_c3_report import (\n''',
+          )
+          replace_once(
+              public_api,
+              '    "PERFECT_INFORMATION_BOUND_SCHEMA",\n',
+              '    "PERFECT_INFORMATION_BOUND_SCHEMA",\n    "PERFECT_INFORMATION_COMPATIBILITY_SCHEMA",\n',
+          )
+          replace_once(
+              public_api,
+              '    "PerfectInformationComparison",\n    "PerfectInformationComparisonStatus",\n',
+              '    "PerfectInformationComparison",\n    "PerfectInformationComparisonReason",\n    "PerfectInformationComparisonStatus",\n    "PerfectInformationCompatibilityEvidence",\n',
+          )
+          replace_once(
+              public_api,
+              '    "evaluate_phase_a_entry_gate",\n',
+              '    "evaluate_phase_a_entry_gate",\n    "evaluate_perfect_information_compatibility",\n',
+          )
+          PY
+          uv run ruff format \
+            trade_rl/evaluation/causal_scenario_c3_perfect_information.py \
+            trade_rl/evaluation/__init__.py \
+            tests/evaluation/test_causal_scenario_c3.py \
+            tests/evaluation/test_causal_scenario_c3_integration.py
+          uv run ruff check \
+            trade_rl/evaluation/causal_scenario_c3_perfect_information.py \
+            trade_rl/evaluation/__init__.py \
+            tests/evaluation/test_causal_scenario_c3.py \
+            tests/evaluation/test_causal_scenario_c3_integration.py \
+            tests/evaluation/test_causal_scenario_c3_perfect_information.py
+          uv run mypy \
+            trade_rl/evaluation/causal_scenario_c3_perfect_information.py \
+            trade_rl/evaluation/__init__.py
+          uv run pytest \
+            tests/evaluation/test_causal_scenario_c3_perfect_information.py \
+            tests/evaluation/test_causal_scenario_c3.py \
+            tests/evaluation/test_causal_scenario_c3_integration.py \
+            -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/temporary-c3-perfect-info-fix.yml
+          git add trade_rl tests
+          git commit -m "fix: complete C3 Perfect Information evidence contract"
+          git push origin HEAD:agent/causal-scenario-c3

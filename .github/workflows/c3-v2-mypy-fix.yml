@@ -1,0 +1,78 @@
+name: One-shot C3 typing correction
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3-execution-reporting-v2
+    paths:
+      - .github/workflows/c3-v2-mypy-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3-execution-reporting-v2
+          persist-credentials: true
+      - name: Apply reviewed typing corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/workflows/causal_scenario/c3_evaluation.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'from trade_rl.evaluation.causal_scenario_c3_adverse_source import (\n    load_c3_source_adverse_evidence,\n)\n',
+              'from trade_rl.evaluation.causal_scenario_c3_adverse import C3AdverseFoldEvidence\nfrom trade_rl.evaluation.causal_scenario_c3_adverse_source import (\n    load_c3_source_adverse_evidence,\n)\n',
+              1,
+          )
+          text = text.replace(
+              '    required_adverse_evidence: dict[str, object] = {}\n',
+              '    required_adverse_evidence: dict[str, C3AdverseFoldEvidence] = {}\n',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+
+          path = Path('trade_rl/cli/causal_scenario.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'from typing import TextIO\n',
+              'from typing import TYPE_CHECKING, TextIO\n',
+              1,
+          )
+          text = text.replace(
+              'from trade_rl.evaluation.causal_scenario_c3_markdown import (\n    VerifiedC3Evidence,\n',
+              'from trade_rl.evaluation.causal_scenario_c3_markdown import (\n    LoadedC3MarkdownArtifact,\n    VerifiedC3Evidence,\n',
+              1,
+          )
+          marker = ')\n\nPRODUCTION_STATUS = "NO-GO"\n'
+          text = text.replace(
+              marker,
+              ')\n\nif TYPE_CHECKING:\n    from trade_rl.workflows.causal_scenario.c3_evaluation import C3EvaluationResult\n\nPRODUCTION_STATUS = "NO-GO"\n',
+              1,
+          )
+          text = text.replace(
+              'def _execute(request: Path, *, output_root: Path):\n',
+              'def _execute(request: Path, *, output_root: Path) -> C3EvaluationResult:\n',
+              1,
+          )
+          text = text.replace(
+              '    gate_root: Path,\n):\n',
+              '    gate_root: Path,\n) -> LoadedC3MarkdownArtifact:\n',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+          rm .github/workflows/c3-v2-mypy-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: type C3 execution boundaries"
+          git push origin HEAD:agent/causal-scenario-c3-execution-reporting-v2

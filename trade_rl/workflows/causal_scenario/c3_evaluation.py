@@ -206,7 +206,7 @@ def _load_perfect_information(
         _string(payload["reason"], field=f"{field}.reason")
     )
     if status is PerfectInformationComparisonStatus.COMPARABLE:
-        if reason is not PerfectInformationComparisonReason.COMPATIBLE:
+        if reason is not PerfectInformationComparisonReason.DOMINANCE_VERIFIED:
             raise ValueError(f"{field} comparable reason mismatch")
         comparable_evidence = _string(
             payload["compatibility_evidence_digest"],

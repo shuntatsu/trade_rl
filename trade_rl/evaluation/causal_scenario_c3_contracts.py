@@ -464,7 +464,9 @@ class PerfectInformationComparison:
                 value is not None
                 for value in (self.bound_log_return, self.causal_log_return, self.gap)
             ):
-                raise ValueError("gap and log returns must be absent when not comparable")
+                raise ValueError(
+                    "gap and log returns must be absent when not comparable"
+                )
             if (
                 self.status is PerfectInformationComparisonStatus.NOT_EVALUATED
                 and reason != PerfectInformationComparisonReason.NOT_EVALUATED.value
@@ -497,7 +499,11 @@ class PerfectInformationComparison:
     ) -> PerfectInformationComparison:
         return cls(
             status=PerfectInformationComparisonStatus.NOT_COMPARABLE,
-            reason=reason.value if isinstance(reason, PerfectInformationComparisonReason) else reason,
+            reason=(
+                reason.value
+                if isinstance(reason, PerfectInformationComparisonReason)
+                else reason
+            ),
             bound_log_return=None,
             causal_log_return=None,
             gap=None,
@@ -669,7 +675,9 @@ class CausalScenarioQueryComparison:
             raise ValueError("random comparators must contain realized outcomes")
         for index, outcome in zip(random_indices, random_outcomes, strict=True):
             if outcome.outcome_digest != outcomes[index].outcome_digest:
-                raise ValueError("random comparator outcome does not match candidate index")
+                raise ValueError(
+                    "random comparator outcome does not match candidate index"
+                )
         if self.random_candidate.outcome_digest != random_outcomes[0].outcome_digest:
             raise ValueError("random_candidate must be the first random comparator")
         random_regrets = _readonly_float_array(

@@ -48,7 +48,9 @@ jobs:
             tests/examples/test_gpu_training_performance_assets.py \
             tests/examples/test_gpu_performance_comparison_assets.py
       - name: Focused H5 tests
+        shell: bash
         run: |
+          set +e
           uv run pytest -q \
             tests/examples/test_run_gpu_training_smoke.py \
             tests/examples/test_gpu_runtime_profiles.py \
@@ -56,7 +58,21 @@ jobs:
             tests/examples/test_gpu_training_performance_assets.py \
             tests/examples/test_gpu_performance_comparison_assets.py \
             tests/examples/test_docker_training_assets.py \
-            tests/examples/test_binance_multitimeframe_full_assets.py
+            tests/examples/test_binance_multitimeframe_full_assets.py \
+            2>&1 | tee h5-focused.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > h5-focused.status
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: h5-focused-diagnostics
+          path: |
+            h5-focused.log
+            h5-focused.status
+          if-no-files-found: error
+      - name: Enforce focused H5 tests
+        run: test "$(cat h5-focused.status)" = 0
       - name: Static and workflow verification
         run: |
           uv run ruff check \
@@ -81,6 +97,7 @@ jobs:
           rm -f .github/scripts/apply_h5_gpu_comparison.py
           rm -f .github/scripts/fix_h5_comparison_message.py
           rm -f .github/workflows/temporary-h5-updater.yml
+          rm -f h5-focused.log h5-focused.status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A

@@ -40,7 +40,10 @@ def sha(char: str) -> str:
     return char * 64
 
 
-def _decision() -> PersistedScenarioDecision:
+def _decision(
+    *, query_index: int = 10_000, fold_digest: str | None = None
+) -> PersistedScenarioDecision:
+    resolved_fold_digest = sha("b") if fold_digest is None else fold_digest
     raw = np.asarray([[0.0], [1.0], [-1.0]], dtype=np.float64)
     projected = raw * 0.25
     candidate_digests = tuple(
@@ -59,9 +62,9 @@ def _decision() -> PersistedScenarioDecision:
         "candidate_generator_digest": sha("6"),
         "created_before_realized_replay": True,
         "dataset_id": sha("a"),
-        "fold_digest": sha("b"),
+        "fold_digest": resolved_fold_digest,
         "projected_targets": projected.tolist(),
-        "query_index": 10_000,
+        "query_index": query_index,
         "query_timestamp_ns": 1_800_000_000_000_000_000,
         "raw_candidate_actions": raw.tolist(),
         "regret": regret.tolist(),
@@ -78,8 +81,8 @@ def _decision() -> PersistedScenarioDecision:
     }
     return PersistedScenarioDecision(
         dataset_id=sha("a"),
-        fold_digest=sha("b"),
-        query_index=10_000,
+        fold_digest=resolved_fold_digest,
+        query_index=query_index,
         query_timestamp_ns=1_800_000_000_000_000_000,
         state_snapshot_digest=sha("2"),
         scenario_library_digest=sha("3"),
@@ -211,7 +214,13 @@ def test_batch_publishes_report_and_gate_from_verified_decisions(tmp_path: Path)
         adverse[fold_id] = True
         for query_index in range(8):
             decision_root = tmp_path / "decisions" / fold_id / str(query_index)
-            write_c3_decision_artifact(decision_root, _decision())
+            write_c3_decision_artifact(
+                decision_root,
+                _decision(
+                    query_index=10_000 + fold_index * 100 + query_index,
+                    fold_digest=content_digest({"fold_id": fold_id}),
+                ),
+            )
             queries.append(
                 C3BatchQuery(
                     fold_id=fold_id,

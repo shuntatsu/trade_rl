@@ -267,3 +267,29 @@ def test_cost_diagnostics_reuse_supplied_cache_without_feature_extraction() -> N
         assert np.isfinite(metrics["gradient/continuous"])
     finally:
         environment.close()
+
+
+def test_cache_build_failure_restores_training_modes_and_torch_rng(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = DummyVecEnv([lambda: _CostEnvironment()])
+    model = _model(environment, cost_n_epochs=1, cost_batch_size=4)
+    try:
+        model.learn(total_timesteps=4)
+        model.policy.set_training_mode(True)
+        model.cost_critic.train(False)
+        expected_rng = torch.random.get_rng_state().clone()
+
+        def fail_cache_build() -> torch.Tensor:
+            torch.rand(1)
+            raise RuntimeError("cache build failed")
+
+        monkeypatch.setattr(model, "_build_cost_feature_cache", fail_cache_build)
+        with pytest.raises(RuntimeError, match="cache build failed"):
+            model._train_cost_critic()
+
+        assert model.policy.training is True
+        assert model.cost_critic.training is False
+        assert torch.equal(torch.random.get_rng_state(), expected_rng)
+    finally:
+        environment.close()

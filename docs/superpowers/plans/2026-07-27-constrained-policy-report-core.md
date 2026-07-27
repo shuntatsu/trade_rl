@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, dataclasses, existing artifact hashing and framework-independent domain constraint contracts, pytest, Ruff, Mypy.
 
-**Current status:** The RED collection failure was confirmed on both compatibility runners. The pure implementation and repository-formatted tests are committed. Ruff, format, Mypy, Ubuntu, Windows, and the Training image passed before Import architecture exposed the forbidden `evaluation -> rl` dependency. Canonical constraint names, aggregation semantics, and units are now being moved to `trade_rl.domain.constraint_contracts`; exact-head full verification remains pending after that boundary migration.
+**Current status:** The RED collection failure was confirmed on both compatibility runners. The report core is implemented as a focused evaluation package. Canonical constraint names, aggregation semantics, and units are owned by `trade_rl.domain.constraint_contracts`; the environment and Lagrangian statistics modules re-export the same objects, and the report layer no longer imports `trade_rl.rl`. Repository Ruff fixes and formatting have been applied. Exact-head full verification remains pending.
 
 ## Constraints
 
@@ -37,7 +37,7 @@
 ### Task 2: GREEN pure implementation
 
 **Files:**
-- Create `trade_rl/evaluation/constrained_policy_report.py`
+- Create `trade_rl/evaluation/constrained_policy_report/`
 - Create `trade_rl/domain/constraint_contracts.py`
 - Update `trade_rl/rl/environment_constraints.py`
 - Update `trade_rl/rl/lagrangian_statistics.py`
@@ -48,12 +48,13 @@
 - [x] Implement complete-only optional diagnostic aggregation.
 - [x] Implement deterministic payloads and report digest.
 - [x] Add domain-owned canonical constraint metadata and identity tests.
-- [ ] Switch the environment, Lagrangian statistics, and report imports to the domain contract.
-- [ ] Run focused Pytest, Ruff, format, Mypy, and Import architecture.
+- [x] Switch the environment, Lagrangian statistics, and report imports to the domain contract.
+- [x] Apply repository Ruff fixes and formatting to the complete change set.
+- [ ] Run exact-head focused Pytest, Ruff, format, Mypy, and Import architecture.
 
 ### Task 3: Repository verification
 
-- [ ] Confirm final diff contains only the approved documents, domain contract, report core, two existing-file re-exports, and focused tests.
+- [x] Confirm final diff contains only the approved documents, domain contract, report core, two existing-file re-exports, and focused tests.
 - [ ] Confirm zero changed-file overlap with active PR #227.
 - [ ] Run exact-head CI including full Pytest, critical coverage, Ubuntu, Windows, and Training image.
 - [ ] Run PostgreSQL workflow if triggered.

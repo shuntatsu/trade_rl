@@ -15,5 +15,7 @@ _PATHS = (
 _PAYLOAD = {
     path: base64.b64encode(Path(path).read_bytes()).decode("ascii") for path in _PATHS
 }
-print("PR198_SOURCE_EXPORT=" + base64.b64encode(json.dumps(_PAYLOAD).encode()).decode())
+print(  # noqa: T201
+    "PR198_SOURCE_EXPORT=" + base64.b64encode(json.dumps(_PAYLOAD).encode()).decode()
+)
 raise RuntimeError("intentional PR198 source export")

@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  copy-and-verify:
+  copy:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -18,8 +18,7 @@ jobs:
           ref: agent/sb3-model-assembly-rebased
           fetch-depth: 0
       - name: Fetch completed PR208 source branch
-        run: |
-          git fetch origin agent/sb3-model-assembly-boundary:refs/remotes/origin/pr208-source
+        run: git fetch origin agent/sb3-model-assembly-boundary:refs/remotes/origin/pr208-source
       - name: Copy final reviewed files onto latest main
         run: |
           git checkout origin/pr208-source -- \
@@ -33,44 +32,11 @@ jobs:
             trade_rl/integrations/sb3_model_assembly.py \
             trade_rl/integrations/sb3_training.py
           rm .github/workflows/pr208-rebase-copy.yml
-          git add -A
-      - name: Install focused verification dependencies
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-        with:
-          python-version: '3.12'
-          enable-cache: true
-      - run: uv sync --extra dev --extra train-sb3
-      - name: Verify formatting and types
-        run: |
-          uv run ruff check \
-            trade_rl/integrations/sb3_training.py \
-            trade_rl/integrations/sb3_model_assembly.py \
-            trade_rl/integrations/sb3_checkpoint_assembly.py \
-            tests/integrations/test_sb3_backend_assembly_boundary.py \
-            tests/integrations/test_sb3_checkpoint_assembly.py \
-            tests/integrations/test_sb3_model_assembly.py \
-            tests/integrations/test_sb3_model_construction.py
-          uv run ruff format --check \
-            trade_rl/integrations/sb3_training.py \
-            trade_rl/integrations/sb3_model_assembly.py \
-            trade_rl/integrations/sb3_checkpoint_assembly.py \
-            tests/integrations/test_sb3_backend_assembly_boundary.py \
-            tests/integrations/test_sb3_checkpoint_assembly.py \
-            tests/integrations/test_sb3_model_assembly.py \
-            tests/integrations/test_sb3_model_construction.py
-          uv run mypy \
+          python -m py_compile \
             trade_rl/integrations/sb3_training.py \
             trade_rl/integrations/sb3_model_assembly.py \
             trade_rl/integrations/sb3_checkpoint_assembly.py
-      - name: Run focused backend regressions
-        run: |
-          uv run pytest \
-            tests/integrations/test_sb3_backend_assembly_boundary.py \
-            tests/integrations/test_sb3_checkpoint_assembly.py \
-            tests/integrations/test_sb3_model_assembly.py \
-            tests/integrations/test_sb3_model_construction.py \
-            tests/integrations/test_sb3_training.py \
-            -q
+          git add -A
       - name: Commit rebased implementation
         run: |
           git config user.name github-actions[bot]

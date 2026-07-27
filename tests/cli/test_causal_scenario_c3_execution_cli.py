@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from trade_rl.cli import main
 from trade_rl.cli import causal_scenario as module
+from trade_rl.cli import main
 
 
 def _streams() -> tuple[io.StringIO, io.StringIO]:

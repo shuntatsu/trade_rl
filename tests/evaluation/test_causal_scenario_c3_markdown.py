@@ -162,9 +162,9 @@ def test_markdown_artifact_binds_verified_core_artifacts(
     manifest = json.loads(
         (tmp_path / "markdown" / "manifest.json").read_text(encoding="utf-8")
     )
-    assert (tmp_path / "markdown" / "manifest.json").read_bytes() == canonical_json_bytes(
-        manifest
-    )
+    assert (
+        tmp_path / "markdown" / "manifest.json"
+    ).read_bytes() == canonical_json_bytes(manifest)
     assert manifest["production_status"] == "NO-GO"
 
 
@@ -191,8 +191,12 @@ def test_markdown_artifact_rejects_extra_files(
     report_root.mkdir()
     gate_root.mkdir()
     root = tmp_path / "markdown"
-    module.write_c3_markdown_artifact(root, report_root=report_root, gate_root=gate_root)
+    module.write_c3_markdown_artifact(
+        root, report_root=report_root, gate_root=gate_root
+    )
     (root / "extra.txt").write_text("unexpected", encoding="utf-8")
 
     with pytest.raises(ValueError, match="file closure"):
-        module.load_c3_markdown_artifact(root, report_root=report_root, gate_root=gate_root)
+        module.load_c3_markdown_artifact(
+            root, report_root=report_root, gate_root=gate_root
+        )

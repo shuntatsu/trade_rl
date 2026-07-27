@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -73,7 +72,9 @@ def test_batch_binds_source_adverse_evidence(
             fold_digest=_sha("b"),
         )
     )
-    comparison = SimpleNamespace(decision_digest=_sha("4"), execution_scenario="nominal")
+    comparison = SimpleNamespace(
+        decision_digest=_sha("4"), execution_scenario="nominal"
+    )
     fold_report = SimpleNamespace()
     report = SimpleNamespace(digest=_sha("5"))
     gate = SimpleNamespace(report_digest=_sha("5"), digest=_sha("6"), passed=True)
@@ -263,8 +264,12 @@ def test_request_uses_source_bound_support_and_adverse_evidence(
     decision = SimpleNamespace(decision_digest=_sha("4"), replay_identity=_identity())
     batch = SimpleNamespace(production_status="NO-GO")
     captured: dict[str, object] = {}
-    monkeypatch.setattr(module, "validate_walk_forward_run_directory", lambda path: manifest)
-    monkeypatch.setattr(module, "_walk_forward_payload", lambda root, loaded: walk_forward)
+    monkeypatch.setattr(
+        module, "validate_walk_forward_run_directory", lambda path: manifest
+    )
+    monkeypatch.setattr(
+        module, "_walk_forward_payload", lambda root, loaded: walk_forward
+    )
     monkeypatch.setattr(
         module,
         "_walk_forward_config_payload",
@@ -275,18 +280,32 @@ def test_request_uses_source_bound_support_and_adverse_evidence(
         "load_c3_source_adverse_evidence",
         lambda *args, **kwargs: source_evidence,
     )
-    monkeypatch.setattr(module, "load_causal_scenario_library_artifact", lambda path: library)
-    monkeypatch.setattr(module, "load_causal_scenario_value_artifact", lambda path: value)
-    monkeypatch.setattr(module, "build_persisted_scenario_decision", lambda loaded: decision)
-    monkeypatch.setattr(module, "write_c3_decision_artifact", lambda *args, **kwargs: _sha("4"))
+    monkeypatch.setattr(
+        module, "load_causal_scenario_library_artifact", lambda path: library
+    )
+    monkeypatch.setattr(
+        module, "load_causal_scenario_value_artifact", lambda path: value
+    )
+    monkeypatch.setattr(
+        module, "build_persisted_scenario_decision", lambda loaded: decision
+    )
+    monkeypatch.setattr(
+        module, "write_c3_decision_artifact", lambda *args, **kwargs: _sha("4")
+    )
     monkeypatch.setattr(
         module,
         "build_c3_prediction_evidence",
         lambda loaded: SimpleNamespace(validate_for_decision=lambda created: None),
     )
-    monkeypatch.setattr(module, "_load_replay_outcomes", lambda *args, **kwargs: {_sha("7"): object()})
-    monkeypatch.setattr(module, "ArtifactBackedC3Replay", lambda *args, **kwargs: object())
-    monkeypatch.setattr(module, "C3BatchQuery", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(
+        module, "_load_replay_outcomes", lambda *args, **kwargs: {_sha("7"): object()}
+    )
+    monkeypatch.setattr(
+        module, "ArtifactBackedC3Replay", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(
+        module, "C3BatchQuery", lambda **kwargs: SimpleNamespace(**kwargs)
+    )
     monkeypatch.setattr(
         module,
         "execute_c3_batch",
@@ -312,7 +331,11 @@ def test_request_requires_source_declared_adverse_scenario(
     payload["folds"][0]["queries"] = payload["folds"][0]["queries"][:1]
     request = tmp_path / "request.json"
     request.write_bytes(canonical_json_bytes(payload))
-    monkeypatch.setattr(module, "_load_request_context", lambda *args, **kwargs: SimpleNamespace(required_scenario="joint_2x"))
+    monkeypatch.setattr(
+        module,
+        "_load_request_context",
+        lambda *args, **kwargs: SimpleNamespace(required_scenario="joint_2x"),
+    )
 
     with pytest.raises(ValueError, match="required adverse scenario"):
         module._require_execution_scenarios(

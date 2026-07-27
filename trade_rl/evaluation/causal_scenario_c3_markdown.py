@@ -375,7 +375,9 @@ def load_c3_markdown_artifact(
         manifest["markdown_sha256"], field="markdown_sha256"
     ):
         raise ValueError("C3 Markdown file digest mismatch")
-    expected_markdown = render_c3_markdown(evidence.report, evidence.gate).encode("utf-8")
+    expected_markdown = render_c3_markdown(evidence.report, evidence.gate).encode(
+        "utf-8"
+    )
     if markdown != expected_markdown:
         raise ValueError("C3 Markdown content does not match verified evidence")
     return LoadedC3MarkdownArtifact(

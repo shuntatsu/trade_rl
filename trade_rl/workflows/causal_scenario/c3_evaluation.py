@@ -569,9 +569,13 @@ def execute_c3_evaluation_request(
             fold_selection_days[fold_id] = source_adverse.selection_days_by_fold[
                 fold_index
             ]
-            required_adverse_evidence[fold_id] = source_adverse.by_fold_index[fold_index]
+            required_adverse_evidence[fold_id] = source_adverse.by_fold_index[
+                fold_index
+            ]
         except KeyError as error:
-            raise ValueError("source adverse evidence is missing for a C3 fold") from error
+            raise ValueError(
+                "source adverse evidence is missing for a C3 fold"
+            ) from error
         scenarios: set[str] = set()
         for query_position, raw_query in enumerate(
             _list(fold["queries"], field=f"{field}.queries")
@@ -607,7 +611,9 @@ def execute_c3_evaluation_request(
             if not test_start <= value_result.query_index < test_stop:
                 raise ValueError("C1 query lies outside the source fold test range")
             if value_result.query_index + config.horizon_decisions > test_stop:
-                raise ValueError("C1 realized horizon exceeds the source fold test range")
+                raise ValueError(
+                    "C1 realized horizon exceeds the source fold test range"
+                )
             if value_result.scenario_library_digest != library.library_digest:
                 raise ValueError("C1 value does not bind the frozen C2 library")
             if (

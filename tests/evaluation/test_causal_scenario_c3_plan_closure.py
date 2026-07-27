@@ -17,6 +17,9 @@ from trade_rl.evaluation.causal_scenario_c3_decision_artifact import (
     load_c3_decision_artifact,
     write_c3_decision_artifact,
 )
+from trade_rl.evaluation.causal_scenario_c3_prediction import (
+    create_c3_prediction_evidence,
+)
 from trade_rl.evaluation.causal_scenario_c3_report import (
     build_c3_aggregate_report,
     build_c3_fold_report,
@@ -111,11 +114,28 @@ def _decision() -> PersistedScenarioDecision:
     )
 
 
+def _prediction(decision: PersistedScenarioDecision):
+    return create_c3_prediction_evidence(
+        result_digest=decision.value_result_digest,
+        scenario_library_digest=decision.scenario_library_digest,
+        scenario_set_digest=decision.scenario_set_digest,
+        candidate_digests=decision.candidate_digests,
+        predicted_score=decision.score,
+        predicted_mean_advantage=np.asarray([0.0, 0.03, -0.02, 0.008]),
+        predicted_loss_cvar=np.asarray([0.0, 0.01, 0.03, 0.005]),
+        predicted_expected_turnover=np.asarray([0.0, 0.25, 0.25, 0.25]),
+        scenario_anchor_indices=np.arange(64, dtype=np.int64),
+        scenario_distances=np.linspace(0.0, 1.0, 64),
+    )
+
+
 def _outcome(policy_kind: str, log_return: float) -> RealizedPolicyOutcome:
     payload = {
         "borrow_paid": 0.0,
+        "cancel_replace_events": 0,
         "fees": 0.0001,
         "fill_count": 1,
+        "fill_ratio": 1.0,
         "filled_turnover": 0.1,
         "funding_paid": 0.0,
         "gross_log_return": log_return,
@@ -137,8 +157,10 @@ def _outcome(policy_kind: str, log_return: float) -> RealizedPolicyOutcome:
         impact_cost=0.0001,
         funding_paid=0.0,
         borrow_paid=0.0,
+        fill_ratio=1.0,
         fill_count=1,
         pending_order_events=0,
+        cancel_replace_events=0,
         max_drawdown=0.05,
         terminal_equity=100_000.0 * math.exp(log_return),
         termination_reason="horizon",
@@ -176,6 +198,8 @@ def _comparison(tmp_path: Path, *, random_count: int = 8):
         replay=_Replay(created.replay_identity),
         ppo_mean_action=np.asarray([0.5, 0.0, 0.0]),
         config=CausalScenarioC3Config(random_comparator_count=random_count),
+        prediction_evidence=_prediction(created),
+        execution_scenario="nominal",
     )
 
 
@@ -212,7 +236,7 @@ def test_explicit_moving_block_size_is_preserved() -> None:
     assert result.block_size == 7
 
 
-def test_c3_aggregate_report_binds_fixed_block_days(tmp_path: Path) -> None:
+def test_c3_aggregate_report_binds_full_diagnostics(tmp_path: Path) -> None:
     comparison = _comparison(tmp_path, random_count=8)
     folds = tuple(
         build_c3_fold_report(
@@ -229,3 +253,17 @@ def test_c3_aggregate_report_binds_fixed_block_days(tmp_path: Path) -> None:
         bootstrap_block_days=7,
     )
     assert report.bootstrap_block_days == 7
+    assert len(report.calibration_buckets) == 5
+    assert report.neighbor_distance_p50 <= report.neighbor_distance_p90
+    assert report.neighbor_distance_p90 <= report.neighbor_distance_p99
+    assert report.unique_anchor_count == 64
+    assert report.anchor_max_share > 0.0
+    assert report.effective_anchor_count > 0.0
+    assert report.historical_coverage_fraction > 0.0
+    summaries = {
+        (item.execution_scenario, item.policy_kind): item
+        for item in report.execution_summaries
+    }
+    assert ("nominal", "scenario_oracle") in summaries
+    assert summaries[("nominal", "scenario_oracle")].mean_fill_ratio == 1.0
+    assert summaries[("nominal", "scenario_oracle")].mean_total_economic_cost > 0.0

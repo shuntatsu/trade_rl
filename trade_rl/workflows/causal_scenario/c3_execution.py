@@ -78,15 +78,14 @@ def _request_file(path: str | Path) -> Path:
 
 def _summary_file(core_root: Path, returned: str | Path) -> Path:
     candidate = Path(returned)
+    unresolved = candidate if candidate.is_absolute() else core_root / candidate
+    if unresolved.is_symlink():
+        raise ValueError("C3 backend summary must not be a symbolic link")
     resolved_root = core_root.resolve()
-    resolved = (
-        candidate.resolve()
-        if candidate.is_absolute()
-        else (core_root / candidate).resolve()
-    )
+    resolved = unresolved.resolve()
     if resolved_root != resolved and resolved_root not in resolved.parents:
         raise ValueError("C3 backend returned a summary outside the core output root")
-    if resolved.is_symlink() or not resolved.is_file():
+    if not resolved.is_file():
         raise FileNotFoundError(f"C3 backend summary file is missing: {resolved}")
     return resolved
 

@@ -9,7 +9,10 @@ import pytest
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.causal_scenario_c3_adverse import C3AdverseFoldEvidence
-from trade_rl.evaluation.causal_scenario_c3_contracts import C3ReplayIdentity
+from trade_rl.evaluation.causal_scenario_c3_contracts import (
+    C3ReplayIdentity,
+    CausalScenarioC3Config,
+)
 from trade_rl.workflows.causal_scenario import c3 as batch_module
 from trade_rl.workflows.causal_scenario import c3_evaluation as module
 
@@ -41,7 +44,11 @@ def _query(*, scenario: str = "nominal") -> batch_module.C3BatchQuery:
     object.__setattr__(query, "decision_root", Path("decision"))
     object.__setattr__(query, "replay", SimpleNamespace(identity=_identity()))
     object.__setattr__(query, "ppo_mean_action", np.asarray([0.0]))
-    object.__setattr__(query, "prediction_evidence", SimpleNamespace())
+    object.__setattr__(
+        query,
+        "prediction_evidence",
+        SimpleNamespace(validate_for_decision=lambda decision: None),
+    )
     object.__setattr__(query, "execution_scenario", scenario)
     object.__setattr__(query, "perfect_information", SimpleNamespace())
     return query
@@ -110,8 +117,17 @@ def test_batch_binds_source_adverse_evidence(
         "write_phase_a_gate_artifact",
         lambda *args, **kwargs: _sha("a"),
     )
-    config = SimpleNamespace(bootstrap_resamples=128, bootstrap_block_days=7)
-    monkeypatch.setattr(batch_module, "CausalScenarioC3Config", lambda: config)
+    config = CausalScenarioC3Config(
+        required_folds=1,
+        required_selection_days=30,
+        bootstrap_resamples=128,
+        bootstrap_block_days=7,
+    )
+    monkeypatch.setattr(
+        batch_module,
+        "C3BatchResult",
+        lambda **kwargs: SimpleNamespace(production_status="NO-GO", **kwargs),
+    )
 
     result = batch_module.execute_c3_batch(
         (_query(),),
@@ -134,7 +150,9 @@ def test_batch_rejects_missing_adverse_fold_mapping(tmp_path: Path) -> None:
             output_root=tmp_path,
             fold_selection_days={"fold-0": 30},
             required_adverse_evidence={},
-            config=SimpleNamespace(),
+            config=CausalScenarioC3Config(
+                required_folds=1, required_selection_days=30
+            ),
         )
 
 
@@ -311,6 +329,11 @@ def test_request_uses_source_bound_support_and_adverse_evidence(
         "execute_c3_batch",
         lambda queries, **kwargs: captured.update(kwargs) or batch,
     )
+    monkeypatch.setattr(
+        module,
+        "C3EvaluationResult",
+        lambda **kwargs: SimpleNamespace(production_status="NO-GO", **kwargs),
+    )
 
     result = module.execute_c3_evaluation_request(
         request,
@@ -331,12 +354,6 @@ def test_request_requires_source_declared_adverse_scenario(
     payload["folds"][0]["queries"] = payload["folds"][0]["queries"][:1]
     request = tmp_path / "request.json"
     request.write_bytes(canonical_json_bytes(payload))
-    monkeypatch.setattr(
-        module,
-        "_load_request_context",
-        lambda *args, **kwargs: SimpleNamespace(required_scenario="joint_2x"),
-    )
-
     with pytest.raises(ValueError, match="required adverse scenario"):
         module._require_execution_scenarios(
             {"nominal"},

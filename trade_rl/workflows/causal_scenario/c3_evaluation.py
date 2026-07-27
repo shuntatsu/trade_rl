@@ -565,7 +565,10 @@ def execute_c3_evaluation_request(
             or library.config.scenario_count != config.scenario_count
         ):
             raise ValueError("C2 library configuration does not match C3")
-        fold_digest = _string(fold["fold_digest"], field=f"{field}.fold_digest")
+        fold_digest = require_sha256(
+            _string(fold["fold_digest"], field=f"{field}.fold_digest"),
+            field=f"{field}.fold_digest",
+        )
         try:
             fold_selection_days[fold_id] = source_adverse.selection_days_by_fold[
                 fold_index

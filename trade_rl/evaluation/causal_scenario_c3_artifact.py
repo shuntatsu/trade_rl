@@ -77,6 +77,12 @@ def _string(value: object, *, field: str) -> str:
     return value
 
 
+def _optional_digest(value: object, *, field: str) -> str | None:
+    if value is None:
+        return None
+    return require_sha256(_string(value, field=field), field=field)
+
+
 def _boolean(value: object, *, field: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field} must be boolean")
@@ -159,13 +165,17 @@ def _load_outcome(value: object, *, field: str) -> RealizedPolicyOutcome:
         fees=_number(payload["fees"], field=f"{field}.fees"),
         spread_cost=_number(payload["spread_cost"], field=f"{field}.spread_cost"),
         impact_cost=_number(payload["impact_cost"], field=f"{field}.impact_cost"),
-        funding_paid=_number(payload["funding_paid"], field=f"{field}.funding_paid"),
+        funding_paid=_number(
+            payload["funding_paid"], field=f"{field}.funding_paid"
+        ),
         borrow_paid=_number(payload["borrow_paid"], field=f"{field}.borrow_paid"),
         fill_count=_integer(payload["fill_count"], field=f"{field}.fill_count"),
         pending_order_events=_integer(
             payload["pending_order_events"], field=f"{field}.pending_order_events"
         ),
-        max_drawdown=_number(payload["max_drawdown"], field=f"{field}.max_drawdown"),
+        max_drawdown=_number(
+            payload["max_drawdown"], field=f"{field}.max_drawdown"
+        ),
         terminal_equity=_number(
             payload["terminal_equity"], field=f"{field}.terminal_equity"
         ),
@@ -185,6 +195,7 @@ def _perfect_payload(value: PerfectInformationComparison) -> dict[str, object]:
     return {
         "bound_log_return": value.bound_log_return,
         "causal_log_return": value.causal_log_return,
+        "compatibility_evidence_digest": value.compatibility_evidence_digest,
         "gap": value.gap,
         "reason": value.reason,
         "status": value.status.value,
@@ -195,13 +206,24 @@ def _load_perfect(value: object, *, field: str) -> PerfectInformationComparison:
     payload = _object(value, field=field)
     _require_fields(
         payload,
-        {"bound_log_return", "causal_log_return", "gap", "reason", "status"},
+        {
+            "bound_log_return",
+            "causal_log_return",
+            "compatibility_evidence_digest",
+            "gap",
+            "reason",
+            "status",
+        },
         label=field,
     )
     status = PerfectInformationComparisonStatus(
         _string(payload["status"], field=f"{field}.status")
     )
     reason = _string(payload["reason"], field=f"{field}.reason")
+    evidence_digest = _optional_digest(
+        payload["compatibility_evidence_digest"],
+        field=f"{field}.compatibility_evidence_digest",
+    )
     if status is PerfectInformationComparisonStatus.COMPARABLE:
         return PerfectInformationComparison(
             status=status,
@@ -213,6 +235,7 @@ def _load_perfect(value: object, *, field: str) -> PerfectInformationComparison:
                 payload["causal_log_return"], field=f"{field}.causal_log_return"
             ),
             gap=_number(payload["gap"], field=f"{field}.gap"),
+            compatibility_evidence_digest=evidence_digest,
         )
     if any(
         payload[name] is not None
@@ -225,6 +248,7 @@ def _load_perfect(value: object, *, field: str) -> PerfectInformationComparison:
         bound_log_return=None,
         causal_log_return=None,
         gap=None,
+        compatibility_evidence_digest=evidence_digest,
     )
 
 
@@ -255,6 +279,16 @@ def _comparison_payload(value: CausalScenarioQueryComparison) -> dict[str, objec
     }
 
 
+def _float_vector(value: object, *, field: str) -> np.ndarray:
+    return np.asarray(
+        [
+            _number(item, field=f"{field}[{index}]")
+            for index, item in enumerate(_list(value, field=field))
+        ],
+        dtype=np.float64,
+    )
+
+
 def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryComparison:
     payload = _object(value, field=field)
     _require_fields(
@@ -281,7 +315,7 @@ def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryCompari
         },
         label=field,
     )
-    candidate_outcomes = tuple(
+    candidates = tuple(
         _load_outcome(item, field=f"{field}.candidate_outcomes[{index}]")
         for index, item in enumerate(
             _list(payload["candidate_outcomes"], field=f"{field}.candidate_outcomes")
@@ -305,33 +339,6 @@ def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryCompari
             )
         )
     )
-    random_regrets = np.asarray(
-        [
-            _number(item, field=f"{field}.random_realized_regrets[{index}]")
-            for index, item in enumerate(
-                _list(
-                    payload["random_realized_regrets"],
-                    field=f"{field}.random_realized_regrets",
-                )
-            )
-        ],
-        dtype=np.float64,
-    )
-    advantages = np.asarray(
-        [
-            _number(
-                item,
-                field=f"{field}.realized_candidate_advantages[{index}]",
-            )
-            for index, item in enumerate(
-                _list(
-                    payload["realized_candidate_advantages"],
-                    field=f"{field}.realized_candidate_advantages",
-                )
-            )
-        ],
-        dtype=np.float64,
-    )
     comparison = CausalScenarioQueryComparison(
         decision_digest=_string(
             payload["decision_digest"], field=f"{field}.decision_digest"
@@ -353,9 +360,15 @@ def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryCompari
         ),
         random_candidate_indices=random_indices,
         random_candidate_outcomes=random_outcomes,
-        random_realized_regrets=random_regrets,
-        candidate_outcomes=candidate_outcomes,
-        realized_candidate_advantages=advantages,
+        random_realized_regrets=_float_vector(
+            payload["random_realized_regrets"],
+            field=f"{field}.random_realized_regrets",
+        ),
+        candidate_outcomes=candidates,
+        realized_candidate_advantages=_float_vector(
+            payload["realized_candidate_advantages"],
+            field=f"{field}.realized_candidate_advantages",
+        ),
         predicted_realized_spearman=_number(
             payload["predicted_realized_spearman"],
             field=f"{field}.predicted_realized_spearman",
@@ -452,9 +465,7 @@ def _write_artifact(
     if root.exists() and any(root.iterdir()):
         existing = _verify_exact_file(root, filename, label=label).read_bytes()
         if existing != encoded:
-            raise FileExistsError(
-                f"conflicting {label} artifact already exists: {root}"
-            )
+            raise FileExistsError(f"conflicting {label} artifact already exists: {root}")
         return artifact_digest
     root.mkdir(parents=True, exist_ok=True)
     _atomic_write(root / filename, encoded)
@@ -513,11 +524,10 @@ def load_c3_aggregate_report_artifact(
         raise ValueError("C3 aggregate report artifact digest mismatch")
     if canonical_json_bytes(manifest) != path.read_bytes():
         raise ValueError("C3 aggregate report manifest is not canonical JSON")
-
     folds = []
-    for fold_index, fold_value in enumerate(_list(manifest["folds"], field="folds")):
+    for fold_index, raw_fold in enumerate(_list(manifest["folds"], field="folds")):
         field = f"folds[{fold_index}]"
-        fold = _object(fold_value, field=field)
+        fold = _object(raw_fold, field=field)
         _require_fields(
             fold,
             {
@@ -554,7 +564,9 @@ def load_c3_aggregate_report_artifact(
             ),
             failure_reasons=reasons,
         )
-        if rebuilt.digest != _string(fold["fold_digest"], field=f"{field}.fold_digest"):
+        if rebuilt.digest != _string(
+            fold["fold_digest"], field=f"{field}.fold_digest"
+        ):
             raise ValueError("C3 fold report digest mismatch")
         folds.append(rebuilt)
     report = build_c3_aggregate_report(
@@ -644,21 +656,29 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGate:
         raise ValueError("Phase A gate artifact digest mismatch")
     if canonical_json_bytes(manifest) != path.read_bytes():
         raise ValueError("Phase A gate manifest is not canonical JSON")
-    condition_payloads = tuple(
+    raw_conditions = tuple(
         _object(item, field=f"conditions[{index}]")
-        for index, item in enumerate(_list(manifest["conditions"], field="conditions"))
+        for index, item in enumerate(
+            _list(manifest["conditions"], field="conditions")
+        )
     )
-    for index, payload in enumerate(condition_payloads):
+    for index, condition in enumerate(raw_conditions):
         _require_fields(
-            payload, {"detail", "name", "passed"}, label=f"conditions[{index}]"
+            condition,
+            {"detail", "name", "passed"},
+            label=f"conditions[{index}]",
         )
     conditions = tuple(
         GateConditionResult(
-            name=_string(payload["name"], field=f"conditions[{index}].name"),
-            passed=_boolean(payload["passed"], field=f"conditions[{index}].passed"),
-            detail=_string(payload["detail"], field=f"conditions[{index}].detail"),
+            name=_string(condition["name"], field=f"conditions[{index}].name"),
+            passed=_boolean(
+                condition["passed"], field=f"conditions[{index}].passed"
+            ),
+            detail=_string(
+                condition["detail"], field=f"conditions[{index}].detail"
+            ),
         )
-        for index, payload in enumerate(condition_payloads)
+        for index, condition in enumerate(raw_conditions)
     )
     gate = PhaseAEntryGateEvidence(
         report_digest=_string(manifest["report_digest"], field="report_digest"),

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+import numpy as np
+
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
@@ -292,10 +294,15 @@ def _load_comparison(payload: object, *, field: str) -> CausalScenarioQueryCompa
             item["random_candidate"], field=f"{field}.random_candidate"
         ),
         candidate_outcomes=candidates,
-        realized_candidate_advantages=[
-            _strict_number(value, field=f"{field}.realized_candidate_advantages")
-            for value in advantages
-        ],
+        realized_candidate_advantages=np.asarray(
+            [
+                _strict_number(
+                    value, field=f"{field}.realized_candidate_advantages"
+                )
+                for value in advantages
+            ],
+            dtype=np.float64,
+        ),
         predicted_realized_spearman=_strict_number(
             item["predicted_realized_spearman"],
             field=f"{field}.predicted_realized_spearman",

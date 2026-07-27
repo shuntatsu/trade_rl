@@ -261,6 +261,7 @@ def test_published_run_lifecycle_validates_and_publishes(
     monkeypatch.setattr(
         module, "C3BatchQuery", lambda **kwargs: SimpleNamespace(**kwargs)
     )
+    monkeypatch.setattr(module, "C3BatchResult", SimpleNamespace)
     batch = SimpleNamespace(production_status="NO-GO")
     monkeypatch.setattr(
         module,
@@ -285,6 +286,31 @@ def test_published_run_lifecycle_validates_and_publishes(
         f"write:{decision.decision_digest}",
         "batch:2",
     ]
+
+
+def test_perfect_information_gap_is_reconstructed_strictly() -> None:
+    payload = {
+        "bound_log_return": 0.03,
+        "causal_log_return": 0.01,
+        "compatibility_evidence_digest": _sha("a"),
+        "gap": 0.03,
+        "reason": "compatible",
+        "status": "comparable",
+    }
+    with pytest.raises(ValueError, match="gap"):
+        module._load_perfect_information(payload, field="perfect_information")
+
+
+def test_source_fold_indices_must_be_unique() -> None:
+    with pytest.raises(ValueError, match="source walk-forward fold indices"):
+        module._source_fold_map(
+            {
+                "folds": [
+                    {"fold_index": 0},
+                    {"fold_index": 0},
+                ]
+            }
+        )
 
 
 def test_request_rejects_unsafe_source_path(tmp_path: Path) -> None:

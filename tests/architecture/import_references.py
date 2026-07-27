@@ -218,9 +218,7 @@ def causal_scenario_dependency_violations(
             )
             for reference in scan_import_references(path, module_name=module_name):
                 if reference.kind == "dynamic" and reference.unresolved:
-                    violations.append(
-                        f"{path}:{reference.line}:dynamic:<unresolved>"
-                    )
+                    violations.append(f"{path}:{reference.line}:dynamic:<unresolved>")
                     continue
                 if reference.target is not None and _is_prohibited_target(
                     reference.target,

@@ -87,9 +87,15 @@ jobs:
           uv run ruff check tools/run_training_capability_audit.py
           uv run mypy tools/run_training_capability_audit.py
 
-      - name: Remove one-shot workflow and publish
+      - name: Restore temporary diagnostics and publish
         run: |
-          rm .github/workflows/fix-pr227-capability-audit-v2.yml
+          git fetch origin main --depth=1
+          git show FETCH_HEAD:.github/workflows/sequence-projection-stability.yml > .github/workflows/sequence-projection-stability.yml
+          git show FETCH_HEAD:tests/architecture/test_sequence_projection_stability.py > tests/architecture/test_sequence_projection_stability.py
+          rm -f \
+            .github/workflows/fix-pr227-capability-audit-v2.yml \
+            .github/workflows/pr227-capability-audit-fix-diagnostics.yml \
+            docs/verification/.pr227-capability-fix-trigger.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A

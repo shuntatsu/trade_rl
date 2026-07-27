@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.12, dataclasses, existing artifact hashing and Lagrangian statistics contracts, pytest, Ruff, Mypy.
 
+**Current status:** The RED collection failure was confirmed on both compatibility runners. The pure implementation and repository-formatted tests are committed. Exact-head Mypy, full Pytest, coverage, architecture, image, and PostgreSQL verification remain pending.
+
 ## Constraints
 
 - Modify no existing production file.
@@ -23,25 +25,25 @@
 **Files:**
 - Create `tests/evaluation/test_constrained_policy_report.py`
 
-- [ ] Define constrained evidence fixtures covering two folds, two required scenarios, two seeds, and one deployable ensemble.
-- [ ] Assert deterministic aggregate mean, worst-seed, worst-fold, support, and bound occupancy semantics.
-- [ ] Assert budget, support, missing-scenario, and member-identity failures.
-- [ ] Assert ordinary PPO uses `constraints=None` and no synthetic penalty diagnostics.
-- [ ] Assert lower-bound occupancy alone does not cause rejection.
-- [ ] Assert non-finite input fails during construction.
-- [ ] Assert report digest is invariant to fold input order.
-- [ ] Run focused tests and confirm collection failure because the production module does not exist.
+- [x] Define constrained evidence fixtures covering two folds, two required scenarios, two seeds, and one deployable ensemble.
+- [x] Assert deterministic aggregate mean, worst-seed, worst-fold, support, and bound occupancy semantics.
+- [x] Assert budget, support, missing-scenario, and member-identity failures.
+- [x] Assert ordinary PPO uses `constraints=None` and no synthetic penalty diagnostics.
+- [x] Assert lower-bound occupancy alone does not cause rejection.
+- [x] Assert non-finite input fails during construction.
+- [x] Assert report digest is invariant to fold input order.
+- [x] Run focused tests and confirm collection failure because the production module does not exist.
 
 ### Task 2: GREEN pure implementation
 
 **Files:**
 - Create `trade_rl/evaluation/constrained_policy_report.py`
 
-- [ ] Implement immutable cost, policy observation, and fold evidence inputs.
-- [ ] Implement fold/scenario cost summaries and aggregate scenario summaries.
-- [ ] Implement stable eligibility reasons for required scenarios.
-- [ ] Implement complete-only optional diagnostic aggregation.
-- [ ] Implement deterministic payloads and report digest.
+- [x] Implement immutable cost, policy observation, and fold evidence inputs.
+- [x] Implement fold/scenario cost summaries and aggregate scenario summaries.
+- [x] Implement stable eligibility reasons for required scenarios.
+- [x] Implement complete-only optional diagnostic aggregation.
+- [x] Implement deterministic payloads and report digest.
 - [ ] Run focused Pytest, Ruff, format, and Mypy.
 
 ### Task 3: Repository verification

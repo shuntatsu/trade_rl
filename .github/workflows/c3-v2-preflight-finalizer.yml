@@ -1,0 +1,106 @@
+name: One-shot C3 V2 request preflight finalizer
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3-execution-reporting-v2
+    paths:
+      - .github/workflows/c3-v2-preflight-finalizer.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3-execution-reporting-v2
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Add request structure preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/workflows/causal_scenario/c3_evaluation.py')
+          text = path.read_text(encoding='utf-8')
+          marker = '''def _relative_path(root: Path, value: object, *, field: str) -> Path:
+'''
+          helper = '''def _preflight_request_structure(raw: dict[str, object]) -> None:
+    """Reject request shape violations before reading external artifacts."""
+
+    folds = _list(raw["folds"], field="folds")
+    if not folds:
+        raise ValueError("folds must not be empty")
+    for fold_position, raw_fold in enumerate(folds):
+        fold_field = f"folds[{fold_position}]"
+        fold = _object(raw_fold, field=fold_field)
+        _fields(
+            fold,
+            {"fold_digest", "fold_id", "fold_index", "library", "queries"},
+            field=fold_field,
+        )
+        queries = _list(fold["queries"], field=f"{fold_field}.queries")
+        if not queries:
+            raise ValueError(f"{fold_field}.queries must not be empty")
+        for query_position, raw_query in enumerate(queries):
+            query_field = f"{fold_field}.queries[{query_position}]"
+            query = _object(raw_query, field=query_field)
+            _fields(
+                query,
+                {
+                    "execution_scenario",
+                    "outcomes",
+                    "perfect_information",
+                    "ppo_mean_action",
+                    "value_artifact",
+                },
+                field=query_field,
+            )
+
+
+'''
+          if helper not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit(f'expected one relative path marker, found {text.count(marker)}')
+              text = text.replace(marker, helper + marker, 1)
+          call = '''    request_root = request_file.parent
+    config = _load_config(raw["config"])
+    source_root = _relative_path(
+'''
+          replacement = '''    request_root = request_file.parent
+    config = _load_config(raw["config"])
+    _preflight_request_structure(raw)
+    source_root = _relative_path(
+'''
+          if replacement not in text:
+              if text.count(call) != 1:
+                  raise SystemExit(f'expected one request load marker, found {text.count(call)}')
+              text = text.replace(call, replacement, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Verify preflight contract
+        run: |
+          uv run ruff check trade_rl/workflows/causal_scenario/c3_evaluation.py tests/workflows/test_causal_scenario_c3_execution_lane.py
+          uv run ruff format --check trade_rl/workflows/causal_scenario/c3_evaluation.py tests/workflows/test_causal_scenario_c3_execution_lane.py
+          uv run mypy trade_rl tests
+          uv run pytest -q tests/workflows/test_causal_scenario_c3_execution_lane.py::test_request_schema_rejects_self_reported_support
+      - name: Commit verified finalizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/c3-v2-preflight-finalizer.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: preflight C3 request structure"
+          git push origin HEAD:agent/causal-scenario-c3-execution-reporting-v2

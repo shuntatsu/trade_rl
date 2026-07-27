@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          uv run pytest tests/integrations/test_cost_critic_feature_cache.py tests/integrations/test_cost_critic_ppo.py tests/integrations/test_cost_critic_checkpoint_identity.py tests/integrations/test_lagrangian_ppo.py tests/integrations/test_lagrangian_checkpoint_identity.py tests/integrations/test_sb3_cost_critic_backend.py tests/integrations/test_sb3_lagrangian_backend.py tests/integrations/test_sb3_training_performance.py -q 2>&1 | tee h2-green.log
+          uv run pytest tests/integrations/test_cost_critic_feature_cache.py tests/integrations/test_cost_critic_ppo.py tests/integrations/test_cost_critic_checkpoint_identity.py tests/integrations/test_lagrangian_ppo.py tests/integrations/test_lagrangian_checkpoint.py tests/integrations/test_lagrangian_checkpoint_roundtrip.py tests/integrations/test_sb3_cost_critic_backend.py tests/integrations/test_sb3_lagrangian_backend.py tests/integrations/test_sb3_training_performance.py -q 2>&1 | tee h2-green.log
           status=${PIPESTATUS[0]}
           printf '%s\n' "$status" > h2-green.status
           exit 0

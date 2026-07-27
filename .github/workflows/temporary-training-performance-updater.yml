@@ -35,20 +35,14 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Apply reviewed patch
-        run: uv run python .github/scripts/apply_training_performance_evidence.py
+        run: |
+          uv run python .github/scripts/apply_training_performance_evidence.py
+          uv run python .github/scripts/fix_generated_training_performance.py
 
-      - name: Format
-        run: >-
-          uv run ruff format
-          trade_rl/rl/training_performance.py
-          trade_rl/integrations/compact_rollout_buffer.py
-          trade_rl/integrations/sb3_training.py
-          examples/binance-multitimeframe/run_gpu_training_smoke.py
-          tests/rl/test_training_performance_evidence.py
-          tests/integrations/test_compact_rollout_performance.py
-          tests/integrations/test_sb3_training_performance.py
-          tests/examples/test_run_gpu_training_smoke.py
-          tests/examples/test_docker_training_assets.py
+      - name: Format and organize imports
+        run: |
+          uv run ruff check --fix trade_rl/rl/training_performance.py trade_rl/integrations/compact_rollout_buffer.py trade_rl/integrations/sb3_training.py examples/binance-multitimeframe/run_gpu_training_smoke.py tests/rl/test_training_performance_evidence.py tests/integrations/test_compact_rollout_performance.py tests/integrations/test_sb3_training_performance.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
+          uv run ruff format trade_rl/rl/training_performance.py trade_rl/integrations/compact_rollout_buffer.py trade_rl/integrations/sb3_training.py examples/binance-multitimeframe/run_gpu_training_smoke.py tests/rl/test_training_performance_evidence.py tests/integrations/test_compact_rollout_performance.py tests/integrations/test_sb3_training_performance.py tests/examples/test_run_gpu_training_smoke.py tests/examples/test_docker_training_assets.py
 
       - name: Focused tests
         run: >-
@@ -109,6 +103,7 @@ jobs:
       - name: Commit verified implementation
         run: |
           rm -f .github/scripts/apply_training_performance_evidence.py
+          rm -f .github/scripts/fix_generated_training_performance.py
           rm -f .github/workflows/temporary-training-performance-updater.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

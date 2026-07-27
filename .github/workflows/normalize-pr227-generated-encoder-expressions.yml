@@ -1,0 +1,187 @@
+name: Normalize PR227 Generated Encoder Expressions
+
+on:
+  push:
+    branches:
+      - agent/cross-timeframe-attention
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: normalize-pr227-generated-encoder-expressions
+  cancel-in-progress: false
+
+jobs:
+  normalize-verify-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Install verification environment
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Normalize generated encoder expressions and schemas
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          import json
+          import re
+          from pathlib import Path
+
+          root = Path.cwd()
+          expression = re.compile(
+              r'(?P<prefix>(?:"observation_encoder"\s*:\s*|observation_encoder\s*=\s*))'
+              r'\(?\s*"invalid_legacy_combination"\s*'
+              r'if \((?P<sequence>[A-Za-z_]\w*|True|False)\) and '
+              r'\((?P<asset>[A-Za-z_]\w*|True|False)\)\s*'
+              r'else "hierarchical_sequence_v2"\s*if \((?P=sequence)\)\s*'
+              r'else "asset_set"\s*if \((?P=asset)\)\s*'
+              r'else "flat_mlp"\s*\)?',
+              re.MULTILINE,
+          )
+
+          def replacement(match: re.Match[str]) -> str:
+              prefix = match.group('prefix')
+              sequence = match.group('sequence')
+              asset = match.group('asset')
+              if sequence == 'True':
+                  value = '"hierarchical_sequence_v2"'
+              elif sequence == 'False' and asset == 'True':
+                  value = '"asset_set"'
+              elif sequence == 'False' and asset == 'False':
+                  value = '"flat_mlp"'
+              elif asset == 'False':
+                  value = f'("hierarchical_sequence_v2" if {sequence} else "flat_mlp")'
+              elif sequence == 'False':
+                  value = f'("asset_set" if {asset} else "flat_mlp")'
+              else:
+                  value = (
+                      f'("invalid_legacy_combination" if {sequence} and {asset} '
+                      f'else "hierarchical_sequence_v2" if {sequence} '
+                      f'else "asset_set" if {asset} else "flat_mlp")'
+                  )
+              return prefix + value
+
+          changed: list[str] = []
+          roots = (
+              root / 'trade_rl',
+              root / 'tests',
+              root / 'tools',
+              root / 'examples' / 'binance-multitimeframe',
+          )
+          for base in roots:
+              for path in sorted(base.rglob('*.py')):
+                  text = path.read_text(encoding='utf-8')
+                  updated, count = expression.subn(replacement, text)
+                  updated = updated.replace(
+                      '_training_config(observation_encoder="asset_set")',
+                      '_training_config(asset_set_enabled=True)',
+                  )
+                  if updated != text:
+                      ast.parse(updated, filename=str(path))
+                      path.write_text(updated, encoding='utf-8')
+                      changed.append(path.relative_to(root).as_posix())
+
+          def migrate_mapping(value: object, *, root_mapping: bool = False) -> None:
+              if isinstance(value, list):
+                  for item in value:
+                      migrate_mapping(item)
+                  return
+              if not isinstance(value, dict):
+                  return
+              if root_mapping and 'candidates' in value and 'workflow' in value:
+                  value['schema_version'] = 'market_walk_forward_config_v1'
+              elif 'training' in value and 'environment' in value:
+                  value['schema_version'] = 'training_run_config_v2'
+              for item in value.values():
+                  migrate_mapping(item)
+
+          for name in (
+              'walk-forward-full.json',
+              'walk-forward-growth-optimal.json',
+          ):
+              path = root / 'examples' / 'binance-multitimeframe' / name
+              payload = json.loads(path.read_text(encoding='utf-8'))
+              migrate_mapping(payload, root_mapping=True)
+              path.write_text(
+                  json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+                  encoding='utf-8',
+              )
+              changed.append(path.relative_to(root).as_posix())
+
+          remaining: list[str] = []
+          for base in roots:
+              for path in sorted(base.rglob('*.py')):
+                  if 'invalid_legacy_combination' in path.read_text(encoding='utf-8'):
+                      remaining.append(path.relative_to(root).as_posix())
+          if remaining:
+              raise RuntimeError(
+                  'legacy generated encoder expressions remain: ' + ', '.join(remaining)
+              )
+          print(json.dumps({'changed': sorted(set(changed))}, indent=2))
+          PY
+
+      - name: Verify normalized tree
+        run: |
+          set -euo pipefail
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy .
+          uv run vulture trade_rl tests --min-confidence 100
+          uv run pytest -q \
+            tests/e2e/test_research_to_serving_v2.py \
+            tests/examples/test_run_gpu_training_smoke.py \
+            tests/integrations/test_parallel_sequence_environments.py \
+            tests/integrations/test_sb3_checkpoint_assembly.py \
+            tests/integrations/test_sb3_cost_critic_backend.py \
+            tests/integrations/test_sb3_lagrangian_backend.py \
+            tests/integrations/test_sb3_lagrangian_probe_backend.py \
+            tests/integrations/test_sb3_model_assembly.py \
+            tests/integrations/test_sb3_model_construction.py \
+            tests/integrations/test_sb3_training.py \
+            tests/integrations/test_sb3_training_active_architecture.py \
+            tests/integrations/test_sb3_training_performance.py \
+            tests/integrations/test_sequence_runtime_acceleration.py \
+            tests/rl/test_cost_critic_training_config.py \
+            tests/rl/test_ensemble_training.py \
+            tests/rl/test_lagrangian_training_config.py \
+            tests/rl/test_training_config_active_fields.py \
+            tests/workflows/test_explicit_sealed_ledger_mode.py \
+            tests/workflows/test_market_walk_forward.py \
+            tests/workflows/test_training_run.py \
+            tests/workflows/test_training_run_config.py \
+            tests/workflows/test_walk_forward_manifest_provenance.py
+
+      - name: Publish normalized commit and remove one-shot workflow
+        run: |
+          rm -f \
+            .github/workflows/normalize-pr227-generated-encoder-expressions.yml \
+            docs/verification/.normalize-pr227-generated-expressions-trigger.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: normalize generated observation encoder expressions'
+          git push origin HEAD:agent/cross-timeframe-attention
+
+      - name: Report failure to PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment 227 --body 'The one-shot encoder-expression normalization workflow failed. Inspect the latest Normalize PR227 Generated Encoder Expressions run before merging.'

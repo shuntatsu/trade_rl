@@ -127,11 +127,77 @@ def _restore_export_gate_until_structured_export_exists() -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _normalize_mypy_loop_variables() -> None:
+    replacements = {
+        ROOT / "trade_rl" / "rl" / "training.py": (
+            "        for field_name, value in (\n"
+            "            (\n"
+            "                \"sequence_timeframe_gate_bias\",\n"
+            "                self.sequence_timeframe_gate_bias,\n"
+            "            ),\n"
+            "            (\"sequence_asset_gate_bias\", self.sequence_asset_gate_bias),\n"
+            "        ):\n"
+            "            if not math.isfinite(value):\n"
+            "                raise ValueError(f\"{field_name} must be finite\")\n",
+            "        for field_name, gate_value in (\n"
+            "            (\n"
+            "                \"sequence_timeframe_gate_bias\",\n"
+            "                self.sequence_timeframe_gate_bias,\n"
+            "            ),\n"
+            "            (\"sequence_asset_gate_bias\", self.sequence_asset_gate_bias),\n"
+            "        ):\n"
+            "            if not math.isfinite(gate_value):\n"
+            "                raise ValueError(f\"{field_name} must be finite\")\n",
+        ),
+        ROOT / "trade_rl" / "rl" / "sequence_policy.py": (
+            "        for field_name, value in (\n"
+            "            (\"timeframe_gate_bias\", self.timeframe_gate_bias),\n"
+            "            (\"asset_gate_bias\", self.asset_gate_bias),\n"
+            "        ):\n"
+            "            if not math.isfinite(value):\n"
+            "                raise ValueError(f\"{field_name} must be finite\")\n",
+            "        for field_name, gate_value in (\n"
+            "            (\"timeframe_gate_bias\", self.timeframe_gate_bias),\n"
+            "            (\"asset_gate_bias\", self.asset_gate_bias),\n"
+            "        ):\n"
+            "            if not math.isfinite(gate_value):\n"
+            "                raise ValueError(f\"{field_name} must be finite\")\n",
+        ),
+    }
+    for path, (old, new) in replacements.items():
+        text = path.read_text(encoding="utf-8")
+        text = _replace_required(text, old, new, label=f"MyPy loop in {path.name}")
+        path.write_text(text, encoding="utf-8")
+
+
+def _simplify_cli_observation_encoder() -> None:
+    path = ROOT / "trade_rl" / "cli" / "app.py"
+    text = path.read_text(encoding="utf-8")
+    expression = re.compile(
+        r"observation_encoder=\(\"invalid_legacy_combination\" "
+        r"if \(False\) and \(not args\.no_asset_set_encoder\) else "
+        r"\"hierarchical_sequence_v2\" if \(False\) else "
+        r"\"asset_set\" if \(not args\.no_asset_set_encoder\) else \"flat_mlp\"\),"
+    )
+    text, count = expression.subn(
+        'observation_encoder=(\n'
+        '            "asset_set" if not args.no_asset_set_encoder else "flat_mlp"\n'
+        '        ),',
+        text,
+        count=1,
+    )
+    if count != 1:
+        raise RuntimeError("CLI observation encoder expression was not normalized")
+    path.write_text(text, encoding="utf-8")
+
+
 def main() -> None:
     _migrate_identity_test()
     _migrate_feature_extractor_kwargs()
     _migrate_active_field_expectations()
     _restore_export_gate_until_structured_export_exists()
+    _normalize_mypy_loop_variables()
+    _simplify_cli_observation_encoder()
 
 
 if __name__ == "__main__":

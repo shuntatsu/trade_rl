@@ -1,0 +1,28 @@
+name: PR208 one-shot runtime type correction
+
+on:
+  push:
+    branches:
+      - agent/sb3-model-assembly-boundary
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/sb3-model-assembly-boundary
+      - run: python tools/_pr208_fix_runtime_types.py
+      - run: |
+          rm tools/_pr208_fix_runtime_types.py
+          rm .github/workflows/pr208-fix-runtime-types.yml
+          git add -A
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix: type external SB3 runtime values dynamically"
+          git push origin HEAD:agent/sb3-model-assembly-boundary

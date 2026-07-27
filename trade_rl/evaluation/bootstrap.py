@@ -20,7 +20,7 @@ class BootstrapResult:
     block_size: int
 
 
-def _resolve_block_size(*, requested: int | None, n_values: int) -> int:
+def _resolve_block_size(*, requested: object, n_values: int) -> int:
     if requested is None:
         return max(1, min(n_values, math.ceil(math.sqrt(n_values))))
     if isinstance(requested, bool) or not isinstance(requested, Integral):

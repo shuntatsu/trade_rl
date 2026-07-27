@@ -1,3 +1,4 @@
+# Trigger the one-shot patch after workflow registration.
 name: Temporary C3 Perfect Information Fix
 
 on:
@@ -46,14 +47,6 @@ jobs:
               "    if not positive and np.any(array < 0.0):\n        raise ValueError(f\"{name} must be non-negative\")\n",
               "    if non_negative and np.any(array < 0.0):\n        raise ValueError(f\"{name} must be non-negative\")\n",
           )
-          for field in (
-              "causal_transaction_cost_rate",
-              "bound_transaction_cost_rate",
-              "causal_liquidation_cost_rate",
-              "bound_liquidation_cost_rate",
-          ):
-              old = f'''        {field.removesuffix('_rate').replace('causal_', 'causal_').replace('bound_', 'bound_')} = _readonly_vector(\n            "{field}", self.{field}\n        )'''
-          # Use explicit source anchors so signed weights remain allowed while costs stay non-negative.
           replacements = {
               '''        causal_transaction = _readonly_vector(\n            "causal_transaction_cost_rate", self.causal_transaction_cost_rate\n        )''': '''        causal_transaction = _readonly_vector(\n            "causal_transaction_cost_rate",\n            self.causal_transaction_cost_rate,\n            non_negative=True,\n        )''',
               '''        bound_transaction = _readonly_vector(\n            "bound_transaction_cost_rate", self.bound_transaction_cost_rate\n        )''': '''        bound_transaction = _readonly_vector(\n            "bound_transaction_cost_rate",\n            self.bound_transaction_cost_rate,\n            non_negative=True,\n        )''',

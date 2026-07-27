@@ -11,7 +11,9 @@ SMOKE = ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.p
 
 
 def _load_smoke() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("run_gpu_training_smoke_profiles", SMOKE)
+    spec = importlib.util.spec_from_file_location(
+        "run_gpu_training_smoke_profiles", SMOKE
+    )
     if spec is None or spec.loader is None:
         raise RuntimeError("could not load GPU smoke module")
     module = importlib.util.module_from_spec(spec)

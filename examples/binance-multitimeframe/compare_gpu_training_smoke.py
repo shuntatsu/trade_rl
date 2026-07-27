@@ -99,7 +99,9 @@ def _load_training_performance(value: object) -> dict[str, object]:
         payload.get("observed_environment_steps"),
         field="observed_environment_steps",
     )
-    wall = _positive_float(payload.get("wall_clock_seconds"), field="wall_clock_seconds")
+    wall = _positive_float(
+        payload.get("wall_clock_seconds"), field="wall_clock_seconds"
+    )
     throughput = _positive_float(
         payload.get("environment_steps_per_second"),
         field="environment_steps_per_second",
@@ -150,7 +152,9 @@ def _load_sample(path: Path, *, legacy_profile: str) -> dict[str, object]:
         payload.get("requested_timesteps"),
         field="requested_timesteps",
     )
-    actual = _positive_integer(payload.get("actual_timesteps"), field="actual_timesteps")
+    actual = _positive_integer(
+        payload.get("actual_timesteps"), field="actual_timesteps"
+    )
     n_envs = _positive_integer(payload.get("n_envs"), field="n_envs")
     behavior_cloning_epochs = _non_negative_integer(
         payload.get("behavior_cloning_epochs"),
@@ -159,7 +163,9 @@ def _load_sample(path: Path, *, legacy_profile: str) -> dict[str, object]:
     performance = _mapping(payload.get("performance"), field="performance")
     training = _load_training_performance(performance.get("training_artifact"))
     if training["observed_environment_steps"] != actual:
-        raise ValueError("training artifact and smoke actual timesteps differ")
+        raise ValueError(
+            "GPU comparison workload differs between training artifact and smoke"
+        )
     profile = payload.get("runtime_profile", legacy_profile)
     if profile not in _RUNTIME_PROFILES:
         raise ValueError("GPU smoke runtime profile is unsupported")

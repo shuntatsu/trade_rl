@@ -11,10 +11,7 @@ from trade_rl.artifacts.hashing import content_digest
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPARISON = (
-    ROOT
-    / "examples"
-    / "binance-multitimeframe"
-    / "compare_gpu_training_smoke.py"
+    ROOT / "examples" / "binance-multitimeframe" / "compare_gpu_training_smoke.py"
 )
 
 
@@ -30,7 +27,9 @@ def _load_comparison() -> ModuleType:
     return module
 
 
-def _training_performance(*, steps: int, wall: float, throughput: float) -> dict[str, object]:
+def _training_performance(
+    *, steps: int, wall: float, throughput: float
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": "training_performance_evidence_v1",
         "device_type": "cuda",

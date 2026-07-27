@@ -7,7 +7,11 @@ import numpy as np
 import pytest
 
 from trade_rl.catalog.contracts import ArtifactRecord, ArtifactRegistration
-from trade_rl.data import MarketDataset, load_market_dataset_artifact, publish_market_dataset_artifact
+from trade_rl.data import (
+    MarketDataset,
+    load_market_dataset_artifact,
+    publish_market_dataset_artifact,
+)
 from trade_rl.workflows.dataset_catalog_reconciliation import (
     reconcile_market_dataset_catalog,
 )

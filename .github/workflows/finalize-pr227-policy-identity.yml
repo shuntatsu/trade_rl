@@ -57,7 +57,25 @@ jobs:
               '        dataset = getattr(sequence_unwrapped, "dataset", None)\n',
               1,
           )
-          path.write_text(text, encoding='utf-8')
+          old_order = '''    replace_once(path, anchor, replacement)
+              replace_exact(
+                  path,
+                  "    algorithm_identity = _model_algorithm_identity(model)\\n",
+                  "    algorithm_identity = checkpoint_identity_payload_for_model(model)\\n",
+                  expected_count=2,
+              )
+          '''
+          new_order = '''    replace_exact(
+                  path,
+                  "    algorithm_identity = _model_algorithm_identity(model)\\n",
+                  "    algorithm_identity = checkpoint_identity_payload_for_model(model)\\n",
+                  expected_count=2,
+              )
+              replace_once(path, anchor, replacement)
+          '''
+          if text.count(old_order) != 1:
+              raise RuntimeError('checkpoint identity replacement-order anchor is invalid')
+          path.write_text(text.replace(old_order, new_order, 1), encoding='utf-8')
           PY
           uv run python tools/finalize_pr227_policy_identity.py 2>&1 | tee policy-identity-finalizer.log
 

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace the brittle source-string boundary check around `trade_rl.workflows.causal_scenario` with an executable dependency analysis that understands Python imports and structured configuration.
+Replace the brittle source-string boundary check around `trade_rl.workflows.causal_scenario` with executable dependency analysis that understands Python imports, bounded lazy-import data flow, and structured configuration.
 
 ## Scope
 
@@ -20,7 +20,7 @@ The maintained walk-forward example `examples/binance-multitimeframe/walk-forwar
 
 ## Chosen approach
 
-Add a small reusable AST scanner under `tests/architecture` and use it from the existing causal-scenario boundary test.
+Add a reusable test-only AST scanner under `tests/architecture` and use it from the existing causal-scenario boundary test.
 
 The scanner emits typed import references from:
 
@@ -30,77 +30,110 @@ The scanner emits typed import references from:
 - `importlib.import_module(...)`, including aliases imported from `importlib`;
 - built-in `__import__(...)`, including aliases imported from `builtins`.
 
-Comments, docstrings, and ordinary string literals are not dependencies and must not create edges.
+Comments, docstrings, and ordinary string literals are not dependencies and do not create edges.
 
-For recognized dynamic-import functions, the target must be a literal string. A non-literal target is reported as unresolved and fails the protected-root test. Relative `importlib.import_module` calls must also provide a literal package name so the target can be resolved deterministically.
+## Finite lazy-import data flow
+
+The repository intentionally uses lazy package exports so optional frameworks are not imported at package initialization time. Two maintained patterns compute the module name from immutable module-level maps before calling `import_module`.
+
+Treating every non-literal call argument as unsafe produced false positives in `trade_rl.integrations.__init__` and `trade_rl.rl.__init__`. The scanner therefore performs a deliberately bounded string-set analysis.
+
+It propagates finite string candidates through:
+
+- literal assignments and annotated assignments;
+- tuples, lists, sets, and dictionaries;
+- tuple/list unpacking;
+- dictionary `.get()`, `.items()`, `.keys()`, and `.values()` calls;
+- dictionary, list, set, and generator comprehensions;
+- subscripts, attributes, starred expressions, conditional expressions, and boolean expressions.
+
+Each function, async function, and class receives a copy of the enclosing finite-value environment. The environment is restored when leaving that scope.
+
+Candidate strings are filtered to syntactically valid module names. When dotted candidates exist, undotted export names are removed, so a lazy export map yields module edges rather than exported attribute names.
+
+This is an over-approximation: every finite candidate module becomes an import reference. Calls whose target still depends on an arbitrary function result remain unresolved and fail closed.
 
 ## Why this approach
 
 ### Rejected: keep string matching
 
-String matching is simple but treats comments and documentation as dependencies, misses aliases and computed import forms, and cannot distinguish JSON keys from values.
+String matching treats comments and documentation as dependencies, misses aliases and computed import forms, and cannot distinguish JSON keys from values.
 
 ### Rejected: import every protected module at runtime
 
-Import-time interception would detect only code executed during module import. It would miss lazy imports inside functions and could trigger framework initialization or other side effects.
+Import-time interception detects only code executed during module import. It misses lazy imports inside functions and can trigger framework initialization or other side effects.
 
-### Selected: static AST dependency extraction
+### Rejected: allowlist the two existing lazy imports
 
-AST analysis covers imports regardless of control-flow position without importing application modules. It is deterministic, cross-platform, side-effect free, and can fail closed for recognized unresolved dynamic-import calls.
+Path-specific exceptions would preserve the current implementation but would not prove what modules the lazy maps can load. A future prohibited target could be hidden behind the same exception.
+
+### Selected: AST extraction plus bounded finite data flow
+
+AST analysis covers imports regardless of control-flow position without importing application modules. Finite string propagation resolves maintained lazy-export maps while still failing closed for unknown dynamic imports. The process is deterministic, cross-platform, and side-effect free.
 
 ## Scanner contract
 
-Create `tests/architecture/import_references.py` with:
+`tests/architecture/import_references.py` provides:
 
-- `ImportReference`: immutable record containing source path, line number, target module, import kind, and whether resolution failed;
+- `ImportReference`: immutable record containing source path, line number, target module, import kind, and resolution status;
 - `scan_import_references(path: Path, *, module_name: str) -> tuple[ImportReference, ...]`;
-- `module_name_from_path(path: Path, *, package_root: Path, root_package: str) -> str`.
+- `module_name_from_path(path: Path, *, package_root: Path, root_package: str) -> str`;
+- `causal_scenario_dependency_violations(...) -> tuple[str, ...]`;
+- `forbidden_json_key_paths(payload: object, *, key: str) -> tuple[str, ...]`.
 
-The scanner tracks aliases introduced by `import importlib as ...`, `from importlib import import_module as ...`, `import builtins as ...`, and `from builtins import __import__ as ...` before classifying calls.
+Static relative imports use normal Python package semantics. Invalid relative imports are returned as unresolved instead of being silently ignored.
 
-Static relative imports are resolved with normal Python package semantics. An invalid relative import is returned as unresolved instead of being silently ignored.
+Recognized dynamic-import functions accept literal targets or targets reducible to a finite string set. Relative `importlib.import_module` calls also require a literal or finite package candidate. A target that cannot be reduced remains unresolved.
 
 ## Boundary test contract
 
-Rewrite `tests/architecture/test_causal_scenario_library_boundary.py` so it:
+`tests/architecture/test_causal_scenario_library_boundary.py`:
 
 1. keeps the existing public-API smoke assertions;
 2. scans every protected Python file except the causal-scenario package;
 3. rejects any resolved target equal to `trade_rl.workflows.causal_scenario` or beginning with that prefix plus `.`;
-4. rejects every unresolved recognized dynamic import in the protected roots;
-5. parses the maintained JSON example with `json.loads` and recursively rejects a mapping key exactly equal to `causal_scenario_library`;
-6. reports path, line, kind, and target in a stable sorted violation list.
+4. rejects every unresolved recognized dynamic import in protected roots;
+5. parses the maintained JSON example with `json.loads`;
+6. recursively rejects a mapping key exactly equal to `causal_scenario_library`;
+7. reports path, line, import kind, and target in a stable sorted violation list.
 
 ## Error handling
 
-A Python syntax error in a scanned source file fails the test naturally through `ast.parse`.
+A Python syntax error fails through `ast.parse`.
 
-Malformed JSON fails the test through `json.loads` instead of being treated as a harmless absence.
+Malformed JSON fails through `json.loads` instead of being treated as a harmless absence.
 
-Dynamic imports with non-literal targets fail closed because their dependency cannot be proven safe.
+Unknown dynamic imports fail closed because their dependency cannot be proven safe.
+
+Finite candidate sets are expanded rather than selecting one candidate, preventing a prohibited member from being hidden among allowed modules.
 
 ## Test strategy
 
-Add focused unit tests for the scanner covering:
+Focused scanner tests cover:
 
 - ordinary and aliased imports;
 - lazy imports inside functions;
 - relative imports;
-- literal `importlib.import_module` and `__import__` calls;
-- aliased dynamic-import functions;
-- unresolved non-literal dynamic imports;
+- literal and aliased `importlib.import_module` and `__import__` calls;
+- assigned literal targets;
+- maintained finite lazy-export map patterns;
+- unresolved function-derived targets;
 - comments, docstrings, and ordinary strings producing no references.
 
-Add boundary-test regression fixtures proving that:
+Boundary regression tests prove that:
 
-- a comment containing the prohibited module no longer fails;
-- a lazy import and a dynamic import of the prohibited module do fail;
-- a JSON value containing the phrase is allowed while the exact key is rejected.
+- comments and ordinary strings containing the prohibited module do not fail;
+- static lazy imports and literal dynamic imports of the prohibited module fail;
+- unresolved recognized dynamic imports fail closed;
+- the causal-scenario implementation package itself is excluded;
+- JSON values containing the phrase are allowed while the exact key is rejected;
+- nested JSON-key paths are stable and deterministic.
 
 ## Non-goals
 
 - No production package or runtime behavior changes.
 - No general-purpose Python security scanner.
+- No arbitrary symbolic execution.
 - No execution of protected application modules during analysis.
 - No change to the causal-scenario public API.
 - Production remains `NO-GO`.

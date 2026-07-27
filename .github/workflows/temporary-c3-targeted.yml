@@ -9,7 +9,10 @@ on:
       - main
     paths:
       - trade_rl/evaluation/causal_scenario_c3_*.py
-      - tests/evaluation/test_causal_scenario_c3.py
+      - trade_rl/workflows/causal_scenario/c3.py
+      - trade_rl/cli/extended.py
+      - tests/evaluation/test_causal_scenario_c3*.py
+      - tests/architecture/test_causal_scenario_c3_boundary.py
       - .github/workflows/temporary-c3-targeted.yml
 
 permissions:
@@ -24,4 +27,4 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run pytest tests/evaluation/test_causal_scenario_c3.py -q
+      - run: uv run pytest tests/evaluation/test_causal_scenario_c3.py tests/evaluation/test_causal_scenario_c3_integration.py -q

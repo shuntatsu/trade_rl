@@ -64,6 +64,7 @@ jobs:
           uv run python tools/apply_legacy_mapping_keys_v2.py
           uv run python tools/apply_sequence_architecture_identity_v2.py
           uv run python tools/apply_sequence_test_staleness_v2.py
+          uv run python tools/apply_hierarchical_v2_nested_cleanup.py
           uv run python - <<'PY'
           import importlib.util
           from pathlib import Path

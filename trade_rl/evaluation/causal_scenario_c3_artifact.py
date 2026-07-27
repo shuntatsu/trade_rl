@@ -59,43 +59,50 @@ def _verify_exact_file(root: Path, filename: str, *, label: str) -> Path:
     return entry
 
 
-def _strict_object(value: object, *, field: str) -> dict[str, object]:
+def _object(value: object, *, field: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(f"{field} must be an object")
     return value
 
 
-def _strict_list(value: object, *, field: str) -> list[object]:
+def _list(value: object, *, field: str) -> list[object]:
     if not isinstance(value, list):
         raise ValueError(f"{field} must be a list")
     return value
 
 
-def _strict_string(value: object, *, field: str) -> str:
+def _string(value: object, *, field: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{field} must be a non-empty string")
     return value
 
 
-def _strict_bool(value: object, *, field: str) -> bool:
+def _boolean(value: object, *, field: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field} must be boolean")
     return value
 
 
-def _strict_int(value: object, *, field: str) -> int:
+def _integer(value: object, *, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field} must be an integer")
     return value
 
 
-def _strict_number(value: object, *, field: str) -> float:
+def _number(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric")
     result = float(value)
     if not np.isfinite(result):
         raise ValueError(f"{field} must be finite")
     return result
+
+
+def _require_fields(
+    payload: dict[str, object], expected: set[str], *, label: str
+) -> None:
+    if set(payload) != expected:
+        raise ValueError(f"{label} field closure mismatch")
 
 
 def _outcome_payload(outcome: RealizedPolicyOutcome) -> dict[str, object]:
@@ -118,265 +125,268 @@ def _outcome_payload(outcome: RealizedPolicyOutcome) -> dict[str, object]:
     }
 
 
-def _load_outcome(payload: object, *, field: str) -> RealizedPolicyOutcome:
-    item = _strict_object(payload, field=field)
-    expected = {
-        "borrow_paid",
-        "fees",
-        "fill_count",
-        "filled_turnover",
-        "funding_paid",
-        "gross_log_return",
-        "impact_cost",
-        "max_drawdown",
-        "outcome_digest",
-        "pending_order_events",
-        "policy_kind",
-        "schema_version",
-        "spread_cost",
-        "terminal_equity",
-        "termination_reason",
-    }
-    if set(item) != expected:
-        raise ValueError(f"{field} field closure mismatch")
+def _load_outcome(value: object, *, field: str) -> RealizedPolicyOutcome:
+    payload = _object(value, field=field)
+    _require_fields(
+        payload,
+        {
+            "borrow_paid",
+            "fees",
+            "fill_count",
+            "filled_turnover",
+            "funding_paid",
+            "gross_log_return",
+            "impact_cost",
+            "max_drawdown",
+            "outcome_digest",
+            "pending_order_events",
+            "policy_kind",
+            "schema_version",
+            "spread_cost",
+            "terminal_equity",
+            "termination_reason",
+        },
+        label=field,
+    )
     return RealizedPolicyOutcome(
-        policy_kind=_strict_string(item["policy_kind"], field=f"{field}.policy_kind"),
-        gross_log_return=_strict_number(
-            item["gross_log_return"], field=f"{field}.gross_log_return"
+        policy_kind=_string(payload["policy_kind"], field=f"{field}.policy_kind"),
+        gross_log_return=_number(
+            payload["gross_log_return"], field=f"{field}.gross_log_return"
         ),
-        filled_turnover=_strict_number(
-            item["filled_turnover"], field=f"{field}.filled_turnover"
+        filled_turnover=_number(
+            payload["filled_turnover"], field=f"{field}.filled_turnover"
         ),
-        fees=_strict_number(item["fees"], field=f"{field}.fees"),
-        spread_cost=_strict_number(item["spread_cost"], field=f"{field}.spread_cost"),
-        impact_cost=_strict_number(item["impact_cost"], field=f"{field}.impact_cost"),
-        funding_paid=_strict_number(
-            item["funding_paid"], field=f"{field}.funding_paid"
+        fees=_number(payload["fees"], field=f"{field}.fees"),
+        spread_cost=_number(payload["spread_cost"], field=f"{field}.spread_cost"),
+        impact_cost=_number(payload["impact_cost"], field=f"{field}.impact_cost"),
+        funding_paid=_number(
+            payload["funding_paid"], field=f"{field}.funding_paid"
         ),
-        borrow_paid=_strict_number(item["borrow_paid"], field=f"{field}.borrow_paid"),
-        fill_count=_strict_int(item["fill_count"], field=f"{field}.fill_count"),
-        pending_order_events=_strict_int(
-            item["pending_order_events"], field=f"{field}.pending_order_events"
+        borrow_paid=_number(payload["borrow_paid"], field=f"{field}.borrow_paid"),
+        fill_count=_integer(payload["fill_count"], field=f"{field}.fill_count"),
+        pending_order_events=_integer(
+            payload["pending_order_events"], field=f"{field}.pending_order_events"
         ),
-        max_drawdown=_strict_number(
-            item["max_drawdown"], field=f"{field}.max_drawdown"
+        max_drawdown=_number(
+            payload["max_drawdown"], field=f"{field}.max_drawdown"
         ),
-        terminal_equity=_strict_number(
-            item["terminal_equity"], field=f"{field}.terminal_equity"
+        terminal_equity=_number(
+            payload["terminal_equity"], field=f"{field}.terminal_equity"
         ),
-        termination_reason=_strict_string(
-            item["termination_reason"], field=f"{field}.termination_reason"
+        termination_reason=_string(
+            payload["termination_reason"], field=f"{field}.termination_reason"
         ),
-        outcome_digest=_strict_string(
-            item["outcome_digest"], field=f"{field}.outcome_digest"
+        outcome_digest=_string(
+            payload["outcome_digest"], field=f"{field}.outcome_digest"
         ),
-        schema_version=_strict_string(
-            item["schema_version"], field=f"{field}.schema_version"
+        schema_version=_string(
+            payload["schema_version"], field=f"{field}.schema_version"
         ),
     )
 
 
-def _perfect_information_payload(
-    comparison: PerfectInformationComparison,
-) -> dict[str, object]:
+def _perfect_payload(value: PerfectInformationComparison) -> dict[str, object]:
     return {
-        "bound_log_return": comparison.bound_log_return,
-        "causal_log_return": comparison.causal_log_return,
-        "gap": comparison.gap,
-        "reason": comparison.reason,
-        "status": comparison.status.value,
+        "bound_log_return": value.bound_log_return,
+        "causal_log_return": value.causal_log_return,
+        "gap": value.gap,
+        "reason": value.reason,
+        "status": value.status.value,
     }
 
 
-def _load_perfect_information(
-    payload: object, *, field: str
-) -> PerfectInformationComparison:
-    item = _strict_object(payload, field=field)
-    if set(item) != {
-        "bound_log_return",
-        "causal_log_return",
-        "gap",
-        "reason",
-        "status",
-    }:
-        raise ValueError(f"{field} field closure mismatch")
-    status = PerfectInformationComparisonStatus(
-        _strict_string(item["status"], field=f"{field}.status")
+def _load_perfect(value: object, *, field: str) -> PerfectInformationComparison:
+    payload = _object(value, field=field)
+    _require_fields(
+        payload,
+        {"bound_log_return", "causal_log_return", "gap", "reason", "status"},
+        label=field,
     )
+    status = PerfectInformationComparisonStatus(
+        _string(payload["status"], field=f"{field}.status")
+    )
+    reason = _string(payload["reason"], field=f"{field}.reason")
     if status is PerfectInformationComparisonStatus.COMPARABLE:
         return PerfectInformationComparison(
             status=status,
-            reason=_strict_string(item["reason"], field=f"{field}.reason"),
-            bound_log_return=_strict_number(
-                item["bound_log_return"], field=f"{field}.bound_log_return"
+            reason=reason,
+            bound_log_return=_number(
+                payload["bound_log_return"], field=f"{field}.bound_log_return"
             ),
-            causal_log_return=_strict_number(
-                item["causal_log_return"], field=f"{field}.causal_log_return"
+            causal_log_return=_number(
+                payload["causal_log_return"], field=f"{field}.causal_log_return"
             ),
-            gap=_strict_number(item["gap"], field=f"{field}.gap"),
+            gap=_number(payload["gap"], field=f"{field}.gap"),
         )
     if any(
-        item[name] is not None
+        payload[name] is not None
         for name in ("bound_log_return", "causal_log_return", "gap")
     ):
         raise ValueError(f"{field} non-comparable values must be null")
     return PerfectInformationComparison(
         status=status,
-        reason=_strict_string(item["reason"], field=f"{field}.reason"),
+        reason=reason,
         bound_log_return=None,
         causal_log_return=None,
         gap=None,
     )
 
 
-def _comparison_payload(
-    comparison: CausalScenarioQueryComparison,
-) -> dict[str, object]:
+def _comparison_payload(value: CausalScenarioQueryComparison) -> dict[str, object]:
     return {
         "candidate_outcomes": [
-            _outcome_payload(outcome) for outcome in comparison.candidate_outcomes
+            _outcome_payload(outcome) for outcome in value.candidate_outcomes
         ],
-        "comparison_digest": comparison.digest,
-        "decision_digest": comparison.decision_digest,
-        "perfect_information": _perfect_information_payload(
-            comparison.perfect_information
-        ),
-        "ppo_mean": _outcome_payload(comparison.ppo_mean),
-        "predicted_realized_spearman": comparison.predicted_realized_spearman,
-        "random_candidate": _outcome_payload(comparison.random_candidate),
-        "random_candidate_indices": comparison.random_candidate_indices,
+        "comparison_digest": value.digest,
+        "decision_digest": value.decision_digest,
+        "perfect_information": _perfect_payload(value.perfect_information),
+        "ppo_mean": _outcome_payload(value.ppo_mean),
+        "predicted_realized_spearman": value.predicted_realized_spearman,
+        "query_timestamp_ns": value.query_timestamp_ns,
+        "random_candidate": _outcome_payload(value.random_candidate),
+        "random_candidate_indices": value.random_candidate_indices,
         "random_candidate_outcomes": [
-            _outcome_payload(outcome)
-            for outcome in comparison.random_candidate_outcomes
+            _outcome_payload(outcome) for outcome in value.random_candidate_outcomes
         ],
-        "random_realized_regret": comparison.random_realized_regret,
-        "random_realized_regrets": comparison.random_realized_regrets.tolist(),
-        "realized_candidate_advantages": comparison.realized_candidate_advantages.tolist(),
-        "scenario_oracle": _outcome_payload(comparison.scenario_oracle),
-        "schema_version": comparison.schema_version,
-        "selected_realized_regret": comparison.selected_realized_regret,
-        "trend": _outcome_payload(comparison.trend),
+        "random_realized_regret": value.random_realized_regret,
+        "random_realized_regrets": value.random_realized_regrets.tolist(),
+        "realized_candidate_advantages": value.realized_candidate_advantages.tolist(),
+        "replay_identity_digest": value.replay_identity_digest,
+        "scenario_oracle": _outcome_payload(value.scenario_oracle),
+        "schema_version": value.schema_version,
+        "selected_realized_regret": value.selected_realized_regret,
+        "trend": _outcome_payload(value.trend),
     }
 
 
-def _load_comparison(payload: object, *, field: str) -> CausalScenarioQueryComparison:
-    item = _strict_object(payload, field=field)
-    expected = {
-        "candidate_outcomes",
-        "comparison_digest",
-        "decision_digest",
-        "perfect_information",
-        "ppo_mean",
-        "predicted_realized_spearman",
-        "random_candidate",
-        "random_candidate_indices",
-        "random_candidate_outcomes",
-        "random_realized_regret",
-        "random_realized_regrets",
-        "realized_candidate_advantages",
-        "scenario_oracle",
-        "schema_version",
-        "selected_realized_regret",
-        "trend",
-    }
-    if set(item) != expected:
-        raise ValueError(f"{field} field closure mismatch")
-    candidates = tuple(
-        _load_outcome(value, field=f"{field}.candidate_outcomes[{index}]")
-        for index, value in enumerate(
-            _strict_list(
-                item["candidate_outcomes"], field=f"{field}.candidate_outcomes"
-            )
+def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryComparison:
+    payload = _object(value, field=field)
+    _require_fields(
+        payload,
+        {
+            "candidate_outcomes",
+            "comparison_digest",
+            "decision_digest",
+            "perfect_information",
+            "ppo_mean",
+            "predicted_realized_spearman",
+            "query_timestamp_ns",
+            "random_candidate",
+            "random_candidate_indices",
+            "random_candidate_outcomes",
+            "random_realized_regret",
+            "random_realized_regrets",
+            "realized_candidate_advantages",
+            "replay_identity_digest",
+            "scenario_oracle",
+            "schema_version",
+            "selected_realized_regret",
+            "trend",
+        },
+        label=field,
+    )
+    candidate_outcomes = tuple(
+        _load_outcome(item, field=f"{field}.candidate_outcomes[{index}]")
+        for index, item in enumerate(
+            _list(payload["candidate_outcomes"], field=f"{field}.candidate_outcomes")
         )
     )
     random_indices = tuple(
-        _strict_int(value, field=f"{field}.random_candidate_indices[{index}]")
-        for index, value in enumerate(
-            _strict_list(
-                item["random_candidate_indices"],
+        _integer(item, field=f"{field}.random_candidate_indices[{index}]")
+        for index, item in enumerate(
+            _list(
+                payload["random_candidate_indices"],
                 field=f"{field}.random_candidate_indices",
             )
         )
     )
     random_outcomes = tuple(
-        _load_outcome(value, field=f"{field}.random_candidate_outcomes[{index}]")
-        for index, value in enumerate(
-            _strict_list(
-                item["random_candidate_outcomes"],
+        _load_outcome(item, field=f"{field}.random_candidate_outcomes[{index}]")
+        for index, item in enumerate(
+            _list(
+                payload["random_candidate_outcomes"],
                 field=f"{field}.random_candidate_outcomes",
             )
         )
     )
-    advantages = np.asarray(
-        [
-            _strict_number(
-                value, field=f"{field}.realized_candidate_advantages[{index}]"
-            )
-            for index, value in enumerate(
-                _strict_list(
-                    item["realized_candidate_advantages"],
-                    field=f"{field}.realized_candidate_advantages",
-                )
-            )
-        ],
-        dtype=np.float64,
-    )
     random_regrets = np.asarray(
         [
-            _strict_number(value, field=f"{field}.random_realized_regrets[{index}]")
-            for index, value in enumerate(
-                _strict_list(
-                    item["random_realized_regrets"],
+            _number(item, field=f"{field}.random_realized_regrets[{index}]")
+            for index, item in enumerate(
+                _list(
+                    payload["random_realized_regrets"],
                     field=f"{field}.random_realized_regrets",
                 )
             )
         ],
         dtype=np.float64,
     )
+    advantages = np.asarray(
+        [
+            _number(
+                item,
+                field=f"{field}.realized_candidate_advantages[{index}]",
+            )
+            for index, item in enumerate(
+                _list(
+                    payload["realized_candidate_advantages"],
+                    field=f"{field}.realized_candidate_advantages",
+                )
+            )
+        ],
+        dtype=np.float64,
+    )
     comparison = CausalScenarioQueryComparison(
-        decision_digest=_strict_string(
-            item["decision_digest"], field=f"{field}.decision_digest"
+        decision_digest=_string(
+            payload["decision_digest"], field=f"{field}.decision_digest"
         ),
-        trend=_load_outcome(item["trend"], field=f"{field}.trend"),
+        query_timestamp_ns=_integer(
+            payload["query_timestamp_ns"], field=f"{field}.query_timestamp_ns"
+        ),
+        replay_identity_digest=_string(
+            payload["replay_identity_digest"],
+            field=f"{field}.replay_identity_digest",
+        ),
+        trend=_load_outcome(payload["trend"], field=f"{field}.trend"),
         scenario_oracle=_load_outcome(
-            item["scenario_oracle"], field=f"{field}.scenario_oracle"
+            payload["scenario_oracle"], field=f"{field}.scenario_oracle"
         ),
-        ppo_mean=_load_outcome(item["ppo_mean"], field=f"{field}.ppo_mean"),
+        ppo_mean=_load_outcome(payload["ppo_mean"], field=f"{field}.ppo_mean"),
         random_candidate=_load_outcome(
-            item["random_candidate"], field=f"{field}.random_candidate"
+            payload["random_candidate"], field=f"{field}.random_candidate"
         ),
         random_candidate_indices=random_indices,
         random_candidate_outcomes=random_outcomes,
         random_realized_regrets=random_regrets,
-        candidate_outcomes=candidates,
+        candidate_outcomes=candidate_outcomes,
         realized_candidate_advantages=advantages,
-        predicted_realized_spearman=_strict_number(
-            item["predicted_realized_spearman"],
+        predicted_realized_spearman=_number(
+            payload["predicted_realized_spearman"],
             field=f"{field}.predicted_realized_spearman",
         ),
-        selected_realized_regret=_strict_number(
-            item["selected_realized_regret"],
+        selected_realized_regret=_number(
+            payload["selected_realized_regret"],
             field=f"{field}.selected_realized_regret",
         ),
-        random_realized_regret=_strict_number(
-            item["random_realized_regret"],
+        random_realized_regret=_number(
+            payload["random_realized_regret"],
             field=f"{field}.random_realized_regret",
         ),
-        perfect_information=_load_perfect_information(
-            item["perfect_information"], field=f"{field}.perfect_information"
+        perfect_information=_load_perfect(
+            payload["perfect_information"], field=f"{field}.perfect_information"
         ),
-        schema_version=_strict_string(
-            item["schema_version"], field=f"{field}.schema_version"
+        schema_version=_string(
+            payload["schema_version"], field=f"{field}.schema_version"
         ),
     )
-    if comparison.digest != _strict_string(
-        item["comparison_digest"], field=f"{field}.comparison_digest"
+    if comparison.digest != _string(
+        payload["comparison_digest"], field=f"{field}.comparison_digest"
     ):
         raise ValueError(f"{field} digest mismatch")
     return comparison
 
 
-def _report_base_payload(report: CausalScenarioAggregateReport) -> dict[str, object]:
+def _report_payload(report: CausalScenarioAggregateReport) -> dict[str, object]:
     return {
         "bootstrap_block_days": report.bootstrap_block_days,
         "bootstrap_resamples": report.bootstrap_resamples,
@@ -432,7 +442,7 @@ class LoadedPhaseAGate:
         object.__setattr__(self, "root", Path(self.root))
 
 
-def _write_single_json_artifact(
+def _write_artifact(
     root: Path,
     *,
     filename: str,
@@ -446,9 +456,7 @@ def _write_single_json_artifact(
     if root.exists() and any(root.iterdir()):
         existing = _verify_exact_file(root, filename, label=label).read_bytes()
         if existing != encoded:
-            raise FileExistsError(
-                f"conflicting {label} artifact already exists: {root}"
-            )
+            raise FileExistsError(f"conflicting {label} artifact already exists: {root}")
         return artifact_digest
     root.mkdir(parents=True, exist_ok=True)
     _atomic_write(root / filename, encoded)
@@ -461,10 +469,10 @@ def write_c3_aggregate_report_artifact(
     if not isinstance(report, CausalScenarioAggregateReport):
         raise TypeError("report must be CausalScenarioAggregateReport")
     destination = Path(root)
-    digest = _write_single_json_artifact(
+    digest = _write_artifact(
         destination,
         filename=_REPORT_FILE,
-        base_payload=_report_base_payload(report),
+        base_payload=_report_payload(report),
         label="C3 aggregate report",
     )
     loaded = load_c3_aggregate_report_artifact(destination)
@@ -482,20 +490,23 @@ def load_c3_aggregate_report_artifact(
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("C3 aggregate report manifest is invalid") from error
-    manifest = _strict_object(raw, field="manifest")
-    if set(manifest) != {
-        "artifact_digest",
-        "bootstrap_block_days",
-        "bootstrap_resamples",
-        "folds",
-        "report_digest",
-        "schema_version",
-    }:
-        raise ValueError("C3 aggregate report manifest field closure mismatch")
+    manifest = _object(raw, field="manifest")
+    _require_fields(
+        manifest,
+        {
+            "artifact_digest",
+            "bootstrap_block_days",
+            "bootstrap_resamples",
+            "folds",
+            "report_digest",
+            "schema_version",
+        },
+        label="C3 aggregate report manifest",
+    )
     if manifest["schema_version"] != C3_AGGREGATE_REPORT_ARTIFACT_SCHEMA:
         raise ValueError("unsupported C3 aggregate report artifact schema")
     artifact_digest = require_sha256(
-        _strict_string(manifest["artifact_digest"], field="artifact_digest"),
+        _string(manifest["artifact_digest"], field="artifact_digest"),
         field="artifact_digest",
     )
     base = dict(manifest)
@@ -506,70 +517,60 @@ def load_c3_aggregate_report_artifact(
         raise ValueError("C3 aggregate report manifest is not canonical JSON")
 
     folds = []
-    for fold_index, fold_value in enumerate(
-        _strict_list(manifest["folds"], field="folds")
-    ):
-        fold = _strict_object(fold_value, field=f"folds[{fold_index}]")
-        if set(fold) != {
-            "comparisons",
-            "failure_reasons",
-            "fold_digest",
-            "fold_id",
-            "required_adverse_passed",
-            "selection_days",
-        }:
-            raise ValueError("C3 fold artifact field closure mismatch")
+    for fold_index, fold_value in enumerate(_list(manifest["folds"], field="folds")):
+        field = f"folds[{fold_index}]"
+        fold = _object(fold_value, field=field)
+        _require_fields(
+            fold,
+            {
+                "comparisons",
+                "failure_reasons",
+                "fold_digest",
+                "fold_id",
+                "required_adverse_passed",
+                "selection_days",
+            },
+            label=field,
+        )
         comparisons = tuple(
-            _load_comparison(
-                value,
-                field=f"folds[{fold_index}].comparisons[{comparison_index}]",
-            )
-            for comparison_index, value in enumerate(
-                _strict_list(
-                    fold["comparisons"],
-                    field=f"folds[{fold_index}].comparisons",
-                )
+            _load_comparison(item, field=f"{field}.comparisons[{index}]")
+            for index, item in enumerate(
+                _list(fold["comparisons"], field=f"{field}.comparisons")
             )
         )
         reasons = tuple(
-            _strict_string(value, field=f"folds[{fold_index}].failure_reasons")
-            for value in _strict_list(
-                fold["failure_reasons"],
-                field=f"folds[{fold_index}].failure_reasons",
+            _string(item, field=f"{field}.failure_reasons[{index}]")
+            for index, item in enumerate(
+                _list(fold["failure_reasons"], field=f"{field}.failure_reasons")
             )
         )
         rebuilt = build_c3_fold_report(
-            fold_id=_strict_string(
-                fold["fold_id"], field=f"folds[{fold_index}].fold_id"
-            ),
-            selection_days=_strict_int(
-                fold["selection_days"],
-                field=f"folds[{fold_index}].selection_days",
+            fold_id=_string(fold["fold_id"], field=f"{field}.fold_id"),
+            selection_days=_integer(
+                fold["selection_days"], field=f"{field}.selection_days"
             ),
             comparisons=comparisons,
-            required_adverse_passed=_strict_bool(
+            required_adverse_passed=_boolean(
                 fold["required_adverse_passed"],
-                field=f"folds[{fold_index}].required_adverse_passed",
+                field=f"{field}.required_adverse_passed",
             ),
             failure_reasons=reasons,
         )
-        if rebuilt.digest != _strict_string(
-            fold["fold_digest"], field=f"folds[{fold_index}].fold_digest"
+        if rebuilt.digest != _string(
+            fold["fold_digest"], field=f"{field}.fold_digest"
         ):
             raise ValueError("C3 fold report digest mismatch")
         folds.append(rebuilt)
     report = build_c3_aggregate_report(
         tuple(folds),
-        bootstrap_resamples=_strict_int(
+        bootstrap_resamples=_integer(
             manifest["bootstrap_resamples"], field="bootstrap_resamples"
         ),
-        bootstrap_block_days=_strict_int(
+        bootstrap_block_days=_integer(
             manifest["bootstrap_block_days"], field="bootstrap_block_days"
         ),
     )
-    if report.digest != _strict_string(
-        manifest["report_digest"], field="report_digest"
-    ):
+    if report.digest != _string(manifest["report_digest"], field="report_digest"):
         raise ValueError("C3 aggregate report digest mismatch")
     return LoadedC3AggregateReport(
         report=report,
@@ -578,7 +579,7 @@ def load_c3_aggregate_report_artifact(
     )
 
 
-def _gate_base_payload(gate: PhaseAEntryGateEvidence) -> dict[str, object]:
+def _gate_payload(gate: PhaseAEntryGateEvidence) -> dict[str, object]:
     return {
         "conditions": [
             {
@@ -601,10 +602,10 @@ def write_phase_a_gate_artifact(root: str | Path, gate: PhaseAEntryGateEvidence)
     if not isinstance(gate, PhaseAEntryGateEvidence):
         raise TypeError("gate must be PhaseAEntryGateEvidence")
     destination = Path(root)
-    digest = _write_single_json_artifact(
+    digest = _write_artifact(
         destination,
         filename=_GATE_FILE,
-        base_payload=_gate_base_payload(gate),
+        base_payload=_gate_payload(gate),
         label="Phase A gate",
     )
     loaded = load_phase_a_gate_artifact(destination)
@@ -620,22 +621,25 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGate:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Phase A gate manifest is invalid") from error
-    manifest = _strict_object(raw, field="manifest")
-    if set(manifest) != {
-        "artifact_digest",
-        "conditions",
-        "config_digest",
-        "gate_digest",
-        "gate_schema_version",
-        "passed",
-        "report_digest",
-        "schema_version",
-    }:
-        raise ValueError("Phase A gate manifest field closure mismatch")
+    manifest = _object(raw, field="manifest")
+    _require_fields(
+        manifest,
+        {
+            "artifact_digest",
+            "conditions",
+            "config_digest",
+            "gate_digest",
+            "gate_schema_version",
+            "passed",
+            "report_digest",
+            "schema_version",
+        },
+        label="Phase A gate manifest",
+    )
     if manifest["schema_version"] != PHASE_A_GATE_ARTIFACT_SCHEMA:
         raise ValueError("unsupported Phase A gate artifact schema")
     artifact_digest = require_sha256(
-        _strict_string(manifest["artifact_digest"], field="artifact_digest"),
+        _string(manifest["artifact_digest"], field="artifact_digest"),
         field="artifact_digest",
     )
     base = dict(manifest)
@@ -644,35 +648,36 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGate:
         raise ValueError("Phase A gate artifact digest mismatch")
     if canonical_json_bytes(manifest) != path.read_bytes():
         raise ValueError("Phase A gate manifest is not canonical JSON")
-    condition_values = _strict_list(manifest["conditions"], field="conditions")
-    condition_objects = tuple(
-        _strict_object(value, field=f"conditions[{index}]")
-        for index, value in enumerate(condition_values)
+    condition_payloads = tuple(
+        _object(item, field=f"conditions[{index}]")
+        for index, item in enumerate(
+            _list(manifest["conditions"], field="conditions")
+        )
     )
-    if any(set(value) != {"detail", "name", "passed"} for value in condition_objects):
-        raise ValueError("Phase A gate condition field closure mismatch")
+    for index, payload in enumerate(condition_payloads):
+        _require_fields(payload, {"detail", "name", "passed"}, label=f"conditions[{index}]")
     conditions = tuple(
         GateConditionResult(
-            name=_strict_string(value["name"], field=f"conditions[{index}].name"),
-            passed=_strict_bool(
-                value["passed"], field=f"conditions[{index}].passed"
+            name=_string(payload["name"], field=f"conditions[{index}].name"),
+            passed=_boolean(
+                payload["passed"], field=f"conditions[{index}].passed"
             ),
-            detail=_strict_string(
-                value["detail"], field=f"conditions[{index}].detail"
+            detail=_string(
+                payload["detail"], field=f"conditions[{index}].detail"
             ),
         )
-        for index, value in enumerate(condition_objects)
+        for index, payload in enumerate(condition_payloads)
     )
     gate = PhaseAEntryGateEvidence(
-        report_digest=_strict_string(manifest["report_digest"], field="report_digest"),
-        config_digest=_strict_string(manifest["config_digest"], field="config_digest"),
+        report_digest=_string(manifest["report_digest"], field="report_digest"),
+        config_digest=_string(manifest["config_digest"], field="config_digest"),
         conditions=conditions,
-        passed=_strict_bool(manifest["passed"], field="passed"),
-        schema_version=_strict_string(
+        passed=_boolean(manifest["passed"], field="passed"),
+        schema_version=_string(
             manifest["gate_schema_version"], field="gate_schema_version"
         ),
     )
-    if gate.digest != _strict_string(manifest["gate_digest"], field="gate_digest"):
+    if gate.digest != _string(manifest["gate_digest"], field="gate_digest"):
         raise ValueError("Phase A gate digest mismatch")
     return LoadedPhaseAGate(
         gate=gate,

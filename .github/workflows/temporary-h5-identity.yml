@@ -1,0 +1,56 @@
+name: Temporary H5 identity updater
+
+on:
+  pull_request:
+    branches:
+      - agent/gpu-performance-comparison
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/gpu-performance-comparison
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Apply candidate identity patch
+        run: uv run python .github/scripts/fix_h5_candidate_identity.py
+      - name: Format and verify
+        run: |
+          uv run ruff check --fix \
+            examples/binance-multitimeframe/compare_gpu_training_smoke.py \
+            tests/examples/test_gpu_comparison_identity.py
+          uv run ruff format \
+            examples/binance-multitimeframe/compare_gpu_training_smoke.py \
+            tests/examples/test_gpu_comparison_identity.py
+          uv run pytest -q \
+            tests/examples/test_compare_gpu_training_smoke.py \
+            tests/examples/test_gpu_comparison_identity.py \
+            tests/examples/test_gpu_performance_comparison_assets.py
+          uv run ruff check \
+            examples/binance-multitimeframe/compare_gpu_training_smoke.py \
+            tests/examples/test_gpu_comparison_identity.py
+          uv run ruff format --check \
+            examples/binance-multitimeframe/compare_gpu_training_smoke.py \
+            tests/examples/test_gpu_comparison_identity.py
+          uv run python .github/check_workflow_security.py .
+      - name: Commit verified identity hardening
+        run: |
+          rm -f .github/scripts/fix_h5_candidate_identity.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test: harden GPU comparison identity"
+          git push origin HEAD:agent/gpu-performance-comparison

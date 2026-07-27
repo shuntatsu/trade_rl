@@ -1,0 +1,65 @@
+name: Causal Scenario C3 GPU Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_path:
+        description: Repository-relative canonical C3 request JSON
+        required: true
+        type: string
+      output_path:
+        description: Repository-relative evidence output directory
+        required: false
+        type: string
+        default: var/causal-scenario-c3
+
+permissions:
+  contents: read
+
+concurrency:
+  group: causal-scenario-c3-gpu-evidence
+  cancel-in-progress: false
+
+jobs:
+  evaluate-c3:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/main'
+    environment: gpu-full-training
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install frozen environment
+        run: uv sync --extra dev --extra train-sb3
+      - name: Record CUDA device evidence
+        run: nvidia-smi
+      - name: Execute C3 evaluation and publish evidence
+        env:
+          REQUEST_PATH: ${{ inputs.request_path }}
+          OUTPUT_PATH: ${{ inputs.output_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$REQUEST_PATH"
+          uv run trade-rl causal-scenario evaluate \
+            --request "$REQUEST_PATH" \
+            --output "$OUTPUT_PATH"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: c3-execution-evidence
+          path: ${{ inputs.output_path }}
+          if-no-files-found: error

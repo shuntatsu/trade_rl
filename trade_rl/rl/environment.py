@@ -210,9 +210,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._observation_contract_digest = (
             observation_contract.observation_contract_digest
         )
-        self.observation_space = observation_contract.observation_space
-        self._full_observation_space = observation_contract.observation_space
-        self._compact_sequence_training_observations = False
+        self._install_observation_transport(observation_contract.observation_space)
         self.action_space = observation_contract.action_space
         self._minimum_start_index = observation_contract.minimum_start_index
         runtime_services = EnvironmentRuntimeServicesBuilder(
@@ -248,6 +246,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
         )
         self._install_initial_state(initial_state)
+
+    def _install_observation_transport(
+        self,
+        observation_space: gym.spaces.Space[Any],
+    ) -> None:
+        self.observation_space = observation_space
+        self._full_observation_space = observation_space
+        self._compact_sequence_training_observations = False
 
     def _install_reward_execution_resources(
         self, resources: EnvironmentRewardExecutionResources

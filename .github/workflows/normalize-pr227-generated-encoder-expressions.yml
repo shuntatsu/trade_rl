@@ -89,14 +89,40 @@ jobs:
               for path in sorted(base.rglob('*.py')):
                   text = path.read_text(encoding='utf-8')
                   updated, _ = expression.subn(replacement, text)
-                  updated = updated.replace(
-                      '_training_config(observation_encoder="asset_set")',
+                  updated = re.sub(
+                      r'_training_config\(\s*observation_encoder\s*=\s*"asset_set"\s*\)',
                       '_training_config(asset_set_enabled=True)',
+                      updated,
                   )
                   if updated != text:
                       ast.parse(updated, filename=str(path))
                       path.write_text(updated, encoding='utf-8')
                       changed.append(path.relative_to(root).as_posix())
+
+          gpu_smoke = root / 'examples/binance-multitimeframe/run_gpu_training_smoke.py'
+          gpu_text = gpu_smoke.read_text(encoding='utf-8')
+          schema_anchor = '    payload["git_dirty"] = git_dirty\n'
+          schema_line = '    payload["schema_version"] = "training_run_config_v2"\n'
+          if schema_line not in gpu_text:
+              if gpu_text.count(schema_anchor) != 1:
+                  raise RuntimeError('GPU smoke schema anchor is not unique')
+              gpu_text = gpu_text.replace(schema_anchor, schema_anchor + schema_line, 1)
+              ast.parse(gpu_text, filename=str(gpu_smoke))
+              gpu_smoke.write_text(gpu_text, encoding='utf-8')
+              changed.append(gpu_smoke.relative_to(root).as_posix())
+
+          runtime_test = root / 'tests/integrations/test_sequence_runtime_acceleration.py'
+          runtime_text = runtime_test.read_text(encoding='utf-8')
+          runtime_text = runtime_text.replace(
+              'match="sequence_compile.*sequence_encoder"',
+              'match="sequence_compile.*observation_encoder"',
+          ).replace(
+              'match="sequence_transfer_mode.*sequence_encoder"',
+              'match="sequence_transfer_mode.*observation_encoder"',
+          )
+          ast.parse(runtime_text, filename=str(runtime_test))
+          runtime_test.write_text(runtime_text, encoding='utf-8')
+          changed.append(runtime_test.relative_to(root).as_posix())
 
           def migrate_mapping(value: object, *, root_mapping: bool = False) -> None:
               if isinstance(value, list):
@@ -176,7 +202,8 @@ jobs:
         run: |
           rm -f \
             .github/workflows/normalize-pr227-generated-encoder-expressions.yml \
-            docs/verification/.normalize-pr227-generated-expressions-trigger.md
+            docs/verification/.normalize-pr227-generated-expressions-trigger.md \
+            docs/verification/.normalize-pr227-generated-expressions-trigger-2.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A

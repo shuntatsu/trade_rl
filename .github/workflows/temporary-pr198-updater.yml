@@ -1,0 +1,64 @@
+name: Temporary PR198 updater
+
+on:
+  push:
+    branches:
+      - agent/explicit-sealed-ledger-mode
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/explicit-sealed-ledger-mode
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply reviewed patch
+        run: uv run python .github/scripts/apply_pr198.py
+
+      - name: Format
+        run: >-
+          uv run ruff format
+          trade_rl/workflows/market_walk_forward_config.py
+          trade_rl/workflows/market_walk_forward.py
+          tests/workflows/test_explicit_sealed_ledger_mode.py
+
+      - name: Focused tests
+        run: >-
+          uv run pytest
+          tests/workflows/test_explicit_sealed_ledger_mode.py
+          tests/workflows/test_market_walk_forward.py
+          tests/workflows/test_market_walk_forward_config.py
+          tests/examples/test_binance_multitimeframe_full_assets.py
+          -q
+
+      - name: Static verification
+        run: |
+          uv run ruff check trade_rl/workflows/market_walk_forward_config.py trade_rl/workflows/market_walk_forward.py tests/workflows/test_explicit_sealed_ledger_mode.py
+          uv run ruff format --check trade_rl/workflows/market_walk_forward_config.py trade_rl/workflows/market_walk_forward.py tests/workflows/test_explicit_sealed_ledger_mode.py
+          uv run mypy trade_rl/workflows/market_walk_forward_config.py trade_rl/workflows/market_walk_forward.py
+
+      - name: Commit verified implementation
+        run: |
+          rm -f .github/scripts/apply_pr198.py
+          rm -f .github/workflows/temporary-pr198-updater.yml
+          rm -f tests/test_000_pr198_source_export.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make sealed ledger mode explicit"
+          git push origin HEAD:agent/explicit-sealed-ledger-mode

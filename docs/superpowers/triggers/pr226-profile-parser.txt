@@ -1,1 +1,1 @@
-Trigger the reviewed PR226 parser updater on the feature branch.
+Trigger the indentation-safe PR226 parser updater on the feature branch.

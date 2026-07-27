@@ -77,6 +77,14 @@ jobs:
           git commit -m 'feat: bind sequence architecture identity to SB3 checkpoints'
           git push origin HEAD:agent/cross-timeframe-attention
 
+      - name: Upload finalizer diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr227-policy-identity-finalizer-${{ github.run_id }}
+          path: policy-identity-finalizer.log
+          if-no-files-found: warn
+
       - name: Report failure to PR
         if: failure()
         env:

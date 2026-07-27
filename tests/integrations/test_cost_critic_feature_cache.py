@@ -94,7 +94,7 @@ def _model(
     )
 
 
-def test_cost_critic_update_extracts_policy_features_exactly_seven_times() -> None:
+def test_cost_critic_update_extracts_policy_features_exactly_six_times() -> None:
     environment = DummyVecEnv([lambda: _CostEnvironment()])
     model = _model(environment, cost_n_epochs=3, cost_batch_size=2)
     original = model.policy.extract_features
@@ -109,7 +109,10 @@ def test_cost_critic_update_extracts_policy_features_exactly_seven_times() -> No
     try:
         model.learn(total_timesteps=4)
 
-        assert calls == 7
+        # Four rollout forwards, one PPO minibatch, and one post-PPO cache build.
+        # SB3 predict_values() calls BaseModel.extract_features() directly and is
+        # intentionally not visible through policy.extract_features wrapping.
+        assert calls == 6
         assert model.cost_update_count == 6
     finally:
         environment.close()
@@ -140,6 +143,28 @@ def test_policy_feature_capture_returns_exact_detached_tensor_and_restores_bindi
         assert captured.requires_grad is False
         assert captured.grad_fn is None
         torch.testing.assert_close(captured, fresh, rtol=0.0, atol=0.0)
+    finally:
+        environment.close()
+
+
+def test_value_bootstrap_reuses_exact_sb3_value_features() -> None:
+    environment = DummyVecEnv([lambda: _CostEnvironment()])
+    model = _model(environment)
+    observation = obs_as_tensor(
+        np.asarray([[0.1, -0.2, 0.3]], dtype=np.float32),
+        model.device,
+    )
+    model.policy.set_training_mode(False)
+    try:
+        with torch.no_grad():
+            values, captured = model._predict_values_with_cost_features(observation)
+            expected_values = model.policy.predict_values(observation)
+            expected_features = model._cost_features(observation)
+
+        assert captured.requires_grad is False
+        assert captured.grad_fn is None
+        torch.testing.assert_close(values, expected_values, rtol=0.0, atol=0.0)
+        torch.testing.assert_close(captured, expected_features, rtol=0.0, atol=0.0)
     finally:
         environment.close()
 

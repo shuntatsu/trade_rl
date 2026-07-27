@@ -58,7 +58,7 @@ def moving_block_mean_test(
             p_value=1.0,
             lower_ci=0.0,
             upper_ci=0.0,
-            block_size=effective_block_size,
+            block_size=(1 if block_size is None else effective_block_size),
         )
 
     values = np.asarray(differences, dtype=np.float64)

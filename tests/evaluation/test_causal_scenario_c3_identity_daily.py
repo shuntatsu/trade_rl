@@ -18,6 +18,9 @@ from trade_rl.evaluation.causal_scenario_c3_decision_artifact import (
     load_c3_decision_artifact,
     write_c3_decision_artifact,
 )
+from trade_rl.evaluation.causal_scenario_c3_prediction import (
+    create_c3_prediction_evidence,
+)
 from trade_rl.evaluation.causal_scenario_c3_report import build_c3_fold_report
 from trade_rl.evaluation.causal_scenario_c3_runner import run_c3_query_comparison
 
@@ -126,11 +129,28 @@ def _decision(
     )
 
 
+def _prediction(decision: PersistedScenarioDecision):
+    return create_c3_prediction_evidence(
+        result_digest=decision.value_result_digest,
+        scenario_library_digest=decision.scenario_library_digest,
+        scenario_set_digest=decision.scenario_set_digest,
+        candidate_digests=decision.candidate_digests,
+        predicted_score=decision.score,
+        predicted_mean_advantage=decision.score,
+        predicted_loss_cvar=np.asarray([0.0, 0.01, 0.02]),
+        predicted_expected_turnover=np.asarray([0.0, 0.25, 0.25]),
+        scenario_anchor_indices=np.arange(64, dtype=np.int64),
+        scenario_distances=np.linspace(0.0, 1.0, 64),
+    )
+
+
 def _outcome(kind: str, value: float) -> RealizedPolicyOutcome:
     payload = {
         "borrow_paid": 0.0,
+        "cancel_replace_events": 0,
         "fees": 0.0001,
         "fill_count": 1,
+        "fill_ratio": 1.0,
         "filled_turnover": 0.1,
         "funding_paid": 0.0,
         "gross_log_return": value,
@@ -152,8 +172,10 @@ def _outcome(kind: str, value: float) -> RealizedPolicyOutcome:
         impact_cost=0.0001,
         funding_paid=0.0,
         borrow_paid=0.0,
+        fill_ratio=1.0,
         fill_count=1,
         pending_order_events=0,
+        cancel_replace_events=0,
         max_drawdown=0.05,
         terminal_equity=100_000.0 * math.exp(value),
         termination_reason="horizon",
@@ -210,6 +232,8 @@ def _comparison(
         replay=replay,
         ppo_mean_action=np.asarray([0.5]),
         config=CausalScenarioC3Config(random_comparator_count=2),
+        prediction_evidence=_prediction(created),
+        execution_scenario="nominal",
     )
 
 
@@ -225,6 +249,35 @@ def test_identity_mismatch_aborts_before_any_replay(tmp_path: Path) -> None:
             replay=CloneReplay(mismatched, starts),
             ppo_mean_action=np.asarray([0.5]),
             config=CausalScenarioC3Config(random_comparator_count=2),
+            prediction_evidence=_prediction(created),
+        )
+    assert starts == []
+
+
+def test_prediction_mismatch_aborts_before_any_replay(tmp_path: Path) -> None:
+    created = _decision(query_index=10_000, query_timestamp_ns=10 * _DAY_NS)
+    root = tmp_path / "decision"
+    write_c3_decision_artifact(root, created)
+    starts: list[int] = []
+    bad = create_c3_prediction_evidence(
+        result_digest=_sha("9"),
+        scenario_library_digest=created.scenario_library_digest,
+        scenario_set_digest=created.scenario_set_digest,
+        candidate_digests=created.candidate_digests,
+        predicted_score=created.score,
+        predicted_mean_advantage=created.score,
+        predicted_loss_cvar=np.asarray([0.0, 0.01, 0.02]),
+        predicted_expected_turnover=np.asarray([0.0, 0.25, 0.25]),
+        scenario_anchor_indices=np.arange(64, dtype=np.int64),
+        scenario_distances=np.linspace(0.0, 1.0, 64),
+    )
+    with pytest.raises(ValueError, match="prediction result"):
+        run_c3_query_comparison(
+            load_c3_decision_artifact(root),
+            replay=CloneReplay(created.replay_identity, starts),
+            ppo_mean_action=np.asarray([0.5]),
+            config=CausalScenarioC3Config(random_comparator_count=2),
+            prediction_evidence=bad,
         )
     assert starts == []
 
@@ -244,6 +297,7 @@ def test_every_policy_uses_a_fresh_replay_clone(tmp_path: Path) -> None:
             query_timestamp_ns=10 * _DAY_NS,
         ).digest
     )
+    assert result.prediction_result_digest == _sha("5")
     assert starts
     assert set(starts) == {0}
 

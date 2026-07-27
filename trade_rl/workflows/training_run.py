@@ -173,6 +173,16 @@ class TrainingRunConfig:
             "seeds",
             "policy_net_arch",
             "value_net_arch",
+            "cost_continuous_hidden_dims",
+            "cost_event_hidden_dims",
+            "lagrangian_budgets",
+            "lagrangian_dual_learning_rates",
+            "lagrangian_ema_betas",
+            "lagrangian_initial_multipliers",
+            "lagrangian_max_multipliers",
+            "lagrangian_warmup_rollouts",
+            "lagrangian_update_interval_rollouts",
+            "lagrangian_minimum_completed_episodes",
         )
         reward = RewardConfig(**_mapping(payload.get("reward"), field="reward"))
         execution = ExecutionCostConfig(

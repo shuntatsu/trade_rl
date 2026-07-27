@@ -15,8 +15,10 @@ SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v1"
 
 
 def _string_tuple(value: object, *, field: str) -> tuple[str, ...]:
-    if not isinstance(value, tuple) or not value or any(
-        not isinstance(item, str) or not item for item in value
+    if (
+        not isinstance(value, tuple)
+        or not value
+        or any(not isinstance(item, str) or not item for item in value)
     ):
         raise ValueError(f"{field} must be a non-empty string tuple")
     if len(set(value)) != len(value):

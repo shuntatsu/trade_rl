@@ -1,0 +1,127 @@
+name: Temporary H4 updater v2
+
+on:
+  pull_request:
+    branches:
+      - agent/parallel-compact-sequence-environments
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/parallel-compact-sequence-environments
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Apply reviewed H4 GREEN patch
+        run: |
+          uv run python .github/scripts/fix_h4_patch_seam.py
+          uv run python .github/scripts/apply_h4_parallel_sequence_env.py
+          uv run python .github/scripts/fix_h4_observation_fallback.py
+      - name: Format and organize imports
+        run: |
+          uv run ruff check --fix \
+            trade_rl/rl/training.py \
+            trade_rl/rl/sequence_observations.py \
+            trade_rl/rl/environment_observation_contract.py \
+            trade_rl/rl/environment_observation.py \
+            trade_rl/rl/environment.py \
+            trade_rl/integrations/parallel_sequence_env.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/integrations/test_parallel_sequence_environments.py
+          uv run ruff format \
+            trade_rl/rl/training.py \
+            trade_rl/rl/sequence_observations.py \
+            trade_rl/rl/environment_observation_contract.py \
+            trade_rl/rl/environment_observation.py \
+            trade_rl/rl/environment.py \
+            trade_rl/integrations/parallel_sequence_env.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/integrations/test_parallel_sequence_environments.py
+      - name: Focused H4 tests
+        shell: bash
+        run: |
+          set +e
+          uv run pytest \
+            tests/integrations/test_parallel_sequence_environments.py \
+            tests/rl/test_environment_observation_contract.py \
+            tests/rl/test_sequence_observations.py \
+            tests/rl/test_sequence_environment_config.py \
+            tests/integrations/test_compact_rollout_performance.py \
+            tests/integrations/test_sb3_training.py \
+            tests/integrations/test_sb3_training_active_architecture.py \
+            tests/integrations/test_sb3_training_performance.py \
+            tests/integrations/test_sb3_cost_critic_backend.py \
+            tests/integrations/test_sb3_lagrangian_backend.py \
+            tests/rl/test_checkpointing.py \
+            tests/rl/test_training_config_active_fields.py \
+            tests/examples/test_binance_multitimeframe_full_assets.py \
+            -q 2>&1 | tee h4-green.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > h4-green.status
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: h4-green-diagnostics-v2
+          path: |
+            h4-green.log
+            h4-green.status
+          if-no-files-found: error
+      - name: Enforce focused tests
+        run: test "$(cat h4-green.status)" = 0
+      - name: Static verification
+        run: |
+          uv run ruff check \
+            trade_rl/rl/training.py \
+            trade_rl/rl/sequence_observations.py \
+            trade_rl/rl/environment_observation_contract.py \
+            trade_rl/rl/environment_observation.py \
+            trade_rl/rl/environment.py \
+            trade_rl/integrations/parallel_sequence_env.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/integrations/test_parallel_sequence_environments.py
+          uv run ruff format --check \
+            trade_rl/rl/training.py \
+            trade_rl/rl/sequence_observations.py \
+            trade_rl/rl/environment_observation_contract.py \
+            trade_rl/rl/environment_observation.py \
+            trade_rl/rl/environment.py \
+            trade_rl/integrations/parallel_sequence_env.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/integrations/test_parallel_sequence_environments.py
+          uv run mypy \
+            trade_rl/rl/training.py \
+            trade_rl/rl/sequence_observations.py \
+            trade_rl/rl/environment_observation_contract.py \
+            trade_rl/rl/environment_observation.py \
+            trade_rl/rl/environment.py \
+            trade_rl/integrations/parallel_sequence_env.py \
+            trade_rl/integrations/sb3_training.py
+      - name: Commit verified H4 implementation
+        run: |
+          rm -f .github/scripts/apply_h4_parallel_sequence_env.py
+          rm -f .github/scripts/fix_h4_observation_fallback.py
+          rm -f .github/scripts/fix_h4_patch_seam.py
+          rm -f .github/workflows/temporary-h4-red.yml
+          rm -f .github/workflows/temporary-h4-updater.yml
+          rm -f .github/workflows/temporary-h4-updater-v2.yml
+          rm -f .github/workflows/temporary-h4-patch-diagnostic.yml
+          rm -f h4-green.log h4-green.status
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "perf: parallelize compact sequence environments"
+          git push origin HEAD:agent/parallel-compact-sequence-environments

@@ -8,6 +8,7 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.bootstrap import moving_block_mean_test
 from trade_rl.evaluation.causal_scenario_c3_contracts import (
+    C3ReplayIdentity,
     CausalScenarioC3Config,
     PersistedScenarioDecision,
     RealizedPolicyOutcome,
@@ -51,22 +52,29 @@ def _decision() -> PersistedScenarioDecision:
     score = np.asarray([0.0, 0.04, -0.03, 0.01], dtype=np.float64)
     regret = score.max() - score
     payload = {
+        "action_spec_digest": _sha("d"),
         "candidate_digests": candidate_digests,
         "candidate_generator_digest": _sha("6"),
         "created_before_realized_replay": True,
         "dataset_id": _sha("a"),
+        "environment_digest": _sha("c"),
+        "execution_policy_digest": _sha("f"),
         "fold_digest": _sha("b"),
+        "observation_digest": _sha("e"),
         "projected_targets": projected.tolist(),
         "query_index": 10_000,
         "query_timestamp_ns": 1_800_000_000_000_000_000,
         "raw_candidate_actions": actions.tolist(),
+        "realized_stop_index": 10_096,
         "regret": regret.tolist(),
+        "risk_digest": _sha("1"),
         "scenario_library_digest": _sha("3"),
         "scenario_set_digest": _sha("4"),
         "schema_version": "causal_scenario_c3_decision_v1",
         "score": score.tolist(),
         "selected_candidate_digest": candidate_digests[1],
         "selected_candidate_index": 1,
+        "starting_equity": 100_000.0,
         "state_snapshot_digest": _sha("2"),
         "tie_candidate_indices": (1,),
         "value_result_digest": _sha("5"),
@@ -78,6 +86,13 @@ def _decision() -> PersistedScenarioDecision:
         query_index=10_000,
         query_timestamp_ns=1_800_000_000_000_000_000,
         state_snapshot_digest=_sha("2"),
+        observation_digest=_sha("e"),
+        environment_digest=_sha("c"),
+        action_spec_digest=_sha("d"),
+        execution_policy_digest=_sha("f"),
+        risk_digest=_sha("1"),
+        starting_equity=100_000.0,
+        realized_stop_index=10_096,
         scenario_library_digest=_sha("3"),
         scenario_set_digest=_sha("4"),
         candidate_generator_digest=_sha("6"),
@@ -132,6 +147,12 @@ def _outcome(policy_kind: str, log_return: float) -> RealizedPolicyOutcome:
 
 
 class _Replay:
+    def __init__(self, identity: C3ReplayIdentity) -> None:
+        self.identity = identity
+
+    def clone_for_replay(self) -> _Replay:
+        return _Replay(self.identity)
+
     def run(
         self,
         raw_residual: np.ndarray,
@@ -149,11 +170,12 @@ class _Replay:
 
 
 def _comparison(tmp_path: Path, *, random_count: int = 8):
+    created = _decision()
     root = tmp_path / "decision"
-    write_c3_decision_artifact(root, _decision())
+    write_c3_decision_artifact(root, created)
     return run_c3_query_comparison(
         load_c3_decision_artifact(root),
-        replay=_Replay(),
+        replay=_Replay(created.replay_identity),
         ppo_mean_action=np.asarray([0.5, 0.0, 0.0]),
         config=CausalScenarioC3Config(random_comparator_count=random_count),
     )

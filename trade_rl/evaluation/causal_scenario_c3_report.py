@@ -26,6 +26,12 @@ def _positive_int(name: str, value: object) -> int:
     return int(value)
 
 
+def _non_negative_int(name: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return int(value)
+
+
 def _finite_float(name: str, value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{name} must be a finite real number")
@@ -157,6 +163,7 @@ class CausalScenarioAggregateReport:
     all_perfect_information_valid: bool
     failure_reasons: tuple[str, ...]
     bootstrap_resamples: int
+    bootstrap_block_days: int
     schema_version: str = C3_AGGREGATE_REPORT_SCHEMA
 
     def __post_init__(self) -> None:
@@ -173,7 +180,9 @@ class CausalScenarioAggregateReport:
             "total_selection_days",
             _positive_int("total_selection_days", self.total_selection_days),
         )
-        positive = _positive_int("positive_uplift_folds", self.positive_uplift_folds)
+        positive = _non_negative_int(
+            "positive_uplift_folds", self.positive_uplift_folds
+        )
         if positive > len(folds):
             raise ValueError("positive_uplift_folds exceeds fold count")
         object.__setattr__(self, "positive_uplift_folds", positive)
@@ -181,6 +190,11 @@ class CausalScenarioAggregateReport:
             self,
             "bootstrap_resamples",
             _positive_int("bootstrap_resamples", self.bootstrap_resamples),
+        )
+        object.__setattr__(
+            self,
+            "bootstrap_block_days",
+            _positive_int("bootstrap_block_days", self.bootstrap_block_days),
         )
         for field in (
             "mean_uplift",
@@ -223,6 +237,7 @@ class CausalScenarioAggregateReport:
             {
                 "all_perfect_information_valid": self.all_perfect_information_valid,
                 "all_required_adverse_passed": self.all_required_adverse_passed,
+                "bootstrap_block_days": self.bootstrap_block_days,
                 "bootstrap_resamples": self.bootstrap_resamples,
                 "failure_reasons": self.failure_reasons,
                 "fold_digests": tuple(item.digest for item in self.folds),
@@ -296,13 +311,18 @@ def build_c3_fold_report(
 
 
 def _bootstrap(
-    values: np.ndarray, *, resamples: int, seed_payload: dict[str, object]
+    values: np.ndarray,
+    *,
+    resamples: int,
+    block_days: int,
+    seed_payload: dict[str, object],
 ) -> tuple[float, float, float]:
     seed = int(content_digest(seed_payload)[:8], 16)
     result = moving_block_mean_test(
         tuple(float(value) for value in values),
         n_bootstrap=resamples,
         seed=seed,
+        block_size=block_days,
     )
     return result.lower_ci, result.upper_ci, result.p_value
 
@@ -311,41 +331,39 @@ def build_c3_aggregate_report(
     folds: tuple[CausalScenarioFoldReport, ...],
     *,
     bootstrap_resamples: int = 1_000,
+    bootstrap_block_days: int = 7,
 ) -> CausalScenarioAggregateReport:
     items = tuple(folds)
     if not items:
         raise ValueError("folds must not be empty")
     resamples = _positive_int("bootstrap_resamples", bootstrap_resamples)
+    block_days = _positive_int("bootstrap_block_days", bootstrap_block_days)
     uplift = np.concatenate([item.uplift for item in items])
     spearman = np.concatenate([item.spearman for item in items])
     regret_margin = np.concatenate([item.regret_margin for item in items])
     fold_digests = tuple(item.digest for item in items)
+    common_seed = {
+        "bootstrap_block_days": block_days,
+        "fold_digests": fold_digests,
+        "schema_version": C3_AGGREGATE_REPORT_SCHEMA,
+    }
     uplift_lower, uplift_upper, uplift_p = _bootstrap(
         uplift,
         resamples=resamples,
-        seed_payload={
-            "fold_digests": fold_digests,
-            "metric": "uplift",
-            "schema_version": C3_AGGREGATE_REPORT_SCHEMA,
-        },
+        block_days=block_days,
+        seed_payload={**common_seed, "metric": "uplift"},
     )
     spearman_lower, spearman_upper, _ = _bootstrap(
         spearman,
         resamples=resamples,
-        seed_payload={
-            "fold_digests": fold_digests,
-            "metric": "spearman",
-            "schema_version": C3_AGGREGATE_REPORT_SCHEMA,
-        },
+        block_days=block_days,
+        seed_payload={**common_seed, "metric": "spearman"},
     )
     regret_lower, regret_upper, _ = _bootstrap(
         regret_margin,
         resamples=resamples,
-        seed_payload={
-            "fold_digests": fold_digests,
-            "metric": "regret_margin",
-            "schema_version": C3_AGGREGATE_REPORT_SCHEMA,
-        },
+        block_days=block_days,
+        seed_payload={**common_seed, "metric": "regret_margin"},
     )
     failures = tuple(
         f"{item.fold_id}:{reason}" for item in items for reason in item.failure_reasons
@@ -374,4 +392,5 @@ def build_c3_aggregate_report(
         ),
         failure_reasons=failures,
         bootstrap_resamples=resamples,
+        bootstrap_block_days=block_days,
     )

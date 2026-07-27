@@ -639,6 +639,10 @@ def main(
     arguments = list(sys.argv[1:] if argv is None else argv)
     output = stdout or sys.stdout
     errors = stderr or sys.stderr
+    if arguments[:2] == ["causal-scenario", "gate"]:
+        from trade_rl.cli.causal_scenario import run_gate
+
+        return run_gate(arguments[2:], stdout=output, stderr=errors)
     if arguments[:2] == ["train", "run"]:
         return _run_training(arguments[2:], stdout=output, stderr=errors)
     if arguments[:2] == ["walk-forward", "run"]:

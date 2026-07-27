@@ -56,6 +56,7 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
         self.builtins_modules: set[str] = {"builtins"}
         self.importlib_functions: set[str] = set()
         self.builtin_functions: set[str] = {"__import__"}
+        self.string_values: dict[str, frozenset[str]] = {}
 
     def _append(
         self,
@@ -74,6 +75,107 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
                 unresolved=unresolved,
             )
         )
+
+    @staticmethod
+    def _union(*values: frozenset[str]) -> frozenset[str]:
+        combined: set[str] = set()
+        for value in values:
+            combined.update(value)
+        return frozenset(combined)
+
+    def _strings(self, node: ast.AST | None) -> frozenset[str]:
+        if node is None:
+            return frozenset()
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return frozenset((node.value,))
+        if isinstance(node, ast.Name):
+            return self.string_values.get(node.id, frozenset())
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return self._union(*(self._strings(item) for item in node.elts))
+        if isinstance(node, ast.Dict):
+            return self._union(
+                *(self._strings(item) for item in (*node.keys, *node.values))
+            )
+        if isinstance(node, ast.DictComp):
+            return self._union(
+                self._strings(node.key),
+                self._strings(node.value),
+                *(self._strings(generator.iter) for generator in node.generators),
+            )
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+            return self._union(
+                self._strings(node.elt),
+                *(self._strings(generator.iter) for generator in node.generators),
+            )
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr in {
+                "get",
+                "items",
+                "keys",
+                "values",
+            }:
+                return self._strings(node.func.value)
+            return frozenset()
+        if isinstance(node, (ast.Attribute, ast.Subscript, ast.Starred)):
+            return self._strings(node.value)
+        if isinstance(node, ast.IfExp):
+            return self._union(self._strings(node.body), self._strings(node.orelse))
+        if isinstance(node, ast.BoolOp):
+            return self._union(*(self._strings(value) for value in node.values))
+        return frozenset()
+
+    def _bind(self, target: ast.expr, values: frozenset[str]) -> None:
+        if isinstance(target, ast.Name):
+            if values:
+                self.string_values[target.id] = values
+            else:
+                self.string_values.pop(target.id, None)
+            return
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for item in target.elts:
+                self._bind(item, values)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self.visit(node.value)
+        values = self._strings(node.value)
+        for target in node.targets:
+            self._bind(target, values)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self.visit(node.value)
+        self._bind(node.target, self._strings(node.value))
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.visit(node.value)
+        self._bind(node.target, self._strings(node.value))
+
+    def _visit_scoped(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+        outer_strings = self.string_values
+        outer_importlib_modules = self.importlib_modules
+        outer_builtins_modules = self.builtins_modules
+        outer_importlib_functions = self.importlib_functions
+        outer_builtin_functions = self.builtin_functions
+        self.string_values = dict(outer_strings)
+        self.importlib_modules = set(outer_importlib_modules)
+        self.builtins_modules = set(outer_builtins_modules)
+        self.importlib_functions = set(outer_importlib_functions)
+        self.builtin_functions = set(outer_builtin_functions)
+        self.generic_visit(node)
+        self.string_values = outer_strings
+        self.importlib_modules = outer_importlib_modules
+        self.builtins_modules = outer_builtins_modules
+        self.importlib_functions = outer_importlib_functions
+        self.builtin_functions = outer_builtin_functions
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_scoped(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_scoped(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._visit_scoped(node)
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -139,6 +241,24 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
         return None
 
     @staticmethod
+    def _looks_like_module(value: str) -> bool:
+        candidate = value.lstrip(".")
+        return bool(candidate) and all(part.isidentifier() for part in candidate.split("."))
+
+    def _module_candidates(self, node: ast.expr | None) -> tuple[str, ...]:
+        literal = self._literal_string(node)
+        if literal is not None:
+            return (literal,)
+        candidates = sorted(
+            value for value in self._strings(node) if self._looks_like_module(value)
+        )
+        if any("." in value.lstrip(".") for value in candidates):
+            candidates = [
+                value for value in candidates if "." in value.lstrip(".")
+            ]
+        return tuple(candidates)
+
+    @staticmethod
     def _package_argument(node: ast.Call) -> ast.expr | None:
         if len(node.args) >= 2:
             return node.args[1]
@@ -152,28 +272,30 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
         if dynamic_kind is None:
             self.generic_visit(node)
             return
-        target = self._literal_string(node.args[0] if node.args else None)
-        if target is None:
+        targets = self._module_candidates(node.args[0] if node.args else None)
+        if not targets:
             self._append(node, kind="dynamic", target=None, unresolved=True)
             self.generic_visit(node)
             return
-        if target.startswith("."):
+        resolved_targets: list[str] = []
+        for target in targets:
+            if not target.startswith("."):
+                resolved_targets.append(target)
+                continue
             if dynamic_kind != "importlib":
-                self._append(node, kind="dynamic", target=None, unresolved=True)
-                self.generic_visit(node)
-                return
-            package = self._literal_string(self._package_argument(node))
-            if package is None:
-                self._append(node, kind="dynamic", target=None, unresolved=True)
-                self.generic_visit(node)
-                return
-            try:
-                target = resolve_name(target, package)
-            except (ImportError, ValueError):
-                self._append(node, kind="dynamic", target=None, unresolved=True)
-                self.generic_visit(node)
-                return
-        self._append(node, kind="dynamic", target=target)
+                continue
+            packages = self._module_candidates(self._package_argument(node))
+            for package in packages:
+                try:
+                    resolved_targets.append(resolve_name(target, package))
+                except (ImportError, ValueError):
+                    continue
+        if not resolved_targets:
+            self._append(node, kind="dynamic", target=None, unresolved=True)
+            self.generic_visit(node)
+            return
+        for target in sorted(set(resolved_targets)):
+            self._append(node, kind="dynamic", target=target)
         self.generic_visit(node)
 
 

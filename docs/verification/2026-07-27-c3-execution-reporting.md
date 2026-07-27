@@ -37,3 +37,7 @@ The exact pull-request head must pass:
 - Workflow execution is manual-only and third-party actions are pinned by full commit SHA.
 - A passing Phase A gate authorizes only the next research phase.
 - Production status remains `NO-GO`.
+
+## Exact-head evidence
+
+The final commit SHA, workflow run IDs, test count, coverage, and all job conclusions are recorded here only after the immutable PR head completes every required check.

@@ -325,6 +325,7 @@ def test_fold_report_uses_daily_paired_log_growth(tmp_path: Path) -> None:
         selection_days=2,
         comparisons=comparisons,
         required_adverse_passed=True,
+        required_adverse_evidence_digest="a" * 64,
     )
     raw_uplift = np.asarray(
         [

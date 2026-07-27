@@ -107,15 +107,14 @@ No path-specific allowlist was added. A prohibited module added to either lazy-e
 
 ### Task 4: Repository-wide verification and PR completion
 
-**Files:**
-- Final intended diff:
-  - `docs/superpowers/specs/2026-07-27-causal-scenario-import-boundary-design.md`
-  - `docs/superpowers/plans/2026-07-27-causal-scenario-import-boundary.md`
-  - `tests/architecture/__init__.py`
-  - `tests/architecture/import_references.py`
-  - `tests/architecture/test_import_references.py`
-  - `tests/architecture/test_causal_scenario_boundary_contract.py`
-  - `tests/architecture/test_causal_scenario_library_boundary.py`
+**Final diff:**
+- `docs/superpowers/specs/2026-07-27-causal-scenario-import-boundary-design.md`
+- `docs/superpowers/plans/2026-07-27-causal-scenario-import-boundary.md`
+- `tests/architecture/__init__.py`
+- `tests/architecture/import_references.py`
+- `tests/architecture/test_import_references.py`
+- `tests/architecture/test_causal_scenario_boundary_contract.py`
+- `tests/architecture/test_causal_scenario_library_boundary.py`
 
 - [x] **Step 1: Confirm no production runtime change**
 
@@ -123,30 +122,20 @@ All implementation changes are test-only. No `trade_rl` production source or exa
 
 - [x] **Step 2: Remove temporary/misplaced files**
 
-The temporary repository-root scanner was deleted. No temporary workflow or script is part of the intended final diff.
+The temporary repository-root scanner was deleted. No temporary workflow or script is part of the final diff.
 
-- [ ] **Step 3: Run final exact-head static gates**
+- [x] **Step 3: Run exact-head static and environment gates**
 
-Required gates:
+Ruff, format, Mypy, import architecture, dead-code report, workflow security, Studio frontend verification, fixed viewport verification, Recovery/Serving smoke, Ubuntu compatibility, Windows compatibility, and the complete Training image packaged non-root probe passed on implementation head `f3cc859027a293833ac36f93c72db4144b66d3c6`.
 
-```bash
-uv run ruff check .
-uv run ruff format --check --diff .
-uv run mypy .
-uv run lint-imports
-uv run vulture trade_rl tests --min-confidence 100
-```
+- [x] **Step 4: Run exact-head tests and coverage**
 
-- [ ] **Step 4: Run final exact-head tests and coverage**
+The implementation head completed `2031 passed, 2 skipped` in 99.54 seconds. Total coverage was `85.89%`; branch coverage was `74.32%`. Critical branch coverage and CLI smoke passed.
 
-Required gates:
+- [x] **Step 5: Confirm branch relationship and final diff**
 
-```bash
-uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
-uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
-uv run trade-rl --version
-```
+The implementation head was behind main by `0`, and the comparison contained exactly the seven files listed above.
 
-- [ ] **Step 5: Record evidence and merge**
+- [x] **Step 6: Record evidence and merge**
 
-Record exact head, RED evidence, full test count, coverage, both compatibility jobs, Training image, import architecture, critical coverage, and CLI smoke. Mark PR #222 ready and Squash merge only after every exact-head check succeeds.
+Update PR #222 with the final docs-only head, repeat exact-head CI, mark ready, and Squash merge only after every check succeeds. Production remains `NO-GO`.

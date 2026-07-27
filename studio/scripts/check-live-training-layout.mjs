@@ -15,7 +15,7 @@ const [css, rawJs] = await Promise.all([
   readFile(path.join(assetsDir, cssFile), 'utf8'),
   readFile(path.join(assetsDir, jsFile), 'utf8'),
 ])
-const js = rawJs.replaceAll('</script>', '<\\/script>')
+const js = rawJs.replaceAll('</script>', '<\/script>')
 const html = `<!doctype html><html lang="ja"><head><base href="http://127.0.0.1:4173/"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script type="module">${js}</script></body></html>`
 
 const browserCandidates = [
@@ -36,7 +36,9 @@ if (!executablePath) {
   throw new Error(`Chromium executable was not found. Checked: ${browserCandidates.join(', ')}`)
 }
 
-const outputDir = process.env.STUDIO_QA_OUTPUT_DIR ?? '/mnt/data'
+const outputDir = process.env.STUDIO_QA_OUTPUT_DIR
+  ? path.resolve(studioRoot, '..', process.env.STUDIO_QA_OUTPUT_DIR)
+  : '/mnt/data'
 await mkdir(outputDir, { recursive: true })
 const browser = await chromium.launch({ headless: true, executablePath, args: ['--no-sandbox'] })
 

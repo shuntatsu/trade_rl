@@ -1,0 +1,36 @@
+name: Temporary C3 Capture
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3
+    paths:
+      - .github/workflows/temporary-c3-capture.yml
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Capture diagnostics and push
+        shell: bash
+        run: |
+          set +e
+          uv run pytest tests/evaluation/test_causal_scenario_c3.py tests/evaluation/test_causal_scenario_c3_integration.py -q --tb=short > .c3-targeted.log 2>&1
+          status=$?
+          set -e
+          printf '\nexit_status=%s\n' "$status" >> .c3-targeted.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/temporary-c3-capture.yml
+          git add .c3-targeted.log
+          git commit -m "chore: capture C3 targeted diagnostics"
+          git push origin HEAD:agent/causal-scenario-c3

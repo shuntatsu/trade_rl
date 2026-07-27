@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.c3_reporting_fixtures import write_summary
 from trade_rl.workflows.causal_scenario import c3_execution
 
 
@@ -16,6 +15,7 @@ def _request(tmp_path: Path) -> Path:
 
 def test_execute_c3_evaluation_request_publishes_evidence_from_injected_backend(
     tmp_path: Path,
+    c3_reporting,
 ) -> None:
     request = _request(tmp_path)
     output = tmp_path / "output"
@@ -23,7 +23,7 @@ def test_execute_c3_evaluation_request_publishes_evidence_from_injected_backend(
     def backend(request_path: Path, *, output_root: Path) -> Path:
         assert request_path == request
         path = output_root / "summary.json"
-        write_summary(path)
+        c3_reporting.write_summary(path)
         return path
 
     result = c3_execution.execute_c3_evaluation_request(
@@ -45,11 +45,12 @@ def test_execute_c3_evaluation_request_publishes_evidence_from_injected_backend(
 
 def test_execute_c3_evaluation_request_resolves_relative_backend_path(
     tmp_path: Path,
+    c3_reporting,
 ) -> None:
     request = _request(tmp_path)
 
     def backend(request_path: Path, *, output_root: Path) -> Path:
-        write_summary(output_root / "nested" / "summary.json")
+        c3_reporting.write_summary(output_root / "nested" / "summary.json")
         return Path("nested/summary.json")
 
     result = c3_execution.execute_c3_evaluation_request(
@@ -64,10 +65,11 @@ def test_execute_c3_evaluation_request_resolves_relative_backend_path(
 
 def test_execute_c3_evaluation_request_rejects_backend_output_escape(
     tmp_path: Path,
+    c3_reporting,
 ) -> None:
     request = _request(tmp_path)
     outside = tmp_path / "outside.json"
-    write_summary(outside)
+    c3_reporting.write_summary(outside)
 
     def backend(request_path: Path, *, output_root: Path) -> Path:
         return outside
@@ -128,12 +130,13 @@ def test_execute_c3_evaluation_request_rejects_missing_request(tmp_path: Path) -
 
 def test_execute_c3_evaluation_request_never_authorizes_production(
     tmp_path: Path,
+    c3_reporting,
 ) -> None:
     request = _request(tmp_path)
 
     def backend(request_path: Path, *, output_root: Path) -> Path:
         path = output_root / "summary.json"
-        write_summary(path)
+        c3_reporting.write_summary(path)
         return path
 
     result = c3_execution.execute_c3_evaluation_request(

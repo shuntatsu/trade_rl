@@ -690,7 +690,9 @@ class CausalScenarioQueryComparison:
         object.__setattr__(
             self,
             "prediction_result_digest",
-            require_sha256(self.prediction_result_digest, field="prediction_result_digest"),
+            require_sha256(
+                self.prediction_result_digest, field="prediction_result_digest"
+            ),
         )
         object.__setattr__(
             self,

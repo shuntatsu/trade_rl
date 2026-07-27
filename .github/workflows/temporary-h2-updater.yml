@@ -30,6 +30,7 @@ jobs:
         run: |
           uv run python .github/scripts/apply_h2_cost_feature_cache.py
           uv run python .github/scripts/fix_h2_value_bootstrap.py
+          uv run python .github/scripts/fix_h2_mypy_ignore.py
       - name: Format and organize imports
         run: |
           uv run ruff check --fix trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py
@@ -86,6 +87,7 @@ jobs:
         run: |
           rm -f .github/scripts/apply_h2_cost_feature_cache.py
           rm -f .github/scripts/fix_h2_value_bootstrap.py
+          rm -f .github/scripts/fix_h2_mypy_ignore.py
           rm -f .github/workflows/temporary-h2-red.yml
           rm -f .github/workflows/temporary-h2-updater.yml
           rm -f h2-green.log h2-green.status h2-ruff.log h2-ruff.status h2-format.log h2-format.status h2-mypy.log h2-mypy.status

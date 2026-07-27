@@ -1,0 +1,128 @@
+name: PR229 domain contract updater
+
+on:
+  pull_request:
+    branches:
+      - agent/constrained-policy-report
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.head_ref == 'agent/trigger-pr229-domain-contract'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout report branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/constrained-policy-report
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Move constraint metadata to domain boundary
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          environment_path = Path('trade_rl/rl/environment_constraints.py')
+          environment = environment_path.read_text(encoding='utf-8')
+          old_environment = '''import numpy as np
+
+_TOLERANCE = 1e-12
+CONSTRAINT_COST_NAMES = (
+    "drawdown_excess",
+    "drawdown_stop_event",
+    "margin_deficit_fraction",
+    "forced_liquidation_event",
+    "gross_exposure_request_excess",
+    "daily_turnover",
+    "execution_cost_fraction",
+)
+'''
+          new_environment = '''import numpy as np
+
+from trade_rl.domain.constraint_contracts import CONSTRAINT_COST_NAMES
+
+_TOLERANCE = 1e-12
+'''
+          if environment.count(old_environment) != 1:
+              raise SystemExit('environment constraint block did not match exactly once')
+          environment_path.write_text(
+              environment.replace(old_environment, new_environment),
+              encoding='utf-8',
+          )
+
+          statistics_path = Path('trade_rl/rl/lagrangian_statistics.py')
+          statistics = statistics_path.read_text(encoding='utf-8')
+          statistics = statistics.replace('from enum import Enum\n', '')
+          old_statistics_import = (
+              'from trade_rl.artifacts.hashing import content_digest\n'
+              'from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES\n'
+              'from trade_rl.rl.lagrangian_episode import EpisodeCompletionKind\n'
+          )
+          new_statistics_import = (
+              'from trade_rl.artifacts.hashing import content_digest\n'
+              'from trade_rl.domain.constraint_contracts import (\n'
+              '    CONSTRAINT_COST_NAMES,\n'
+              '    ConstraintAggregation,\n'
+              '    canonical_constraint_aggregation,\n'
+              '    canonical_constraint_unit,\n'
+              '    validate_constraint_name as _validate_constraint_name,\n'
+              ')\n'
+              'from trade_rl.rl.lagrangian_episode import EpisodeCompletionKind\n'
+          )
+          if statistics.count(old_statistics_import) != 1:
+              raise SystemExit('lagrangian statistics import block did not match exactly once')
+          statistics = statistics.replace(old_statistics_import, new_statistics_import)
+          start_marker = 'class ConstraintAggregation(str, Enum):\n'
+          end_marker = '@dataclass(frozen=True, slots=True)\nclass LagrangianConstraintSpec:'
+          if statistics.count(start_marker) != 1 or statistics.count(end_marker) != 1:
+              raise SystemExit('lagrangian metadata block markers are not unique')
+          start = statistics.index(start_marker)
+          end = statistics.index(end_marker)
+          statistics = statistics[:start] + statistics[end:]
+          statistics_path.write_text(statistics, encoding='utf-8')
+
+          report_path = Path('trade_rl/evaluation/constrained_policy_report.py')
+          report = report_path.read_text(encoding='utf-8')
+          old_report_import = '''from trade_rl.artifacts.hashing import content_digest
+from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.rl.lagrangian_statistics import (
+    canonical_constraint_aggregation,
+    canonical_constraint_unit,
+)
+'''
+          new_report_import = '''from trade_rl.artifacts.hashing import content_digest
+from trade_rl.domain.constraint_contracts import (
+    CONSTRAINT_COST_NAMES,
+    canonical_constraint_aggregation,
+    canonical_constraint_unit,
+)
+'''
+          if report.count(old_report_import) != 1:
+              raise SystemExit('report import block did not match exactly once')
+          report_path.write_text(
+              report.replace(old_report_import, new_report_import),
+              encoding='utf-8',
+          )
+
+          assert 'trade_rl.rl.environment_constraints' not in report_path.read_text(encoding='utf-8')
+          assert 'trade_rl.rl.lagrangian_statistics' not in report_path.read_text(encoding='utf-8')
+          assert 'class ConstraintAggregation(str, Enum)' not in statistics_path.read_text(encoding='utf-8')
+          PY
+
+      - name: Remove updater and commit
+        shell: bash
+        run: |
+          rm .github/workflows/pr229-domain-contract-updater.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/rl/environment_constraints.py \
+                  trade_rl/rl/lagrangian_statistics.py \
+                  trade_rl/evaluation/constrained_policy_report.py \
+                  .github/workflows/pr229-domain-contract-updater.yml
+          git commit -m "refactor: move constraint metadata to domain boundary"
+          git push origin HEAD:agent/constrained-policy-report

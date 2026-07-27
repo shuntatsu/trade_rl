@@ -1,0 +1,232 @@
+name: Temporary All Branch Inventory
+
+on:
+  push:
+    branches:
+      - audit/all-branch-inventory-20260728
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: temporary-all-branch-inventory-20260728
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Inventory branches and publish result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          AUDIT_BRANCH: audit/all-branch-inventory-20260728
+          AUDIT_PR: '233'
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from collections import defaultdict
+          from datetime import datetime, timezone
+
+          token = os.environ['GH_TOKEN']
+          repository = os.environ['REPOSITORY']
+          owner, repo = repository.split('/', 1)
+          audit_branch = os.environ['AUDIT_BRANCH']
+          audit_pr = int(os.environ['AUDIT_PR'])
+          api = 'https://api.github.com'
+
+          def request(method: str, path: str, payload: object | None = None) -> object:
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(
+                  api + path,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'trade-rl-branch-inventory',
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      raw = response.read()
+              except urllib.error.HTTPError as error:
+                  detail = error.read().decode('utf-8', errors='replace')
+                  raise RuntimeError(f'GitHub API {method} {path} failed: {error.code} {detail}') from error
+              return None if not raw else json.loads(raw)
+
+          def paged(path: str) -> list[dict[str, object]]:
+              separator = '&' if '?' in path else '?'
+              page = 1
+              result: list[dict[str, object]] = []
+              while True:
+                  payload = request('GET', f'{path}{separator}per_page=100&page={page}')
+                  if not isinstance(payload, list):
+                      raise RuntimeError(f'expected list response for {path}')
+                  rows = [item for item in payload if isinstance(item, dict)]
+                  result.extend(rows)
+                  if len(rows) < 100:
+                      return result
+                  page += 1
+
+          repository_data = request('GET', f'/repos/{repository}')
+          if not isinstance(repository_data, dict):
+              raise RuntimeError('repository metadata is invalid')
+          default_branch = repository_data.get('default_branch')
+          if default_branch != 'main':
+              raise RuntimeError(f'unexpected default branch: {default_branch!r}')
+
+          branches = paged(f'/repos/{repository}/branches')
+          pulls = paged(f'/repos/{repository}/pulls?state=all&sort=updated&direction=desc')
+          pulls_by_branch: dict[str, list[dict[str, object]]] = defaultdict(list)
+          for pull in pulls:
+              head = pull.get('head')
+              if isinstance(head, dict) and isinstance(head.get('ref'), str):
+                  pulls_by_branch[head['ref']].append(pull)
+
+          main_ref = request('GET', f'/repos/{repository}/git/ref/heads/main')
+          if not isinstance(main_ref, dict) or not isinstance(main_ref.get('object'), dict):
+              raise RuntimeError('main ref metadata is invalid')
+          main_sha = main_ref['object'].get('sha')
+          if not isinstance(main_sha, str):
+              raise RuntimeError('main SHA is missing')
+
+          rows: list[dict[str, object]] = []
+          for branch in sorted(branches, key=lambda item: str(item.get('name', ''))):
+              name = branch.get('name')
+              commit = branch.get('commit')
+              if not isinstance(name, str) or not isinstance(commit, dict):
+                  raise RuntimeError('branch metadata is invalid')
+              sha = commit.get('sha')
+              if not isinstance(sha, str):
+                  raise RuntimeError(f'branch SHA is missing for {name}')
+              if name == 'main':
+                  ahead = 0
+                  behind = 0
+                  status = 'identical'
+              else:
+                  encoded = urllib.parse.quote(f'main...{name}', safe='')
+                  comparison = request('GET', f'/repos/{repository}/compare/{encoded}')
+                  if not isinstance(comparison, dict):
+                      raise RuntimeError(f'comparison is invalid for {name}')
+                  ahead = comparison.get('ahead_by')
+                  behind = comparison.get('behind_by')
+                  status = comparison.get('status')
+                  if not isinstance(ahead, int) or not isinstance(behind, int) or not isinstance(status, str):
+                      raise RuntimeError(f'comparison fields are invalid for {name}')
+
+              associated: list[dict[str, object]] = []
+              for pull in pulls_by_branch.get(name, []):
+                  associated.append(
+                      {
+                          'number': pull.get('number'),
+                          'state': pull.get('state'),
+                          'draft': pull.get('draft'),
+                          'merged_at': pull.get('merged_at'),
+                          'base': pull.get('base', {}).get('ref') if isinstance(pull.get('base'), dict) else None,
+                          'title': pull.get('title'),
+                      }
+                  )
+              open_pulls = [item for item in associated if item.get('state') == 'open']
+              merged_pulls = [item for item in associated if item.get('merged_at') is not None]
+              if name == 'main':
+                  classification = 'main'
+              elif name == audit_branch:
+                  classification = 'temporary_audit'
+              elif ahead == 0:
+                  classification = 'already_integrated'
+              elif open_pulls:
+                  classification = 'open_pr_unique_commits'
+              elif merged_pulls:
+                  classification = 'post_merge_branch_has_unique_commits'
+              elif associated:
+                  classification = 'closed_unmerged_pr_unique_commits'
+              else:
+                  classification = 'unreviewed_unique_commits'
+              rows.append(
+                  {
+                      'name': name,
+                      'sha': sha,
+                      'ahead_by': ahead,
+                      'behind_by': behind,
+                      'status': status,
+                      'classification': classification,
+                      'pull_requests': associated,
+                  }
+              )
+
+          open_prs = [
+              {
+                  'number': pull.get('number'),
+                  'title': pull.get('title'),
+                  'draft': pull.get('draft'),
+                  'base': pull.get('base', {}).get('ref') if isinstance(pull.get('base'), dict) else None,
+                  'head': pull.get('head', {}).get('ref') if isinstance(pull.get('head'), dict) else None,
+                  'sha': pull.get('head', {}).get('sha') if isinstance(pull.get('head'), dict) else None,
+                  'mergeable_state': pull.get('mergeable_state'),
+              }
+              for pull in pulls
+              if pull.get('state') == 'open'
+          ]
+          inventory = {
+              'schema_version': 'trade_rl_branch_inventory_v1',
+              'generated_at': datetime.now(timezone.utc).isoformat(),
+              'repository': repository,
+              'main_sha': main_sha,
+              'branch_count': len(rows),
+              'open_pr_count': len(open_prs),
+              'branches': rows,
+              'open_pull_requests': open_prs,
+          }
+
+          lines = [
+              '## Authoritative branch inventory',
+              '',
+              f'- Main: `{main_sha}`',
+              f'- Branches: **{len(rows)}**',
+              f'- Open PRs: **{len(open_prs)}**',
+              '',
+              '| Branch | Ahead | Behind | Classification | PRs |',
+              '|---|---:|---:|---|---|',
+          ]
+          for row in rows:
+              prs = ', '.join(
+                  f"#{item['number']}:{item['state']}{':merged' if item['merged_at'] else ''}"
+                  for item in row['pull_requests']
+              ) or '—'
+              lines.append(
+                  f"| `{row['name']}` | {row['ahead_by']} | {row['behind_by']} | "
+                  f"`{row['classification']}` | {prs} |"
+              )
+          lines.extend(
+              [
+                  '',
+                  '<details><summary>Machine-readable inventory</summary>',
+                  '',
+                  '```json',
+                  json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
+                  '```',
+                  '',
+                  '</details>',
+              ]
+          )
+          comment = '\n'.join(lines)
+          if len(comment) > 65000:
+              raise RuntimeError(f'inventory comment exceeds GitHub limit: {len(comment)}')
+
+          request('POST', f'/repos/{repository}/issues/{audit_pr}/comments', {'body': comment})
+          request('PATCH', f'/repos/{repository}/pulls/{audit_pr}', {'state': 'closed'})
+          encoded_branch = urllib.parse.quote(audit_branch, safe='')
+          request('DELETE', f'/repos/{repository}/git/refs/heads/{encoded_branch}')
+          PY

@@ -35,7 +35,10 @@ jobs:
         run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
 
       - name: Apply policy identity integration
-        run: uv run python tools/finalize_pr227_policy_identity.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python tools/finalize_pr227_policy_identity.py 2>&1 | tee policy-identity-finalizer.log
 
       - name: Verify policy identity integration
         shell: bash
@@ -61,6 +64,7 @@ jobs:
           rm -f \
             .github/workflows/finalize-pr227-policy-identity.yml \
             tools/finalize_pr227_policy_identity.py \
+            policy-identity-finalizer.log \
             docs/verification/.finalize-pr227-policy-identity-trigger.md \
             docs/verification/.finalize-pr227-policy-identity-trigger-2.md \
             docs/verification/.normalize-pr227-generated-expressions-trigger.md \
@@ -79,4 +83,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh pr comment 227 --body "Policy identity finalization failed in Actions run ${GITHUB_RUN_ID}."
+          {
+            printf 'Policy identity finalization failed in Actions run %s.\n\n```text\n' "$GITHUB_RUN_ID"
+            if test -f policy-identity-finalizer.log; then
+              tail -n 120 policy-identity-finalizer.log
+            else
+              printf 'No finalizer log was produced.\n'
+            fi
+            printf '\n```\n'
+          } > /tmp/pr227-policy-identity-failure.md
+          gh pr comment 227 --body-file /tmp/pr227-policy-identity-failure.md

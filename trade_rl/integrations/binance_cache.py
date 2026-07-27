@@ -121,9 +121,7 @@ def plan_binance_vision_cache(
             )
 
     if resolved_market is not BinanceMarket.SPOT:
-        month = resolved_start.replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
+        month = resolved_start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         while _next_month(month) <= resolved_end:
             for symbol in resolved_symbols:
                 urls.append(vision_funding_url(resolved_market, symbol, month))
@@ -211,7 +209,9 @@ def sync_binance_vision_cache(
         if not payload:
             raise RuntimeError(f"downloaded empty Binance Vision archive: {url}")
         if not path.is_file() or path.stat().st_size <= 0:
-            raise RuntimeError(f"transport did not publish Binance Vision cache file: {path}")
+            raise RuntimeError(
+                f"transport did not publish Binance Vision cache file: {path}"
+            )
 
     after = inspect_binance_vision_cache(plan, cache_root=root)
     if not after.complete:

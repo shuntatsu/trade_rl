@@ -32,13 +32,19 @@ def _migrate_identity_test() -> None:
 def _migrate_feature_extractor_kwargs() -> None:
     path = ROOT / "tests" / "rl" / "test_sequence_policy_core.py"
     text = path.read_text(encoding="utf-8")
-    heads = re.compile(
+    dict_heads = re.compile(
         r'(?P<indent>[ \t]+)"attention_heads": (?P<value>[^,\n]+),'
     )
-    layers = re.compile(
+    dict_layers = re.compile(
         r'(?P<indent>[ \t]+)"attention_layers": (?P<value>[^,\n]+),'
     )
-    text = heads.sub(
+    call_heads = re.compile(
+        r"(?P<indent>[ \t]+)attention_heads=(?P<value>[^,\n]+),"
+    )
+    call_layers = re.compile(
+        r"(?P<indent>[ \t]+)attention_layers=(?P<value>[^,\n]+),"
+    )
+    text = dict_heads.sub(
         lambda match: (
             f'{match.group("indent")}"timeframe_attention_heads": '
             f'{match.group("value")},\n'
@@ -47,11 +53,29 @@ def _migrate_feature_extractor_kwargs() -> None:
         ),
         text,
     )
-    text = layers.sub(
+    text = dict_layers.sub(
         lambda match: (
             f'{match.group("indent")}"timeframe_attention_layers": '
             f'{match.group("value")},\n'
             f'{match.group("indent")}"asset_attention_layers": '
+            f'{match.group("value")},'
+        ),
+        text,
+    )
+    text = call_heads.sub(
+        lambda match: (
+            f'{match.group("indent")}timeframe_attention_heads='
+            f'{match.group("value")},\n'
+            f'{match.group("indent")}asset_attention_heads='
+            f'{match.group("value")},'
+        ),
+        text,
+    )
+    text = call_layers.sub(
+        lambda match: (
+            f'{match.group("indent")}timeframe_attention_layers='
+            f'{match.group("value")},\n'
+            f'{match.group("indent")}asset_attention_layers='
             f'{match.group("value")},'
         ),
         text,
@@ -68,6 +92,9 @@ def _migrate_active_field_expectations() -> None:
         ),
         'match="sequence_d_model.*sequence_encoder"': (
             'match="sequence_d_model.*observation_encoder"'
+        ),
+        'match="sequence_capacity.*sequence_encoder"': (
+            'match="sequence_tcn_capacity.*observation_encoder"'
         ),
         'match="sequence_capacity"': 'match="sequence_tcn_capacity"',
         "test_disabled_asset_set_encoder_rejects_non_default_embedding_parameters": (

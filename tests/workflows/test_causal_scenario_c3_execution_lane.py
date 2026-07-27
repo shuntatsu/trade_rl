@@ -210,13 +210,47 @@ def _request_payload() -> dict[str, object]:
     }
 
 
-def test_request_schema_rejects_self_reported_support(tmp_path: Path) -> None:
+def test_request_schema_rejects_self_reported_support(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     payload = _request_payload()
     fold = payload["folds"][0]
     fold["selection_days"] = 30
     fold["required_adverse_passed"] = True
     request = tmp_path / "request.json"
     request.write_bytes(canonical_json_bytes(payload))
+    manifest = SimpleNamespace(
+        dataset_id=_sha("a"),
+        evaluation_digest=_sha("8"),
+        workflow_config_digest=_sha("9"),
+        fold_count=1,
+    )
+    walk_forward = {
+        "dataset_id": _sha("a"),
+        "evaluation_digest": _sha("8"),
+        "folds": [{"fold_index": 0}],
+    }
+    monkeypatch.setattr(
+        module, "validate_walk_forward_run_directory", lambda path: manifest
+    )
+    monkeypatch.setattr(
+        module, "_walk_forward_payload", lambda root, loaded: walk_forward
+    )
+    monkeypatch.setattr(
+        module,
+        "_walk_forward_config_payload",
+        lambda root, loaded: {"schema_version": "market_walk_forward_config_v1"},
+    )
+    monkeypatch.setattr(
+        module,
+        "load_c3_source_adverse_evidence",
+        lambda *args, **kwargs: SimpleNamespace(
+            by_fold_index={},
+            selection_days_by_fold={},
+            required_scenario="joint_2x",
+        ),
+    )
 
     with pytest.raises(ValueError, match="field closure"):
         module.execute_c3_evaluation_request(request, output_root=tmp_path / "output")

@@ -92,7 +92,10 @@ def _strict_int(value: object, *, field: str) -> int:
 def _strict_number(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric")
-    return float(value)
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result
 
 
 def _outcome_payload(outcome: RealizedPolicyOutcome) -> dict[str, object]:
@@ -241,7 +244,13 @@ def _comparison_payload(
         "ppo_mean": _outcome_payload(comparison.ppo_mean),
         "predicted_realized_spearman": comparison.predicted_realized_spearman,
         "random_candidate": _outcome_payload(comparison.random_candidate),
+        "random_candidate_indices": comparison.random_candidate_indices,
+        "random_candidate_outcomes": [
+            _outcome_payload(outcome)
+            for outcome in comparison.random_candidate_outcomes
+        ],
         "random_realized_regret": comparison.random_realized_regret,
+        "random_realized_regrets": comparison.random_realized_regrets.tolist(),
         "realized_candidate_advantages": comparison.realized_candidate_advantages.tolist(),
         "scenario_oracle": _outcome_payload(comparison.scenario_oracle),
         "schema_version": comparison.schema_version,
@@ -260,7 +269,10 @@ def _load_comparison(payload: object, *, field: str) -> CausalScenarioQueryCompa
         "ppo_mean",
         "predicted_realized_spearman",
         "random_candidate",
+        "random_candidate_indices",
+        "random_candidate_outcomes",
         "random_realized_regret",
+        "random_realized_regrets",
         "realized_candidate_advantages",
         "scenario_oracle",
         "schema_version",
@@ -277,9 +289,49 @@ def _load_comparison(payload: object, *, field: str) -> CausalScenarioQueryCompa
             )
         )
     )
-    advantages = _strict_list(
-        item["realized_candidate_advantages"],
-        field=f"{field}.realized_candidate_advantages",
+    random_indices = tuple(
+        _strict_int(value, field=f"{field}.random_candidate_indices[{index}]")
+        for index, value in enumerate(
+            _strict_list(
+                item["random_candidate_indices"],
+                field=f"{field}.random_candidate_indices",
+            )
+        )
+    )
+    random_outcomes = tuple(
+        _load_outcome(value, field=f"{field}.random_candidate_outcomes[{index}]")
+        for index, value in enumerate(
+            _strict_list(
+                item["random_candidate_outcomes"],
+                field=f"{field}.random_candidate_outcomes",
+            )
+        )
+    )
+    advantages = np.asarray(
+        [
+            _strict_number(
+                value, field=f"{field}.realized_candidate_advantages[{index}]"
+            )
+            for index, value in enumerate(
+                _strict_list(
+                    item["realized_candidate_advantages"],
+                    field=f"{field}.realized_candidate_advantages",
+                )
+            )
+        ],
+        dtype=np.float64,
+    )
+    random_regrets = np.asarray(
+        [
+            _strict_number(value, field=f"{field}.random_realized_regrets[{index}]")
+            for index, value in enumerate(
+                _strict_list(
+                    item["random_realized_regrets"],
+                    field=f"{field}.random_realized_regrets",
+                )
+            )
+        ],
+        dtype=np.float64,
     )
     comparison = CausalScenarioQueryComparison(
         decision_digest=_strict_string(
@@ -293,16 +345,11 @@ def _load_comparison(payload: object, *, field: str) -> CausalScenarioQueryCompa
         random_candidate=_load_outcome(
             item["random_candidate"], field=f"{field}.random_candidate"
         ),
+        random_candidate_indices=random_indices,
+        random_candidate_outcomes=random_outcomes,
+        random_realized_regrets=random_regrets,
         candidate_outcomes=candidates,
-        realized_candidate_advantages=np.asarray(
-            [
-                _strict_number(
-                    value, field=f"{field}.realized_candidate_advantages"
-                )
-                for value in advantages
-            ],
-            dtype=np.float64,
-        ),
+        realized_candidate_advantages=advantages,
         predicted_realized_spearman=_strict_number(
             item["predicted_realized_spearman"],
             field=f"{field}.predicted_realized_spearman",
@@ -331,6 +378,7 @@ def _load_comparison(payload: object, *, field: str) -> CausalScenarioQueryCompa
 
 def _report_base_payload(report: CausalScenarioAggregateReport) -> dict[str, object]:
     return {
+        "bootstrap_block_days": report.bootstrap_block_days,
         "bootstrap_resamples": report.bootstrap_resamples,
         "folds": [
             {
@@ -437,6 +485,7 @@ def load_c3_aggregate_report_artifact(
     manifest = _strict_object(raw, field="manifest")
     if set(manifest) != {
         "artifact_digest",
+        "bootstrap_block_days",
         "bootstrap_resamples",
         "folds",
         "report_digest",
@@ -513,6 +562,9 @@ def load_c3_aggregate_report_artifact(
         tuple(folds),
         bootstrap_resamples=_strict_int(
             manifest["bootstrap_resamples"], field="bootstrap_resamples"
+        ),
+        bootstrap_block_days=_strict_int(
+            manifest["bootstrap_block_days"], field="bootstrap_block_days"
         ),
     )
     if report.digest != _strict_string(
@@ -592,30 +644,25 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGate:
         raise ValueError("Phase A gate artifact digest mismatch")
     if canonical_json_bytes(manifest) != path.read_bytes():
         raise ValueError("Phase A gate manifest is not canonical JSON")
+    condition_values = _strict_list(manifest["conditions"], field="conditions")
+    condition_objects = tuple(
+        _strict_object(value, field=f"conditions[{index}]")
+        for index, value in enumerate(condition_values)
+    )
+    if any(set(value) != {"detail", "name", "passed"} for value in condition_objects):
+        raise ValueError("Phase A gate condition field closure mismatch")
     conditions = tuple(
         GateConditionResult(
-            name=_strict_string(
-                _strict_object(value, field=f"conditions[{index}]")["name"],
-                field=f"conditions[{index}].name",
-            ),
+            name=_strict_string(value["name"], field=f"conditions[{index}].name"),
             passed=_strict_bool(
-                _strict_object(value, field=f"conditions[{index}]")["passed"],
-                field=f"conditions[{index}].passed",
+                value["passed"], field=f"conditions[{index}].passed"
             ),
             detail=_strict_string(
-                _strict_object(value, field=f"conditions[{index}]")["detail"],
-                field=f"conditions[{index}].detail",
+                value["detail"], field=f"conditions[{index}].detail"
             ),
         )
-        for index, value in enumerate(
-            _strict_list(manifest["conditions"], field="conditions")
-        )
+        for index, value in enumerate(condition_objects)
     )
-    if any(
-        set(_strict_object(value, field="condition")) != {"detail", "name", "passed"}
-        for value in _strict_list(manifest["conditions"], field="conditions")
-    ):
-        raise ValueError("Phase A gate condition field closure mismatch")
     gate = PhaseAEntryGateEvidence(
         report_digest=_strict_string(manifest["report_digest"], field="report_digest"),
         config_digest=_strict_string(manifest["config_digest"], field="config_digest"),

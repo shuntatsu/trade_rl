@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import math
 import re
+from collections import OrderedDict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from threading import RLock
+from typing import Literal, Protocol
 
 from pydantic import Field
 
@@ -17,6 +20,7 @@ from trade_rl.studio.settings import StudioSettings
 
 _MAX_TAGS = 8
 _MAX_POINTS = 2_000
+_DEFAULT_MAX_CACHED_SOURCES = 32
 _RUN_DIRECTORY = re.compile(r"^seed-(?P<seed>\d+)-[a-z0-9_-]+(?:_\d+)?$")
 _EVENT_PREFIX = "events.out.tfevents."
 MetricGroup = Literal["optimization", "policy", "value", "trading"]
@@ -72,6 +76,24 @@ class TrainingMetricsResponse(StudioModel):
     reset_required: bool = False
 
 
+class _ScalarEvent(Protocol):
+    step: int
+    wall_time: float
+    value: float
+
+
+class _EventAccumulator(Protocol):
+    def Reload(self) -> object: ...
+
+    def Tags(self) -> Mapping[str, Sequence[str]]: ...
+
+    def Scalars(self, tag: str) -> Sequence[_ScalarEvent]: ...
+
+
+_AccumulatorFactory = Callable[[Path], _EventAccumulator]
+_MetricSnapshot = dict[str, tuple[TrainingMetricPoint, ...]]
+
+
 @dataclass(frozen=True, slots=True)
 class _SeedSource:
     member_root: Path
@@ -79,11 +101,60 @@ class _SeedSource:
     event_files: tuple[Path, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _EventFingerprint:
+    size: int
+    modified_ns: int
+    device: int
+    inode: int
+
+    @classmethod
+    def from_path(cls, path: Path) -> _EventFingerprint:
+        status = path.stat()
+        return cls(
+            size=int(status.st_size),
+            modified_ns=int(status.st_mtime_ns),
+            device=int(status.st_dev),
+            inode=int(status.st_ino),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _EventFileSnapshot:
+    fingerprint: _EventFingerprint
+    accumulator: _EventAccumulator
+    points: _MetricSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceSnapshot:
+    source: _SeedSource
+    generation: str
+    files: Mapping[Path, _EventFileSnapshot]
+    merged: _MetricSnapshot
+
+
 class StudioTrainingMetricsReader:
     """Read finite scalar data only beneath the selected job and seed."""
 
-    def __init__(self, settings: StudioSettings) -> None:
+    def __init__(
+        self,
+        settings: StudioSettings,
+        *,
+        accumulator_factory: _AccumulatorFactory | None = None,
+        max_cached_sources: int = _DEFAULT_MAX_CACHED_SOURCES,
+    ) -> None:
+        if (
+            isinstance(max_cached_sources, bool)
+            or not isinstance(max_cached_sources, int)
+            or max_cached_sources <= 0
+        ):
+            raise ValueError("max_cached_sources must be a positive integer")
         self.settings = settings
+        self._accumulator_factory = accumulator_factory or self._build_accumulator
+        self._max_cached_sources = max_cached_sources
+        self._cache: OrderedDict[tuple[Path, str], _SourceSnapshot] = OrderedDict()
+        self._cache_lock = RLock()
 
     @staticmethod
     def _reject_symlink_chain(path: Path, *, stop: Path) -> None:
@@ -205,14 +276,11 @@ class StudioTrainingMetricsReader:
         )
 
     @staticmethod
-    def _load(source: _SeedSource) -> dict[str, tuple[TrainingMetricPoint, ...]]:
+    def _build_accumulator(path: Path) -> _EventAccumulator:
         try:
             from tensorboard.backend.event_processing import event_accumulator
         except ImportError as error:
             raise ArtifactInvalid("TensorBoard support is not installed") from error
-        points: dict[str, dict[int, TrainingMetricPoint]] = {
-            tag: {} for tag in _METRICS
-        }
         size_guidance = {
             event_accumulator.SCALARS: 0,
             event_accumulator.COMPRESSED_HISTOGRAMS: 0,
@@ -221,44 +289,140 @@ class StudioTrainingMetricsReader:
             event_accumulator.HISTOGRAMS: 0,
             event_accumulator.TENSORS: 0,
         }
-        try:
-            for event_file in source.event_files:
-                accumulator = event_accumulator.EventAccumulator(
-                    str(event_file), size_guidance=size_guidance
-                )
-                accumulator.Reload()
-                scalar_tags = set(accumulator.Tags().get("scalars", ()))
-                for tag in _METRICS:
-                    if tag not in scalar_tags:
-                        continue
-                    for item in accumulator.Scalars(tag):
-                        step = int(item.step)
-                        wall_time = float(item.wall_time)
-                        value = float(item.value)
-                        if (
-                            step < 0
-                            or not math.isfinite(wall_time)
-                            or not math.isfinite(value)
-                        ):
-                            raise ArtifactInvalid(
-                                "TensorBoard scalar contains invalid values"
-                            )
-                        previous = points[tag].get(step)
-                        if previous is None or wall_time >= previous.wall_time:
-                            points[tag][step] = TrainingMetricPoint(
-                                step=step,
-                                wall_time=wall_time,
-                                value=value,
-                            )
-        except ArtifactInvalid:
-            raise
-        except (OSError, RuntimeError, TypeError, ValueError) as error:
-            raise ArtifactInvalid("TensorBoard event artifact is malformed") from error
+        return event_accumulator.EventAccumulator(
+            str(path),
+            size_guidance=size_guidance,
+        )
+
+    @staticmethod
+    def _append_compatible(
+        previous: _EventFingerprint,
+        current: _EventFingerprint,
+    ) -> bool:
+        stable_identity = (
+            previous.inode != 0
+            and current.inode != 0
+            and previous.device == current.device
+            and previous.inode == current.inode
+        )
+        return stable_identity and current.size >= previous.size
+
+    @staticmethod
+    def _points_from_accumulator(accumulator: _EventAccumulator) -> _MetricSnapshot:
+        scalar_tags = set(accumulator.Tags().get("scalars", ()))
+        points: dict[str, dict[int, TrainingMetricPoint]] = {
+            tag: {} for tag in _METRICS
+        }
+        for tag in _METRICS:
+            if tag not in scalar_tags:
+                continue
+            for item in accumulator.Scalars(tag):
+                step = int(item.step)
+                wall_time = float(item.wall_time)
+                value = float(item.value)
+                if (
+                    step < 0
+                    or not math.isfinite(wall_time)
+                    or not math.isfinite(value)
+                ):
+                    raise ArtifactInvalid("TensorBoard scalar contains invalid values")
+                previous = points[tag].get(step)
+                if previous is None or wall_time >= previous.wall_time:
+                    points[tag][step] = TrainingMetricPoint(
+                        step=step,
+                        wall_time=wall_time,
+                        value=value,
+                    )
         return {
             tag: tuple(by_step[step] for step in sorted(by_step))
             for tag, by_step in points.items()
             if by_step
         }
+
+    @staticmethod
+    def _merge_files(
+        source: _SeedSource,
+        files: Mapping[Path, _EventFileSnapshot],
+    ) -> _MetricSnapshot:
+        points: dict[str, dict[int, TrainingMetricPoint]] = {
+            tag: {} for tag in _METRICS
+        }
+        for event_file in source.event_files:
+            for tag, series in files[event_file].points.items():
+                for point in series:
+                    previous = points[tag].get(point.step)
+                    if previous is None or point.wall_time >= previous.wall_time:
+                        points[tag][point.step] = point
+        return {
+            tag: tuple(by_step[step] for step in sorted(by_step))
+            for tag, by_step in points.items()
+            if by_step
+        }
+
+    def _publish_cache(
+        self,
+        key: tuple[Path, str],
+        snapshot: _SourceSnapshot,
+    ) -> None:
+        self._cache[key] = snapshot
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._max_cached_sources:
+            self._cache.popitem(last=False)
+
+    def _load(self, source: _SeedSource) -> _MetricSnapshot:
+        generation = self._generation(source)
+        key = (source.member_root, generation)
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            try:
+                fingerprints = {
+                    event_file: _EventFingerprint.from_path(event_file)
+                    for event_file in source.event_files
+                }
+                if cached is not None and all(
+                    cached.files[event_file].fingerprint == fingerprints[event_file]
+                    for event_file in source.event_files
+                ):
+                    self._cache.move_to_end(key)
+                    return cached.merged
+
+                files: dict[Path, _EventFileSnapshot] = {}
+                for event_file in source.event_files:
+                    fingerprint = fingerprints[event_file]
+                    previous = (
+                        None if cached is None else cached.files.get(event_file)
+                    )
+                    if previous is not None and previous.fingerprint == fingerprint:
+                        files[event_file] = previous
+                        continue
+                    accumulator = (
+                        previous.accumulator
+                        if previous is not None
+                        and self._append_compatible(previous.fingerprint, fingerprint)
+                        else self._accumulator_factory(event_file)
+                    )
+                    accumulator.Reload()
+                    files[event_file] = _EventFileSnapshot(
+                        fingerprint=fingerprint,
+                        accumulator=accumulator,
+                        points=self._points_from_accumulator(accumulator),
+                    )
+                snapshot = _SourceSnapshot(
+                    source=source,
+                    generation=generation,
+                    files=files,
+                    merged=self._merge_files(source, files),
+                )
+            except ArtifactInvalid:
+                self._cache.pop(key, None)
+                raise
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
+                self._cache.pop(key, None)
+                raise ArtifactInvalid(
+                    "TensorBoard event artifact is malformed"
+                ) from error
+            self._publish_cache(key, snapshot)
+            return snapshot.merged
 
     def _source_label(self, source: _SeedSource) -> str:
         project_root = self.settings.project_root.resolve()

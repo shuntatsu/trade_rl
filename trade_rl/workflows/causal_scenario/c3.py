@@ -10,6 +10,9 @@ from typing import Final
 
 import numpy as np
 
+from trade_rl.evaluation.causal_scenario_c3_adverse import (
+    C3AdverseFoldEvidence,
+)
 from trade_rl.evaluation.causal_scenario_c3_artifact import (
     write_c3_aggregate_report_artifact,
     write_phase_a_gate_artifact,
@@ -138,7 +141,7 @@ def execute_c3_batch(
     *,
     output_root: str | Path,
     fold_selection_days: Mapping[str, int],
-    required_adverse_passed: Mapping[str, bool],
+    required_adverse_evidence: Mapping[str, C3AdverseFoldEvidence],
     config: CausalScenarioC3Config,
 ) -> C3BatchResult:
     """Evaluate verified decisions, aggregate by reset fold, and publish gate evidence."""
@@ -155,10 +158,17 @@ def execute_c3_batch(
     if _mapping_keys(fold_selection_days, field="fold_selection_days") != fold_ids:
         raise ValueError("fold_selection_days must exactly match query folds")
     if (
-        _mapping_keys(required_adverse_passed, field="required_adverse_passed")
+        _mapping_keys(required_adverse_evidence, field="required_adverse_evidence")
         != fold_ids
     ):
-        raise ValueError("required_adverse_passed must exactly match query folds")
+        raise ValueError("required_adverse_evidence must exactly match query folds")
+    if any(
+        not isinstance(item, C3AdverseFoldEvidence)
+        for item in required_adverse_evidence.values()
+    ):
+        raise ValueError(
+            "required_adverse_evidence must contain C3 adverse fold evidence"
+        )
 
     by_fold: dict[str, list[CausalScenarioQueryComparison]] = defaultdict(list)
     seen_comparison_keys: set[tuple[str, str]] = set()
@@ -191,7 +201,10 @@ def execute_c3_batch(
             fold_id=fold_id,
             selection_days=fold_selection_days[fold_id],
             comparisons=tuple(by_fold[fold_id]),
-            required_adverse_passed=required_adverse_passed[fold_id],
+            required_adverse_passed=required_adverse_evidence[fold_id].passed,
+            required_adverse_evidence_digest=(
+                required_adverse_evidence[fold_id].digest
+            ),
         )
         for fold_id in sorted(by_fold)
     )

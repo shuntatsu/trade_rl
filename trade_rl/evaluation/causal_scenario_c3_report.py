@@ -11,6 +11,7 @@ from typing import Final
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.bootstrap import moving_block_mean_test
 from trade_rl.evaluation.causal_scenario_c3_contracts import (
     CausalScenarioQueryComparison,
@@ -252,6 +253,7 @@ class CausalScenarioFoldReport:
     scenario_oracle_max_drawdown: float
     trend_max_drawdown: float
     required_adverse_passed: bool
+    required_adverse_evidence_digest: str
     perfect_information_valid: bool
     failure_reasons: tuple[str, ...]
     schema_version: str = C3_FOLD_REPORT_SCHEMA
@@ -312,6 +314,14 @@ class CausalScenarioFoldReport:
             object.__setattr__(self, field, value)
         if not isinstance(self.required_adverse_passed, bool):
             raise ValueError("required_adverse_passed must be boolean")
+        object.__setattr__(
+            self,
+            "required_adverse_evidence_digest",
+            require_sha256(
+                self.required_adverse_evidence_digest,
+                field="required_adverse_evidence_digest",
+            ),
+        )
         if not isinstance(self.perfect_information_valid, bool):
             raise ValueError("perfect_information_valid must be boolean")
         reasons = tuple(reason.strip() for reason in self.failure_reasons)
@@ -344,6 +354,9 @@ class CausalScenarioFoldReport:
                 "fold_id": self.fold_id,
                 "perfect_information_valid": self.perfect_information_valid,
                 "regret_margin": self.regret_margin.tolist(),
+                "required_adverse_evidence_digest": (
+                    self.required_adverse_evidence_digest
+                ),
                 "required_adverse_passed": self.required_adverse_passed,
                 "scenario_oracle_max_drawdown": self.scenario_oracle_max_drawdown,
                 "schema_version": self.schema_version,
@@ -541,6 +554,7 @@ def build_c3_fold_report(
     selection_days: int,
     comparisons: tuple[CausalScenarioQueryComparison, ...],
     required_adverse_passed: bool,
+    required_adverse_evidence_digest: str,
     failure_reasons: tuple[str, ...] = (),
 ) -> CausalScenarioFoldReport:
     items = tuple(comparisons)
@@ -613,6 +627,7 @@ def build_c3_fold_report(
         ),
         trend_max_drawdown=max(item.trend.max_drawdown for item in nominal_items),
         required_adverse_passed=required_adverse_passed,
+        required_adverse_evidence_digest=required_adverse_evidence_digest,
         perfect_information_valid=perfect_valid,
         failure_reasons=failure_reasons,
     )

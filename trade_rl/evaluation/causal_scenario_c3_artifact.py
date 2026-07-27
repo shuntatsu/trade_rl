@@ -465,6 +465,9 @@ def _report_payload(report: CausalScenarioAggregateReport) -> dict[str, object]:
                 "failure_reasons": fold.failure_reasons,
                 "fold_digest": fold.digest,
                 "fold_id": fold.fold_id,
+                "required_adverse_evidence_digest": (
+                    fold.required_adverse_evidence_digest
+                ),
                 "required_adverse_passed": fold.required_adverse_passed,
                 "selection_days": fold.selection_days,
             }
@@ -595,6 +598,7 @@ def load_c3_aggregate_report_artifact(
                 "failure_reasons",
                 "fold_digest",
                 "fold_id",
+                "required_adverse_evidence_digest",
                 "required_adverse_passed",
                 "selection_days",
             },
@@ -621,6 +625,10 @@ def load_c3_aggregate_report_artifact(
             required_adverse_passed=_boolean(
                 fold["required_adverse_passed"],
                 field=f"{field}.required_adverse_passed",
+            ),
+            required_adverse_evidence_digest=_string(
+                fold["required_adverse_evidence_digest"],
+                field=f"{field}.required_adverse_evidence_digest",
             ),
             failure_reasons=reasons,
         )

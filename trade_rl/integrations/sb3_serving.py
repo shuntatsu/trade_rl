@@ -12,6 +12,7 @@ import numpy as np
 from gymnasium import spaces
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.integrations.sb3_ensemble import predict_deterministic_mean_action
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import ObservationBuilder
 from trade_rl.rl.sequence_observations import (
@@ -50,26 +51,6 @@ def _safe_relative_path(value: object, *, field: str) -> str:
     return path.as_posix()
 
 
-def _validated_action(
-    raw: object, *, action_size: int, member_index: int
-) -> np.ndarray:
-    action = np.asarray(raw, dtype=np.float32).reshape(-1)
-    if action.shape != (action_size,):
-        raise ValueError(f"SB3 ensemble member {member_index} action shape mismatch")
-    if not np.isfinite(action).all():
-        raise ValueError(f"SB3 ensemble member {member_index} action must be finite")
-    if np.any(action < -1.0) or np.any(action > 1.0):
-        raise ValueError(f"SB3 ensemble member {member_index} action violates bounds")
-    return action
-
-
-def _mean_action(actions: list[np.ndarray]) -> np.ndarray:
-    averaged = np.mean(np.stack(actions, axis=0), axis=0, dtype=np.float64)
-    if not np.isfinite(averaged).all():
-        raise ValueError("SB3 ensemble mean action must be finite")
-    return np.asarray(averaged, dtype=np.float32)
-
-
 class _SB3EnsemblePolicy:
     def __init__(
         self, models: tuple[Any, ...], *, observation_size: int, action_size: int
@@ -84,20 +65,12 @@ class _SB3EnsemblePolicy:
         vector = np.asarray(observation, dtype=np.float32).reshape(-1)
         if vector.shape != (self.observation_size,) or not np.isfinite(vector).all():
             raise ValueError("observation does not match the SB3 ensemble contract")
-        actions: list[np.ndarray] = []
-        for member_index, model in enumerate(self.models):
-            try:
-                raw, _ = model.predict(vector, deterministic=True)
-            except Exception as error:
-                raise ValueError(
-                    f"SB3 ensemble member {member_index} prediction failed"
-                ) from error
-            actions.append(
-                _validated_action(
-                    raw, action_size=self.action_size, member_index=member_index
-                )
-            )
-        return _mean_action(actions)
+        return predict_deterministic_mean_action(
+            self.models,
+            vector,
+            action_size=self.action_size,
+            context="SB3 ensemble",
+        )
 
 
 class _SB3StructuredSequenceEnsemblePolicy:
@@ -241,20 +214,12 @@ class _SB3StructuredSequenceEnsemblePolicy:
 
     def predict(self, observation: Mapping[str, np.ndarray]) -> np.ndarray:
         structured = self._validate_observation(observation)
-        actions: list[np.ndarray] = []
-        for member_index, model in enumerate(self.models):
-            try:
-                raw, _ = model.predict(structured, deterministic=True)
-            except Exception as error:
-                raise ValueError(
-                    f"SB3 ensemble member {member_index} prediction failed"
-                ) from error
-            actions.append(
-                _validated_action(
-                    raw, action_size=self.action_size, member_index=member_index
-                )
-            )
-        return _mean_action(actions)
+        return predict_deterministic_mean_action(
+            self.models,
+            structured,
+            action_size=self.action_size,
+            context="SB3 ensemble",
+        )
 
     def predict_from_dataset(
         self,

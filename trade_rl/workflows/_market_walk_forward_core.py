@@ -30,6 +30,7 @@ from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.evaluation.metrics import evaluate_performance
 from trade_rl.evaluation.walk_forward.folds import IndexRange, WalkForwardFold
 from trade_rl.integrations.checkpoints import StableBaselines3CheckpointLoader
+from trade_rl.integrations.sb3_ensemble import predict_deterministic_mean_action
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk
@@ -125,24 +126,12 @@ class _DeterministicMeanPolicy:
     ) -> tuple[np.ndarray, None]:
         if deterministic is not True:
             raise ValueError("deployable ensemble evaluation must be deterministic")
-        actions: list[np.ndarray] = []
-        for index, model in enumerate(self.models):
-            raw, _ = model.predict(observation, deterministic=True)
-            action = np.asarray(raw, dtype=np.float32).reshape(-1)
-            if not np.isfinite(action).all():
-                raise ValueError(
-                    f"ensemble member {index} returned a non-finite action"
-                )
-            if np.any(action < -1.0) or np.any(action > 1.0):
-                raise ValueError(
-                    f"ensemble member {index} returned an out-of-range action"
-                )
-            actions.append(action)
-        shapes = {item.shape for item in actions}
-        if len(shapes) != 1:
-            raise ValueError("ensemble member action shapes disagree")
-        mean = np.mean(np.stack(actions, axis=0), axis=0, dtype=np.float64)
-        return np.asarray(mean, dtype=np.float32), None
+        action = predict_deterministic_mean_action(
+            self.models,
+            observation,
+            context="deployable ensemble",
+        )
+        return action, None
 
 
 def _experiment_plan_digest(

@@ -27,7 +27,9 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
       - name: Apply reviewed GREEN patch
-        run: uv run python .github/scripts/apply_h2_cost_feature_cache.py
+        run: |
+          uv run python .github/scripts/apply_h2_cost_feature_cache.py
+          uv run python .github/scripts/fix_h2_value_bootstrap.py
       - name: Format and organize imports
         run: |
           uv run ruff check --fix trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py
@@ -59,6 +61,7 @@ jobs:
       - name: Commit verified GREEN implementation
         run: |
           rm -f .github/scripts/apply_h2_cost_feature_cache.py
+          rm -f .github/scripts/fix_h2_value_bootstrap.py
           rm -f .github/workflows/temporary-h2-red.yml
           rm -f .github/workflows/temporary-h2-updater.yml
           rm -f h2-green.log h2-green.status

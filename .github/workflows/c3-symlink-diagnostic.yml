@@ -1,0 +1,51 @@
+name: C3 symlink diagnostic
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3-execution-reporting
+    paths:
+      - .github/workflows/c3-symlink-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Probe pathlib and lstat
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import os
+          import stat
+          import tempfile
+          from pathlib import Path
+
+          with tempfile.TemporaryDirectory() as directory:
+              root = Path(directory)
+              target = root / "target.json"
+              link = root / "summary.json"
+              target.write_text("{}\n", encoding="utf-8")
+              link.symlink_to(target)
+              mode = os.lstat(link).st_mode
+              print({
+                  "path_is_symlink": link.is_symlink(),
+                  "os_path_islink": os.path.islink(link),
+                  "lstat_is_symlink": stat.S_ISLNK(mode),
+                  "resolved": str(link.resolve()),
+              })
+          PY
+      - name: Run focused failing contract
+        run: uv run pytest -q -vv -s tests/workflows/test_causal_scenario_c3_execution_entrypoint.py::test_execute_c3_evaluation_request_rejects_symlinked_backend_summary

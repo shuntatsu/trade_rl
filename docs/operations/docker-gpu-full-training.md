@@ -29,7 +29,7 @@ The existing `trade-rl-training-data` volume remains mounted at `/workspace/var`
 Use the canonical launcher for every local phase start:
 
 ```bash
-python scripts/run_docker_training.py
+python examples/binance-multitimeframe/run_docker_training.py
 ```
 
 The launcher executes these operations in order:
@@ -117,6 +117,6 @@ Do not reuse a failed generation as if it were clean. Preserve its artifact and 
 
 ## Studio 学習診断の確認
 
-`training-full.json` と `training-growth-optimal.json` は linear learning-rate decay と TensorBoard scalar outputを有効にしています。linear decay は候補設定であり、最適値とみなさないでください。
+`training-full.json` と `training-growth-optimal.json` は linear learning-rate decay と TensorBoard scalar output を有効にしています。linear decay は候補設定であり、最適値とみなさないでください。
 
 GPU training の開始後、Studio の `Live Training` で Run と Seed を選択し、`学習診断` を開きます。event file が作成されるまでは `未出力` と表示されます。resume 後は同じ seed/run identity の event file を統合し、global step 軸を継続します。市場リプレイの JSONL telemetry は独立して継続します。

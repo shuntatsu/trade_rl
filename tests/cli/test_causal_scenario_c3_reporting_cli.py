@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.c3_reporting_fixtures import write_summary
 from trade_rl.cli import main
 from trade_rl.evaluation.causal_scenario_c3_reporting import (
     evaluate_phase_a_gate,
@@ -23,9 +22,12 @@ def _streams() -> tuple[io.StringIO, io.StringIO]:
     return io.StringIO(), io.StringIO()
 
 
-def test_c3_publish_cli_emits_machine_readable_result(tmp_path: Path) -> None:
+def test_c3_publish_cli_emits_machine_readable_result(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
     summary_path = tmp_path / "summary.json"
-    write_summary(summary_path)
+    c3_reporting.write_summary(summary_path)
     stdout, stderr = _streams()
 
     code = main(
@@ -52,9 +54,12 @@ def test_c3_publish_cli_emits_machine_readable_result(tmp_path: Path) -> None:
     assert Path(payload["gate_artifact_path"]).is_dir()
 
 
-def test_c3_gate_cli_reverifies_report_before_publication(tmp_path: Path) -> None:
+def test_c3_gate_cli_reverifies_report_before_publication(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
     summary_path = tmp_path / "summary.json"
-    write_summary(summary_path)
+    c3_reporting.write_summary(summary_path)
     summary = load_c3_aggregate_summary(summary_path)
     gate = evaluate_phase_a_gate(summary)
     report = write_c3_report_artifact(tmp_path / "report", summary, gate)
@@ -85,11 +90,12 @@ def test_c3_gate_cli_reverifies_report_before_publication(tmp_path: Path) -> Non
 def test_c3_evaluate_cli_emits_execution_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    c3_reporting,
 ) -> None:
     request = tmp_path / "request.json"
     request.write_text("{}\n", encoding="utf-8")
     summary_path = tmp_path / "summary.json"
-    write_summary(summary_path)
+    c3_reporting.write_summary(summary_path)
     summary = load_c3_aggregate_summary(summary_path)
     gate = evaluate_phase_a_gate(summary)
     report = write_c3_report_artifact(tmp_path / "report", summary, gate)
@@ -175,9 +181,12 @@ def test_c3_cli_failure_is_one_line_json(
     }
 
 
-def test_c3_publish_cli_does_not_import_sb3_runtime(tmp_path: Path) -> None:
+def test_c3_publish_cli_does_not_import_sb3_runtime(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
     summary_path = tmp_path / "summary.json"
-    write_summary(summary_path)
+    c3_reporting.write_summary(summary_path)
     sys.modules.pop("trade_rl.integrations.sb3_training", None)
     stdout, stderr = _streams()
 

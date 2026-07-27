@@ -5,7 +5,12 @@ from pathlib import Path
 
 
 def _load_module():
-    path = Path(__file__).resolve().parents[2] / "scripts" / "run_docker_training.py"
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "examples"
+        / "binance-multitimeframe"
+        / "run_docker_training.py"
+    )
     spec = importlib.util.spec_from_file_location("run_docker_training", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

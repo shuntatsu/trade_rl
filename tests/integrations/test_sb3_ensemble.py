@@ -123,7 +123,10 @@ def test_serving_and_walk_forward_wrappers_are_value_equivalent() -> None:
 
     assert state is None
     np.testing.assert_array_equal(serving_action, evaluation_action)
-    assert [model.deterministic_values for model in models] == [[True, True], [True, True]]
+    assert [model.deterministic_values for model in models] == [
+        [True, True],
+        [True, True],
+    ]
 
 
 def test_walk_forward_wrapper_rejects_nondeterministic_mode() -> None:

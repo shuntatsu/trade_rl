@@ -18,6 +18,7 @@ C3_REPLAY_IDENTITY_SCHEMA: Final = "causal_scenario_c3_replay_identity_v1"
 C3_DECISION_SCHEMA: Final = "causal_scenario_c3_decision_v1"
 C3_REALIZED_OUTCOME_SCHEMA: Final = "causal_scenario_c3_realized_outcome_v1"
 C3_QUERY_COMPARISON_SCHEMA: Final = "causal_scenario_c3_query_comparison_v1"
+_DAY_NS: Final = 86_400_000_000_000
 
 
 def _positive_int(name: str, value: object) -> int:
@@ -54,14 +55,12 @@ def _readonly_float_array(
         raise ValueError(f"{name} must be a numeric array") from error
     if array.ndim != ndim:
         raise ValueError(f"{name} must have rank {ndim}")
-    if shape is not None and (
-        len(shape) != array.ndim
-        or any(
+    if shape is not None:
+        if len(shape) != array.ndim or any(
             expected is not None and actual != expected
             for actual, expected in zip(array.shape, shape, strict=True)
-        )
-    ):
-        raise ValueError(f"{name} has an invalid shape")
+        ):
+            raise ValueError(f"{name} has an invalid shape")
     if not np.isfinite(array).all():
         raise ValueError(f"{name} must contain only finite values")
     array[array == 0.0] = 0.0
@@ -168,9 +167,9 @@ class C3ReplayIdentity:
                 require_sha256(str(getattr(self, field)), field=field),
             )
         query_index = _non_negative_int("query_index", self.query_index)
-        query_timestamp = _positive_int("query_timestamp_ns", self.query_timestamp_ns)
-        realized_stop = _positive_int("realized_stop_index", self.realized_stop_index)
-        if realized_stop <= query_index:
+        timestamp = _positive_int("query_timestamp_ns", self.query_timestamp_ns)
+        stop = _positive_int("realized_stop_index", self.realized_stop_index)
+        if stop <= query_index:
             raise ValueError("realized_stop_index must be greater than query_index")
         aum = _finite_float("aum", self.aum)
         if aum <= 0.0:
@@ -178,8 +177,8 @@ class C3ReplayIdentity:
         if self.schema_version != C3_REPLAY_IDENTITY_SCHEMA:
             raise ValueError("unsupported C3 replay identity schema")
         object.__setattr__(self, "query_index", query_index)
-        object.__setattr__(self, "query_timestamp_ns", query_timestamp)
-        object.__setattr__(self, "realized_stop_index", realized_stop)
+        object.__setattr__(self, "query_timestamp_ns", timestamp)
+        object.__setattr__(self, "realized_stop_index", stop)
         object.__setattr__(self, "aum", aum)
 
     def digest_payload(self) -> dict[str, object]:
@@ -260,12 +259,12 @@ class PersistedScenarioDecision:
         if self.schema_version != C3_DECISION_SCHEMA:
             raise ValueError("unsupported C3 decision schema")
         query_index = _non_negative_int("query_index", self.query_index)
-        query_timestamp = _positive_int("query_timestamp_ns", self.query_timestamp_ns)
-        realized_stop = _positive_int("realized_stop_index", self.realized_stop_index)
-        if realized_stop <= query_index:
+        timestamp = _positive_int("query_timestamp_ns", self.query_timestamp_ns)
+        stop = _positive_int("realized_stop_index", self.realized_stop_index)
+        if stop <= query_index:
             raise ValueError("realized_stop_index must be greater than query_index")
-        starting_equity = _finite_float("starting_equity", self.starting_equity)
-        if starting_equity <= 0.0:
+        equity = _finite_float("starting_equity", self.starting_equity)
+        if equity <= 0.0:
             raise ValueError("starting_equity must be positive")
         candidate_digests = tuple(
             require_sha256(value, field="candidate_digests")
@@ -305,6 +304,10 @@ class PersistedScenarioDecision:
             raise ValueError(
                 "selected_candidate_digest does not match selected candidate"
             )
+        if not math.isclose(
+            float(score[selected]), float(score.max()), rel_tol=0.0, abs_tol=1e-12
+        ):
+            raise ValueError("selected candidate does not maximize stored score")
         ties = tuple(
             _non_negative_int("tie_candidate_indices", index)
             for index in self.tie_candidate_indices
@@ -313,15 +316,21 @@ class PersistedScenarioDecision:
             raise ValueError("tie_candidate_indices must be unique and non-empty")
         if selected not in ties or any(index >= candidate_count for index in ties):
             raise ValueError("tie_candidate_indices do not include selected candidate")
+        if any(
+            not math.isclose(
+                float(score[index]), float(score.max()), rel_tol=0.0, abs_tol=1e-12
+            )
+            for index in ties
+        ):
+            raise ValueError("tie_candidate_indices contain a non-maximum score")
         if not isinstance(self.created_before_realized_replay, bool):
             raise ValueError("created_before_realized_replay must be boolean")
         if not self.created_before_realized_replay:
             raise ValueError("C3 decision must be created before realized replay")
-
         object.__setattr__(self, "query_index", query_index)
-        object.__setattr__(self, "query_timestamp_ns", query_timestamp)
-        object.__setattr__(self, "realized_stop_index", realized_stop)
-        object.__setattr__(self, "starting_equity", starting_equity)
+        object.__setattr__(self, "query_timestamp_ns", timestamp)
+        object.__setattr__(self, "realized_stop_index", stop)
+        object.__setattr__(self, "starting_equity", equity)
         object.__setattr__(self, "candidate_digests", candidate_digests)
         object.__setattr__(self, "raw_candidate_actions", raw)
         object.__setattr__(self, "projected_targets", projected)
@@ -330,9 +339,7 @@ class PersistedScenarioDecision:
         object.__setattr__(self, "selected_candidate_index", selected)
         object.__setattr__(self, "zero_candidate_index", zero)
         object.__setattr__(self, "tie_candidate_indices", ties)
-
-        expected = content_digest(self.digest_payload())
-        if self.decision_digest != expected:
+        if self.decision_digest != content_digest(self.digest_payload()):
             raise ValueError("decision_digest does not match C3 decision")
 
     @property
@@ -398,6 +405,18 @@ class PerfectInformationComparisonStatus(StrEnum):
     NOT_EVALUATED = "not_evaluated"
 
 
+class PerfectInformationComparisonReason(StrEnum):
+    DOMINANCE_VERIFIED = "dominance_conditions_verified"
+    PERIOD_MISMATCH = "period_mismatch"
+    RETURN_MATRIX_MISMATCH = "return_matrix_mismatch"
+    INITIAL_WEIGHTS_MISMATCH = "initial_weights_mismatch"
+    AUM_MISMATCH = "aum_mismatch"
+    EXPOSURE_NOT_RELAXED = "exposure_not_relaxed"
+    COST_NOT_RELAXED = "cost_not_relaxed"
+    BOUND_ORDER_VIOLATION = "bound_order_violation"
+    NOT_EVALUATED = "not_evaluated"
+
+
 @dataclass(frozen=True, slots=True)
 class PerfectInformationComparison:
     status: PerfectInformationComparisonStatus
@@ -405,15 +424,29 @@ class PerfectInformationComparison:
     bound_log_return: float | None
     causal_log_return: float | None
     gap: float | None
+    compatibility_evidence_digest: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, PerfectInformationComparisonStatus):
             raise ValueError("status must be PerfectInformationComparisonStatus")
-        reason = self.reason.strip()
-        if not reason:
-            raise ValueError("reason must be non-empty")
+        try:
+            reason = PerfectInformationComparisonReason(self.reason).value
+        except ValueError as error:
+            raise ValueError(
+                "reason must be a supported Perfect Information reason"
+            ) from error
         object.__setattr__(self, "reason", reason)
+        evidence_digest = self.compatibility_evidence_digest
+        if evidence_digest is not None:
+            evidence_digest = require_sha256(
+                evidence_digest, field="compatibility_evidence_digest"
+            )
+            object.__setattr__(self, "compatibility_evidence_digest", evidence_digest)
         if self.status is PerfectInformationComparisonStatus.COMPARABLE:
+            if reason != PerfectInformationComparisonReason.DOMINANCE_VERIFIED.value:
+                raise ValueError("comparable result requires dominance verification")
+            if evidence_digest is None:
+                raise ValueError("comparable result requires compatibility evidence")
             if self.bound_log_return is None or self.causal_log_return is None:
                 raise ValueError("comparable results require both log returns")
             bound = _finite_float("bound_log_return", self.bound_log_return)
@@ -424,42 +457,62 @@ class PerfectInformationComparison:
             object.__setattr__(self, "bound_log_return", bound)
             object.__setattr__(self, "causal_log_return", causal)
             object.__setattr__(self, "gap", gap)
-        elif any(
-            value is not None
-            for value in (self.bound_log_return, self.causal_log_return, self.gap)
-        ):
-            raise ValueError("gap and log returns must be absent when not comparable")
+        else:
+            if reason == PerfectInformationComparisonReason.DOMINANCE_VERIFIED.value:
+                raise ValueError("dominance verification requires comparable status")
+            if any(
+                value is not None
+                for value in (self.bound_log_return, self.causal_log_return, self.gap)
+            ):
+                raise ValueError("gap and log returns must be absent when not comparable")
+            if (
+                self.status is PerfectInformationComparisonStatus.NOT_EVALUATED
+                and reason != PerfectInformationComparisonReason.NOT_EVALUATED.value
+            ):
+                raise ValueError("not-evaluated status requires not_evaluated reason")
 
     @classmethod
     def comparable(
-        cls, *, bound_log_return: float, causal_log_return: float
+        cls,
+        *,
+        bound_log_return: float,
+        causal_log_return: float,
+        compatibility_evidence_digest: str,
     ) -> PerfectInformationComparison:
         return cls(
             status=PerfectInformationComparisonStatus.COMPARABLE,
-            reason="dominance_conditions_verified",
+            reason=PerfectInformationComparisonReason.DOMINANCE_VERIFIED.value,
             bound_log_return=bound_log_return,
             causal_log_return=causal_log_return,
             gap=float(bound_log_return) - float(causal_log_return),
+            compatibility_evidence_digest=compatibility_evidence_digest,
         )
 
     @classmethod
-    def not_comparable(cls, reason: str) -> PerfectInformationComparison:
+    def not_comparable(
+        cls,
+        reason: PerfectInformationComparisonReason | str,
+        *,
+        compatibility_evidence_digest: str | None = None,
+    ) -> PerfectInformationComparison:
         return cls(
             status=PerfectInformationComparisonStatus.NOT_COMPARABLE,
-            reason=reason,
+            reason=reason.value if isinstance(reason, PerfectInformationComparisonReason) else reason,
             bound_log_return=None,
             causal_log_return=None,
             gap=None,
+            compatibility_evidence_digest=compatibility_evidence_digest,
         )
 
     @classmethod
     def not_evaluated(cls) -> PerfectInformationComparison:
         return cls(
             status=PerfectInformationComparisonStatus.NOT_EVALUATED,
-            reason="not_evaluated",
+            reason=PerfectInformationComparisonReason.NOT_EVALUATED.value,
             bound_log_return=None,
             causal_log_return=None,
             gap=None,
+            compatibility_evidence_digest=None,
         )
 
 
@@ -592,11 +645,10 @@ class CausalScenarioQueryComparison:
         for name in ("trend", "scenario_oracle", "ppo_mean", "random_candidate"):
             if not isinstance(getattr(self, name), RealizedPolicyOutcome):
                 raise ValueError(f"{name} must be a realized outcome")
-
         outcomes = tuple(self.candidate_outcomes)
-        if not outcomes:
-            raise ValueError("candidate_outcomes must not be empty")
-        if any(not isinstance(item, RealizedPolicyOutcome) for item in outcomes):
+        if not outcomes or any(
+            not isinstance(item, RealizedPolicyOutcome) for item in outcomes
+        ):
             raise ValueError("candidate_outcomes must contain realized outcomes")
         advantages = _readonly_float_array(
             "realized_candidate_advantages",
@@ -604,7 +656,6 @@ class CausalScenarioQueryComparison:
             ndim=1,
             shape=(len(outcomes),),
         )
-
         random_indices = tuple(
             _non_negative_int("random_candidate_indices", index)
             for index in self.random_candidate_indices
@@ -618,9 +669,7 @@ class CausalScenarioQueryComparison:
             raise ValueError("random comparators must contain realized outcomes")
         for index, outcome in zip(random_indices, random_outcomes, strict=True):
             if outcome.outcome_digest != outcomes[index].outcome_digest:
-                raise ValueError(
-                    "random comparator outcome does not match candidate index"
-                )
+                raise ValueError("random comparator outcome does not match candidate index")
         if self.random_candidate.outcome_digest != random_outcomes[0].outcome_digest:
             raise ValueError("random_candidate must be the first random comparator")
         random_regrets = _readonly_float_array(
@@ -631,21 +680,17 @@ class CausalScenarioQueryComparison:
         )
         if np.any(random_regrets < 0.0):
             raise ValueError("random_realized_regrets must be non-negative")
-
         object.__setattr__(self, "candidate_outcomes", outcomes)
         object.__setattr__(self, "realized_candidate_advantages", advantages)
         object.__setattr__(self, "random_candidate_indices", random_indices)
         object.__setattr__(self, "random_candidate_outcomes", random_outcomes)
         object.__setattr__(self, "random_realized_regrets", random_regrets)
-        object.__setattr__(
-            self,
-            "predicted_realized_spearman",
-            _finite_float(
-                "predicted_realized_spearman", self.predicted_realized_spearman
-            ),
+        spearman = _finite_float(
+            "predicted_realized_spearman", self.predicted_realized_spearman
         )
-        if not -1.0 <= self.predicted_realized_spearman <= 1.0:
+        if not -1.0 <= spearman <= 1.0:
             raise ValueError("predicted_realized_spearman must be in [-1, 1]")
+        object.__setattr__(self, "predicted_realized_spearman", spearman)
         selected_regret = _finite_float(
             "selected_realized_regret", self.selected_realized_regret
         )
@@ -654,10 +699,9 @@ class CausalScenarioQueryComparison:
         )
         if selected_regret < 0.0 or random_regret < 0.0:
             raise ValueError("realized regrets must be non-negative")
-        expected_random_regret = float(random_regrets.mean())
         if not math.isclose(
             random_regret,
-            expected_random_regret,
+            float(random_regrets.mean()),
             rel_tol=0.0,
             abs_tol=1e-12,
         ):
@@ -669,7 +713,7 @@ class CausalScenarioQueryComparison:
 
     @property
     def day_index(self) -> int:
-        return self.query_timestamp_ns // 86_400_000_000_000
+        return self.query_timestamp_ns // _DAY_NS
 
     @property
     def digest(self) -> str:
@@ -682,6 +726,9 @@ class CausalScenarioQueryComparison:
                 "perfect_information": {
                     "bound_log_return": self.perfect_information.bound_log_return,
                     "causal_log_return": self.perfect_information.causal_log_return,
+                    "compatibility_evidence_digest": (
+                        self.perfect_information.compatibility_evidence_digest
+                    ),
                     "gap": self.perfect_information.gap,
                     "reason": self.perfect_information.reason,
                     "status": self.perfect_information.status.value,

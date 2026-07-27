@@ -166,49 +166,59 @@ jobs:
 
           artifact = Path("trade_rl/evaluation/causal_scenario_c3_artifact.py")
           text = artifact.read_text(encoding="utf-8")
-          text = text.replace(
-              '''    return {
-                  "bound_log_return": value.bound_log_return,'''.replace("    ", ""),
-              '''    return {
-                  "compatibility_evidence_digest": value.compatibility_evidence_digest,
-                  "bound_log_return": value.bound_log_return,'''.replace("    ", ""),
-          )
+          old_payload = '''    return {
+              "bound_log_return": value.bound_log_return,'''.replace("  ", "")
+          new_payload = '''    return {
+              "compatibility_evidence_digest": value.compatibility_evidence_digest,
+              "bound_log_return": value.bound_log_return,'''.replace("  ", "")
+          if old_payload not in text:
+              raise SystemExit("perfect-information payload anchor missing")
+          text = text.replace(old_payload, new_payload, 1)
           old_fields = '''        {"bound_log_return", "causal_log_return", "gap", "reason", "status"},'''
-          new_fields = '''        {
-                      "bound_log_return",
-                      "causal_log_return",
-                      "compatibility_evidence_digest",
-                      "gap",
-                      "reason",
-                      "status",
-                  },'''.replace("                  ", "        ")
           if old_fields not in text:
               raise SystemExit("perfect-information artifact field anchor missing")
-          text = text.replace(old_fields, new_fields, 1)
           text = text.replace(
-              '''            gap=_number(payload["gap"], field=f"{field}.gap"),
-                  )'''.replace("                  ", "        "),
-              '''            gap=_number(payload["gap"], field=f"{field}.gap"),
-                      compatibility_evidence_digest=_string(
-                          payload["compatibility_evidence_digest"],
-                          field=f"{field}.compatibility_evidence_digest",
-                      ),
-                  )'''.replace("                  ", "        "),
+              old_fields,
+              '''        {
+                  "bound_log_return",
+                  "causal_log_return",
+                  "compatibility_evidence_digest",
+                  "gap",
+                  "reason",
+                  "status",
+              },''',
               1,
           )
+          old_comparable = '''            gap=_number(payload["gap"], field=f"{field}.gap"),
+          )'''
+          if old_comparable not in text:
+              raise SystemExit("perfect-information comparable anchor missing")
           text = text.replace(
+              old_comparable,
+              '''            gap=_number(payload["gap"], field=f"{field}.gap"),
+              compatibility_evidence_digest=_string(
+                  payload["compatibility_evidence_digest"],
+                  field=f"{field}.compatibility_evidence_digest",
+              ),
+          )''',
+              1,
+          )
+          old_non_comparable = '''        gap=None,
+      )'''
+          if old_non_comparable not in text:
+              raise SystemExit("perfect-information non-comparable anchor missing")
+          text = text.replace(
+              old_non_comparable,
               '''        gap=None,
-              )'''.replace("              ", "    "),
-              '''        gap=None,
-                  compatibility_evidence_digest=(
-                      None
-                      if payload["compatibility_evidence_digest"] is None
-                      else _string(
-                          payload["compatibility_evidence_digest"],
-                          field=f"{field}.compatibility_evidence_digest",
-                      )
-                  ),
-              )'''.replace("              ", "    "),
+          compatibility_evidence_digest=(
+              None
+              if payload["compatibility_evidence_digest"] is None
+              else _string(
+                  payload["compatibility_evidence_digest"],
+                  field=f"{field}.compatibility_evidence_digest",
+              )
+          ),
+      )''',
               1,
           )
           artifact.write_text(text, encoding="utf-8")

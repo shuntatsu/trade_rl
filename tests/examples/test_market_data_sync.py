@@ -33,3 +33,33 @@ def test_build_maintained_plan_uses_pipeline_identity() -> None:
         module.pipeline._END.replace("Z", "+00:00")
     ).astimezone(UTC)
     assert plan.urls
+
+
+def test_import_legacy_cache_copies_only_missing_nonempty_payloads(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    legacy = tmp_path / "legacy"
+    destination = tmp_path / "destination"
+    source_payload = legacy / "ab" / ("1" * 64 + ".bin")
+    empty_payload = legacy / "cd" / ("2" * 64 + ".bin")
+    existing_payload = destination / "ef" / ("3" * 64 + ".bin")
+    replacement_source = legacy / "ef" / ("3" * 64 + ".bin")
+    source_payload.parent.mkdir(parents=True)
+    empty_payload.parent.mkdir(parents=True)
+    existing_payload.parent.mkdir(parents=True)
+    replacement_source.parent.mkdir(parents=True, exist_ok=True)
+    source_payload.write_bytes(b"legacy")
+    empty_payload.write_bytes(b"")
+    existing_payload.write_bytes(b"new")
+    replacement_source.write_bytes(b"old")
+
+    copied = module.import_legacy_cache(
+        source_root=legacy,
+        destination_root=destination,
+    )
+
+    assert copied == 1
+    assert (destination / source_payload.relative_to(legacy)).read_bytes() == b"legacy"
+    assert existing_payload.read_bytes() == b"new"
+    assert not (destination / empty_payload.relative_to(legacy)).exists()

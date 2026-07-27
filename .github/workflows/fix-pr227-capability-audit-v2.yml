@@ -1,0 +1,98 @@
+name: Fix PR227 Capability Audit V2
+
+on:
+  push:
+    branches:
+      - agent/cross-timeframe-attention
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-pr227-capability-audit-v2
+  cancel-in-progress: false
+
+jobs:
+  fix-verify-publish:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Install verification environment
+        run: uv sync --extra dev --extra train-sb3 --extra export
+
+      - name: Replace migrated constant conditions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/run_training_capability_audit.py')
+          text = path.read_text(encoding='utf-8')
+          ppo = '''                "observation_encoder": "invalid_legacy_combination"
+                if (False) and (True)
+                else "hierarchical_sequence_v2"
+                if (False)
+                else "asset_set"
+                if (True)
+                else "flat_mlp",
+'''
+          off_policy = '''                "observation_encoder": "invalid_legacy_combination"
+                if (False) and (False)
+                else "hierarchical_sequence_v2"
+                if (False)
+                else "asset_set"
+                if (False)
+                else "flat_mlp",
+'''
+          flat = '''        observation_encoder=(
+            "invalid_legacy_combination"
+            if (False) and (False)
+            else "hierarchical_sequence_v2"
+            if (False)
+            else "asset_set"
+            if (False)
+            else "flat_mlp"
+        ),
+'''
+          if text.count(ppo) != 1:
+              raise RuntimeError(f'unexpected PPO migrated expression count: {text.count(ppo)}')
+          if text.count(off_policy) != 1:
+              raise RuntimeError(
+                  f'unexpected off-policy migrated expression count: {text.count(off_policy)}'
+              )
+          if text.count(flat) != 2:
+              raise RuntimeError(f'unexpected flat migrated expression count: {text.count(flat)}')
+          text = text.replace(ppo, '                "observation_encoder": "asset_set",\n')
+          text = text.replace(
+              off_policy,
+              '                "observation_encoder": "flat_mlp",\n',
+          )
+          text = text.replace(flat, '        observation_encoder="flat_mlp",\n')
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify focused correction
+        run: |
+          uv run ruff format tools/run_training_capability_audit.py
+          uv run ruff check tools/run_training_capability_audit.py
+          uv run mypy tools/run_training_capability_audit.py
+
+      - name: Remove one-shot workflow and publish
+        run: |
+          rm .github/workflows/fix-pr227-capability-audit-v2.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: normalize capability audit encoder settings'
+          git push origin HEAD:agent/cross-timeframe-attention

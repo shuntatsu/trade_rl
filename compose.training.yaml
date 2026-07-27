@@ -29,6 +29,9 @@ services:
 
   trainer:
     <<: *training-image
+    command:
+      - python
+      - examples/binance-multitimeframe/training_bootstrap.py
     depends_on:
       market-data-sync:
         condition: service_completed_successfully

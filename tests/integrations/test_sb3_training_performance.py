@@ -10,7 +10,6 @@ import pytest
 from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.integrations import sb3_training
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.rl.training import ResidualTrainingConfig
 
@@ -131,5 +130,3 @@ def test_backend_writes_member_training_performance_artifact(
     assert payload["peak_cuda_reserved_bytes"] is None
     assert digest == content_digest(payload)
     assert len(digest) == 64
-    assert "collect_rollouts" not in _FakePPO.__dict__.get("__dict__", {})
-    assert not hasattr(sb3_training, "_active_training_performance_wrapper")

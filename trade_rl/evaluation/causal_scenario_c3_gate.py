@@ -100,6 +100,7 @@ def evaluate_phase_a_entry_gate(
     support = (
         report.fold_count >= resolved.required_folds
         and report.total_selection_days >= resolved.required_selection_days
+        and report.total_effective_days >= resolved.required_selection_days
     )
     required_positive_folds = min(4, resolved.required_folds)
     positive_folds = report.positive_uplift_folds >= required_positive_folds
@@ -126,7 +127,9 @@ def evaluate_phase_a_entry_gate(
             support,
             (
                 f"folds={report.fold_count}/{resolved.required_folds}; "
-                f"days={report.total_selection_days}/"
+                f"selection_days={report.total_selection_days}/"
+                f"{resolved.required_selection_days}; "
+                f"effective_days={report.total_effective_days}/"
                 f"{resolved.required_selection_days}"
             ),
         ),

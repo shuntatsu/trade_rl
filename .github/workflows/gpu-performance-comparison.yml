@@ -145,15 +145,13 @@ jobs:
           for path in gpu-comparison-evidence/candidate-*.json; do
             candidate_args+=(--candidate "$path")
           done
-          (
-            cd candidate
-            uv run python examples/binance-multitimeframe/compare_gpu_training_smoke.py \
-              "${baseline_args[@]/#/../}" \
-              "${candidate_args[@]/#/../}" \
-              --baseline-ref "$BASELINE_SHA" \
-              --candidate-ref "$CANDIDATE_SHA" \
-              --output ../gpu-comparison-evidence/gpu-performance-comparison.json
-          )
+          candidate/.venv/bin/python \
+            candidate/examples/binance-multitimeframe/compare_gpu_training_smoke.py \
+            "${baseline_args[@]}" \
+            "${candidate_args[@]}" \
+            --baseline-ref "$BASELINE_SHA" \
+            --candidate-ref "$CANDIDATE_SHA" \
+            --output gpu-comparison-evidence/gpu-performance-comparison.json
       - name: Verify comparison evidence
         shell: bash
         run: |

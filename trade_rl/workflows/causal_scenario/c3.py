@@ -27,6 +27,7 @@ from trade_rl.evaluation.causal_scenario_c3_gate import (
     PhaseAEntryGateEvidence,
     evaluate_phase_a_entry_gate,
 )
+from trade_rl.evaluation.causal_scenario_c3_prediction import C3PredictionEvidence
 from trade_rl.evaluation.causal_scenario_c3_report import (
     CausalScenarioAggregateReport,
     build_c3_aggregate_report,
@@ -54,23 +55,36 @@ def _readonly_action(value: object) -> np.ndarray:
     return action
 
 
+def _label(value: str, *, field: str) -> str:
+    result = value.strip()
+    if not result:
+        raise ValueError(f"{field} must be non-empty")
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class C3BatchQuery:
     fold_id: str
     decision_root: Path
     replay: C3RealizedReplay
     ppo_mean_action: np.ndarray
+    prediction_evidence: C3PredictionEvidence
+    execution_scenario: str
     perfect_information: PerfectInformationComparison
 
     def __post_init__(self) -> None:
-        fold_id = self.fold_id.strip()
-        if not fold_id:
-            raise ValueError("fold_id must be non-empty")
-        object.__setattr__(self, "fold_id", fold_id)
+        object.__setattr__(self, "fold_id", _label(self.fold_id, field="fold_id"))
+        object.__setattr__(
+            self,
+            "execution_scenario",
+            _label(self.execution_scenario, field="execution_scenario"),
+        )
         object.__setattr__(self, "decision_root", Path(self.decision_root))
         object.__setattr__(
             self, "ppo_mean_action", _readonly_action(self.ppo_mean_action)
         )
+        if not isinstance(self.prediction_evidence, C3PredictionEvidence):
+            raise ValueError("prediction_evidence must be C3PredictionEvidence")
         if not isinstance(self.perfect_information, PerfectInformationComparison):
             raise ValueError("perfect_information must be PerfectInformationComparison")
         identity = getattr(self.replay, "identity", None)
@@ -147,20 +161,27 @@ def execute_c3_batch(
         raise ValueError("required_adverse_passed must exactly match query folds")
 
     by_fold: dict[str, list[CausalScenarioQueryComparison]] = defaultdict(list)
-    seen_decisions: set[str] = set()
+    seen_comparison_keys: set[tuple[str, str]] = set()
     for item in items:
         loaded = load_c3_decision_artifact(item.decision_root)
-        if loaded.decision.decision_digest in seen_decisions:
-            raise ValueError("duplicate C3 decision artifact in batch")
+        comparison_key = (
+            loaded.decision.decision_digest,
+            item.execution_scenario,
+        )
+        if comparison_key in seen_comparison_keys:
+            raise ValueError("duplicate C3 decision and execution scenario in batch")
         if loaded.decision.fold_digest != item.replay.identity.fold_digest:
             raise ValueError("C3 batch fold identity does not match replay")
-        seen_decisions.add(loaded.decision.decision_digest)
+        item.prediction_evidence.validate_for_decision(loaded.decision)
+        seen_comparison_keys.add(comparison_key)
         by_fold[item.fold_id].append(
             run_c3_query_comparison(
                 loaded,
                 replay=item.replay,
                 ppo_mean_action=item.ppo_mean_action,
                 config=config,
+                prediction_evidence=item.prediction_evidence,
+                execution_scenario=item.execution_scenario,
                 perfect_information=item.perfect_information,
             )
         )

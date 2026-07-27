@@ -1,1 +1,1 @@
-trigger verified H5 candidate identity hardening v2
+trigger verified H5 candidate identity hardening v3

@@ -26,6 +26,9 @@ from trade_rl.evaluation.causal_scenario_c3_perfect_information import (
     PerfectInformationCompatibilityEvidence,
     evaluate_perfect_information_compatibility,
 )
+from trade_rl.evaluation.causal_scenario_c3_prediction import (
+    create_c3_prediction_evidence,
+)
 from trade_rl.evaluation.causal_scenario_c3_report import (
     build_c3_aggregate_report,
     build_c3_fold_report,
@@ -152,25 +155,44 @@ def decision(
     )
 
 
+def prediction(created: PersistedScenarioDecision):
+    return create_c3_prediction_evidence(
+        result_digest=created.value_result_digest,
+        scenario_library_digest=created.scenario_library_digest,
+        scenario_set_digest=created.scenario_set_digest,
+        candidate_digests=created.candidate_digests,
+        predicted_score=created.score,
+        predicted_mean_advantage=np.asarray([0.0, 0.03, -0.02, 0.008]),
+        predicted_loss_cvar=np.asarray([0.0, 0.01, 0.03, 0.005]),
+        predicted_expected_turnover=np.asarray([0.0, 0.25, 0.25, 0.25]),
+        scenario_anchor_indices=np.arange(64, dtype=np.int64),
+        scenario_distances=np.linspace(0.0, 1.0, 64),
+    )
+
+
 def outcome(
     kind: str,
     *,
     gross_log_return: float,
     max_drawdown: float = 0.05,
+    cost_multiplier: float = 1.0,
 ) -> RealizedPolicyOutcome:
+    fee = 0.0001 * cost_multiplier
     payload = {
         "borrow_paid": 0.0,
-        "fees": 0.0001,
+        "cancel_replace_events": 0,
+        "fees": fee,
         "fill_count": 1,
+        "fill_ratio": 1.0,
         "filled_turnover": 0.1,
         "funding_paid": 0.0,
         "gross_log_return": gross_log_return,
-        "impact_cost": 0.0001,
+        "impact_cost": fee,
         "max_drawdown": max_drawdown,
         "pending_order_events": 0,
         "policy_kind": kind,
         "schema_version": "causal_scenario_c3_realized_outcome_v1",
-        "spread_cost": 0.0001,
+        "spread_cost": fee,
         "terminal_equity": 100_000.0 * float(np.exp(gross_log_return)),
         "termination_reason": "horizon",
     }
@@ -178,13 +200,15 @@ def outcome(
         policy_kind=kind,
         gross_log_return=gross_log_return,
         filled_turnover=0.1,
-        fees=0.0001,
-        spread_cost=0.0001,
-        impact_cost=0.0001,
+        fees=fee,
+        spread_cost=fee,
+        impact_cost=fee,
         funding_paid=0.0,
         borrow_paid=0.0,
+        fill_ratio=1.0,
         fill_count=1,
         pending_order_events=0,
+        cancel_replace_events=0,
         max_drawdown=max_drawdown,
         terminal_equity=100_000.0 * float(np.exp(gross_log_return)),
         termination_reason="horizon",
@@ -197,12 +221,19 @@ class ArtificialReplay:
         self,
         identity: C3ReplayIdentity,
         labels: list[str] | None = None,
+        *,
+        cost_multiplier: float = 1.0,
     ) -> None:
         self.identity = identity
         self.labels = [] if labels is None else labels
+        self.cost_multiplier = cost_multiplier
 
     def clone_for_replay(self) -> ArtificialReplay:
-        return ArtificialReplay(self.identity, self.labels)
+        return ArtificialReplay(
+            self.identity,
+            self.labels,
+            cost_multiplier=self.cost_multiplier,
+        )
 
     def run(
         self,
@@ -216,7 +247,11 @@ class ArtificialReplay:
         assert zero_residual_after_first is True
         self.labels.append(policy_kind)
         value = 0.01 + 0.02 * float(raw_residual[0]) + 0.005 * float(raw_residual[1])
-        return outcome(policy_kind, gross_log_return=value)
+        return outcome(
+            policy_kind,
+            gross_log_return=value,
+            cost_multiplier=self.cost_multiplier,
+        )
 
 
 def _perfect_information(*, causal_log_return: float) -> PerfectInformationComparison:
@@ -307,6 +342,7 @@ def test_runner_requires_loaded_decision_and_persists_before_replay(
             replay=replay,
             ppo_mean_action=np.asarray([0.5, 0.0, 0.0]),
             config=CausalScenarioC3Config(random_comparator_count=1),
+            prediction_evidence=prediction(created),
         )
     root = tmp_path / "decision"
     write_c3_decision_artifact(root, created)
@@ -316,10 +352,13 @@ def test_runner_requires_loaded_decision_and_persists_before_replay(
         replay=replay,
         ppo_mean_action=np.asarray([0.5, 0.0, 0.0]),
         config=CausalScenarioC3Config(random_comparator_count=1),
+        prediction_evidence=prediction(created),
+        execution_scenario="nominal",
     )
     assert result.scenario_oracle.gross_log_return > result.trend.gross_log_return
     assert result.selected_realized_regret == 0.0
     assert result.predicted_realized_spearman > 0.0
+    assert result.prediction_result_digest == created.value_result_digest
     assert replay.labels[:4] == [
         "candidate:0",
         "candidate:1",
@@ -347,6 +386,7 @@ def _comparison(
     *,
     uplift: float,
     query_offset: int,
+    execution_scenario: str = "nominal",
     spearman_positive: bool = True,
 ):
     created = decision(
@@ -358,9 +398,14 @@ def _comparison(
     loaded = load_c3_decision_artifact(root)
     result = run_c3_query_comparison(
         loaded,
-        replay=ArtificialReplay(created.replay_identity),
+        replay=ArtificialReplay(
+            created.replay_identity,
+            cost_multiplier=(2.0 if execution_scenario != "nominal" else 1.0),
+        ),
         ppo_mean_action=np.asarray([0.5, 0.0, 0.0]),
         config=CausalScenarioC3Config(random_comparator_count=1),
+        prediction_evidence=prediction(created),
+        execution_scenario=execution_scenario,
     )
     trend = outcome("trend", gross_log_return=0.01, max_drawdown=0.08)
     oracle = outcome(
@@ -393,7 +438,7 @@ def _comparison(
 def test_six_fold_report_passes_all_phase_a_gates(tmp_path: Path) -> None:
     folds = []
     for fold_index in range(6):
-        comparisons = tuple(
+        nominal = tuple(
             _comparison(
                 tmp_path / f"fold-{fold_index}",
                 uplift=0.02 + 0.001 * query_index,
@@ -401,11 +446,17 @@ def test_six_fold_report_passes_all_phase_a_gates(tmp_path: Path) -> None:
             )
             for query_index in range(30)
         )
+        adverse = _comparison(
+            tmp_path / f"fold-{fold_index}-adverse",
+            uplift=0.02,
+            query_offset=10_000 + fold_index,
+            execution_scenario="adverse_cost_2x",
+        )
         folds.append(
             build_c3_fold_report(
                 fold_id=f"fold-{fold_index}",
                 selection_days=30,
-                comparisons=comparisons,
+                comparisons=nominal + (adverse,),
                 required_adverse_passed=True,
             )
         )
@@ -417,6 +468,8 @@ def test_six_fold_report_passes_all_phase_a_gates(tmp_path: Path) -> None:
     assert report.uplift_lower_ci > 0.0
     assert report.spearman_lower_ci > 0.0
     assert report.regret_margin_lower_ci > 0.0
+    assert "nominal" in report.execution_scenario_names
+    assert "adverse_cost_2x" in report.execution_scenario_names
     assert gate.passed is True
     assert all(condition.passed for condition in gate.conditions)
 
@@ -437,7 +490,7 @@ def test_missing_adverse_evidence_fails_gate(tmp_path: Path) -> None:
                 fold_id=f"fold-{fold_index}",
                 selection_days=30,
                 comparisons=comparisons,
-                required_adverse_passed=fold_index != 5,
+                required_adverse_passed=True,
             )
         )
     gate = evaluate_phase_a_entry_gate(

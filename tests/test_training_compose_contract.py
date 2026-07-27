@@ -14,6 +14,8 @@ def test_training_compose_separates_market_data_ownership() -> None:
         "trade-rl-market-archives:/workspace/market-data/binance-vision:ro"
         in compose
     )
-    assert "trade-rl-training-runs:/workspace/var/runs" in compose
-    assert "trade-rl-teacher-cache:/workspace/var/cache/teacher-artifacts" in compose
-    assert "trade-rl-training-data:/workspace/var" not in compose
+    assert "trade-rl-training-data:/workspace/legacy-var:ro" in compose
+    assert "trade-rl-training-data:/workspace/var" in compose
+    assert "--legacy-cache-root" in compose
+    assert "trade-rl-training-runs:" not in compose
+    assert "trade-rl-teacher-cache:" not in compose

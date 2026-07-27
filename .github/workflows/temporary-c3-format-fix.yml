@@ -1,0 +1,39 @@
+name: Temporary C3 Format Fix
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3
+    paths:
+      - .github/workflows/temporary-c3-format-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Format and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/evaluation/causal_scenario_c3_contracts.py \
+            trade_rl/evaluation/causal_scenario_c3_decision_artifact.py \
+            trade_rl/evaluation/causal_scenario_c3_gate.py \
+            trade_rl/evaluation/causal_scenario_c3_report.py \
+            trade_rl/evaluation/causal_scenario_c3_runner.py \
+            tests/evaluation/test_causal_scenario_c3.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/temporary-c3-format-fix.yml
+          git add trade_rl/evaluation tests/evaluation
+          git commit -m "style: format causal scenario C3 implementation"
+          git push origin HEAD:agent/causal-scenario-c3

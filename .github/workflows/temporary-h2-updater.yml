@@ -33,17 +33,24 @@ jobs:
           uv run ruff check --fix trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py
           uv run ruff format trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py
       - name: Focused H2 tests
-        run: >-
-          uv run pytest
-          tests/integrations/test_cost_critic_feature_cache.py
-          tests/integrations/test_cost_critic_ppo.py
-          tests/integrations/test_cost_critic_checkpoint_identity.py
-          tests/integrations/test_lagrangian_ppo.py
-          tests/integrations/test_lagrangian_checkpoint_identity.py
-          tests/integrations/test_sb3_cost_critic_backend.py
-          tests/integrations/test_sb3_lagrangian_backend.py
-          tests/integrations/test_sb3_training_performance.py
-          -q
+        shell: bash
+        run: |
+          set +e
+          uv run pytest tests/integrations/test_cost_critic_feature_cache.py tests/integrations/test_cost_critic_ppo.py tests/integrations/test_cost_critic_checkpoint_identity.py tests/integrations/test_lagrangian_ppo.py tests/integrations/test_lagrangian_checkpoint_identity.py tests/integrations/test_sb3_cost_critic_backend.py tests/integrations/test_sb3_lagrangian_backend.py tests/integrations/test_sb3_training_performance.py -q 2>&1 | tee h2-green.log
+          status=${PIPESTATUS[0]}
+          printf '%s\n' "$status" > h2-green.status
+          exit 0
+      - name: Upload H2 focused diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: h2-green-diagnostics
+          path: |
+            h2-green.log
+            h2-green.status
+          if-no-files-found: error
+      - name: Enforce focused tests
+        run: test "$(cat h2-green.status)" = 0
       - name: Static verification
         run: |
           uv run ruff check trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py
@@ -54,6 +61,7 @@ jobs:
           rm -f .github/scripts/apply_h2_cost_feature_cache.py
           rm -f .github/workflows/temporary-h2-red.yml
           rm -f .github/workflows/temporary-h2-updater.yml
+          rm -f h2-green.log h2-green.status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A

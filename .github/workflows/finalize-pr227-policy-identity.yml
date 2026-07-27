@@ -38,6 +38,32 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/finalize_pr227_policy_identity.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    replace_once(
+              path,
+              "    algorithm_identity = _model_algorithm_identity(model)\\n",
+              "    algorithm_identity = checkpoint_identity_payload_for_model(model)\\n",
+          )
+          '''
+          new = '''    target = ROOT / path
+              text = target.read_text(encoding="utf-8")
+              old_identity = "    algorithm_identity = _model_algorithm_identity(model)\\n"
+              new_identity = "    algorithm_identity = checkpoint_identity_payload_for_model(model)\\n"
+              if text.count(old_identity) != 2:
+                  raise RuntimeError(
+                      f"{path}: expected two checkpoint identity anchors, "
+                      f"found {text.count(old_identity)}"
+                  )
+              target.write_text(text.replace(old_identity, new_identity), encoding="utf-8")
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError('finalizer two-anchor bootstrap did not match exactly once')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           uv run python tools/finalize_pr227_policy_identity.py 2>&1 | tee policy-identity-finalizer.log
 
       - name: Verify policy identity integration

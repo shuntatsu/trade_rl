@@ -52,6 +52,11 @@ from trade_rl.rl.training import (
     _environment_identity,
     _validate_training_environment,
 )
+from trade_rl.rl.training_performance import (
+    TrainingPerformanceRecorder,
+    activate_training_performance,
+    write_training_performance_evidence,
+)
 
 
 def _configure_torch_cuda_runtime(torch: Any, device: object) -> dict[str, object]:
@@ -1110,7 +1115,26 @@ class StableBaselines3Backend:
                     learn_kwargs["tb_log_name"] = f"seed-{seed}-{config.algorithm}"
                 if resume_manifest is not None:
                     learn_kwargs["reset_num_timesteps"] = False
-                model.learn(**learn_kwargs)
+                performance = TrainingPerformanceRecorder()
+                performance.start(torch_module=torch, device=model.device)
+                learn_start_timestep = int(model.num_timesteps)
+                with (
+                    activate_training_performance(performance),
+                    performance.instrument_model(model),
+                ):
+                    model.learn(**learn_kwargs)
+                performance_evidence = performance.finish(
+                    torch_module=torch,
+                    device=model.device,
+                    requested_environment_steps=remaining_timesteps,
+                    observed_environment_steps=(
+                        int(model.num_timesteps) - learn_start_timestep
+                    ),
+                )
+                write_training_performance_evidence(
+                    output_path.parent / "training-performance.json",
+                    performance_evidence,
+                )
             output_path.parent.mkdir(parents=True, exist_ok=True)
             if resume_manifest is not None:
                 (output_path.parent / "resume.json").write_bytes(

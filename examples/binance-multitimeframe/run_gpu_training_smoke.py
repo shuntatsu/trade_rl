@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import MarketDataset, write_market_dataset_files
 from trade_rl.integrations.binance import binance_multitimeframe_feature_specs
 from trade_rl.rl.training import gamma_from_half_life
@@ -265,6 +266,35 @@ def _run_authoritative_training(
     }
 
 
+def _load_training_performance(member_root: Path) -> dict[str, object]:
+    path = member_root / "training-performance.json"
+    if not path.is_file():
+        raise RuntimeError("training performance evidence is missing")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("training performance evidence must be a JSON object")
+    if payload.get("schema_version") != "training_performance_evidence_v1":
+        raise ValueError("training performance schema is unsupported")
+    observed = payload.get("observed_environment_steps")
+    if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
+        raise ValueError("training performance observed steps must be positive")
+    wall = payload.get("wall_clock_seconds")
+    if (
+        isinstance(wall, bool)
+        or not isinstance(wall, int | float)
+        or float(wall) <= 0.0
+    ):
+        raise ValueError("training performance wall time must be positive")
+    digest = payload.get("digest")
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise ValueError("training performance digest is invalid")
+    unsigned = dict(payload)
+    unsigned.pop("digest")
+    if digest != content_digest(unsigned):
+        raise ValueError("training performance digest mismatch")
+    return dict(payload)
+
+
 def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, object]:
     """Preflight CUDA, train one seed, and persist inspectable smoke evidence."""
 
@@ -307,11 +337,11 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
     )
     if serving_support.get("status") != "supported":
         raise RuntimeError("structured smoke must publish native serving support")
-    policy = artifact_path / "members" / "member-000" / "policy.zip"
+    member_root = artifact_path / "members" / "member-000"
+    training_performance = _load_training_performance(member_root)
+    policy = member_root / "policy.zip"
     checkpoint_manifests = sorted(
-        (artifact_path / "members" / "member-000" / "checkpoints").glob(
-            "step-*/checkpoint.json"
-        )
+        (member_root / "checkpoints").glob("step-*/checkpoint.json")
     )
     if not checkpoint_manifests:
         raise RuntimeError("GPU smoke did not publish a resumable checkpoint")
@@ -332,7 +362,9 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
     resumed_artifact = Path(str(resumed["artifact_path"]))
     if not resumed_artifact.is_absolute():
         resumed_artifact = ROOT / resumed_artifact
-    resume_evidence_path = resumed_artifact / "members" / "member-000" / "resume.json"
+    resumed_member_root = resumed_artifact / "members" / "member-000"
+    resumed_training_performance = _load_training_performance(resumed_member_root)
+    resume_evidence_path = resumed_member_root / "resume.json"
     if not resume_evidence_path.is_file():
         raise RuntimeError("GPU smoke resume evidence is missing")
     evidence: dict[str, object] = {
@@ -348,14 +380,20 @@ def run_gpu_training_smoke(*, work_root: Path, timesteps: int) -> dict[str, obje
         "serving_support": serving_support,
         "requested_timesteps": config.training.timesteps,
         "resolved_device": ensemble["resolved_device"],
-        "performance": first_metrics,
+        "performance": {
+            **first_metrics,
+            "training_artifact": training_performance,
+        },
         "resume": {
             "actual_timesteps": int(resumed["actual_timesteps"]),
             "checkpoint": str(resume_checkpoint),
             "evidence": json.loads(resume_evidence_path.read_text(encoding="utf-8")),
-            "performance": resume_metrics,
+            "performance": {
+                **resume_metrics,
+                "training_artifact": resumed_training_performance,
+            },
         },
-        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v5",
+        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v6",
     }
     evidence_path = work_root / "gpu-training-smoke.json"
     evidence_path.write_text(

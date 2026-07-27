@@ -18,6 +18,10 @@ from trade_rl.rl.sequence_observations import (
     SequencePolicyPlane,
     sequence_policy_values,
 )
+from trade_rl.rl.training_performance import (
+    measure_sequence_reconstruction,
+    measure_sequence_tensor_conversion,
+)
 
 _SEQUENCE_PREFIX = "sequence_"
 _DECISION_INDEX_KEY = "decision_index"
@@ -159,8 +163,10 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             return cached
         raw_indices = self.observations[_DECISION_INDEX_KEY]
         decision_indices = np.asarray(raw_indices, dtype=np.int64).reshape(-1)
-        reconstructed = reconstructor.reconstruct(decision_indices)
-        cached = {key: self.to_torch(value) for key, value in reconstructed.items()}
+        with measure_sequence_reconstruction():
+            reconstructed = reconstructor.reconstruct(decision_indices)
+        with measure_sequence_tensor_conversion():
+            cached = {key: self.to_torch(value) for key, value in reconstructed.items()}
         self._materialized_sequence_observations = cached
         return cached
 

@@ -1,20 +1,4 @@
-from __future__ import annotations
-
-from pathlib import Path
-
-
-def replace_once(source: str, old: str, new: str, *, seam: str) -> str:
-    count = source.count(old)
-    if count != 1:
-        raise SystemExit(f"{seam} changed: expected one exact match, got {count}")
-    return source.replace(old, new)
-
-
-performance_path = Path("trade_rl/rl/training_performance.py")
-if performance_path.exists():
-    raise SystemExit("training performance module already exists")
-performance_path.write_text(
-    '''"""Deterministic phase, throughput, and CUDA-memory evidence for training."""
+"""Deterministic phase, throughput, and CUDA-memory evidence for training."""
 
 from __future__ import annotations
 
@@ -120,7 +104,9 @@ class TrainingPerformanceEvidence:
             positive=True,
         )
         expected_throughput = observed / wall
-        if not math.isclose(throughput, expected_throughput, rel_tol=1e-12, abs_tol=1e-12):
+        if not math.isclose(
+            throughput, expected_throughput, rel_tol=1e-12, abs_tol=1e-12
+        ):
             raise ValueError("environment_steps_per_second is inconsistent")
         for field_name in (
             "collect_rollouts_seconds",
@@ -149,9 +135,15 @@ class TrainingPerformanceEvidence:
             field="peak_cuda_reserved_bytes",
         )
         if self.device_type == "cuda":
-            if self.peak_cuda_allocated_bytes is None or self.peak_cuda_reserved_bytes is None:
+            if (
+                self.peak_cuda_allocated_bytes is None
+                or self.peak_cuda_reserved_bytes is None
+            ):
                 raise ValueError("CUDA evidence requires allocator peak values")
-        elif self.peak_cuda_allocated_bytes is not None or self.peak_cuda_reserved_bytes is not None:
+        elif (
+            self.peak_cuda_allocated_bytes is not None
+            or self.peak_cuda_reserved_bytes is not None
+        ):
             raise ValueError("non-CUDA evidence cannot declare CUDA allocator peaks")
         if self.component_timers_overlap is not True:
             raise ValueError("component_timers_overlap must remain true")
@@ -267,8 +259,12 @@ class TrainingPerformanceRecorder:
             if not callable(original):
                 return
             namespace = getattr(owner, "__dict__", None)
-            had_local = isinstance(namespace, dict) and name in namespace
-            local_value = namespace.get(name) if had_local else None
+            if isinstance(namespace, dict) and name in namespace:
+                had_local = True
+                local_value = namespace[name]
+            else:
+                had_local = False
+                local_value = None
 
             def timed(*args: Any, **kwargs: Any) -> Any:
                 with self._measure(metric_name):
@@ -355,7 +351,9 @@ class TrainingPerformanceRecorder:
             "collect_rollouts_seconds": self._metrics["collect_rollouts"].seconds,
             "optimization_seconds": self._metrics["optimization"].seconds,
             "environment_step_seconds": self._metrics["environment_step"].seconds,
-            "feature_extraction_host_seconds": self._metrics["feature_extraction"].seconds,
+            "feature_extraction_host_seconds": self._metrics[
+                "feature_extraction"
+            ].seconds,
             "sequence_reconstruction_seconds": self._metrics[
                 "sequence_reconstruction"
             ].seconds,
@@ -467,246 +465,3 @@ __all__ = [
     "measure_sequence_tensor_conversion",
     "write_training_performance_evidence",
 ]
-''',
-    encoding="utf-8",
-)
-
-compact_path = Path("trade_rl/integrations/compact_rollout_buffer.py")
-source = compact_path.read_text(encoding="utf-8")
-source = replace_once(
-    source,
-    '''from trade_rl.rl.sequence_observations import (
-    SequenceNormalizerProtocol,
-    SequenceObservationBuilder,
-    SequencePolicyPlane,
-    sequence_policy_values,
-)
-''',
-    '''from trade_rl.rl.sequence_observations import (
-    SequenceNormalizerProtocol,
-    SequenceObservationBuilder,
-    SequencePolicyPlane,
-    sequence_policy_values,
-)
-from trade_rl.rl.training_performance import (
-    measure_sequence_reconstruction,
-    measure_sequence_tensor_conversion,
-)
-''',
-    seam="compact performance imports",
-)
-source = replace_once(
-    source,
-    '''        decision_indices = np.asarray(raw_indices, dtype=np.int64).reshape(-1)
-        reconstructed = reconstructor.reconstruct(decision_indices)
-        cached = {key: self.to_torch(value) for key, value in reconstructed.items()}
-        self._materialized_sequence_observations = cached
-''',
-    '''        decision_indices = np.asarray(raw_indices, dtype=np.int64).reshape(-1)
-        with measure_sequence_reconstruction():
-            reconstructed = reconstructor.reconstruct(decision_indices)
-        with measure_sequence_tensor_conversion():
-            cached = {key: self.to_torch(value) for key, value in reconstructed.items()}
-        self._materialized_sequence_observations = cached
-''',
-    seam="compact materialization timing",
-)
-compact_path.write_text(source, encoding="utf-8")
-
-sb3_path = Path("trade_rl/integrations/sb3_training.py")
-source = sb3_path.read_text(encoding="utf-8")
-source = replace_once(
-    source,
-    '''from trade_rl.rl.tensorboard_logging import (
-    build_tensorboard_metrics_callback,
-)
-from trade_rl.rl.training import (
-''',
-    '''from trade_rl.rl.tensorboard_logging import (
-    build_tensorboard_metrics_callback,
-)
-from trade_rl.rl.training_performance import (
-    TrainingPerformanceRecorder,
-    activate_training_performance,
-    write_training_performance_evidence,
-)
-from trade_rl.rl.training import (
-''',
-    seam="SB3 performance imports",
-)
-source = replace_once(
-    source,
-    '''            if remaining_timesteps > 0:
-                learn_kwargs: dict[str, object] = {
-                    "total_timesteps": remaining_timesteps,
-                    "callback": callback,
-                }
-                if config.tensorboard_enabled:
-                    learn_kwargs["tb_log_name"] = f"seed-{seed}-{config.algorithm}"
-                if resume_manifest is not None:
-                    learn_kwargs["reset_num_timesteps"] = False
-                model.learn(**learn_kwargs)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-''',
-    '''            if remaining_timesteps > 0:
-                learn_kwargs: dict[str, object] = {
-                    "total_timesteps": remaining_timesteps,
-                    "callback": callback,
-                }
-                if config.tensorboard_enabled:
-                    learn_kwargs["tb_log_name"] = f"seed-{seed}-{config.algorithm}"
-                if resume_manifest is not None:
-                    learn_kwargs["reset_num_timesteps"] = False
-                performance = TrainingPerformanceRecorder()
-                performance.start(torch_module=torch, device=model.device)
-                learn_start_timestep = int(model.num_timesteps)
-                with (
-                    activate_training_performance(performance),
-                    performance.instrument_model(model),
-                ):
-                    model.learn(**learn_kwargs)
-                performance_evidence = performance.finish(
-                    torch_module=torch,
-                    device=model.device,
-                    requested_environment_steps=remaining_timesteps,
-                    observed_environment_steps=(
-                        int(model.num_timesteps) - learn_start_timestep
-                    ),
-                )
-                write_training_performance_evidence(
-                    output_path.parent / "training-performance.json",
-                    performance_evidence,
-                )
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-''',
-    seam="SB3 learn instrumentation",
-)
-sb3_path.write_text(source, encoding="utf-8")
-
-smoke_path = Path("examples/binance-multitimeframe/run_gpu_training_smoke.py")
-source = smoke_path.read_text(encoding="utf-8")
-source = replace_once(
-    source,
-    '''import numpy as np
-
-from trade_rl.data import MarketDataset, write_market_dataset_files
-''',
-    '''import numpy as np
-
-from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data import MarketDataset, write_market_dataset_files
-''',
-    seam="smoke digest import",
-)
-source = replace_once(
-    source,
-    '''    return resolved, {
-        "duration_seconds": duration_seconds,
-        "peak_gpu_memory_mib": float(peak_gpu_memory_mib),
-        "throughput_steps_per_second": actual_timesteps / duration_seconds,
-    }
-
-
-def run_gpu_training_smoke''',
-    '''    return resolved, {
-        "duration_seconds": duration_seconds,
-        "peak_gpu_memory_mib": float(peak_gpu_memory_mib),
-        "throughput_steps_per_second": actual_timesteps / duration_seconds,
-    }
-
-
-def _load_training_performance(member_root: Path) -> dict[str, object]:
-    path = member_root / "training-performance.json"
-    if not path.is_file():
-        raise RuntimeError("training performance evidence is missing")
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("training performance evidence must be a JSON object")
-    if payload.get("schema_version") != "training_performance_evidence_v1":
-        raise ValueError("training performance schema is unsupported")
-    observed = payload.get("observed_environment_steps")
-    if isinstance(observed, bool) or not isinstance(observed, int) or observed <= 0:
-        raise ValueError("training performance observed steps must be positive")
-    wall = payload.get("wall_clock_seconds")
-    if isinstance(wall, bool) or not isinstance(wall, int | float) or float(wall) <= 0.0:
-        raise ValueError("training performance wall time must be positive")
-    digest = payload.get("digest")
-    if not isinstance(digest, str) or len(digest) != 64:
-        raise ValueError("training performance digest is invalid")
-    unsigned = dict(payload)
-    unsigned.pop("digest")
-    if digest != content_digest(unsigned):
-        raise ValueError("training performance digest mismatch")
-    return dict(payload)
-
-
-def run_gpu_training_smoke''',
-    seam="smoke performance loader",
-)
-source = replace_once(
-    source,
-    '''    policy = artifact_path / "members" / "member-000" / "policy.zip"
-    checkpoint_manifests = sorted(
-        (artifact_path / "members" / "member-000" / "checkpoints").glob(
-''',
-    '''    member_root = artifact_path / "members" / "member-000"
-    training_performance = _load_training_performance(member_root)
-    policy = member_root / "policy.zip"
-    checkpoint_manifests = sorted(
-        (member_root / "checkpoints").glob(
-''',
-    seam="smoke original performance",
-)
-source = replace_once(
-    source,
-    '''    resume_evidence_path = resumed_artifact / "members" / "member-000" / "resume.json"
-    if not resume_evidence_path.is_file():
-        raise RuntimeError("GPU smoke resume evidence is missing")
-''',
-    '''    resumed_member_root = resumed_artifact / "members" / "member-000"
-    resumed_training_performance = _load_training_performance(resumed_member_root)
-    resume_evidence_path = resumed_member_root / "resume.json"
-    if not resume_evidence_path.is_file():
-        raise RuntimeError("GPU smoke resume evidence is missing")
-''',
-    seam="smoke resumed performance",
-)
-source = replace_once(
-    source,
-    '''        "performance": first_metrics,
-        "resume": {
-''',
-    '''        "performance": {
-            **first_metrics,
-            "training_artifact": training_performance,
-        },
-        "resume": {
-''',
-    seam="smoke original payload",
-)
-source = replace_once(
-    source,
-    '''            "performance": resume_metrics,
-        },
-        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v5",
-''',
-    '''            "performance": {
-                **resume_metrics,
-                "training_artifact": resumed_training_performance,
-            },
-        },
-        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v6",
-''',
-    seam="smoke resume payload",
-)
-smoke_path.write_text(source, encoding="utf-8")
-
-docker_test_path = Path("tests/examples/test_docker_training_assets.py")
-source = docker_test_path.read_text(encoding="utf-8")
-source = replace_once(
-    source,
-    '    assert "gpu_sequence_target_oracle_bc_training_smoke_v5" in smoke\n',
-    '    assert "gpu_sequence_target_oracle_bc_training_smoke_v6" in smoke\n',
-    seam="GPU smoke schema contract",
-)
-docker_test_path.write_text(source, encoding="utf-8")

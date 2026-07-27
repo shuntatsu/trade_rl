@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "causal-scenario-c3-gpu.yml"
 RUNBOOK = ROOT / "docs" / "operations" / "causal-scenario-c3-execution.md"

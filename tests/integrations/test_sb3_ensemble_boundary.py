@@ -30,9 +30,7 @@ def test_serving_and_walk_forward_share_ensemble_aggregation() -> None:
     serving = _tree("trade_rl/integrations/sb3_serving.py")
     walk_forward = _tree("trade_rl/workflows/_market_walk_forward_core.py")
 
-    expected = (
-        "trade_rl.integrations.sb3_ensemble.predict_deterministic_mean_action"
-    )
+    expected = "trade_rl.integrations.sb3_ensemble.predict_deterministic_mean_action"
     assert _imports(serving)["predict_deterministic_mean_action"] == expected
     assert _imports(walk_forward)["predict_deterministic_mean_action"] == expected
     assert "predict_deterministic_mean_action" in _called_names(serving)

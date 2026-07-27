@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/cross-timeframe-attention
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -15,7 +18,7 @@ concurrency:
 
 jobs:
   migrate-and-verify:
-    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[v2-generated]') }}
+    if: ${{ github.actor != 'github-actions[bot]' && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[v2-generated]')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:

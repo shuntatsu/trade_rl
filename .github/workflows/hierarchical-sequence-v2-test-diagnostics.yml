@@ -1,0 +1,93 @@
+name: Hierarchical Sequence V2 Test Diagnostics
+
+on:
+  push:
+    branches:
+      - agent/cross-timeframe-attention
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hierarchical-sequence-v2-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3 --extra export
+
+      - name: Generate v2 tree
+        run: |
+          cp tools/apply_hierarchical_sequence_v2.py /tmp/apply_hierarchical_sequence_v2.py
+          uv run python tools/bootstrap_hierarchical_sequence_v2.py
+          uv run python tools/bootstrap_hierarchical_sequence_v2_scan.py
+          uv run python tools/bootstrap_hierarchical_sequence_v2_dynamic.py
+          uv run python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path('tools/apply_hierarchical_sequence_v2.py')
+          spec = importlib.util.spec_from_file_location('migration', path)
+          if spec is None or spec.loader is None:
+              raise RuntimeError('cannot load v2 migration')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module._migrate_training_config()
+          module._migrate_training_run_schema()
+          module._migrate_sequence_policy()
+          module._migrate_policies()
+          module._migrate_model_assembly()
+          module._migrate_python_sources()
+          module._migrate_json_configs()
+          module._add_contract_tests()
+          PY
+          uv run python tools/apply_legacy_mapping_keys_v2.py
+          uv run python tools/apply_sequence_architecture_identity_v2.py
+          uv run python tools/apply_sequence_test_staleness_v2.py
+          uv run python tools/apply_hierarchical_v2_nested_cleanup.py
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff format --check .
+          uv run ruff check .
+          mv /tmp/apply_hierarchical_sequence_v2.py tools/apply_hierarchical_sequence_v2.py
+
+      - name: Run focused tests
+        run: |
+          exec > >(tee hierarchical-v2-tests.log) 2>&1
+          set -o pipefail
+          uv run pytest -q \
+            tests/rl/test_observation_encoder_v2.py \
+            tests/rl/test_gated_transformer.py \
+            tests/rl/test_timeframe_fusion.py \
+            tests/rl/test_hierarchical_sequence_policy_v2.py \
+            tests/rl/test_sequence_architecture_identity.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/rl/test_training_config_active_fields.py \
+            tests/workflows/test_training_run_config.py \
+            tests/integrations/test_sb3_model_assembly.py \
+            tests/integrations/test_sb3_training_active_architecture.py
+
+      - name: Upload focused test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-sequence-v2-test-diagnostics
+          path: hierarchical-v2-tests.log
+          if-no-files-found: warn
+          retention-days: 7

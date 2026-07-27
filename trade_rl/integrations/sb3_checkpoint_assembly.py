@@ -30,7 +30,7 @@ from trade_rl.rl.training import ResidualTrainingConfig
 class LoadedSB3Checkpoint:
     """Validated checkpoint model and its immutable manifest."""
 
-    model: object
+    model: Any
     manifest: CheckpointManifest
 
 
@@ -91,7 +91,7 @@ def load_sb3_checkpoint_model(
     identity: Mapping[str, object],
     algorithm_config: AlgorithmConfig,
     policy: SB3PolicyAssembly,
-    fresh_model: object,
+    fresh_model: Any,
 ) -> LoadedSB3Checkpoint:
     """Load and validate one algorithm-matched SB3 checkpoint."""
 

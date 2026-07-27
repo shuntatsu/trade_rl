@@ -36,7 +36,7 @@ class SB3PolicyAssembly:
     policy_identifier: object
     policy_kwargs: Mapping[str, object]
     rollout_buffer_bytes: int | None
-    sequence_metadata: Mapping[str, object] | None
+    sequence_metadata: Mapping[str, Any] | None
     sequence_reconstructor: object | None
     uses_shared_asset_actor: bool
     rollout_buffer_class: object | None = None
@@ -298,7 +298,7 @@ def build_sb3_model(
     verbose: int,
     output_root: Path,
     canonical_action_probe_evidence: object | None,
-) -> object:
+) -> Any:
     """Construct one SB3 algorithm from validated immutable assembly inputs."""
 
     import stable_baselines3

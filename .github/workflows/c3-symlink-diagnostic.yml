@@ -13,35 +13,43 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/causal-scenario-c3-execution-reporting
-      - name: Find symlink-related test mutations
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Run execution test file
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p docs/verification
-          {
-            echo '# git grep is_symlink'
-            git grep -n 'is_symlink' -- tests || true
-            echo
-            echo '# git grep symlink_to'
-            git grep -n 'symlink_to' -- tests || true
-            echo
-            echo '# git grep os.path.islink'
-            git grep -n 'os.path.islink' -- tests || true
-            echo
-            echo '# git grep monkeypatch symlink'
-            git grep -n -E 'monkeypatch.*symlink|symlink.*monkeypatch|setattr.*is_symlink|is_symlink.*setattr' -- tests || true
-          } > docs/verification/c3-symlink-test-search.txt
+          set +e
+          uv run pytest -q -vv -s tests/workflows/test_causal_scenario_c3_execution_entrypoint.py > /tmp/c3-file-pytest.log 2>&1
+          code=$?
+          echo "$code" > /tmp/c3-file-pytest-exit.txt
+          exit 0
       - name: Commit diagnostic evidence
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p docs/verification
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = {
+              "schema_version": "c3_symlink_file_diagnostic_v1",
+              "pytest_exit_code": int(Path("/tmp/c3-file-pytest-exit.txt").read_text().strip()),
+              "pytest_log": Path("/tmp/c3-file-pytest.log").read_text(encoding="utf-8"),
+          }
+          Path("docs/verification/c3-symlink-file-diagnostic.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add docs/verification/c3-symlink-test-search.txt
-          git commit -m "test: locate C3 symlink state mutation"
+          git add docs/verification/c3-symlink-file-diagnostic.json
+          git commit -m "test: isolate C3 symlink file ordering"
           git push origin HEAD:agent/causal-scenario-c3-execution-reporting

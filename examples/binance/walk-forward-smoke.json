@@ -18,13 +18,18 @@
         "training": {
           "timesteps": 64,
           "gamma": 0.99,
-          "seeds": [0],
+          "seeds": [
+            0
+          ],
           "n_steps": 16,
           "batch_size": 8,
           "n_epochs": 1,
           "device": "cpu",
           "decision_hours": 1.0,
-          "policy_net_arch": [32, 32],
+          "policy_net_arch": [
+            32,
+            32
+          ],
           "asset_embedding_dim": 16,
           "global_embedding_dim": 16,
           "algorithm": "ppo",
@@ -36,7 +41,9 @@
           "decision_hours": 1.0,
           "initial_capital": 100000.0,
           "finite_horizon_observation": true,
-          "initial_state_modes": ["cash"]
+          "initial_state_modes": [
+            "cash"
+          ]
         },
         "risk": {
           "max_gross": 1.0,
@@ -82,9 +89,10 @@
         "exports": {
           "onnx": false,
           "torchscript": false,
-          "tolerance": 0.00001
+          "tolerance": 1e-05
         }
       }
     }
-  ]
+  ],
+  "sealed_test_ledger_mode": "local_exploratory"
 }

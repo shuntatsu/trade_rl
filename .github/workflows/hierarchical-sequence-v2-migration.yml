@@ -1,0 +1,115 @@
+name: Hierarchical Sequence V2 Migration
+
+on:
+  push:
+    branches:
+      - agent/cross-timeframe-attention
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hierarchical-sequence-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  migrate-and-verify:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[v2-generated]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/cross-timeframe-attention
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install verification environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,train-sb3,export]'
+
+      - name: Apply deterministic v2 migration
+        run: |
+          cp tools/apply_hierarchical_sequence_v2.py /tmp/apply_hierarchical_sequence_v2.py
+          python tools/bootstrap_hierarchical_sequence_v2.py
+          python tools/bootstrap_hierarchical_sequence_v2_scan.py
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path('tools/apply_hierarchical_sequence_v2.py')
+          spec = importlib.util.spec_from_file_location('hierarchical_v2_migration', path)
+          if spec is None or spec.loader is None:
+              raise RuntimeError('cannot load v2 migration')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module._migrate_training_config()
+          module._migrate_training_run_schema()
+          module._migrate_sequence_policy()
+          module._migrate_policies()
+          module._migrate_model_assembly()
+          module._migrate_python_sources()
+          module._migrate_json_configs()
+          module._add_contract_tests()
+          PY
+          python tools/apply_legacy_mapping_keys_v2.py
+          python tools/apply_sequence_architecture_identity_v2.py
+          python tools/apply_sequence_test_staleness_v2.py
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path('tools/apply_hierarchical_sequence_v2.py')
+          spec = importlib.util.spec_from_file_location('hierarchical_v2_scan', path)
+          if spec is None or spec.loader is None:
+              raise RuntimeError('cannot load v2 migration scan')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module._assert_legacy_contract_removed()
+          PY
+          mv /tmp/apply_hierarchical_sequence_v2.py tools/apply_hierarchical_sequence_v2.py
+
+      - name: Format and lint migrated tree
+        run: |
+          ruff format .
+          ruff check --fix .
+          ruff format --check .
+          ruff check .
+
+      - name: Verify focused v2 contracts
+        run: |
+          pytest -q \
+            tests/rl/test_observation_encoder_v2.py \
+            tests/rl/test_gated_transformer.py \
+            tests/rl/test_timeframe_fusion.py \
+            tests/rl/test_hierarchical_sequence_policy_v2.py \
+            tests/rl/test_sequence_architecture_identity.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/rl/test_training_config_active_fields.py \
+            tests/workflows/test_training_run_config.py \
+            tests/integrations/test_sb3_model_assembly.py \
+            tests/integrations/test_sb3_training_active_architecture.py
+
+      - name: Type-check production package
+        run: mypy trade_rl
+
+      - name: Compile production package
+        run: python -m compileall trade_rl
+
+      - name: Commit verified migration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No generated migration changes.'
+          else
+            git commit -m 'refactor: migrate observation encoder contract to v2 [v2-generated]'
+            git push origin HEAD:agent/cross-timeframe-attention
+          fi

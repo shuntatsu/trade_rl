@@ -1,9 +1,13 @@
 name: Temporary H2 RED
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/cost-critic-shared-feature-cache
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 permissions:
   contents: read

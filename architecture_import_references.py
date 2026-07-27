@@ -46,7 +46,9 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
         self.path = path
         self.module_name = module_name
         self.package_name = (
-            module_name if path.name == "__init__.py" else module_name.rpartition(".")[0]
+            module_name
+            if path.name == "__init__.py"
+            else module_name.rpartition(".")[0]
         )
         self.references: list[ImportReference] = []
         self.importlib_modules: set[str] = {"importlib"}
@@ -125,10 +127,7 @@ class _ImportReferenceVisitor(ast.NodeVisitor):
             and function.value.id in self.importlib_modules
         ):
             return "importlib"
-        if (
-            function.attr == "__import__"
-            and function.value.id in self.builtins_modules
-        ):
+        if function.attr == "__import__" and function.value.id in self.builtins_modules:
             return "builtin"
         return None
 

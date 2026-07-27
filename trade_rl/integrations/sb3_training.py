@@ -7,6 +7,7 @@ import shutil
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -239,24 +240,74 @@ def _filtered_training_environment(factory: Callable[[], Any]) -> Any:
 
 
 def _build_training_environment(
-    factory: Callable[[], Any],
+    factory: Callable[[], gym.Env[Any, Any]],
     n_envs: int,
     *,
     subprocesses: bool = True,
 ) -> Any:
     if n_envs == 1:
         return factory()
+    from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
+    factories = [factory for _ in range(n_envs)]
     if subprocesses:
-        from stable_baselines3.common.vec_env import SubprocVecEnv
+        return SubprocVecEnv(factories, start_method="spawn")
+    return DummyVecEnv(factories)
 
-        return SubprocVecEnv(
-            [factory for _ in range(n_envs)],
-            start_method="spawn",
+
+def _effective_vector_environment_kind(config: ResidualTrainingConfig) -> str:
+    if config.n_envs == 1:
+        return "direct"
+    if config.vector_environment_mode != "subprocess":
+        return "in_process"
+    if config.sequence_encoder:
+        return "subprocess_compact_sequence"
+    return "subprocess"
+
+
+def _compact_filtered_training_environment(
+    factory: Callable[[], gym.Env[Any, Any]],
+) -> gym.Env[Any, Any]:
+    from trade_rl.rl.sequence_observations import (
+        sequence_policy_plane_materialization,
+    )
+
+    with sequence_policy_plane_materialization(False):
+        environment = factory()
+    unwrapped: Any = getattr(environment, "unwrapped", environment)
+    setter = getattr(unwrapped, "set_compact_sequence_training_observations", None)
+    if not callable(setter):
+        environment.close()
+        raise TypeError(
+            "parallel sequence worker does not support compact observations"
         )
-    from stable_baselines3.common.vec_env import DummyVecEnv
+    setter(True)
+    return _TrainingInfoFilter(environment)
 
-    return DummyVecEnv([factory for _ in range(n_envs)])
+
+def _build_parallel_sequence_training_environment(
+    factory: Callable[[], gym.Env[Any, Any]],
+    n_envs: int,
+    *,
+    full_observation_space: gym.spaces.Dict,
+    reconstructor: Any,
+) -> Any:
+    from trade_rl.integrations.parallel_sequence_env import ParallelSequenceVecEnv
+
+    workers = _build_training_environment(
+        partial(_compact_filtered_training_environment, factory),
+        n_envs,
+        subprocesses=True,
+    )
+    try:
+        return ParallelSequenceVecEnv(
+            workers,
+            full_observation_space=full_observation_space,
+            reconstructor=reconstructor,
+        )
+    except BaseException:
+        workers.close()
+        raise
 
 
 class StableBaselines3Backend:
@@ -582,6 +633,8 @@ class StableBaselines3Backend:
                         },
                     }
                 )
+            vector_environment_kind = _effective_vector_environment_kind(config)
+            full_observation_space = probe.observation_space
             if config.n_envs == 1:
                 environment = _TrainingInfoFilter(probe)
                 probe = None
@@ -589,11 +642,29 @@ class StableBaselines3Backend:
                 probe_to_close = probe
                 probe = None
                 probe_to_close.close()
-                environment = _build_training_environment(
-                    lambda: _filtered_training_environment(self.environment_factory),
-                    config.n_envs,
-                    subprocesses=False,
-                )
+                if vector_environment_kind == "subprocess_compact_sequence":
+                    if sequence_reconstructor is None:
+                        raise RuntimeError(
+                            "parallel sequence environment requires a reconstructor"
+                        )
+                    if not isinstance(full_observation_space, gym.spaces.Dict):
+                        raise RuntimeError(
+                            "parallel sequence environment requires a Dict space"
+                        )
+                    environment = _build_parallel_sequence_training_environment(
+                        self.environment_factory,
+                        config.n_envs,
+                        full_observation_space=full_observation_space,
+                        reconstructor=sequence_reconstructor,
+                    )
+                else:
+                    environment = _build_training_environment(
+                        lambda: _filtered_training_environment(
+                            self.environment_factory
+                        ),
+                        config.n_envs,
+                        subprocesses=vector_environment_kind == "subprocess",
+                    )
             policy_identifier: Any = (
                 SharedPerAssetActorCriticPolicy
                 if uses_shared_asset_actor
@@ -934,9 +1005,7 @@ class StableBaselines3Backend:
                             if config.sequence_encoder
                             else "default"
                         ),
-                        "vector_environment": (
-                            "native" if config.n_envs == 1 else "dummy"
-                        ),
+                        "vector_environment": vector_environment_kind,
                         "schema_version": "policy_architecture_v2",
                         "training_config_digest": content_digest(
                             config.digest_payload()

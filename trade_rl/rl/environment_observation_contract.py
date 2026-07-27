@@ -26,6 +26,7 @@ from trade_rl.rl.sequence_observations import (
     SequencePolicyPlane,
     SequenceWindowSpec,
     build_sequence_policy_plane,
+    should_materialize_sequence_policy_plane,
 )
 
 
@@ -93,11 +94,12 @@ class EnvironmentObservationContractBuilder:
                 )
             )
             self._validate_sequence_normalizer(sequence_observation_builder)
-            sequence_policy_plane = build_sequence_policy_plane(
-                self.dataset,
-                sequence_observation_builder,
-                self.sequence_normalizer,
-            )
+            if should_materialize_sequence_policy_plane():
+                sequence_policy_plane = build_sequence_policy_plane(
+                    self.dataset,
+                    sequence_observation_builder,
+                    self.sequence_normalizer,
+                )
             resolved_minimum_start_index = max(
                 resolved_minimum_start_index,
                 sequence_observation_builder.minimum_index(self.dataset),

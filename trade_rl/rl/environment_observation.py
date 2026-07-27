@@ -192,6 +192,37 @@ class EnvironmentObservationAssembler:
             normalized_observation=current,
         )
 
+    def compact_observation(
+        self,
+        runtime: EnvironmentObservationRuntime,
+        *,
+        trends: TrendTargets,
+        alpha: np.ndarray,
+        factor_basis: np.ndarray,
+        pre_trade_risk: PreTradeRisk,
+    ) -> dict[str, np.ndarray]:
+        """Build current structured state without sequence policy channels."""
+
+        if self.sequence_observation_builder is None:
+            raise RuntimeError("compact observation requires a sequence contract")
+        _, current = self.flat_pair(
+            runtime,
+            trends=trends,
+            alpha=alpha,
+            factor_basis=factor_basis,
+            pre_trade_risk=pre_trade_risk,
+        )
+        structured = build_structured_current_observation(
+            current_flat=current,
+            layout=self.layout,
+            n_features=self.dataset.n_features,
+        )
+        structured["decision_index"] = np.asarray(
+            [runtime.current_index],
+            dtype=np.int64,
+        )
+        return structured
+
     def observation(
         self,
         runtime: EnvironmentObservationRuntime,
@@ -219,22 +250,18 @@ class EnvironmentObservationAssembler:
             structured.update(
                 self.sequence_policy_plane.components(runtime.current_index)
             )
-            structured["decision_index"] = np.asarray(
-                [runtime.current_index],
-                dtype=np.int64,
+        else:
+            sequence = self.sequence_observation_builder.build(
+                self.dataset,
+                index=runtime.current_index,
             )
-            return structured
-        sequence = self.sequence_observation_builder.build(
-            self.dataset,
-            index=runtime.current_index,
-        )
-        structured = build_structured_policy_observation(
-            sequence=sequence,
-            current_flat=current,
-            layout=self.layout,
-            n_features=self.dataset.n_features,
-            sequence_normalizer=self.sequence_normalizer,
-        )
+            structured = build_structured_policy_observation(
+                sequence=sequence,
+                current_flat=current,
+                layout=self.layout,
+                n_features=self.dataset.n_features,
+                sequence_normalizer=self.sequence_normalizer,
+            )
         structured["decision_index"] = np.asarray(
             [runtime.current_index],
             dtype=np.int64,

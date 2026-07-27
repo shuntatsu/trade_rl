@@ -115,6 +115,7 @@ class ResidualTrainingConfig:
     checkpoint_interval_steps: int | None = None
     max_checkpoints: int = 5
     n_envs: int = 1
+    vector_environment_mode: str = "auto"
     behavior_cloning_epochs: int = 0
     behavior_cloning_learning_rate: float = 1e-3
     behavior_cloning_batch_size: int = 256
@@ -319,6 +320,14 @@ class ResidualTrainingConfig:
                 for width in architecture
             ):
                 raise ValueError(f"{field_name} must contain positive integers")
+        if self.vector_environment_mode not in {
+            "auto",
+            "in_process",
+            "subprocess",
+        }:
+            raise ValueError(
+                "vector_environment_mode must be auto, in_process, or subprocess"
+            )
         if not isinstance(self.sequence_encoder, bool):
             raise ValueError("sequence_encoder must be a boolean")
         if not isinstance(self.sequence_compile, bool):
@@ -699,6 +708,7 @@ class ResidualTrainingConfig:
             "max_grad_norm": self.max_grad_norm,
             "n_epochs": self.n_epochs,
             "n_envs": self.n_envs,
+            "vector_environment_mode": self.vector_environment_mode,
             "n_steps": self.n_steps,
             "normalize_advantage": self.normalize_advantage,
             "policy": self.policy,

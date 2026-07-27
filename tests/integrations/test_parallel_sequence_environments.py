@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
 from types import MethodType, SimpleNamespace
 from typing import Any
 
@@ -22,7 +21,6 @@ from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 from trade_rl.rl.environment_observation import (
     EnvironmentObservationAssembler,
-    EnvironmentObservationRuntime,
 )
 from trade_rl.rl.environment_observation_contract import (
     EnvironmentObservationContractBuilder,
@@ -119,7 +117,9 @@ def test_compact_assembler_avoids_sequence_plane_and_matches_current_state() -> 
     )
     current = np.arange(layout.size, dtype=np.float32)
 
-    def flat_pair(self: object, *args: Any, **kwargs: Any) -> tuple[np.ndarray, np.ndarray]:
+    def flat_pair(
+        self: object, *args: Any, **kwargs: Any
+    ) -> tuple[np.ndarray, np.ndarray]:
         del self, args, kwargs
         return current.copy(), current.copy()
 
@@ -154,9 +154,7 @@ def _full_space() -> spaces.Dict:
             "sequence_15m_values": spaces.Box(
                 -np.inf, np.inf, shape=(1, 1, 1), dtype=np.float16
             ),
-            "sequence_15m_available": spaces.Box(
-                0, 1, shape=(1, 1, 1), dtype=np.uint8
-            ),
+            "sequence_15m_available": spaces.Box(0, 1, shape=(1, 1, 1), dtype=np.uint8),
             "sequence_15m_staleness": spaces.Box(
                 0, np.inf, shape=(1, 1, 1), dtype=np.float16
             ),
@@ -164,7 +162,9 @@ def _full_space() -> spaces.Dict:
     )
 
 
-def test_environment_compact_transport_switches_space_without_changing_full_contract() -> None:
+def test_environment_compact_transport_switches_space_without_changing_full_contract() -> (
+    None
+):
     environment = object.__new__(ResidualMarketEnv)
     full_space = _full_space()
     environment._full_observation_space = full_space
@@ -237,7 +237,10 @@ def test_worker_construction_context_suppresses_sequence_policy_plane() -> None:
     assert ordinary.sequence_policy_plane is not None
     assert compact_worker.sequence_policy_plane is None
     assert compact_worker.sequence_observation_builder is not None
-    assert compact_worker.observation_contract_digest == ordinary.observation_contract_digest
+    assert (
+        compact_worker.observation_contract_digest
+        == ordinary.observation_contract_digest
+    )
     assert compact_worker.observation_space == ordinary.observation_space
 
 
@@ -342,19 +345,27 @@ class _FakeVecEnv(VecEnv):
         return None
 
     def get_attr(self, attr_name: str, indices: Any = None) -> list[Any]:
-        del attr_name, indices
+        del indices
+        if attr_name == "render_mode":
+            return [None, None]
         return []
 
     def set_attr(self, attr_name: str, value: Any, indices: Any = None) -> None:
         del attr_name, value, indices
 
     def env_method(
-        self, method_name: str, *method_args: Any, indices: Any = None, **method_kwargs: Any
+        self,
+        method_name: str,
+        *method_args: Any,
+        indices: Any = None,
+        **method_kwargs: Any,
     ) -> list[Any]:
         del method_name, method_args, indices, method_kwargs
         return []
 
-    def env_is_wrapped(self, wrapper_class: type[gym.Wrapper], indices: Any = None) -> list[bool]:
+    def env_is_wrapped(
+        self, wrapper_class: type[gym.Wrapper], indices: Any = None
+    ) -> list[bool]:
         del wrapper_class, indices
         return [False, False]
 
@@ -473,7 +484,7 @@ def test_parallel_sequence_builder_uses_spawn_workers_and_parent_wrapper(
         (4, True, "auto", "in_process"),
         (4, True, "in_process", "in_process"),
         (4, True, "subprocess", "subprocess_compact_sequence"),
-        (4, False, "auto", "subprocess"),
+        (4, False, "auto", "in_process"),
         (4, False, "in_process", "in_process"),
         (4, False, "subprocess", "subprocess"),
     ),

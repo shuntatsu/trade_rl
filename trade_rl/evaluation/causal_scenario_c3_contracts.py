@@ -68,6 +68,29 @@ def _readonly_float_array(
     return array
 
 
+def _readonly_int_array(
+    name: str,
+    value: object,
+    *,
+    ndim: int,
+    shape: tuple[int | None, ...] | None = None,
+) -> np.ndarray:
+    raw = np.asarray(value)
+    if raw.dtype.kind not in "iu":
+        raise ValueError(f"{name} must be an integer array")
+    array = np.asarray(raw, dtype=np.int64).copy(order="C")
+    if array.ndim != ndim:
+        raise ValueError(f"{name} must have rank {ndim}")
+    if shape is not None:
+        if len(shape) != array.ndim or any(
+            expected is not None and actual != expected
+            for actual, expected in zip(array.shape, shape, strict=True)
+        ):
+            raise ValueError(f"{name} has an invalid shape")
+    array.setflags(write=False)
+    return array
+
+
 def _array_payload(array: np.ndarray) -> dict[str, object]:
     return {
         "dtype": array.dtype.str,
@@ -532,8 +555,10 @@ class RealizedPolicyOutcome:
     impact_cost: float
     funding_paid: float
     borrow_paid: float
+    fill_ratio: float
     fill_count: int
     pending_order_events: int
+    cancel_replace_events: int
     max_drawdown: float
     terminal_equity: float
     termination_reason: str
@@ -553,6 +578,7 @@ class RealizedPolicyOutcome:
             "impact_cost",
             "funding_paid",
             "borrow_paid",
+            "fill_ratio",
             "max_drawdown",
             "terminal_equity",
         ):
@@ -568,18 +594,18 @@ class RealizedPolicyOutcome:
         ):
             if getattr(self, field) < 0.0:
                 raise ValueError(f"{field} must be non-negative")
+        if not 0.0 <= self.fill_ratio <= 1.0:
+            raise ValueError("fill_ratio must be in [0, 1]")
         if not 0.0 <= self.max_drawdown <= 1.0:
             raise ValueError("max_drawdown must be in [0, 1]")
         if self.terminal_equity <= 0.0:
             raise ValueError("terminal_equity must be positive")
-        object.__setattr__(
-            self, "fill_count", _non_negative_int("fill_count", self.fill_count)
-        )
-        object.__setattr__(
-            self,
-            "pending_order_events",
-            _non_negative_int("pending_order_events", self.pending_order_events),
-        )
+        for field in ("fill_count", "pending_order_events", "cancel_replace_events"):
+            object.__setattr__(
+                self,
+                field,
+                _non_negative_int(field, getattr(self, field)),
+            )
         reason = self.termination_reason.strip()
         if not reason:
             raise ValueError("termination_reason must be non-empty")
@@ -591,11 +617,23 @@ class RealizedPolicyOutcome:
             raise ValueError("outcome_digest does not match realized outcome")
         object.__setattr__(self, "outcome_digest", digest)
 
+    @property
+    def total_economic_cost(self) -> float:
+        return float(
+            self.fees
+            + self.spread_cost
+            + self.impact_cost
+            + self.funding_paid
+            + self.borrow_paid
+        )
+
     def digest_payload(self) -> dict[str, object]:
         return {
             "borrow_paid": self.borrow_paid,
+            "cancel_replace_events": self.cancel_replace_events,
             "fees": self.fees,
             "fill_count": self.fill_count,
+            "fill_ratio": self.fill_ratio,
             "filled_turnover": self.filled_turnover,
             "funding_paid": self.funding_paid,
             "gross_log_return": self.gross_log_return,
@@ -615,6 +653,14 @@ class CausalScenarioQueryComparison:
     decision_digest: str
     query_timestamp_ns: int
     replay_identity_digest: str
+    execution_scenario: str
+    prediction_result_digest: str
+    predicted_score: np.ndarray
+    predicted_mean_advantage: np.ndarray
+    predicted_loss_cvar: np.ndarray
+    predicted_expected_turnover: np.ndarray
+    scenario_anchor_indices: np.ndarray
+    scenario_distances: np.ndarray
     trend: RealizedPolicyOutcome
     scenario_oracle: RealizedPolicyOutcome
     ppo_mean: RealizedPolicyOutcome
@@ -643,9 +689,18 @@ class CausalScenarioQueryComparison:
         )
         object.__setattr__(
             self,
+            "prediction_result_digest",
+            require_sha256(self.prediction_result_digest, field="prediction_result_digest"),
+        )
+        object.__setattr__(
+            self,
             "query_timestamp_ns",
             _positive_int("query_timestamp_ns", self.query_timestamp_ns),
         )
+        execution_scenario = self.execution_scenario.strip()
+        if not execution_scenario:
+            raise ValueError("execution_scenario must be non-empty")
+        object.__setattr__(self, "execution_scenario", execution_scenario)
         if self.schema_version != C3_QUERY_COMPARISON_SCHEMA:
             raise ValueError("unsupported C3 query comparison schema")
         for name in ("trend", "scenario_oracle", "ppo_mean", "random_candidate"):
@@ -656,12 +711,43 @@ class CausalScenarioQueryComparison:
             not isinstance(item, RealizedPolicyOutcome) for item in outcomes
         ):
             raise ValueError("candidate_outcomes must contain realized outcomes")
+        candidate_count = len(outcomes)
         advantages = _readonly_float_array(
             "realized_candidate_advantages",
             self.realized_candidate_advantages,
             ndim=1,
-            shape=(len(outcomes),),
+            shape=(candidate_count,),
         )
+        predicted_arrays = {}
+        for name in (
+            "predicted_score",
+            "predicted_mean_advantage",
+            "predicted_loss_cvar",
+            "predicted_expected_turnover",
+        ):
+            predicted_arrays[name] = _readonly_float_array(
+                name,
+                getattr(self, name),
+                ndim=1,
+                shape=(candidate_count,),
+            )
+        if np.any(predicted_arrays["predicted_loss_cvar"] < 0.0):
+            raise ValueError("predicted_loss_cvar must be non-negative")
+        if np.any(predicted_arrays["predicted_expected_turnover"] < 0.0):
+            raise ValueError("predicted_expected_turnover must be non-negative")
+        anchors = _readonly_int_array(
+            "scenario_anchor_indices", self.scenario_anchor_indices, ndim=1
+        )
+        distances = _readonly_float_array(
+            "scenario_distances",
+            self.scenario_distances,
+            ndim=1,
+            shape=anchors.shape,
+        )
+        if np.any(anchors < 0):
+            raise ValueError("scenario_anchor_indices must be non-negative")
+        if np.any(distances < 0.0):
+            raise ValueError("scenario_distances must be non-negative")
         random_indices = tuple(
             _non_negative_int("random_candidate_indices", index)
             for index in self.random_candidate_indices
@@ -669,7 +755,7 @@ class CausalScenarioQueryComparison:
         random_outcomes = tuple(self.random_candidate_outcomes)
         if not random_indices or len(random_indices) != len(random_outcomes):
             raise ValueError("random comparator evidence count mismatch")
-        if any(index >= len(outcomes) for index in random_indices):
+        if any(index >= candidate_count for index in random_indices):
             raise ValueError("random comparator index is outside candidate range")
         if any(not isinstance(item, RealizedPolicyOutcome) for item in random_outcomes):
             raise ValueError("random comparators must contain realized outcomes")
@@ -690,6 +776,10 @@ class CausalScenarioQueryComparison:
             raise ValueError("random_realized_regrets must be non-negative")
         object.__setattr__(self, "candidate_outcomes", outcomes)
         object.__setattr__(self, "realized_candidate_advantages", advantages)
+        for name, value in predicted_arrays.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "scenario_anchor_indices", anchors)
+        object.__setattr__(self, "scenario_distances", distances)
         object.__setattr__(self, "random_candidate_indices", random_indices)
         object.__setattr__(self, "random_candidate_outcomes", random_outcomes)
         object.__setattr__(self, "random_realized_regrets", random_regrets)
@@ -731,6 +821,7 @@ class CausalScenarioQueryComparison:
                     outcome.outcome_digest for outcome in self.candidate_outcomes
                 ),
                 "decision_digest": self.decision_digest,
+                "execution_scenario": self.execution_scenario,
                 "perfect_information": {
                     "bound_log_return": self.perfect_information.bound_log_return,
                     "causal_log_return": self.perfect_information.causal_log_return,
@@ -742,7 +833,16 @@ class CausalScenarioQueryComparison:
                     "status": self.perfect_information.status.value,
                 },
                 "ppo_mean": self.ppo_mean.outcome_digest,
+                "predicted_expected_turnover": _array_payload(
+                    self.predicted_expected_turnover
+                ),
+                "predicted_loss_cvar": _array_payload(self.predicted_loss_cvar),
+                "predicted_mean_advantage": _array_payload(
+                    self.predicted_mean_advantage
+                ),
                 "predicted_realized_spearman": self.predicted_realized_spearman,
+                "predicted_score": _array_payload(self.predicted_score),
+                "prediction_result_digest": self.prediction_result_digest,
                 "query_timestamp_ns": self.query_timestamp_ns,
                 "random_candidate": self.random_candidate.outcome_digest,
                 "random_candidate_indices": self.random_candidate_indices,
@@ -755,6 +855,8 @@ class CausalScenarioQueryComparison:
                     self.realized_candidate_advantages
                 ),
                 "replay_identity_digest": self.replay_identity_digest,
+                "scenario_anchor_indices": _array_payload(self.scenario_anchor_indices),
+                "scenario_distances": _array_payload(self.scenario_distances),
                 "scenario_oracle": self.scenario_oracle.outcome_digest,
                 "schema_version": self.schema_version,
                 "selected_realized_regret": self.selected_realized_regret,

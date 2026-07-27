@@ -84,6 +84,30 @@ def test_execute_c3_evaluation_request_rejects_backend_output_escape(
         )
 
 
+def test_execute_c3_evaluation_request_rejects_symlinked_backend_summary(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    request = _request(tmp_path)
+
+    def backend(request_path: Path, *, output_root: Path) -> Path:
+        target = output_root / "summary-target.json"
+        link = output_root / "summary.json"
+        c3_reporting.write_summary(target)
+        try:
+            link.symlink_to(target)
+        except OSError:
+            pytest.skip("symlink creation is unavailable on this platform")
+        return link
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        c3_execution.execute_c3_evaluation_request(
+            request,
+            output_root=tmp_path / "output",
+            backend=backend,
+        )
+
+
 def test_execute_c3_evaluation_request_rejects_malformed_backend_summary(
     tmp_path: Path,
 ) -> None:

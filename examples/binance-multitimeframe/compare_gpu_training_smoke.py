@@ -141,7 +141,7 @@ def _load_training_performance(value: object) -> dict[str, object]:
     return payload
 
 
-def _load_sample(path: Path, *, legacy_profile: str) -> dict[str, object]:
+def _load_sample(path: Path, *, legacy_profile: str | None) -> dict[str, object]:
     payload = _load_json(path)
     schema = payload.get("schema")
     if schema not in _SMOKE_SCHEMAS:
@@ -166,14 +166,22 @@ def _load_sample(path: Path, *, legacy_profile: str) -> dict[str, object]:
         raise ValueError(
             "GPU comparison workload differs between training artifact and smoke"
         )
-    profile = payload.get("runtime_profile", legacy_profile)
-    if profile not in _RUNTIME_PROFILES:
-        raise ValueError("GPU smoke runtime profile is unsupported")
-    commit = payload.get("git_commit")
-    if commit is not None and (
-        not isinstance(commit, str) or _GIT_COMMIT_PATTERN.fullmatch(commit) is None
-    ):
-        raise ValueError("GPU smoke git commit is invalid")
+    if schema == "gpu_sequence_target_oracle_bc_training_smoke_v6":
+        if legacy_profile is None:
+            raise ValueError("accelerated candidate requires schema v7 evidence")
+        profile = legacy_profile
+        commit: str | None = None
+    else:
+        profile = payload.get("runtime_profile")
+        if profile not in _RUNTIME_PROFILES:
+            raise ValueError("GPU smoke runtime profile is unsupported")
+        raw_commit = payload.get("git_commit")
+        if (
+            not isinstance(raw_commit, str)
+            or _GIT_COMMIT_PATTERN.fullmatch(raw_commit) is None
+        ):
+            raise ValueError("GPU smoke git commit is invalid")
+        commit = raw_commit
     metrics = {
         "external_duration_seconds": _positive_float(
             performance.get("duration_seconds"),
@@ -226,7 +234,7 @@ def _aggregate(
     *,
     ref: str,
     expected_profile: str,
-    legacy_profile: str,
+    legacy_profile: str | None,
 ) -> dict[str, object]:
     if not paths:
         raise ValueError("GPU comparison requires at least one sample per side")
@@ -271,6 +279,12 @@ def compare_gpu_training_smokes(
 ) -> dict[str, object]:
     """Validate repeated evidence and return one digest-bound median comparison."""
 
+    for field, ref in (
+        ("baseline_ref", baseline_ref),
+        ("candidate_ref", candidate_ref),
+    ):
+        if _GIT_COMMIT_PATTERN.fullmatch(ref) is None:
+            raise ValueError(f"{field} must be a lowercase 40-character commit")
     baseline = _aggregate(
         baseline_paths,
         ref=baseline_ref,
@@ -281,7 +295,7 @@ def compare_gpu_training_smokes(
         candidate_paths,
         ref=candidate_ref,
         expected_profile="accelerated",
-        legacy_profile="accelerated",
+        legacy_profile=None,
     )
     if baseline["workload"] != candidate["workload"]:
         raise ValueError("GPU comparison workload mismatch")

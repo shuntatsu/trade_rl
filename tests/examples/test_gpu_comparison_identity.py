@@ -11,10 +11,7 @@ from trade_rl.artifacts.hashing import content_digest
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPARISON = (
-    ROOT
-    / "examples"
-    / "binance-multitimeframe"
-    / "compare_gpu_training_smoke.py"
+    ROOT / "examples" / "binance-multitimeframe" / "compare_gpu_training_smoke.py"
 )
 WORKFLOW = ROOT / ".github" / "workflows" / "gpu-performance-comparison.yml"
 BASELINE_REF = "1f597caf85fe5200fe7abc34461236b65ebb8b1d"
@@ -140,4 +137,4 @@ def test_workflow_fixes_the_verified_h1_baseline() -> None:
 
     assert BASELINE_REF in workflow
     assert "${{ inputs.baseline_ref }}" not in workflow
-    assert f'REQUESTED_BASELINE_REF: {BASELINE_REF}' in workflow
+    assert f"REQUESTED_BASELINE_REF: {BASELINE_REF}" in workflow

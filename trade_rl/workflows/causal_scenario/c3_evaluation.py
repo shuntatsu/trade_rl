@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
@@ -14,6 +15,7 @@ from trade_rl.artifacts.run_manifest import (
     WalkForwardRunManifest,
     validate_walk_forward_run_directory,
 )
+from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.causal_scenario_artifact import (
     load_causal_scenario_value_artifact,
 )
@@ -204,17 +206,24 @@ def _load_perfect_information(
         _string(payload["reason"], field=f"{field}.reason")
     )
     if status is PerfectInformationComparisonStatus.COMPARABLE:
+        if reason is not PerfectInformationComparisonReason.COMPATIBLE:
+            raise ValueError(f"{field} comparable reason mismatch")
         comparable_evidence = _string(
             payload["compatibility_evidence_digest"],
             field=f"{field}.compatibility_evidence_digest",
         )
+        bound = _number(
+            payload["bound_log_return"], field=f"{field}.bound_log_return"
+        )
+        causal = _number(
+            payload["causal_log_return"], field=f"{field}.causal_log_return"
+        )
+        gap = _number(payload["gap"], field=f"{field}.gap")
+        if not math.isclose(gap, bound - causal, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError(f"{field} gap does not match comparable returns")
         return PerfectInformationComparison.comparable(
-            bound_log_return=_number(
-                payload["bound_log_return"], field=f"{field}.bound_log_return"
-            ),
-            causal_log_return=_number(
-                payload["causal_log_return"], field=f"{field}.causal_log_return"
-            ),
+            bound_log_return=bound,
+            causal_log_return=causal,
             compatibility_evidence_digest=comparable_evidence,
         )
     if any(
@@ -231,6 +240,8 @@ def _load_perfect_information(
     if status is PerfectInformationComparisonStatus.NOT_EVALUATED:
         if reason is not PerfectInformationComparisonReason.NOT_EVALUATED:
             raise ValueError(f"{field} not-evaluated reason mismatch")
+        if optional_evidence is not None:
+            raise ValueError(f"{field} not-evaluated evidence must be null")
         return PerfectInformationComparison.not_evaluated()
     return PerfectInformationComparison.not_comparable(
         reason,
@@ -384,6 +395,21 @@ def _walk_forward_payload(
     return raw
 
 
+def _source_fold_map(walk_forward: dict[str, object]) -> dict[int, dict[str, object]]:
+    source_folds: dict[int, dict[str, object]] = {}
+    for position, value in enumerate(
+        _list(walk_forward["folds"], field="walk-forward.folds")
+    ):
+        item = _object(value, field=f"walk-forward.folds[{position}]")
+        fold_index = _integer(
+            item.get("fold_index"), field=f"walk-forward.folds[{position}].fold_index"
+        )
+        if fold_index in source_folds:
+            raise ValueError("source walk-forward fold indices must be unique")
+        source_folds[fold_index] = item
+    return source_folds
+
+
 @dataclass(frozen=True, slots=True)
 class C3EvaluationResult:
     source_run_digest: str
@@ -393,6 +419,18 @@ class C3EvaluationResult:
     production_status: str = PRODUCTION_STATUS
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "source_run_digest",
+            require_sha256(self.source_run_digest, field="source_run_digest"),
+        )
+        object.__setattr__(
+            self,
+            "request_digest",
+            require_sha256(self.request_digest, field="request_digest"),
+        )
+        if not isinstance(self.batch, C3BatchResult):
+            raise ValueError("batch must be C3BatchResult")
         if self.schema_version != C3_EVALUATION_RESULT_SCHEMA:
             raise ValueError("unsupported C3 evaluation result schema")
         if self.production_status != PRODUCTION_STATUS:
@@ -424,19 +462,14 @@ def execute_c3_evaluation_request(
     )
     source_manifest = validate_walk_forward_run_directory(source_root)
     walk_forward = _walk_forward_payload(source_root, source_manifest)
-    source_folds = {
-        _integer(item.get("fold_index"), field="walk-forward.fold_index"): item
-        for item in (
-            _object(value, field="walk-forward.folds")
-            for value in _list(walk_forward["folds"], field="walk-forward.folds")
-        )
-    }
+    source_folds = _source_fold_map(walk_forward)
 
     destination = Path(output_root)
     batch_queries: list[C3BatchQuery] = []
     fold_selection_days: dict[str, int] = {}
     required_adverse_passed: dict[str, bool] = {}
     seen_fold_indices: set[int] = set()
+    seen_fold_ids: set[str] = set()
     for fold_position, raw_fold in enumerate(_list(raw["folds"], field="folds")):
         field = f"folds[{fold_position}]"
         fold = _object(raw_fold, field=field)
@@ -455,8 +488,11 @@ def execute_c3_evaluation_request(
         )
         fold_id = _string(fold["fold_id"], field=f"{field}.fold_id")
         fold_index = _integer(fold["fold_index"], field=f"{field}.fold_index")
+        if fold_id in seen_fold_ids:
+            raise ValueError("C3 request fold IDs must be unique")
         if fold_index in seen_fold_indices:
             raise ValueError("C3 request fold indices must be unique")
+        seen_fold_ids.add(fold_id)
         seen_fold_indices.add(fold_index)
         source_fold = source_folds.get(fold_index)
         if source_fold is None:

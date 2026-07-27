@@ -53,18 +53,42 @@ jobs:
           if-no-files-found: error
       - name: Enforce focused tests
         run: test "$(cat h2-green.status)" = 0
-      - name: Static verification
+      - name: Static diagnostics
+        shell: bash
         run: |
-          uv run ruff check trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py
-          uv run ruff format --check trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py
-          uv run mypy trade_rl/integrations/cost_critic_ppo.py
+          set +e
+          uv run ruff check trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py 2>&1 | tee h2-ruff.log
+          printf '%s\n' "${PIPESTATUS[0]}" > h2-ruff.status
+          uv run ruff format --check trade_rl/integrations/cost_critic_ppo.py tests/integrations/test_cost_critic_feature_cache.py 2>&1 | tee h2-format.log
+          printf '%s\n' "${PIPESTATUS[0]}" > h2-format.status
+          uv run mypy trade_rl/integrations/cost_critic_ppo.py 2>&1 | tee h2-mypy.log
+          printf '%s\n' "${PIPESTATUS[0]}" > h2-mypy.status
+          exit 0
+      - name: Upload H2 static diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: h2-static-diagnostics
+          path: |
+            h2-ruff.log
+            h2-ruff.status
+            h2-format.log
+            h2-format.status
+            h2-mypy.log
+            h2-mypy.status
+          if-no-files-found: error
+      - name: Enforce static verification
+        run: |
+          test "$(cat h2-ruff.status)" = 0
+          test "$(cat h2-format.status)" = 0
+          test "$(cat h2-mypy.status)" = 0
       - name: Commit verified GREEN implementation
         run: |
           rm -f .github/scripts/apply_h2_cost_feature_cache.py
           rm -f .github/scripts/fix_h2_value_bootstrap.py
           rm -f .github/workflows/temporary-h2-red.yml
           rm -f .github/workflows/temporary-h2-updater.yml
-          rm -f h2-green.log h2-green.status
+          rm -f h2-green.log h2-green.status h2-ruff.log h2-ruff.status h2-format.log h2-format.status h2-mypy.log h2-mypy.status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A

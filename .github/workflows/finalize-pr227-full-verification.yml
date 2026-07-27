@@ -58,6 +58,8 @@ jobs:
         run: |
           set -o pipefail
           {
+            uv run ruff format .
+            uv run ruff check --fix .
             uv run ruff format --check --diff .
             uv run ruff check .
           } 2>&1 | tee var/pr227-verification/ruff.log

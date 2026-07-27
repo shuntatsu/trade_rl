@@ -3,7 +3,7 @@ name: PR229 domain contract updater
 on:
   pull_request:
     branches:
-      - agent/constrained-policy-report
+      - main
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   update:
-    if: github.head_ref == 'agent/trigger-pr229-domain-contract'
+    if: github.head_ref == 'agent/constrained-policy-report'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout report branch

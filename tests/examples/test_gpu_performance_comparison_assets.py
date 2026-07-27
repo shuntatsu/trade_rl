@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+BASELINE_REF = "1f597caf85fe5200fe7abc34461236b65ebb8b1d"
 
 
 def test_gpu_comparison_workflow_uses_exact_refs_and_repeated_samples() -> None:
@@ -10,10 +11,12 @@ def test_gpu_comparison_workflow_uses_exact_refs_and_repeated_samples() -> None:
         ROOT / ".github" / "workflows" / "gpu-performance-comparison.yml"
     ).read_text(encoding="utf-8")
 
-    assert "1f597caf85fe5200fe7abc34461236b65ebb8b1d" in workflow
+    assert BASELINE_REF in workflow
     assert "runs-on: [self-hosted, linux, x64, gpu, nvidia]" in workflow
     assert "persist-credentials: false" in workflow
-    assert "baseline_ref" in workflow
+    assert f"REQUESTED_BASELINE_REF: {BASELINE_REF}" in workflow
+    assert "${{ inputs.baseline_ref }}" not in workflow
+    assert "--baseline-ref" in workflow
     assert "repeats" in workflow
     assert "--runtime-profile accelerated" in workflow
     assert "compare_gpu_training_smoke.py" in workflow

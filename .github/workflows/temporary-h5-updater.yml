@@ -98,7 +98,9 @@ jobs:
             tests/examples/test_docker_training_assets.py
           uv run python .github/check_workflow_security.py .
       - name: Commit verified H5 implementation
+        shell: bash
         run: |
+          set +e
           rm -f .github/scripts/apply_h5_gpu_comparison.py
           rm -f .github/scripts/fix_h5_comparison_message.py
           rm -f .github/scripts/fix_h5_docker_asset_schema.py
@@ -106,6 +108,30 @@ jobs:
           rm -f h5-focused.log h5-focused.status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "perf: add GPU performance comparison harness"
-          git push origin HEAD:agent/gpu-performance-comparison
+          {
+            echo "BASE=$(git rev-parse HEAD)"
+            git status --short
+            git add -A
+            git status --short
+            git commit -m "perf: add GPU performance comparison harness"
+          } > h5-commit.log 2>&1
+          commit_status=$?
+          push_status=99
+          if [ "$commit_status" -eq 0 ]; then
+            git push origin HEAD:agent/gpu-performance-comparison >> h5-commit.log 2>&1
+            push_status=$?
+          fi
+          printf 'commit_status=%s\npush_status=%s\n' "$commit_status" "$push_status" > h5-commit.status
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: h5-commit-diagnostics
+          path: |
+            h5-commit.log
+            h5-commit.status
+          if-no-files-found: error
+      - name: Enforce H5 commit and push
+        run: |
+          grep -qx 'commit_status=0' h5-commit.status
+          grep -qx 'push_status=0' h5-commit.status

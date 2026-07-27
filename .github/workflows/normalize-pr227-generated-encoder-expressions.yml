@@ -32,7 +32,10 @@ jobs:
         run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
 
       - name: Normalize generated encoder expressions and schemas
+        shell: bash
         run: |
+          exec > >(tee normalize-pr227.log) 2>&1
+          set -euo pipefail
           python - <<'PY'
           from __future__ import annotations
 
@@ -85,7 +88,7 @@ jobs:
           for base in roots:
               for path in sorted(base.rglob('*.py')):
                   text = path.read_text(encoding='utf-8')
-                  updated, count = expression.subn(replacement, text)
+                  updated, _ = expression.subn(replacement, text)
                   updated = updated.replace(
                       '_training_config(observation_encoder="asset_set")',
                       '_training_config(asset_set_enabled=True)',
@@ -135,7 +138,9 @@ jobs:
           PY
 
       - name: Verify normalized tree
+        shell: bash
         run: |
+          exec > >(tee -a normalize-pr227.log) 2>&1
           set -euo pipefail
           uv run ruff format .
           uv run ruff check --fix .
@@ -179,9 +184,19 @@ jobs:
           git commit -m 'fix: normalize generated observation encoder expressions'
           git push origin HEAD:agent/cross-timeframe-attention
 
-      - name: Report failure to PR
+      - name: Report failure details to PR
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh pr comment 227 --body 'The one-shot encoder-expression normalization workflow failed. Inspect the latest Normalize PR227 Generated Encoder Expressions run before merging.'
+          {
+            printf 'The PR227 generated-expression normalization workflow failed.\n\n```text\n'
+            if test -f normalize-pr227.log; then
+              tail -n 180 normalize-pr227.log
+            else
+              printf 'No normalization log was produced; failure occurred during setup.\n'
+            fi
+            printf '\n```\n'
+          } > /tmp/pr227-normalization-failure.md
+          gh pr comment 227 --body-file /tmp/pr227-normalization-failure.md

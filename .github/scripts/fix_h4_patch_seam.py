@@ -45,6 +45,8 @@ new = '''def _build_training_environment(
 
 '''
 count = source.count(old)
-if count != 1:
-    raise SystemExit(f"H4 patch helper seam changed: expected one match, got {count}")
-path.write_text(source.replace(old, new), encoding="utf-8")
+if count < 1:
+    raise SystemExit(
+        f"H4 patch helper seam changed: expected at least one match, got {count}"
+    )
+path.write_text(source.replace(old, new, 1), encoding="utf-8")

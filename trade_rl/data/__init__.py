@@ -2,6 +2,7 @@
 
 from trade_rl.data.artifact import (
     PublishedDatasetArtifact,
+    inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "MarketCalendarKind",
     "MarketDataset",
     "PublishedDatasetArtifact",
+    "inspect_published_market_dataset_artifact",
     "load_market_dataset_artifact",
     "publish_market_dataset_artifact",
     "write_market_dataset_files",

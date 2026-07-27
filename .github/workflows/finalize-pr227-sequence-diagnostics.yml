@@ -92,7 +92,7 @@ jobs:
             tests/rl/test_sequence_diagnostics.py \
             tests/rl/test_gated_transformer.py \
             tests/rl/test_timeframe_fusion.py \
-            tests/rl/test_sequence_policy.py \
+            tests/rl/test_sequence_policy_core.py \
             tests/rl/test_training_telemetry.py \
             tests/rl/test_checkpointing.py
 

@@ -128,6 +128,7 @@ jobs:
             mkdir -p "$(dirname "$path")"
             git show "$SOURCE:$path" > "$path"
           done
+          uv run ruff format trade_rl/evaluation/causal_scenario_c3_adverse_source.py
 
       - name: Focused C3 tests
         shell: bash

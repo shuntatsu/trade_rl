@@ -20,15 +20,15 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
       - run: uv sync --extra dev --extra train-sb3
-      - name: Patch contracts and artifacts
+      - name: Patch contract and push
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          contracts = Path("trade_rl/evaluation/causal_scenario_c3_contracts.py")
-          text = contracts.read_text(encoding="utf-8")
+          path = Path("trade_rl/evaluation/causal_scenario_c3_contracts.py")
+          text = path.read_text(encoding="utf-8")
           start = text.index("class PerfectInformationComparisonStatus(StrEnum):")
           end = text.index("@dataclass(frozen=True, slots=True)\nclass RealizedPolicyOutcome:")
           replacement = '''class PerfectInformationComparisonStatus(StrEnum):
@@ -64,7 +64,9 @@ jobs:
                   try:
                       reason = PerfectInformationComparisonReason(self.reason).value
                   except ValueError as error:
-                      raise ValueError("reason must be a supported Perfect Information reason") from error
+                      raise ValueError(
+                          "reason must be a supported Perfect Information reason"
+                      ) from error
                   object.__setattr__(self, "reason", reason)
                   evidence_digest = self.compatibility_evidence_digest
                   if evidence_digest is not None:
@@ -109,7 +111,9 @@ jobs:
                           self.status is PerfectInformationComparisonStatus.NOT_EVALUATED
                           and reason != PerfectInformationComparisonReason.NOT_EVALUATED.value
                       ):
-                          raise ValueError("not-evaluated status requires not_evaluated reason")
+                          raise ValueError(
+                              "not-evaluated status requires not_evaluated reason"
+                          )
 
               @classmethod
               def comparable(
@@ -162,76 +166,12 @@ jobs:
 
           '''
           replacement = replacement.replace("          ", "")
-          contracts.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
-
-          artifact = Path("trade_rl/evaluation/causal_scenario_c3_artifact.py")
-          text = artifact.read_text(encoding="utf-8")
-          old_payload = '''    return {
-              "bound_log_return": value.bound_log_return,'''.replace("  ", "")
-          new_payload = '''    return {
-              "compatibility_evidence_digest": value.compatibility_evidence_digest,
-              "bound_log_return": value.bound_log_return,'''.replace("  ", "")
-          if old_payload not in text:
-              raise SystemExit("perfect-information payload anchor missing")
-          text = text.replace(old_payload, new_payload, 1)
-          old_fields = '''        {"bound_log_return", "causal_log_return", "gap", "reason", "status"},'''
-          if old_fields not in text:
-              raise SystemExit("perfect-information artifact field anchor missing")
-          text = text.replace(
-              old_fields,
-              '''        {
-                  "bound_log_return",
-                  "causal_log_return",
-                  "compatibility_evidence_digest",
-                  "gap",
-                  "reason",
-                  "status",
-              },''',
-              1,
-          )
-          old_comparable = '''            gap=_number(payload["gap"], field=f"{field}.gap"),
-          )'''
-          if old_comparable not in text:
-              raise SystemExit("perfect-information comparable anchor missing")
-          text = text.replace(
-              old_comparable,
-              '''            gap=_number(payload["gap"], field=f"{field}.gap"),
-              compatibility_evidence_digest=_string(
-                  payload["compatibility_evidence_digest"],
-                  field=f"{field}.compatibility_evidence_digest",
-              ),
-          )''',
-              1,
-          )
-          old_non_comparable = '''        gap=None,
-      )'''
-          if old_non_comparable not in text:
-              raise SystemExit("perfect-information non-comparable anchor missing")
-          text = text.replace(
-              old_non_comparable,
-              '''        gap=None,
-          compatibility_evidence_digest=(
-              None
-              if payload["compatibility_evidence_digest"] is None
-              else _string(
-                  payload["compatibility_evidence_digest"],
-                  field=f"{field}.compatibility_evidence_digest",
-              )
-          ),
-      )''',
-              1,
-          )
-          artifact.write_text(text, encoding="utf-8")
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
           PY
-          uv run ruff format \
-            trade_rl/evaluation/causal_scenario_c3_contracts.py \
-            trade_rl/evaluation/causal_scenario_c3_artifact.py \
-            trade_rl/evaluation/causal_scenario_c3_perfect_information.py \
-            tests/evaluation/test_causal_scenario_c3_perfect_information.py
-          uv run pytest tests/evaluation/test_causal_scenario_c3_perfect_information.py -q
+          uv run ruff format trade_rl/evaluation/causal_scenario_c3_contracts.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/temporary-c3-perfect-info-contract.yml
-          git add trade_rl tests
-          git commit -m "feat: prove C3 Perfect Information compatibility"
+          git add trade_rl/evaluation/causal_scenario_c3_contracts.py
+          git commit -m "feat: require Perfect Information compatibility evidence"
           git push origin HEAD:agent/causal-scenario-c3

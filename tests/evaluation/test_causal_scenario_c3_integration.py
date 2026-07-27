@@ -16,12 +16,14 @@ from trade_rl.evaluation.causal_scenario_c3_artifact import (
     write_phase_a_gate_artifact,
 )
 from trade_rl.evaluation.causal_scenario_c3_contracts import (
+    C3ReplayIdentity,
     CausalScenarioC3Config,
     PerfectInformationComparison,
     PersistedScenarioDecision,
     RealizedPolicyOutcome,
 )
 from trade_rl.evaluation.causal_scenario_c3_decision_artifact import (
+    load_c3_decision_artifact,
     write_c3_decision_artifact,
 )
 from trade_rl.evaluation.causal_scenario_c3_gate import evaluate_phase_a_entry_gate
@@ -35,6 +37,8 @@ from trade_rl.workflows.causal_scenario.c3 import (
     execute_c3_batch,
 )
 
+_DAY_NS = 86_400_000_000_000
+
 
 def sha(char: str) -> str:
     return char * 64
@@ -44,12 +48,14 @@ def _decision(
     *, query_index: int = 10_000, fold_digest: str | None = None
 ) -> PersistedScenarioDecision:
     resolved_fold_digest = sha("b") if fold_digest is None else fold_digest
+    query_timestamp_ns = (100 + query_index) * _DAY_NS
     raw = np.asarray([[0.0], [1.0], [-1.0]], dtype=np.float64)
     projected = raw * 0.25
     candidate_digests = tuple(
         content_digest(
             {
                 "index": index,
+                "query_index": query_index,
                 "schema_version": "c3_integration_candidate_v1",
             }
         )
@@ -58,22 +64,29 @@ def _decision(
     score = np.asarray([0.0, 0.02, -0.02], dtype=np.float64)
     regret = score.max() - score
     payload = {
+        "action_spec_digest": sha("d"),
         "candidate_digests": candidate_digests,
         "candidate_generator_digest": sha("6"),
         "created_before_realized_replay": True,
         "dataset_id": sha("a"),
+        "environment_digest": sha("c"),
+        "execution_policy_digest": sha("f"),
         "fold_digest": resolved_fold_digest,
+        "observation_digest": sha("e"),
         "projected_targets": projected.tolist(),
         "query_index": query_index,
-        "query_timestamp_ns": 1_800_000_000_000_000_000,
+        "query_timestamp_ns": query_timestamp_ns,
         "raw_candidate_actions": raw.tolist(),
+        "realized_stop_index": query_index + 96,
         "regret": regret.tolist(),
+        "risk_digest": sha("1"),
         "scenario_library_digest": sha("3"),
         "scenario_set_digest": sha("4"),
         "schema_version": "causal_scenario_c3_decision_v1",
         "score": score.tolist(),
         "selected_candidate_digest": candidate_digests[1],
         "selected_candidate_index": 1,
+        "starting_equity": 100_000.0,
         "state_snapshot_digest": sha("2"),
         "tie_candidate_indices": (1,),
         "value_result_digest": sha("5"),
@@ -83,8 +96,15 @@ def _decision(
         dataset_id=sha("a"),
         fold_digest=resolved_fold_digest,
         query_index=query_index,
-        query_timestamp_ns=1_800_000_000_000_000_000,
+        query_timestamp_ns=query_timestamp_ns,
         state_snapshot_digest=sha("2"),
+        observation_digest=sha("e"),
+        environment_digest=sha("c"),
+        action_spec_digest=sha("d"),
+        execution_policy_digest=sha("f"),
+        risk_digest=sha("1"),
+        starting_equity=100_000.0,
+        realized_stop_index=query_index + 96,
         scenario_library_digest=sha("3"),
         scenario_set_digest=sha("4"),
         candidate_generator_digest=sha("6"),
@@ -140,6 +160,12 @@ def _outcome(kind: str, value: float) -> RealizedPolicyOutcome:
 
 
 class Replay:
+    def __init__(self, identity: C3ReplayIdentity) -> None:
+        self.identity = identity
+
+    def clone_for_replay(self) -> Replay:
+        return Replay(self.identity)
+
     def run(
         self,
         raw_residual: np.ndarray,
@@ -153,17 +179,17 @@ class Replay:
         return _outcome(policy_kind, 0.01 + 0.02 * float(raw_residual[0]))
 
 
-def _aggregate(tmp_path: Path):
-    decision_root = tmp_path / "decision"
-    write_c3_decision_artifact(decision_root, _decision())
-    from trade_rl.evaluation.causal_scenario_c3_decision_artifact import (
-        load_c3_decision_artifact,
+def _query_comparison(tmp_path: Path, *, fold_index: int, day_index: int):
+    fold_id = f"fold-{fold_index}"
+    created = _decision(
+        query_index=10_000 + fold_index * 100 + day_index,
+        fold_digest=content_digest({"fold_id": fold_id}),
     )
-
-    loaded = load_c3_decision_artifact(decision_root)
-    comparison = run_c3_query_comparison(
-        loaded,
-        replay=Replay(),
+    root = tmp_path / "decisions" / fold_id / str(day_index)
+    write_c3_decision_artifact(root, created)
+    return run_c3_query_comparison(
+        load_c3_decision_artifact(root),
+        replay=Replay(created.replay_identity),
         ppo_mean_action=np.asarray([0.5]),
         config=CausalScenarioC3Config(random_comparator_count=1),
         perfect_information=PerfectInformationComparison.comparable(
@@ -171,14 +197,24 @@ def _aggregate(tmp_path: Path):
             causal_log_return=0.03,
         ),
     )
+
+
+def _aggregate(tmp_path: Path):
     folds = tuple(
         build_c3_fold_report(
-            fold_id=f"fold-{index}",
+            fold_id=f"fold-{fold_index}",
             selection_days=30,
-            comparisons=(comparison,) * 8,
+            comparisons=tuple(
+                _query_comparison(
+                    tmp_path,
+                    fold_index=fold_index,
+                    day_index=day_index,
+                )
+                for day_index in range(30)
+            ),
             required_adverse_passed=True,
         )
-        for index in range(6)
+        for fold_index in range(6)
     )
     return build_c3_aggregate_report(folds, bootstrap_resamples=128)
 
@@ -190,6 +226,7 @@ def test_report_and_gate_artifacts_round_trip_and_fail_closed(tmp_path: Path) ->
     loaded_report = load_c3_aggregate_report_artifact(report_root)
     assert loaded_report.artifact_digest == report_digest
     assert loaded_report.report.digest == report.digest
+    assert loaded_report.report.total_effective_days == 180
 
     gate = evaluate_phase_a_entry_gate(loaded_report.report)
     gate_root = tmp_path / "gate"
@@ -214,20 +251,18 @@ def test_batch_publishes_report_and_gate_from_verified_decisions(
         fold_id = f"fold-{fold_index}"
         fold_days[fold_id] = 30
         adverse[fold_id] = True
-        for query_index in range(8):
-            decision_root = tmp_path / "decisions" / fold_id / str(query_index)
-            write_c3_decision_artifact(
-                decision_root,
-                _decision(
-                    query_index=10_000 + fold_index * 100 + query_index,
-                    fold_digest=content_digest({"fold_id": fold_id}),
-                ),
+        for day_index in range(30):
+            created = _decision(
+                query_index=10_000 + fold_index * 100 + day_index,
+                fold_digest=content_digest({"fold_id": fold_id}),
             )
+            decision_root = tmp_path / "batch-decisions" / fold_id / str(day_index)
+            write_c3_decision_artifact(decision_root, created)
             queries.append(
                 C3BatchQuery(
                     fold_id=fold_id,
                     decision_root=decision_root,
-                    replay=Replay(),
+                    replay=Replay(created.replay_identity),
                     ppo_mean_action=np.asarray([0.5]),
                     perfect_information=PerfectInformationComparison.comparable(
                         bound_log_return=0.08,
@@ -244,6 +279,7 @@ def test_batch_publishes_report_and_gate_from_verified_decisions(
     )
     assert result.gate.passed is True
     assert result.report.total_selection_days == 180
+    assert result.report.total_effective_days == 180
     assert result.report_artifact_root.is_dir()
     assert result.gate_artifact_root.is_dir()
     assert result.production_status == "NO-GO"

@@ -9,7 +9,9 @@ from tests.architecture.import_references import (
 )
 
 
-def _scan(tmp_path: Path, source: str, *, module_name: str = "trade_rl.sample") -> tuple[ImportReference, ...]:
+def _scan(
+    tmp_path: Path, source: str, *, module_name: str = "trade_rl.sample"
+) -> tuple[ImportReference, ...]:
     path = tmp_path / "sample.py"
     path.write_text(source, encoding="utf-8")
     return scan_import_references(path, module_name=module_name)
@@ -26,16 +28,22 @@ def _resolved(references: tuple[ImportReference, ...]) -> tuple[tuple[str, str],
 def test_module_name_from_path_handles_modules_and_packages() -> None:
     package_root = Path("trade_rl")
 
-    assert module_name_from_path(
-        Path("trade_rl/workflows/example.py"),
-        package_root=package_root,
-        root_package="trade_rl",
-    ) == "trade_rl.workflows.example"
-    assert module_name_from_path(
-        Path("trade_rl/workflows/example/__init__.py"),
-        package_root=package_root,
-        root_package="trade_rl",
-    ) == "trade_rl.workflows.example"
+    assert (
+        module_name_from_path(
+            Path("trade_rl/workflows/example.py"),
+            package_root=package_root,
+            root_package="trade_rl",
+        )
+        == "trade_rl.workflows.example"
+    )
+    assert (
+        module_name_from_path(
+            Path("trade_rl/workflows/example/__init__.py"),
+            package_root=package_root,
+            root_package="trade_rl",
+        )
+        == "trade_rl.workflows.example"
+    )
 
 
 def test_scanner_extracts_static_and_function_local_imports(tmp_path: Path) -> None:
@@ -144,7 +152,9 @@ __import__(module_name)
     )
 
     unresolved = tuple(reference for reference in references if reference.unresolved)
-    assert [(reference.kind, reference.target, reference.line) for reference in unresolved] == [
+    assert [
+        (reference.kind, reference.target, reference.line) for reference in unresolved
+    ] == [
         ("dynamic", None, 6),
         ("dynamic", None, 7),
         ("dynamic", None, 8),

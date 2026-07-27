@@ -17,6 +17,11 @@ import numpy as np
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.integrations.behavior_cloning import pretrain_policy
+from trade_rl.integrations.sb3_checkpoint_assembly import load_sb3_checkpoint_model
+from trade_rl.integrations.sb3_model_assembly import (
+    build_sb3_model,
+    resolve_sb3_policy_assembly,
+)
 from trade_rl.learning import (
     BehaviorCloningConfig,
     OracleTeacherConfig,
@@ -30,20 +35,12 @@ from trade_rl.learning import (
 from trade_rl.rl.algorithm_configs import (
     CostCriticPPOConfig,
     LagrangianPPOConfig,
-    PPOConfig,
-    SACConfig,
-    TD3Config,
     build_algorithm_config,
 )
 from trade_rl.rl.replay import (
     load_replay_buffer_artifact,
     write_replay_buffer_artifact,
 )
-from trade_rl.rl.rollout_memory import (
-    estimate_index_backed_ppo_rollout_buffer_bytes,
-    estimate_ppo_rollout_buffer_bytes,
-)
-from trade_rl.rl.schedules import build_learning_rate_schedule
 from trade_rl.rl.tensorboard_logging import (
     build_tensorboard_metrics_callback,
 )
@@ -473,7 +470,6 @@ class StableBaselines3Backend:
         output_path: Path,
     ) -> PolicyTrainingResult:
         import torch
-        from stable_baselines3 import PPO, SAC, TD3
 
         torch_runtime = _configure_torch_cuda_runtime(torch, config.device)
 
@@ -499,140 +495,13 @@ class StableBaselines3Backend:
                         ),
                     )
                 )
-            rollout_buffer_bytes: int | None = None
-            if isinstance(algorithm_config, PPOConfig):
-                estimator = (
-                    estimate_index_backed_ppo_rollout_buffer_bytes
-                    if config.sequence_encoder
-                    else estimate_ppo_rollout_buffer_bytes
-                )
-                rollout_buffer_bytes = estimator(
-                    probe.observation_space,
-                    n_steps=algorithm_config.n_steps,
-                    n_envs=config.n_envs,
-                    action_dim=int(identity["action_size"]),
-                )
-                if isinstance(algorithm_config, CostCriticPPOConfig):
-                    from trade_rl.integrations.cost_rollout_buffer import (
-                        estimate_cost_rollout_storage_bytes,
-                    )
-
-                    rollout_buffer_bytes += estimate_cost_rollout_storage_bytes(
-                        algorithm_config.n_steps,
-                        config.n_envs,
-                        len(algorithm_config.cost_schema.names),
-                    )
-                if rollout_buffer_bytes > config.max_rollout_buffer_bytes:
-                    raise ValueError(
-                        "estimated PPO rollout buffer exceeds max_rollout_buffer_bytes: "
-                        f"{rollout_buffer_bytes} > {config.max_rollout_buffer_bytes}"
-                    )
-            policy_kwargs: dict[str, Any]
-            sequence_metadata: dict[str, Any] | None = None
-            sequence_reconstructor: Any | None = None
-            uses_shared_asset_actor = False
-            if config.sequence_encoder:
-                from trade_rl.rl.policies import (
-                    SequenceAssetFeatureExtractor,
-                    SharedPerAssetActorCriticPolicy,
-                )
-
-                unwrapped: Any = getattr(probe, "unwrapped", probe)
-                metadata = getattr(unwrapped, "sequence_layout_metadata", None)
-                if not isinstance(metadata, dict):
-                    raise ValueError(
-                        "sequence training requires environment sequence metadata"
-                    )
-                sequence_metadata = dict(metadata)
-                action_names = tuple(str(name) for name in identity["action_names"])
-                uses_shared_asset_actor = int(identity["action_size"]) == int(
-                    sequence_metadata["n_symbols"]
-                ) and all(name.startswith("target_weight:") for name in action_names)
-                from trade_rl.integrations.compact_rollout_buffer import (
-                    SequenceRolloutReconstructor,
-                )
-
-                dataset = getattr(unwrapped, "dataset", None)
-                sequence_builder = getattr(
-                    unwrapped, "sequence_observation_builder", None
-                )
-                if dataset is None or sequence_builder is None:
-                    raise ValueError(
-                        "sequence training requires dataset-bound reconstruction metadata"
-                    )
-                sequence_reconstructor = SequenceRolloutReconstructor(
-                    dataset=dataset,
-                    builder=sequence_builder,
-                    normalizer=getattr(unwrapped, "sequence_normalizer", None),
-                    expected_dataset_id=dataset.dataset_id,
-                    expected_layout_digest=sequence_builder.layout_digest(dataset),
-                    policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
-                )
-                policy_kwargs = {
-                    "net_arch": {
-                        "pi": list(config.policy_net_arch),
-                        "vf": list(config.value_net_arch),
-                    },
-                    "features_extractor_class": SequenceAssetFeatureExtractor,
-                    "features_extractor_kwargs": {
-                        **sequence_metadata,
-                        "sequence_capacity": config.sequence_capacity,
-                        "d_model": config.sequence_d_model,
-                        "attention_heads": config.sequence_attention_heads,
-                        "attention_layers": config.sequence_attention_layers,
-                        "dropout": config.sequence_dropout,
-                    },
-                }
-                if uses_shared_asset_actor:
-                    policy_kwargs.update(
-                        {
-                            "shared_actor_n_symbols": int(
-                                sequence_metadata["n_symbols"]
-                            ),
-                            "shared_actor_d_model": config.sequence_d_model,
-                            "shared_actor_global_dim": 128,
-                            "shared_actor_net_arch": tuple(config.policy_net_arch),
-                        }
-                    )
-            elif isinstance(algorithm_config, PPOConfig):
-                policy_kwargs = {
-                    "net_arch": {
-                        "pi": list(algorithm_config.policy_net_arch),
-                        "vf": list(algorithm_config.value_net_arch),
-                    }
-                }
-            else:
-                policy_kwargs = {
-                    "net_arch": {
-                        "pi": list(algorithm_config.policy_net_arch),
-                        "qf": list(algorithm_config.value_net_arch),
-                    }
-                }
-            if isinstance(algorithm_config, PPOConfig):
-                policy_kwargs["log_std_init"] = algorithm_config.log_std_init
-            if config.asset_set_encoder:
-                from trade_rl.rl.policies import AssetSetFeatureExtractor
-
-                asset_unwrapped: Any = getattr(probe, "unwrapped", probe)
-                layout = getattr(asset_unwrapped, "layout", None)
-                active_column = getattr(asset_unwrapped, "asset_active_column", None)
-                if layout is None or not isinstance(active_column, int):
-                    raise ValueError(
-                        "asset-set training requires environment layout metadata"
-                    )
-                policy_kwargs.update(
-                    {
-                        "features_extractor_class": AssetSetFeatureExtractor,
-                        "features_extractor_kwargs": {
-                            "n_symbols": layout.n_symbols,
-                            "per_symbol_width": layout.per_symbol_width,
-                            "global_width": layout.global_width,
-                            "active_column": active_column,
-                            "asset_embedding_dim": config.asset_embedding_dim,
-                            "global_embedding_dim": config.global_embedding_dim,
-                        },
-                    }
-                )
+            policy = resolve_sb3_policy_assembly(
+                probe=probe,
+                identity=identity,
+                config=config,
+                algorithm_config=algorithm_config,
+            )
+            sequence_reconstructor = policy.sequence_reconstructor
             vector_environment_kind = _effective_vector_environment_kind(config)
             full_observation_space = probe.observation_space
             if config.n_envs == 1:
@@ -665,216 +534,35 @@ class StableBaselines3Backend:
                         config.n_envs,
                         subprocesses=vector_environment_kind == "subprocess",
                     )
-            policy_identifier: Any = (
-                SharedPerAssetActorCriticPolicy
-                if uses_shared_asset_actor
-                else config.policy
+            model = build_sb3_model(
+                environment=environment,
+                seed=seed,
+                config=config,
+                algorithm_config=algorithm_config,
+                policy=policy,
+                verbose=self.verbose,
+                output_root=output_path,
+                canonical_action_probe_evidence=canonical_action_probe_evidence,
             )
-            common: dict[str, Any] = {
-                "learning_rate": build_learning_rate_schedule(
-                    initial_rate=algorithm_config.learning_rate,
-                    final_ratio=algorithm_config.learning_rate_final_ratio,
-                    kind=algorithm_config.learning_rate_schedule,
-                ),
-                "gamma": algorithm_config.gamma,
-                "policy_kwargs": policy_kwargs,
-                "seed": seed,
-                "device": config.device,
-                "verbose": self.verbose,
-            }
-            if config.tensorboard_enabled:
-                common["tensorboard_log"] = str(output_path.parent / "tensorboard")
-            model: Any
-            if isinstance(algorithm_config, PPOConfig):
-                rollout_kwargs: dict[str, Any] = {}
-                if config.sequence_encoder:
-                    from trade_rl.integrations.compact_rollout_buffer import (
-                        IndexBackedDictRolloutBuffer,
-                    )
-
-                    if sequence_reconstructor is None:
-                        raise RuntimeError(
-                            "sequence rollout reconstructor was not resolved"
-                        )
-                    rollout_kwargs["rollout_buffer_class"] = (
-                        IndexBackedDictRolloutBuffer
-                    )
-                    rollout_kwargs["rollout_buffer_kwargs"] = {
-                        "sequence_reconstructor": sequence_reconstructor,
-                        "sequence_transfer_mode": config.sequence_transfer_mode,
-                    }
-                ppo_kwargs: dict[str, Any] = {
-                    "n_steps": algorithm_config.n_steps,
-                    "batch_size": algorithm_config.batch_size,
-                    "n_epochs": algorithm_config.n_epochs,
-                    "gae_lambda": algorithm_config.gae_lambda,
-                    "clip_range": algorithm_config.clip_range,
-                    "normalize_advantage": algorithm_config.normalize_advantage,
-                    "ent_coef": algorithm_config.ent_coef,
-                    "vf_coef": algorithm_config.vf_coef,
-                    "max_grad_norm": algorithm_config.max_grad_norm,
-                    "target_kl": algorithm_config.target_kl,
-                    "use_sde": algorithm_config.use_sde,
-                    "sde_sample_freq": algorithm_config.sde_sample_freq,
-                    **rollout_kwargs,
-                    **common,
-                }
-                if isinstance(algorithm_config, LagrangianPPOConfig):
-                    from trade_rl.integrations.lagrangian_ppo import LagrangianPPO
-
-                    model = LagrangianPPO(
-                        policy_identifier,
-                        environment,
-                        cost_schema=algorithm_config.cost_schema,
-                        cost_learning_rate=algorithm_config.cost_learning_rate,
-                        cost_n_epochs=algorithm_config.cost_n_epochs,
-                        cost_batch_size=algorithm_config.cost_batch_size,
-                        cost_continuous_hidden_dims=(
-                            algorithm_config.cost_continuous_hidden_dims
-                        ),
-                        cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,
-                        cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
-                        lagrangian_schema=algorithm_config.lagrangian_schema,
-                        canonical_action_probe_evidence=(
-                            canonical_action_probe_evidence
-                        ),
-                        **ppo_kwargs,
-                    )
-                    model.canonical_action_probe_evidence = (
-                        canonical_action_probe_evidence
-                    )
-                elif isinstance(algorithm_config, CostCriticPPOConfig):
-                    from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
-
-                    model = CostCriticPPO(
-                        policy_identifier,
-                        environment,
-                        cost_schema=algorithm_config.cost_schema,
-                        cost_learning_rate=algorithm_config.cost_learning_rate,
-                        cost_n_epochs=algorithm_config.cost_n_epochs,
-                        cost_batch_size=algorithm_config.cost_batch_size,
-                        cost_continuous_hidden_dims=(
-                            algorithm_config.cost_continuous_hidden_dims
-                        ),
-                        cost_event_hidden_dims=algorithm_config.cost_event_hidden_dims,
-                        cost_max_grad_norm=algorithm_config.cost_max_grad_norm,
-                        **ppo_kwargs,
-                    )
-                else:
-                    model = PPO(policy_identifier, environment, **ppo_kwargs)
-            else:
-                off_policy: dict[str, Any] = {
-                    "buffer_size": algorithm_config.buffer_size,
-                    "learning_starts": algorithm_config.learning_starts,
-                    "batch_size": algorithm_config.batch_size,
-                    "train_freq": algorithm_config.train_freq,
-                    "gradient_steps": algorithm_config.gradient_steps,
-                    **common,
-                }
-                if isinstance(algorithm_config, SACConfig):
-                    model = SAC(
-                        config.policy,
-                        environment,
-                        use_sde=algorithm_config.use_sde,
-                        sde_sample_freq=algorithm_config.sde_sample_freq,
-                        **off_policy,
-                    )
-                elif isinstance(algorithm_config, TD3Config):
-                    model = TD3(config.policy, environment, **off_policy)
-                else:
-                    try:
-                        from sb3_contrib import TQC
-                    except ImportError as error:
-                        raise RuntimeError(
-                            "TQC training requires the optional sb3-contrib package"
-                        ) from error
-                    model = TQC(
-                        config.policy,
-                        environment,
-                        use_sde=algorithm_config.use_sde,
-                        sde_sample_freq=algorithm_config.sde_sample_freq,
-                        **off_policy,
-                    )
             resume_manifest = None
             resume_root = self.resume_checkpoint_artifacts.get(seed)
             if resume_root is not None:
-                from trade_rl.rl.checkpointing import (
-                    load_checkpoint_manifest,
-                    validate_checkpoint_algorithm_identity,
+                loaded_checkpoint = load_sb3_checkpoint_model(
+                    checkpoint_root=Path(resume_root),
+                    environment=environment,
+                    seed=seed,
+                    config=config,
+                    identity=identity,
+                    algorithm_config=algorithm_config,
+                    policy=policy,
+                    fresh_model=model,
                 )
+                model = loaded_checkpoint.model
+                resume_manifest = loaded_checkpoint.manifest
 
-                manifest_path = Path(resume_root)
-                if manifest_path.is_dir():
-                    manifest_path = manifest_path / "checkpoint.json"
-                resume_manifest = load_checkpoint_manifest(manifest_path)
-                expected_training_digest = content_digest(config.digest_payload())
-                if resume_manifest.algorithm != config.algorithm:
-                    raise ValueError("checkpoint algorithm mismatch")
-                if resume_manifest.seed != seed:
-                    raise ValueError("checkpoint seed mismatch")
-                if resume_manifest.environment_digest != identity["environment_digest"]:
-                    raise ValueError("checkpoint environment identity mismatch")
-                if resume_manifest.training_config_digest != expected_training_digest:
-                    raise ValueError("checkpoint training configuration mismatch")
-                expected_algorithm_identity = (
-                    model.checkpoint_identity_payload()
-                    if isinstance(algorithm_config, CostCriticPPOConfig)
-                    else None
-                )
-                validate_checkpoint_algorithm_identity(
-                    resume_manifest,
-                    expected_algorithm_identity,
-                )
-                algorithm_class: Any
-                if config.algorithm == "ppo":
-                    algorithm_class = PPO
-                elif config.algorithm == "cost_critic_ppo":
-                    from trade_rl.integrations.cost_critic_ppo import CostCriticPPO
-
-                    algorithm_class = CostCriticPPO
-                elif config.algorithm == "lagrangian_ppo":
-                    from trade_rl.integrations.lagrangian_ppo import LagrangianPPO
-
-                    algorithm_class = LagrangianPPO
-                elif config.algorithm == "sac":
-                    algorithm_class = SAC
-                elif config.algorithm == "td3":
-                    algorithm_class = TD3
-                else:
-                    from sb3_contrib import TQC
-
-                    algorithm_class = TQC
-                model = algorithm_class.load(
-                    str(resume_manifest.policy_path),
-                    env=environment,
-                    device=config.device,
-                )
-                if int(model.num_timesteps) != resume_manifest.observed_timestep:
-                    raise ValueError("checkpoint timestep identity mismatch")
-                if isinstance(algorithm_config, CostCriticPPOConfig):
-                    validate_checkpoint_algorithm_identity(
-                        resume_manifest,
-                        model.checkpoint_identity_payload(),
-                    )
-                if config.sequence_encoder:
-                    if sequence_reconstructor is None:
-                        raise RuntimeError("sequence reconstructor was not resolved")
-                    rollout_buffer = getattr(model, "rollout_buffer", None)
-                    binder = getattr(
-                        rollout_buffer, "bind_sequence_reconstructor", None
-                    )
-                    if not callable(binder):
-                        raise ValueError(
-                            "checkpoint rollout buffer cannot bind sequences"
-                        )
-                    binder(
-                        sequence_reconstructor,
-                        sequence_transfer_mode=config.sequence_transfer_mode,
-                    )
-                    model.rollout_buffer_kwargs = {
-                        "sequence_reconstructor": sequence_reconstructor,
-                        "sequence_transfer_mode": config.sequence_transfer_mode,
-                    }
+            rollout_buffer_bytes = policy.rollout_buffer_bytes
+            sequence_metadata = policy.sequence_metadata
+            policy_identifier = policy.policy_identifier
 
             # Stable-Baselines3 seeds CUDA during model construction/loading and
             # resets cuDNN to its deterministic, slow dilated-convolution path.

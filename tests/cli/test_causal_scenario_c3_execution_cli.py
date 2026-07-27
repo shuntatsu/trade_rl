@@ -90,6 +90,7 @@ def test_publish_cli_verifies_core_artifacts_before_markdown(
         gate_artifact_digest="3" * 64,
         report_digest="1" * 64,
         gate_digest="2" * 64,
+        failed_condition_names=(),
         passed=True,
         production_status="NO-GO",
     )
@@ -207,6 +208,7 @@ def test_publish_cli_does_not_import_sb3_runtime(
             gate_artifact_digest="3" * 64,
             report_digest="1" * 64,
             gate_digest="2" * 64,
+            failed_condition_names=(),
             passed=True,
             production_status="NO-GO",
         ),

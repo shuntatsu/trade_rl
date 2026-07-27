@@ -12,9 +12,6 @@ from trade_rl.data import (
     load_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
-from trade_rl.workflows.dataset_catalog_reconciliation import (
-    reconcile_market_dataset_catalog,
-)
 
 
 def _dataset() -> MarketDataset:
@@ -61,6 +58,10 @@ class _RetryCatalog:
 
 
 def test_reconciliation_retries_without_republishing_dataset(tmp_path: Path) -> None:
+    from trade_rl.workflows.dataset_catalog_reconciliation import (
+        reconcile_market_dataset_catalog,
+    )
+
     published = publish_market_dataset_artifact(tmp_path / "dataset", _dataset())
     catalog = _RetryCatalog()
 

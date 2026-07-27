@@ -37,28 +37,44 @@ jobs:
       - name: Apply sequence diagnostics integration
         shell: bash
         run: |
-          set -o pipefail
-          uv run python tools/finalize_pr227_sequence_diagnostics.py 2>&1 | tee sequence-diagnostics-finalizer.log
+          exec > >(tee sequence-diagnostics-finalizer.log) 2>&1
+          set -euo pipefail
+          uv run python tools/finalize_pr227_sequence_diagnostics.py
           python - <<'PY'
+          import ast
           from pathlib import Path
 
           path = Path('trade_rl/rl/sequence_diagnostics.py')
           text = path.read_text(encoding='utf-8')
+          ast.parse(text, filename=str(path))
           old_feature = '            feature_extractor = getattr(policy, "features_extractor", None)\n'
-          new_feature = (
-              '            obs_to_tensor = getattr(policy, "obs_to_tensor", None)\n'
-              '            if not callable(obs_to_tensor):\n'
-              '                return\n'
-              '            feature_extractor = getattr(policy, "features_extractor", None)\n'
+          old_call = (
+              '            tensor_observation, _ = policy.obs_to_tensor(last_observation)\n'
           )
-          old_call = '            tensor_observation, _ = policy.obs_to_tensor(last_observation)\n'
-          new_call = '            tensor_observation, _ = obs_to_tensor(last_observation)\n'
-          if text.count(old_feature) != 1 or text.count(old_call) != 1:
-              raise RuntimeError('generated sequence diagnostics callback line anchors are invalid')
-          path.write_text(
-              text.replace(old_feature, new_feature, 1).replace(old_call, new_call, 1),
-              encoding='utf-8',
+          if text.count(old_feature) != 1:
+              raise RuntimeError(
+                  f'generated extractor line count is {text.count(old_feature)}'
+              )
+          if text.count(old_call) != 1:
+              raise RuntimeError(
+                  f'generated obs_to_tensor call count is {text.count(old_call)}'
+              )
+          new_feature = ''.join(
+              (
+                  '            obs_to_tensor = getattr(policy, "obs_to_tensor", None)\n',
+                  '            if not callable(obs_to_tensor):\n',
+                  '                return\n',
+                  old_feature,
+              )
           )
+          text = text.replace(old_feature, new_feature, 1)
+          text = text.replace(
+              old_call,
+              '            tensor_observation, _ = obs_to_tensor(last_observation)\n',
+              1,
+          )
+          ast.parse(text, filename=str(path))
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Verify sequence diagnostics integration
@@ -71,6 +87,7 @@ jobs:
           uv run ruff format --check .
           uv run ruff check .
           uv run mypy .
+          uv run lint-imports
           uv run pytest -q \
             tests/rl/test_sequence_diagnostics.py \
             tests/rl/test_gated_transformer.py \
@@ -94,12 +111,14 @@ jobs:
           git commit -m 'feat: add TensorBoard diagnostics for hierarchical sequence policy'
           git push origin HEAD:agent/cross-timeframe-attention
 
-      - name: Upload diagnostics finalizer log
+      - name: Upload diagnostics finalizer evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: pr227-sequence-diagnostics-finalizer-${{ github.run_id }}
-          path: sequence-diagnostics-finalizer.log
+          path: |
+            sequence-diagnostics-finalizer.log
+            trade_rl/rl/sequence_diagnostics.py
           if-no-files-found: warn
           retention-days: 7
 

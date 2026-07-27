@@ -1,0 +1,145 @@
+name: One-shot C3 V2 final contract fix
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3-execution-reporting-v2
+    paths:
+      - .github/workflows/c3-v2-final-contract-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3-execution-reporting-v2
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Apply contract corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/cli/test_causal_scenario_c3_execution_cli.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''        gate_digest="2" * 64,
+        passed=True,
+        production_status="NO-GO",
+    )
+'''
+          new = '''        gate_digest="2" * 64,
+        passed=True,
+        failed_condition_names=(),
+        production_status="NO-GO",
+    )
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one publish mock, found {text.count(old)}')
+          text = text.replace(old, new, 1)
+          old = '''            gate_digest="2" * 64,
+            passed=True,
+            production_status="NO-GO",
+        ),
+'''
+          new = '''            gate_digest="2" * 64,
+            passed=True,
+            failed_condition_names=(),
+            production_status="NO-GO",
+        ),
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one lightweight publish mock, found {text.count(old)}')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+          path = Path('trade_rl/workflows/causal_scenario/c3_evaluation.py')
+          text = path.read_text(encoding='utf-8')
+          marker = '''def _require_execution_scenarios(
+    scenarios: set[str], *, required_scenario: str
+) -> None:
+    if "nominal" not in scenarios:
+        raise ValueError("each C3 request fold requires a nominal execution scenario")
+    if required_scenario not in scenarios:
+        raise ValueError(
+            "each C3 request fold requires the source-declared required adverse scenario"
+        )
+
+
+'''
+          helper = marker + '''def _preflight_request_structure(raw: dict[str, object]) -> None:
+    """Reject request shape violations before reading external artifacts."""
+
+    for fold_position, raw_fold in enumerate(_list(raw["folds"], field="folds")):
+        fold_field = f"folds[{fold_position}]"
+        fold = _object(raw_fold, field=fold_field)
+        _fields(
+            fold,
+            {"fold_digest", "fold_id", "fold_index", "library", "queries"},
+            field=fold_field,
+        )
+        for query_position, raw_query in enumerate(
+            _list(fold["queries"], field=f"{fold_field}.queries")
+        ):
+            query_field = f"{fold_field}.queries[{query_position}]"
+            query = _object(raw_query, field=query_field)
+            _fields(
+                query,
+                {
+                    "execution_scenario",
+                    "outcomes",
+                    "perfect_information",
+                    "ppo_mean_action",
+                    "value_artifact",
+                },
+                field=query_field,
+            )
+
+
+'''
+          if text.count(marker) != 1:
+              raise SystemExit(f'expected one scenario marker, found {text.count(marker)}')
+          text = text.replace(marker, helper, 1)
+          old = '''    request_root = request_file.parent
+    config = _load_config(raw["config"])
+    source_root = _relative_path(
+'''
+          new = '''    request_root = request_file.parent
+    config = _load_config(raw["config"])
+    _preflight_request_structure(raw)
+    source_root = _relative_path(
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one request load marker, found {text.count(old)}')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Verify focused contracts
+        run: |
+          uv run ruff check tests/cli/test_causal_scenario_c3_execution_cli.py tests/workflows/test_causal_scenario_c3_execution_lane.py trade_rl/workflows/causal_scenario/c3_evaluation.py
+          uv run ruff format --check tests/cli/test_causal_scenario_c3_execution_cli.py tests/workflows/test_causal_scenario_c3_execution_lane.py trade_rl/workflows/causal_scenario/c3_evaluation.py
+          uv run mypy trade_rl tests
+          uv run pytest -q \
+            tests/cli/test_causal_scenario_c3_execution_cli.py::test_publish_cli_verifies_core_artifacts_before_markdown \
+            tests/cli/test_causal_scenario_c3_execution_cli.py::test_publish_cli_does_not_import_sb3_runtime \
+            tests/workflows/test_causal_scenario_c3_execution_lane.py::test_request_schema_rejects_self_reported_support
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/c3-v2-final-contract-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: preflight C3 request structure"
+          git push origin HEAD:agent/causal-scenario-c3-execution-reporting-v2

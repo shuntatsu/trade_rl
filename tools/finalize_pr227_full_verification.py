@@ -63,7 +63,9 @@ def _enable_sequence_bc_to_ppo_audit() -> None:
     behavior_cloning = json.loads(behavior_cloning_path.read_text(encoding="utf-8"))
     for field in ("initial_mse", "final_mse"):
         if not np.isfinite(float(behavior_cloning[field])):
-            raise RuntimeError(f"structured sequence behavior cloning {field} is invalid")
+            raise RuntimeError(
+                f"structured sequence behavior cloning {field} is invalid"
+            )
     return {
 ''',
     )

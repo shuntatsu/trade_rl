@@ -159,7 +159,9 @@ class PerfectInformationCompatibilityEvidence:
                     raise ValueError(f"{field} must be non-negative")
                 object.__setattr__(self, field, normalized)
         object.__setattr__(
-            self, "bound_log_return", _finite_float("bound_log_return", self.bound_log_return)
+            self,
+            "bound_log_return",
+            _finite_float("bound_log_return", self.bound_log_return),
         )
         object.__setattr__(
             self,
@@ -239,7 +241,9 @@ def evaluate_perfect_information_compatibility(
         raise TypeError("evidence must be PerfectInformationCompatibilityEvidence")
     tolerance = evidence.tolerance
     if evidence.causal_period_digest != evidence.bound_period_digest:
-        return _not_comparable(evidence, PerfectInformationComparisonReason.PERIOD_MISMATCH)
+        return _not_comparable(
+            evidence, PerfectInformationComparisonReason.PERIOD_MISMATCH
+        )
     if evidence.causal_return_matrix_digest != evidence.bound_return_matrix_digest:
         return _not_comparable(
             evidence, PerfectInformationComparisonReason.RETURN_MATRIX_MISMATCH
@@ -256,11 +260,12 @@ def evaluate_perfect_information_compatibility(
     if not math.isclose(
         evidence.causal_aum, evidence.bound_aum, rel_tol=0.0, abs_tol=tolerance
     ):
-        return _not_comparable(evidence, PerfectInformationComparisonReason.AUM_MISMATCH)
+        return _not_comparable(
+            evidence, PerfectInformationComparisonReason.AUM_MISMATCH
+        )
     exposure_relaxed = (
         np.all(
-            evidence.bound_max_abs_weight
-            >= evidence.causal_max_abs_weight - tolerance
+            evidence.bound_max_abs_weight >= evidence.causal_max_abs_weight - tolerance
         )
         and evidence.bound_max_gross >= evidence.causal_max_gross - tolerance
         and (

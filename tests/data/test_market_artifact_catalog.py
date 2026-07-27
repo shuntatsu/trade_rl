@@ -16,6 +16,9 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+from trade_rl.workflows.dataset_catalog_reconciliation import (
+    reconcile_market_dataset_catalog,
+)
 
 
 def _dataset():
@@ -48,21 +51,21 @@ def _dataset():
     )
 
 
-def test_publish_registers_after_atomic_filesystem_publication(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_explicit_reconciliation_registers_after_atomic_publication(
+    tmp_path: Path,
 ) -> None:
     observed: dict[str, object] = {}
 
-    def capture(registration):
-        observed["registration"] = registration
-        observed["root_exists"] = (tmp_path / "artifact").is_dir()
-        return None
-
-    monkeypatch.setattr(artifact_module, "register_artifact_if_configured", capture)
+    class Catalog:
+        def register(self, registration):
+            observed["registration"] = registration
+            observed["root_exists"] = (tmp_path / "artifact").is_dir()
+            return None
 
     published = artifact_module.publish_market_dataset_artifact(
         tmp_path / "artifact", _dataset()
     )
+    reconcile_market_dataset_catalog(published.root, Catalog())
 
     registration = observed["registration"]
     assert observed["root_exists"] is True
@@ -72,16 +75,17 @@ def test_publish_registers_after_atomic_filesystem_publication(
 
 
 def test_catalog_failure_does_not_remove_valid_published_artifact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    def fail(_):
-        raise RuntimeError("catalog unavailable")
+    class Catalog:
+        def register(self, _):
+            raise RuntimeError("catalog unavailable")
 
-    monkeypatch.setattr(artifact_module, "register_artifact_if_configured", fail)
     root = tmp_path / "artifact"
+    artifact_module.publish_market_dataset_artifact(root, _dataset())
 
     with pytest.raises(RuntimeError, match="catalog unavailable"):
-        artifact_module.publish_market_dataset_artifact(root, _dataset())
+        reconcile_market_dataset_catalog(root, Catalog())
 
     assert (root / "manifest.json").is_file()
     assert (root / "arrays.npz").is_file()

@@ -55,7 +55,9 @@ class _RetryCatalog:
         if len(self.attempts) == 1:
             raise ConnectionError("catalog unavailable")
         now = datetime(2026, 1, 2, tzinfo=UTC)
-        return ArtifactRecord(registration=registration, created_at=now, last_seen_at=now)
+        return ArtifactRecord(
+            registration=registration, created_at=now, last_seen_at=now
+        )
 
 
 def test_reconciliation_retries_without_republishing_dataset(tmp_path: Path) -> None:

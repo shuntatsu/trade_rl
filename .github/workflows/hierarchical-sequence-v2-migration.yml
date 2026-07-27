@@ -4,29 +4,27 @@ on:
   push:
     branches:
       - agent/cross-timeframe-attention
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: hierarchical-sequence-v2-${{ github.ref }}
+  group: hierarchical-sequence-v2-publish
   cancel-in-progress: true
 
 jobs:
-  migrate-and-verify:
+  migrate-verify-publish:
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact branch head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -35,9 +33,7 @@ jobs:
         run: uv sync --extra dev --extra train-sb3 --extra export
 
       - name: Apply deterministic v2 migration
-        id: migrate
         run: |
-          exec > >(tee hierarchical-v2-migration.log) 2>&1
           set -euo pipefail
           cp tools/apply_hierarchical_sequence_v2.py /tmp/apply_hierarchical_sequence_v2.py
           uv run python tools/bootstrap_hierarchical_sequence_v2.py
@@ -48,7 +44,7 @@ jobs:
           from pathlib import Path
 
           path = Path('tools/apply_hierarchical_sequence_v2.py')
-          spec = importlib.util.spec_from_file_location('hierarchical_v2_migration', path)
+          spec = importlib.util.spec_from_file_location('migration', path)
           if spec is None or spec.loader is None:
               raise RuntimeError('cannot load v2 migration')
           module = importlib.util.module_from_spec(spec)
@@ -71,109 +67,22 @@ jobs:
           from pathlib import Path
 
           path = Path('tools/apply_hierarchical_sequence_v2.py')
-          spec = importlib.util.spec_from_file_location('hierarchical_v2_scan', path)
+          spec = importlib.util.spec_from_file_location('scan', path)
           if spec is None or spec.loader is None:
-              raise RuntimeError('cannot load v2 migration scan')
+              raise RuntimeError('cannot load legacy scan')
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
           module._assert_legacy_contract_removed()
           PY
           mv /tmp/apply_hierarchical_sequence_v2.py tools/apply_hierarchical_sequence_v2.py
 
-      - name: Upload migration diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: hierarchical-sequence-v2-diagnostics
-          path: hierarchical-v2-migration.log
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Package migrated source diagnostics
-        if: ${{ steps.migrate.outcome == 'success' }}
+      - name: Verify generated tree
         run: |
-          uv run python - <<'PY'
-          import json
-          import shutil
-          import subprocess
-          import zipfile
-          from pathlib import Path
-
-          root = Path.cwd()
-          output = root / 'hierarchical-v2-migrated-source'
-          files_root = output / 'files'
-          output.mkdir()
-          files_root.mkdir()
-          raw = subprocess.check_output(
-              ['git', 'status', '--porcelain=v1', '-z'], text=False
-          )
-          entries = [item for item in raw.decode('utf-8').split('\0') if item]
-          changed: list[str] = []
-          deleted: list[str] = []
-          for entry in entries:
-              status = entry[:2]
-              path = entry[3:]
-              if ' -> ' in path:
-                  path = path.split(' -> ', 1)[1]
-              if 'D' in status:
-                  deleted.append(path)
-                  continue
-              source = root / path
-              if source.is_file():
-                  destination = files_root / path
-                  destination.parent.mkdir(parents=True, exist_ok=True)
-                  shutil.copy2(source, destination)
-                  changed.append(path)
-          manifest = {
-              'base_sha': subprocess.check_output(
-                  ['git', 'rev-parse', 'HEAD'], text=True
-              ).strip(),
-              'changed': sorted(changed),
-              'deleted': sorted(deleted),
-              'schema_version': 'hierarchical_sequence_v2_migrated_source_v1',
-          }
-          (output / 'manifest.json').write_text(
-              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
-              encoding='utf-8',
-          )
-          with zipfile.ZipFile(
-              output / 'files.zip', 'w', compression=zipfile.ZIP_DEFLATED
-          ) as archive:
-              for path in sorted(files_root.rglob('*')):
-                  if path.is_file():
-                      archive.write(path, path.relative_to(files_root).as_posix())
-          PY
-
-      - name: Upload migrated source diagnostics
-        if: ${{ steps.migrate.outcome == 'success' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: hierarchical-sequence-v2-migrated-source
-          path: hierarchical-v2-migrated-source
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Format and lint migrated tree
-        id: lint
-        run: |
-          exec > >(tee hierarchical-v2-lint.log) 2>&1
           set -euo pipefail
           uv run ruff format .
           uv run ruff check --fix .
           uv run ruff format --check .
           uv run ruff check .
-
-      - name: Upload lint diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: hierarchical-sequence-v2-lint-diagnostics
-          path: hierarchical-v2-lint.log
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Verify focused v2 contracts
-        run: |
           uv run pytest -q \
             tests/rl/test_observation_encoder_v2.py \
             tests/rl/test_gated_transformer.py \
@@ -185,71 +94,35 @@ jobs:
             tests/workflows/test_training_run_config.py \
             tests/integrations/test_sb3_model_assembly.py \
             tests/integrations/test_sb3_training_active_architecture.py
+          uv run mypy trade_rl
+          uv run python -m compileall trade_rl
 
-      - name: Type-check production package
-        run: uv run mypy trade_rl
-
-      - name: Compile production package
-        run: uv run python -m compileall trade_rl
-
-      - name: Package verified changes
+      - name: Remove migration-only machinery
         run: |
-          uv run python - <<'PY'
-          import json
-          import shutil
-          import subprocess
-          import zipfile
-          from pathlib import Path
+          rm -f \
+            tools/apply_hierarchical_sequence_v2.py \
+            tools/bootstrap_hierarchical_sequence_v2.py \
+            tools/bootstrap_hierarchical_sequence_v2_scan.py \
+            tools/bootstrap_hierarchical_sequence_v2_dynamic.py \
+            tools/apply_legacy_mapping_keys_v2.py \
+            tools/apply_sequence_architecture_identity_v2.py \
+            tools/apply_sequence_test_staleness_v2.py \
+            tools/apply_hierarchical_v2_nested_cleanup.py \
+            tools/apply_hierarchical_v2_contract_cleanup.py \
+            .github/workflows/hierarchical-sequence-v2-test-diagnostics.yml \
+            .github/workflows/hierarchical-sequence-v2-migration.yml
+          rm -rf hierarchical-v2-* coverage.xml .coverage
 
-          root = Path.cwd()
-          output = root / 'hierarchical-v2-artifact'
-          files_root = output / 'files'
-          output.mkdir()
-          files_root.mkdir()
-          raw = subprocess.check_output(
-              ['git', 'status', '--porcelain=v1', '-z'], text=False
-          )
-          entries = [item for item in raw.decode('utf-8').split('\0') if item]
-          changed: list[str] = []
-          deleted: list[str] = []
-          for entry in entries:
-              status = entry[:2]
-              path = entry[3:]
-              if ' -> ' in path:
-                  path = path.split(' -> ', 1)[1]
-              if 'D' in status:
-                  deleted.append(path)
-                  continue
-              source = root / path
-              if source.is_file():
-                  destination = files_root / path
-                  destination.parent.mkdir(parents=True, exist_ok=True)
-                  shutil.copy2(source, destination)
-                  changed.append(path)
-          manifest = {
-              'base_sha': subprocess.check_output(
-                  ['git', 'rev-parse', 'HEAD'], text=True
-              ).strip(),
-              'changed': sorted(changed),
-              'deleted': sorted(deleted),
-              'schema_version': 'hierarchical_sequence_v2_migration_artifact_v1',
-          }
-          (output / 'manifest.json').write_text(
-              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
-              encoding='utf-8',
-          )
-          with zipfile.ZipFile(
-              output / 'files.zip', 'w', compression=zipfile.ZIP_DEFLATED
-          ) as archive:
-              for path in sorted(files_root.rglob('*')):
-                  if path.is_file():
-                      archive.write(path, path.relative_to(files_root).as_posix())
-          PY
-
-      - name: Upload verified migration
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: hierarchical-sequence-v2-migration
-          path: hierarchical-v2-artifact
-          if-no-files-found: error
-          retention-days: 7
+      - name: Publish one verified commit
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No migration changes to publish.'
+            exit 1
+          fi
+          git commit -m 'refactor: migrate observation encoder contract to v2'
+          git push origin HEAD:agent/cross-timeframe-attention

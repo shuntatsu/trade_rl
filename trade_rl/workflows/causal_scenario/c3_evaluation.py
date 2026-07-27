@@ -212,9 +212,7 @@ def _load_perfect_information(
             payload["compatibility_evidence_digest"],
             field=f"{field}.compatibility_evidence_digest",
         )
-        bound = _number(
-            payload["bound_log_return"], field=f"{field}.bound_log_return"
-        )
+        bound = _number(payload["bound_log_return"], field=f"{field}.bound_log_return")
         causal = _number(
             payload["causal_log_return"], field=f"{field}.causal_log_return"
         )

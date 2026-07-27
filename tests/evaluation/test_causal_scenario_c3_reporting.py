@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.c3_reporting_fixtures import refreshed, valid_summary_payload, write_summary
 from trade_rl.evaluation.causal_scenario_c3_reporting import (
     C3PhaseAGateConfig,
     evaluate_phase_a_gate,
@@ -14,9 +13,12 @@ from trade_rl.evaluation.causal_scenario_c3_reporting import (
 )
 
 
-def test_load_c3_aggregate_summary_accepts_canonical_valid_payload(tmp_path: Path) -> None:
+def test_load_c3_aggregate_summary_accepts_canonical_valid_payload(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
     path = tmp_path / "summary.json"
-    payload = write_summary(path)
+    payload = c3_reporting.write_summary(path)
 
     summary = load_c3_aggregate_summary(path)
 
@@ -59,31 +61,39 @@ def test_load_c3_aggregate_summary_accepts_canonical_valid_payload(tmp_path: Pat
 )
 def test_load_c3_aggregate_summary_rejects_invalid_evidence(
     tmp_path: Path,
+    c3_reporting,
     mutate,
     match: str,
 ) -> None:
-    payload = valid_summary_payload()
+    payload = c3_reporting.valid_summary_payload()
+    baseline_digest = payload["summary_digest"]
     mutate(payload)
-    if payload.get("summary_digest") == valid_summary_payload()["summary_digest"]:
-        payload = refreshed(payload)
+    if payload.get("summary_digest") == baseline_digest:
+        payload = c3_reporting.refreshed(payload)
     path = tmp_path / "summary.json"
-    write_summary(path, payload)
+    c3_reporting.write_summary(path, payload)
 
     with pytest.raises(ValueError, match=match):
         load_c3_aggregate_summary(path)
 
 
-def test_load_c3_aggregate_summary_rejects_non_canonical_json(tmp_path: Path) -> None:
+def test_load_c3_aggregate_summary_rejects_non_canonical_json(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
     path = tmp_path / "summary.json"
-    write_summary(path, canonical=False)
+    c3_reporting.write_summary(path, canonical=False)
 
     with pytest.raises(ValueError, match="canonical JSON"):
         load_c3_aggregate_summary(path)
 
 
-def test_phase_a_gate_passes_only_complete_supported_evidence(tmp_path: Path) -> None:
+def test_phase_a_gate_passes_only_complete_supported_evidence(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
     path = tmp_path / "summary.json"
-    write_summary(path)
+    c3_reporting.write_summary(path)
     summary = load_c3_aggregate_summary(path)
 
     gate = evaluate_phase_a_gate(summary)
@@ -96,14 +106,17 @@ def test_phase_a_gate_passes_only_complete_supported_evidence(tmp_path: Path) ->
     assert gate.production_status == "NO-GO"
 
 
-def test_phase_a_gate_reports_specific_failed_conditions(tmp_path: Path) -> None:
-    payload = valid_summary_payload()
+def test_phase_a_gate_reports_specific_failed_conditions(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    payload = c3_reporting.valid_summary_payload()
     payload["positive_uplift_folds"] = 2
     payload["uplift_lower_ci"] = -0.001
     payload["all_required_adverse_passed"] = False
-    payload = refreshed(payload)
+    payload = c3_reporting.refreshed(payload)
     path = tmp_path / "summary.json"
-    write_summary(path, payload)
+    c3_reporting.write_summary(path, payload)
     summary = load_c3_aggregate_summary(path)
 
     gate = evaluate_phase_a_gate(summary)
@@ -117,9 +130,12 @@ def test_phase_a_gate_reports_specific_failed_conditions(tmp_path: Path) -> None
     assert gate.production_status == "NO-GO"
 
 
-def test_render_c3_markdown_is_deterministic_and_complete(tmp_path: Path) -> None:
+def test_render_c3_markdown_is_deterministic_and_complete(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
     path = tmp_path / "summary.json"
-    write_summary(path)
+    c3_reporting.write_summary(path)
     summary = load_c3_aggregate_summary(path)
     gate = evaluate_phase_a_gate(summary)
 

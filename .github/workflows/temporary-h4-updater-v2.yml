@@ -30,6 +30,7 @@ jobs:
           uv run python .github/scripts/fix_h4_patch_seam.py
           uv run python .github/scripts/apply_h4_parallel_sequence_env.py
           uv run python .github/scripts/fix_h4_observation_fallback.py
+          uv run python .github/scripts/fix_h4_focused_failures.py
       - name: Format and organize imports
         run: |
           uv run ruff check --fix \
@@ -75,7 +76,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: h4-green-diagnostics-v2
+          name: h4-green-diagnostics-v3
           path: |
             h4-green.log
             h4-green.status
@@ -115,10 +116,12 @@ jobs:
           rm -f .github/scripts/apply_h4_parallel_sequence_env.py
           rm -f .github/scripts/fix_h4_observation_fallback.py
           rm -f .github/scripts/fix_h4_patch_seam.py
+          rm -f .github/scripts/fix_h4_focused_failures.py
           rm -f .github/workflows/temporary-h4-red.yml
           rm -f .github/workflows/temporary-h4-updater.yml
           rm -f .github/workflows/temporary-h4-updater-v2.yml
           rm -f .github/workflows/temporary-h4-patch-diagnostic.yml
+          rm -f .github/workflows/temporary-h4-patch-diagnostic-v2.yml
           rm -f h4-green.log h4-green.status
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

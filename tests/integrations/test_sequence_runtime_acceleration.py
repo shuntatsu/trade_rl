@@ -66,14 +66,13 @@ def test_sequence_runtime_settings_are_identity_bound_and_sequence_only() -> Non
 def test_maintained_full_cuda_configs_enable_sequence_runtime() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     direct = json.loads(
-        (repository_root / "examples/binance-multitimeframe/training-full.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            repository_root / "examples/binance-multitimeframe/training-full.json"
+        ).read_text(encoding="utf-8")
     )["training"]
     walk_forward = json.loads(
         (
-            repository_root
-            / "examples/binance-multitimeframe/walk-forward-full.json"
+            repository_root / "examples/binance-multitimeframe/walk-forward-full.json"
         ).read_text(encoding="utf-8")
     )["candidates"][0]["run"]["training"]
 

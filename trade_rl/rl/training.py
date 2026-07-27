@@ -88,6 +88,9 @@ class ResidualTrainingConfig:
     sequence_attention_heads: int = 8
     sequence_attention_layers: int = 2
     sequence_dropout: float = 0.05
+    sequence_compile: bool = False
+    sequence_compile_mode: str = "reduce-overhead"
+    sequence_transfer_mode: str = "synchronous"
     max_policy_parameters: int = 12_000_000
     max_rollout_buffer_bytes: int = 805_306_368
     asset_set_encoder: bool = True
@@ -318,6 +321,30 @@ class ResidualTrainingConfig:
                 raise ValueError(f"{field_name} must contain positive integers")
         if not isinstance(self.sequence_encoder, bool):
             raise ValueError("sequence_encoder must be a boolean")
+        if not isinstance(self.sequence_compile, bool):
+            raise ValueError("sequence_compile must be a boolean")
+        if self.sequence_compile_mode not in {
+            "default",
+            "reduce-overhead",
+            "max-autotune",
+        }:
+            raise ValueError(
+                "sequence_compile_mode must be default, reduce-overhead, or max-autotune"
+            )
+        if self.sequence_transfer_mode not in {
+            "synchronous",
+            "pinned_non_blocking",
+        }:
+            raise ValueError(
+                "sequence_transfer_mode must be synchronous or pinned_non_blocking"
+            )
+        if (
+            not self.sequence_compile
+            and self.sequence_compile_mode != "reduce-overhead"
+        ):
+            raise ValueError(
+                "sequence_compile_mode is inactive when sequence_compile is false"
+            )
         if self.sequence_capacity not in {"standard", "compact"}:
             raise ValueError("sequence_capacity must be standard or compact")
         if self.sequence_encoder and self.policy != "MultiInputPolicy":
@@ -561,6 +588,17 @@ class ResidualTrainingConfig:
                     ("sequence_attention_heads", self.sequence_attention_heads, 8),
                     ("sequence_attention_layers", self.sequence_attention_layers, 2),
                     ("sequence_dropout", self.sequence_dropout, 0.05),
+                    ("sequence_compile", self.sequence_compile, False),
+                    (
+                        "sequence_compile_mode",
+                        self.sequence_compile_mode,
+                        "reduce-overhead",
+                    ),
+                    (
+                        "sequence_transfer_mode",
+                        self.sequence_transfer_mode,
+                        "synchronous",
+                    ),
                 ),
                 context="sequence_encoder=False",
             )
@@ -672,6 +710,9 @@ class ResidualTrainingConfig:
             "sequence_attention_heads": self.sequence_attention_heads,
             "sequence_attention_layers": self.sequence_attention_layers,
             "sequence_dropout": self.sequence_dropout,
+            "sequence_compile": self.sequence_compile,
+            "sequence_compile_mode": self.sequence_compile_mode,
+            "sequence_transfer_mode": self.sequence_transfer_mode,
             "max_policy_parameters": self.max_policy_parameters,
             "max_rollout_buffer_bytes": self.max_rollout_buffer_bytes,
             "sde_sample_freq": self.sde_sample_freq,

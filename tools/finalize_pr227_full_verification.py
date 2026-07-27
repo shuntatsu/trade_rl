@@ -94,13 +94,18 @@ def _constant_bool(node: ast.expr) -> bool | None:
         return None if value is None else not value
     if isinstance(node, ast.BoolOp):
         values = [_constant_bool(value) for value in node.values]
-        if any(value is None for value in values):
-            return None
-        resolved = [bool(value) for value in values]
         if isinstance(node.op, ast.And):
-            return all(resolved)
+            if any(value is False for value in values):
+                return False
+            if all(value is True for value in values):
+                return True
+            return None
         if isinstance(node.op, ast.Or):
-            return any(resolved)
+            if any(value is True for value in values):
+                return True
+            if all(value is False for value in values):
+                return False
+            return None
     return None
 
 
@@ -144,7 +149,10 @@ def _simplify_constant_ternaries(path: Path) -> int:
     selected: list[tuple[int, int, str]] = []
     for candidate in candidates:
         start, end, _replacement = candidate
-        if any(start >= outer_start and end <= outer_end for outer_start, outer_end, _ in selected):
+        if any(
+            start >= outer_start and end <= outer_end
+            for outer_start, outer_end, _ in selected
+        ):
             continue
         selected.append(candidate)
     if not selected:

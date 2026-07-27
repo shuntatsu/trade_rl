@@ -45,11 +45,12 @@ jobs:
           path = Path('trade_rl/rl/sequence_diagnostics.py')
           text = path.read_text(encoding='utf-8')
           old_feature = '            feature_extractor = getattr(policy, "features_extractor", None)\n'
-          new_feature = '''            obs_to_tensor = getattr(policy, "obs_to_tensor", None)
-              if not callable(obs_to_tensor):
-                  return
-              feature_extractor = getattr(policy, "features_extractor", None)
-          '''
+          new_feature = (
+              '            obs_to_tensor = getattr(policy, "obs_to_tensor", None)\n'
+              '            if not callable(obs_to_tensor):\n'
+              '                return\n'
+              '            feature_extractor = getattr(policy, "features_extractor", None)\n'
+          )
           old_call = '            tensor_observation, _ = policy.obs_to_tensor(last_observation)\n'
           new_call = '            tensor_observation, _ = obs_to_tensor(last_observation)\n'
           if text.count(old_feature) != 1 or text.count(old_call) != 1:

@@ -1,0 +1,194 @@
+name: C3 Adverse Report Binding Once
+
+on:
+  push:
+    branches:
+      - agent/causal-scenario-c3
+
+permissions:
+  contents: write
+
+jobs:
+  bind:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout latest branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-scenario-c3
+          fetch-depth: 0
+      - name: Bind adverse evidence into reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/causal-scenario-c3
+          git reset --hard origin/agent/causal-scenario-c3
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              source = path.read_text(encoding="utf-8")
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}: {old[:80]!r}")
+              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          report = Path("trade_rl/evaluation/causal_scenario_c3_report.py")
+          replace_once(
+              report,
+              "from trade_rl.artifacts.hashing import content_digest\n",
+              "from trade_rl.artifacts.hashing import content_digest\n"
+              "from trade_rl.domain.common import require_sha256\n",
+          )
+          replace_once(
+              report,
+              "    required_adverse_passed: bool\n    perfect_information_valid: bool\n",
+              "    required_adverse_passed: bool\n"
+              "    required_adverse_evidence_digest: str\n"
+              "    perfect_information_valid: bool\n",
+          )
+          replace_once(
+              report,
+              "        if not isinstance(self.required_adverse_passed, bool):\n"
+              "            raise ValueError(\"required_adverse_passed must be boolean\")\n"
+              "        if not isinstance(self.perfect_information_valid, bool):\n",
+              "        if not isinstance(self.required_adverse_passed, bool):\n"
+              "            raise ValueError(\"required_adverse_passed must be boolean\")\n"
+              "        object.__setattr__(\n"
+              "            self,\n"
+              "            \"required_adverse_evidence_digest\",\n"
+              "            require_sha256(\n"
+              "                self.required_adverse_evidence_digest,\n"
+              "                field=\"required_adverse_evidence_digest\",\n"
+              "            ),\n"
+              "        )\n"
+              "        if not isinstance(self.perfect_information_valid, bool):\n",
+          )
+          replace_once(
+              report,
+              "                \"required_adverse_passed\": self.required_adverse_passed,\n"
+              "                \"scenario_oracle_max_drawdown\": self.scenario_oracle_max_drawdown,\n",
+              "                \"required_adverse_evidence_digest\": (\n"
+              "                    self.required_adverse_evidence_digest\n"
+              "                ),\n"
+              "                \"required_adverse_passed\": self.required_adverse_passed,\n"
+              "                \"scenario_oracle_max_drawdown\": self.scenario_oracle_max_drawdown,\n",
+          )
+          replace_once(
+              report,
+              "    required_adverse_passed: bool,\n"
+              "    failure_reasons: tuple[str, ...] = (),\n",
+              "    required_adverse_passed: bool,\n"
+              "    required_adverse_evidence_digest: str,\n"
+              "    failure_reasons: tuple[str, ...] = (),\n",
+          )
+          replace_once(
+              report,
+              "        required_adverse_passed=required_adverse_passed,\n"
+              "        perfect_information_valid=perfect_valid,\n",
+              "        required_adverse_passed=required_adverse_passed,\n"
+              "        required_adverse_evidence_digest=required_adverse_evidence_digest,\n"
+              "        perfect_information_valid=perfect_valid,\n",
+          )
+
+          artifact = Path("trade_rl/evaluation/causal_scenario_c3_artifact.py")
+          replace_once(
+              artifact,
+              "                \"required_adverse_passed\": fold.required_adverse_passed,\n"
+              "                \"selection_days\": fold.selection_days,\n",
+              "                \"required_adverse_evidence_digest\": (\n"
+              "                    fold.required_adverse_evidence_digest\n"
+              "                ),\n"
+              "                \"required_adverse_passed\": fold.required_adverse_passed,\n"
+              "                \"selection_days\": fold.selection_days,\n",
+          )
+          replace_once(
+              artifact,
+              "                \"required_adverse_passed\",\n"
+              "                \"selection_days\",\n",
+              "                \"required_adverse_evidence_digest\",\n"
+              "                \"required_adverse_passed\",\n"
+              "                \"selection_days\",\n",
+          )
+          replace_once(
+              artifact,
+              "            required_adverse_passed=_boolean(\n"
+              "                fold[\"required_adverse_passed\"],\n"
+              "                field=f\"{field}.required_adverse_passed\",\n"
+              "            ),\n"
+              "            failure_reasons=reasons,\n",
+              "            required_adverse_passed=_boolean(\n"
+              "                fold[\"required_adverse_passed\"],\n"
+              "                field=f\"{field}.required_adverse_passed\",\n"
+              "            ),\n"
+              "            required_adverse_evidence_digest=_string(\n"
+              "                fold[\"required_adverse_evidence_digest\"],\n"
+              "                field=f\"{field}.required_adverse_evidence_digest\",\n"
+              "            ),\n"
+              "            failure_reasons=reasons,\n",
+          )
+
+          batch = Path("trade_rl/workflows/causal_scenario/c3.py")
+          replace_once(
+              batch,
+              "from trade_rl.evaluation.causal_scenario_c3_artifact import (\n",
+              "from trade_rl.evaluation.causal_scenario_c3_adverse import (\n"
+              "    C3AdverseFoldEvidence,\n"
+              ")\n"
+              "from trade_rl.evaluation.causal_scenario_c3_artifact import (\n",
+          )
+          replace_once(
+              batch,
+              "    required_adverse_passed: Mapping[str, bool],\n",
+              "    required_adverse_evidence: Mapping[str, C3AdverseFoldEvidence],\n",
+          )
+          replace_once(
+              batch,
+              "        _mapping_keys(required_adverse_passed, field=\"required_adverse_passed\")\n"
+              "        != fold_ids\n"
+              "    ):\n"
+              "        raise ValueError(\"required_adverse_passed must exactly match query folds\")\n",
+              "        _mapping_keys(\n"
+              "            required_adverse_evidence, field=\"required_adverse_evidence\"\n"
+              "        )\n"
+              "        != fold_ids\n"
+              "    ):\n"
+              "        raise ValueError(\n"
+              "            \"required_adverse_evidence must exactly match query folds\"\n"
+              "        )\n"
+              "    if any(\n"
+              "        not isinstance(item, C3AdverseFoldEvidence)\n"
+              "        for item in required_adverse_evidence.values()\n"
+              "    ):\n"
+              "        raise ValueError(\n"
+              "            \"required_adverse_evidence must contain C3 adverse fold evidence\"\n"
+              "        )\n",
+          )
+          replace_once(
+              batch,
+              "            required_adverse_passed=required_adverse_passed[fold_id],\n",
+              "            required_adverse_passed=required_adverse_evidence[fold_id].passed,\n"
+              "            required_adverse_evidence_digest=(\n"
+              "                required_adverse_evidence[fold_id].digest\n"
+              "            ),\n",
+          )
+          PY
+          python -m pip install --quiet ruff==0.15.0
+          ruff format \
+            trade_rl/evaluation/causal_scenario_c3_report.py \
+            trade_rl/evaluation/causal_scenario_c3_artifact.py \
+            trade_rl/workflows/causal_scenario/c3.py
+          rm -f .github/workflows/c3-adverse-report-binding-once.yml
+          rm -f .github/c3-adverse-report-binding-trigger.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            trade_rl/evaluation/causal_scenario_c3_report.py \
+            trade_rl/evaluation/causal_scenario_c3_artifact.py \
+            trade_rl/workflows/causal_scenario/c3.py \
+            .github/workflows/c3-adverse-report-binding-once.yml \
+            .github/c3-adverse-report-binding-trigger.txt
+          git commit -m "feat: bind C3 reports to adverse evidence"
+          git pull --rebase origin agent/causal-scenario-c3
+          git push origin HEAD:agent/causal-scenario-c3

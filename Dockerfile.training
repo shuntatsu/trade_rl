@@ -37,7 +37,12 @@ RUN uv sync --frozen --extra train-sb3 --no-dev --no-install-project \
         /workspace/var/runs \
         /workspace/var/cache/teacher-artifacts \
         /workspace/market-data/binance-vision \
-    && chown -R trainer:trainer /workspace/var /workspace/market-data
+    && chown trainer:trainer /workspace/var \
+        /workspace/var/runs \
+        /workspace/var/cache \
+        /workspace/var/cache/teacher-artifacts \
+        /workspace/market-data \
+        /workspace/market-data/binance-vision
 
 COPY --chown=trainer:trainer trade_rl ./trade_rl
 COPY --chown=trainer:trainer examples ./examples
@@ -63,6 +68,7 @@ RUN test "$(sha256sum uv.lock | cut -d' ' -f1)" = "${TRADE_RL_LOCKFILE_DIGEST}" 
 
 USER trainer
 RUN test "$(id -u)" -ne 0 \
+    && test -w /workspace/var \
     && test -w /workspace/var/runs \
     && test -w /workspace/var/cache/teacher-artifacts \
     && test -w /workspace/market-data/binance-vision \
@@ -71,4 +77,4 @@ RUN test "$(id -u)" -ne 0 \
     && test "$(cat /provenance.valid)" \
         = "${TRADE_RL_GIT_COMMIT}:${TRADE_RL_GIT_DIRTY}:${TRADE_RL_SOURCE_TREE_DIGEST}:${TRADE_RL_LOCKFILE_DIGEST}"
 
-CMD ["python", "examples/binance-multitimeframe/training_bootstrap.py"]
+CMD ["python", "examples/binance-multitimeframe/full_run_entrypoint.py"]

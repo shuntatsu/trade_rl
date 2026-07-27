@@ -1,0 +1,20 @@
+# git grep is_symlink
+tests/architecture/test_direct_maintained_contract_exports.py:104:    assert "candidate.is_symlink()" in source
+
+# git grep symlink_to
+tests/architecture/test_complete_architecture_hardening.py:227:    declared.symlink_to(outside)
+tests/artifacts/test_run_manifest_critical_coverage.py:130:        link.symlink_to(target)
+tests/artifacts/test_run_manifests_v2.py:95:        link.symlink_to(target)
+tests/artifacts/test_signal_artifact_v2.py:87:    (tmp_path / "link").symlink_to(tmp_path / "arrays.npz")
+tests/data/test_artifact_closure_v2.py:92:    (root / "link").symlink_to(root / "manifest.json")
+tests/evaluation/test_causal_scenario_c2_fail_closed.py:559:    (symlink_root / "manifest.json").symlink_to(symlink_root / "target")
+tests/evaluation/test_causal_scenario_c3_artifacts.py:101:        (root / "report.md").symlink_to(tmp_path / "target.md")
+tests/evaluation/test_causal_scenario_library_artifact.py:69:    (root / "manifest-link.json").symlink_to(root / "manifest.json")
+tests/serving/test_bundle_loader_critical_coverage.py:202:        artifact.symlink_to(target)
+tests/studio/test_training_metrics.py:151:    (tmp_path / "research").symlink_to(real_root, target_is_directory=True)
+tests/studio/test_training_metrics.py:177:    target.symlink_to(moved, target_is_directory=True)
+tests/workflows/test_causal_scenario_c3_execution_entrypoint.py:98:            link.symlink_to(target)
+
+# git grep os.path.islink
+
+# git grep monkeypatch symlink

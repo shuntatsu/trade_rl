@@ -1,0 +1,93 @@
+name: Finalize PR227 Structured Serving
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - synchronize
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-pr227-structured-serving
+  cancel-in-progress: true
+
+jobs:
+  verify-and-publish:
+    if: github.event.pull_request.number == 227
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/cross-timeframe-attention
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Install verification environment
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Verify structured export and canonical loader
+        shell: bash
+        run: |
+          exec > >(tee structured-serving-finalizer.log) 2>&1
+          set -euo pipefail
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy .
+          uv run lint-imports
+          uv run pytest -q \
+            tests/rl/test_structured_export.py \
+            tests/serving/test_runtime.py \
+            tests/serving/test_runtime_schema_guard.py \
+            tests/serving/test_observation_parity.py \
+            tests/serving/test_sb3_loader.py
+
+      - name: Publish verified structured serving implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/finalize-pr227-structured-serving.yml \
+            structured-serving-finalizer.log
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat: add structured policy export and canonical serving loader'
+          git push origin HEAD:agent/cross-timeframe-attention
+
+      - name: Upload structured serving diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr227-structured-serving-${{ github.run_id }}
+          path: structured-serving-finalizer.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Report failure to PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            printf 'Structured serving finalization failed in Actions run %s.\n\n```text\n' "$GITHUB_RUN_ID"
+            if test -f structured-serving-finalizer.log; then
+              tail -n 200 structured-serving-finalizer.log
+            else
+              printf 'No structured serving log was produced.\n'
+            fi
+            printf '\n```\n'
+          } > /tmp/pr227-structured-serving-failure.md
+          gh pr comment 227 --body-file /tmp/pr227-structured-serving-failure.md

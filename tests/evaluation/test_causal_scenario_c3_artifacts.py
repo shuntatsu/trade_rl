@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.c3_reporting_fixtures import refreshed, valid_summary_payload, write_summary
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.evaluation.causal_scenario_c3_reporting import (
     evaluate_phase_a_gate,
@@ -17,15 +16,18 @@ from trade_rl.evaluation.causal_scenario_c3_reporting import (
 )
 
 
-def _summary_and_gate(tmp_path: Path):
+def _summary_and_gate(tmp_path: Path, c3_reporting):
     source = tmp_path / "input" / "summary.json"
-    write_summary(source)
+    c3_reporting.write_summary(source)
     summary = load_c3_aggregate_summary(source)
     return summary, evaluate_phase_a_gate(summary)
 
 
-def test_report_artifact_has_exact_canonical_closure(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_report_artifact_has_exact_canonical_closure(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     root = tmp_path / "report"
 
     written = write_c3_report_artifact(root, summary, gate)
@@ -46,8 +48,11 @@ def test_report_artifact_has_exact_canonical_closure(tmp_path: Path) -> None:
     assert (root / "report.md").read_text(encoding="utf-8").endswith("\n")
 
 
-def test_report_artifact_identical_rewrite_is_idempotent(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_report_artifact_identical_rewrite_is_idempotent(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     root = tmp_path / "report"
 
     first = write_c3_report_artifact(root, summary, gate)
@@ -58,8 +63,11 @@ def test_report_artifact_identical_rewrite_is_idempotent(tmp_path: Path) -> None
     assert {path.name: path.read_bytes() for path in root.iterdir()} == first_bytes
 
 
-def test_report_artifact_conflicting_rewrite_fails(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_report_artifact_conflicting_rewrite_fails(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     root = tmp_path / "report"
     write_c3_report_artifact(root, summary, gate)
     (root / "report.md").write_text("conflict\n", encoding="utf-8")
@@ -68,8 +76,11 @@ def test_report_artifact_conflicting_rewrite_fails(tmp_path: Path) -> None:
         write_c3_report_artifact(root, summary, gate)
 
 
-def test_report_artifact_loader_rejects_extra_file(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_report_artifact_loader_rejects_extra_file(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     root = tmp_path / "report"
     write_c3_report_artifact(root, summary, gate)
     (root / "extra.txt").write_text("unexpected", encoding="utf-8")
@@ -78,8 +89,11 @@ def test_report_artifact_loader_rejects_extra_file(tmp_path: Path) -> None:
         load_c3_report_artifact(root)
 
 
-def test_report_artifact_loader_rejects_symlink_entry(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_report_artifact_loader_rejects_symlink_entry(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     root = tmp_path / "report"
     write_c3_report_artifact(root, summary, gate)
     (root / "report.md").unlink()
@@ -92,8 +106,11 @@ def test_report_artifact_loader_rejects_symlink_entry(tmp_path: Path) -> None:
         load_c3_report_artifact(root)
 
 
-def test_gate_artifact_binds_report_identity(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_gate_artifact_binds_report_identity(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     report = write_c3_report_artifact(tmp_path / "report", summary, gate)
 
     written = write_phase_a_gate_artifact(
@@ -113,8 +130,11 @@ def test_gate_artifact_binds_report_identity(tmp_path: Path) -> None:
     assert loaded.gate.production_status == "NO-GO"
 
 
-def test_gate_artifact_rejects_report_identity_substitution(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_gate_artifact_rejects_report_identity_substitution(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     report = write_c3_report_artifact(tmp_path / "report", summary, gate)
     root = tmp_path / "gate"
     write_phase_a_gate_artifact(
@@ -130,13 +150,16 @@ def test_gate_artifact_rejects_report_identity_substitution(tmp_path: Path) -> N
         load_phase_a_gate_artifact(root)
 
 
-def test_report_artifact_detects_summary_digest_substitution(tmp_path: Path) -> None:
-    summary, gate = _summary_and_gate(tmp_path)
+def test_report_artifact_detects_summary_digest_substitution(
+    tmp_path: Path,
+    c3_reporting,
+) -> None:
+    summary, gate = _summary_and_gate(tmp_path, c3_reporting)
     root = tmp_path / "report"
     write_c3_report_artifact(root, summary, gate)
-    payload = valid_summary_payload()
+    payload = c3_reporting.valid_summary_payload()
     payload["mean_uplift"] = 0.99
-    payload = refreshed(payload)
+    payload = c3_reporting.refreshed(payload)
     (root / "summary.json").write_bytes(canonical_json_bytes(payload))
 
     with pytest.raises(ValueError, match="file digest mismatch"):

@@ -294,7 +294,7 @@ def test_perfect_information_gap_is_reconstructed_strictly() -> None:
         "causal_log_return": 0.01,
         "compatibility_evidence_digest": _sha("a"),
         "gap": 0.03,
-        "reason": "compatible",
+        "reason": "dominance_conditions_verified",
         "status": "comparable",
     }
     with pytest.raises(ValueError, match="gap"):

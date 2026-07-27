@@ -28,7 +28,7 @@ class MarketWalkForwardConfig(_base.MarketWalkForwardConfig):
     )
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        _base.MarketWalkForwardConfig.__post_init__(self)
         if not isinstance(self.sealed_test_ledger_mode, SealedTestLedgerMode):
             raise ValueError("sealed_test_ledger_mode must be a supported mode")
 
@@ -72,7 +72,7 @@ class MarketWalkForwardConfig(_base.MarketWalkForwardConfig):
         )
 
     def digest_payload(self) -> dict[str, object]:
-        payload = super().digest_payload()
+        payload = _base.MarketWalkForwardConfig.digest_payload(self)
         payload["sealed_test_ledger_mode"] = self.sealed_test_ledger_mode.value
         return payload
 

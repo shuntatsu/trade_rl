@@ -29,7 +29,9 @@ def _status(passed: bool) -> str:
     return "phase_a_authorized" if passed else "phase_a_blocked"
 
 
-def _run(action: Callable[[], dict[str, object]], *, stdout: TextIO, stderr: TextIO) -> int:
+def _run(
+    action: Callable[[], dict[str, object]], *, stdout: TextIO, stderr: TextIO
+) -> int:
     try:
         payload = action()
     except Exception as error:

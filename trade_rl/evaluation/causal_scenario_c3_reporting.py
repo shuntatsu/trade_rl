@@ -44,7 +44,9 @@ def _sequence(value: object, *, field: str) -> Sequence[object]:
     raise ValueError(f"{field} must be a list")
 
 
-def _require_fields(payload: Mapping[str, object], expected: set[str], *, field: str) -> None:
+def _require_fields(
+    payload: Mapping[str, object], expected: set[str], *, field: str
+) -> None:
     if set(payload) != expected:
         raise ValueError(f"{field} field closure mismatch")
 
@@ -120,8 +122,12 @@ class C3FoldSummary:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fold_id", _string(self.fold_id, field="fold_id"))
-        selection_days = _integer(self.selection_days, field="selection_days", minimum=1)
-        effective_days = _integer(self.effective_days, field="effective_days", minimum=1)
+        selection_days = _integer(
+            self.selection_days, field="selection_days", minimum=1
+        )
+        effective_days = _integer(
+            self.effective_days, field="effective_days", minimum=1
+        )
         if effective_days > selection_days:
             raise ValueError("effective_days must not exceed selection_days")
         object.__setattr__(self, "selection_days", selection_days)
@@ -129,7 +135,9 @@ class C3FoldSummary:
         for name in ("mean_uplift", "mean_spearman", "mean_regret_margin"):
             object.__setattr__(self, name, _number(getattr(self, name), field=name))
         for name in ("scenario_oracle_max_drawdown", "trend_max_drawdown"):
-            object.__setattr__(self, name, _probability(getattr(self, name), field=name))
+            object.__setattr__(
+                self, name, _probability(getattr(self, name), field=name)
+            )
         if not isinstance(self.required_adverse_passed, bool):
             raise ValueError("required_adverse_passed must be boolean")
         if not isinstance(self.perfect_information_valid, bool):
@@ -230,7 +238,9 @@ class C3ExecutionSummary:
             "execution_scenario",
             _string(self.execution_scenario, field="execution_scenario"),
         )
-        object.__setattr__(self, "policy_kind", _string(self.policy_kind, field="policy_kind"))
+        object.__setattr__(
+            self, "policy_kind", _string(self.policy_kind, field="policy_kind")
+        )
         object.__setattr__(
             self,
             "observation_count",
@@ -265,10 +275,14 @@ class C3ExecutionSummary:
         ):
             raise ValueError("mean_total_economic_cost does not match components")
         object.__setattr__(
-            self, "mean_fill_ratio", _probability(self.mean_fill_ratio, field="mean_fill_ratio")
+            self,
+            "mean_fill_ratio",
+            _probability(self.mean_fill_ratio, field="mean_fill_ratio"),
         )
         object.__setattr__(
-            self, "maximum_drawdown", _probability(self.maximum_drawdown, field="maximum_drawdown")
+            self,
+            "maximum_drawdown",
+            _probability(self.maximum_drawdown, field="maximum_drawdown"),
         )
         for name in (
             "total_fill_count",
@@ -277,7 +291,10 @@ class C3ExecutionSummary:
         ):
             object.__setattr__(self, name, _integer(getattr(self, name), field=name))
         distribution = tuple(
-            (_string(reason, field="termination_reason"), _integer(count, field="termination_count", minimum=1))
+            (
+                _string(reason, field="termination_reason"),
+                _integer(count, field="termination_count", minimum=1),
+            )
             for reason, count in self.termination_distribution
         )
         if tuple(sorted(distribution)) != distribution:
@@ -356,7 +373,12 @@ class C3AggregateSummary:
     production_status: str = PRODUCTION_STATUS
 
     def __post_init__(self) -> None:
-        for name in ("source_run_digest", "core_report_digest", "config_digest", "summary_digest"):
+        for name in (
+            "source_run_digest",
+            "core_report_digest",
+            "config_digest",
+            "summary_digest",
+        ):
             object.__setattr__(self, name, _digest(getattr(self, name), field=name))
         if self.schema_version != C3_AGGREGATE_SUMMARY_SCHEMA:
             raise ValueError("unsupported C3 aggregate summary schema")
@@ -421,7 +443,11 @@ class C3AggregateSummary:
             self.regret_margin_upper_ci,
             field="regret margin",
         )
-        object.__setattr__(self, "uplift_p_value", _probability(self.uplift_p_value, field="uplift_p_value"))
+        object.__setattr__(
+            self,
+            "uplift_p_value",
+            _probability(self.uplift_p_value, field="uplift_p_value"),
+        )
         object.__setattr__(
             self,
             "worst_scenario_oracle_drawdown",
@@ -448,7 +474,9 @@ class C3AggregateSummary:
             _integer(self.unique_anchor_count, field="unique_anchor_count", minimum=1),
         )
         object.__setattr__(
-            self, "anchor_max_share", _probability(self.anchor_max_share, field="anchor_max_share")
+            self,
+            "anchor_max_share",
+            _probability(self.anchor_max_share, field="anchor_max_share"),
         )
         if self.anchor_max_share <= 0.0:
             raise ValueError("anchor_max_share must be positive")
@@ -503,7 +531,9 @@ class C3AggregateSummary:
         object.__setattr__(
             self,
             "bootstrap_block_days",
-            _integer(self.bootstrap_block_days, field="bootstrap_block_days", minimum=1),
+            _integer(
+                self.bootstrap_block_days, field="bootstrap_block_days", minimum=1
+            ),
         )
 
     @property
@@ -512,7 +542,9 @@ class C3AggregateSummary:
 
     @property
     def execution_scenario_names(self) -> tuple[str, ...]:
-        return tuple(sorted({item.execution_scenario for item in self.execution_summaries}))
+        return tuple(
+            sorted({item.execution_scenario for item in self.execution_summaries})
+        )
 
     def payload_without_digest(self) -> dict[str, object]:
         return {
@@ -521,11 +553,15 @@ class C3AggregateSummary:
             "anchor_max_share": self.anchor_max_share,
             "bootstrap_block_days": self.bootstrap_block_days,
             "bootstrap_resamples": self.bootstrap_resamples,
-            "calibration_buckets": [item.to_payload() for item in self.calibration_buckets],
+            "calibration_buckets": [
+                item.to_payload() for item in self.calibration_buckets
+            ],
             "config_digest": self.config_digest,
             "core_report_digest": self.core_report_digest,
             "effective_anchor_count": self.effective_anchor_count,
-            "execution_summaries": [item.to_payload() for item in self.execution_summaries],
+            "execution_summaries": [
+                item.to_payload() for item in self.execution_summaries
+            ],
             "failure_reasons": list(self.failure_reasons),
             "folds": [item.to_payload() for item in self.folds],
             "historical_coverage_fraction": self.historical_coverage_fraction,
@@ -569,8 +605,14 @@ class C3PhaseAGateConfig:
     schema_version: str = C3_PHASE_A_GATE_CONFIG_SCHEMA
 
     def __post_init__(self) -> None:
-        for name in ("required_folds", "required_selection_days", "required_positive_folds"):
-            object.__setattr__(self, name, _integer(getattr(self, name), field=name, minimum=1))
+        for name in (
+            "required_folds",
+            "required_selection_days",
+            "required_positive_folds",
+        ):
+            object.__setattr__(
+                self, name, _integer(getattr(self, name), field=name, minimum=1)
+            )
         if self.required_positive_folds > self.required_folds:
             raise ValueError("required_positive_folds must not exceed required_folds")
         object.__setattr__(
@@ -578,7 +620,9 @@ class C3PhaseAGateConfig:
             "max_oracle_drawdown",
             _probability(self.max_oracle_drawdown, field="max_oracle_drawdown"),
         )
-        tolerance = _number(self.trend_drawdown_tolerance, field="trend_drawdown_tolerance")
+        tolerance = _number(
+            self.trend_drawdown_tolerance, field="trend_drawdown_tolerance"
+        )
         if tolerance < 0.0:
             raise ValueError("trend_drawdown_tolerance must be non-negative")
         object.__setattr__(self, "trend_drawdown_tolerance", tolerance)
@@ -607,7 +651,9 @@ class GateConditionResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _string(self.name, field="condition.name"))
-        object.__setattr__(self, "detail", _string(self.detail, field="condition.detail"))
+        object.__setattr__(
+            self, "detail", _string(self.detail, field="condition.detail")
+        )
         if not isinstance(self.passed, bool):
             raise ValueError("condition.passed must be boolean")
 
@@ -625,15 +671,21 @@ class PhaseAGateEvidence:
     production_status: str = PRODUCTION_STATUS
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "report_digest", _digest(self.report_digest, field="report_digest"))
-        object.__setattr__(self, "config_digest", _digest(self.config_digest, field="config_digest"))
+        object.__setattr__(
+            self, "report_digest", _digest(self.report_digest, field="report_digest")
+        )
+        object.__setattr__(
+            self, "config_digest", _digest(self.config_digest, field="config_digest")
+        )
         conditions = tuple(self.conditions)
         if len(conditions) != 9:
             raise ValueError("Phase A gate must contain exactly nine conditions")
         names = tuple(item.name for item in conditions)
         if len(set(names)) != len(names):
             raise ValueError("Phase A gate condition names must be unique")
-        if not isinstance(self.passed, bool) or self.passed != all(item.passed for item in conditions):
+        if not isinstance(self.passed, bool) or self.passed != all(
+            item.passed for item in conditions
+        ):
             raise ValueError("Phase A gate pass state does not match conditions")
         if self.schema_version != C3_PHASE_A_GATE_SCHEMA:
             raise ValueError("unsupported Phase A gate schema")
@@ -686,8 +738,12 @@ def _fold(value: object, *, field: str) -> C3FoldSummary:
     )
     return C3FoldSummary(
         fold_id=_string(payload["fold_id"], field=f"{field}.fold_id"),
-        selection_days=_integer(payload["selection_days"], field=f"{field}.selection_days", minimum=1),
-        effective_days=_integer(payload["effective_days"], field=f"{field}.effective_days", minimum=1),
+        selection_days=_integer(
+            payload["selection_days"], field=f"{field}.selection_days", minimum=1
+        ),
+        effective_days=_integer(
+            payload["effective_days"], field=f"{field}.effective_days", minimum=1
+        ),
         mean_uplift=_number(payload["mean_uplift"], field=f"{field}.mean_uplift"),
         mean_spearman=_number(payload["mean_spearman"], field=f"{field}.mean_spearman"),
         mean_regret_margin=_number(
@@ -704,9 +760,12 @@ def _fold(value: object, *, field: str) -> C3FoldSummary:
             payload["required_adverse_passed"], field=f"{field}.required_adverse_passed"
         ),
         perfect_information_valid=_boolean(
-            payload["perfect_information_valid"], field=f"{field}.perfect_information_valid"
+            payload["perfect_information_valid"],
+            field=f"{field}.perfect_information_valid",
         ),
-        failure_reasons=_strings(payload["failure_reasons"], field=f"{field}.failure_reasons"),
+        failure_reasons=_strings(
+            payload["failure_reasons"], field=f"{field}.failure_reasons"
+        ),
     )
 
 
@@ -728,11 +787,14 @@ def _bucket(value: object, *, field: str) -> C3CalibrationBucketSummary:
     )
     return C3CalibrationBucketSummary(
         bucket_index=_integer(payload["bucket_index"], field=f"{field}.bucket_index"),
-        sample_count=_integer(payload["sample_count"], field=f"{field}.sample_count", minimum=1),
+        sample_count=_integer(
+            payload["sample_count"], field=f"{field}.sample_count", minimum=1
+        ),
         minimum_score=_number(payload["minimum_score"], field=f"{field}.minimum_score"),
         maximum_score=_number(payload["maximum_score"], field=f"{field}.maximum_score"),
         predicted_mean_advantage=_number(
-            payload["predicted_mean_advantage"], field=f"{field}.predicted_mean_advantage"
+            payload["predicted_mean_advantage"],
+            field=f"{field}.predicted_mean_advantage",
         ),
         predicted_loss_cvar=_number(
             payload["predicted_loss_cvar"], field=f"{field}.predicted_loss_cvar"
@@ -773,11 +835,16 @@ def _execution(value: object, *, field: str) -> C3ExecutionSummary:
     )
     distribution: list[tuple[str, int]] = []
     for index, raw in enumerate(
-        _sequence(payload["termination_distribution"], field=f"{field}.termination_distribution")
+        _sequence(
+            payload["termination_distribution"],
+            field=f"{field}.termination_distribution",
+        )
     ):
         item = _sequence(raw, field=f"{field}.termination_distribution[{index}]")
         if len(item) != 2:
-            raise ValueError(f"{field}.termination_distribution[{index}] must contain two values")
+            raise ValueError(
+                f"{field}.termination_distribution[{index}] must contain two values"
+            )
         distribution.append(
             (
                 _string(item[0], field=f"{field}.termination_distribution[{index}][0]"),
@@ -816,9 +883,12 @@ def _execution(value: object, *, field: str) -> C3ExecutionSummary:
             payload["mean_borrow_paid"], field=f"{field}.mean_borrow_paid"
         ),
         mean_total_economic_cost=_number(
-            payload["mean_total_economic_cost"], field=f"{field}.mean_total_economic_cost"
+            payload["mean_total_economic_cost"],
+            field=f"{field}.mean_total_economic_cost",
         ),
-        mean_fill_ratio=_number(payload["mean_fill_ratio"], field=f"{field}.mean_fill_ratio"),
+        mean_fill_ratio=_number(
+            payload["mean_fill_ratio"], field=f"{field}.mean_fill_ratio"
+        ),
         total_fill_count=_integer(
             payload["total_fill_count"], field=f"{field}.total_fill_count"
         ),
@@ -908,8 +978,12 @@ def load_c3_aggregate_summary(path: str | Path) -> C3AggregateSummary:
         )
     )
     summary = C3AggregateSummary(
-        source_run_digest=_digest(payload["source_run_digest"], field="source_run_digest"),
-        core_report_digest=_digest(payload["core_report_digest"], field="core_report_digest"),
+        source_run_digest=_digest(
+            payload["source_run_digest"], field="source_run_digest"
+        ),
+        core_report_digest=_digest(
+            payload["core_report_digest"], field="core_report_digest"
+        ),
         config_digest=_digest(payload["config_digest"], field="config_digest"),
         folds=folds,
         total_selection_days=_integer(
@@ -926,8 +1000,12 @@ def load_c3_aggregate_summary(path: str | Path) -> C3AggregateSummary:
         uplift_upper_ci=_number(payload["uplift_upper_ci"], field="uplift_upper_ci"),
         uplift_p_value=_number(payload["uplift_p_value"], field="uplift_p_value"),
         mean_spearman=_number(payload["mean_spearman"], field="mean_spearman"),
-        spearman_lower_ci=_number(payload["spearman_lower_ci"], field="spearman_lower_ci"),
-        spearman_upper_ci=_number(payload["spearman_upper_ci"], field="spearman_upper_ci"),
+        spearman_lower_ci=_number(
+            payload["spearman_lower_ci"], field="spearman_lower_ci"
+        ),
+        spearman_upper_ci=_number(
+            payload["spearman_upper_ci"], field="spearman_upper_ci"
+        ),
         mean_regret_margin=_number(
             payload["mean_regret_margin"], field="mean_regret_margin"
         ),
@@ -962,14 +1040,16 @@ def load_c3_aggregate_summary(path: str | Path) -> C3AggregateSummary:
             payload["effective_anchor_count"], field="effective_anchor_count"
         ),
         historical_coverage_fraction=_number(
-            payload["historical_coverage_fraction"], field="historical_coverage_fraction"
+            payload["historical_coverage_fraction"],
+            field="historical_coverage_fraction",
         ),
         execution_summaries=execution,
         all_required_adverse_passed=_boolean(
             payload["all_required_adverse_passed"], field="all_required_adverse_passed"
         ),
         all_perfect_information_valid=_boolean(
-            payload["all_perfect_information_valid"], field="all_perfect_information_valid"
+            payload["all_perfect_information_valid"],
+            field="all_perfect_information_valid",
         ),
         failure_reasons=_strings(payload["failure_reasons"], field="failure_reasons"),
         bootstrap_resamples=_integer(
@@ -980,7 +1060,9 @@ def load_c3_aggregate_summary(path: str | Path) -> C3AggregateSummary:
         ),
         summary_digest=_digest(payload["summary_digest"], field="summary_digest"),
         schema_version=_string(payload["schema_version"], field="schema_version"),
-        production_status=_string(payload["production_status"], field="production_status"),
+        production_status=_string(
+            payload["production_status"], field="production_status"
+        ),
     )
     if content_digest(summary.payload_without_digest()) != summary.summary_digest:
         raise ValueError("C3 aggregate summary digest mismatch")
@@ -1037,9 +1119,7 @@ def evaluate_phase_a_gate(
     scenarios = summary.execution_scenario_names
     adverse = tuple(name for name in scenarios if name != "nominal")
     adverse_passed = (
-        summary.all_required_adverse_passed
-        and "nominal" in scenarios
-        and bool(adverse)
+        summary.all_required_adverse_passed and "nominal" in scenarios and bool(adverse)
     )
     conditions = (
         _condition(
@@ -1245,7 +1325,11 @@ class LoadedC3ReportArtifact:
     root: Path
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "artifact_digest", _digest(self.artifact_digest, field="artifact_digest"))
+        object.__setattr__(
+            self,
+            "artifact_digest",
+            _digest(self.artifact_digest, field="artifact_digest"),
+        )
         object.__setattr__(self, "root", Path(self.root))
 
 
@@ -1262,7 +1346,11 @@ class LoadedPhaseAGateArtifact:
             "report_artifact_digest",
             _digest(self.report_artifact_digest, field="report_artifact_digest"),
         )
-        object.__setattr__(self, "artifact_digest", _digest(self.artifact_digest, field="artifact_digest"))
+        object.__setattr__(
+            self,
+            "artifact_digest",
+            _digest(self.artifact_digest, field="artifact_digest"),
+        )
         object.__setattr__(self, "root", Path(self.root))
 
 
@@ -1297,7 +1385,9 @@ def _publish_exact(root: Path, expected: Mapping[str, bytes], *, label: str) -> 
             or (root / name).read_bytes() != payload
             for name, payload in expected.items()
         ):
-            raise FileExistsError(f"conflicting {label} artifact already exists: {root}")
+            raise FileExistsError(
+                f"conflicting {label} artifact already exists: {root}"
+            )
         return
     root.mkdir(parents=True, exist_ok=True)
     for name in sorted(expected):
@@ -1351,7 +1441,9 @@ def load_c3_report_artifact(root: str | Path) -> LoadedC3ReportArtifact:
     _verify_closure(source, _REPORT_FILES, label="C3 report")
     manifest_bytes = (source / "manifest.json").read_bytes()
     try:
-        manifest = _mapping(json.loads(manifest_bytes.decode("utf-8")), field="manifest")
+        manifest = _mapping(
+            json.loads(manifest_bytes.decode("utf-8")), field="manifest"
+        )
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("C3 report artifact manifest is invalid") from error
     _require_fields(
@@ -1388,7 +1480,9 @@ def load_c3_report_artifact(root: str | Path) -> LoadedC3ReportArtifact:
         ):
             raise ValueError("C3 report artifact file digest mismatch")
     summary = load_c3_aggregate_summary(source / "summary.json")
-    if summary.summary_digest != _digest(manifest["summary_digest"], field="summary_digest"):
+    if summary.summary_digest != _digest(
+        manifest["summary_digest"], field="summary_digest"
+    ):
         raise ValueError("C3 report summary identity mismatch")
     if summary.source_run_digest != _digest(
         manifest["source_run_digest"], field="source_run_digest"
@@ -1398,12 +1492,16 @@ def load_c3_report_artifact(root: str | Path) -> LoadedC3ReportArtifact:
         manifest["core_report_digest"], field="core_report_digest"
     ):
         raise ValueError("C3 report core report identity mismatch")
-    if summary.config_digest != _digest(manifest["config_digest"], field="config_digest"):
+    if summary.config_digest != _digest(
+        manifest["config_digest"], field="config_digest"
+    ):
         raise ValueError("C3 report config identity mismatch")
     gate = evaluate_phase_a_gate(summary)
     if gate.digest != _digest(manifest["gate_digest"], field="gate_digest"):
         raise ValueError("C3 report gate identity mismatch")
-    if (source / "report.md").read_text(encoding="utf-8") != render_c3_markdown(summary, gate):
+    if (source / "report.md").read_text(encoding="utf-8") != render_c3_markdown(
+        summary, gate
+    ):
         raise ValueError("C3 report Markdown does not match evidence")
     return LoadedC3ReportArtifact(
         summary=summary,
@@ -1428,14 +1526,22 @@ def _gate_from_payload(payload: Mapping[str, object]) -> PhaseAGateEvidence:
         field="gate",
     )
     conditions: list[GateConditionResult] = []
-    for index, raw in enumerate(_sequence(payload["conditions"], field="gate.conditions")):
+    for index, raw in enumerate(
+        _sequence(payload["conditions"], field="gate.conditions")
+    ):
         item = _mapping(raw, field=f"gate.conditions[{index}]")
-        _require_fields(item, {"detail", "name", "passed"}, field=f"gate.conditions[{index}]")
+        _require_fields(
+            item, {"detail", "name", "passed"}, field=f"gate.conditions[{index}]"
+        )
         conditions.append(
             GateConditionResult(
                 name=_string(item["name"], field=f"gate.conditions[{index}].name"),
-                passed=_boolean(item["passed"], field=f"gate.conditions[{index}].passed"),
-                detail=_string(item["detail"], field=f"gate.conditions[{index}].detail"),
+                passed=_boolean(
+                    item["passed"], field=f"gate.conditions[{index}].passed"
+                ),
+                detail=_string(
+                    item["detail"], field=f"gate.conditions[{index}].detail"
+                ),
             )
         )
     gate = PhaseAGateEvidence(
@@ -1494,7 +1600,9 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGateArtifact:
     manifest_bytes = (source / "manifest.json").read_bytes()
     gate_bytes = (source / "gate.json").read_bytes()
     try:
-        manifest = _mapping(json.loads(manifest_bytes.decode("utf-8")), field="manifest")
+        manifest = _mapping(
+            json.loads(manifest_bytes.decode("utf-8")), field="manifest"
+        )
         gate_payload = _mapping(json.loads(gate_bytes.decode("utf-8")), field="gate")
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Phase A gate artifact is invalid JSON") from error
@@ -1510,7 +1618,10 @@ def load_phase_a_gate_artifact(root: str | Path) -> LoadedPhaseAGateArtifact:
         },
         field="manifest",
     )
-    if canonical_json_bytes(manifest) != manifest_bytes or canonical_json_bytes(gate_payload) != gate_bytes:
+    if (
+        canonical_json_bytes(manifest) != manifest_bytes
+        or canonical_json_bytes(gate_payload) != gate_bytes
+    ):
         raise ValueError("Phase A gate artifact is not canonical JSON")
     if manifest["schema_version"] != C3_GATE_ARTIFACT_SCHEMA:
         raise ValueError("unsupported Phase A gate artifact schema")

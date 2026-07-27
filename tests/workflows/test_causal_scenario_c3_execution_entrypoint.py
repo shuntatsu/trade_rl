@@ -9,7 +9,9 @@ from trade_rl.workflows.causal_scenario import c3_execution
 
 def _request(tmp_path: Path) -> Path:
     path = tmp_path / "request.json"
-    path.write_text('{"schema_version":"causal_scenario_c3_request_v1"}\n', encoding="utf-8")
+    path.write_text(
+        '{"schema_version":"causal_scenario_c3_request_v1"}\n', encoding="utf-8"
+    )
     return path
 
 

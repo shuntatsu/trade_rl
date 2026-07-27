@@ -42,7 +42,9 @@ class C3ExecutionResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_summary_path", Path(self.source_summary_path))
-        object.__setattr__(self, "report_artifact_root", Path(self.report_artifact_root))
+        object.__setattr__(
+            self, "report_artifact_root", Path(self.report_artifact_root)
+        )
         object.__setattr__(self, "gate_artifact_root", Path(self.gate_artifact_root))
         if self.production_status != PRODUCTION_STATUS:
             raise ValueError("C3 execution production status must remain NO-GO")
@@ -77,7 +79,11 @@ def _request_file(path: str | Path) -> Path:
 def _summary_file(core_root: Path, returned: str | Path) -> Path:
     candidate = Path(returned)
     resolved_root = core_root.resolve()
-    resolved = candidate.resolve() if candidate.is_absolute() else (core_root / candidate).resolve()
+    resolved = (
+        candidate.resolve()
+        if candidate.is_absolute()
+        else (core_root / candidate).resolve()
+    )
     if resolved_root != resolved and resolved_root not in resolved.parents:
         raise ValueError("C3 backend returned a summary outside the core output root")
     if resolved.is_symlink() or not resolved.is_file():

@@ -138,7 +138,9 @@ class C3ReportingFixtures:
         *,
         canonical: bool = True,
     ) -> dict[str, object]:
-        resolved = self.valid_summary_payload() if payload is None else deepcopy(payload)
+        resolved = (
+            self.valid_summary_payload() if payload is None else deepcopy(payload)
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         if canonical:
             path.write_bytes(canonical_json_bytes(resolved))

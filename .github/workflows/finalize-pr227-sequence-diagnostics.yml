@@ -38,10 +38,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          uv run python tools/finalize_pr227_sequence_diagnostics.py 2>&1 | tee sequence-diagnostics-finalizer.log
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('tools/finalize_pr227_sequence_diagnostics.py')
+          path = Path('trade_rl/rl/sequence_diagnostics.py')
           text = path.read_text(encoding='utf-8')
           old = '''            policy = getattr(self.model, "policy", None)
               feature_extractor = getattr(policy, "features_extractor", None)
@@ -57,11 +58,12 @@ jobs:
           old_call = '            tensor_observation, _ = policy.obs_to_tensor(last_observation)\n'
           new_call = '            tensor_observation, _ = obs_to_tensor(last_observation)\n'
           if text.count(old) != 1 or text.count(old_call) != 1:
-              raise RuntimeError('sequence diagnostics callback type anchors are invalid')
-          text = text.replace(old, new, 1).replace(old_call, new_call, 1)
-          path.write_text(text, encoding='utf-8')
+              raise RuntimeError('generated sequence diagnostics callback anchors are invalid')
+          path.write_text(
+              text.replace(old, new, 1).replace(old_call, new_call, 1),
+              encoding='utf-8',
+          )
           PY
-          uv run python tools/finalize_pr227_sequence_diagnostics.py 2>&1 | tee sequence-diagnostics-finalizer.log
 
       - name: Verify sequence diagnostics integration
         shell: bash

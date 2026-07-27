@@ -537,10 +537,12 @@ class CostCriticPPO(PPO):
         }
         rng_state = self._torch_rng_state()
         policy_training = self.policy.training
+        critic_training = self.cost_critic.training
         self.policy.set_training_mode(False)
         self.cost_critic.train(True)
-        feature_cache = self._build_cost_feature_cache()
+        completed = False
         try:
+            feature_cache = self._build_cost_feature_cache()
             for _ in range(self.cost_n_epochs):
                 permutation = self._cost_rng.permutation(transition_count)
                 for start in range(0, transition_count, batch_size):
@@ -595,7 +597,10 @@ class CostCriticPPO(PPO):
                     self.cost_critic_optimizer.step()
                     self.cost_update_count += 1
                     losses.append(float(total_loss.detach().cpu()))
+            completed = True
         finally:
+            if not completed:
+                self.cost_critic.train(critic_training)
             self.policy.set_training_mode(policy_training)
             self._restore_torch_rng_state(rng_state)
 

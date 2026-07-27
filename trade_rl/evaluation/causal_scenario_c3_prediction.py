@@ -158,22 +158,6 @@ def create_c3_prediction_evidence(
 ) -> C3PredictionEvidence:
     """Create prediction evidence with a canonical digest."""
 
-    provisional = C3PredictionEvidence.__new__(C3PredictionEvidence)
-    object.__setattr__(provisional, "result_digest", result_digest)
-    object.__setattr__(provisional, "scenario_library_digest", scenario_library_digest)
-    object.__setattr__(provisional, "scenario_set_digest", scenario_set_digest)
-    object.__setattr__(provisional, "candidate_digests", candidate_digests)
-    object.__setattr__(provisional, "predicted_score", predicted_score)
-    object.__setattr__(provisional, "predicted_mean_advantage", predicted_mean_advantage)
-    object.__setattr__(provisional, "predicted_loss_cvar", predicted_loss_cvar)
-    object.__setattr__(
-        provisional, "predicted_expected_turnover", predicted_expected_turnover
-    )
-    object.__setattr__(provisional, "scenario_anchor_indices", scenario_anchor_indices)
-    object.__setattr__(provisional, "scenario_distances", scenario_distances)
-    object.__setattr__(provisional, "schema_version", C3_PREDICTION_EVIDENCE_SCHEMA)
-    object.__setattr__(provisional, "evidence_digest", "0" * 64)
-
     candidate_count = len(candidate_digests)
     score = _readonly_float_vector(
         "predicted_score", predicted_score, size=candidate_count

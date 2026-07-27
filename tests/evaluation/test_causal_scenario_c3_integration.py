@@ -27,6 +27,10 @@ from trade_rl.evaluation.causal_scenario_c3_decision_artifact import (
     write_c3_decision_artifact,
 )
 from trade_rl.evaluation.causal_scenario_c3_gate import evaluate_phase_a_entry_gate
+from trade_rl.evaluation.causal_scenario_c3_perfect_information import (
+    PerfectInformationCompatibilityEvidence,
+    evaluate_perfect_information_compatibility,
+)
 from trade_rl.evaluation.causal_scenario_c3_report import (
     build_c3_aggregate_report,
     build_c3_fold_report,
@@ -179,6 +183,33 @@ class Replay:
         return _outcome(policy_kind, 0.01 + 0.02 * float(raw_residual[0]))
 
 
+def _perfect_information(*, causal_log_return: float) -> PerfectInformationComparison:
+    evidence = PerfectInformationCompatibilityEvidence(
+        causal_period_digest=sha("7"),
+        bound_period_digest=sha("7"),
+        causal_return_matrix_digest=sha("8"),
+        bound_return_matrix_digest=sha("8"),
+        causal_initial_weights=np.asarray([0.0]),
+        bound_initial_weights=np.asarray([0.0]),
+        causal_aum=100_000.0,
+        bound_aum=100_000.0,
+        causal_max_abs_weight=np.asarray([0.45]),
+        bound_max_abs_weight=np.asarray([0.50]),
+        causal_max_gross=0.90,
+        bound_max_gross=1.00,
+        causal_max_net_exposure=0.40,
+        bound_max_net_exposure=0.50,
+        causal_transaction_cost_rate=np.asarray([0.0010]),
+        bound_transaction_cost_rate=np.asarray([0.0005]),
+        causal_liquidation_cost_rate=np.asarray([0.0010]),
+        bound_liquidation_cost_rate=np.asarray([0.0005]),
+        bound_result_digest=sha("9"),
+        bound_log_return=0.08,
+        causal_log_return=causal_log_return,
+    )
+    return evaluate_perfect_information_compatibility(evidence)
+
+
 def _query_comparison(tmp_path: Path, *, fold_index: int, day_index: int):
     fold_id = f"fold-{fold_index}"
     created = _decision(
@@ -192,10 +223,7 @@ def _query_comparison(tmp_path: Path, *, fold_index: int, day_index: int):
         replay=Replay(created.replay_identity),
         ppo_mean_action=np.asarray([0.5]),
         config=CausalScenarioC3Config(random_comparator_count=1),
-        perfect_information=PerfectInformationComparison.comparable(
-            bound_log_return=0.08,
-            causal_log_return=0.03,
-        ),
+        perfect_information=_perfect_information(causal_log_return=0.03),
     )
 
 
@@ -264,10 +292,7 @@ def test_batch_publishes_report_and_gate_from_verified_decisions(
                     decision_root=decision_root,
                     replay=Replay(created.replay_identity),
                     ppo_mean_action=np.asarray([0.5]),
-                    perfect_information=PerfectInformationComparison.comparable(
-                        bound_log_return=0.08,
-                        causal_log_return=0.03,
-                    ),
+                    perfect_information=_perfect_information(causal_log_return=0.03),
                 )
             )
     result = execute_c3_batch(

@@ -114,8 +114,10 @@ def _require_fields(
 def _outcome_payload(outcome: RealizedPolicyOutcome) -> dict[str, object]:
     return {
         "borrow_paid": outcome.borrow_paid,
+        "cancel_replace_events": outcome.cancel_replace_events,
         "fees": outcome.fees,
         "fill_count": outcome.fill_count,
+        "fill_ratio": outcome.fill_ratio,
         "filled_turnover": outcome.filled_turnover,
         "funding_paid": outcome.funding_paid,
         "gross_log_return": outcome.gross_log_return,
@@ -137,8 +139,10 @@ def _load_outcome(value: object, *, field: str) -> RealizedPolicyOutcome:
         payload,
         {
             "borrow_paid",
+            "cancel_replace_events",
             "fees",
             "fill_count",
+            "fill_ratio",
             "filled_turnover",
             "funding_paid",
             "gross_log_return",
@@ -167,9 +171,13 @@ def _load_outcome(value: object, *, field: str) -> RealizedPolicyOutcome:
         impact_cost=_number(payload["impact_cost"], field=f"{field}.impact_cost"),
         funding_paid=_number(payload["funding_paid"], field=f"{field}.funding_paid"),
         borrow_paid=_number(payload["borrow_paid"], field=f"{field}.borrow_paid"),
+        fill_ratio=_number(payload["fill_ratio"], field=f"{field}.fill_ratio"),
         fill_count=_integer(payload["fill_count"], field=f"{field}.fill_count"),
         pending_order_events=_integer(
             payload["pending_order_events"], field=f"{field}.pending_order_events"
+        ),
+        cancel_replace_events=_integer(
+            payload["cancel_replace_events"], field=f"{field}.cancel_replace_events"
         ),
         max_drawdown=_number(payload["max_drawdown"], field=f"{field}.max_drawdown"),
         terminal_equity=_number(
@@ -255,9 +263,15 @@ def _comparison_payload(value: CausalScenarioQueryComparison) -> dict[str, objec
         ],
         "comparison_digest": value.digest,
         "decision_digest": value.decision_digest,
+        "execution_scenario": value.execution_scenario,
         "perfect_information": _perfect_payload(value.perfect_information),
         "ppo_mean": _outcome_payload(value.ppo_mean),
+        "predicted_expected_turnover": value.predicted_expected_turnover.tolist(),
+        "predicted_loss_cvar": value.predicted_loss_cvar.tolist(),
+        "predicted_mean_advantage": value.predicted_mean_advantage.tolist(),
         "predicted_realized_spearman": value.predicted_realized_spearman,
+        "predicted_score": value.predicted_score.tolist(),
+        "prediction_result_digest": value.prediction_result_digest,
         "query_timestamp_ns": value.query_timestamp_ns,
         "random_candidate": _outcome_payload(value.random_candidate),
         "random_candidate_indices": value.random_candidate_indices,
@@ -268,6 +282,8 @@ def _comparison_payload(value: CausalScenarioQueryComparison) -> dict[str, objec
         "random_realized_regrets": value.random_realized_regrets.tolist(),
         "realized_candidate_advantages": value.realized_candidate_advantages.tolist(),
         "replay_identity_digest": value.replay_identity_digest,
+        "scenario_anchor_indices": value.scenario_anchor_indices.tolist(),
+        "scenario_distances": value.scenario_distances.tolist(),
         "scenario_oracle": _outcome_payload(value.scenario_oracle),
         "schema_version": value.schema_version,
         "selected_realized_regret": value.selected_realized_regret,
@@ -285,6 +301,16 @@ def _float_vector(value: object, *, field: str) -> np.ndarray:
     )
 
 
+def _int_vector(value: object, *, field: str) -> np.ndarray:
+    return np.asarray(
+        [
+            _integer(item, field=f"{field}[{index}]")
+            for index, item in enumerate(_list(value, field=field))
+        ],
+        dtype=np.int64,
+    )
+
+
 def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryComparison:
     payload = _object(value, field=field)
     _require_fields(
@@ -293,9 +319,15 @@ def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryCompari
             "candidate_outcomes",
             "comparison_digest",
             "decision_digest",
+            "execution_scenario",
             "perfect_information",
             "ppo_mean",
+            "predicted_expected_turnover",
+            "predicted_loss_cvar",
+            "predicted_mean_advantage",
             "predicted_realized_spearman",
+            "predicted_score",
+            "prediction_result_digest",
             "query_timestamp_ns",
             "random_candidate",
             "random_candidate_indices",
@@ -304,6 +336,8 @@ def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryCompari
             "random_realized_regrets",
             "realized_candidate_advantages",
             "replay_identity_digest",
+            "scenario_anchor_indices",
+            "scenario_distances",
             "scenario_oracle",
             "schema_version",
             "selected_realized_regret",
@@ -345,6 +379,34 @@ def _load_comparison(value: object, *, field: str) -> CausalScenarioQueryCompari
         replay_identity_digest=_string(
             payload["replay_identity_digest"],
             field=f"{field}.replay_identity_digest",
+        ),
+        execution_scenario=_string(
+            payload["execution_scenario"], field=f"{field}.execution_scenario"
+        ),
+        prediction_result_digest=_string(
+            payload["prediction_result_digest"],
+            field=f"{field}.prediction_result_digest",
+        ),
+        predicted_score=_float_vector(
+            payload["predicted_score"], field=f"{field}.predicted_score"
+        ),
+        predicted_mean_advantage=_float_vector(
+            payload["predicted_mean_advantage"],
+            field=f"{field}.predicted_mean_advantage",
+        ),
+        predicted_loss_cvar=_float_vector(
+            payload["predicted_loss_cvar"], field=f"{field}.predicted_loss_cvar"
+        ),
+        predicted_expected_turnover=_float_vector(
+            payload["predicted_expected_turnover"],
+            field=f"{field}.predicted_expected_turnover",
+        ),
+        scenario_anchor_indices=_int_vector(
+            payload["scenario_anchor_indices"],
+            field=f"{field}.scenario_anchor_indices",
+        ),
+        scenario_distances=_float_vector(
+            payload["scenario_distances"], field=f"{field}.scenario_distances"
         ),
         trend=_load_outcome(payload["trend"], field=f"{field}.trend"),
         scenario_oracle=_load_outcome(

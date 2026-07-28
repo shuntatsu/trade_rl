@@ -13,7 +13,6 @@ def test_legacy_execution_trees_are_absent() -> None:
 
 def test_only_trade_rl_is_packaged() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-
     assert config["project"]["name"] == "trade-rl"
     assert config["tool"]["setuptools"]["packages"]["find"]["include"] == ["trade_rl*"]
     assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli:main"}
@@ -24,7 +23,6 @@ def test_source_contains_maintained_direct_target_mode_without_legacy_env() -> N
         path.read_text(encoding="utf-8")
         for path in sorted((ROOT / "trade_rl").rglob("*.py"))
     )
-
     actions = (ROOT / "trade_rl/rl/actions.py").read_text(encoding="utf-8")
     assert 'TARGET_WEIGHT = "target_weight"' in actions
     assert "class TargetWeightAction" in actions
@@ -32,7 +30,7 @@ def test_source_contains_maintained_direct_target_mode_without_legacy_env() -> N
 
 
 def test_workflows_do_not_import_model_frameworks() -> None:
-    workflow_root = Path("trade_rl/workflows")
+    workflow_root = ROOT / "trade_rl/workflows"
     for path in workflow_root.glob("*.py"):
         source = path.read_text(encoding="utf-8")
         assert "stable_baselines3" not in source, path
@@ -40,25 +38,23 @@ def test_workflows_do_not_import_model_frameworks() -> None:
 
 
 def test_walk_forward_evaluation_helpers_live_in_focused_module() -> None:
-    workflow = Path("trade_rl/workflows/market_walk_forward.py").read_text(
+    workflow = (ROOT / "trade_rl/workflows/market_walk_forward.py").read_text(
         encoding="utf-8"
     )
-    focused = Path("trade_rl/workflows/walk_forward_evaluation.py")
     assert "def _evaluate_range(" not in workflow
-    assert focused.is_file()
+    assert (ROOT / "trade_rl/workflows/walk_forward_evaluation.py").is_file()
 
 
 def test_environment_terminal_helpers_live_in_transition_module() -> None:
-    transition = Path("trade_rl/rl/transition.py")
+    transition = ROOT / "trade_rl/rl/transition.py"
     assert transition.is_file()
     assert "class EconomicTransition" in transition.read_text(encoding="utf-8")
 
 
 def test_maintained_docs_reference_reward_schema_v4() -> None:
     for path in (
-        Path("README.md"),
-        Path("README.ja.md"),
-        Path("docs/ARCHITECTURE.md"),
+        ROOT / "README.md",
+        ROOT / "docs/ARCHITECTURE.md",
     ):
         text = path.read_text(encoding="utf-8").lower()
         assert "reward schema v3" not in text
@@ -67,25 +63,24 @@ def test_maintained_docs_reference_reward_schema_v4() -> None:
 
 def test_maintained_docs_reference_serving_bundle_v5() -> None:
     for path in (
-        Path("README.md"),
-        Path("README.ja.md"),
-        Path("docs/ARCHITECTURE.md"),
-        Path("docs/RESEARCH_STATUS.md"),
+        ROOT / "README.md",
+        ROOT / "docs/ARCHITECTURE.md",
+        ROOT / "docs/RESEARCH_STATUS.md",
     ):
         text = path.read_text(encoding="utf-8").lower()
         assert "bundle v4" not in text, path
-        assert "bundle v5" in text or "bundle schema is **v5**" in text, path
+        assert "serving_bundle_v5" in text, path
 
 
 def test_quickstart_installs_training_dependencies_before_training() -> None:
-    text = Path("START.md").read_text(encoding="utf-8")
+    text = (ROOT / "START.md").read_text(encoding="utf-8")
     assert "uv sync --extra dev --extra train-sb3" in text
     assert "uv run trade-rl train run" in text
 
 
 def test_architecture_doc_matches_enforced_layer_order() -> None:
-    architecture = Path("docs/ARCHITECTURE.md").read_text(encoding="utf-8")
-    import_linter = Path(".importlinter").read_text(encoding="utf-8")
+    architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
+    import_linter = (ROOT / ".importlinter").read_text(encoding="utf-8")
     layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
         "[importlinter:contract:domain]", maxsplit=1
     )[0]
@@ -95,11 +90,11 @@ def test_architecture_doc_matches_enforced_layer_order() -> None:
         if line.strip().startswith("trade_rl.")
     )
 
-    marker = "The enforced Import Linter layer order is exactly:"
+    marker = "Import Linterの強制順序は次のとおりです:"
     documented_section = architecture.split(marker, maxsplit=1)[1]
     documented_block = documented_section.split("```", maxsplit=2)[1]
     documented_layers = tuple(
-        line.strip().removeprefix("-> ")
+        line.strip()
         for line in documented_block.splitlines()
         if line.strip() and line.strip() != "text"
     )
@@ -109,7 +104,7 @@ def test_architecture_doc_matches_enforced_layer_order() -> None:
 
 
 def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
-    import_linter = Path(".importlinter").read_text(encoding="utf-8")
+    import_linter = (ROOT / ".importlinter").read_text(encoding="utf-8")
     layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
         "[importlinter:contract:domain]", maxsplit=1
     )[0]
@@ -141,10 +136,10 @@ def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
 
 def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:
     for path in (
-        Path("trade_rl/rl/environment.py"),
-        Path("trade_rl/rl/observations.py"),
-        Path("trade_rl/simulation/execution.py"),
-        Path("trade_rl/strategies/trend.py"),
+        ROOT / "trade_rl/rl/environment.py",
+        ROOT / "trade_rl/rl/observations.py",
+        ROOT / "trade_rl/simulation/execution.py",
+        ROOT / "trade_rl/strategies/trend.py",
     ):
         assert 'mypy: disable-error-code="index"' not in path.read_text(
             encoding="utf-8"
@@ -152,22 +147,20 @@ def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:
 
 
 def test_large_facades_delegate_configuration_to_focused_modules() -> None:
-    environment = Path("trade_rl/rl/environment.py").read_text(encoding="utf-8")
-    walk_forward = Path("trade_rl/workflows/market_walk_forward.py").read_text(
+    environment = (ROOT / "trade_rl/rl/environment.py").read_text(encoding="utf-8")
+    walk_forward = (ROOT / "trade_rl/workflows/market_walk_forward.py").read_text(
         encoding="utf-8"
     )
-
     assert "class ResidualMarketEnvConfig" not in environment
-    assert Path("trade_rl/rl/environment_config.py").is_file()
+    assert (ROOT / "trade_rl/rl/environment_config.py").is_file()
     assert "class MarketWalkForwardConfig" not in walk_forward
-    assert Path("trade_rl/workflows/market_walk_forward_config.py").is_file()
+    assert (ROOT / "trade_rl/workflows/market_walk_forward_config.py").is_file()
 
 
 def test_sb3_and_torch_are_optional_training_dependencies() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     core = set(config["project"]["dependencies"])
     training = set(config["project"]["optional-dependencies"]["train-sb3"])
-
     assert not any(item.startswith("stable-baselines3") for item in core)
     assert not any(item.startswith("sb3-contrib") for item in core)
     assert not any(item.startswith("torch") for item in core)

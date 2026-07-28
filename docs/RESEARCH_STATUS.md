@@ -1,10 +1,11 @@
 # Research Status
 
-## Current capability status — 2026-07-23
+## Current status — 2026-07-28
 
 ```text
-RepositoryIntegrity: VERIFIED_ON_ARCHITECTURE_REMEDIATION_HEAD
+RepositoryIntegrity: VERIFIED_BY_MAIN_CI
 ResearchWorkflows: AVAILABLE
+HierarchicalSequenceV2: IMPLEMENTED_AND_CPU_VERIFIED
 StatefulOHLCExecution: AVAILABLE_WITH_OHLCV_LIMITATIONS
 TradeRLStudio: AVAILABLE_FOR_DIAGNOSTIC_REPLAY_WITH_EPISODE_ISOLATION
 AttestedPaperServing: AVAILABLE_FOR_ELIGIBLE_SELECTED_FINAL_BUNDLES
@@ -13,114 +14,108 @@ EmpiricalProductionGate: NO-GO
 ProfitabilityClaim: NONE
 ```
 
-The current baseline includes the conservative stateful order simulator and the follow-up architecture remediation that unified compatibility execution with the stateful engine, enforced the telemetry dependency boundary, hardened telemetry parsing and indexed reads, centralized canonical JSON, separated PostgreSQL sealed-test reservation responsibilities, decomposed `ResidualMarketEnv`, isolated Live Training replay to one selected vector environment and its current episode, and added producer-issued telemetry episode identity. Exact commit, CI, PostgreSQL, container, and test evidence belongs in the dated [architecture remediation record](verification/2026-07-22-architecture-audit-remediation.md), [post-remediation audit](verification/2026-07-22-post-merge-architecture-audit.md), and [architecture audit closeout](verification/2026-07-23-architecture-audit-closeout.md).
+この表は能力境界です。実装済み、CI検証済み、研究上有効、収益性あり、Production認可済みは別の状態です。
 
-Software verification establishes code, packaging, artifact, and test integrity for a source head. Research validity additionally requires causal data and sealed evaluation. Profitability requires positive repeatable evidence. Release eligibility requires external authorization and attestation. Direct exchange operation requires a separate broker integration. None of those later judgments follows automatically from passing CI.
+## 現在のModel契約
 
-## 2026-07-21 P0 validation boundaries
+維持対象の系列Modelは`hierarchical_sequence_v2`です。
 
-The maintained P0 validation work added three explicit trust boundaries:
+- Clock別Causal TCN
+- Gated Cross-Timeframe Attention
+- Gated Cross-Asset Attention
+- AvailabilityとStalenessの明示入力
+- 組み立て済みModelから生成するArchitecture identity
+- BC、PPO、CostCriticPPO、LagrangianPPOで同一構造
+- Checkpoint、構造化Export、ServingでのDigest照合
 
-1. a PostgreSQL-backed persistent sealed-test ledger that rejects a second opening of the same experiment-plan, dataset, and fold identity across processes;
-2. a real non-zero Training–Serving observation parity test covering symbol/feature order, availability, staleness, hybrid/shadow books, pending target and orders, previous action, raw and normalized observations, policy-member actions, and deterministic ensemble action;
-3. a historical-metadata promotion gate that requires dataset-bound, point-in-time, Ed25519-authenticated, effective-dated full-interval evidence.
+旧Encoder Booleanと`training_run_config_v1`は維持対象ではありません。
 
-A three-seed CPU smoke selected the baseline because both the candidate seed distribution and deployable ensemble failed their declared thresholds. The sealed outer test was opened once and production status remained `NO-GO`. This is correct fail-closed behavior, not a failed pipeline.
+## Software verification
 
-## Conservative stateful execution status
+Main CIで確認する項目:
 
-Normal RL transitions, compatibility target execution, baseline reward pre-roll, sensitivity replay, and deterministic replay share the stateful order engine. The maintained configuration uses:
+- Ruff、Formatting、MyPy
+- Import LinterとDead-code検査
+- 全pytest、Branch coverage、Critical coverage
+- Windows/Linux互換
+- Training image buildとNon-root runtime
+- Sequence projection反復安定性
+- PostgreSQL catalog
+- CPU training capability audit
 
-```text
-path mode: conservative
-processing-bar shared capacity: enabled
-partial-fill carry: enabled
-trigger-volume fractions: 1.00 / 0.50 / 0.25 / 0.00
-stateful environment time in force: GTC
-```
+CUDA実機Evidenceは、指定Labelを持つSelf-hosted runnerが接続されている場合だけ取得できます。Runner未接続による`queued`をCode成功やGPU成功として扱いません。
 
-Order quantity is fixed from decision-time known state. Explicit market, limit, and stop-market orders retain latency, eligibility, trigger state, remaining quantity, time in force, replacement linkage, status, and deterministic events across decisions. Fills share one symbol-level processing-bar capacity pool. Final selected-policy promotion requires complete conservative execution evidence and a matching execution-policy digest. Neutral and optimistic bar paths are diagnostics only.
+## Empirical status
 
-The deterministic replay smoke reproduced order-event, equity-curve, and observation-trace digests. Its candidate was not promoted because the declared performance requirements failed; baseline fallback remained selected.
+Pipeline完走は収益性を意味しません。過去の維持対象比較では、RL候補がBaselineを一貫して上回らず、Production選択は`NO-GO`でした。
 
-OHLCV still cannot reconstruct true intrabar event order, exchange queue position, hidden liquidity, auctions, adverse selection, or L2 depth. Stateful simulation is a conservative research approximation, not proof of exchange-equivalent fills.
+新しいHierarchical sequence v2も、次を固定した比較Evidenceが揃うまで優位性を主張しません。
 
-## Trade RL Studio and training telemetry
+- 同じDataset、Fold、Seed、Teacher、Timesteps
+- 同じAction、Reward、Risk、Execution policy
+- Legacy相当の参照Commit
+- Parameter-countを合わせたMLP control
+- OOS growth、Baseline uplift、Regret、Drawdown、Turnover、Cost
+- Seed dispersion、Worst fold、Throughput、GPU memory
 
-Trade RL Studio is a local research console for validated datasets, configs, exploratory jobs, runs, evidence, comparisons, and read-only serving state. Live Training shows exploratory rollout telemetry as a market replay.
+Architecture改善は、性能改善の証明ではありません。
 
-`training_telemetry_v1` is append-only diagnostic data. It is excluded from checkpoint selection, configuration selection, sealed evaluation, run identity, promotion, release approval, and order execution. BUY/SELL markers represent target-exposure changes, not exchange orders.
+## Stateful execution status
 
-The maintained browser path selects one vector environment and derives the chart, cursor, price, PnL, baseline, drawdown, events, playback, and jump controls from that selected vector environment's current episode. Producer-issued `episode_id` values are nullable and are preferred for episode selection. Historical records with `null` identity retain the terminal and counter-rollback fallback, so existing `training_telemetry_v1` streams remain readable.
+通常Transition、Baseline pre-roll、Sensitivity replay、Deterministic replayは同じStateful order engineを使用します。
 
-Telemetry remains exploratory and is excluded from fitting, checkpoint selection, configuration selection, sealed evaluation, run identity, promotion, release approval, Serving activation, and order routing. The isolation contract prevents false cross-environment or cross-episode continuity; it does not turn telemetry into profitability or exchange-execution evidence.
+維持対象のPrimary promotion条件:
 
-## PostgreSQL artifact catalog
+- Conservative OHLC path
+- Processing-bar shared capacity
+- Partial-fill carry
+- Complete OrderEvent evidence
+- Matching `execution_policy_digest`
 
-The optional PostgreSQL catalog stores verified artifact metadata, canonical cache keys, locations, sizes, dependency edges, lifecycle status, and persistent sealed-test reservations. Datasets, arrays, checkpoints, models, and run evidence remain immutable filesystem artifacts.
+OHLCVはQueue position、Hidden liquidity、Auction、L2 depthを表現しません。Paper reconciliationと実Venue比較が別途必要です。
 
-Catalog registration is idempotent for identical metadata and rejects digest/cache-key conflicts. PostgreSQL is optional for ordinary filesystem operation, but the durable cross-process sealed-test uniqueness guarantee requires the persistent ledger.
+## Causal and sealed evaluation
 
-## Absolute-growth reward and paired inference contract
+NormalizerはFold train capabilityだけでFitし、その後Freezeします。Outer testはConfiguration選択後に一度だけ開きます。
 
-The maintained environment optimizes the hybrid book's net absolute log growth. The independent shadow baseline supplies a light rolling non-inferiority hinge and sealed paired evaluation. Raw interval excess return is not added as a second primary growth objective.
+Candidate eligibilityはSeed分布、Worst seed、Dispersion、Turnover、Cost、Drawdownを含みます。Sealed returnを学習や選択へ戻しません。
 
-The baseline hinge uses a 30-day rolling window, seven-day minimum history, and 1.5% full-window log-growth tolerance. Only increases in hinge severity are penalized. Drawdown shaping is free through 5%, becomes progressively steeper through 20%, and likewise penalizes only newly worsening severity. Zero residual action produces identical hybrid and shadow books, but its reward is the baseline strategy's absolute growth rather than zero.
+独立Foldを、Account-state handoffなしに連続Portfolio returnや1つのMaximum drawdownとして扱いません。
 
-Paired moving-block inference uses `log1p(candidate_return) - log1p(shadow_return)` for its mean, confidence interval, and p-value. That quantity is a selection/non-inferiority contract, not the primary step reward.
+## Studio and diagnostics
 
-The maintained reward contract is **Reward schema v4**.
+`training_telemetry_v1`はAppend-only診断Dataです。Producer-issued`episode_id`を優先し、選択したVector environmentのCurrent episodeだけを表示します。Historical records with`null` identityはTerminalとCounter rollbackで分割します。
 
-## Causal training contract
+TensorBoardには最適化ScalarとSequence attention/gate/gradient診断を表示できます。いずれもModel-selection evidenceではありません。
 
-Maintained finite-horizon training, behavior cloning, checkpoint validation, configuration selection, baseline reward pre-roll, and sealed evaluation use the same stateful execution and liquidation-at-close terminal accounting contracts. Policy observations do not include synthetic episode progress, future tradability, or processing-bar OHLCV before action. They do include the current account, reward/risk state, and persistent pending-order coordinates required for a Markov contract.
+## Paper Serving and release
 
-A 20% hybrid drawdown triggers current-close liquidation of the hybrid policy book and a true `drawdown_stop` terminal transition. The independent shadow book is not charged for a policy-specific failure. Actual liquidation costs enter final wealth and reward; no fixed terminal jackpot is used.
+`serving_bundle_v5`は、Selected-final run、Dataset、Environment、Normalizer、Execution policy、Evaluation evidence、Policy loaderを結合します。
 
-Every policy ensemble records observation schema, action identity, training-configuration digest, requested/actual timesteps, compute device, dataset/environment identity, AUM, normalizers, execution policy, and policy-member digests. Low GPU utilization for a small model is not itself a quality failure; throughput and sealed OOS evidence are the relevant criteria.
+外部`ReleaseAttestation`はBundle digest、Source、Selection、Fresh confirmation、Paper reconciliation、Approver、Expiryを署名します。Private keyはOfflineに保持します。
 
-## AUM and environment identity
+次のいずれかが不正ならActivation前にFail closedします。
 
-Initial capital is an explicit quote-currency research input. The environment refuses construction when AUM is omitted. Environment identity hashes dataset, timing, trend, risk, execution policy, reward, rolling windows, alpha/factor mode, action and observation schemas, sequence settings, and initial capital.
+- SignatureまたはPublic key
+- Bundle/File digest
+- Observation/Action contract
+- Architecture identity
+- Normalizer
+- Execution evidence
+- Expiry
 
-Capacity conclusions must be evaluated at predeclared AUM scenarios. Performance at one capital scale does not establish performance at a larger scale.
+## Production GOに必要なもの
 
-## Nested walk-forward execution
+少なくとも次が必要です。
 
-The maintained workflow uses fold-local signal lineage, stage-scoped dataset capabilities, and a one-shot sealed-test access ledger. Alpha/factor artifacts identify fit/prediction ranges, generator configuration/code digests, validity masks, and row availability times.
+1. 十分な期間と市場状態を覆うOOS Evidence
+2. Paired block-bootstrap下限が正
+3. Predeclared複数Seed・Fold・AUMでの安定性
+4. Conservative execution sensitivityの通過
+5. Fresh signed confirmation
+6. 実Paper environmentとのReconciliation
+7. CUDAを含む対象Runtimeでの再現
+8. Direct exchange connector、Secret管理、Kill switch、Alerting
+9. 運用責任者による外部Authorization
 
-Each fold preserves execution evidence including turnover, fees, funding, borrow, dividends, cash interest, fills, participation, pending-order events, and economic termination. Candidate eligibility is computed from a fixed seed distribution. Configuration selection and sealed testing evaluate the exact deterministic mean-action ensemble that serving loads.
-
-Independent folds are summarized as a distribution with median, weighted mean, win rate, and worst fold. They are not mislabeled as one continuous portfolio return or drawdown. Continuous metrics require contiguous ranges and verified opening/closing state digests.
-
-## Serving and activation contract
-
-Serving candidate bundle v5 identity is `serving_bundle_v5`. The bundle binds runtime contracts and declared files but contains no private approval material. A detached `ReleaseAttestation` binds the immutable bundle to verified dataset, selection/evaluation/gate evidence, fresh confirmation, conservative execution evidence, selected policy, source commit, dependency provenance, approver, approval time, and expiry.
-
-Selected-final packaging now requires a content-addressed `paper_reconciliation_evidence_v1` artifact. Its pass state is recomputed from terminal-order coverage, fill matching, unknown and duplicate fills, open orders, and maximum position-notional, cash, and equity differences. Release packaging additionally caps each declared accounting-difference tolerance at `1e-6`, requires exact dataset/environment/policy/training-run and confirmation-interval identity, binds the order/fill log digests and signed confirmation reconciliation digest, and copies the verified report into immutable bundle file closure. This is a verification capability; no maintained real paper run has yet supplied evidence that clears the production gate.
-
-Registry and runtime require a purpose-bound trusted public key. Unknown-key, unsigned, expired, or tampered attestations fail closed. Before activation, the runtime verifies file closure, rejects symlinks, loads shared normalizers and adapters, and executes deterministic probe observations through every policy member. Structured predictions require a monotonic identity-bound `ServingStateSnapshot` including persistent execution state.
-
-## 2026-07-13 archived real-data result
-
-The archived result remains classified as:
-
-```text
-ResearchRun: COMPLETED
-SignalArtifact: REJECTED
-ResidualPolicyCandidate: NOT_SELECTED
-BaselineFallback: SELECTED_FOR_ANALYSIS
-ProductionRelease: BLOCKED
-```
-
-Configuration A was the identity baseline and had no selected PPO path. The signal gate failed because mean OOS IC was below threshold. The final production gate also failed, including the positive-return significance check. Positive holdout return and positive 2x-cost return remain evidence, but they do not override mandatory failed gates.
-
-The migration fixture prevents this evidence from being mislabeled as a selected policy ensemble or production release.
-
-## Capability boundary
-
-The repository supports research workflows and attested local/paper serving for eligible selected-final bundles. It does not implement direct exchange websocket ingestion, authenticated account access, order submission/cancellation/replacement, broker reconciliation, production secrets, venue kill switches, or operational alerting.
-
-Production remains `NO-GO` until maintained GPU verification, at least 180 OOS days, a strictly positive paired block-bootstrap lower bound on RL-minus-baseline daily log excess, signed fresh confirmation, complete conservative execution evidence, and a real paper-trading reconciliation artifact all pass. Implementing the artifact validator does not satisfy the evidence gate by itself.
-
-See [Architecture](ARCHITECTURE.md), [P0 validation evidence](verification/2026-07-21-p0-validation-baseline.md), [stateful execution verification](verification/2026-07-21-conservative-order-simulator.md), the original [2026-07-22 documentation and architecture audit](verification/2026-07-22-documentation-and-architecture-audit.md), the [architecture remediation record](verification/2026-07-22-architecture-audit-remediation.md), the [post-remediation architecture audit](verification/2026-07-22-post-merge-architecture-audit.md), and the [architecture audit closeout](verification/2026-07-23-architecture-audit-closeout.md).
+現在は満たしていないため、Production statusは**NO-GO**です。

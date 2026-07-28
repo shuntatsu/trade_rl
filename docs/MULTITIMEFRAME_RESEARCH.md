@@ -1,46 +1,29 @@
-# Multi-Timeframe Full Research
+# Multi-Timeframe Research Lifecycle
 
-The maintained full-research workflow is phase-separated and fail-closed. It does not train a selected-final policy in the same process that chooses or approves it.
+この文書は、15m・1h・4h・1dを使う維持対象Research workflowのPhase分離だけを説明します。Model構造は[ARCHITECTURE.md](ARCHITECTURE.md)、設定値は[CONFIGURATION.md](CONFIGURATION.md)を参照してください。
 
-## Phases
+> Production status remains `NO-GO`。Waiting stateは承認待ちであり、収益性やRelease承認を意味しません。
 
-1. `develop` builds the dataset twice, verifies deterministic identity, runs sealed walk-forward research, validates the complete walk-forward artifact directory, evaluates the research and execution-sensitivity gates, normalizes the selected recipe, and writes an immutable `selection-proposal.json`. A successful result is `awaiting_selection_authorization` with exit code 0.
-2. `train-selected` requires the exact proposal, an externally signed Ed25519 authorization, and a read-only public-key store. Authorization is verified before normalizer fitting or model construction. Selected-final training forbids resume checkpoints and writes `training_run_v3` with the complete selection chain. A successful result is `awaiting_fresh_confirmation` with exit code 0.
-3. `finalize` requires Ed25519-signed fresh confirmation whose declared boundary exactly equals the selected-final completion time, begins no earlier than that boundary, covers at least 30 days, and does not extend beyond trusted current time. It writes final gate state without mutating earlier evidence.
+## Phase 1: `develop`
 
-Research rejection returns exit code 2. Infrastructure, integrity, or identity failure returns exit code 3. Waiting for an external approval is not an error.
+Datasetを再構築してIdentityを確認し、Nested walk-forward、Configuration selection、Execution sensitivity、Research gateを実行します。
 
-## Commands
+成功時は不変なSelection proposalを生成し、`awaiting_selection_authorization`で停止できます。Selection結果を同じProcess内で自己承認しません。
 
-```bash
-uv run python examples/binance-multitimeframe/run_full_research_hardened.py \
-  --phase develop \
-  --work-root var/binance-multitimeframe-full
+## Phase 2: `train-selected`
 
-uv run python examples/binance-multitimeframe/run_full_research_hardened.py \
-  --phase train-selected \
-  --work-root var/binance-multitimeframe-full \
-  --selection-authorization /secure/selection-authorization.json \
-  --selection-public-keys /secure/selection-public-keys.json
+Selection proposal and authorizationを外部Ed25519署名で検証してから、Normalizer fittingとModel構築を開始します。Runtimeへ渡すのはpublic keys onlyです。
 
-uv run python examples/binance-multitimeframe/run_full_research_hardened.py \
-  --phase finalize \
-  --work-root var/binance-multitimeframe-full \
-  --confirmation /secure/fresh-confirmation.json \
-  --confirmation-public-keys /secure/confirmation-public-keys.json \
-  --trusted-now 2026-08-18T03:00:00Z
-```
+Selected-final training forbids injected resume checkpoints by contract. 成功時はSelected-final Runを公開し、`awaiting_fresh_confirmation`で停止できます。
 
-`run_full_research.py` is a compatibility launcher to the same state machine; it is not an independent implementation. The maintained code never loads another script through `runpy`.
+## Phase 3: `finalize`
 
-## Metadata modes
+Selected-final完了後のFresh confirmationとPaper reconciliationを検証し、Final gate stateを記録します。以前のArtifactやEvidenceを上書きしません。
 
-- `frozen_snapshot` preserves one official current Binance payload byte-for-byte and clearly marks it unauthenticated and non-point-in-time.
-- `historical_signed` accepts only the v4 rule-history schema with explicit ordered `symbol_order`, exact market and coverage, issue time, source URI, complete effective-dated rules, and an Ed25519 envelope verified against a read-only public-key store. The original signed document is retained as run evidence.
-- `conservative_static` accepts only an explicitly versioned static payload and remains approximation evidence.
+## Exit semantics
 
-Current metadata is never silently projected backwards as historical truth.
+- Waiting for external approval: 正常終了
+- Research rejection: Candidate非昇格
+- Integrity、Identity、Infrastructure failure: 非ゼロ失敗
 
-## Deployment status
-
-All artifacts remain research-only. Direct exchange routing and live capital deployment are `NO-GO`.
+Phaseを跨ぐ値は、PathではなくDigestと署名済みIdentityで結合します。詳しいGPU操作は[Docker GPU Runbook](operations/docker-gpu-full-training.md)を参照してください。

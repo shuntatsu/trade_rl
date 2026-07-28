@@ -32,11 +32,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum .github/architecture-remediation.patch.b64 | cut -d' ' -f1)" = "59371e6541c5cbc14b2f88f0220c227577cdd402931989fbee0e92d62bd08a2a"
-          base64 -d .github/architecture-remediation.patch.b64 | gzip -d > /tmp/architecture-remediation.patch
+          cat .github/arch-patch-00.part .github/arch-patch-01.part \
+            .github/arch-patch-02.part .github/arch-patch-03.part \
+            .github/arch-patch-04.part > /tmp/architecture-remediation.patch.b64
+          test "$(sha256sum /tmp/architecture-remediation.patch.b64 | cut -d' ' -f1)" = "59371e6541c5cbc14b2f88f0220c227577cdd402931989fbee0e92d62bd08a2a"
+          base64 -d /tmp/architecture-remediation.patch.b64 | gzip -d > /tmp/architecture-remediation.patch
           test "$(sha256sum /tmp/architecture-remediation.patch | cut -d' ' -f1)" = "caa8ce17cc5d6845e66c2193879f4f0178ec0ed270e18e43b3c33cdd64ceb9fb"
           git apply --index /tmp/architecture-remediation.patch
           rm -f .github/architecture-remediation.patch.b64
+          rm -f .github/arch-patch-*.part
           rm -f tests/serving/test_architecture_snapshot_transport.py
           git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
           git add -A

@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import torch
 from gymnasium import spaces
 
+from trade_rl.rl import sequence_diagnostics as diagnostics_module
 from trade_rl.rl.gated_transformer import GatedTransformerStack
 from trade_rl.rl.policies import SequenceAssetFeatureExtractor
-from trade_rl.rl import sequence_diagnostics as diagnostics_module
 from trade_rl.rl.sequence_diagnostics import (
     build_sequence_diagnostics_callback,
     sequence_diagnostics_payload,

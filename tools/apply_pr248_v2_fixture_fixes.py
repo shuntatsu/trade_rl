@@ -112,6 +112,50 @@ def _training_run_mapping(run) -> dict[str, object]:
         label="walk-forward public config use",
     )
 
+    replace_once(
+        Path("trade_rl/rl/training.py"),
+        '''        structured_values = (
+            self.structured_export_manifest_path,
+            self.structured_export_manifest_digest,
+            self.structured_export_model_path,
+            self.structured_export_model_digest,
+            self.architecture_digest,
+        )
+        if any(value is not None for value in structured_values) and any(
+            value is None for value in structured_values
+        ):
+            raise ValueError("structured export identity must be complete")
+''',
+        '''        structured_export_values = (
+            self.structured_export_manifest_path,
+            self.structured_export_manifest_digest,
+            self.structured_export_model_path,
+            self.structured_export_model_digest,
+        )
+        if any(value is not None for value in structured_export_values) and (
+            any(value is None for value in structured_export_values)
+            or self.architecture_digest is None
+        ):
+            raise ValueError("structured export identity must be complete")
+''',
+        label="architecture identity independent from export files",
+    )
+    replace_once(
+        Path("tests/rl/test_policy_training_result_structured_export.py"),
+        '''def test_policy_training_result_accepts_complete_structured_export_identity() -> None:
+''',
+        '''def test_policy_training_result_accepts_architecture_identity_without_export() -> None:
+    result = _result(architecture_digest="e" * 64)
+
+    assert result.architecture_digest == "e" * 64
+    assert result.structured_export_manifest_path is None
+
+
+def test_policy_training_result_accepts_complete_structured_export_identity() -> None:
+''',
+        label="architecture-only result regression test",
+    )
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,90 @@
+name: Finalize PR227 Checkpoint Runtime State
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - synchronize
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-pr227-checkpoint-runtime-state
+  cancel-in-progress: true
+
+jobs:
+  verify-and-publish:
+    if: github.event.pull_request.number == 227
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - name: Checkout exact feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/cross-timeframe-attention
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification environment
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Apply checkpoint runtime-state correction
+        run: uv run python tools/finalize_pr227_checkpoint_runtime_state.py
+
+      - name: Verify focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format .
+          uv run ruff check --fix .
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy .
+          uv run pytest -q \
+            tests/rl/test_checkpoint_runtime_state.py \
+            tests/rl/test_checkpointing.py \
+            tests/rl/test_training_performance.py \
+            tests/integrations/test_sb3_training.py
+
+      - name: Verify real CPU resume and capability audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf var/pr227-checkpoint-runtime-audit
+          uv run python tools/run_training_capability_audit.py \
+            --output var/pr227-checkpoint-runtime-audit
+          test -f var/pr227-checkpoint-runtime-audit/audit-report.json
+
+      - name: Publish verified correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/workflows/finalize-pr227-checkpoint-runtime-state.yml \
+            tools/finalize_pr227_checkpoint_runtime_state.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: exclude transient instrumentation from checkpoints'
+          git push origin HEAD:agent/cross-timeframe-attention
+
+      - name: Report failure to PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh pr comment 227 --body
+          "Checkpoint runtime-state verification failed in Actions run ${GITHUB_RUN_ID}."

@@ -1,6 +1,6 @@
 # Docker GPU Full Training
 
-このRunbookは、維持対象のBinance Multi-Timeframe研究をDockerとCUDAで実行する手順です。成功はPipeline Evidenceであり、収益性やProduction認可を意味しません。
+Production status remains `NO-GO`. このRunbookは、維持対象のBinance Multi-Timeframe研究をDockerとCUDAで実行する手順です。成功はPipeline Evidenceであり、収益性やProduction認可を意味しません。
 
 ## 前提
 
@@ -62,6 +62,8 @@ Raw Binance archive cacheと学習Artifact volumeを分離します。学習開�
 
 Cache削除は次回Downloadを発生させます。Published dataset、Run、Checkpointを同時に削除しないでください。
 
+Protected **Control Binance frozen 226 full generation** workflowは、Trainer起動前にMarket archiveの不足分だけを同期します。直接`trainer`を起動した場合も、学習開始前のRead-only completeness checkを通過しなければ非ゼロ終了します。
+
 ## GitHub Actionsの安全境界
 
 Self-hosted GPU workflowは、Pull RequestのCodeを実行しません。次を要求します。
@@ -74,22 +76,40 @@ Self-hosted GPU workflowは、Pull RequestのCodeを実行しません。次を�
 
 Jobが`queued`で`runner_id = 0`の場合、Environment承認ではなく、Labelに一致するRunnerが接続されていない可能性があります。Runner serviceとLabelを確認してください。
 
+Private Ed25519 keys must never be stored in Actions secrets, Docker environment variables, images, volumes, or the repository. TrainerとRuntimeへ渡すのはpublic keys onlyと署名済みArtifactです。
+
+## Phase control
+
+**Control Binance frozen 226 full generation**を`main`から実行し、Operation、Phase、Generationを明示します。
+
+- `develop`: Dataset、Walk-forward、Gateを実行し、selection proposal and authorizationの境界で停止可能
+- `train-selected`: 外部Authorizationを検証してSelected-finalを学習し、`awaiting_fresh_confirmation`で停止可能
+- `finalize`: Fresh confirmationとPaper reconciliationを検証してFinal gateを記録
+
+Waiting stateは失敗ではありません。Research rejectionとInfrastructure failureは別のExit codeで記録します。
+
 ## Evidence
 
 Generationごとに、少なくとも次を保持します。
 
 ```text
-cuda-preflight.json
-entrypoint-provenance.json
-heartbeat.json
-summary.json
-artifacts/
+/workspace/var/runs/<generation>/cuda-preflight.json
+/workspace/var/runs/<generation>/entrypoint-provenance.json
+/workspace/var/runs/<generation>/heartbeat.json
+/workspace/var/runs/<generation>/summary.json
+/workspace/var/runs/<generation>/artifacts/
 container inspect
 complete logs
 exit status
 ```
 
 失敗Containerを削除する前に、Inspect、Log、Generation directoryを回収します。
+
+## Monitoring
+
+**Monitor Binance frozen 226 full generation**はRead-onlyです。external expectation file、Container label、Image ID、Source/lock identity、heartbeat、Maximum runtime、OOM、Docker healthを照合します。
+
+Expectationが存在しない場合は`idle`です。Container消失、Identity変更、Stale/Future heartbeat、OOM、Abnormal stateを検出した場合はFail closedします。
 
 ## TensorBoardとStudio
 
@@ -106,8 +126,12 @@ Sequence diagnosticsにはAttention、Gate、Missing ratio、Gradient normが含
 - Runner待ち: Self-hosted runner processとLabelsを確認
 - Phase失敗: 同じGenerationをClean runとして再利用しない
 
+selected-final training forbids injected resume checkpoints by contract. 失敗したGenerationをClean runとして再利用せず、許可されたWaiting stateからの継続か、新しいGenerationを使用します。
+
 ## Stop
 
-Detached実行を停止するときは、Container停止、Evidence回収、Artifact upload、Container削除の順に処理します。Log回収前にContainerを削除しないでください。
+Detached実行を停止するときは、Container停止、Evidence回収、Artifact upload、Container削除、Expectation削除の順に処理します。
+
+Logs are never requested after container removal. Log回収前にContainerを削除しないでください。
 
 Hardware別の候補値は[4070 Ti SUPER資料](../performance/4070ti-super-full-training.md)を参照してください。

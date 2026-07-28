@@ -11,23 +11,20 @@ on:
 permissions:
   actions: read
   contents: read
+  deployments: read
 
 jobs:
   inspect:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect main CUDA workflow
+      - name: Inspect main CUDA workflow and runner state
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p main-actions-inspection
-          gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" \
-            --jq '{total_count, workflows: [.workflows[] | {id, name, path, state}]}' \
-            > main-actions-inspection/workflows.json
           gh api \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/finalize-pr227-gpu-verification.yml" \
             > main-actions-inspection/workflow.json
@@ -36,13 +33,29 @@ jobs:
             --jq '{total_count, runs: [.workflow_runs[] | {id, event, status, conclusion, head_sha, head_branch, run_number, created_at, updated_at, actor: .actor.login, html_url}]}' \
             > main-actions-inspection/runs.json
           gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=0b02ff7b4f7d392274578290dd1d6d309b29cece&per_page=100" \
-            --jq '{total_count, runs: [.workflow_runs[] | {id, name, path, event, status, conclusion, head_sha, head_branch, run_number, created_at, updated_at, actor: .actor.login, html_url}]}' \
-            > main-actions-inspection/main-sha-runs.json
-          cat main-actions-inspection/workflows.json
-          cat main-actions-inspection/workflow.json
-          cat main-actions-inspection/runs.json
-          cat main-actions-inspection/main-sha-runs.json
+            "repos/${GITHUB_REPOSITORY}/actions/runs/30327451356" \
+            > main-actions-inspection/cuda-run.json
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/30327451356/jobs?per_page=100" \
+            --jq '{total_count, jobs: [.jobs[] | {id, name, status, conclusion, started_at, completed_at, runner_id, runner_name, runner_group_id, runner_group_name, labels}]}' \
+            > main-actions-inspection/cuda-jobs.json
+          set +e
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" \
+            --jq '{total_count, runners: [.runners[] | {id, name, os, status, busy, labels: [.labels[].name]}]}' \
+            > main-actions-inspection/runners.json \
+            2> main-actions-inspection/runners-error.txt
+          echo "$?" > main-actions-inspection/runners-exit-code.txt
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/environments/gpu-full-training" \
+            > main-actions-inspection/environment.json \
+            2> main-actions-inspection/environment-error.txt
+          echo "$?" > main-actions-inspection/environment-exit-code.txt
+          set -e
+          for file in main-actions-inspection/*; do
+            echo "--- ${file}"
+            cat "${file}"
+          done
 
       - name: Upload inspection evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -1,0 +1,47 @@
+# Trade RL ドキュメント
+
+このDirectoryには、**現在のmainで維持している契約だけ**を置きます。完了済みの実装計画、監査ログ、一時検証記録は作業ツリーから削除し、Git履歴で参照します。
+
+## 読む順番
+
+| 目的 | 文書 |
+|---|---|
+| まず動かす | [START.md](../START.md) |
+| 全体構造を理解する | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| 設定項目を調べる | [CONFIGURATION.md](CONFIGURATION.md) |
+| 研究結果を正しく解釈する | [RESEARCH_STATUS.md](RESEARCH_STATUS.md) |
+| Binance Public Dataを作る | [BINANCE.md](BINANCE.md) |
+| DockerとCUDAで完全実行する | [operations/docker-gpu-full-training.md](operations/docker-gpu-full-training.md) |
+| Causal Scenario C3を実行する | [operations/causal-scenario-c3-execution.md](operations/causal-scenario-c3-execution.md) |
+| 4070 Ti SUPER向け設定を確認する | [performance/4070ti-super-full-training.md](performance/4070ti-super-full-training.md) |
+| Studioを使う | [studio/README.md](../studio/README.md) |
+
+Repositoryの概要は[README.md](../README.md)が正本です。
+
+## 文書の責務
+
+- `README.md`: 状態、Quickstart、能力境界、主要リンク
+- `START.md`: 実行手順とTroubleshooting
+- `ARCHITECTURE.md`: 現行実装の責務、Data flow、Identity、Fail-closed境界
+- `CONFIGURATION.md`: 現行Schemaと設定値
+- `RESEARCH_STATUS.md`: 実装済み能力、未取得Evidence、Production gate
+- `BINANCE.md`: Public market dataとMetadata mode
+- `operations/`: 実行Runbook
+- `performance/`: Hardware別の測定・候補設定
+- `studio/README.md`: UIと診断Telemetryの境界
+
+同じ説明を複数ファイルへ複製せず、責務を持つ文書へLinkします。
+
+## 更新ルール
+
+1. 現在の実装を記述し、開発経緯は記述しない。
+2. Schema名、CLI、Path、設定名はCodeまたは維持対象Exampleと一致させる。
+3. 実装済み、検証済み、収益性、Production認可を分ける。
+4. `NO-GO`を、Pipeline失敗やモデル失敗と混同しない。
+5. 一時的なCommit SHAやActions run IDは、維持文書へ固定しない。
+6. Relative linkを使い、文書契約Testで解決可能性を確認する。
+7. 完了済みPlanやAudit reportを新たな現行文書として残さない。
+
+## 履歴資料
+
+削除された文書はGit履歴から参照できます。特定時点の設計判断を調べる場合は、該当CommitまたはPull Requestの変更履歴を使用してください。

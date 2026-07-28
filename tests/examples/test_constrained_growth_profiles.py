@@ -65,8 +65,10 @@ def _assert_common_full_scale_contract(config: TrainingRunConfig) -> None:
     assert training.policy_net_arch == (384, 256, 128)
     assert training.value_net_arch == (512, 384, 256)
     assert training.sequence_d_model == 336
-    assert training.sequence_attention_heads == 8
-    assert training.sequence_attention_layers == 2
+    assert training.sequence_timeframe_attention_heads == 8
+    assert training.sequence_timeframe_attention_layers == 2
+    assert training.sequence_asset_attention_heads == 8
+    assert training.sequence_asset_attention_layers == 2
     assert training.sequence_compile is True
     assert training.sequence_compile_mode == "reduce-overhead"
     assert training.sequence_transfer_mode == "pinned_non_blocking"

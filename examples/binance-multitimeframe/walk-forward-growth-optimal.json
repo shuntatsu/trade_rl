@@ -107,7 +107,7 @@
           "max_turnover": null,
           "no_trade_band": 0.05
         },
-        "schema_version": "training_run_config_v1",
+        "schema_version": "training_run_config_v2",
         "training": {
           "algorithm": "ppo",
           "batch_size": 256,
@@ -217,7 +217,7 @@
   "minimum_selection_score": 0.0,
   "minimum_selection_uplift": 0.001,
   "minimum_worst_seed_uplift": 0.0,
-  "schema_version": "training_run_config_v2",
+  "schema_version": "market_walk_forward_config_v1",
   "sealed_test_ledger_mode": "durable_postgres",
   "workflow": {
     "checkpoint_bars": 2880,

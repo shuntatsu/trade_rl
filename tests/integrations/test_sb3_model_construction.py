@@ -17,13 +17,7 @@ def _config(algorithm: str = "ppo", **changes: object) -> ResidualTrainingConfig
         "gamma": 0.99,
         "seeds": (0,),
         "algorithm": algorithm,
-        "observation_encoder": "invalid_legacy_combination"
-        if (False) and (False)
-        else "hierarchical_sequence_v2"
-        if (False)
-        else "asset_set"
-        if (False)
-        else "flat_mlp",
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     payload.update(changes)

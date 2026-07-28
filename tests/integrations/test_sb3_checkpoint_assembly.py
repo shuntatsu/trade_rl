@@ -16,13 +16,7 @@ def _config(**changes: object) -> ResidualTrainingConfig:
         "timesteps": 8,
         "gamma": 0.99,
         "seeds": (0,),
-        "observation_encoder": "invalid_legacy_combination"
-        if (False) and (False)
-        else "hierarchical_sequence_v2"
-        if (False)
-        else "asset_set"
-        if (False)
-        else "flat_mlp",
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     payload.update(changes)
@@ -163,15 +157,7 @@ def test_checkpoint_loader_rebinds_sequence_reconstructor(
     )
 
     config = _config(
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (True) and (False)
-            else "hierarchical_sequence_v2"
-            if (True)
-            else "asset_set"
-            if (False)
-            else "flat_mlp"
-        ),
+        observation_encoder=("hierarchical_sequence_v2"),
         policy="MultiInputPolicy",
     )
     manifest = _manifest(config)

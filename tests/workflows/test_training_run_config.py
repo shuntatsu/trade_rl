@@ -210,13 +210,7 @@ def test_sequence_training_rejects_flat_export_and_declares_native_serving_suppo
     raw["training"] = {
         **raw["training"],  # type: ignore[arg-type]
         "policy": "MultiInputPolicy",
-        "observation_encoder": "invalid_legacy_combination"
-        if (True) and (False)
-        else "hierarchical_sequence_v2"
-        if (True)
-        else "asset_set"
-        if (False)
-        else "flat_mlp",
+        "observation_encoder": "hierarchical_sequence_v2",
     }
     raw["environment"] = {
         **raw["environment"],  # type: ignore[arg-type]

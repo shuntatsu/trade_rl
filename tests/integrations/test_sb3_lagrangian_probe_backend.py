@@ -162,15 +162,7 @@ def _config() -> ResidualTrainingConfig:
         n_envs=1,
         batch_size=4,
         n_epochs=1,
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (False) and (False)
-            else "hierarchical_sequence_v2"
-            if (False)
-            else "asset_set"
-            if (False)
-            else "flat_mlp"
-        ),
+        observation_encoder=("flat_mlp"),
         device="cpu",
         lagrangian_budgets=(0.1,) * count,
         lagrangian_dual_learning_rates=(0.05,) * count,

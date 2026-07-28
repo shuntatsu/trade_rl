@@ -566,6 +566,9 @@ def _sequence_training(root: Path) -> dict[str, object]:
         sequence_asset_attention_layers=1,
         sequence_dropout=0.0,
         max_policy_parameters=2_000_000,
+        behavior_cloning_epochs=1,
+        behavior_cloning_batch_size=16,
+        behavior_cloning_validation_fraction=0.1,
         device="cpu",
     )
     output = root / "structured-sequence" / "policy.zip"
@@ -578,8 +581,23 @@ def _sequence_training(root: Path) -> dict[str, object]:
     architecture = json.loads(architecture_path.read_text(encoding="utf-8"))
     if architecture["architecture"].get("encoder") != "MultiTimeframeTCNEncoder":
         raise RuntimeError("structured sequence encoder was not instantiated")
+    behavior_cloning_path = output.parent / "behavior-cloning.json"
+    if not behavior_cloning_path.is_file():
+        raise RuntimeError("structured sequence behavior cloning evidence is missing")
+    behavior_cloning = json.loads(behavior_cloning_path.read_text(encoding="utf-8"))
+    for field in ("initial_mse", "final_mse"):
+        if not np.isfinite(float(behavior_cloning[field])):
+            raise RuntimeError(
+                f"structured sequence behavior cloning {field} is invalid"
+            )
     return {
         "actual_timesteps": result.actual_timesteps,
+        "behavior_cloning": {
+            "final_mse": behavior_cloning["final_mse"],
+            "initial_mse": behavior_cloning["initial_mse"],
+            "sample_count": behavior_cloning["sample_count"],
+            "status": "pass",
+        },
         "observation_schema": result.observation_schema,
         "parameter_count": result.parameter_count,
         "observation_encoder": "hierarchical_sequence_v2",

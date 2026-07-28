@@ -75,13 +75,7 @@ def _smoke_config_payload(
         raise ValueError("quickstart training template has no training object")
     training.update(
         {
-            "observation_encoder": "invalid_legacy_combination"
-            if (True) and (False)
-            else "hierarchical_sequence_v2"
-            if (True)
-            else "asset_set"
-            if (False)
-            else "flat_mlp",
+            "observation_encoder": "hierarchical_sequence_v2",
             "asset_embedding_dim": 64,
             "global_embedding_dim": 64,
             "batch_size": 32,

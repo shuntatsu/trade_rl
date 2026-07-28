@@ -64,13 +64,7 @@ def _config(**changes: object) -> ResidualTrainingConfig:
         "n_envs": 1,
         "batch_size": 8,
         "n_epochs": 1,
-        "observation_encoder": "invalid_legacy_combination"
-        if (False) and (False)
-        else "hierarchical_sequence_v2"
-        if (False)
-        else "asset_set"
-        if (False)
-        else "flat_mlp",
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     payload.update(changes)
@@ -139,15 +133,7 @@ def test_asset_set_assembly_preserves_layout_metadata() -> None:
     from trade_rl.rl.policies import AssetSetFeatureExtractor
 
     config = _config(
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (False) and (True)
-            else "hierarchical_sequence_v2"
-            if (False)
-            else "asset_set"
-            if (True)
-            else "flat_mlp"
-        ),
+        observation_encoder=("asset_set"),
         asset_embedding_dim=24,
         global_embedding_dim=16,
     )

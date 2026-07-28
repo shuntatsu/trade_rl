@@ -14,13 +14,7 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_steps": 2_048,
         "batch_size": 64,
         "n_epochs": 10,
-        "observation_encoder": "invalid_legacy_combination"
-        if (False) and (False)
-        else "hierarchical_sequence_v2"
-        if (False)
-        else "asset_set"
-        if (False)
-        else "flat_mlp",
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     values.update(overrides)
@@ -81,27 +75,11 @@ def test_non_sequence_observation_encoder_rejects_sequence_parameters() -> None:
 
 def test_compact_sequence_capacity_is_explicit_and_identity_bound() -> None:
     standard = _config(
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (True) and (False)
-            else "hierarchical_sequence_v2"
-            if (True)
-            else "asset_set"
-            if (False)
-            else "flat_mlp"
-        ),
+        observation_encoder=("hierarchical_sequence_v2"),
         policy="MultiInputPolicy",
     )
     compact = _config(
-        observation_encoder=(
-            "invalid_legacy_combination"
-            if (True) and (False)
-            else "hierarchical_sequence_v2"
-            if (True)
-            else "asset_set"
-            if (False)
-            else "flat_mlp"
-        ),
+        observation_encoder=("hierarchical_sequence_v2"),
         sequence_tcn_capacity="compact",
         policy="MultiInputPolicy",
     )
@@ -110,15 +88,7 @@ def test_compact_sequence_capacity_is_explicit_and_identity_bound() -> None:
     assert compact.digest_payload() != standard.digest_payload()
     with pytest.raises(ValueError, match="sequence_tcn_capacity"):
         _config(
-            observation_encoder=(
-                "invalid_legacy_combination"
-                if (True) and (False)
-                else "hierarchical_sequence_v2"
-                if (True)
-                else "asset_set"
-                if (False)
-                else "flat_mlp"
-            ),
+            observation_encoder=("hierarchical_sequence_v2"),
             sequence_tcn_capacity="tiny",
             policy="MultiInputPolicy",
         )

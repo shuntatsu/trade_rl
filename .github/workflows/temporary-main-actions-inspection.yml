@@ -25,16 +25,21 @@ jobs:
           set -euo pipefail
           mkdir -p main-actions-inspection
           gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/main-docker-cuda-verification.yml" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" \
+            --jq '{total_count, workflows: [.workflows[] | {id, name, path, state}]}' \
+            > main-actions-inspection/workflows.json
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/finalize-pr227-gpu-verification.yml" \
             > main-actions-inspection/workflow.json
           gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/main-docker-cuda-verification.yml/runs?branch=main&per_page=30" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/finalize-pr227-gpu-verification.yml/runs?branch=main&per_page=30" \
             --jq '{total_count, runs: [.workflow_runs[] | {id, event, status, conclusion, head_sha, head_branch, run_number, created_at, updated_at, actor: .actor.login, html_url}]}' \
             > main-actions-inspection/runs.json
           gh api \
             "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=0b02ff7b4f7d392274578290dd1d6d309b29cece&per_page=100" \
             --jq '{total_count, runs: [.workflow_runs[] | {id, name, path, event, status, conclusion, head_sha, head_branch, run_number, created_at, updated_at, actor: .actor.login, html_url}]}' \
             > main-actions-inspection/main-sha-runs.json
+          cat main-actions-inspection/workflows.json
           cat main-actions-inspection/workflow.json
           cat main-actions-inspection/runs.json
           cat main-actions-inspection/main-sha-runs.json

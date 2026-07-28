@@ -207,3 +207,34 @@ def test_checkpoint_collision_rejects_conflicting_run_identity(tmp_path: Path) -
             training_config_digest="b" * 64,
         )
     assert len(checkpoint_manifests(checkpoint_root)) == 1
+
+
+def test_checkpoint_callback_disables_sequence_diagnostics_without_tensorboard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def build(**kwargs: object) -> None:
+        calls.append(dict(kwargs))
+        return None
+
+    monkeypatch.setattr(
+        "trade_rl.rl.sequence_diagnostics.build_sequence_diagnostics_callback",
+        build,
+    )
+    callback = build_checkpoint_callback(
+        checkpoint_root=tmp_path / "checkpoints",
+        algorithm="ppo",
+        seed=0,
+        interval_steps=0,
+        max_checkpoints=1,
+        total_timesteps=8,
+        environment_digest="e" * 64,
+        training_config_digest="a" * 64,
+        sequence_diagnostics_enabled=False,
+        sequence_diagnostics_interval=4,
+    )
+
+    assert calls == [{"enabled": False, "rollout_interval": 4}]
+    assert len(callback.callbacks) == 1

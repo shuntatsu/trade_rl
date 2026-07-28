@@ -122,6 +122,13 @@ def _serving_package_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _serving_smoke_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="trade-rl serving smoke")
+    parser.add_argument("--bundle", type=Path, required=True)
+    parser.add_argument("--architecture-digest", required=True)
+    return parser
+
+
 def _selection_authorize_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="trade-rl selection authorize")
     parser.add_argument("--proposal", type=Path, required=True)
@@ -556,6 +563,47 @@ def _run_serving_package(
     return 0
 
 
+def _run_serving_smoke(
+    argv: Sequence[str],
+    *,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    args = _serving_smoke_parser().parse_args(list(argv))
+    try:
+        from trade_rl.serving.bundle import load_serving_bundle
+        from trade_rl.serving.policy_loader import canonical_policy_loader
+
+        bundle = load_serving_bundle(args.bundle)
+        loader = canonical_policy_loader(
+            manifest=bundle.manifest,
+            architecture_digest=args.architecture_digest,
+        )
+        load = getattr(loader, "load", None)
+        if not callable(load):
+            raise TypeError("canonical policy loader does not support load")
+        policy = load(bundle)
+        smoke_factory = getattr(policy, "smoke_observation", None)
+        predict = getattr(policy, "predict", None)
+        if not callable(smoke_factory) or not callable(predict):
+            raise TypeError("canonical policy does not expose smoke prediction")
+        action = predict(smoke_factory())
+    except Exception as error:
+        return _error(stderr, error, schema="serving_smoke_error_v1")
+    _write_json(
+        stdout,
+        {
+            "action": [float(value) for value in action],
+            "architecture_digest": args.architecture_digest,
+            "bundle_digest": bundle.manifest.bundle_digest,
+            "production_status": "NO-GO",
+            "schema": "serving_smoke_result_v1",
+            "status": "validated_read_only",
+        },
+    )
+    return 0
+
+
 def _run_training(
     argv: Sequence[str],
     *,
@@ -645,6 +693,8 @@ def main(
         return _run_walk_forward(arguments[2:], stdout=output, stderr=errors)
     if arguments[:2] == ["serving", "package"]:
         return _run_serving_package(arguments[2:], stdout=output, stderr=errors)
+    if arguments[:2] == ["serving", "smoke"]:
+        return _run_serving_smoke(arguments[2:], stdout=output, stderr=errors)
     if arguments[:2] == ["selection", "authorize"]:
         return _run_selection_authorize(arguments[2:], stdout=output, stderr=errors)
     if arguments[:2] == ["release", "approve"]:

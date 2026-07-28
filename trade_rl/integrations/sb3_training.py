@@ -50,6 +50,7 @@ from trade_rl.rl.training import (
     _environment_identity,
     _validate_training_environment,
 )
+from trade_rl.rl.training_modes import CudaRuntimeMode
 from trade_rl.rl.training_performance import (
     TrainingPerformanceRecorder,
     activate_training_performance,
@@ -57,9 +58,14 @@ from trade_rl.rl.training_performance import (
 )
 
 
-def _configure_torch_cuda_runtime(torch: Any, device: object) -> dict[str, object]:
-    """Enable maintained CUDA fast paths without reducing training work."""
+def _configure_torch_cuda_runtime(
+    torch: Any,
+    device: object,
+    mode: CudaRuntimeMode | str,
+) -> dict[str, object]:
+    """Apply one explicit CUDA speed/reproducibility contract."""
 
+    resolved_mode = CudaRuntimeMode(mode)
     requested = str(device).strip().lower()
     uses_cuda = requested == "auto" and bool(torch.cuda.is_available())
     if requested != "auto":
@@ -67,23 +73,34 @@ def _configure_torch_cuda_runtime(torch: Any, device: object) -> dict[str, objec
             uses_cuda = torch.device(device).type == "cuda"
         except (RuntimeError, TypeError, ValueError):
             uses_cuda = False
-    if uses_cuda:
-        # Ampere-and-newer GPUs accelerate float32 matrix products through TF32.
+
+    deterministic = resolved_mode is CudaRuntimeMode.DETERMINISTIC
+    torch.use_deterministic_algorithms(deterministic, warn_only=False)
+    if uses_cuda and deterministic:
+        torch.set_float32_matmul_precision("highest")
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    elif uses_cuda:
+        # Performance mode intentionally permits nondeterministic kernel selection.
         # Parameters, optimizer state, losses, and checkpoints remain float32.
         torch.set_float32_matmul_precision("high")
-        # Sequence windows and mini-batches use a small fixed set of shapes, so
-        # the one-time cuDNN search is amortized over the full training run.
-        # SB3 enables deterministic cuDNN while seeding a CUDA model; that
-        # forces a pathologically slow algorithm for our dilated Conv1d stack.
-        # Reapply this after model construction/load as well as before it.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
+
     bf16_supported = bool(
         uses_cuda
         and callable(getattr(torch.cuda, "is_bf16_supported", None))
         and torch.cuda.is_bf16_supported()
     )
     return {
+        "mode": str(resolved_mode),
+        "deterministic_algorithms": bool(
+            torch.are_deterministic_algorithms_enabled()
+        ),
         "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
         "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
         "cudnn_tf32": bool(torch.backends.cudnn.allow_tf32),
@@ -307,6 +324,20 @@ def _build_parallel_sequence_training_environment(
         raise
 
 
+def _reset_observation_for_export(environment: object, *, seed: int) -> Mapping[str, np.ndarray]:
+    reset = getattr(environment, "reset", None)
+    if not callable(reset):
+        raise TypeError("structured export environment does not support reset")
+    try:
+        raw = reset(seed=seed)
+    except TypeError:
+        raw = reset()
+    observation = raw[0] if isinstance(raw, tuple) and len(raw) == 2 else raw
+    if not isinstance(observation, Mapping):
+        raise ValueError("structured export requires a mapping observation")
+    return {key: np.asarray(value) for key, value in observation.items()}
+
+
 class StableBaselines3Backend:
     """Train one policy with an optional SB3-family algorithm."""
 
@@ -317,11 +348,24 @@ class StableBaselines3Backend:
         verbose: int = 0,
         resume_replay_artifact: Path | None = None,
         resume_checkpoint_artifacts: Mapping[int, Path] | None = None,
+        structured_export_enabled: bool = False,
+        structured_export_tolerance: float = 1e-5,
     ) -> None:
         self.environment_factory = environment_factory
         self.verbose = verbose
         self.resume_replay_artifact = resume_replay_artifact
         self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
+        if not isinstance(structured_export_enabled, bool):
+            raise ValueError("structured_export_enabled must be a boolean")
+        if (
+            not np.isfinite(structured_export_tolerance)
+            or structured_export_tolerance <= 0.0
+        ):
+            raise ValueError(
+                "structured_export_tolerance must be finite and positive"
+            )
+        self.structured_export_enabled = structured_export_enabled
+        self.structured_export_tolerance = float(structured_export_tolerance)
         raw_teacher_cache = os.environ.get("TRADE_RL_TEACHER_CACHE_ROOT", "").strip()
         self.teacher_cache_root = (
             None if not raw_teacher_cache else Path(raw_teacher_cache).resolve()
@@ -471,7 +515,17 @@ class StableBaselines3Backend:
     ) -> PolicyTrainingResult:
         import torch
 
-        torch_runtime = _configure_torch_cuda_runtime(torch, config.device)
+        torch_runtime = _configure_torch_cuda_runtime(
+            torch,
+            config.device,
+            config.cuda_runtime_mode,
+        )
+        if self.structured_export_enabled and (
+            config.observation_encoder != "hierarchical_sequence_v2"
+        ):
+            raise ValueError(
+                "structured export requires hierarchical_sequence_v2"
+            )
 
         probe = self.environment_factory()
         environment: Any | None = None
@@ -567,7 +621,11 @@ class StableBaselines3Backend:
             # Stable-Baselines3 seeds CUDA during model construction/loading and
             # resets cuDNN to its deterministic, slow dilated-convolution path.
             # Capture and persist the effective post-construction runtime state.
-            torch_runtime = _configure_torch_cuda_runtime(torch, config.device)
+            torch_runtime = _configure_torch_cuda_runtime(
+                torch,
+                config.device,
+                config.cuda_runtime_mode,
+            )
             sequence_runtime = _configure_sequence_runtime(torch, model, config)
 
             parameter_count = sum(
@@ -897,6 +955,8 @@ class StableBaselines3Backend:
                 starting_timestep=starting_timestep,
                 environment_digest=str(identity["environment_digest"]),
                 training_config_digest=content_digest(config.digest_payload()),
+                sequence_diagnostics_enabled=config.tensorboard_enabled,
+                sequence_diagnostics_interval=config.tensorboard_log_interval,
             )
             metrics_callback = build_tensorboard_metrics_callback(
                 enabled=config.tensorboard_enabled,
@@ -960,6 +1020,53 @@ class StableBaselines3Backend:
             if created != output_path:
                 created.replace(output_path)
 
+            structured_manifest_path: Path | None = None
+            structured_manifest_digest: str | None = None
+            structured_model_path: Path | None = None
+            structured_model_digest: str | None = None
+            architecture_digest: str | None = None
+            if config.observation_encoder == "hierarchical_sequence_v2":
+                from trade_rl.rl.policy_identity import model_sb3_policy_identity
+
+                policy_identity = model_sb3_policy_identity(model)
+                raw_architecture_digest = (
+                    None
+                    if policy_identity is None
+                    else policy_identity.get("sequence_architecture_digest")
+                )
+                if not isinstance(raw_architecture_digest, str):
+                    raise RuntimeError(
+                        "hierarchical model architecture identity is unavailable"
+                    )
+                architecture_digest = raw_architecture_digest
+            if self.structured_export_enabled:
+                from trade_rl.rl.structured_export import (
+                    STRUCTURED_EXPORT_MANIFEST_NAME,
+                    export_structured_policy_actor,
+                )
+
+                example_observation = _reset_observation_for_export(
+                    environment,
+                    seed=seed,
+                )
+                structured_manifest = export_structured_policy_actor(
+                    model=model,
+                    output_dir=output_path.parent,
+                    example_observation=example_observation,
+                    action_size=int(identity["action_size"]),
+                    tolerance=self.structured_export_tolerance,
+                )
+                structured_manifest_path = (
+                    output_path.parent / STRUCTURED_EXPORT_MANIFEST_NAME
+                )
+                structured_manifest_digest = structured_manifest.digest
+                structured_model_path = output_path.parent / structured_manifest.model_path
+                structured_model_digest = structured_manifest.model_digest
+                if structured_manifest.architecture_digest != architecture_digest:
+                    raise RuntimeError(
+                        "structured export architecture differs from the bound model"
+                    )
+
             replay_buffer_path: Path | None = None
             replay_buffer_digest: str | None = None
             if config.algorithm not in {
@@ -1000,6 +1107,11 @@ class StableBaselines3Backend:
                 normalizer_digest=identity["normalizer_digest"],
                 replay_buffer_path=replay_buffer_path,
                 replay_buffer_digest=replay_buffer_digest,
+                structured_export_manifest_path=structured_manifest_path,
+                structured_export_manifest_digest=structured_manifest_digest,
+                structured_export_model_path=structured_model_path,
+                structured_export_model_digest=structured_model_digest,
+                architecture_digest=architecture_digest,
             )
         finally:
             if probe is not None:

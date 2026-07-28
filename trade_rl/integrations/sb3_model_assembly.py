@@ -124,10 +124,25 @@ def _sequence_policy_assembly(
         raise ValueError("sequence training requires environment sequence metadata")
     sequence_metadata = dict(metadata)
     action_names = _action_names(identity)
-    uses_shared_asset_actor = _action_size(identity) == int(
-        sequence_metadata["n_symbols"]
-    ) and all(name.startswith("target_weight:") for name in action_names)
     dataset = getattr(unwrapped, "dataset", None)
+    raw_symbols = getattr(dataset, "symbols", None)
+    if (
+        not isinstance(raw_symbols, (tuple, list))
+        or not raw_symbols
+        or any(not isinstance(item, str) or not item for item in raw_symbols)
+    ):
+        raise ValueError("sequence training requires ordered dataset symbols")
+    symbols = tuple(raw_symbols)
+    expected_action_names = tuple(f"target_weight:{symbol}" for symbol in symbols)
+    if (
+        _action_size(identity) != int(sequence_metadata["n_symbols"])
+        or action_names != expected_action_names
+    ):
+        raise ValueError(
+            "hierarchical sequence training requires target_weight actions in exact "
+            "dataset symbol order"
+        )
+    uses_shared_asset_actor = True
     sequence_builder = getattr(unwrapped, "sequence_observation_builder", None)
     if dataset is None or sequence_builder is None:
         raise ValueError(

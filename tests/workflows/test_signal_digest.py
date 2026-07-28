@@ -18,6 +18,7 @@ from trade_rl.workflows.walk_forward_evaluation import resolve_signal_digest
 def _run(alpha_path: object) -> TrainingRunConfig:
     return TrainingRunConfig.from_mapping(
         {
+            "schema_version": "training_run_config_v2",
             "training": {
                 "timesteps": 8,
                 "gamma": 0.99,

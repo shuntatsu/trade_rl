@@ -53,6 +53,7 @@ class RuntimeIdentityContract:
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     execution_policy_digest: str | None = None
+    architecture_digest: str | None = None
 
     def __post_init__(self) -> None:
         require_sha256(self.environment_digest, field="environment_digest")
@@ -66,6 +67,7 @@ class RuntimeIdentityContract:
             ("alpha_artifact_digest", self.alpha_artifact_digest),
             ("factor_artifact_digest", self.factor_artifact_digest),
             ("execution_policy_digest", self.execution_policy_digest),
+            ("architecture_digest", self.architecture_digest),
         ):
             if value is not None:
                 require_sha256(value, field=field_name)
@@ -98,6 +100,7 @@ class RuntimeSnapshot:
     alpha_artifact_digest: str | None
     factor_artifact_digest: str | None
     normalizer_digest: str | None
+    architecture_digest: str | None
     bundle_created_at: datetime
 
 
@@ -204,6 +207,7 @@ class ServingRuntime:
             alpha_artifact_digest=manifest.alpha_artifact_digest,
             factor_artifact_digest=manifest.factor_artifact_digest,
             normalizer_digest=manifest.normalizer_digest,
+            architecture_digest=manifest.architecture_digest,
             bundle_created_at=manifest.created_at,
         )
 
@@ -242,6 +246,11 @@ class ServingRuntime:
                 getattr(manifest, "factor_artifact_digest"),
                 contract.factor_artifact_digest,
                 "factor artifact",
+            ),
+            (
+                getattr(manifest, "architecture_digest"),
+                contract.architecture_digest,
+                "architecture",
             ),
         )
         for observed, expected, label in comparisons:
@@ -326,8 +335,18 @@ class ServingRuntime:
         else:
             loader = self.policy_loader
             if loader is None:
-                raise RuntimeError("residual policy bundle requires a policy loader")
-            candidate_policy = loader.load(bundle)
+                from trade_rl.serving.policy_loader import canonical_policy_loader
+
+                loader = canonical_policy_loader(
+                    manifest=manifest,
+                    architecture_digest=(
+                        None if contract is None else contract.architecture_digest
+                    ),
+                )
+            load = getattr(loader, "load", None)
+            if not callable(load):
+                raise TypeError("residual policy loader must provide load(bundle)")
+            candidate_policy = load(bundle)
 
         candidate_snapshot = self._snapshot_for(bundle)
         candidate_normalizer = bundle.normalizer

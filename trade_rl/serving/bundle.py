@@ -100,6 +100,7 @@ class ServingBundleManifest:
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
+    architecture_digest: str | None = None
     schema_version: str = SERVING_BUNDLE_SCHEMA
 
     def __post_init__(self) -> None:
@@ -145,6 +146,7 @@ class ServingBundleManifest:
             ("alpha_artifact_digest", self.alpha_artifact_digest),
             ("factor_artifact_digest", self.factor_artifact_digest),
             ("normalizer_digest", self.normalizer_digest),
+            ("architecture_digest", self.architecture_digest),
         ):
             _optional_digest(value, field=field)
         if self.policy_mode is PolicyMode.BASELINE_ONLY:
@@ -204,6 +206,7 @@ class ServingBundleManifest:
             "action_size": self.action_size,
             "action_spec_digest": self.action_spec_digest,
             "alpha_artifact_digest": self.alpha_artifact_digest,
+            "architecture_digest": self.architecture_digest,
             "confirmation_evidence_digest": self.confirmation_evidence_digest,
             "created_at": self.created_at,
             "dataset_id": self.dataset_id,
@@ -250,6 +253,7 @@ class ServingBundleManifest:
         alpha_artifact_digest: str | None = None,
         factor_artifact_digest: str | None = None,
         normalizer_digest: str | None = None,
+        architecture_digest: str | None = None,
         training_run_digest: str | None = None,
         run_kind: str | None = None,
         selection_proposal_digest: str | None = None,
@@ -288,6 +292,7 @@ class ServingBundleManifest:
             "action_size": action_size,
             "action_spec_digest": action_spec_digest,
             "alpha_artifact_digest": alpha_artifact_digest,
+            "architecture_digest": architecture_digest,
             "confirmation_evidence_digest": confirmation_evidence_digest,
             "created_at": created_at,
             "dataset_id": dataset_id,
@@ -337,6 +342,7 @@ class ServingBundleManifest:
             alpha_artifact_digest=alpha_artifact_digest,
             factor_artifact_digest=factor_artifact_digest,
             normalizer_digest=normalizer_digest,
+            architecture_digest=architecture_digest,
             schema_version=SERVING_BUNDLE_SCHEMA,
         )
 
@@ -403,6 +409,7 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         "action_size",
         "action_spec_digest",
         "alpha_artifact_digest",
+        "architecture_digest",
         "bundle_digest",
         "confirmation_evidence_digest",
         "created_at",
@@ -504,6 +511,9 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         ),
         alpha_artifact_digest=_optional_string(
             payload.get("alpha_artifact_digest"), field="alpha_artifact_digest"
+        ),
+        architecture_digest=_optional_string(
+            payload.get("architecture_digest"), field="architecture_digest"
         ),
         factor_artifact_digest=_optional_string(
             payload.get("factor_artifact_digest"), field="factor_artifact_digest"

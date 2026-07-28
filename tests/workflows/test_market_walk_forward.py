@@ -46,6 +46,7 @@ def _dataset() -> MarketDataset:
 
 def _candidate_run() -> dict[str, object]:
     return {
+        "schema_version": "training_run_config_v2",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
@@ -261,6 +262,7 @@ def _sequence_candidate_config():
 
     return TrainingRunConfig.from_mapping(
         {
+            "schema_version": "training_run_config_v2",
             "training": {
                 "timesteps": 8,
                 "gamma": 0.99,

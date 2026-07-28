@@ -69,6 +69,10 @@ from trade_rl.simulation.execution_promotion import (
     write_execution_evidence,
 )
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
+from trade_rl.workflows.config_fields import (
+    require_dataclass_fields,
+    require_exact_fields,
+)
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,
     SelectionProposal,
@@ -123,6 +127,7 @@ class TrainingRunConfig:
     resume_checkpoints: tuple[tuple[int, Path], ...] = ()
     export_onnx: bool = False
     export_torchscript: bool = False
+    export_structured_torchscript: bool = False
     export_tolerance: float = 1e-5
     git_commit: str | None = None
     schema_version: str = "training_run_config_v2"
@@ -146,8 +151,13 @@ class TrainingRunConfig:
             raise ValueError("alpha action requires exactly one alpha artifact")
         if (self.action.n_factors > 0) != (self.factor_artifact is not None):
             raise ValueError("factor actions require exactly one factor artifact")
-        if not isinstance(self.export_onnx, bool) or not isinstance(
-            self.export_torchscript, bool
+        if any(
+            not isinstance(value, bool)
+            for value in (
+                self.export_onnx,
+                self.export_torchscript,
+                self.export_structured_torchscript,
+            )
         ):
             raise ValueError("export flags must be booleans")
         if not math.isfinite(self.export_tolerance) or self.export_tolerance <= 0.0:
@@ -157,6 +167,12 @@ class TrainingRunConfig:
         ):
             raise ValueError(
                 "structured sequence policies do not support flat ONNX/TorchScript export"
+            )
+        if self.export_structured_torchscript and (
+            self.training.observation_encoder != "hierarchical_sequence_v2"
+        ):
+            raise ValueError(
+                "structured TorchScript export requires hierarchical_sequence_v2"
             )
         if self.git_commit is not None and not self.git_commit:
             raise ValueError("git_commit must be non-empty when provided")
@@ -169,9 +185,44 @@ class TrainingRunConfig:
 
     @classmethod
     def from_mapping(cls, raw: object) -> TrainingRunConfig:
-        payload = _mapping(raw, field="training run config")
+        payload = require_exact_fields(
+            _mapping(raw, field="training run config"),
+            required={
+                "schema_version",
+                "training",
+                "environment",
+                "risk",
+                "reward",
+                "trend",
+                "action",
+            },
+            optional={
+                "execution",
+                "portfolio_risk",
+                "alpha_contract",
+                "alpha_artifact",
+                "factor_artifact",
+                "resume_checkpoints",
+                "exports",
+                "git_commit",
+                "git_dirty",
+            },
+            field="training run config",
+        )
+        schema_version = payload["schema_version"]
+        if not isinstance(schema_version, str):
+            raise ValueError("schema_version must be a string")
+        if schema_version == "training_run_config_v1":
+            raise ValueError("migrate training_run_config_v1 to training_run_config_v2")
+        if schema_version != "training_run_config_v2":
+            raise ValueError("unsupported training run configuration schema")
+
         training_data = _tuple_fields(
-            _mapping(payload.get("training"), field="training"),
+            require_dataclass_fields(
+                _mapping(payload["training"], field="training"),
+                ResidualTrainingConfig,
+                field="training",
+            ),
             "seeds",
             "policy_net_arch",
             "value_net_arch",
@@ -186,34 +237,50 @@ class TrainingRunConfig:
             "lagrangian_update_interval_rollouts",
             "lagrangian_minimum_completed_episodes",
         )
-        reward = RewardConfig(**_mapping(payload.get("reward"), field="reward"))
-        execution = ExecutionCostConfig(
-            **_mapping(payload.get("execution"), field="execution")
+        reward_data = require_dataclass_fields(
+            _mapping(payload["reward"], field="reward"),
+            RewardConfig,
+            field="reward",
         )
+        reward = RewardConfig(**reward_data)
+        execution_data = require_dataclass_fields(
+            _mapping(payload.get("execution"), field="execution"),
+            ExecutionCostConfig,
+            field="execution",
+        )
+        execution = ExecutionCostConfig(**execution_data)
         environment_data = _tuple_fields(
-            _mapping(payload.get("environment"), field="environment"),
+            require_dataclass_fields(
+                _mapping(payload["environment"], field="environment"),
+                ResidualMarketEnvConfig,
+                field="environment",
+                excluded={"reward_config", "reward", "execution_cost"},
+            ),
             "episode_hour_choices",
             "initial_state_modes",
             "sequence_windows",
         )
-        environment_data.pop("reward_config", None)
-        environment_data.pop("execution_cost", None)
-        emergency_risk = EmergencyRiskConfig(
-            **_mapping(
+        emergency_risk_data = require_dataclass_fields(
+            _mapping(
                 environment_data.pop("emergency_risk", {}),
                 field="emergency_risk",
-            )
+            ),
+            EmergencyRiskConfig,
+            field="emergency_risk",
         )
-        exports = _mapping(payload.get("exports"), field="exports")
+        emergency_risk = EmergencyRiskConfig(**emergency_risk_data)
+        exports = require_exact_fields(
+            _mapping(payload.get("exports"), field="exports"),
+            required=set(),
+            optional={"onnx", "torchscript", "tolerance"},
+            field="exports",
+        )
         git_commit = payload.get("git_commit")
         if git_commit is not None and not isinstance(git_commit, str):
             raise ValueError("git_commit must be a string or null")
         git_dirty = payload.get("git_dirty")
         if git_dirty is not None and not isinstance(git_dirty, bool):
             raise ValueError("git_dirty must be a boolean or null")
-        schema_version = payload.get("schema_version", "training_run_config_v2")
-        if not isinstance(schema_version, str):
-            raise ValueError("schema_version must be a string")
         raw_alpha_artifact = payload.get("alpha_artifact")
         raw_factor_artifact = payload.get("factor_artifact")
         raw_resume_checkpoints = payload.get("resume_checkpoints", {})
@@ -230,6 +297,32 @@ class TrainingRunConfig:
             raise ValueError("alpha_artifact must be a path string or null")
         if raw_factor_artifact is not None and not isinstance(raw_factor_artifact, str):
             raise ValueError("factor_artifact must be a path string or null")
+
+        risk_data = require_dataclass_fields(
+            _mapping(payload["risk"], field="risk"),
+            PreTradeRiskConfig,
+            field="risk",
+        )
+        portfolio_risk_data = require_dataclass_fields(
+            _mapping(payload.get("portfolio_risk"), field="portfolio_risk"),
+            PortfolioRiskConfig,
+            field="portfolio_risk",
+        )
+        trend_data = require_dataclass_fields(
+            _mapping(payload["trend"], field="trend"),
+            TrendConfig,
+            field="trend",
+        )
+        action_data = require_dataclass_fields(
+            _mapping(payload["action"], field="action"),
+            ActionSpec,
+            field="action",
+        )
+        alpha_contract_data = require_dataclass_fields(
+            _mapping(payload.get("alpha_contract"), field="alpha_contract"),
+            AlphaContract,
+            field="alpha_contract",
+        )
         return cls(
             training=ResidualTrainingConfig(**training_data),
             environment=ResidualMarketEnvConfig(
@@ -238,16 +331,12 @@ class TrainingRunConfig:
                 emergency_risk=emergency_risk,
                 execution_cost=execution,
             ),
-            risk=PreTradeRiskConfig(**_mapping(payload.get("risk"), field="risk")),
+            risk=PreTradeRiskConfig(**risk_data),
             reward=reward,
-            portfolio_risk=PortfolioRiskConfig(
-                **_mapping(payload.get("portfolio_risk"), field="portfolio_risk")
-            ),
-            trend=TrendConfig(**_mapping(payload.get("trend"), field="trend")),
-            action=ActionSpec(**_mapping(payload.get("action"), field="action")),
-            alpha_contract=AlphaContract(
-                **_mapping(payload.get("alpha_contract"), field="alpha_contract")
-            ),
+            portfolio_risk=PortfolioRiskConfig(**portfolio_risk_data),
+            trend=TrendConfig(**trend_data),
+            action=ActionSpec(**action_data),
+            alpha_contract=AlphaContract(**alpha_contract_data),
             alpha_artifact=(
                 None if raw_alpha_artifact is None else Path(raw_alpha_artifact)
             ),
@@ -261,6 +350,11 @@ class TrainingRunConfig:
             export_torchscript=_boolean(
                 exports.get("torchscript"),
                 field="exports.torchscript",
+                default=False,
+            ),
+            export_structured_torchscript=_boolean(
+                exports.get("structured_torchscript"),
+                field="exports.structured_torchscript",
                 default=False,
             ),
             export_tolerance=float(exports.get("tolerance", 1e-5)),
@@ -305,6 +399,7 @@ class TrainingRunConfig:
                 self.factor_artifact, kind="factor"
             ),
             "export_onnx": self.export_onnx,
+            "export_structured_torchscript": self.export_structured_torchscript,
             "export_tolerance": self.export_tolerance,
             "export_torchscript": self.export_torchscript,
             "git_commit": self.git_commit,
@@ -858,11 +953,22 @@ def execute_training_run(
                     sequence_normalizer=sequence_normalizer,
                 ),
                 resume_checkpoint_artifacts=dict(config.resume_checkpoints),
+                structured_export_enabled=config.export_structured_torchscript,
+                structured_export_tolerance=config.export_tolerance,
             ),
             output_dir=stage / "members",
             created_at=resolved_created_at,
         )
         _write_json(stage / "ensemble.json", _ensemble_payload(ensemble))
+        if config.export_structured_torchscript:
+            from trade_rl.serving.policy_loader import (
+                write_structured_policy_loader_manifest,
+            )
+
+            write_structured_policy_loader_manifest(
+                stage,
+                expected_members=ensemble.expected_members,
+            )
         _write_json(
             stage / "policy-loader.json",
             _policy_loader_payload(

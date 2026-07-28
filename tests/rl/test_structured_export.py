@@ -51,6 +51,14 @@ class _FakeStructuredPolicy(nn.Module):
                 0.0, 100.0, shape=shape
             )
         self.observation_space = spaces.Dict(mapping)
+        self.marker = nn.Parameter(torch.ones(1))
+        self.logical_device = "cuda:7"
+
+    def to(self, device: object, *args: object, **kwargs: object):
+        self.logical_device = str(device)
+        if str(device) == "cpu":
+            return super().to("cpu", *args, **kwargs)
+        return self
 
     def _predict(
         self,
@@ -70,6 +78,7 @@ class _FakeStructuredPolicy(nn.Module):
 class _FakeModel:
     def __init__(self) -> None:
         self.policy = _FakeStructuredPolicy()
+        self.device = "cuda:7"
         architecture = {
             "schema_version": "hierarchical_sequence_policy_v2",
             "timeframes": ["15m", "1h", "4h", "1d"],
@@ -207,3 +216,44 @@ def test_structured_loader_rejects_tampered_model(tmp_path: Any) -> None:
     model_path.write_bytes(model_path.read_bytes() + b"tamper")
     with pytest.raises(ValueError, match="size"):
         StructuredTorchScriptPolicy(root=tmp_path, manifest=manifest)
+
+
+def test_structured_export_restores_policy_device_and_training_mode(tmp_path: Any) -> None:
+    model = _FakeModel()
+    model.policy.train(True)
+
+    export_structured_policy_actor(
+        model=model,
+        output_dir=tmp_path,
+        example_observation=_observation(),
+        action_size=3,
+    )
+
+    assert model.policy.logical_device == "cuda:7"
+    assert model.policy.training is True
+
+
+def test_structured_export_restores_policy_state_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    model = _FakeModel()
+    model.policy.train(True)
+    monkeypatch.setattr(
+        torch.jit,
+        "trace",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("trace failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="trace failed"):
+        export_structured_policy_actor(
+            model=model,
+            output_dir=tmp_path,
+            example_observation=_observation(),
+            action_size=3,
+        )
+
+    assert model.policy.logical_device == "cuda:7"
+    assert model.policy.training is True
+    assert not (tmp_path / STRUCTURED_EXPORT_MODEL_NAME).exists()
+    assert not (tmp_path / STRUCTURED_EXPORT_MANIFEST_NAME).exists()

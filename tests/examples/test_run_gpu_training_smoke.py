@@ -190,8 +190,9 @@ def test_load_torch_runtime_reads_effective_model_runtime(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    assert _load_smoke()._load_torch_runtime(member, expected_mode="performance") == (
-        payload["torch_runtime"]
+    assert (
+        _load_smoke()._load_torch_runtime(member, expected_mode="performance")
+        == (payload["torch_runtime"])
     )
 
 

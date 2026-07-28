@@ -80,6 +80,7 @@ def _smoke_config_payload(
             "global_embedding_dim": 64,
             "batch_size": 32,
             "device": "cuda",
+            "cuda_runtime_mode": ("performance" if accelerated else "deterministic"),
             "n_envs": 4,
             "n_steps": 8,
             "n_epochs": 3,
@@ -311,6 +312,81 @@ def _load_training_performance(member_root: Path) -> dict[str, object]:
     return dict(payload)
 
 
+_TORCH_RUNTIME_FIELDS = {
+    "mode",
+    "deterministic_algorithms",
+    "cudnn_benchmark",
+    "cudnn_deterministic",
+    "cudnn_tf32",
+    "float32_matmul_precision",
+    "matmul_tf32",
+    "sequence_encoder_autocast",
+}
+
+
+def _load_torch_runtime(
+    member_root: Path,
+    *,
+    expected_mode: str,
+) -> dict[str, object]:
+    path = member_root / "model-architecture.json"
+    if not path.is_file():
+        raise RuntimeError("model architecture evidence is missing")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("model architecture evidence must be a JSON object")
+    if payload.get("schema_version") != "policy_architecture_v2":
+        raise ValueError("model architecture schema is unsupported")
+    raw_runtime = payload.get("torch_runtime")
+    if not isinstance(raw_runtime, dict):
+        raise ValueError("torch runtime evidence must be a mapping")
+    if set(raw_runtime) != _TORCH_RUNTIME_FIELDS:
+        raise ValueError("torch runtime evidence fields are invalid")
+    if expected_mode not in {"deterministic", "performance"}:
+        raise ValueError("expected CUDA runtime mode is invalid")
+    if raw_runtime.get("mode") != expected_mode:
+        raise ValueError("torch runtime mode does not match the requested mode")
+    for field in (
+        "deterministic_algorithms",
+        "cudnn_benchmark",
+        "cudnn_deterministic",
+        "cudnn_tf32",
+        "matmul_tf32",
+    ):
+        if not isinstance(raw_runtime.get(field), bool):
+            raise ValueError(f"torch runtime {field} must be a boolean")
+    expected_flags = (
+        {
+            "deterministic_algorithms": True,
+            "cudnn_benchmark": False,
+            "cudnn_deterministic": True,
+            "cudnn_tf32": False,
+            "float32_matmul_precision": "highest",
+            "matmul_tf32": False,
+        }
+        if expected_mode == "deterministic"
+        else {
+            "deterministic_algorithms": False,
+            "cudnn_benchmark": True,
+            "cudnn_deterministic": False,
+            "cudnn_tf32": True,
+            "float32_matmul_precision": "high",
+            "matmul_tf32": True,
+        }
+    )
+    for field, expected in expected_flags.items():
+        if raw_runtime.get(field) != expected:
+            raise ValueError(
+                f"torch runtime {field} does not match {expected_mode} mode"
+            )
+    if raw_runtime.get("sequence_encoder_autocast") not in {
+        "bfloat16",
+        "disabled",
+    }:
+        raise ValueError("torch runtime sequence encoder autocast is invalid")
+    return dict(raw_runtime)
+
+
 def run_gpu_training_smoke(
     *, work_root: Path, timesteps: int, runtime_profile: str = "compatibility"
 ) -> dict[str, object]:
@@ -357,6 +433,8 @@ def run_gpu_training_smoke(
         raise RuntimeError("structured smoke must publish native serving support")
     member_root = artifact_path / "members" / "member-000"
     training_performance = _load_training_performance(member_root)
+    expected_cuda_mode = str(config.training.cuda_runtime_mode)
+    torch_runtime = _load_torch_runtime(member_root, expected_mode=expected_cuda_mode)
     policy = member_root / "policy.zip"
     checkpoint_manifests = sorted(
         (member_root / "checkpoints").glob("step-*/checkpoint.json")
@@ -382,6 +460,9 @@ def run_gpu_training_smoke(
         resumed_artifact = ROOT / resumed_artifact
     resumed_member_root = resumed_artifact / "members" / "member-000"
     resumed_training_performance = _load_training_performance(resumed_member_root)
+    resumed_torch_runtime = _load_torch_runtime(
+        resumed_member_root, expected_mode=expected_cuda_mode
+    )
     resume_evidence_path = resumed_member_root / "resume.json"
     if not resume_evidence_path.is_file():
         raise RuntimeError("GPU smoke resume evidence is missing")
@@ -397,6 +478,7 @@ def run_gpu_training_smoke(
         "cuda_preflight": preflight,
         "n_envs": config.training.n_envs,
         "behavior_cloning_epochs": config.training.behavior_cloning_epochs,
+        "cuda_runtime": torch_runtime,
         "serving_support": serving_support,
         "requested_timesteps": config.training.timesteps,
         "resolved_device": ensemble["resolved_device"],
@@ -407,13 +489,14 @@ def run_gpu_training_smoke(
         "resume": {
             "actual_timesteps": int(resumed["actual_timesteps"]),
             "checkpoint": str(resume_checkpoint),
+            "cuda_runtime": resumed_torch_runtime,
             "evidence": json.loads(resume_evidence_path.read_text(encoding="utf-8")),
             "performance": {
                 **resume_metrics,
                 "training_artifact": resumed_training_performance,
             },
         },
-        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v7",
+        "schema": "gpu_sequence_target_oracle_bc_training_smoke_v8",
     }
     evidence_path = work_root / "gpu-training-smoke.json"
     evidence_path.write_text(

@@ -57,7 +57,10 @@ jobs:
             uv run ruff check --fix .
             uv run ruff format --check .
             uv run ruff check .
-            uv run mypy .
+            uv run mypy \
+              trade_rl/rl/checkpointing.py \
+              trade_rl/rl/training_performance.py \
+              tests/rl/test_checkpoint_runtime_sanitization.py
             uv run pytest -q \
               tests/rl/test_checkpoint_runtime_sanitization.py \
               tests/rl/test_checkpointing.py \

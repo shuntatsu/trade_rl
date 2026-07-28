@@ -37,6 +37,7 @@ jobs:
             ! -name '2026-07-28-documentation-readability-refresh.md' -delete
           find docs/superpowers/specs -type f -name '*.md' \
             ! -name '2026-07-28-documentation-readability-refresh-design.md' -delete
+          rm -f .github/docs-readability-finalizer.trigger
           rm -f .github/workflows/docs-inventory.yml
           rm -f .github/workflows/finalize-docs-readability-refresh.yml
 

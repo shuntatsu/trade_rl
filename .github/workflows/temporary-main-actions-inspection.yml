@@ -1,0 +1,48 @@
+name: Temporary Main Actions Inspection
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect main CUDA workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p main-actions-inspection
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/main-docker-cuda-verification.yml" \
+            > main-actions-inspection/workflow.json
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/main-docker-cuda-verification.yml/runs?branch=main&per_page=30" \
+            --jq '{total_count, runs: [.workflow_runs[] | {id, event, status, conclusion, head_sha, head_branch, run_number, created_at, updated_at, actor: .actor.login, html_url}]}' \
+            > main-actions-inspection/runs.json
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=0b02ff7b4f7d392274578290dd1d6d309b29cece&per_page=100" \
+            --jq '{total_count, runs: [.workflow_runs[] | {id, name, path, event, status, conclusion, head_sha, head_branch, run_number, created_at, updated_at, actor: .actor.login, html_url}]}' \
+            > main-actions-inspection/main-sha-runs.json
+          cat main-actions-inspection/workflow.json
+          cat main-actions-inspection/runs.json
+          cat main-actions-inspection/main-sha-runs.json
+
+      - name: Upload inspection evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: main-actions-inspection-${{ github.run_id }}
+          path: main-actions-inspection
+          if-no-files-found: error
+          retention-days: 1

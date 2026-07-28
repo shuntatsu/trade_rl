@@ -64,7 +64,7 @@ jobs:
             uv run pytest -q \
               tests/rl/test_checkpoint_runtime_sanitization.py \
               tests/rl/test_checkpointing.py \
-              tests/rl/test_training_performance.py \
+              tests/rl/test_training_performance_evidence.py \
               tests/integrations/test_sb3_training.py
           } 2>&1 | tee var/pr227-checkpoint-runtime/focused.log
 

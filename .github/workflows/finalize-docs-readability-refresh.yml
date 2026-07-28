@@ -1,0 +1,69 @@
+name: Finalize Documentation Readability Refresh
+
+on:
+  push:
+    branches:
+      - agent/docs-readability-refresh
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-docs-readability-refresh
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    if: github.actor == github.repository_owner && !contains(github.event.head_commit.message, '[docs-finalized]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: agent/docs-readability-refresh
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Remove historical documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f README.ja.md
+          rm -f .superpowers/sdd/task-8-report.md
+          rm -f docs/MULTITIMEFRAME_RESEARCH.md
+          rm -rf docs/audits docs/reviews docs/plans docs/verification
+          rm -rf docs/superpowers/status
+          find docs/superpowers/plans -type f -name '*.md' \
+            ! -name '2026-07-28-documentation-readability-refresh.md' -delete
+          find docs/superpowers/specs -type f -name '*.md' \
+            ! -name '2026-07-28-documentation-readability-refresh-design.md' -delete
+          rm -f .github/workflows/docs-inventory.yml
+          rm -f .github/workflows/finalize-docs-readability-refresh.yml
+
+      - name: Verify maintained documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q tests/test_current_documentation_contract.py
+          git diff --check
+          test ! -e README.ja.md
+          test ! -e docs/verification
+          test ! -e docs/audits
+          test ! -e docs/reviews
+          test ! -e docs/plans
+          test ! -e docs/MULTITIMEFRAME_RESEARCH.md
+          markdown_count="$(find . -type f -name '*.md' \
+            -not -path './.git/*' -not -path './.venv/*' \
+            -not -path './node_modules/*' | wc -l)"
+          test "$markdown_count" -eq 13
+
+      - name: Publish verified documentation tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'docs: finalize maintained documentation [docs-finalized]'
+          git push origin HEAD:agent/docs-readability-refresh

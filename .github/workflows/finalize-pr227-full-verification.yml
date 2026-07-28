@@ -44,9 +44,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          uv run python tools/finalize_pr227_v2_migration.py
           uv run python tools/finalize_pr227_full_verification.py
           rm -f \
             .github/workflows/finalize-pr227-full-verification.yml \
+            tools/finalize_pr227_v2_migration.py \
             tools/finalize_pr227_full_verification.py
           mkdir -p var/pr227-verification
 

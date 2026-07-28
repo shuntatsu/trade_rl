@@ -1,0 +1,64 @@
+name: PR 248 Apply Package Coverage Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout writable branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-audit-remediation-20260728
+          fetch-depth: 1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Apply coverage tests
+        shell: bash
+        run: python tools/apply_pr248_package_coverage_fix.py
+
+      - name: Verify package branch ratchet
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format tests/serving/test_package.py
+          uv run ruff check tests/serving/test_package.py
+          uv run pytest -q tests/serving/test_package.py \
+            --cov=trade_rl.serving.package \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=json:coverage-package.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("coverage-package.json").read_text(encoding="utf-8"))
+          summary = payload["files"]["trade_rl/serving/package.py"]["summary"]
+          total = int(summary["num_branches"])
+          covered = int(summary["covered_branches"])
+          percent = 100.0 * covered / total
+          print(f"serving/package.py branch coverage: {covered}/{total} = {percent:.2f}%")
+          if percent < 90.0:
+              raise SystemExit("package branch coverage remains below 90%")
+          PY
+
+      - name: Publish coverage tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/serving/test_package.py
+          git commit -m "test: cover structured serving package identity"
+          git push origin HEAD:agent/architecture-audit-remediation-20260728

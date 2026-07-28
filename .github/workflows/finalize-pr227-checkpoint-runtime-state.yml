@@ -41,36 +41,58 @@ jobs:
         run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
 
       - name: Apply checkpoint runtime-state correction
-        run: uv run python tools/finalize_pr227_checkpoint_runtime_sanitization.py
+        shell: bash
+        run: |
+          mkdir -p var/pr227-checkpoint-runtime
+          set -o pipefail
+          uv run python tools/finalize_pr227_checkpoint_runtime_sanitization.py \
+            2>&1 | tee var/pr227-checkpoint-runtime/apply.log
 
       - name: Verify focused contracts
         shell: bash
         run: |
-          set -euo pipefail
-          uv run ruff format .
-          uv run ruff check --fix .
-          uv run ruff format --check .
-          uv run ruff check .
-          uv run mypy .
-          uv run pytest -q \
-            tests/rl/test_checkpoint_runtime_sanitization.py \
-            tests/rl/test_checkpointing.py \
-            tests/rl/test_training_performance.py \
-            tests/integrations/test_sb3_training.py
+          set -o pipefail
+          {
+            uv run ruff format .
+            uv run ruff check --fix .
+            uv run ruff format --check .
+            uv run ruff check .
+            uv run mypy .
+            uv run pytest -q \
+              tests/rl/test_checkpoint_runtime_sanitization.py \
+              tests/rl/test_checkpointing.py \
+              tests/rl/test_training_performance.py \
+              tests/integrations/test_sb3_training.py
+          } 2>&1 | tee var/pr227-checkpoint-runtime/focused.log
 
       - name: Verify real CPU resume and capability audit
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           rm -rf var/pr227-checkpoint-runtime-audit
           uv run python tools/run_training_capability_audit.py \
-            --output var/pr227-checkpoint-runtime-audit
+            --output var/pr227-checkpoint-runtime-audit \
+            2>&1 | tee var/pr227-checkpoint-runtime/audit.log
           test -f var/pr227-checkpoint-runtime-audit/audit-report.json
+
+      - name: Upload verification diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr227-checkpoint-runtime-${{ github.run_id }}
+          path: |
+            var/pr227-checkpoint-runtime
+            var/pr227-checkpoint-runtime-audit
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Publish verified correction
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf \
+            var/pr227-checkpoint-runtime \
+            var/pr227-checkpoint-runtime-audit
           rm -f \
             .github/workflows/finalize-pr227-checkpoint-runtime-state.yml \
             tools/finalize_pr227_checkpoint_runtime_state.py \
@@ -88,4 +110,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh pr comment 227 --body
-          "Checkpoint runtime-state verification failed in Actions run ${GITHUB_RUN_ID}."
+          "Checkpoint runtime-state verification failed in Actions run ${GITHUB_RUN_ID}. See the pr227-checkpoint-runtime artifact."

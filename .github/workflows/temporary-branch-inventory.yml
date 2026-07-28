@@ -34,6 +34,21 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
             --jq '.[].name' \
             | sort > branch-inventory/branches.txt
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls?state=all&per_page=100&sort=created&direction=asc" \
+            --jq '.[] | {
+              number,
+              state,
+              draft,
+              merged_at,
+              closed_at,
+              title,
+              head: .head.ref,
+              head_sha: .head.sha,
+              base: .base.ref,
+              url: .html_url
+            }' \
+            > branch-inventory/pulls.jsonl
           git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
           main_tree="$(git rev-parse 'origin/main^{tree}')"
           printf 'branch\tsha\tbehind_main\tahead_main\tclassification\tmerge_tree\tdiff_shortstat\n' \
@@ -70,14 +85,71 @@ jobs:
               "$merge_tree" "$diff_shortstat" \
               >> branch-inventory/classification.tsv
           done < branch-inventory/branches.txt
+          python - <<'PY'
+          import csv
+          import json
+          from collections import defaultdict
+          from pathlib import Path
+
+          root = Path("branch-inventory")
+          pulls_by_head: dict[str, list[dict[str, object]]] = defaultdict(list)
+          for line in (root / "pulls.jsonl").read_text(encoding="utf-8").splitlines():
+              if line.strip():
+                  pull = json.loads(line)
+                  pulls_by_head[str(pull["head"])].append(pull)
+          with (root / "classification.tsv").open(
+              encoding="utf-8", newline=""
+          ) as source, (root / "branch-pr-summary.tsv").open(
+              "w", encoding="utf-8", newline=""
+          ) as destination:
+              reader = csv.DictReader(source, delimiter="\t")
+              fields = [
+                  "branch",
+                  "classification",
+                  "ahead_main",
+                  "behind_main",
+                  "pull_count",
+                  "merged_prs",
+                  "closed_unmerged_prs",
+                  "open_prs",
+                  "titles",
+              ]
+              writer = csv.DictWriter(destination, fieldnames=fields, delimiter="\t")
+              writer.writeheader()
+              for row in reader:
+                  pulls = pulls_by_head.get(row["branch"], [])
+                  merged = [str(item["number"]) for item in pulls if item["merged_at"]]
+                  closed = [
+                      str(item["number"])
+                      for item in pulls
+                      if item["state"] == "closed" and not item["merged_at"]
+                  ]
+                  opened = [
+                      str(item["number"])
+                      for item in pulls
+                      if item["state"] == "open"
+                  ]
+                  writer.writerow(
+                      {
+                          "branch": row["branch"],
+                          "classification": row["classification"],
+                          "ahead_main": row["ahead_main"],
+                          "behind_main": row["behind_main"],
+                          "pull_count": len(pulls),
+                          "merged_prs": ",".join(merged),
+                          "closed_unmerged_prs": ",".join(closed),
+                          "open_prs": ",".join(opened),
+                          "titles": " | ".join(str(item["title"]) for item in pulls),
+                      }
+                  )
+          PY
           wc -l branch-inventory/branches.txt
-          column -t -s $'\t' branch-inventory/classification.tsv || \
-            cat branch-inventory/classification.tsv
+          cat branch-inventory/branch-pr-summary.tsv
 
       - name: Upload branch inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: branch-classification-${{ github.run_id }}
+          name: branch-history-${{ github.run_id }}
           path: branch-inventory
           if-no-files-found: error
           retention-days: 1

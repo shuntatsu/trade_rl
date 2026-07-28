@@ -10,6 +10,7 @@
 | 全体構造を理解する | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 設定項目を調べる | [CONFIGURATION.md](CONFIGURATION.md) |
 | 研究結果を正しく解釈する | [RESEARCH_STATUS.md](RESEARCH_STATUS.md) |
+| Multi-TimeframeのPhase境界 | [MULTITIMEFRAME_RESEARCH.md](MULTITIMEFRAME_RESEARCH.md) |
 | Binance Public Dataを作る | [BINANCE.md](BINANCE.md) |
 | DockerとCUDAで完全実行する | [operations/docker-gpu-full-training.md](operations/docker-gpu-full-training.md) |
 | Causal Scenario C3を実行する | [operations/causal-scenario-c3-execution.md](operations/causal-scenario-c3-execution.md) |
@@ -25,6 +26,7 @@ Repositoryの概要は[README.md](../README.md)が正本です。
 - `ARCHITECTURE.md`: 現行実装の責務、Data flow、Identity、Fail-closed境界
 - `CONFIGURATION.md`: 現行Schemaと設定値
 - `RESEARCH_STATUS.md`: 実装済み能力、未取得Evidence、Production gate
+- `MULTITIMEFRAME_RESEARCH.md`: Develop、Selected-final、Finalizeの外部承認境界
 - `BINANCE.md`: Public market dataとMetadata mode
 - `operations/`: 実行Runbook
 - `performance/`: Hardware別の測定・候補設定

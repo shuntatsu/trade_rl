@@ -14,9 +14,16 @@ permissions:
 jobs:
   inventory:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
-      - name: List repository branches
+      - name: Checkout inventory branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch and classify repository branches
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -27,13 +34,50 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
             --jq '.[].name' \
             | sort > branch-inventory/branches.txt
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          main_tree="$(git rev-parse 'origin/main^{tree}')"
+          printf 'branch\tsha\tbehind_main\tahead_main\tclassification\tmerge_tree\tdiff_shortstat\n' \
+            > branch-inventory/classification.tsv
+          while IFS= read -r branch; do
+            sha="$(git rev-parse "origin/${branch}")"
+            read -r behind ahead < <(
+              git rev-list --left-right --count "origin/main...origin/${branch}"
+            )
+            if [[ "$branch" == "main" ]]; then
+              classification="main"
+              merge_tree="$main_tree"
+            else
+              set +e
+              merge_output="$(git merge-tree --write-tree "origin/main" "origin/${branch}" 2>&1)"
+              merge_status=$?
+              set -e
+              merge_tree="$(printf '%s\n' "$merge_output" | head -n 1)"
+              if [[ $merge_status -ne 0 ]]; then
+                classification="conflict"
+              elif [[ "$merge_tree" == "$main_tree" ]]; then
+                classification="redundant"
+              else
+                classification="contributes"
+              fi
+            fi
+            diff_shortstat="$(
+              git diff --shortstat "origin/main...origin/${branch}" \
+                | tr '\t\n' '  ' \
+                | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+            )"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+              "$branch" "$sha" "$behind" "$ahead" "$classification" \
+              "$merge_tree" "$diff_shortstat" \
+              >> branch-inventory/classification.tsv
+          done < branch-inventory/branches.txt
           wc -l branch-inventory/branches.txt
-          cat branch-inventory/branches.txt
+          column -t -s $'\t' branch-inventory/classification.tsv || \
+            cat branch-inventory/classification.tsv
 
       - name: Upload branch inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: branch-inventory-${{ github.run_id }}
-          path: branch-inventory/branches.txt
+          name: branch-classification-${{ github.run_id }}
+          path: branch-inventory
           if-no-files-found: error
           retention-days: 1

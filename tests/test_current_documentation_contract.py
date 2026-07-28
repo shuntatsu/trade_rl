@@ -158,7 +158,13 @@ def test_live_training_boundary_is_explicit() -> None:
         "not profitability evidence",
     ):
         assert phrase in readme
-    for phrase in ("取引所注文ではありません", "モデル選択", "Sealed", "収益性", "NO-GO"):
+    for phrase in (
+        "取引所注文ではありません",
+        "モデル選択",
+        "Sealed",
+        "収益性",
+        "NO-GO",
+    ):
         assert phrase in studio
 
 

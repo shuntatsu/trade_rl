@@ -27,7 +27,7 @@ REMOVED_HISTORY_PATHS = (
     ROOT / "docs" / "reviews",
     ROOT / "docs" / "plans",
     ROOT / "docs" / "verification",
-    ROOT / "docs" / "superpowers" / "status",
+    ROOT / "docs" / "superpowers",
 )
 
 
@@ -78,15 +78,6 @@ def test_historical_documentation_clutter_is_removed() -> None:
         if path.exists()
     ]
     assert remaining == []
-    superpowers = ROOT / "docs" / "superpowers"
-    retained = {
-        path.relative_to(superpowers).as_posix()
-        for path in superpowers.rglob("*.md")
-    }
-    assert retained == {
-        "plans/2026-07-28-documentation-readability-refresh.md",
-        "specs/2026-07-28-documentation-readability-refresh-design.md",
-    }
 
 
 def test_current_schema_contracts_are_documented() -> None:

@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.training_performance import TRAINING_RUNTIME_PATCHES_ATTRIBUTE
 from trade_rl.rl.training_telemetry import build_training_telemetry_callback
 
 CHECKPOINT_MANIFEST_SCHEMA = "policy_checkpoint_v1"
@@ -178,22 +179,58 @@ def validate_checkpoint_algorithm_identity(
 
 
 def save_policy_without_runtime_state(model: SavablePolicy, target: str) -> None:
-    """Save without serializing dataset-bound rollout reconstruction objects."""
+    """Save without serializing dataset-bound or temporary training runtime state."""
 
     missing = object()
-    original = getattr(model, "rollout_buffer_kwargs", missing)
-    if isinstance(original, dict) and "sequence_reconstructor" in original:
+    original_rollout_kwargs = getattr(model, "rollout_buffer_kwargs", missing)
+    if (
+        isinstance(original_rollout_kwargs, dict)
+        and "sequence_reconstructor" in original_rollout_kwargs
+    ):
         sanitized = {
             key: value
-            for key, value in original.items()
+            for key, value in original_rollout_kwargs.items()
             if key != "sequence_reconstructor"
         }
         setattr(model, "rollout_buffer_kwargs", sanitized)
+
+    raw_patches = getattr(model, TRAINING_RUNTIME_PATCHES_ATTRIBUTE, missing)
+    suspended: list[tuple[object, str, object]] = []
+    if raw_patches is not missing:
+        if not isinstance(raw_patches, tuple):
+            raise TypeError("training runtime patch registry must be a tuple")
+        try:
+            for entry in reversed(raw_patches):
+                if not isinstance(entry, tuple) or len(entry) != 4:
+                    raise TypeError("training runtime patch entry is invalid")
+                owner, name, had_local, local_value = entry
+                if not isinstance(name, str) or not name:
+                    raise TypeError("training runtime patch name is invalid")
+                if not isinstance(had_local, bool):
+                    raise TypeError("training runtime patch locality is invalid")
+                namespace = getattr(owner, "__dict__", None)
+                if not isinstance(namespace, dict) or name not in namespace:
+                    raise RuntimeError("training runtime patch registry is stale")
+                suspended.append((owner, name, namespace[name]))
+                if had_local:
+                    setattr(owner, name, local_value)
+                else:
+                    delattr(owner, name)
+            delattr(model, TRAINING_RUNTIME_PATCHES_ATTRIBUTE)
+        except BaseException:
+            for owner, name, wrapper in reversed(suspended):
+                setattr(owner, name, wrapper)
+            raise
+
     try:
         model.save(target)
     finally:
-        if original is not missing:
-            setattr(model, "rollout_buffer_kwargs", original)
+        if raw_patches is not missing:
+            for owner, name, wrapper in reversed(suspended):
+                setattr(owner, name, wrapper)
+            setattr(model, TRAINING_RUNTIME_PATCHES_ATTRIBUTE, raw_patches)
+        if original_rollout_kwargs is not missing:
+            setattr(model, "rollout_buffer_kwargs", original_rollout_kwargs)
 
 
 def _expected_algorithm_identity_digest(

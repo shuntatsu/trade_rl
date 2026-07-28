@@ -136,7 +136,9 @@ def _normalize_run_mapping(node: Any) -> int:
         ):
             existing = node.get(key)
             if existing is not None and existing != legacy_heads:
-                raise ValueError(f"{key} disagrees with legacy sequence_attention_heads")
+                raise ValueError(
+                    f"{key} disagrees with legacy sequence_attention_heads"
+                )
             node[key] = legacy_heads
         changed += 1
 
@@ -148,7 +150,9 @@ def _normalize_run_mapping(node: Any) -> int:
         ):
             existing = node.get(key)
             if existing is not None and existing != legacy_layers:
-                raise ValueError(f"{key} disagrees with legacy sequence_attention_layers")
+                raise ValueError(
+                    f"{key} disagrees with legacy sequence_attention_layers"
+                )
             node[key] = legacy_layers
         changed += 1
 
@@ -167,7 +171,9 @@ def _normalize_example_json_configs() -> None:
             )
             changed_files += 1
     if changed_files <= 0:
-        raise RuntimeError("expected maintained example configs to require v2 migration")
+        raise RuntimeError(
+            "expected maintained example configs to require v2 migration"
+        )
 
 
 def _normalize_focused_tests() -> None:

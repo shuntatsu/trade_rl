@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 _LEGACY_ENCODER_BLOCK = re.compile(
     r'(?ms)^(?P<indent>[ \t]*)"asset_set_encoder": (?P<asset>true|false),\n'
-    r'(?P<middle>.*?)'
+    r"(?P<middle>.*?)"
     r'^(?P=indent)"sequence_encoder": (?P<sequence>true|false),\n'
 )
 
@@ -29,7 +29,9 @@ def _replace_once(path: str, old: str, new: str) -> None:
 
 def _encoder_name(*, sequence: bool, asset: bool) -> str:
     if sequence and asset:
-        raise ValueError("legacy sequence_encoder and asset_set_encoder cannot both be true")
+        raise ValueError(
+            "legacy sequence_encoder and asset_set_encoder cannot both be true"
+        )
     if sequence:
         return "hierarchical_sequence_v2"
     if asset:
@@ -57,7 +59,9 @@ def _assert_no_legacy_training_fields(value: object, *, path: Path) -> None:
         }
         overlap = legacy.intersection(value)
         if overlap:
-            raise RuntimeError(f"{path}: legacy training fields remain: {sorted(overlap)}")
+            raise RuntimeError(
+                f"{path}: legacy training fields remain: {sorted(overlap)}"
+            )
         if value.get("schema_version") == "training_run_config_v1":
             raise RuntimeError(f"{path}: legacy training_run_config_v1 remains")
         for nested in value.values():
@@ -82,9 +86,9 @@ def _migrate_example_json(path: Path) -> bool:
         r'(?m)^(?P<indent>[ \t]*)"sequence_attention_heads": (?P<value>[^,]+),$',
         lambda match: (
             f'{match.group("indent")}"sequence_timeframe_attention_heads": '
-            f'{match.group("value")},\n'
+            f"{match.group('value')},\n"
             f'{match.group("indent")}"sequence_asset_attention_heads": '
-            f'{match.group("value")},'
+            f"{match.group('value')},"
         ),
         updated,
     )
@@ -92,9 +96,9 @@ def _migrate_example_json(path: Path) -> bool:
         r'(?m)^(?P<indent>[ \t]*)"sequence_attention_layers": (?P<value>[^,]+),$',
         lambda match: (
             f'{match.group("indent")}"sequence_timeframe_attention_layers": '
-            f'{match.group("value")},\n'
+            f"{match.group('value')},\n"
             f'{match.group("indent")}"sequence_asset_attention_layers": '
-            f'{match.group("value")},'
+            f"{match.group('value')},"
         ),
         updated,
     )
@@ -117,43 +121,43 @@ def _migrate_example_configs() -> None:
 def _update_sequence_policy_fixture() -> None:
     _replace_once(
         "tests/architecture/test_architecture_audit_fixes.py",
-        '''            "d_model": 16,
+        """            "d_model": 16,
             "attention_heads": 4,
             "attention_layers": 1,
             "dropout": 0.0,
-''',
-        '''            "d_model": 16,
+""",
+        """            "d_model": 16,
             "timeframe_attention_heads": 4,
             "timeframe_attention_layers": 1,
             "asset_attention_heads": 4,
             "asset_attention_layers": 1,
             "dropout": 0.0,
-''',
+""",
     )
 
 
 def _update_constrained_profile_contract() -> None:
     _replace_once(
         "tests/examples/test_constrained_growth_profiles.py",
-        '''    assert training.sequence_d_model == 336
+        """    assert training.sequence_d_model == 336
     assert training.sequence_attention_heads == 8
     assert training.sequence_attention_layers == 2
     assert training.sequence_compile is True
-''',
-        '''    assert training.sequence_d_model == 336
+""",
+        """    assert training.sequence_d_model == 336
     assert training.sequence_timeframe_attention_heads == 8
     assert training.sequence_timeframe_attention_layers == 2
     assert training.sequence_asset_attention_heads == 8
     assert training.sequence_asset_attention_layers == 2
     assert training.sequence_compile is True
-''',
+""",
     )
 
 
 def _update_sb3_training_fixtures() -> None:
     _replace_once(
         "tests/integrations/test_sb3_training.py",
-        '''def _training_config(*, asset_set_enabled: bool = False) -> ResidualTrainingConfig:
+        """def _training_config(*, asset_set_enabled: bool = False) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(
         timesteps=2,
         gamma=0.99,
@@ -173,8 +177,8 @@ def _update_sb3_training_fixtures() -> None:
         ),
         device="cpu",
     )
-''',
-        '''def _training_config(
+""",
+        """def _training_config(
     *, observation_encoder: str = "flat_mlp"
 ) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(
@@ -188,15 +192,15 @@ def _update_sb3_training_fixtures() -> None:
         observation_encoder=observation_encoder,
         device="cpu",
     )
-''',
+""",
     )
     _replace_once(
         "tests/integrations/test_sb3_training.py",
-        '''    class CheckpointSource:
+        """    class CheckpointSource:
         def save(self, target: str) -> None:
             Path(target).with_suffix(".zip").write_bytes(b"resume-policy")
-''',
-        '''    policy_identity = {
+""",
+        """    policy_identity = {
         "observation_encoder": "flat_mlp",
         "schema_version": "sb3_policy_identity_v1",
     }
@@ -206,17 +210,17 @@ def _update_sb3_training_fixtures() -> None:
 
         def save(self, target: str) -> None:
             Path(target).with_suffix(".zip").write_bytes(b"resume-policy")
-''',
+""",
     )
     _replace_once(
         "tests/integrations/test_sb3_training.py",
-        '''    class FakeResumePPO:
+        """    class FakeResumePPO:
         device = "cpu"
-''',
-        '''    class FakeResumePPO:
+""",
+        """    class FakeResumePPO:
         _trade_rl_policy_identity = policy_identity
         device = "cpu"
-''',
+""",
     )
 
 

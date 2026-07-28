@@ -28,7 +28,7 @@ def require_exact_fields(
 
 def require_dataclass_fields(
     value: Mapping[str, Any],
-    model: type[object],
+    model: Any,
     *,
     field: str,
     excluded: Set[str] = frozenset(),

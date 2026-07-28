@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-from typing import Any, Final
+from typing import Any, Final, TypedDict
 
 import numpy as np
 
@@ -22,6 +22,21 @@ from trade_rl.serving.bundle import ServingBundle, ServingBundleManifest
 
 STRUCTURED_POLICY_LOADER_NAME: Final = "structured-policy-loader.json"
 STRUCTURED_POLICY_LOADER_SCHEMA: Final = "structured_policy_loader_v1"
+
+
+class StructuredPolicyLoaderMember(TypedDict):
+    manifest: str
+    manifest_digest: str
+    model: str
+    model_digest: str
+
+
+class StructuredPolicyLoaderManifest(TypedDict):
+    action_size: int
+    architecture_digest: str
+    digest: str
+    members: tuple[StructuredPolicyLoaderMember, ...]
+    schema_version: str
 
 
 def _relative_path(value: object, *, field: str) -> str:
@@ -117,7 +132,9 @@ def write_structured_policy_loader_manifest(
     return path
 
 
-def load_structured_policy_loader_manifest(path: Path) -> dict[str, object]:
+def load_structured_policy_loader_manifest(
+    path: Path,
+) -> StructuredPolicyLoaderManifest:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     payload = _mapping(raw, field="structured policy loader manifest")
     expected = {
@@ -132,6 +149,8 @@ def load_structured_policy_loader_manifest(path: Path) -> dict[str, object]:
     if payload.get("schema_version") != STRUCTURED_POLICY_LOADER_SCHEMA:
         raise ValueError("unsupported structured policy loader schema")
     architecture_digest = payload.get("architecture_digest")
+    if not isinstance(architecture_digest, str):
+        raise ValueError("structured policy loader architecture digest is invalid")
     require_sha256(architecture_digest, field="architecture_digest")
     action_size = payload.get("action_size")
     if (
@@ -143,7 +162,7 @@ def load_structured_policy_loader_manifest(path: Path) -> dict[str, object]:
     raw_members = payload.get("members")
     if not isinstance(raw_members, list) or not raw_members:
         raise ValueError("structured policy loader members must be a non-empty list")
-    members: list[dict[str, object]] = []
+    members: list[StructuredPolicyLoaderMember] = []
     for index, raw_member in enumerate(raw_members):
         member = _mapping(raw_member, field=f"members[{index}]")
         if set(member) != {
@@ -161,6 +180,10 @@ def load_structured_policy_loader_manifest(path: Path) -> dict[str, object]:
             raise ValueError("structured member model path is invalid")
         manifest_digest = member.get("manifest_digest")
         model_digest = member.get("model_digest")
+        if not isinstance(manifest_digest, str):
+            raise ValueError("structured member manifest digest is invalid")
+        if not isinstance(model_digest, str):
+            raise ValueError("structured member model digest is invalid")
         require_sha256(manifest_digest, field="manifest_digest")
         require_sha256(model_digest, field="model_digest")
         members.append(
@@ -178,10 +201,18 @@ def load_structured_policy_loader_manifest(path: Path) -> dict[str, object]:
         "schema_version": STRUCTURED_POLICY_LOADER_SCHEMA,
     }
     digest = payload.get("digest")
+    if not isinstance(digest, str):
+        raise ValueError("structured policy loader digest is invalid")
     require_sha256(digest, field="structured_policy_loader.digest")
     if digest != content_digest(digest_payload):
         raise ValueError("structured policy loader digest mismatch")
-    return {"digest": digest, **digest_payload}
+    return {
+        "action_size": action_size,
+        "architecture_digest": architecture_digest,
+        "digest": digest,
+        "members": tuple(members),
+        "schema_version": STRUCTURED_POLICY_LOADER_SCHEMA,
+    }
 
 
 class StructuredTorchScriptEnsemblePolicy:
@@ -271,7 +302,7 @@ def canonical_policy_loader(
     manifest: ServingBundleManifest,
     architecture_digest: str | None,
     fallback: object | None = None,
-) -> object:
+) -> Any:
     """Resolve the only supported loader for a deployment identity."""
 
     if manifest.observation_schema == SEQUENCE_OBSERVATION_SCHEMA:

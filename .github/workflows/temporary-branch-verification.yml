@@ -1,0 +1,99 @@
+name: Temporary Branch Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify all persistent refs match main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIER_BRANCH: maintenance/branch-verification-20260728
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p branch-verification
+          main_sha="$(
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha'
+          )"
+          printf 'main_sha\t%s\n' "$main_sha" \
+            > branch-verification/summary.tsv
+          printf 'branch\tsha\n' > branch-verification/branches.tsv
+          : > branch-verification/mismatches.tsv
+          while IFS=$'\t' read -r branch sha; do
+            printf '%s\t%s\n' "$branch" "$sha" \
+              >> branch-verification/branches.tsv
+            if [[ "$branch" != "$VERIFIER_BRANCH" && "$sha" != "$main_sha" ]]; then
+              printf '%s\t%s\n' "$branch" "$sha" \
+                >> branch-verification/mismatches.tsv
+            fi
+          done < <(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
+              --jq '.[] | [.name, .commit.sha] | @tsv' \
+              | sort
+          )
+          branch_count="$(($(wc -l < branch-verification/branches.tsv) - 1))"
+          mismatch_count="$(wc -l < branch-verification/mismatches.tsv)"
+          {
+            printf 'branch_count\t%s\n' "$branch_count"
+            printf 'mismatch_count\t%s\n' "$mismatch_count"
+          } >> branch-verification/summary.tsv
+          cat branch-verification/summary.tsv
+          if [[ "$mismatch_count" -ne 0 ]]; then
+            cat branch-verification/mismatches.tsv
+            exit 1
+          fi
+
+      - name: Capture main CUDA workflow status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" \
+              --jq '.workflows[] | select(.name == "Main Docker CUDA Verification") | .id' \
+              | head -n 1
+          )"
+          test -n "$workflow_id"
+          printf '%s\n' "$workflow_id" \
+            > branch-verification/cuda-workflow-id.txt
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=main&per_page=20" \
+            --jq '{
+              total_count,
+              runs: [.workflow_runs[] | {
+                id,
+                event,
+                status,
+                conclusion,
+                head_sha,
+                run_number,
+                created_at,
+                updated_at,
+                html_url
+              }]
+            }' \
+            > branch-verification/cuda-runs.json
+          cat branch-verification/cuda-runs.json
+
+      - name: Upload verification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: branch-verification-${{ github.run_id }}
+          path: branch-verification
+          if-no-files-found: error
+          retention-days: 1

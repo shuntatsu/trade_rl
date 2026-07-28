@@ -9,6 +9,7 @@ on:
       - "START.md"
       - "docs/**"
       - "studio/README.md"
+      - "tests/test_current_documentation_contract.py"
       - ".github/workflows/docs-inventory.yml"
 
 permissions:
@@ -23,11 +24,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Build documentation inventory
+      - name: Build documentation inventory and source snapshot
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p var/docs-inventory
+          mkdir -p var/docs-inventory var/docs-source
           find . -type f \( -name '*.md' -o -name '*.mdx' \) \
             -not -path './.git/*' -not -path './.venv/*' -not -path './node_modules/*' \
             -printf '%P\n' | sort > var/docs-inventory/files.txt
@@ -61,9 +62,21 @@ jobs:
                       broken.append(f'{file}: missing: {raw}')
           pathlib.Path('var/docs-inventory/broken-links.txt').write_text('\n'.join(broken)+('\n' if broken else ''), encoding='utf-8')
           PY
+          tar -czf var/docs-source/docs-source.tar.gz \
+            README.md README.ja.md START.md docs studio/README.md \
+            tests/test_current_documentation_contract.py .importlinter \
+            trade_rl/rl/training.py trade_rl/rl/sequence_policy.py \
+            trade_rl/rl/sequence_diagnostics.py trade_rl/rl/structured_export.py \
+            trade_rl/rl/observations.py trade_rl/rl/policy_identity.py \
+            trade_rl/serving/bundle.py trade_rl/serving/structured_policy.py \
+            trade_rl/workflows/training_run.py \
+            examples/quickstart/training.json \
+            examples/binance-multitimeframe/training-full.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: docs-inventory-${{ github.run_id }}
-          path: var/docs-inventory
+          path: |
+            var/docs-inventory
+            var/docs-source
           if-no-files-found: error
           retention-days: 1

@@ -30,6 +30,7 @@ def test_smoke_config_preserves_the_maintained_cuda_training_contract(
     config = _load_smoke().build_smoke_config(timesteps=128)
 
     assert config.training.device == "cuda"
+    assert str(config.training.cuda_runtime_mode) == "deterministic"
     assert config.training.n_envs == 4
     assert config.training.policy == "MultiInputPolicy"
     assert (config.training.observation_encoder == "hierarchical_sequence_v2") is True
@@ -57,6 +58,22 @@ def test_smoke_config_preserves_the_maintained_cuda_training_contract(
     assert config.action.target_weight_count == 1
     assert config.git_commit == "a" * 40
     assert config.git_dirty is False
+
+
+def test_accelerated_smoke_selects_explicit_performance_cuda_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRADE_RL_GIT_COMMIT", "a" * 40)
+    monkeypatch.setenv("TRADE_RL_GIT_DIRTY", "false")
+
+    config = _load_smoke().build_smoke_config(
+        timesteps=128,
+        runtime_profile="accelerated",
+    )
+
+    assert str(config.training.cuda_runtime_mode) == "performance"
+    assert config.training.sequence_compile is True
+    assert config.training.sequence_transfer_mode == "pinned_non_blocking"
 
 
 @pytest.mark.parametrize(
@@ -146,3 +163,68 @@ def test_load_training_performance_fails_closed(
 
     with pytest.raises((RuntimeError, ValueError), match=message):
         _load_smoke()._load_training_performance(member)
+
+
+def _model_architecture_payload() -> dict[str, object]:
+    return {
+        "schema_version": "policy_architecture_v2",
+        "torch_runtime": {
+            "mode": "performance",
+            "deterministic_algorithms": False,
+            "cudnn_benchmark": True,
+            "cudnn_deterministic": False,
+            "cudnn_tf32": True,
+            "float32_matmul_precision": "high",
+            "matmul_tf32": True,
+            "sequence_encoder_autocast": "bfloat16",
+        },
+    }
+
+
+def test_load_torch_runtime_reads_effective_model_runtime(tmp_path: Path) -> None:
+    member = tmp_path / "member-000"
+    member.mkdir()
+    payload = _model_architecture_payload()
+    (member / "model-architecture.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    assert (
+        _load_smoke()._load_torch_runtime(member, expected_mode="performance")
+        == (payload["torch_runtime"])
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ({"schema_version": "wrong"}, "schema"),
+        ({"torch_runtime": {}}, "fields"),
+        (
+            {
+                "torch_runtime": {
+                    **_model_architecture_payload()["torch_runtime"],
+                    "mode": "deterministic",
+                }
+            },
+            "mode",
+        ),
+    ),
+)
+def test_load_torch_runtime_fails_closed(
+    tmp_path: Path,
+    mutation: dict[str, object],
+    message: str,
+) -> None:
+    member = tmp_path / "member-000"
+    member.mkdir()
+    payload = _model_architecture_payload()
+    payload.update(mutation)
+    (member / "model-architecture.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises((RuntimeError, ValueError), match=message):
+        _load_smoke()._load_torch_runtime(member, expected_mode="performance")

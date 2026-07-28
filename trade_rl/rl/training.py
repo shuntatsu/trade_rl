@@ -20,6 +20,7 @@ from trade_rl.domain.policies import PolicyEnsembleManifest, PolicyMember
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.cost_learning import canonical_cost_learning_schema
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
+from trade_rl.rl.training_modes import CudaRuntimeMode, ObservationEncoder
 
 
 def _require_inactive_default(
@@ -74,6 +75,7 @@ class ResidualTrainingConfig:
     max_grad_norm: float = 0.5
     policy: str = "MlpPolicy"
     device: str = "auto"
+    cuda_runtime_mode: CudaRuntimeMode | str = CudaRuntimeMode.PERFORMANCE
     decision_hours: float | None = None
     discount_half_life_hours: float | None = None
     log_std_init: float = -0.5
@@ -82,7 +84,7 @@ class ResidualTrainingConfig:
     sde_sample_freq: int = -1
     policy_net_arch: tuple[int, ...] = (128, 128)
     value_net_arch: tuple[int, ...] = (128, 128)
-    observation_encoder: str = "asset_set"
+    observation_encoder: ObservationEncoder | str = ObservationEncoder.ASSET_SET
     sequence_tcn_capacity: str = "standard"
     sequence_d_model: int = 320
     sequence_timeframe_attention_heads: int = 8
@@ -333,19 +335,24 @@ class ResidualTrainingConfig:
             raise ValueError(
                 "vector_environment_mode must be auto, in_process, or subprocess"
             )
-        encoder = self.observation_encoder.strip().lower()
-        allowed_encoders = {
-            "flat_mlp",
-            "asset_set",
-            "hierarchical_sequence_v2",
-        }
-        if encoder not in allowed_encoders:
+        try:
+            encoder = ObservationEncoder(str(self.observation_encoder).strip().lower())
+        except ValueError as error:
             raise ValueError(
                 "observation_encoder must be flat_mlp, asset_set, or "
                 "hierarchical_sequence_v2"
-            )
+            ) from error
         object.__setattr__(self, "observation_encoder", encoder)
-        sequence_active = encoder == "hierarchical_sequence_v2"
+        try:
+            cuda_runtime_mode = CudaRuntimeMode(
+                str(self.cuda_runtime_mode).strip().lower()
+            )
+        except ValueError as error:
+            raise ValueError(
+                "cuda_runtime_mode must be deterministic or performance"
+            ) from error
+        object.__setattr__(self, "cuda_runtime_mode", cuda_runtime_mode)
+        sequence_active = encoder is ObservationEncoder.HIERARCHICAL_SEQUENCE_V2
         if not isinstance(self.sequence_compile, bool):
             raise ValueError("sequence_compile must be a boolean")
         if self.sequence_compile_mode not in {
@@ -767,7 +774,7 @@ class ResidualTrainingConfig:
         payload: dict[str, object] = {
             "algorithm": self.algorithm,
             "asset_embedding_dim": self.asset_embedding_dim,
-            "observation_encoder": self.observation_encoder,
+            "observation_encoder": str(self.observation_encoder),
             "batch_size": self.batch_size,
             "behavior_cloning_batch_size": self.behavior_cloning_batch_size,
             "behavior_cloning_epochs": self.behavior_cloning_epochs,
@@ -785,6 +792,7 @@ class ResidualTrainingConfig:
             "clip_range": self.clip_range,
             "decision_hours": self.decision_hours,
             "device": self.device,
+            "cuda_runtime_mode": str(self.cuda_runtime_mode),
             "discount_half_life_hours": self.discount_half_life_hours,
             "ent_coef": self.ent_coef,
             "gae_lambda": self.gae_lambda,
@@ -899,6 +907,11 @@ class PolicyTrainingResult:
     normalizer_digest: str | None = None
     replay_buffer_path: Path | None = None
     replay_buffer_digest: str | None = None
+    structured_export_manifest_path: Path | None = None
+    structured_export_manifest_digest: str | None = None
+    structured_export_model_path: Path | None = None
+    structured_export_model_digest: str | None = None
+    architecture_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.actual_timesteps <= 0:
@@ -961,6 +974,27 @@ class PolicyTrainingResult:
             require_sha256(self.replay_buffer_digest, field="replay_buffer_digest")
         if (self.replay_buffer_path is None) != (self.replay_buffer_digest is None):
             raise ValueError("replay buffer path and digest must be provided together")
+        structured_export_values = (
+            self.structured_export_manifest_path,
+            self.structured_export_manifest_digest,
+            self.structured_export_model_path,
+            self.structured_export_model_digest,
+        )
+        if any(value is not None for value in structured_export_values) and (
+            any(value is None for value in structured_export_values)
+            or self.architecture_digest is None
+        ):
+            raise ValueError("structured export identity must be complete")
+        for field_name, value in (
+            (
+                "structured_export_manifest_digest",
+                self.structured_export_manifest_digest,
+            ),
+            ("structured_export_model_digest", self.structured_export_model_digest),
+            ("architecture_digest", self.architecture_digest),
+        ):
+            if value is not None:
+                require_sha256(value, field=field_name)
 
 
 class PolicyTrainingBackend(Protocol):
@@ -1130,6 +1164,7 @@ def train_residual_ensemble(
         "alpha_artifact_digest",
         "factor_artifact_digest",
         "normalizer_digest",
+        "architecture_digest",
     )
     values: dict[str, Any] = {}
     for field_name in consistency_fields:
@@ -1163,6 +1198,8 @@ def train_residual_ensemble(
         "schema_version": "policy_ensemble_v4",
         "training_config_digest": training_config_digest,
     }
+    if values["architecture_digest"] is not None:
+        digest_payload["architecture_digest"] = values["architecture_digest"]
     return PolicyEnsembleManifest(
         digest=content_digest(digest_payload),
         dataset_id=dataset.dataset_id,
@@ -1188,6 +1225,7 @@ def train_residual_ensemble(
         alpha_artifact_digest=values["alpha_artifact_digest"],
         factor_artifact_digest=values["factor_artifact_digest"],
         normalizer_digest=values["normalizer_digest"],
+        architecture_digest=values["architecture_digest"],
     )
 
 

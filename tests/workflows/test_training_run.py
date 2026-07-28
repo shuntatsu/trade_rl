@@ -42,6 +42,7 @@ def _config(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
+                "schema_version": "training_run_config_v2",
                 "training": {
                     "timesteps": 8,
                     "gamma": 0.99,
@@ -80,7 +81,11 @@ def _config(path: Path) -> None:
                     "mode": "time_series",
                 },
                 "action": {"alpha_enabled": False, "n_factors": 0},
-                "exports": {"onnx": False, "torchscript": False},
+                "exports": {
+                    "onnx": False,
+                    "structured_torchscript": False,
+                    "torchscript": False,
+                },
             }
         ),
         encoding="utf-8",

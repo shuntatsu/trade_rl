@@ -206,19 +206,38 @@ def sequence_diagnostics_payload(
     return payload
 
 
-def build_sequence_diagnostics_callback() -> Any:
-    """Build a rollout-boundary TensorBoard probe that no-ops for other policies."""
+def build_sequence_diagnostics_callback(
+    *,
+    enabled: bool,
+    rollout_interval: int,
+) -> Any | None:
+    """Build a TensorBoard probe only when explicitly enabled."""
+
+    if not isinstance(enabled, bool):
+        raise ValueError("sequence diagnostics enabled must be a boolean")
+    if (
+        isinstance(rollout_interval, bool)
+        or not isinstance(rollout_interval, int)
+        or rollout_interval <= 0
+    ):
+        raise ValueError("sequence diagnostics rollout_interval must be positive")
+    if not enabled:
+        return None
 
     from stable_baselines3.common.callbacks import BaseCallback
 
     class SequenceDiagnosticsCallback(BaseCallback):
         def __init__(self) -> None:
             super().__init__(verbose=0)
+            self.completed_rollouts = 0
 
         def _on_step(self) -> bool:
             return True
 
         def _on_rollout_end(self) -> None:
+            self.completed_rollouts += 1
+            if self.completed_rollouts % rollout_interval != 0:
+                return
             policy = getattr(self.model, "policy", None)
             obs_to_tensor = getattr(policy, "obs_to_tensor", None)
             if not callable(obs_to_tensor):

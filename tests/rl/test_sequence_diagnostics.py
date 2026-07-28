@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import torch
 from gymnasium import spaces
 
+from trade_rl.rl import sequence_diagnostics as diagnostics_module
 from trade_rl.rl.gated_transformer import GatedTransformerStack
 from trade_rl.rl.policies import SequenceAssetFeatureExtractor
-from trade_rl.rl.sequence_diagnostics import sequence_diagnostics_payload
+from trade_rl.rl.sequence_diagnostics import (
+    build_sequence_diagnostics_callback,
+    sequence_diagnostics_payload,
+)
 
 
 def test_diagnostic_transformer_matches_normal_forward_and_masks_keys() -> None:
@@ -121,3 +126,52 @@ def test_sequence_diagnostic_payload_is_finite_and_quality_aware() -> None:
         for timeframe in ("15m", "1h", "4h", "1d")
     )
     assert 0.0 < total_share <= 1.25
+
+
+def test_sequence_diagnostics_callback_is_absent_when_disabled() -> None:
+    assert (
+        build_sequence_diagnostics_callback(enabled=False, rollout_interval=1) is None
+    )
+
+
+def test_sequence_diagnostics_callback_honors_rollout_interval(
+    monkeypatch,
+) -> None:
+    calls: list[object] = []
+    records: list[tuple[str, float]] = []
+
+    monkeypatch.setattr(
+        diagnostics_module,
+        "sequence_diagnostics_payload",
+        lambda extractor, observations: (
+            calls.append((extractor, observations)) or {"sequence/probe": 1.0}
+        ),
+    )
+
+    extractor = SimpleNamespace(
+        asset_encoder=SimpleNamespace(timeframe_fusion=object())
+    )
+
+    class Policy:
+        features_extractor = extractor
+
+        @staticmethod
+        def obs_to_tensor(observation):
+            return observation, None
+
+    callback = build_sequence_diagnostics_callback(enabled=True, rollout_interval=3)
+    assert callback is not None
+    callback.model = SimpleNamespace(
+        policy=Policy(),
+        _last_obs={"current_snapshot": torch.zeros(1)},
+        logger=SimpleNamespace(record=lambda key, value: records.append((key, value))),
+    )
+
+    callback._on_rollout_end()
+    callback._on_rollout_end()
+    assert calls == []
+    assert records == []
+
+    callback._on_rollout_end()
+    assert len(calls) == 1
+    assert records == [("sequence/probe", 1.0)]

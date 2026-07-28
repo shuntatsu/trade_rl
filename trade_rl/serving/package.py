@@ -213,16 +213,41 @@ def package_selected_training_run(
         created_at_raw = _string(
             ensemble_raw.get("created_at"), field="ensemble.created_at"
         )
+        architecture_digest = _optional_string(
+            ensemble_raw.get("architecture_digest"),
+            field="ensemble.architecture_digest",
+        )
+        from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
+
+        observation_schema = _string(
+            ensemble_raw.get("observation_schema"),
+            field="ensemble.observation_schema",
+        )
+        if observation_schema == SEQUENCE_OBSERVATION_SCHEMA:
+            from trade_rl.serving.policy_loader import (
+                STRUCTURED_POLICY_LOADER_NAME,
+                load_structured_policy_loader_manifest,
+            )
+
+            structured_loader_path = stage / STRUCTURED_POLICY_LOADER_NAME
+            if structured_loader_path.is_file():
+                structured_loader = load_structured_policy_loader_manifest(
+                    structured_loader_path
+                )
+                raw_architecture_digest = structured_loader.get("architecture_digest")
+                if not isinstance(raw_architecture_digest, str):
+                    raise ValueError("structured loader architecture digest is missing")
+                if architecture_digest != raw_architecture_digest:
+                    raise ValueError(
+                        "structured loader architecture differs from ensemble"
+                    )
         bundle_manifest = ServingBundleManifest.build(
             root=stage,
             dataset_id=manifest.dataset_id,
             action_schema=_string(
                 ensemble_raw.get("action_schema"), field="ensemble.action_schema"
             ),
-            observation_schema=_string(
-                ensemble_raw.get("observation_schema"),
-                field="ensemble.observation_schema",
-            ),
+            observation_schema=observation_schema,
             observation_size=_integer(
                 ensemble_raw.get("observation_size"), field="ensemble.observation_size"
             ),
@@ -257,6 +282,7 @@ def package_selected_training_run(
                 ensemble_raw.get("normalizer_digest"),
                 field="ensemble.normalizer_digest",
             ),
+            architecture_digest=architecture_digest,
             training_run_digest=manifest.digest,
             run_kind=manifest.run_kind,
             selection_proposal_digest=manifest.selection_proposal_digest,

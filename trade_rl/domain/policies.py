@@ -58,6 +58,7 @@ class PolicyEnsembleManifest:
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     normalizer_digest: str | None = None
+    architecture_digest: str | None = None
     schema_version: str = "policy_ensemble_v4"
 
     def __post_init__(self) -> None:
@@ -110,6 +111,7 @@ class PolicyEnsembleManifest:
             ("alpha_artifact_digest", self.alpha_artifact_digest),
             ("factor_artifact_digest", self.factor_artifact_digest),
             ("normalizer_digest", self.normalizer_digest),
+            ("architecture_digest", self.architecture_digest),
         ):
             if value is not None:
                 require_sha256(value, field=field_name)
@@ -123,7 +125,7 @@ class PolicyEnsembleManifest:
             raise ValueError("policy ensemble digest does not match content")
 
     def digest_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "action_names": self.action_names,
             "action_schema": self.action_schema,
             "action_size": self.action_size,
@@ -144,3 +146,6 @@ class PolicyEnsembleManifest:
             "schema_version": self.schema_version,
             "training_config_digest": self.training_config_digest,
         }
+        if self.architecture_digest is not None:
+            payload["architecture_digest"] = self.architecture_digest
+        return payload

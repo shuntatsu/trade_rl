@@ -246,7 +246,7 @@ def test_gpu_nightly_contract_measures_vram_throughput_and_resume() -> None:
     assert "peak_gpu_memory_mib" in smoke
     assert "throughput_steps_per_second" in smoke
     assert "resume_checkpoint" in smoke
-    assert "gpu_sequence_target_oracle_bc_training_smoke_v7" in smoke
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v8" in smoke
 
 
 def test_ci_explicitly_runs_recovery_and_structured_serving_smokes() -> None:

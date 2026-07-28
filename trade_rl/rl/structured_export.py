@@ -328,7 +328,7 @@ def export_structured_policy_actor(
     action_size: int,
     tolerance: float = 1e-5,
 ) -> StructuredExportManifest:
-    """Export one hierarchical policy with canonical structured-input parity evidence."""
+    """Export one hierarchical policy while preserving the live model state."""
 
     if action_size <= 0:
         raise ValueError("structured export action_size must be positive")
@@ -342,23 +342,31 @@ def export_structured_policy_actor(
     policy = getattr(model, "policy", None)
     if not isinstance(policy, nn.Module):
         raise TypeError("structured export model policy must be a torch module")
-    policy = policy.to("cpu")
+
+    original_training = bool(policy.training)
+    original_device = getattr(model, "device", None)
+    if original_device is None:
+        first_parameter = next(policy.parameters(), None)
+        original_device = "cpu" if first_parameter is None else first_parameter.device
     set_training_mode = getattr(policy, "set_training_mode", None)
-    if callable(set_training_mode):
-        set_training_mode(False)
-    policy.eval()
-    specs = _observation_specs(model)
-    example = _validated_example(example_observation, specs)
-    actor = _StructuredDeterministicActor(
-        policy, tuple(item.name for item in specs)
-    ).eval()
-    corpus = _parity_corpus(example, specs)
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model_path = output_dir / STRUCTURED_EXPORT_MODEL_NAME
     manifest_path = output_dir / STRUCTURED_EXPORT_MANIFEST_NAME
     try:
+        policy.to("cpu")
+        if callable(set_training_mode):
+            set_training_mode(False)
+        else:
+            policy.train(False)
+        policy.eval()
+        specs = _observation_specs(model)
+        example = _validated_example(example_observation, specs)
+        actor = _StructuredDeterministicActor(
+            policy, tuple(item.name for item in specs)
+        ).eval()
+        corpus = _parity_corpus(example, specs)
         with torch.no_grad():
             traced = torch.jit.trace(actor, example, strict=False, check_trace=False)
             traced.save(str(model_path))
@@ -389,6 +397,17 @@ def export_structured_policy_actor(
         model_path.unlink(missing_ok=True)
         manifest_path.unlink(missing_ok=True)
         raise
+    finally:
+        try:
+            policy.to(original_device)
+            if callable(set_training_mode):
+                set_training_mode(original_training)
+            else:
+                policy.train(original_training)
+        except Exception:
+            model_path.unlink(missing_ok=True)
+            manifest_path.unlink(missing_ok=True)
+            raise
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:

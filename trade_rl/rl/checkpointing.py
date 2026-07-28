@@ -542,6 +542,8 @@ def build_checkpoint_callback(
     starting_timestep: int = 0,
     environment_digest: str,
     training_config_digest: str,
+    sequence_diagnostics_enabled: bool = False,
+    sequence_diagnostics_interval: int = 1,
 ) -> Any:
     """Build full-horizon checkpoint and sampled Studio telemetry callbacks."""
 
@@ -568,9 +570,15 @@ def build_checkpoint_callback(
     )
     from trade_rl.rl.sequence_diagnostics import build_sequence_diagnostics_callback
 
-    diagnostics_callback = build_sequence_diagnostics_callback()
+    diagnostics_callback = build_sequence_diagnostics_callback(
+        enabled=sequence_diagnostics_enabled,
+        rollout_interval=sequence_diagnostics_interval,
+    )
+    passive_callbacks = [telemetry_callback]
+    if diagnostics_callback is not None:
+        passive_callbacks.append(diagnostics_callback)
     if not planned:
-        return CallbackList([telemetry_callback, diagnostics_callback])
+        return CallbackList(passive_callbacks)
 
     class AtomicCheckpointCallback(BaseCallback):
         def __init__(self) -> None:
@@ -594,9 +602,7 @@ def build_checkpoint_callback(
                 self.cursor += 1
             return True
 
-    return CallbackList(
-        [AtomicCheckpointCallback(), telemetry_callback, diagnostics_callback]
-    )
+    return CallbackList([AtomicCheckpointCallback(), *passive_callbacks])
 
 
 __all__ = [

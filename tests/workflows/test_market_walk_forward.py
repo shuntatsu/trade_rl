@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -46,6 +46,7 @@ def _dataset() -> MarketDataset:
 
 def _candidate_run() -> dict[str, object]:
     return {
+        "schema_version": "training_run_config_v2",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
@@ -261,6 +262,7 @@ def _sequence_candidate_config():
 
     return TrainingRunConfig.from_mapping(
         {
+            "schema_version": "training_run_config_v2",
             "training": {
                 "timesteps": 8,
                 "gamma": 0.99,
@@ -317,6 +319,33 @@ def _sequence_candidate_config():
             "exports": {"onnx": False, "torchscript": False},
         }
     )
+
+
+def _training_run_mapping(run) -> dict[str, object]:
+    environment = asdict(run.environment)
+    execution = environment.pop("execution_cost")
+    environment.pop("reward_config", None)
+    environment.pop("reward", None)
+    return {
+        "schema_version": run.schema_version,
+        "training": run.training.digest_payload(),
+        "environment": environment,
+        "execution": execution,
+        "risk": asdict(run.risk),
+        "portfolio_risk": asdict(run.portfolio_risk),
+        "reward": asdict(run.reward),
+        "trend": asdict(run.trend),
+        "action": asdict(run.action),
+        "alpha_contract": asdict(run.alpha_contract),
+        "exports": {
+            "onnx": run.export_onnx,
+            "structured_torchscript": run.export_structured_torchscript,
+            "torchscript": run.export_torchscript,
+            "tolerance": run.export_tolerance,
+        },
+        "git_commit": run.git_commit,
+        "git_dirty": run.git_dirty,
+    }
 
 
 def test_structured_training_view_preserves_exact_sequence_and_reward_preroll() -> None:
@@ -413,7 +442,9 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
                     "max_folds": 1,
                 },
                 "minimum_selection_uplift": 0.0,
-                "candidates": [{"name": "sequence-ppo", "run": run.digest_payload()}],
+                "candidates": [
+                    {"name": "sequence-ppo", "run": _training_run_mapping(run)}
+                ],
             }
         ),
         encoding="utf-8",

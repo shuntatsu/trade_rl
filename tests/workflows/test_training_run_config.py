@@ -7,6 +7,7 @@ from trade_rl.workflows.training_run import TrainingRunConfig
 
 def _mapping() -> dict[str, object]:
     return {
+        "schema_version": "training_run_config_v2",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
@@ -276,3 +277,111 @@ def test_training_dataset_reference_declares_unshifted_ichimoku_alignment() -> N
         "15m__ichimoku_tenkan_distance_9bar": "unshifted_decision_time",
         "1h__ichimoku_cloud_position_9_26_52": "unshifted_decision_time",
     }
+
+
+def test_training_config_requires_explicit_v2_schema() -> None:
+    raw = _mapping()
+    raw.pop("schema_version")
+    with pytest.raises(ValueError, match="missing required fields.*schema_version"):
+        TrainingRunConfig.from_mapping(raw)
+
+
+def test_training_config_rejects_unknown_top_level_field() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["schema_verison"] = "training_run_config_v2"
+    with pytest.raises(ValueError, match="unknown fields.*schema_verison"):
+        TrainingRunConfig.from_mapping(raw)
+
+
+def test_training_config_rejects_unknown_export_field() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["exports"] = {"torchcript": True}
+    with pytest.raises(ValueError, match="exports.*unknown fields.*torchcript"):
+        TrainingRunConfig.from_mapping(raw)
+
+
+def test_training_config_rejects_misspelled_training_field() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    training = dict(raw["training"])  # type: ignore[arg-type]
+    training["observation_encodr"] = "flat_mlp"
+    raw["training"] = training
+    with pytest.raises(
+        ValueError, match="training.*unknown fields.*observation_encodr"
+    ):
+        TrainingRunConfig.from_mapping(raw)
+
+
+def test_training_config_rejects_shadow_reward_inside_environment() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    environment = dict(raw["environment"])  # type: ignore[arg-type]
+    environment["reward_config"] = {}
+    raw["environment"] = environment
+    with pytest.raises(ValueError, match="environment.*unknown fields.*reward_config"):
+        TrainingRunConfig.from_mapping(raw)
+
+
+def test_training_config_resolves_typed_encoder_and_cuda_modes() -> None:
+    from trade_rl.rl.training_modes import CudaRuntimeMode, ObservationEncoder
+
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    training = dict(raw["training"])  # type: ignore[arg-type]
+    training.update(
+        {
+            "observation_encoder": "flat_mlp",
+            "cuda_runtime_mode": "deterministic",
+        }
+    )
+    raw["training"] = training
+
+    config = TrainingRunConfig.from_mapping(raw)
+
+    assert config.training.observation_encoder is ObservationEncoder.FLAT_MLP
+    assert config.training.cuda_runtime_mode is CudaRuntimeMode.DETERMINISTIC
+    assert config.training.digest_payload()["observation_encoder"] == "flat_mlp"
+    assert config.training.digest_payload()["cuda_runtime_mode"] == "deterministic"
+
+
+def _structured_mapping() -> dict[str, object]:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    training = dict(raw["training"])  # type: ignore[arg-type]
+    training.update(
+        {
+            "policy": "MultiInputPolicy",
+            "observation_encoder": "hierarchical_sequence_v2",
+        }
+    )
+    raw["training"] = training
+    environment = dict(raw["environment"])  # type: ignore[arg-type]
+    environment.update(
+        {
+            "structured_sequence_observation": True,
+            "sequence_windows": [["15m", 1], ["1h", 1], ["4h", 1], ["1d", 1]],
+        }
+    )
+    raw["environment"] = environment
+    return raw
+
+
+def test_training_config_accepts_structured_torchscript_for_sequence_policy() -> None:
+    raw = _structured_mapping()
+    raw["exports"] = {"structured_torchscript": True}
+
+    config = TrainingRunConfig.from_mapping(raw)
+
+    assert config.export_structured_torchscript is True
+    assert config.digest_payload()["export_structured_torchscript"] is True
+
+
+def test_training_config_rejects_structured_torchscript_for_flat_policy() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["exports"] = {"structured_torchscript": True}
+
+    with pytest.raises(ValueError, match="requires hierarchical_sequence_v2"):
+        TrainingRunConfig.from_mapping(raw)

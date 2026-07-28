@@ -27,6 +27,7 @@ from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import ObservationLayout
 from trade_rl.rl.training import ResidualTrainingConfig
+from trade_rl.rl.training_modes import CudaRuntimeMode
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -66,6 +67,7 @@ class _FakeTorch:
             },
         )()
         self.precision = "highest"
+        self.deterministic_algorithms = False
 
     def device(self, value: object) -> object:
         kind = str(value).split(":", maxsplit=1)[0]
@@ -80,13 +82,24 @@ class _FakeTorch:
         self.precision = value
         self.backends.cuda.matmul.allow_tf32 = value == "high"
 
+    def use_deterministic_algorithms(
+        self, enabled: bool, *, warn_only: bool = False
+    ) -> None:
+        del warn_only
+        self.deterministic_algorithms = enabled
+
+    def are_deterministic_algorithms_enabled(self) -> bool:
+        return self.deterministic_algorithms
+
 
 def test_cuda_runtime_enables_tf32_and_fixed_shape_cudnn_search() -> None:
     torch = _FakeTorch(cuda_available=True)
 
-    result = _configure_torch_cuda_runtime(torch, "cuda:0")
+    result = _configure_torch_cuda_runtime(torch, "cuda:0", CudaRuntimeMode.PERFORMANCE)
 
     assert result == {
+        "mode": "performance",
+        "deterministic_algorithms": False,
         "cudnn_benchmark": True,
         "cudnn_deterministic": False,
         "cudnn_tf32": True,
@@ -99,13 +112,29 @@ def test_cuda_runtime_enables_tf32_and_fixed_shape_cudnn_search() -> None:
 def test_cpu_runtime_does_not_enable_cuda_fast_paths() -> None:
     torch = _FakeTorch(cuda_available=True)
 
-    result = _configure_torch_cuda_runtime(torch, "cpu")
+    result = _configure_torch_cuda_runtime(torch, "cpu", CudaRuntimeMode.PERFORMANCE)
 
     assert result["cudnn_benchmark"] is False
     assert result["cudnn_deterministic"] is True
     assert result["matmul_tf32"] is False
     assert result["float32_matmul_precision"] == "highest"
     assert result["sequence_encoder_autocast"] == "disabled"
+
+
+def test_cuda_runtime_deterministic_mode_disables_fast_nondeterministic_paths() -> None:
+    torch = _FakeTorch(cuda_available=True)
+
+    result = _configure_torch_cuda_runtime(
+        torch, "cuda:0", CudaRuntimeMode.DETERMINISTIC
+    )
+
+    assert result["mode"] == "deterministic"
+    assert result["deterministic_algorithms"] is True
+    assert result["cudnn_benchmark"] is False
+    assert result["cudnn_deterministic"] is True
+    assert result["matmul_tf32"] is False
+    assert result["cudnn_tf32"] is False
+    assert result["float32_matmul_precision"] == "highest"
 
 
 class TinyEnvironment(gym.Env[np.ndarray, np.ndarray]):

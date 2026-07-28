@@ -108,6 +108,7 @@ def _config(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
+                "schema_version": "training_run_config_v2",
                 "training": {
                     "timesteps": 8,
                     "gamma": 0.99,

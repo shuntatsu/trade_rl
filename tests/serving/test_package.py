@@ -26,8 +26,10 @@ from trade_rl.evaluation.paper_reconciliation import (
 )
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.offline_signing import public_key_bytes
+from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import load_serving_bundle
 from trade_rl.serving.package import package_selected_training_run
+from trade_rl.serving.policy_loader import STRUCTURED_POLICY_LOADER_NAME
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     ExecutionEvidence,
@@ -51,6 +53,9 @@ def _training_run(
     run_kind: str,
     execution_path_mode: str = "conservative",
     execution_policy_digest: str | None = None,
+    observation_schema: str = "portfolio_observation_v3",
+    architecture_digest: str | None = None,
+    include_structured_loader: bool = False,
 ) -> TrainingRunManifest:
     root.mkdir()
     ensemble = {
@@ -66,12 +71,24 @@ def _training_run(
         "factor_artifact_digest": None,
         "initial_capital": 100_000.0,
         "normalizer_digest": None,
-        "observation_schema": "portfolio_observation_v3",
+        "architecture_digest": architecture_digest,
+        "observation_schema": observation_schema,
         "observation_size": 8,
     }
     (root / "ensemble.json").write_text(json.dumps(ensemble), encoding="utf-8")
     (root / "policy-loader.json").write_text("{}", encoding="utf-8")
     (root / "policy.zip").write_bytes(b"policy")
+    artifact_paths = [
+        "ensemble.json",
+        "environment.json",
+        "execution-evidence.json",
+        "metadata-promotion.json",
+        "policy-loader.json",
+        "policy.zip",
+    ]
+    if include_structured_loader:
+        (root / STRUCTURED_POLICY_LOADER_NAME).write_text("{}", encoding="utf-8")
+        artifact_paths.append(STRUCTURED_POLICY_LOADER_NAME)
     execution_cost = ExecutionCostConfig(path_mode="conservative")
     (root / "environment.json").write_text(
         json.dumps(
@@ -123,14 +140,7 @@ def _training_run(
         ensemble_digest="c" * 64,
         training_config_digest="e" * 64,
         provenance_digest="f" * 64,
-        artifact_paths=(
-            "ensemble.json",
-            "environment.json",
-            "execution-evidence.json",
-            "metadata-promotion.json",
-            "policy-loader.json",
-            "policy.zip",
-        ),
+        artifact_paths=tuple(artifact_paths),
         created_at=COMPLETED - timedelta(hours=1),
         completed_at=COMPLETED,
         run_kind=run_kind,
@@ -240,6 +250,70 @@ def test_package_selected_final_binds_training_and_confirmation(tmp_path: Path) 
     assert (loaded.root / "training-run.json").is_file()
     assert (loaded.root / "confirmation-evidence.json").is_file()
     assert (loaded.root / PAPER_RECONCILIATION_FILE_NAME).is_file()
+
+
+def test_package_binds_structured_loader_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    architecture_digest = "9" * 64
+    training_root = tmp_path / "training"
+    training = _training_run(
+        training_root,
+        run_kind="research_selected_final",
+        observation_schema=SEQUENCE_OBSERVATION_SCHEMA,
+        architecture_digest=architecture_digest,
+        include_structured_loader=True,
+    )
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(confirmation_path, training)
+    monkeypatch.setattr(
+        "trade_rl.serving.policy_loader.load_structured_policy_loader_manifest",
+        lambda _: {"architecture_digest": architecture_digest},
+    )
+
+    manifest = package_selected_training_run(
+        training_root=training_root,
+        confirmation_path=confirmation_path,
+        output_root=tmp_path / "bundle",
+        signal_digest="a" * 64,
+        selection_digest="b" * 64,
+        trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+        trusted_now=training.completed_at + timedelta(days=30),
+    )
+
+    assert manifest.architecture_digest == architecture_digest
+
+
+def test_package_rejects_structured_loader_architecture_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    training_root = tmp_path / "training"
+    training = _training_run(
+        training_root,
+        run_kind="research_selected_final",
+        observation_schema=SEQUENCE_OBSERVATION_SCHEMA,
+        architecture_digest="9" * 64,
+        include_structured_loader=True,
+    )
+    confirmation_path = tmp_path / "confirmation.json"
+    _confirmation(confirmation_path, training)
+    monkeypatch.setattr(
+        "trade_rl.serving.policy_loader.load_structured_policy_loader_manifest",
+        lambda _: {"architecture_digest": "8" * 64},
+    )
+
+    with pytest.raises(ValueError, match="architecture differs"):
+        package_selected_training_run(
+            training_root=training_root,
+            confirmation_path=confirmation_path,
+            output_root=tmp_path / "bundle",
+            signal_digest="a" * 64,
+            selection_digest="b" * 64,
+            trusted_confirmation_keys={PUBLIC_KEY.key_id: PUBLIC_KEY},
+            trusted_now=training.completed_at + timedelta(days=30),
+        )
 
 
 def test_package_rejects_missing_paper_reconciliation(tmp_path: Path) -> None:

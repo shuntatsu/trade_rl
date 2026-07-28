@@ -56,6 +56,17 @@ uv run trade-rl train run \
 
 QuickstartはCPU、PPO、1 seed、短いRolloutです。成功は学習とArtifact publishのPipelineが動いたことだけを意味します。
 
+成功時のMachine-readable出力例:
+
+```json
+{
+  "artifact_path": "var/quickstart/artifacts/runs/quickstart-001",
+  "production_status": "NO-GO",
+  "run_id": "quickstart-001",
+  "status": "published"
+}
+```
+
 ## 4. 成果物を確認する
 
 ```bash

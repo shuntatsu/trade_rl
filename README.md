@@ -93,6 +93,8 @@ Dataset identityには価格と特徴量だけでなく、Availability、Stalene
 
 状態付き約定Engineは、Latency、Partial fill、Time in Force、Cancel/Replace、Gap、Funding、Borrow、Margin、Liquidationを扱います。ただしOHLCVからQueue position、Hidden liquidity、Auction、L2 depthを復元することはできません。
 
+維持対象Rewardは**Reward schema v4**です。絶対対数資産成長を主目的にし、Baseline-relative growthは補助的な非劣後判定として扱います。
+
 ## 学習診断とStudio
 
 ```bash

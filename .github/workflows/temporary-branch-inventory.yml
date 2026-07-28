@@ -1,0 +1,39 @@
+name: Temporary Branch Inventory
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: List repository branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p branch-inventory
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
+            --jq '.[].name' \
+            | sort > branch-inventory/branches.txt
+          wc -l branch-inventory/branches.txt
+          cat branch-inventory/branches.txt
+
+      - name: Upload branch inventory
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: branch-inventory-${{ github.run_id }}
+          path: branch-inventory/branches.txt
+          if-no-files-found: error
+          retention-days: 1

@@ -20,25 +20,43 @@ jobs:
           ref: agent/architecture-audit-remediation-20260728
           fetch-depth: 1
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
       - name: Apply type fixes
         shell: bash
         run: python tools/apply_pr248_mypy_fix.py
 
-      - name: Verify and publish code only
+      - name: Verify type fixes
+        id: verify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format \
+            trade_rl/workflows/config_fields.py \
+            trade_rl/serving/policy_loader.py \
+            trade_rl/serving/runtime.py
+          uv run ruff check \
+            trade_rl/workflows/config_fields.py \
+            trade_rl/serving/policy_loader.py \
+            trade_rl/serving/runtime.py
+          uv run mypy trade_rl 2>&1 | tee mypy-focused.log
+
+      - name: Upload focused Mypy diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr248-mypy-focused
+          path: mypy-focused.log
+          if-no-files-found: warn
+
+      - name: Publish code only
+        if: steps.verify.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install 'ruff>=0.15.0'
-          python -m ruff format \
-            trade_rl/workflows/config_fields.py \
-            trade_rl/serving/policy_loader.py \
-            trade_rl/serving/runtime.py
-          python -m ruff check \
-            trade_rl/workflows/config_fields.py \
-            trade_rl/serving/policy_loader.py \
-            trade_rl/serving/runtime.py
-          python -m pip install 'mypy>=1.19.1'
-          python -m mypy trade_rl
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
@@ -47,3 +65,8 @@ jobs:
             trade_rl/serving/runtime.py
           git commit -m "fix: satisfy closed-config and serving loader typing"
           git push origin HEAD:agent/architecture-audit-remediation-20260728
+
+      - name: Fail on type errors
+        if: steps.verify.outcome != 'success'
+        shell: bash
+        run: exit 1

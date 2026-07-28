@@ -13,6 +13,7 @@ on:
       - ".github/workflows/docs-inventory.yml"
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -72,6 +73,32 @@ jobs:
             trade_rl/workflows/training_run.py \
             examples/quickstart/training.json \
             examples/binance-multitimeframe/training-full.json
+      - name: Capture documentation finalizer state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" \
+              --jq '.workflows[] | select(.path == ".github/workflows/finalize-docs-readability-refresh.yml") | .id' \
+              | head -n 1
+          )"
+          printf '%s\n' "$workflow_id" > var/docs-inventory/finalizer-workflow-id.txt
+          if [[ -z "$workflow_id" ]]; then
+            printf '{"workflow_found":false}\n' > var/docs-inventory/finalizer-runs.json
+            exit 0
+          fi
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=agent/docs-readability-refresh&per_page=20" \
+            --jq '{workflow_found:true,total_count,runs:[.workflow_runs[]|{id,event,status,conclusion,head_sha,actor:.actor.login,run_number,created_at,updated_at}]}' \
+            > var/docs-inventory/finalizer-runs.json
+          latest_run="$(jq -r '.runs[0].id // empty' var/docs-inventory/finalizer-runs.json)"
+          if [[ -n "$latest_run" ]]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_run}/jobs?per_page=100" \
+              --jq '{jobs:[.jobs[]|{id,name,status,conclusion,runner_id,runner_name,steps}]}' \
+              > var/docs-inventory/finalizer-jobs.json
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: docs-inventory-${{ github.run_id }}

@@ -48,11 +48,13 @@ jobs:
           {
             uv run python tools/finalize_pr227_full_verification.py
             uv run python tools/finalize_pr227_v2_schema_corrections.py
+            uv run python tools/finalize_pr227_checkpoint_runtime_sanitization.py
           } 2>&1 | tee var/pr227-verification/normalize.log
           rm -f \
             .github/workflows/finalize-pr227-full-verification.yml \
             tools/finalize_pr227_v2_migration.py \
             tools/finalize_pr227_v2_schema_corrections.py \
+            tools/finalize_pr227_checkpoint_runtime_sanitization.py \
             tools/finalize_pr227_full_verification.py
 
       - name: Workflow security

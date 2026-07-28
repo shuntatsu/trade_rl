@@ -308,7 +308,9 @@ def test_training_config_rejects_misspelled_training_field() -> None:
     training = dict(raw["training"])  # type: ignore[arg-type]
     training["observation_encodr"] = "flat_mlp"
     raw["training"] = training
-    with pytest.raises(ValueError, match="training.*unknown fields.*observation_encodr"):
+    with pytest.raises(
+        ValueError, match="training.*unknown fields.*observation_encodr"
+    ):
         TrainingRunConfig.from_mapping(raw)
 
 

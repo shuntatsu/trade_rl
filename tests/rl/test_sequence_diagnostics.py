@@ -143,8 +143,9 @@ def test_sequence_diagnostics_callback_honors_rollout_interval(
     monkeypatch.setattr(
         diagnostics_module,
         "sequence_diagnostics_payload",
-        lambda extractor, observations: calls.append((extractor, observations))
-        or {"sequence/probe": 1.0},
+        lambda extractor, observations: (
+            calls.append((extractor, observations)) or {"sequence/probe": 1.0}
+        ),
     )
 
     extractor = SimpleNamespace(
@@ -158,9 +159,7 @@ def test_sequence_diagnostics_callback_honors_rollout_interval(
         def obs_to_tensor(observation):
             return observation, None
 
-    callback = build_sequence_diagnostics_callback(
-        enabled=True, rollout_interval=3
-    )
+    callback = build_sequence_diagnostics_callback(enabled=True, rollout_interval=3)
     assert callback is not None
     callback.model = SimpleNamespace(
         policy=Policy(),

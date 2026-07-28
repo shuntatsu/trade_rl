@@ -234,13 +234,9 @@ def package_selected_training_run(
                 structured_loader = load_structured_policy_loader_manifest(
                     structured_loader_path
                 )
-                raw_architecture_digest = structured_loader.get(
-                    "architecture_digest"
-                )
+                raw_architecture_digest = structured_loader.get("architecture_digest")
                 if not isinstance(raw_architecture_digest, str):
-                    raise ValueError(
-                        "structured loader architecture digest is missing"
-                    )
+                    raise ValueError("structured loader architecture digest is missing")
                 if architecture_digest != raw_architecture_digest:
                     raise ValueError(
                         "structured loader architecture differs from ensemble"

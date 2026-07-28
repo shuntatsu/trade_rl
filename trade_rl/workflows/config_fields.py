@@ -22,9 +22,7 @@ def require_exact_fields(
         raise ValueError(f"{field} has unknown fields: {', '.join(unknown)}")
     missing = sorted(set(required) - keys)
     if missing:
-        raise ValueError(
-            f"{field} has missing required fields: {', '.join(missing)}"
-        )
+        raise ValueError(f"{field} has missing required fields: {', '.join(missing)}")
     return dict(value)
 
 

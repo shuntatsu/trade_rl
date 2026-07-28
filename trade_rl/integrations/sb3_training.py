@@ -98,9 +98,7 @@ def _configure_torch_cuda_runtime(
     )
     return {
         "mode": str(resolved_mode),
-        "deterministic_algorithms": bool(
-            torch.are_deterministic_algorithms_enabled()
-        ),
+        "deterministic_algorithms": bool(torch.are_deterministic_algorithms_enabled()),
         "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
         "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
         "cudnn_tf32": bool(torch.backends.cudnn.allow_tf32),
@@ -324,7 +322,9 @@ def _build_parallel_sequence_training_environment(
         raise
 
 
-def _reset_observation_for_export(environment: object, *, seed: int) -> Mapping[str, np.ndarray]:
+def _reset_observation_for_export(
+    environment: object, *, seed: int
+) -> Mapping[str, np.ndarray]:
     reset = getattr(environment, "reset", None)
     if not callable(reset):
         raise TypeError("structured export environment does not support reset")
@@ -361,9 +361,7 @@ class StableBaselines3Backend:
             not np.isfinite(structured_export_tolerance)
             or structured_export_tolerance <= 0.0
         ):
-            raise ValueError(
-                "structured_export_tolerance must be finite and positive"
-            )
+            raise ValueError("structured_export_tolerance must be finite and positive")
         self.structured_export_enabled = structured_export_enabled
         self.structured_export_tolerance = float(structured_export_tolerance)
         raw_teacher_cache = os.environ.get("TRADE_RL_TEACHER_CACHE_ROOT", "").strip()
@@ -523,9 +521,7 @@ class StableBaselines3Backend:
         if self.structured_export_enabled and (
             config.observation_encoder != "hierarchical_sequence_v2"
         ):
-            raise ValueError(
-                "structured export requires hierarchical_sequence_v2"
-            )
+            raise ValueError("structured export requires hierarchical_sequence_v2")
 
         probe = self.environment_factory()
         environment: Any | None = None
@@ -1060,7 +1056,9 @@ class StableBaselines3Backend:
                     output_path.parent / STRUCTURED_EXPORT_MANIFEST_NAME
                 )
                 structured_manifest_digest = structured_manifest.digest
-                structured_model_path = output_path.parent / structured_manifest.model_path
+                structured_model_path = (
+                    output_path.parent / structured_manifest.model_path
+                )
                 structured_model_digest = structured_manifest.model_digest
                 if structured_manifest.architecture_digest != architecture_digest:
                     raise RuntimeError(

@@ -134,7 +134,11 @@ def load_structured_policy_loader_manifest(path: Path) -> dict[str, object]:
     architecture_digest = payload.get("architecture_digest")
     require_sha256(architecture_digest, field="architecture_digest")
     action_size = payload.get("action_size")
-    if isinstance(action_size, bool) or not isinstance(action_size, int) or action_size <= 0:
+    if (
+        isinstance(action_size, bool)
+        or not isinstance(action_size, int)
+        or action_size <= 0
+    ):
         raise ValueError("structured policy loader action_size is invalid")
     raw_members = payload.get("members")
     if not isinstance(raw_members, list) or not raw_members:
@@ -190,7 +194,9 @@ class StructuredTorchScriptEnsemblePolicy:
         self.action_size = action_size
 
     def predict(self, observation: Mapping[str, np.ndarray]) -> np.ndarray:
-        actions = tuple(np.asarray(member.predict(observation)) for member in self.members)
+        actions = tuple(
+            np.asarray(member.predict(observation)) for member in self.members
+        )
         matrix = np.stack(actions, axis=0)
         if matrix.shape != (len(self.members), self.action_size):
             raise ValueError("structured ensemble member action shape mismatch")

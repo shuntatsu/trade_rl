@@ -95,9 +95,7 @@ class _FakeTorch:
 def test_cuda_runtime_enables_tf32_and_fixed_shape_cudnn_search() -> None:
     torch = _FakeTorch(cuda_available=True)
 
-    result = _configure_torch_cuda_runtime(
-        torch, "cuda:0", CudaRuntimeMode.PERFORMANCE
-    )
+    result = _configure_torch_cuda_runtime(torch, "cuda:0", CudaRuntimeMode.PERFORMANCE)
 
     assert result == {
         "mode": "performance",
@@ -114,9 +112,7 @@ def test_cuda_runtime_enables_tf32_and_fixed_shape_cudnn_search() -> None:
 def test_cpu_runtime_does_not_enable_cuda_fast_paths() -> None:
     torch = _FakeTorch(cuda_available=True)
 
-    result = _configure_torch_cuda_runtime(
-        torch, "cpu", CudaRuntimeMode.PERFORMANCE
-    )
+    result = _configure_torch_cuda_runtime(torch, "cpu", CudaRuntimeMode.PERFORMANCE)
 
     assert result["cudnn_benchmark"] is False
     assert result["cudnn_deterministic"] is True
@@ -139,7 +135,6 @@ def test_cuda_runtime_deterministic_mode_disables_fast_nondeterministic_paths() 
     assert result["matmul_tf32"] is False
     assert result["cudnn_tf32"] is False
     assert result["float32_matmul_precision"] == "highest"
-
 
 
 class TinyEnvironment(gym.Env[np.ndarray, np.ndarray]):

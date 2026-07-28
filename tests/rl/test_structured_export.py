@@ -218,7 +218,9 @@ def test_structured_loader_rejects_tampered_model(tmp_path: Any) -> None:
         StructuredTorchScriptPolicy(root=tmp_path, manifest=manifest)
 
 
-def test_structured_export_restores_policy_device_and_training_mode(tmp_path: Any) -> None:
+def test_structured_export_restores_policy_device_and_training_mode(
+    tmp_path: Any,
+) -> None:
     model = _FakeModel()
     model.policy.train(True)
 

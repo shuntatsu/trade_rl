@@ -9,6 +9,7 @@ def replace_once(path: Path, old: str, new: str, *, label: str) -> None:
     if count != 1:
         raise RuntimeError(f"{label} anchor count was {count}, expected 1")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    print(f"applied: {label}")
 
 
 def main() -> None:
@@ -70,8 +71,12 @@ class StructuredPolicyLoaderManifest(TypedDict):
     )
     replace_once(
         policy_loader,
-        "    members: list[dict[str, object]] = []\n",
-        "    members: list[StructuredPolicyLoaderMember] = []\n",
+        '    if not isinstance(raw_members, list) or not raw_members:\n'
+        '        raise ValueError("structured policy loader members must be a non-empty list")\n'
+        '    members: list[dict[str, object]] = []\n',
+        '    if not isinstance(raw_members, list) or not raw_members:\n'
+        '        raise ValueError("structured policy loader members must be a non-empty list")\n'
+        '    members: list[StructuredPolicyLoaderMember] = []\n',
         label="member list type",
     )
     replace_once(

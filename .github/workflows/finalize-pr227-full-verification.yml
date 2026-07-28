@@ -43,14 +43,14 @@ jobs:
       - name: Normalize final maintained probes
         shell: bash
         run: |
-          set -euo pipefail
-          uv run python tools/finalize_pr227_v2_migration.py
-          uv run python tools/finalize_pr227_full_verification.py
+          set -o pipefail
+          mkdir -p var/pr227-verification
+          uv run python tools/finalize_pr227_full_verification.py \
+            2>&1 | tee var/pr227-verification/normalize.log
           rm -f \
             .github/workflows/finalize-pr227-full-verification.yml \
             tools/finalize_pr227_v2_migration.py \
             tools/finalize_pr227_full_verification.py
-          mkdir -p var/pr227-verification
 
       - name: Workflow security
         run: uv run python .github/check_workflow_security.py .

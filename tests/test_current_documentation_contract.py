@@ -12,6 +12,7 @@ MAINTAINED_DOCUMENTS = (
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "CONFIGURATION.md",
     ROOT / "docs" / "RESEARCH_STATUS.md",
+    ROOT / "docs" / "MULTITIMEFRAME_RESEARCH.md",
     ROOT / "docs" / "BINANCE.md",
     ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
     ROOT / "docs" / "operations" / "causal-scenario-c3-execution.md",
@@ -22,7 +23,6 @@ MAINTAINED_DOCUMENTS = (
 REMOVED_HISTORY_PATHS = (
     ROOT / "README.ja.md",
     ROOT / ".superpowers" / "sdd" / "task-8-report.md",
-    ROOT / "docs" / "MULTITIMEFRAME_RESEARCH.md",
     ROOT / "docs" / "audits",
     ROOT / "docs" / "reviews",
     ROOT / "docs" / "plans",
@@ -80,7 +80,8 @@ def test_historical_documentation_clutter_is_removed() -> None:
     assert remaining == []
     superpowers = ROOT / "docs" / "superpowers"
     retained = {
-        path.relative_to(superpowers).as_posix() for path in superpowers.rglob("*.md")
+        path.relative_to(superpowers).as_posix()
+        for path in superpowers.rglob("*.md")
     }
     assert retained == {
         "plans/2026-07-28-documentation-readability-refresh.md",
@@ -166,13 +167,7 @@ def test_live_training_boundary_is_explicit() -> None:
         "not profitability evidence",
     ):
         assert phrase in readme
-    for phrase in (
-        "取引所注文ではありません",
-        "モデル選択",
-        "Sealed",
-        "収益性",
-        "NO-GO",
-    ):
+    for phrase in ("取引所注文ではありません", "モデル選択", "Sealed", "収益性", "NO-GO"):
         assert phrase in studio
 
 

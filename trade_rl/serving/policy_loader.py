@@ -16,7 +16,6 @@ from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.rl.structured_export import (
     STRUCTURED_EXPORT_MANIFEST_NAME,
     STRUCTURED_EXPORT_MODEL_NAME,
-    StructuredExportManifest,
     load_structured_export_manifest,
 )
 from trade_rl.serving.bundle import ServingBundle, ServingBundleManifest
@@ -280,7 +279,7 @@ def canonical_policy_loader(
     if architecture_digest is not None:
         raise ValueError("flat serving cannot declare architecture identity")
     if fallback is None:
-        raise ValueError("flat residual serving requires an explicit policy loader")
+        raise RuntimeError("flat residual serving requires an explicit policy loader")
     return fallback
 
 

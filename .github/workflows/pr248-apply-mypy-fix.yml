@@ -1,0 +1,49 @@
+name: PR 248 Apply Mypy Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout writable branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-audit-remediation-20260728
+          fetch-depth: 1
+
+      - name: Apply type fixes
+        shell: bash
+        run: python tools/apply_pr248_mypy_fix.py
+
+      - name: Verify and publish code only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'ruff>=0.15.0'
+          python -m ruff format \
+            trade_rl/workflows/config_fields.py \
+            trade_rl/serving/policy_loader.py \
+            trade_rl/serving/runtime.py
+          python -m ruff check \
+            trade_rl/workflows/config_fields.py \
+            trade_rl/serving/policy_loader.py \
+            trade_rl/serving/runtime.py
+          python -m pip install 'mypy>=1.19.1'
+          python -m mypy trade_rl
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/workflows/config_fields.py \
+            trade_rl/serving/policy_loader.py \
+            trade_rl/serving/runtime.py
+          git commit -m "fix: satisfy closed-config and serving loader typing"
+          git push origin HEAD:agent/architecture-audit-remediation-20260728

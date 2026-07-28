@@ -63,34 +63,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" \
+            > branch-verification/workflows.json
           workflow_id="$(
-            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" \
-              --jq '.workflows[] | select(.name == "Main Docker CUDA Verification") | .id' \
-              | head -n 1
+            python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("branch-verification/workflows.json").read_text(encoding="utf-8")
+          )
+          for workflow in payload.get("workflows", []):
+              if (
+                  workflow.get("name") == "Main Docker CUDA Verification"
+                  or workflow.get("path")
+                  == ".github/workflows/finalize-pr227-gpu-verification.yml"
+              ):
+                  print(workflow["id"])
+                  break
+          PY
           )"
-          test -n "$workflow_id"
-          printf '%s\n' "$workflow_id" \
-            > branch-verification/cuda-workflow-id.txt
-          gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=main&per_page=20" \
-            --jq '{
-              total_count,
-              runs: [.workflow_runs[] | {
-                id,
-                event,
-                status,
-                conclusion,
-                head_sha,
-                run_number,
-                created_at,
-                updated_at,
-                html_url
-              }]
-            }' \
-            > branch-verification/cuda-runs.json
+          if [[ -z "$workflow_id" ]]; then
+            printf '{"status":"not_registered"}\n' \
+              > branch-verification/cuda-runs.json
+            cat branch-verification/workflows.json
+          else
+            printf '%s\n' "$workflow_id" \
+              > branch-verification/cuda-workflow-id.txt
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=main&per_page=20" \
+              --jq '{
+                status: "registered",
+                total_count,
+                runs: [.workflow_runs[] | {
+                  id,
+                  event,
+                  status,
+                  conclusion,
+                  head_sha,
+                  run_number,
+                  created_at,
+                  updated_at,
+                  html_url
+                }]
+              }' \
+              > branch-verification/cuda-runs.json
+          fi
           cat branch-verification/cuda-runs.json
 
       - name: Upload verification evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: branch-verification-${{ github.run_id }}

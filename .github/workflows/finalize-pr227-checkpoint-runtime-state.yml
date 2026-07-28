@@ -41,7 +41,7 @@ jobs:
         run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
 
       - name: Apply checkpoint runtime-state correction
-        run: uv run python tools/finalize_pr227_checkpoint_runtime_state.py
+        run: uv run python tools/finalize_pr227_checkpoint_runtime_sanitization.py
 
       - name: Verify focused contracts
         shell: bash
@@ -53,7 +53,7 @@ jobs:
           uv run ruff check .
           uv run mypy .
           uv run pytest -q \
-            tests/rl/test_checkpoint_runtime_state.py \
+            tests/rl/test_checkpoint_runtime_sanitization.py \
             tests/rl/test_checkpointing.py \
             tests/rl/test_training_performance.py \
             tests/integrations/test_sb3_training.py
@@ -73,7 +73,8 @@ jobs:
           set -euo pipefail
           rm -f \
             .github/workflows/finalize-pr227-checkpoint-runtime-state.yml \
-            tools/finalize_pr227_checkpoint_runtime_state.py
+            tools/finalize_pr227_checkpoint_runtime_state.py \
+            tools/finalize_pr227_checkpoint_runtime_sanitization.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A

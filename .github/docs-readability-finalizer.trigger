@@ -1,1 +1,1 @@
-Run the one-shot documentation cleanup and remove this trigger.
+Run the verified documentation cleanup from an owner-authored merge push.

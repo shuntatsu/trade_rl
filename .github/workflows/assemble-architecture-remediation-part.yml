@@ -1,0 +1,34 @@
+name: Assemble architecture remediation part
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    if: github.actor == github.repository_owner && github.head_ref == 'agent/architecture-audit-remediation-20260728'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-audit-remediation-20260728
+          fetch-depth: 2
+      - name: Assemble missing transport part and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/arch-patch-020.part .github/arch-patch-021.part \
+            .github/arch-patch-022.part .github/arch-patch-023.part \
+            > .github/arch-patch-02.part
+          test "$(wc -c < .github/arch-patch-02.part)" -eq 6000
+          rm -f .github/arch-patch-02?.part
+          rm -f .github/workflows/assemble-architecture-remediation-part.yml
+          git add -A
+          git config user.name "Architecture Remediation Assembler"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "chore: assemble architecture remediation transport"
+          git push origin HEAD:agent/architecture-audit-remediation-20260728

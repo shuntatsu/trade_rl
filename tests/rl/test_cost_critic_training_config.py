@@ -16,7 +16,7 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_envs": 2,
         "batch_size": 8,
         "n_epochs": 1,
-        "asset_set_encoder": False,
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     values.update(overrides)
@@ -77,15 +77,17 @@ def test_cost_critic_algorithm_uses_complete_ppo_rollout_rounding() -> None:
 def test_cost_critic_algorithm_supports_sequence_encoder_and_bc_warm_start() -> None:
     config = _config(
         policy="MultiInputPolicy",
-        sequence_encoder=True,
+        observation_encoder=("hierarchical_sequence_v2"),
         sequence_d_model=128,
-        sequence_attention_heads=4,
-        sequence_attention_layers=1,
-        sequence_capacity="compact",
+        sequence_timeframe_attention_heads=4,
+        sequence_asset_attention_heads=4,
+        sequence_timeframe_attention_layers=1,
+        sequence_asset_attention_layers=1,
+        sequence_tcn_capacity="compact",
         behavior_cloning_epochs=1,
     )
 
-    assert config.sequence_encoder
+    assert config.observation_encoder == "hierarchical_sequence_v2"
     assert config.behavior_cloning_epochs == 1
 
 

@@ -103,10 +103,9 @@
     "max_turnover": null,
     "no_trade_band": 0.05
   },
-  "schema_version": "training_run_config_v1",
+  "schema_version": "training_run_config_v2",
   "training": {
     "algorithm": "ppo",
-    "asset_set_encoder": false,
     "batch_size": 256,
     "checkpoint_interval_steps": 32768,
     "decision_hours": 0.25,
@@ -125,6 +124,7 @@
     "n_envs": 4,
     "n_epochs": 10,
     "n_steps": 256,
+    "observation_encoder": "hierarchical_sequence_v2",
     "policy": "MultiInputPolicy",
     "policy_net_arch": [
       384,
@@ -136,12 +136,20 @@
       1,
       2
     ],
-    "sequence_attention_heads": 8,
-    "sequence_attention_layers": 2,
-    "sequence_capacity": "standard",
+    "sequence_asset_attention_heads": 8,
+    "sequence_asset_attention_layers": 2,
+    "sequence_asset_ffn_multiplier": 3,
+    "sequence_asset_gate_bias": -2.0,
+    "sequence_compile": true,
+    "sequence_compile_mode": "reduce-overhead",
     "sequence_d_model": 336,
     "sequence_dropout": 0.05,
-    "sequence_encoder": true,
+    "sequence_tcn_capacity": "standard",
+    "sequence_timeframe_attention_heads": 8,
+    "sequence_timeframe_attention_layers": 2,
+    "sequence_timeframe_ffn_multiplier": 3,
+    "sequence_timeframe_gate_bias": -2.0,
+    "sequence_transfer_mode": "pinned_non_blocking",
     "target_kl": 0.02,
     "tensorboard_enabled": true,
     "tensorboard_log_interval": 1,
@@ -151,9 +159,6 @@
       384,
       256
     ],
-    "sequence_compile": true,
-    "sequence_compile_mode": "reduce-overhead",
-    "sequence_transfer_mode": "pinned_non_blocking",
     "vector_environment_mode": "subprocess"
   },
   "trend": {

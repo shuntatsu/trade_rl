@@ -114,7 +114,7 @@ def _config() -> ResidualTrainingConfig:
         n_envs=1,
         batch_size=4,
         n_epochs=1,
-        asset_set_encoder=False,
+        observation_encoder=("flat_mlp"),
         device="cpu",
         lagrangian_budgets=(0.1,) * count,
         lagrangian_dual_learning_rates=(0.05,) * count,

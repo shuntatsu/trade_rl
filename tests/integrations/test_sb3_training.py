@@ -184,7 +184,9 @@ class VectorEnvironment:
         self.events.append("vector-close")
 
 
-def _training_config(*, asset_set_encoder: bool = False) -> ResidualTrainingConfig:
+def _training_config(
+    *, observation_encoder: str = "flat_mlp"
+) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(
         timesteps=2,
         gamma=0.99,
@@ -193,7 +195,7 @@ def _training_config(*, asset_set_encoder: bool = False) -> ResidualTrainingConf
         n_envs=2,
         batch_size=2,
         n_epochs=1,
-        asset_set_encoder=asset_set_encoder,
+        observation_encoder=observation_encoder,
         device="cpu",
     )
 
@@ -375,7 +377,7 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
 
     result = StableBaselines3Backend(factory).train(
         seed=0,
-        config=_training_config(asset_set_encoder=True),
+        config=_training_config(observation_encoder=("asset_set")),
         output_path=tmp_path / "policy.zip",
     )
 
@@ -458,7 +460,7 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
             n_envs=1,
             batch_size=2,
             n_epochs=1,
-            asset_set_encoder=False,
+            observation_encoder=("flat_mlp"),
             device="cpu",
             behavior_cloning_epochs=1,
             behavior_cloning_batch_size=16,
@@ -716,6 +718,7 @@ def test_backend_resumes_ppo_checkpoint_to_requested_total(
     tmp_path: Path,
 ) -> None:
     from trade_rl.rl.checkpointing import publish_checkpoint
+    from trade_rl.rl.policy_identity import bind_sb3_policy_identity
 
     config = ResidualTrainingConfig(
         timesteps=2,
@@ -725,7 +728,7 @@ def test_backend_resumes_ppo_checkpoint_to_requested_total(
         n_envs=1,
         batch_size=1,
         n_epochs=1,
-        asset_set_encoder=False,
+        observation_encoder=("flat_mlp"),
         device="cpu",
     )
 
@@ -733,8 +736,17 @@ def test_backend_resumes_ppo_checkpoint_to_requested_total(
         def save(self, target: str) -> None:
             Path(target).with_suffix(".zip").write_bytes(b"resume-policy")
 
+    checkpoint_source = CheckpointSource()
+    bind_sb3_policy_identity(
+        checkpoint_source,
+        SimpleNamespace(
+            observation_encoder="flat_mlp",
+            sequence_symbols=None,
+            sequence_action_names=None,
+        ),
+    )
     manifest = publish_checkpoint(
-        model=CheckpointSource(),
+        model=checkpoint_source,
         checkpoint_root=tmp_path / "resume",
         algorithm="ppo",
         seed=0,

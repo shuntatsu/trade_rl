@@ -82,18 +82,23 @@ class ResidualTrainingConfig:
     sde_sample_freq: int = -1
     policy_net_arch: tuple[int, ...] = (128, 128)
     value_net_arch: tuple[int, ...] = (128, 128)
-    sequence_encoder: bool = False
-    sequence_capacity: str = "standard"
+    observation_encoder: str = "asset_set"
+    sequence_tcn_capacity: str = "standard"
     sequence_d_model: int = 320
-    sequence_attention_heads: int = 8
-    sequence_attention_layers: int = 2
+    sequence_timeframe_attention_heads: int = 8
+    sequence_timeframe_attention_layers: int = 2
+    sequence_timeframe_ffn_multiplier: int = 3
+    sequence_timeframe_gate_bias: float = -2.0
+    sequence_asset_attention_heads: int = 8
+    sequence_asset_attention_layers: int = 2
+    sequence_asset_ffn_multiplier: int = 3
+    sequence_asset_gate_bias: float = -2.0
     sequence_dropout: float = 0.05
     sequence_compile: bool = False
     sequence_compile_mode: str = "reduce-overhead"
     sequence_transfer_mode: str = "synchronous"
     max_policy_parameters: int = 12_000_000
     max_rollout_buffer_bytes: int = 805_306_368
-    asset_set_encoder: bool = True
     asset_embedding_dim: int = 64
     global_embedding_dim: int = 64
     algorithm: str = "ppo"
@@ -328,8 +333,19 @@ class ResidualTrainingConfig:
             raise ValueError(
                 "vector_environment_mode must be auto, in_process, or subprocess"
             )
-        if not isinstance(self.sequence_encoder, bool):
-            raise ValueError("sequence_encoder must be a boolean")
+        encoder = self.observation_encoder.strip().lower()
+        allowed_encoders = {
+            "flat_mlp",
+            "asset_set",
+            "hierarchical_sequence_v2",
+        }
+        if encoder not in allowed_encoders:
+            raise ValueError(
+                "observation_encoder must be flat_mlp, asset_set, or "
+                "hierarchical_sequence_v2"
+            )
+        object.__setattr__(self, "observation_encoder", encoder)
+        sequence_active = encoder == "hierarchical_sequence_v2"
         if not isinstance(self.sequence_compile, bool):
             raise ValueError("sequence_compile must be a boolean")
         if self.sequence_compile_mode not in {
@@ -338,7 +354,8 @@ class ResidualTrainingConfig:
             "max-autotune",
         }:
             raise ValueError(
-                "sequence_compile_mode must be default, reduce-overhead, or max-autotune"
+                "sequence_compile_mode must be default, reduce-overhead, or "
+                "max-autotune"
             )
         if self.sequence_transfer_mode not in {
             "synchronous",
@@ -354,41 +371,78 @@ class ResidualTrainingConfig:
             raise ValueError(
                 "sequence_compile_mode is inactive when sequence_compile is false"
             )
-        if self.sequence_capacity not in {"standard", "compact"}:
-            raise ValueError("sequence_capacity must be standard or compact")
-        if self.sequence_encoder and self.policy != "MultiInputPolicy":
-            raise ValueError("sequence_encoder requires MultiInputPolicy")
-        if self.sequence_encoder and not ppo_like:
-            raise ValueError("sequence_encoder currently requires PPO")
+        if self.sequence_tcn_capacity not in {"standard", "compact"}:
+            raise ValueError("sequence_tcn_capacity must be standard or compact")
+        if sequence_active and self.policy != "MultiInputPolicy":
+            raise ValueError("hierarchical_sequence_v2 requires MultiInputPolicy")
+        if sequence_active and not ppo_like:
+            raise ValueError(
+                "hierarchical_sequence_v2 currently requires a PPO-family algorithm"
+            )
         for field_name, value in (
             ("sequence_d_model", self.sequence_d_model),
-            ("sequence_attention_heads", self.sequence_attention_heads),
-            ("sequence_attention_layers", self.sequence_attention_layers),
+            (
+                "sequence_timeframe_attention_heads",
+                self.sequence_timeframe_attention_heads,
+            ),
+            (
+                "sequence_timeframe_attention_layers",
+                self.sequence_timeframe_attention_layers,
+            ),
+            (
+                "sequence_timeframe_ffn_multiplier",
+                self.sequence_timeframe_ffn_multiplier,
+            ),
+            (
+                "sequence_asset_attention_heads",
+                self.sequence_asset_attention_heads,
+            ),
+            (
+                "sequence_asset_attention_layers",
+                self.sequence_asset_attention_layers,
+            ),
+            (
+                "sequence_asset_ffn_multiplier",
+                self.sequence_asset_ffn_multiplier,
+            ),
             ("max_policy_parameters", self.max_policy_parameters),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"{field_name} must be a positive integer")
-        if self.sequence_d_model % self.sequence_attention_heads != 0:
-            raise ValueError(
-                "sequence_d_model must divide evenly across attention heads"
-            )
+        for field_name, gate_value in (
+            (
+                "sequence_timeframe_gate_bias",
+                self.sequence_timeframe_gate_bias,
+            ),
+            ("sequence_asset_gate_bias", self.sequence_asset_gate_bias),
+        ):
+            if not math.isfinite(gate_value):
+                raise ValueError(f"{field_name} must be finite")
+        for field_name, heads in (
+            (
+                "sequence_timeframe_attention_heads",
+                self.sequence_timeframe_attention_heads,
+            ),
+            (
+                "sequence_asset_attention_heads",
+                self.sequence_asset_attention_heads,
+            ),
+        ):
+            if self.sequence_d_model % heads != 0:
+                raise ValueError(
+                    f"sequence_d_model must divide evenly across {field_name}"
+                )
         if (
             not math.isfinite(self.sequence_dropout)
             or not 0.0 <= self.sequence_dropout <= 0.05
         ):
             raise ValueError("sequence_dropout must be within [0, 0.05]")
-        if self.sequence_encoder and self.asset_set_encoder:
-            raise ValueError(
-                "sequence_encoder and asset_set_encoder are mutually exclusive"
-            )
         if (
             isinstance(self.max_rollout_buffer_bytes, bool)
             or not isinstance(self.max_rollout_buffer_bytes, int)
             or self.max_rollout_buffer_bytes <= 0
         ):
             raise ValueError("max_rollout_buffer_bytes must be a positive integer")
-        if not isinstance(self.asset_set_encoder, bool):
-            raise ValueError("asset_set_encoder must be a boolean")
         for field_name, value in (
             ("asset_embedding_dim", self.asset_embedding_dim),
             ("global_embedding_dim", self.global_embedding_dim),
@@ -589,13 +643,51 @@ class ResidualTrainingConfig:
             if self.use_sde or self.sde_sample_freq != -1:
                 raise ValueError("TD3 does not support SDE settings")
 
-        if not self.sequence_encoder:
+        if not sequence_active:
             _require_inactive_defaults(
                 (
-                    ("sequence_capacity", self.sequence_capacity, "standard"),
+                    ("sequence_tcn_capacity", self.sequence_tcn_capacity, "standard"),
                     ("sequence_d_model", self.sequence_d_model, 320),
-                    ("sequence_attention_heads", self.sequence_attention_heads, 8),
-                    ("sequence_attention_layers", self.sequence_attention_layers, 2),
+                    (
+                        "sequence_timeframe_attention_heads",
+                        self.sequence_timeframe_attention_heads,
+                        8,
+                    ),
+                    (
+                        "sequence_timeframe_attention_layers",
+                        self.sequence_timeframe_attention_layers,
+                        2,
+                    ),
+                    (
+                        "sequence_timeframe_ffn_multiplier",
+                        self.sequence_timeframe_ffn_multiplier,
+                        3,
+                    ),
+                    (
+                        "sequence_timeframe_gate_bias",
+                        self.sequence_timeframe_gate_bias,
+                        -2.0,
+                    ),
+                    (
+                        "sequence_asset_attention_heads",
+                        self.sequence_asset_attention_heads,
+                        8,
+                    ),
+                    (
+                        "sequence_asset_attention_layers",
+                        self.sequence_asset_attention_layers,
+                        2,
+                    ),
+                    (
+                        "sequence_asset_ffn_multiplier",
+                        self.sequence_asset_ffn_multiplier,
+                        3,
+                    ),
+                    (
+                        "sequence_asset_gate_bias",
+                        self.sequence_asset_gate_bias,
+                        -2.0,
+                    ),
                     ("sequence_dropout", self.sequence_dropout, 0.05),
                     ("sequence_compile", self.sequence_compile, False),
                     (
@@ -609,16 +701,15 @@ class ResidualTrainingConfig:
                         "synchronous",
                     ),
                 ),
-                context="sequence_encoder=False",
+                context=f"observation_encoder={encoder}",
             )
-
-        if not self.asset_set_encoder:
+        if encoder != "asset_set":
             _require_inactive_defaults(
                 (
                     ("asset_embedding_dim", self.asset_embedding_dim, 64),
                     ("global_embedding_dim", self.global_embedding_dim, 64),
                 ),
-                context="asset_set_encoder=False",
+                context=f"observation_encoder={encoder}",
             )
 
         if self.behavior_cloning_epochs == 0:
@@ -676,7 +767,7 @@ class ResidualTrainingConfig:
         payload: dict[str, object] = {
             "algorithm": self.algorithm,
             "asset_embedding_dim": self.asset_embedding_dim,
-            "asset_set_encoder": self.asset_set_encoder,
+            "observation_encoder": self.observation_encoder,
             "batch_size": self.batch_size,
             "behavior_cloning_batch_size": self.behavior_cloning_batch_size,
             "behavior_cloning_epochs": self.behavior_cloning_epochs,
@@ -714,11 +805,16 @@ class ResidualTrainingConfig:
             "policy": self.policy,
             "policy_net_arch": self.policy_net_arch,
             "value_net_arch": self.value_net_arch,
-            "sequence_encoder": self.sequence_encoder,
-            "sequence_capacity": self.sequence_capacity,
+            "sequence_tcn_capacity": self.sequence_tcn_capacity,
             "sequence_d_model": self.sequence_d_model,
-            "sequence_attention_heads": self.sequence_attention_heads,
-            "sequence_attention_layers": self.sequence_attention_layers,
+            "sequence_timeframe_attention_heads": self.sequence_timeframe_attention_heads,
+            "sequence_asset_attention_heads": self.sequence_asset_attention_heads,
+            "sequence_timeframe_attention_layers": self.sequence_timeframe_attention_layers,
+            "sequence_timeframe_ffn_multiplier": self.sequence_timeframe_ffn_multiplier,
+            "sequence_timeframe_gate_bias": self.sequence_timeframe_gate_bias,
+            "sequence_asset_attention_layers": self.sequence_asset_attention_layers,
+            "sequence_asset_ffn_multiplier": self.sequence_asset_ffn_multiplier,
+            "sequence_asset_gate_bias": self.sequence_asset_gate_bias,
             "sequence_dropout": self.sequence_dropout,
             "sequence_compile": self.sequence_compile,
             "sequence_compile_mode": self.sequence_compile_mode,

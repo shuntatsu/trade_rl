@@ -145,7 +145,7 @@ def _config(algorithm: str) -> ResidualTrainingConfig:
             {
                 "n_steps": 8,
                 "n_epochs": 1,
-                "asset_set_encoder": True,
+                "observation_encoder": "asset_set",
                 "asset_embedding_dim": 8,
                 "global_embedding_dim": 8,
             }
@@ -157,7 +157,7 @@ def _config(algorithm: str) -> ResidualTrainingConfig:
                 "learning_starts": 0,
                 "train_freq": 1,
                 "gradient_steps": 1,
-                "asset_set_encoder": False,
+                "observation_encoder": "flat_mlp",
             }
         )
         if algorithm in {"sac", "tqc"}:
@@ -387,7 +387,7 @@ def _residual_feature_training(root: Path) -> dict[str, object]:
         n_epochs=1,
         policy_net_arch=(16, 8),
         value_net_arch=(24, 12),
-        asset_set_encoder=False,
+        observation_encoder="flat_mlp",
         device="cpu",
     )
     output = root / "residual-all-controls" / "policy.zip"
@@ -444,7 +444,7 @@ def _behavior_cloning_training(root: Path) -> dict[str, object]:
         n_epochs=1,
         policy_net_arch=(16, 8),
         value_net_arch=(24, 12),
-        asset_set_encoder=False,
+        observation_encoder="flat_mlp",
         behavior_cloning_epochs=1,
         behavior_cloning_batch_size=16,
         behavior_cloning_validation_fraction=0.1,
@@ -558,13 +558,17 @@ def _sequence_training(root: Path) -> dict[str, object]:
         policy="MultiInputPolicy",
         policy_net_arch=(16, 8),
         value_net_arch=(24, 12),
-        sequence_encoder=True,
+        observation_encoder="hierarchical_sequence_v2",
         sequence_d_model=32,
-        sequence_attention_heads=4,
-        sequence_attention_layers=1,
+        sequence_timeframe_attention_heads=4,
+        sequence_asset_attention_heads=4,
+        sequence_timeframe_attention_layers=1,
+        sequence_asset_attention_layers=1,
         sequence_dropout=0.0,
         max_policy_parameters=2_000_000,
-        asset_set_encoder=False,
+        behavior_cloning_epochs=1,
+        behavior_cloning_batch_size=16,
+        behavior_cloning_validation_fraction=0.1,
         device="cpu",
     )
     output = root / "structured-sequence" / "policy.zip"
@@ -577,11 +581,26 @@ def _sequence_training(root: Path) -> dict[str, object]:
     architecture = json.loads(architecture_path.read_text(encoding="utf-8"))
     if architecture["architecture"].get("encoder") != "MultiTimeframeTCNEncoder":
         raise RuntimeError("structured sequence encoder was not instantiated")
+    behavior_cloning_path = output.parent / "behavior-cloning.json"
+    if not behavior_cloning_path.is_file():
+        raise RuntimeError("structured sequence behavior cloning evidence is missing")
+    behavior_cloning = json.loads(behavior_cloning_path.read_text(encoding="utf-8"))
+    for field in ("initial_mse", "final_mse"):
+        if not np.isfinite(float(behavior_cloning[field])):
+            raise RuntimeError(
+                f"structured sequence behavior cloning {field} is invalid"
+            )
     return {
         "actual_timesteps": result.actual_timesteps,
+        "behavior_cloning": {
+            "final_mse": behavior_cloning["final_mse"],
+            "initial_mse": behavior_cloning["initial_mse"],
+            "sample_count": behavior_cloning["sample_count"],
+            "status": "pass",
+        },
         "observation_schema": result.observation_schema,
         "parameter_count": result.parameter_count,
-        "sequence_encoder": architecture["architecture"].get("encoder"),
+        "observation_encoder": "hierarchical_sequence_v2",
         "status": "pass",
     }
 

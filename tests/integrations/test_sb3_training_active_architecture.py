@@ -105,7 +105,7 @@ def test_off_policy_backend_passes_distinct_actor_and_critic_architectures(
         gradient_steps=1,
         policy_net_arch=(16, 8),
         value_net_arch=(32, 24),
-        asset_set_encoder=False,
+        observation_encoder=("flat_mlp"),
         device="cpu",
     )
     StableBaselines3Backend(TrainingProbe).train(
@@ -164,7 +164,7 @@ def test_flat_ppo_backend_passes_distinct_actor_and_value_architectures(
         n_epochs=1,
         policy_net_arch=(16, 8),
         value_net_arch=(32, 24),
-        asset_set_encoder=False,
+        observation_encoder=("flat_mlp"),
         device="cpu",
     )
     StableBaselines3Backend(TrainingProbe).train(

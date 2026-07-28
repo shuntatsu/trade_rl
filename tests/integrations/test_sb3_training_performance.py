@@ -108,7 +108,7 @@ def test_backend_writes_member_training_performance_artifact(
             n_envs=1,
             batch_size=1,
             n_epochs=1,
-            asset_set_encoder=False,
+            observation_encoder=("flat_mlp"),
             device="cpu",
         ),
         output_path=tmp_path / "policy.zip",

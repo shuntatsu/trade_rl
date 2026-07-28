@@ -64,7 +64,7 @@ def _config(**changes: object) -> ResidualTrainingConfig:
         "n_envs": 1,
         "batch_size": 8,
         "n_epochs": 1,
-        "asset_set_encoder": False,
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     payload.update(changes)
@@ -133,7 +133,7 @@ def test_asset_set_assembly_preserves_layout_metadata() -> None:
     from trade_rl.rl.policies import AssetSetFeatureExtractor
 
     config = _config(
-        asset_set_encoder=True,
+        observation_encoder=("asset_set"),
         asset_embedding_dim=24,
         global_embedding_dim=16,
     )

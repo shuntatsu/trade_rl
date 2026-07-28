@@ -125,7 +125,7 @@ class TrainingRunConfig:
     export_torchscript: bool = False
     export_tolerance: float = 1e-5
     git_commit: str | None = None
-    schema_version: str = "training_run_config_v1"
+    schema_version: str = "training_run_config_v2"
     git_dirty: bool | None = None
 
     def __post_init__(self) -> None:
@@ -152,7 +152,7 @@ class TrainingRunConfig:
             raise ValueError("export flags must be booleans")
         if not math.isfinite(self.export_tolerance) or self.export_tolerance <= 0.0:
             raise ValueError("export_tolerance must be finite and positive")
-        if self.training.sequence_encoder and (
+        if self.training.observation_encoder == "hierarchical_sequence_v2" and (
             self.export_onnx or self.export_torchscript
         ):
             raise ValueError(
@@ -162,7 +162,9 @@ class TrainingRunConfig:
             raise ValueError("git_commit must be non-empty when provided")
         if self.git_dirty is not None and not isinstance(self.git_dirty, bool):
             raise ValueError("git_dirty must be a boolean or null")
-        if self.schema_version != "training_run_config_v1":
+        if self.schema_version == "training_run_config_v1":
+            raise ValueError("migrate training_run_config_v1 to training_run_config_v2")
+        if self.schema_version != "training_run_config_v2":
             raise ValueError("unsupported training run configuration schema")
 
     @classmethod
@@ -209,7 +211,7 @@ class TrainingRunConfig:
         git_dirty = payload.get("git_dirty")
         if git_dirty is not None and not isinstance(git_dirty, bool):
             raise ValueError("git_dirty must be a boolean or null")
-        schema_version = payload.get("schema_version", "training_run_config_v1")
+        schema_version = payload.get("schema_version", "training_run_config_v2")
         if not isinstance(schema_version, str):
             raise ValueError("schema_version must be a string")
         raw_alpha_artifact = payload.get("alpha_artifact")
@@ -480,7 +482,7 @@ def _policy_loader_payload(
 
 
 def _serving_support_payload(config: TrainingRunConfig) -> dict[str, object]:
-    if config.training.sequence_encoder:
+    if config.training.observation_encoder == "hierarchical_sequence_v2":
         return {
             "loader_schema": "sb3_policy_loader_v2",
             "observation_mode": "structured_sequence",
@@ -866,7 +868,9 @@ def execute_training_run(
             _policy_loader_payload(
                 ensemble,
                 algorithm=config.training.algorithm,
-                structured_sequence=config.training.sequence_encoder,
+                structured_sequence=(
+                    config.training.observation_encoder == "hierarchical_sequence_v2"
+                ),
             ),
         )
 

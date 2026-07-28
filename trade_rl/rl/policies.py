@@ -111,10 +111,16 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         asset_state_width: int,
         global_width: int,
         n_symbols: int,
-        sequence_capacity: str = "standard",
+        sequence_tcn_capacity: str = "standard",
         d_model: int = 320,
-        attention_heads: int = 8,
-        attention_layers: int = 2,
+        timeframe_attention_heads: int = 8,
+        timeframe_attention_layers: int = 2,
+        timeframe_ffn_multiplier: int = 3,
+        timeframe_gate_bias: float = -2.0,
+        asset_attention_heads: int = 8,
+        asset_attention_layers: int = 2,
+        asset_ffn_multiplier: int = 3,
+        asset_gate_bias: float = -2.0,
         dropout: float = 0.05,
     ) -> None:
         from trade_rl.rl.sequence_policy import (
@@ -160,10 +166,16 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             snapshot_width=snapshot_width,
             n_symbols=n_symbols,
             d_model=d_model,
-            attention_heads=attention_heads,
-            attention_layers=attention_layers,
+            timeframe_attention_heads=timeframe_attention_heads,
+            timeframe_attention_layers=timeframe_attention_layers,
+            timeframe_ffn_multiplier=timeframe_ffn_multiplier,
+            timeframe_gate_bias=timeframe_gate_bias,
+            asset_attention_heads=asset_attention_heads,
+            asset_attention_layers=asset_attention_layers,
+            asset_ffn_multiplier=asset_ffn_multiplier,
+            asset_gate_bias=asset_gate_bias,
             dropout=dropout,
-            encoder_widths=sequence_encoder_widths(sequence_capacity),
+            encoder_widths=sequence_encoder_widths(sequence_tcn_capacity),
         )
         self.asset_encoder = MultiTimeframeAssetEncoder(architecture)
         self.global_encoder = nn.Sequential(
@@ -180,6 +192,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         with _sequence_encoder_autocast(reference):
             sequences: dict[str, torch.Tensor] = {}
             available: dict[str, torch.Tensor] = {}
+            staleness_by_timeframe: dict[str, torch.Tensor] = {}
             for timeframe in self.timeframes:
                 values = observations[f"sequence_{timeframe}_values"].float()
                 availability = observations[f"sequence_{timeframe}_available"].float()
@@ -189,9 +202,11 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
                     dim=-1,
                 )
                 available[timeframe] = availability > 0.5
+                staleness_by_timeframe[timeframe] = staleness
             asset_tokens, pooled_assets = self.asset_encoder(
                 sequences=sequences,
                 available=available,
+                staleness=staleness_by_timeframe,
                 snapshot=reference.float(),
                 asset_state=observations["asset_state"].float(),
                 active=observations["active"].float(),

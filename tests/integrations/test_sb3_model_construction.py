@@ -17,7 +17,7 @@ def _config(algorithm: str = "ppo", **changes: object) -> ResidualTrainingConfig
         "gamma": 0.99,
         "seeds": (0,),
         "algorithm": algorithm,
-        "asset_set_encoder": False,
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     payload.update(changes)

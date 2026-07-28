@@ -257,7 +257,7 @@ def _effective_vector_environment_kind(config: ResidualTrainingConfig) -> str:
         return "direct"
     if config.vector_environment_mode != "subprocess":
         return "in_process"
-    if config.sequence_encoder:
+    if config.observation_encoder == "hierarchical_sequence_v2":
         return "subprocess_compact_sequence"
     return "subprocess"
 
@@ -590,7 +590,7 @@ class StableBaselines3Backend:
                 "action_distribution": action_distribution,
                 "actor_net_arch": config.policy_net_arch,
                 "critic_net_arch": config.value_net_arch,
-                "sequence_encoder": config.sequence_encoder,
+                "observation_encoder": config.observation_encoder,
             }
             if isinstance(algorithm_config, CostCriticPPOConfig):
                 architecture_details["cost_critic"] = {
@@ -623,7 +623,7 @@ class StableBaselines3Backend:
                     ),
                     "warning": canonical_action_probe_evidence.warning,
                 }
-            if config.sequence_encoder:
+            if config.observation_encoder == "hierarchical_sequence_v2":
                 if sequence_metadata is None:
                     raise RuntimeError("sequence metadata was not resolved")
                 extractor = getattr(model.policy, "features_extractor", None)
@@ -641,10 +641,10 @@ class StableBaselines3Backend:
                         "encoder": "MultiTimeframeTCNEncoder",
                         "feature_counts": dict(sequence_metadata["feature_counts"]),
                         "window_lengths": dict(sequence_metadata["window_lengths"]),
-                        "sequence_capacity": config.sequence_capacity,
+                        "sequence_tcn_capacity": config.sequence_tcn_capacity,
                         "d_model": config.sequence_d_model,
-                        "attention_heads": config.sequence_attention_heads,
-                        "attention_layers": config.sequence_attention_layers,
+                        "attention_heads": config.sequence_timeframe_attention_heads,
+                        "attention_layers": config.sequence_timeframe_attention_layers,
                         "receptive_fields": {
                             timeframe: int(
                                 timeframe_encoders[timeframe].receptive_field
@@ -690,7 +690,9 @@ class StableBaselines3Backend:
                         "sequence_runtime": sequence_runtime,
                         "rollout_buffer": (
                             "index_backed_dict"
-                            if config.sequence_encoder
+                            if (
+                                config.observation_encoder == "hierarchical_sequence_v2"
+                            )
                             else "default"
                         ),
                         "vector_environment": vector_environment_kind,

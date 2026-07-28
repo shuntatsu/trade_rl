@@ -55,7 +55,7 @@ def _candidate_run() -> dict[str, object]:
             "n_steps": 8,
             "batch_size": 8,
             "n_epochs": 1,
-            "asset_set_encoder": False,
+            "observation_encoder": "flat_mlp",
             "device": "cpu",
         },
         "environment": {

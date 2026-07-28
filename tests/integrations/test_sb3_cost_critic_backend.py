@@ -109,7 +109,7 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_envs": 1,
         "batch_size": 4,
         "n_epochs": 1,
-        "asset_set_encoder": False,
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
         "cost_learning_rate": 7e-4,
         "cost_n_epochs": 2,

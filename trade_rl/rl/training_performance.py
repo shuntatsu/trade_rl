@@ -23,6 +23,7 @@ _METRIC_NAMES = (
     "sequence_reconstruction",
     "sequence_tensor_conversion",
 )
+TRAINING_RUNTIME_PATCHES_ATTRIBUTE = "_trade_rl_training_runtime_patches"
 
 
 def _positive_integer(value: object, *, field: str) -> int:
@@ -251,6 +252,14 @@ class TrainingPerformanceRecorder:
         """Wrap callable hot-path boundaries and restore the exact object layout."""
 
         patches: list[tuple[object, str, bool, object | None]] = []
+        missing = object()
+        previous_registry = getattr(
+            model,
+            TRAINING_RUNTIME_PATCHES_ATTRIBUTE,
+            missing,
+        )
+        if previous_registry is not missing:
+            raise RuntimeError("training performance instrumentation is already active")
 
         def patch(owner: object | None, name: str, metric_name: str) -> None:
             if owner is None:
@@ -279,6 +288,7 @@ class TrainingPerformanceRecorder:
         patch(policy, "extract_features", "feature_extraction")
         environment = getattr(model, "env", None)
         patch(environment, "step", "environment_step")
+        setattr(model, TRAINING_RUNTIME_PATCHES_ATTRIBUTE, tuple(patches))
         try:
             yield
         finally:
@@ -287,6 +297,14 @@ class TrainingPerformanceRecorder:
                     setattr(owner, name, local_value)
                 else:
                     delattr(owner, name)
+            if previous_registry is missing:
+                delattr(model, TRAINING_RUNTIME_PATCHES_ATTRIBUTE)
+            else:
+                setattr(
+                    model,
+                    TRAINING_RUNTIME_PATCHES_ATTRIBUTE,
+                    previous_registry,
+                )
 
     @contextmanager
     def measure_sequence_reconstruction(self) -> Iterator[None]:
@@ -458,6 +476,7 @@ def write_training_performance_evidence(
 
 
 __all__ = [
+    "TRAINING_RUNTIME_PATCHES_ATTRIBUTE",
     "TrainingPerformanceEvidence",
     "TrainingPerformanceRecorder",
     "activate_training_performance",

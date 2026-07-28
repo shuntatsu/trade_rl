@@ -22,7 +22,7 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
         "n_steps": 4,
         "batch_size": 4,
         "n_epochs": 1,
-        "asset_set_encoder": False,
+        "observation_encoder": "flat_mlp",
         "device": "cuda",
     }
     values.update(overrides)
@@ -30,9 +30,12 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
 
 
 def test_sequence_runtime_settings_are_identity_bound_and_sequence_only() -> None:
-    baseline = _config(sequence_encoder=True, policy="MultiInputPolicy")
+    baseline = _config(
+        observation_encoder=("hierarchical_sequence_v2"),
+        policy="MultiInputPolicy",
+    )
     accelerated = _config(
-        sequence_encoder=True,
+        observation_encoder=("hierarchical_sequence_v2"),
         policy="MultiInputPolicy",
         sequence_compile=True,
         sequence_compile_mode="reduce-overhead",
@@ -44,20 +47,20 @@ def test_sequence_runtime_settings_are_identity_bound_and_sequence_only() -> Non
     assert accelerated.sequence_transfer_mode == "pinned_non_blocking"
     assert accelerated.digest_payload() != baseline.digest_payload()
 
-    with pytest.raises(ValueError, match="sequence_compile.*sequence_encoder"):
+    with pytest.raises(ValueError, match="sequence_compile.*observation_encoder"):
         _config(sequence_compile=True)
-    with pytest.raises(ValueError, match="sequence_transfer_mode.*sequence_encoder"):
+    with pytest.raises(ValueError, match="sequence_transfer_mode.*observation_encoder"):
         _config(sequence_transfer_mode="pinned_non_blocking")
     with pytest.raises(ValueError, match="sequence_compile_mode"):
         _config(
-            sequence_encoder=True,
+            observation_encoder=("hierarchical_sequence_v2"),
             policy="MultiInputPolicy",
             sequence_compile=True,
             sequence_compile_mode="unsafe-mode",
         )
     with pytest.raises(ValueError, match="sequence_transfer_mode"):
         _config(
-            sequence_encoder=True,
+            observation_encoder=("hierarchical_sequence_v2"),
             policy="MultiInputPolicy",
             sequence_transfer_mode="background-magic",
         )
@@ -201,7 +204,7 @@ class _FakeCompileTorch:
 
 def _runtime_config(**overrides: object) -> object:
     values: dict[str, object] = {
-        "sequence_encoder": True,
+        "observation_encoder": "invalid_legacy_combination",
         "sequence_compile": True,
         "sequence_compile_mode": "reduce-overhead",
         "sequence_transfer_mode": "pinned_non_blocking",

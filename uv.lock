@@ -1320,6 +1320,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "fastapi" },
     { name = "httpx" },
     { name = "hypothesis" },
     { name = "import-linter" },
@@ -1329,6 +1330,7 @@ dev = [
     { name = "pyyaml" },
     { name = "ruff" },
     { name = "scipy" },
+    { name = "uvicorn" },
     { name = "vulture" },
 ]
 export = [
@@ -1355,6 +1357,7 @@ train-sb3 = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = "==49.0.0" },
+    { name = "fastapi", marker = "extra == 'dev'", specifier = ">=0.128,<0.140" },
     { name = "fastapi", marker = "extra == 'studio'", specifier = ">=0.128,<0.140" },
     { name = "gymnasium", specifier = "==0.29.1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28,<0.29" },
@@ -1376,6 +1379,7 @@ requires-dist = [
     { name = "stable-baselines3", marker = "extra == 'train-sb3'", specifier = "==2.3.2" },
     { name = "tensorboard", marker = "extra == 'train-sb3'", specifier = ">=2.17,<3" },
     { name = "torch", marker = "extra == 'train-sb3'", specifier = "==2.3.1" },
+    { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.48,<0.52" },
     { name = "uvicorn", marker = "extra == 'studio'", specifier = ">=0.48,<0.52" },
     { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.14" },
 ]

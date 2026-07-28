@@ -16,7 +16,7 @@ def _config(**changes: object) -> ResidualTrainingConfig:
         "timesteps": 8,
         "gamma": 0.99,
         "seeds": (0,),
-        "asset_set_encoder": False,
+        "observation_encoder": "flat_mlp",
         "device": "cpu",
     }
     payload.update(changes)
@@ -156,7 +156,10 @@ def test_checkpoint_loader_rebinds_sequence_reconstructor(
         load_sb3_checkpoint_model,
     )
 
-    config = _config(sequence_encoder=True, policy="MultiInputPolicy")
+    config = _config(
+        observation_encoder=("hierarchical_sequence_v2"),
+        policy="MultiInputPolicy",
+    )
     manifest = _manifest(config)
     reconstructor = object()
     bound: list[tuple[object, str]] = []

@@ -120,7 +120,7 @@ def test_sb3_backend_validates_cadence_and_action_identity(tmp_path: Path) -> No
         n_epochs=1,
         device="cpu",
         decision_hours=4.0,
-        asset_set_encoder=False,
+        observation_encoder=("flat_mlp"),
     )
     result = StableBaselines3PPOBackend(TinyContinuousEnv).train(
         seed=0, config=config, output_path=tmp_path / "policy.zip"

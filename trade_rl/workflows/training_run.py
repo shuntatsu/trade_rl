@@ -272,7 +272,12 @@ class TrainingRunConfig:
         exports = require_exact_fields(
             _mapping(payload.get("exports"), field="exports"),
             required=set(),
-            optional={"onnx", "torchscript", "tolerance"},
+            optional={
+                "onnx",
+                "structured_torchscript",
+                "torchscript",
+                "tolerance",
+            },
             field="exports",
         )
         git_commit = payload.get("git_commit")

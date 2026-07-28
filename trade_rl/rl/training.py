@@ -974,15 +974,15 @@ class PolicyTrainingResult:
             require_sha256(self.replay_buffer_digest, field="replay_buffer_digest")
         if (self.replay_buffer_path is None) != (self.replay_buffer_digest is None):
             raise ValueError("replay buffer path and digest must be provided together")
-        structured_values = (
+        structured_export_values = (
             self.structured_export_manifest_path,
             self.structured_export_manifest_digest,
             self.structured_export_model_path,
             self.structured_export_model_digest,
-            self.architecture_digest,
         )
-        if any(value is not None for value in structured_values) and any(
-            value is None for value in structured_values
+        if any(value is not None for value in structured_export_values) and (
+            any(value is None for value in structured_export_values)
+            or self.architecture_digest is None
         ):
             raise ValueError("structured export identity must be complete")
         for field_name, value in (

@@ -26,6 +26,13 @@ def test_policy_training_result_requires_complete_structured_export_identity() -
         _result(structured_export_manifest_path=Path("structured-export.json"))
 
 
+def test_policy_training_result_accepts_architecture_identity_without_export() -> None:
+    result = _result(architecture_digest="e" * 64)
+
+    assert result.architecture_digest == "e" * 64
+    assert result.structured_export_manifest_path is None
+
+
 def test_policy_training_result_accepts_complete_structured_export_identity() -> None:
     result = _result(
         structured_export_manifest_path=Path("structured-export.json"),

@@ -29,6 +29,6 @@ def test_gpu_smoke_schema_records_runtime_identity() -> None:
         ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.py"
     ).read_text(encoding="utf-8")
 
-    assert "gpu_sequence_target_oracle_bc_training_smoke_v7" in smoke
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v8" in smoke
     assert '"git_commit": config.git_commit' in smoke
     assert '"runtime_profile": runtime_profile' in smoke

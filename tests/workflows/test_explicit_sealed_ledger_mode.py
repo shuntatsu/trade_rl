@@ -16,6 +16,7 @@ from trade_rl.workflows.market_walk_forward_config import (
 
 def _candidate_run() -> dict[str, object]:
     return {
+        "schema_version": "training_run_config_v2",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,

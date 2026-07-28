@@ -73,12 +73,16 @@ jobs:
             trade_rl/workflows/training_run.py \
             examples/quickstart/training.json \
             examples/binance-multitimeframe/training-full.json
-      - name: Capture documentation finalizer state
+      - name: Capture branch tree and finalizer state
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          branch_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/agent/docs-readability-refresh" --jq '.object.sha')"
+          tree_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${branch_sha}" --jq '.tree.sha')"
+          printf '%s\n' "$branch_sha" > var/docs-inventory/branch-head-sha.txt
+          printf '%s\n' "$tree_sha" > var/docs-inventory/branch-tree-sha.txt
           workflow_id="$(
             gh api "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" \
               --jq '.workflows[] | select(.path == ".github/workflows/finalize-docs-readability-refresh.yml") | .id' \
@@ -93,12 +97,6 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=agent/docs-readability-refresh&per_page=20" \
             --jq '{workflow_found:true,total_count,runs:[.workflow_runs[]|{id,event,status,conclusion,head_sha,actor:.actor.login,run_number,created_at,updated_at}]}' \
             > var/docs-inventory/finalizer-runs.json
-          latest_run="$(jq -r '.runs[0].id // empty' var/docs-inventory/finalizer-runs.json)"
-          if [[ -n "$latest_run" ]]; then
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_run}/jobs?per_page=100" \
-              --jq '{jobs:[.jobs[]|{id,name,status,conclusion,runner_id,runner_name,steps}]}' \
-              > var/docs-inventory/finalizer-jobs.json
-          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: docs-inventory-${{ github.run_id }}

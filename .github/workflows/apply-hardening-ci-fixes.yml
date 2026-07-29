@@ -26,15 +26,29 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+
           path = Path('trade_rl/data/builder.py')
-          source = path.read_text(encoding='utf-8')
-          duplicate = '''            tick_size=tick_size,
-                      lot_size=lot_size,
-                      minimum_notional=minimum_notional,
-          '''
-          duplicate = duplicate.replace('          lot', '            lot').replace('          minimum', '            minimum')
-          if duplicate in source:
-              path.write_text(source.replace(duplicate, ''), encoding='utf-8')
+          lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
+          result = []
+          in_constructor = False
+          economics_expanded = False
+          duplicate_names = {'tick_size=tick_size,', 'lot_size=lot_size,', 'minimum_notional=minimum_notional,'}
+          removed = []
+          for line in lines:
+              stripped = line.strip()
+              if stripped == 'return MarketDataset(':
+                  in_constructor = True
+              if in_constructor and stripped == '**economics.market_dataset_kwargs(),':
+                  economics_expanded = True
+              if in_constructor and economics_expanded and stripped in duplicate_names:
+                  removed.append(stripped)
+                  continue
+              result.append(line)
+              if in_constructor and stripped == ').with_content_identity(metadata)':
+                  in_constructor = False
+          if set(removed) != duplicate_names:
+              raise RuntimeError(f'unexpected duplicate removal set: {removed}')
+          path.write_text(''.join(result), encoding='utf-8')
           PY
       - name: Verify focused regression
         run: |

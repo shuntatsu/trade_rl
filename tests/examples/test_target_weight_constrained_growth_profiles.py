@@ -174,7 +174,8 @@ def test_walk_forward_references_canonical_standalone_profiles() -> None:
     extensions = tuple(
         scenario
         for scenario in config.execution_sensitivity.scenarios
-        if scenario.name not in {
+        if scenario.name
+        not in {
             "nominal",
             "tick_2x",
             "lot_2x",

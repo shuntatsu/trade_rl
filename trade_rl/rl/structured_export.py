@@ -218,6 +218,9 @@ class _StructuredDeterministicActor(nn.Module):
         self.policy = policy
         self.keys = keys
         self.synthesize_decision_index = synthesize_decision_index
+        self.use_direct_actions = callable(
+            getattr(policy, "deterministic_actions", None)
+        )
 
     def forward(self, *inputs: torch.Tensor) -> torch.Tensor:
         observation = {self.keys[index]: value for index, value in enumerate(inputs)}
@@ -227,7 +230,9 @@ class _StructuredDeterministicActor(nn.Module):
                 dtype=torch.int64,
                 device=inputs[0].device,
             )
-        return self.policy.deterministic_actions(observation)
+        if self.use_direct_actions:
+            return self.policy.deterministic_actions(observation)
+        return self.policy._predict(observation, deterministic=True)
 
 
 def _observation_specs(model: object) -> tuple[StructuredInputSpec, ...]:
@@ -373,8 +378,12 @@ def export_structured_policy_actor(
     policy = getattr(model, "policy", None)
     if not isinstance(policy, nn.Module):
         raise TypeError("structured export policy must be a torch module")
-    if not callable(getattr(policy, "deterministic_actions", None)):
-        raise TypeError("structured export policy must expose deterministic_actions")
+    has_direct_actions = callable(getattr(policy, "deterministic_actions", None))
+    has_predict = callable(getattr(policy, "_predict", None))
+    if not has_direct_actions and not has_predict:
+        raise TypeError(
+            "structured export policy must expose deterministic_actions or _predict"
+        )
 
     original_training = bool(policy.training)
     original_device = getattr(model, "device", None)

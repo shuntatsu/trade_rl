@@ -25,32 +25,13 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Apply staged task and remove temporary infrastructure
+      - name: Apply staged task
         shell: bash
         run: |
           set -euo pipefail
           git apply --check .github/tmp/hierarchical-bc-task.patch
           git apply .github/tmp/hierarchical-bc-task.patch
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('.github/workflows/ci.yml')
-          text = path.read_text()
-          temporary = '''
-                - name: Upload temporary source tree
-                  uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-                  with:
-                    name: temporary-source-tree
-                    path: .
-                    include-hidden-files: true
-                    retention-days: 1
-          '''
-          if temporary not in text:
-              raise SystemExit('temporary source artifact block is missing')
-          path.write_text(text.replace(temporary, '\n', 1))
-          PY
           git rm .github/tmp/hierarchical-bc-task.patch
-          git rm .github/workflows/temporary-source-artifact.yml
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
       - name: Format and lint changed Python files
@@ -60,6 +41,7 @@ jobs:
           files=(
             tests/learning/test_structured_teacher_artifact.py
             tests/rl/test_environment_observation_contract.py
+            tests/rl/test_sequence_observations.py
             trade_rl/learning/teacher_artifact.py
             trade_rl/rl/environment_observation_contract.py
             trade_rl/rl/observations.py

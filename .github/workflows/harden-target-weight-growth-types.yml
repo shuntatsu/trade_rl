@@ -4,13 +4,18 @@ on:
   push:
     branches:
       - agent/target-weight-constrained-growth-design
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   harden-types:
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.event_name != 'pull_request' || github.head_ref == 'agent/target-weight-constrained-growth-design')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout implementation branch

@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+
+from trade_rl.rl.algorithm_configs import LagrangianPPOConfig, build_algorithm_config
+from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.workflows.training_run import TrainingRunConfig
+
+ROOT = Path(__file__).resolve().parents[2]
+EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
+
+PPO = "training-target-weight-growth-ppo.json"
+LAGRANGIAN = "training-target-weight-constrained-growth.json"
+DISCOUNTED = "training-target-weight-constrained-growth-discounted.json"
+
+EXPECTED_BUDGETS = (0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.03)
+EXPECTED_DUAL_LEARNING_RATES = (0.001, 0.01, 0.001, 0.01, 0.001, 0.001, 0.001)
+EXPECTED_MINIMUM_SUPPORT = (1, 20, 1, 20, 1, 1, 1)
+
+
+def _load(name: str) -> TrainingRunConfig:
+    return TrainingRunConfig.from_json(EXAMPLE_ROOT / name)
+
+
+def _common_contract(config: TrainingRunConfig) -> None:
+    assert config.action.mode.value == "target_weight"
+    assert config.action.target_weight_count == 3
+    assert config.action.alpha_enabled is False
+    assert config.action.risk_tilt_enabled is False
+    assert config.reward.is_pure_net_log_growth() is True
+    assert config.environment.episode_hours == pytest.approx(720.0)
+    assert config.environment.liquidate_on_end is False
+    assert config.risk.max_abs_weight == pytest.approx(0.45)
+    assert config.risk.max_gross == pytest.approx(1.0)
+    assert config.risk.drawdown_start == pytest.approx(0.10)
+    assert config.risk.drawdown_stop == pytest.approx(0.20)
+
+    training = config.training
+    assert training.seeds == (0, 1, 2)
+    assert training.timesteps == 524_288
+    assert training.n_steps == 256
+    assert training.n_envs == 4
+    assert training.batch_size == 256
+    assert training.n_epochs == 10
+    assert training.behavior_cloning_epochs == 15
+    assert training.behavior_cloning_teacher == "oracle"
+    assert training.behavior_cloning_validation_fraction == pytest.approx(0.1)
+    assert training.policy_net_arch == (384, 256, 128)
+    assert training.value_net_arch == (512, 384, 256)
+    assert training.observation_encoder.value == "hierarchical_sequence_v2"
+    assert training.sequence_d_model == 336
+    assert training.sequence_compile is False
+    assert training.vector_environment_mode == "subprocess"
+
+
+def _without_discount(payload: dict[str, object]) -> dict[str, object]:
+    resolved = deepcopy(payload)
+    training = resolved["training"]
+    assert isinstance(training, dict)
+    training.pop("gamma", None)
+    training.pop("discount_half_life_hours", None)
+    return resolved
+
+
+def test_target_weight_growth_ppo_is_gamma_one_control() -> None:
+    config = _load(PPO)
+
+    _common_contract(config)
+    assert config.training.algorithm == "ppo"
+    assert config.training.gamma == pytest.approx(1.0)
+    assert config.training.discount_half_life_hours is None
+
+
+def test_target_weight_lagrangian_uses_same_growth_recipe_and_all_costs() -> None:
+    ppo = _load(PPO)
+    constrained = _load(LAGRANGIAN)
+
+    _common_contract(constrained)
+    assert constrained.action == ppo.action
+    assert constrained.environment == ppo.environment
+    assert constrained.risk == ppo.risk
+    assert constrained.reward == ppo.reward
+    assert constrained.portfolio_risk == ppo.portfolio_risk
+    assert constrained.training.algorithm == "lagrangian_ppo"
+    assert constrained.training.gamma == pytest.approx(1.0)
+    assert constrained.training.discount_half_life_hours is None
+    assert constrained.training.lagrangian_budgets == EXPECTED_BUDGETS
+    assert (
+        constrained.training.lagrangian_dual_learning_rates
+        == EXPECTED_DUAL_LEARNING_RATES
+    )
+    assert (
+        constrained.training.lagrangian_minimum_completed_episodes
+        == EXPECTED_MINIMUM_SUPPORT
+    )
+
+    algorithm = build_algorithm_config(constrained.training)
+    assert isinstance(algorithm, LagrangianPPOConfig)
+    assert algorithm.cost_schema.names == CONSTRAINT_COST_NAMES
+    assert algorithm.lagrangian_schema.names == CONSTRAINT_COST_NAMES
+
+
+def test_discounted_profile_changes_only_real_time_discount() -> None:
+    canonical = _load(LAGRANGIAN)
+    discounted = _load(DISCOUNTED)
+
+    _common_contract(discounted)
+    assert discounted.training.algorithm == "lagrangian_ppo"
+    assert discounted.training.gamma == pytest.approx(0.998969062762624)
+    assert discounted.training.discount_half_life_hours == pytest.approx(168.0)
+    assert _without_discount(
+        canonical.candidate_digest_payload()
+    ) == _without_discount(discounted.candidate_digest_payload())

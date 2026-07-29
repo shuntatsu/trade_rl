@@ -1,0 +1,79 @@
+name: Task 9 Remediate Target v2
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    if: github.head_ref == 'agent/task9-verification'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout writable target branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/hierarchical-bc-actor-design
+          path: target
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Checkout remediation script
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/task9-verification
+          path: verification
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply remediation
+        run: python verification/task9_remediate.py target
+      - name: Install dependencies
+        working-directory: target
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+      - name: Verify static contracts
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/rl/sequence_policy.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/rl/test_sequence_diagnostics.py \
+            tests/integrations/test_parallel_sequence_environments.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run python .github/check_workflow_security.py .
+      - name: Run previously failing groups
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/examples \
+            tests/studio/test_catalog.py \
+            tests/workflows/test_explicit_sealed_ledger_mode.py \
+            tests/workflows/test_market_walk_forward.py \
+            tests/workflows/test_walk_forward_manifest_provenance.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/rl/test_sequence_diagnostics.py \
+            tests/integrations/test_parallel_sequence_environments.py \
+            tests/test_current_documentation_contract.py
+      - name: Commit verified remediation
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl task executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: complete hierarchical actor migration contracts"
+          git push origin HEAD:agent/hierarchical-bc-actor-design

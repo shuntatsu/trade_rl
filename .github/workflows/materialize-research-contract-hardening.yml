@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   materialize:
@@ -16,8 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - name: Apply deterministic transformation
         run: |
           python tools/fix_research_contract_transform.py
@@ -41,3 +41,14 @@ jobs:
             tests
           if-no-files-found: error
           retention-days: 7
+      - name: Commit materialized tree
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "feat: apply research contract hardening"
+          git push origin "HEAD:${HEAD_BRANCH}"

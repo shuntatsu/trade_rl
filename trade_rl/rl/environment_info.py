@@ -400,11 +400,11 @@ class EnvironmentInfoBuilder:
                 dtype=np.float64,
             ).copy(),
             "sampled_policy_action": np.asarray(
-                request.submitted_target,
+                action_path.policy_target,
                 dtype=np.float64,
             ).copy(),
             "effective_filled_weights": np.asarray(
-                request.hybrid.weights,
+                action_path.filled_weight,
                 dtype=np.float64,
             ).copy(),
             "sampled_policy_to_filled_l1": action_path.policy_to_filled_l1,

@@ -55,16 +55,65 @@ def _epoch_ms(value: datetime) -> int:
     return int(round(value.timestamp() * 1000.0))
 
 
+def _metadata_entry(
+    metadata: Mapping[str, Mapping[str, object]], symbol: str
+) -> Mapping[str, object]:
+    entry = metadata.get(symbol)
+    if not isinstance(entry, Mapping):
+        raise ValueError(f"metadata {symbol} must be an object")
+    return entry
+
+
 def _metadata_number(
     metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
 ) -> float:
-    raw = metadata.get(symbol, {}).get(field, 0.0)
-    if isinstance(raw, bool) or not isinstance(raw, int | float):
+    entry = _metadata_entry(metadata, symbol)
+    if field not in entry:
+        raise ValueError(f"metadata {symbol}.{field} is required")
+    raw = entry[field]
+    if isinstance(raw, bool) or not isinstance(raw, str | int | float):
         raise ValueError(f"metadata {symbol}.{field} must be numeric")
-    resolved = float(raw)
-    if not math.isfinite(resolved) or resolved < 0.0:
-        raise ValueError(f"metadata {symbol}.{field} must be finite and non-negative")
+    try:
+        resolved = float(raw)
+    except ValueError as error:
+        raise ValueError(f"metadata {symbol}.{field} must be numeric") from error
+    if not math.isfinite(resolved) or resolved <= 0.0:
+        raise ValueError(f"metadata {symbol}.{field} must be finite and positive")
     return resolved
+
+
+def _metadata_datetime(
+    metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+) -> datetime:
+    entry = _metadata_entry(metadata, symbol)
+    raw = entry.get(field)
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"metadata {symbol}.{field} is required")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(
+            f"metadata {symbol}.{field} must be an ISO-8601 timestamp"
+        ) from error
+    return _aware_utc(parsed, field=f"metadata {symbol}.{field}")
+
+
+def _metadata_optional_datetime(
+    metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+) -> datetime | None:
+    entry = _metadata_entry(metadata, symbol)
+    raw = entry.get(field)
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"metadata {symbol}.{field} must be an ISO-8601 timestamp")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(
+            f"metadata {symbol}.{field} must be an ISO-8601 timestamp"
+        ) from error
+    return _aware_utc(parsed, field=f"metadata {symbol}.{field}")
 
 
 def _load_base_market(
@@ -358,7 +407,8 @@ def build_postgres_market_dataset(
     instruments = tuple(
         InstrumentContract(
             symbol=symbol,
-            listed_at=start,
+            listed_at=_metadata_datetime(metadata, symbol, "listed_at"),
+            delisted_at=_metadata_optional_datetime(metadata, symbol, "delisted_at"),
             volume_unit=VolumeUnit.QUOTE_NOTIONAL,
             tick_size=_metadata_number(metadata, symbol, "tick_size"),
             lot_size=_metadata_number(metadata, symbol, "lot_size"),
@@ -371,6 +421,7 @@ def build_postgres_market_dataset(
         )
         for symbol in selected
     )
+
     economics = build_market_economic_semantics(
         timestamps=timestamps,
         instruments=instruments,
@@ -381,18 +432,33 @@ def build_postgres_market_dataset(
         close=raw["close"],
         funding_event_count=funding_counts,
     )
+    observable_features = economics.information_available[:, :, None]
+    feature_available &= observable_features
+    features = np.where(feature_available, features, np.float32(0.0))
+    feature_age = np.where(feature_available, feature_age, np.float32(0.0))
+    feature_staleness = np.where(feature_available, feature_staleness, np.float32(1.0))
 
     log_returns = np.zeros(price_shape, dtype=np.float64)
-    log_returns[1:] = np.log(raw["close"][1:] / raw["close"][:-1])
+    return_available = np.zeros(price_shape, dtype=np.bool_)
+    contiguous = (
+        economics.information_available[1:] & economics.information_available[:-1]
+    )
+    candidate_returns = np.log(raw["close"][1:] / raw["close"][:-1])
+    np.copyto(log_returns[1:], candidate_returns, where=contiguous)
+    return_available[1:] = contiguous
     global_features = np.zeros((n_bars, 4), dtype=np.float32)
     global_features[:, 0] = economics.symbol_active.mean(axis=1)
     global_features[:, 1] = (economics.tradable & economics.information_available).mean(
         axis=1
     )
-    global_features[:, 2] = np.mean(log_returns, axis=1, dtype=np.float64)
-    global_features[:, 3] = np.std(log_returns, axis=1, dtype=np.float64)
     global_available = np.ones((n_bars, 4), dtype=np.bool_)
-    global_available[0, 2:] = False
+    for index in range(n_bars):
+        sample = log_returns[index, return_available[index]]
+        if sample.size:
+            global_features[index, 2] = float(np.mean(sample))
+            global_features[index, 3] = float(np.std(sample))
+        else:
+            global_available[index, 2:] = False
 
     normalization_digest = content_and_arrays_digest(
         {

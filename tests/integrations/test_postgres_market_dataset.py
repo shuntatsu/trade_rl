@@ -96,9 +96,7 @@ class _Database:
         return _Cursor(self)
 
 
-def _bundle(
-    symbols: tuple[str, ...], start_ms: int
-) -> NativeIndicatorArtifactBundle:
+def _bundle(symbols: tuple[str, ...], start_ms: int) -> NativeIndicatorArtifactBundle:
     specs = binance_multitimeframe_feature_specs(
         base_timeframe="15m", feature_timeframes=("1h", "4h", "1d")
     )
@@ -107,13 +105,9 @@ def _bundle(
     for symbol_index, symbol in enumerate(symbols):
         for timeframe in NATIVE_TIMEFRAMES:
             names = tuple(
-                spec.name
-                for spec in specs
-                if spec.name.startswith(f"{timeframe}__")
+                spec.name for spec in specs if spec.name.startswith(f"{timeframe}__")
             )
-            values = np.full(
-                (4, len(names)), float(symbol_index + 1), dtype=np.float32
-            )
+            values = np.full((4, len(names)), float(symbol_index + 1), dtype=np.float32)
             available = np.ones(values.shape, dtype=np.bool_)
             artifacts.append(
                 NativeIndicatorArtifact(
@@ -190,9 +184,7 @@ def _rule_histories(
     return histories
 
 
-def _raw_source(
-    symbols: tuple[str, ...], start: datetime
-) -> InMemoryMarketDataSource:
+def _raw_source(symbols: tuple[str, ...], start: datetime) -> InMemoryMarketDataSource:
     timestamps = np.datetime64(start.replace(tzinfo=None), "ns") + np.arange(
         1, 5
     ) * np.timedelta64(15, "m")
@@ -228,9 +220,7 @@ def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
     start = datetime(2024, 1, 1, tzinfo=UTC)
     end = start + timedelta(hours=1)
     start_ms = int(start.timestamp() * 1000)
-    metadata = _metadata(
-        symbols, start, first_listing_delay=timedelta(minutes=30)
-    )
+    metadata = _metadata(symbols, start, first_listing_delay=timedelta(minutes=30))
 
     dataset = build_postgres_market_dataset(
         _Database(symbols, start_ms),

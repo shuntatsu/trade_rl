@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from datetime import UTC
 from typing import Mapping
 
 import numpy as np
@@ -63,6 +64,23 @@ class MarketEconomicSemantics:
             value = getattr(self, item.name)
             if value.flags.writeable:
                 raise ValueError(f"economic array {item.name} must be immutable")
+
+        if np.any(self.max_participation_rate < 0.0) or np.any(
+            self.max_participation_rate > 1.0
+        ):
+            raise ValueError("max_participation_rate must be within [0, 1]")
+        for name in (
+            "spread_rate",
+            "borrow_rate",
+            "minimum_notional",
+            "lot_size",
+            "tick_size",
+        ):
+            if np.any(getattr(self, name) < 0.0):
+                raise ValueError(f"economic array {name} must be non-negative")
+        for name in ("mark_price", "index_price"):
+            if np.any(getattr(self, name) <= 0.0):
+                raise ValueError(f"economic array {name} must be strictly positive")
 
     def market_dataset_kwargs(self) -> Mapping[str, np.ndarray]:
         return {item.name: getattr(self, item.name) for item in fields(self)}
@@ -134,17 +152,13 @@ def build_market_economic_semantics(
     minimum = np.zeros(shape, dtype=np.float64)
     for symbol_index, contract in enumerate(instruments):
         listed = np.datetime64(
-            contract.listed_at.astimezone(__import__("datetime").UTC).replace(
-                tzinfo=None
-            ),
+            contract.listed_at.astimezone(UTC).replace(tzinfo=None),
             "ns",
         )
         mask = resolved_timestamps >= listed
         if contract.delisted_at is not None:
             delisted = np.datetime64(
-                contract.delisted_at.astimezone(__import__("datetime").UTC).replace(
-                    tzinfo=None
-                ),
+                contract.delisted_at.astimezone(UTC).replace(tzinfo=None),
                 "ns",
             )
             mask &= resolved_timestamps < delisted

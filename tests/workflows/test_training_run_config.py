@@ -7,13 +7,27 @@ from trade_rl.workflows.training_run import TrainingRunConfig
 
 def _mapping() -> dict[str, object]:
     return {
-        "schema_version": "training_run_config_v2",
+        "schema_version": "training_run_config_v3",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
             "seeds": [0],
             "n_steps": 8,
             "batch_size": 8,
+            "policy_actor_head": "standard_continuous_v1",
+            "hierarchical_gate_temperature": 1.0,
+            "behavior_cloning_gate_loss_weight": 1.0,
+            "behavior_cloning_target_loss_weight": 1.0,
+            "behavior_cloning_composed_loss_weight": 1.0,
+            "behavior_cloning_gate_change_threshold": 0.05,
+            "behavior_cloning_max_positive_class_weight": 20.0,
+            "behavior_cloning_min_gate_precision": 0.0,
+            "behavior_cloning_min_gate_recall": 0.0,
+            "behavior_cloning_max_active_target_rmse": 1.0,
+            "behavior_cloning_min_activity_ratio": 0.0,
+            "behavior_cloning_max_activity_ratio": 1.0,
+            "behavior_cloning_min_causal_holdout_trades": 0,
+            "behavior_cloning_max_causal_holdout_regret": 0.0,
         },
         "environment": {
             "episode_bars": 4,
@@ -212,6 +226,7 @@ def test_sequence_training_rejects_flat_export_and_declares_native_serving_suppo
         **raw["training"],  # type: ignore[arg-type]
         "policy": "MultiInputPolicy",
         "observation_encoder": "hierarchical_sequence_v2",
+        "policy_actor_head": "hierarchical_gate_target_v1",
     }
     raw["environment"] = {
         **raw["environment"],  # type: ignore[arg-type]
@@ -227,7 +242,7 @@ def test_sequence_training_rejects_flat_export_and_declares_native_serving_suppo
     config = TrainingRunConfig.from_mapping(raw)
     support = _serving_support_payload(config)
     assert support == {
-        "loader_schema": "sb3_policy_loader_v2",
+        "loader_schema": "sb3_policy_loader_v3",
         "observation_mode": "structured_sequence",
         "runtime": "native_sb3_structured_sequence_v1",
         "schema_version": "serving_support_v2",
@@ -289,7 +304,7 @@ def test_training_config_requires_explicit_v2_schema() -> None:
 def test_training_config_rejects_unknown_top_level_field() -> None:
     raw = _mapping()
     raw["action"] = {"alpha_enabled": False, "n_factors": 0}
-    raw["schema_verison"] = "training_run_config_v2"
+    raw["schema_verison"] = "training_run_config_v3"
     with pytest.raises(ValueError, match="unknown fields.*schema_verison"):
         TrainingRunConfig.from_mapping(raw)
 
@@ -354,6 +369,7 @@ def _structured_mapping() -> dict[str, object]:
         {
             "policy": "MultiInputPolicy",
             "observation_encoder": "hierarchical_sequence_v2",
+            "policy_actor_head": "hierarchical_gate_target_v1",
         }
     )
     raw["training"] = training

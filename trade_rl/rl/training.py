@@ -85,6 +85,8 @@ class ResidualTrainingConfig:
     policy_net_arch: tuple[int, ...] = (128, 128)
     value_net_arch: tuple[int, ...] = (128, 128)
     observation_encoder: ObservationEncoder | str = ObservationEncoder.ASSET_SET
+    policy_actor_head: str | None = None
+    hierarchical_gate_temperature: float = 1.0
     sequence_tcn_capacity: str = "standard"
     sequence_d_model: int = 320
     sequence_timeframe_attention_heads: int = 8
@@ -131,6 +133,18 @@ class ResidualTrainingConfig:
     behavior_cloning_minimum_improvement: float = 0.0
     behavior_cloning_teacher: str = "oracle"
     behavior_cloning_required_relative_improvement: float = 0.0
+    behavior_cloning_gate_loss_weight: float = 1.0
+    behavior_cloning_target_loss_weight: float = 1.0
+    behavior_cloning_composed_loss_weight: float = 1.0
+    behavior_cloning_gate_change_threshold: float = 0.05
+    behavior_cloning_max_positive_class_weight: float = 20.0
+    behavior_cloning_min_gate_precision: float = 0.0
+    behavior_cloning_min_gate_recall: float = 0.0
+    behavior_cloning_max_active_target_rmse: float = 1.0
+    behavior_cloning_min_activity_ratio: float = 0.0
+    behavior_cloning_max_activity_ratio: float = 1.0
+    behavior_cloning_min_causal_holdout_trades: int = 0
+    behavior_cloning_max_causal_holdout_regret: float = 0.0
     lagrangian_budgets: tuple[float, ...] = ()
     lagrangian_dual_learning_rates: tuple[float, ...] = ()
     lagrangian_ema_betas: tuple[float, ...] = ()
@@ -202,6 +216,84 @@ class ResidualTrainingConfig:
         ):
             raise ValueError(
                 "behavior_cloning_required_relative_improvement must be within [0, 1)"
+            )
+        hierarchical_loss_weights = (
+            self.behavior_cloning_gate_loss_weight,
+            self.behavior_cloning_target_loss_weight,
+            self.behavior_cloning_composed_loss_weight,
+        )
+        if any(
+            not math.isfinite(value) or value < 0.0
+            for value in hierarchical_loss_weights
+        ):
+            raise ValueError(
+                "hierarchical behavior cloning loss weights must be finite and non-negative"
+            )
+        if sum(hierarchical_loss_weights) <= 0.0:
+            raise ValueError(
+                "at least one hierarchical behavior cloning loss weight must be positive"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_gate_change_threshold)
+            or not 0.0 < self.behavior_cloning_gate_change_threshold <= 1.0
+        ):
+            raise ValueError(
+                "behavior_cloning_gate_change_threshold must be within (0, 1]"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_max_positive_class_weight)
+            or self.behavior_cloning_max_positive_class_weight < 1.0
+        ):
+            raise ValueError(
+                "behavior_cloning_max_positive_class_weight must be at least one"
+            )
+        for field_name, value in (
+            (
+                "behavior_cloning_min_gate_precision",
+                self.behavior_cloning_min_gate_precision,
+            ),
+            ("behavior_cloning_min_gate_recall", self.behavior_cloning_min_gate_recall),
+        ):
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{field_name} must be within [0, 1]")
+        if (
+            not math.isfinite(self.behavior_cloning_max_active_target_rmse)
+            or self.behavior_cloning_max_active_target_rmse < 0.0
+        ):
+            raise ValueError(
+                "behavior_cloning_max_active_target_rmse must be finite and non-negative"
+            )
+        for field_name, value in (
+            (
+                "behavior_cloning_min_activity_ratio",
+                self.behavior_cloning_min_activity_ratio,
+            ),
+            (
+                "behavior_cloning_max_activity_ratio",
+                self.behavior_cloning_max_activity_ratio,
+            ),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{field_name} must be finite and non-negative")
+        if (
+            self.behavior_cloning_min_activity_ratio
+            > self.behavior_cloning_max_activity_ratio
+        ):
+            raise ValueError("behavior cloning activity ratio bounds must be ordered")
+        if (
+            isinstance(self.behavior_cloning_min_causal_holdout_trades, bool)
+            or not isinstance(self.behavior_cloning_min_causal_holdout_trades, int)
+            or self.behavior_cloning_min_causal_holdout_trades < 0
+        ):
+            raise ValueError(
+                "behavior_cloning_min_causal_holdout_trades must be a non-negative integer"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_max_causal_holdout_regret)
+            or self.behavior_cloning_max_causal_holdout_regret < 0.0
+        ):
+            raise ValueError(
+                "behavior_cloning_max_causal_holdout_regret must be finite and non-negative"
             )
         if self.checkpoint_interval_steps is not None and (
             isinstance(self.checkpoint_interval_steps, bool)
@@ -343,6 +435,38 @@ class ResidualTrainingConfig:
                 "hierarchical_sequence_v2"
             ) from error
         object.__setattr__(self, "observation_encoder", encoder)
+        sequence_active = encoder is ObservationEncoder.HIERARCHICAL_SEQUENCE_V2
+        actor_head = self.policy_actor_head
+        if actor_head is None:
+            actor_head = (
+                "hierarchical_gate_target_v1"
+                if sequence_active
+                else "standard_continuous_v1"
+            )
+        if not isinstance(actor_head, str):
+            raise ValueError("policy_actor_head must be a string")
+        expected_actor_head = (
+            "hierarchical_gate_target_v1"
+            if sequence_active
+            else "standard_continuous_v1"
+        )
+        if actor_head != expected_actor_head:
+            raise ValueError(
+                f"policy_actor_head must be {expected_actor_head} for "
+                f"observation_encoder={encoder}"
+            )
+        object.__setattr__(self, "policy_actor_head", actor_head)
+        if (
+            not math.isfinite(self.hierarchical_gate_temperature)
+            or self.hierarchical_gate_temperature <= 0.0
+        ):
+            raise ValueError(
+                "hierarchical_gate_temperature must be finite and positive"
+            )
+        if not sequence_active and self.hierarchical_gate_temperature != 1.0:
+            raise ValueError(
+                "hierarchical_gate_temperature is inactive for non-sequence actors"
+            )
         try:
             cuda_runtime_mode = CudaRuntimeMode(
                 str(self.cuda_runtime_mode).strip().lower()
@@ -352,7 +476,6 @@ class ResidualTrainingConfig:
                 "cuda_runtime_mode must be deterministic or performance"
             ) from error
         object.__setattr__(self, "cuda_runtime_mode", cuda_runtime_mode)
-        sequence_active = encoder is ObservationEncoder.HIERARCHICAL_SEQUENCE_V2
         if not isinstance(self.sequence_compile, bool):
             raise ValueError("sequence_compile must be a boolean")
         if self.sequence_compile_mode not in {
@@ -753,6 +876,66 @@ class ResidualTrainingConfig:
                         self.behavior_cloning_required_relative_improvement,
                         0.0,
                     ),
+                    (
+                        "behavior_cloning_gate_loss_weight",
+                        self.behavior_cloning_gate_loss_weight,
+                        1.0,
+                    ),
+                    (
+                        "behavior_cloning_target_loss_weight",
+                        self.behavior_cloning_target_loss_weight,
+                        1.0,
+                    ),
+                    (
+                        "behavior_cloning_composed_loss_weight",
+                        self.behavior_cloning_composed_loss_weight,
+                        1.0,
+                    ),
+                    (
+                        "behavior_cloning_gate_change_threshold",
+                        self.behavior_cloning_gate_change_threshold,
+                        0.05,
+                    ),
+                    (
+                        "behavior_cloning_max_positive_class_weight",
+                        self.behavior_cloning_max_positive_class_weight,
+                        20.0,
+                    ),
+                    (
+                        "behavior_cloning_min_gate_precision",
+                        self.behavior_cloning_min_gate_precision,
+                        0.0,
+                    ),
+                    (
+                        "behavior_cloning_min_gate_recall",
+                        self.behavior_cloning_min_gate_recall,
+                        0.0,
+                    ),
+                    (
+                        "behavior_cloning_max_active_target_rmse",
+                        self.behavior_cloning_max_active_target_rmse,
+                        1.0,
+                    ),
+                    (
+                        "behavior_cloning_min_activity_ratio",
+                        self.behavior_cloning_min_activity_ratio,
+                        0.0,
+                    ),
+                    (
+                        "behavior_cloning_max_activity_ratio",
+                        self.behavior_cloning_max_activity_ratio,
+                        1.0,
+                    ),
+                    (
+                        "behavior_cloning_min_causal_holdout_trades",
+                        self.behavior_cloning_min_causal_holdout_trades,
+                        0,
+                    ),
+                    (
+                        "behavior_cloning_max_causal_holdout_regret",
+                        self.behavior_cloning_max_causal_holdout_regret,
+                        0.0,
+                    ),
                 ),
                 context="behavior cloning disabled",
             )
@@ -775,6 +958,8 @@ class ResidualTrainingConfig:
             "algorithm": self.algorithm,
             "asset_embedding_dim": self.asset_embedding_dim,
             "observation_encoder": str(self.observation_encoder),
+            "policy_actor_head": self.policy_actor_head,
+            "hierarchical_gate_temperature": self.hierarchical_gate_temperature,
             "batch_size": self.batch_size,
             "behavior_cloning_batch_size": self.behavior_cloning_batch_size,
             "behavior_cloning_epochs": self.behavior_cloning_epochs,
@@ -785,6 +970,34 @@ class ResidualTrainingConfig:
             "behavior_cloning_teacher": self.behavior_cloning_teacher,
             "behavior_cloning_required_relative_improvement": (
                 self.behavior_cloning_required_relative_improvement
+            ),
+            "behavior_cloning_gate_loss_weight": self.behavior_cloning_gate_loss_weight,
+            "behavior_cloning_target_loss_weight": self.behavior_cloning_target_loss_weight,
+            "behavior_cloning_composed_loss_weight": self.behavior_cloning_composed_loss_weight,
+            "behavior_cloning_gate_change_threshold": (
+                self.behavior_cloning_gate_change_threshold
+            ),
+            "behavior_cloning_max_positive_class_weight": (
+                self.behavior_cloning_max_positive_class_weight
+            ),
+            "behavior_cloning_min_gate_precision": (
+                self.behavior_cloning_min_gate_precision
+            ),
+            "behavior_cloning_min_gate_recall": self.behavior_cloning_min_gate_recall,
+            "behavior_cloning_max_active_target_rmse": (
+                self.behavior_cloning_max_active_target_rmse
+            ),
+            "behavior_cloning_min_activity_ratio": (
+                self.behavior_cloning_min_activity_ratio
+            ),
+            "behavior_cloning_max_activity_ratio": (
+                self.behavior_cloning_max_activity_ratio
+            ),
+            "behavior_cloning_min_causal_holdout_trades": (
+                self.behavior_cloning_min_causal_holdout_trades
+            ),
+            "behavior_cloning_max_causal_holdout_regret": (
+                self.behavior_cloning_max_causal_holdout_regret
             ),
             "buffer_size": self.buffer_size,
             "global_embedding_dim": self.global_embedding_dim,

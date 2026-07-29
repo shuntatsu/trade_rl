@@ -42,6 +42,8 @@ class SB3PolicyAssembly:
     observation_encoder: str = "flat_mlp"
     sequence_symbols: tuple[str, ...] | None = None
     sequence_action_names: tuple[str, ...] | None = None
+    policy_actor_head: str | None = None
+    hierarchical_gate_temperature: float | None = None
     rollout_buffer_class: object | None = None
     rollout_buffer_kwargs: Mapping[str, object] | None = None
 
@@ -184,6 +186,8 @@ def _sequence_policy_assembly(
                 "shared_actor_d_model": config.sequence_d_model,
                 "shared_actor_global_dim": 128,
                 "shared_actor_net_arch": tuple(config.policy_net_arch),
+                "shared_actor_head": config.policy_actor_head,
+                "shared_actor_gate_temperature": (config.hierarchical_gate_temperature),
             }
         )
     policy_identifier: object = (
@@ -297,6 +301,16 @@ def resolve_sb3_policy_assembly(
         observation_encoder=config.observation_encoder,
         sequence_symbols=sequence_symbols,
         sequence_action_names=sequence_action_names,
+        policy_actor_head=(
+            config.policy_actor_head
+            if config.observation_encoder == "hierarchical_sequence_v2"
+            else None
+        ),
+        hierarchical_gate_temperature=(
+            config.hierarchical_gate_temperature
+            if config.observation_encoder == "hierarchical_sequence_v2"
+            else None
+        ),
         rollout_buffer_class=rollout_buffer_class,
         rollout_buffer_kwargs=rollout_buffer_kwargs,
     )

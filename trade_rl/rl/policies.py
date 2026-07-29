@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from contextlib import nullcontext
+from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -15,6 +17,8 @@ from stable_baselines3.common.distributions import (
 from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch import nn
+
+from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE
 
 
 def _sequence_encoder_autocast(reference: torch.Tensor) -> Any:
@@ -111,6 +115,8 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         asset_state_width: int,
         global_width: int,
         n_symbols: int,
+        current_weight_source: str = CURRENT_WEIGHT_SOURCE,
+        current_weight_shape: tuple[int, ...] | None = None,
         sequence_tcn_capacity: str = "standard",
         d_model: int = 320,
         timeframe_attention_heads: int = 8,
@@ -130,6 +136,15 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         )
 
         timeframes = ("15m", "1h", "4h", "1d")
+        if current_weight_source != CURRENT_WEIGHT_SOURCE:
+            raise ValueError("sequence current weight source is unsupported")
+        resolved_current_weight_shape = (
+            (n_symbols,)
+            if current_weight_shape is None
+            else tuple(current_weight_shape)
+        )
+        if resolved_current_weight_shape != (n_symbols,):
+            raise ValueError("sequence current weight shape does not match symbols")
         if tuple(feature_counts) != timeframes or tuple(window_lengths) != timeframes:
             raise ValueError("sequence metadata must use ordered maintained clocks")
         expected_shapes: dict[str, tuple[int, ...]] = {
@@ -137,6 +152,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             "asset_state": (n_symbols, asset_state_width),
             "global_state": (global_width,),
             "active": (n_symbols,),
+            "current_weights": (n_symbols,),
         }
         for timeframe in timeframes:
             sequence_shape = (
@@ -153,7 +169,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
                 raise ValueError(f"sequence observation shape mismatch for {key}")
         super().__init__(
             observation_space,
-            features_dim=n_symbols * d_model + d_model + 128 + n_symbols,
+            features_dim=n_symbols * d_model + d_model + 128 + 2 * n_symbols,
         )
         self.timeframes = timeframes
         architecture = SequencePolicyArchitecture(
@@ -214,8 +230,16 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             globals_ = self.global_encoder(observations["global_state"].float())
             ordered_assets = asset_tokens.reshape(asset_tokens.shape[0], -1)
             active = observations["active"].float()
+            current_weights = observations["current_weights"].float()
             encoded = torch.cat(
-                (ordered_assets, pooled_assets, globals_, active), dim=-1
+                (
+                    ordered_assets,
+                    pooled_assets,
+                    globals_,
+                    active,
+                    current_weights,
+                ),
+                dim=-1,
             )
         # Actor/critic heads, PPO losses, optimizer state, and checkpoints stay FP32.
         return encoded.float()
@@ -237,7 +261,7 @@ class SharedAssetActorCriticExtractor(nn.Module):
         super().__init__()
         if n_symbols <= 0 or token_dim <= 0 or global_dim <= 0:
             raise ValueError("shared actor dimensions must be positive")
-        expected = n_symbols * token_dim + token_dim + global_dim + n_symbols
+        expected = n_symbols * token_dim + token_dim + global_dim + 2 * n_symbols
         if features_dim != expected:
             raise ValueError(
                 "feature extractor output does not match shared actor layout"
@@ -247,7 +271,7 @@ class SharedAssetActorCriticExtractor(nn.Module):
         self.n_symbols = n_symbols
         self.token_dim = token_dim
         self.global_dim = global_dim
-        self.actor_context_dim = 2 * token_dim + global_dim + 1
+        self.actor_context_dim = 2 * token_dim + global_dim + 2
         self.latent_dim_pi = n_symbols * self.actor_context_dim
         layers: list[nn.Module] = []
         width = token_dim + global_dim
@@ -259,29 +283,46 @@ class SharedAssetActorCriticExtractor(nn.Module):
 
     def _parts(
         self, features: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         asset_width = self.n_symbols * self.token_dim
         pooled_start = asset_width
         global_start = pooled_start + self.token_dim
         active_start = global_start + self.global_dim
+        current_weight_start = active_start + self.n_symbols
+        expected_width = current_weight_start + self.n_symbols
+        if features.ndim != 2 or features.shape[1] != expected_width:
+            raise ValueError("shared actor features do not match declared layout")
         tokens = features[:, :asset_width].reshape(-1, self.n_symbols, self.token_dim)
         pooled = features[:, pooled_start:global_start]
         globals_ = features[:, global_start:active_start]
-        active = features[:, active_start:]
-        return tokens, pooled, globals_, active
+        active = features[:, active_start:current_weight_start]
+        current_weights = features[:, current_weight_start:expected_width]
+        return tokens, pooled, globals_, active, current_weights
 
     def forward_actor(self, features: torch.Tensor) -> torch.Tensor:
-        tokens, pooled, globals_, active = self._parts(features)
+        tokens, pooled, globals_, active, current_weights = self._parts(features)
         pooled_per_asset = pooled[:, None, :].expand(-1, self.n_symbols, -1)
         global_per_asset = globals_[:, None, :].expand(-1, self.n_symbols, -1)
         contexts = torch.cat(
-            (tokens, pooled_per_asset, global_per_asset, active.unsqueeze(-1)),
+            (
+                tokens,
+                pooled_per_asset,
+                global_per_asset,
+                current_weights.unsqueeze(-1),
+                active.unsqueeze(-1),
+            ),
             dim=-1,
         )
         return contexts.reshape(features.shape[0], -1)
 
     def forward_critic(self, features: torch.Tensor) -> torch.Tensor:
-        _, pooled, globals_, _ = self._parts(features)
+        _, pooled, globals_, _, _ = self._parts(features)
         return self.critic_net(torch.cat((pooled, globals_), dim=-1))
 
     def forward(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -325,6 +366,107 @@ class SharedPerAssetActionHead(nn.Module):
         active = self.active_mask(actor_latent)
         means = self.shared_head(contexts).squeeze(-1)
         return means * active.to(dtype=means.dtype)
+
+
+@dataclass(frozen=True, slots=True)
+class HierarchicalActorOutputs:
+    """Gate, proposal, and composed target-weight outputs for one policy batch."""
+
+    gate_logits: torch.Tensor
+    gate_probabilities: torch.Tensor
+    target_actions: torch.Tensor
+    composed_actions: torch.Tensor
+    mean_logits: torch.Tensor
+    current_weights: torch.Tensor
+    active_mask: torch.Tensor
+
+
+class SharedPerAssetGateTargetHead(nn.Module):
+    """Apply one shared trunk with Gate and Target heads to every asset."""
+
+    _ATANH_EPSILON = 1e-6
+
+    def __init__(
+        self,
+        *,
+        n_symbols: int,
+        token_dim: int,
+        context_dim: int,
+        hidden_dims: tuple[int, ...],
+        temperature: float = 1.0,
+        activation_fn: type[nn.Module] = nn.Tanh,
+    ) -> None:
+        super().__init__()
+        if n_symbols <= 0 or token_dim <= 0 or context_dim < token_dim + 2:
+            raise ValueError("hierarchical action-head dimensions are invalid")
+        if not hidden_dims or any(width <= 0 for width in hidden_dims):
+            raise ValueError("hidden_dims must contain positive widths")
+        if isinstance(temperature, bool) or not math.isfinite(float(temperature)):
+            raise ValueError("gate temperature must be positive and finite")
+        if float(temperature) <= 0.0:
+            raise ValueError("gate temperature must be positive and finite")
+        self.n_symbols = n_symbols
+        self.token_dim = token_dim
+        self.context_dim = context_dim
+        self.temperature = float(temperature)
+        layers: list[nn.Module] = []
+        width = context_dim
+        for hidden in hidden_dims:
+            layers.extend((nn.Linear(width, hidden), activation_fn()))
+            width = hidden
+        self.shared_trunk = nn.Sequential(*layers)
+        self.gate_head = nn.Linear(width, 1)
+        self.target_head = nn.Linear(width, 1)
+
+    def _contexts(self, actor_latent: torch.Tensor) -> torch.Tensor:
+        if actor_latent.ndim != 2:
+            raise ValueError("actor latent must be rank-two")
+        expected = self.n_symbols * self.context_dim
+        if actor_latent.shape[1] != expected:
+            raise ValueError("actor latent does not match hierarchical head layout")
+        return actor_latent.reshape(-1, self.n_symbols, self.context_dim)
+
+    def active_mask(self, actor_latent: torch.Tensor) -> torch.Tensor:
+        return self._contexts(actor_latent)[:, :, -1] > 0.5
+
+    def current_weights(self, actor_latent: torch.Tensor) -> torch.Tensor:
+        return self._contexts(actor_latent)[:, :, -2]
+
+    def outputs(self, actor_latent: torch.Tensor) -> HierarchicalActorOutputs:
+        contexts = self._contexts(actor_latent)
+        active_mask = contexts[:, :, -1] > 0.5
+        current_weights = contexts[:, :, -2]
+        hidden = self.shared_trunk(contexts)
+        raw_gate_logits = self.gate_head(hidden).squeeze(-1)
+        raw_target_logits = self.target_head(hidden).squeeze(-1)
+        gate_probabilities = torch.sigmoid(raw_gate_logits / self.temperature)
+        target_actions = torch.tanh(raw_target_logits)
+        composed_actions = current_weights + gate_probabilities * (
+            target_actions - current_weights
+        )
+        mask = active_mask.to(dtype=composed_actions.dtype)
+        current_weights = current_weights * mask
+        gate_logits = raw_gate_logits * mask
+        gate_probabilities = gate_probabilities * mask
+        target_actions = target_actions * mask
+        composed_actions = composed_actions * mask
+        bounded_actions = composed_actions.clamp(
+            min=-1.0 + self._ATANH_EPSILON,
+            max=1.0 - self._ATANH_EPSILON,
+        )
+        mean_logits = torch.atanh(bounded_actions) * mask
+        return HierarchicalActorOutputs(
+            gate_logits=gate_logits,
+            gate_probabilities=gate_probabilities,
+            target_actions=target_actions,
+            composed_actions=composed_actions,
+            mean_logits=mean_logits,
+            current_weights=current_weights,
+            active_mask=active_mask,
+        )
+
+    def forward(self, actor_latent: torch.Tensor) -> torch.Tensor:
+        return self.outputs(actor_latent).mean_logits
 
 
 class MaskedSharedSquashedDiagGaussianDistribution(SquashedDiagGaussianDistribution):
@@ -385,6 +527,8 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         shared_actor_d_model: int,
         shared_actor_global_dim: int = 128,
         shared_actor_net_arch: tuple[int, ...] = (128, 128),
+        shared_actor_head: str = "shared_target_v1",
+        shared_actor_gate_temperature: float = 1.0,
         **kwargs: Any,
     ) -> None:
         if kwargs.get("use_sde", False):
@@ -393,10 +537,25 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
             raise ValueError(
                 "shared actor action space must contain one action per asset"
             )
+        if shared_actor_head not in {
+            "shared_target_v1",
+            "hierarchical_gate_target_v1",
+        }:
+            raise ValueError("unsupported shared actor head")
+        if (
+            isinstance(shared_actor_gate_temperature, bool)
+            or not math.isfinite(float(shared_actor_gate_temperature))
+            or float(shared_actor_gate_temperature) <= 0.0
+        ):
+            raise ValueError(
+                "shared actor gate temperature must be positive and finite"
+            )
         self.shared_actor_n_symbols = shared_actor_n_symbols
         self.shared_actor_d_model = shared_actor_d_model
         self.shared_actor_global_dim = shared_actor_global_dim
         self.shared_actor_net_arch = tuple(shared_actor_net_arch)
+        self.shared_actor_head = shared_actor_head
+        self.shared_actor_gate_temperature = float(shared_actor_gate_temperature)
         super().__init__(observation_space, action_space, lr_schedule, **kwargs)
 
     def _critic_architecture(self) -> tuple[int, ...]:
@@ -422,14 +581,24 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
             self.shared_actor_n_symbols
         )
         super()._build(lr_schedule)
-        context_dim = 2 * self.shared_actor_d_model + self.shared_actor_global_dim + 1
-        self.action_net = SharedPerAssetActionHead(
-            n_symbols=self.shared_actor_n_symbols,
-            token_dim=self.shared_actor_d_model,
-            context_dim=context_dim,
-            hidden_dims=self.shared_actor_net_arch,
-            activation_fn=self.activation_fn,
-        ).to(self.device)
+        context_dim = 2 * self.shared_actor_d_model + self.shared_actor_global_dim + 2
+        if self.shared_actor_head == "hierarchical_gate_target_v1":
+            self.action_net = SharedPerAssetGateTargetHead(
+                n_symbols=self.shared_actor_n_symbols,
+                token_dim=self.shared_actor_d_model,
+                context_dim=context_dim,
+                hidden_dims=self.shared_actor_net_arch,
+                temperature=self.shared_actor_gate_temperature,
+                activation_fn=self.activation_fn,
+            ).to(self.device)
+        else:
+            self.action_net = SharedPerAssetActionHead(
+                n_symbols=self.shared_actor_n_symbols,
+                token_dim=self.shared_actor_d_model,
+                context_dim=context_dim,
+                hidden_dims=self.shared_actor_net_arch,
+                activation_fn=self.activation_fn,
+            ).to(self.device)
         if self.ortho_init:
             self.action_net.apply(partial(self.init_weights, gain=0.01))
         self.log_std = nn.Parameter(
@@ -450,6 +619,19 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         mean_actions = self.action_net(latent_pi)
         return self.action_dist.proba_distribution(mean_actions, self.log_std)
 
+    def hierarchical_actor_outputs(
+        self, observations: dict[str, torch.Tensor]
+    ) -> HierarchicalActorOutputs:
+        """Expose Gate and Target components without changing the action contract."""
+
+        if not isinstance(self.action_net, SharedPerAssetGateTargetHead):
+            raise RuntimeError("policy does not use hierarchical_gate_target_v1")
+        features = self.extract_features(observations)
+        if isinstance(features, tuple):
+            features = features[0]
+        latent_pi = self.mlp_extractor.forward_actor(features)
+        return self.action_net.outputs(latent_pi)
+
     def _get_constructor_parameters(self) -> dict[str, Any]:
         data = super()._get_constructor_parameters()
         data.update(
@@ -457,15 +639,19 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
             shared_actor_d_model=self.shared_actor_d_model,
             shared_actor_global_dim=self.shared_actor_global_dim,
             shared_actor_net_arch=self.shared_actor_net_arch,
+            shared_actor_head=self.shared_actor_head,
+            shared_actor_gate_temperature=self.shared_actor_gate_temperature,
         )
         return data
 
 
 __all__ = [
     "AssetSetFeatureExtractor",
+    "HierarchicalActorOutputs",
     "MaskedSharedSquashedDiagGaussianDistribution",
     "SequenceAssetFeatureExtractor",
     "SharedAssetActorCriticExtractor",
     "SharedPerAssetActionHead",
+    "SharedPerAssetGateTargetHead",
     "SharedPerAssetActorCriticPolicy",
 ]

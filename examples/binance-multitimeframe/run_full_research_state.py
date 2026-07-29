@@ -149,7 +149,7 @@ class BinanceFullResearchStages:
 
     def _develop(self, work_root: Path) -> ResearchPhaseOutcome:
         _require_fresh_develop_root(work_root)
-        if self.args.dynamic_symbol_triplets:
+        if getattr(self.args, "dynamic_symbol_triplets", False):
             pipeline.activate_symbol_triplet(
                 work_root=work_root,
                 seed=self.args.symbol_triplet_seed,

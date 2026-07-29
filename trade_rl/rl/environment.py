@@ -623,6 +623,25 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         )
         return hard_constrained.weights, peak
 
+    def initial_weights_for_reset(self, mode: str, start: int) -> np.ndarray:
+        """Return deterministic reset weights for episode-aligned teachers."""
+
+        if mode not in {"cash", "baseline"}:
+            raise ValueError(
+                "episode teacher initial weights support only cash and baseline"
+            )
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, int)
+            or start < self.minimum_start_index
+            or start >= self.dataset.n_bars
+        ):
+            raise ValueError("episode teacher reset start is outside the dataset")
+        weights, _ = self._initial_weights(mode=mode, start=start)
+        resolved = np.asarray(weights, dtype=np.float64).copy(order="C")
+        resolved.setflags(write=False)
+        return resolved
+
     def _make_initial_book(
         self, *, weights: np.ndarray, peak: float, start: int
     ) -> BookState:

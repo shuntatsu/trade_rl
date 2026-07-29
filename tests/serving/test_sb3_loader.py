@@ -12,6 +12,7 @@ from trade_rl.domain.selection import PolicyMode
 from trade_rl.integrations.sb3_serving import StableBaselines3PolicyLoader
 from trade_rl.rl.actions import ACTION_SCHEMA
 from trade_rl.rl.observations import OBSERVATION_SCHEMA
+from trade_rl.rl.policy_identity import SB3_POLICY_IDENTITY_ATTRIBUTE
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     load_serving_bundle,
@@ -162,10 +163,13 @@ def _structured_dataset(*, symbol_suffix: str = ""):
 
 
 class StructuredFakeModel:
-    def __init__(self, action: np.ndarray, observation_space) -> None:
+    def __init__(
+        self, action: np.ndarray, observation_space, policy_identity: dict[str, object]
+    ) -> None:
         self.action = action
         self.observation_space = observation_space
         self.last_observation = None
+        setattr(self, SB3_POLICY_IDENTITY_ATTRIBUTE, policy_identity)
 
     def predict(self, observation, deterministic=True):
         assert deterministic is True
@@ -271,16 +275,54 @@ def _structured_bundle(root: Path):
         ),
         encoding="utf-8",
     )
+    sequence_architecture = {
+        "action_names": ("target_weight:BTCUSDT", "target_weight:ETHUSDT"),
+        "schema_version": "test_sequence_architecture_v1",
+        "symbols": ("BTCUSDT", "ETHUSDT"),
+    }
+    sequence_digest = content_digest(sequence_architecture)
+    current_weight_identity = {
+        "bounds": (-1.0, 1.0),
+        "dtype": "float32",
+        "key": "current_weights",
+        "observation_schema": SEQUENCE_OBSERVATION_SCHEMA,
+        "shape": (2,),
+        "source": "effective_book_weights",
+    }
+    policy_architecture = {
+        "actor_head": "hierarchical_gate_target_v1",
+        "current_weight_observation": current_weight_identity,
+        "gate_temperature": 1.0,
+        "observation_encoder": "hierarchical_sequence_v2",
+        "schema_version": "hierarchical_gate_target_policy_v1",
+        "sequence_architecture_digest": sequence_digest,
+    }
+    policy_identity = {
+        "actor_head": "hierarchical_gate_target_v1",
+        "current_weight_observation": current_weight_identity,
+        "gate_temperature": 1.0,
+        "observation_encoder": "hierarchical_sequence_v2",
+        "policy_architecture_digest": content_digest(policy_architecture),
+        "schema_version": "sb3_policy_identity_v2",
+        "sequence_architecture": sequence_architecture,
+        "sequence_architecture_digest": sequence_digest,
+    }
     (root / "policy-loader.json").write_text(
         json.dumps(
             {
                 "algorithm": "ppo",
+                "architecture_digest": policy_identity["policy_architecture_digest"],
+                "current_weight_key": "current_weights",
+                "current_weight_source": "effective_book_weights",
                 "dataset_reference": "dataset-reference.json",
                 "environment": "environment.json",
+                "hierarchical_gate_temperature": 1.0,
                 "members": members,
                 "normalizer": "normalizer.json",
                 "observation_mode": "structured_sequence",
-                "schema_version": "sb3_policy_loader_v2",
+                "observation_schema": SEQUENCE_OBSERVATION_SCHEMA,
+                "policy_actor_head": "hierarchical_gate_target_v1",
+                "schema_version": "sb3_policy_loader_v3",
                 "sequence_normalizer": "sequence-normalizer.json",
             }
         ),
@@ -303,6 +345,7 @@ def _structured_bundle(root: Path):
             -np.inf, np.inf, shape=(layout.global_width,), dtype=np.float32
         ),
         "active": spaces.Box(0, 1, shape=(2,), dtype=np.float32),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(2,), dtype=np.float32),
     }
     del n
     for timeframe in ("15m", "1h", "4h", "1d"):
@@ -356,22 +399,32 @@ def _structured_bundle(root: Path):
         created_at=datetime(2026, 7, 16, tzinfo=UTC),
     )
     write_serving_bundle_manifest(root, manifest)
-    return load_serving_bundle(root), dataset, layout, observation_space
+    return (
+        load_serving_bundle(root),
+        dataset,
+        layout,
+        observation_space,
+        policy_identity,
+    )
 
 
 def test_structured_sb3_loader_rebuilds_native_sequence_observation(
     tmp_path: Path,
 ) -> None:
-    bundle, dataset, layout, observation_space = _structured_bundle(
+    bundle, dataset, layout, observation_space, policy_identity = _structured_bundle(
         tmp_path / "structured"
     )
     models = iter(
         (
             StructuredFakeModel(
-                np.array([0.2, -0.2], dtype=np.float32), observation_space
+                np.array([0.2, -0.2], dtype=np.float32),
+                observation_space,
+                policy_identity,
             ),
             StructuredFakeModel(
-                np.array([0.4, 0.2], dtype=np.float32), observation_space
+                np.array([0.4, 0.2], dtype=np.float32),
+                observation_space,
+                policy_identity,
             ),
         )
     )
@@ -393,12 +446,12 @@ def test_structured_sb3_loader_accepts_new_content_but_rejects_schema_drift(
 ) -> None:
     from dataclasses import replace
 
-    bundle, dataset, layout, observation_space = _structured_bundle(
+    bundle, dataset, layout, observation_space, policy_identity = _structured_bundle(
         tmp_path / "structured"
     )
     policy = StableBaselines3PolicyLoader(
         model_loader=lambda algorithm, path: StructuredFakeModel(
-            np.zeros(2, dtype=np.float32), observation_space
+            np.zeros(2, dtype=np.float32), observation_space, policy_identity
         )
     ).load(bundle)
     rolling = replace(dataset, dataset_id="9" * 64, identity_payload_json=None)
@@ -420,12 +473,12 @@ def test_serving_runtime_delegates_structured_dataset_prediction(
 ) -> None:
     from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
 
-    bundle, dataset, layout, observation_space = _structured_bundle(
+    bundle, dataset, layout, observation_space, policy_identity = _structured_bundle(
         tmp_path / "structured"
     )
     loader = StableBaselines3PolicyLoader(
         model_loader=lambda algorithm, path: StructuredFakeModel(
-            np.array([0.1, -0.1], dtype=np.float32), observation_space
+            np.array([0.1, -0.1], dtype=np.float32), observation_space, policy_identity
         )
     )
     runtime = ServingRuntime(
@@ -447,3 +500,32 @@ def test_serving_runtime_delegates_structured_dataset_prediction(
         ),
         np.array([0.1, -0.1], dtype=np.float32),
     )
+
+
+def test_structured_sb3_loader_rejects_actor_identity_drift(tmp_path: Path) -> None:
+    bundle, _, _, observation_space, policy_identity = _structured_bundle(
+        tmp_path / "identity-drift"
+    )
+    drifted = dict(policy_identity)
+    drifted["actor_head"] = "legacy_shared_target_v1"
+    model = StructuredFakeModel(
+        np.zeros(2, dtype=np.float32), observation_space, drifted
+    )
+    with pytest.raises(ValueError, match="actor-head|identity"):
+        StableBaselines3PolicyLoader(model_loader=lambda algorithm, path: model).load(
+            bundle
+        )
+
+
+def test_structured_sb3_loader_rejects_missing_current_weights(tmp_path: Path) -> None:
+    bundle, _, _, observation_space, policy_identity = _structured_bundle(
+        tmp_path / "missing-current-weights"
+    )
+    del observation_space.spaces["current_weights"]
+    model = StructuredFakeModel(
+        np.zeros(2, dtype=np.float32), observation_space, policy_identity
+    )
+    with pytest.raises(ValueError, match="current_weights"):
+        StableBaselines3PolicyLoader(model_loader=lambda algorithm, path: model).load(
+            bundle
+        )

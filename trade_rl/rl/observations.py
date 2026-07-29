@@ -17,6 +17,7 @@ from trade_rl.strategies.trend import TrendTargets
 OBSERVATION_SCHEMA = "baseline_residual_observation_v5"
 OBSERVATION_SNAPSHOT_SCHEMA = "policy_observation_snapshot_v2"
 ORDER_OBSERVATION_WIDTH = 7
+CURRENT_WEIGHT_SOURCE = "effective_book_weights"
 
 _ORDER_TYPE_CODES = {
     OrderType.MARKET: 1.0,
@@ -396,6 +397,15 @@ class ObservationLayout:
     @property
     def size(self) -> int:
         return self.n_symbols * self.per_symbol_width + self.global_width
+
+    @property
+    def current_weight_column(self) -> int:
+        """Per-symbol column containing effective ``BookState.weights``."""
+
+        column = 4 * self.n_features + self.n_factors + 6
+        if not 0 <= column < self.per_symbol_width:
+            raise ValueError("current-weight column is outside observation layout")
+        return column
 
 
 @dataclass(frozen=True, slots=True)

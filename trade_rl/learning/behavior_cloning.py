@@ -9,6 +9,10 @@ from typing import Protocol
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.hierarchical_bc_metrics import (
+    HierarchicalBehaviorCloningLosses,
+    HierarchicalBehaviorCloningMetrics,
+)
 
 
 class ObservationBatchProvider(Protocol):
@@ -25,6 +29,11 @@ class BehaviorCloningConfig:
     validation_fraction: float = 0.0
     early_stopping_patience: int = 3
     minimum_improvement: float = 0.0
+    gate_loss_weight: float = 1.0
+    target_loss_weight: float = 1.0
+    composed_loss_weight: float = 1.0
+    max_positive_class_weight: float = 20.0
+    gate_prediction_threshold: float = 0.5
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -46,6 +55,29 @@ class BehaviorCloningConfig:
             or self.minimum_improvement < 0.0
         ):
             raise ValueError("minimum_improvement must be finite and non-negative")
+        weights = (
+            self.gate_loss_weight,
+            self.target_loss_weight,
+            self.composed_loss_weight,
+        )
+        if any(not math.isfinite(value) or value < 0.0 for value in weights):
+            raise ValueError(
+                "hierarchical loss weights must be finite and non-negative"
+            )
+        if sum(weights) <= 0.0:
+            raise ValueError("at least one hierarchical loss weight must be positive")
+        if (
+            not math.isfinite(self.max_positive_class_weight)
+            or self.max_positive_class_weight < 1.0
+        ):
+            raise ValueError(
+                "max_positive_class_weight must be finite and at least one"
+            )
+        if (
+            not math.isfinite(self.gate_prediction_threshold)
+            or not 0.0 < self.gate_prediction_threshold < 1.0
+        ):
+            raise ValueError("gate_prediction_threshold must be within (0, 1)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +93,13 @@ class BehaviorCloningResult:
     validation_mse: float | None = None
     validation_sample_count: int = 0
     best_epoch: int = 0
+    hierarchical_label_digest: str | None = None
+    initial_hierarchical_losses: HierarchicalBehaviorCloningLosses | None = None
+    final_hierarchical_losses: HierarchicalBehaviorCloningLosses | None = None
+    validation_hierarchical_losses: HierarchicalBehaviorCloningLosses | None = None
+    initial_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None
+    final_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None
+    validation_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None
 
     @property
     def digest(self) -> str:
@@ -69,13 +108,44 @@ class BehaviorCloningResult:
                 "action_digest": self.action_digest,
                 "best_epoch": self.best_epoch,
                 "config": asdict(self.config),
+                "final_hierarchical_losses": (
+                    None
+                    if self.final_hierarchical_losses is None
+                    else asdict(self.final_hierarchical_losses)
+                ),
+                "final_hierarchical_metrics": (
+                    None
+                    if self.final_hierarchical_metrics is None
+                    else asdict(self.final_hierarchical_metrics)
+                ),
                 "final_mse": self.final_mse,
+                "hierarchical_label_digest": self.hierarchical_label_digest,
+                "initial_hierarchical_losses": (
+                    None
+                    if self.initial_hierarchical_losses is None
+                    else asdict(self.initial_hierarchical_losses)
+                ),
+                "initial_hierarchical_metrics": (
+                    None
+                    if self.initial_hierarchical_metrics is None
+                    else asdict(self.initial_hierarchical_metrics)
+                ),
                 "initial_mse": self.initial_mse,
                 "observation_digest": self.observation_digest,
                 "sample_count": self.sample_count,
-                "schema_version": "behavior_cloning_result_v2",
+                "schema_version": "behavior_cloning_result_v3",
                 "seed": self.seed,
                 "teacher_config_digest": self.teacher_config_digest,
+                "validation_hierarchical_losses": (
+                    None
+                    if self.validation_hierarchical_losses is None
+                    else asdict(self.validation_hierarchical_losses)
+                ),
+                "validation_hierarchical_metrics": (
+                    None
+                    if self.validation_hierarchical_metrics is None
+                    else asdict(self.validation_hierarchical_metrics)
+                ),
                 "validation_mse": self.validation_mse,
                 "validation_sample_count": self.validation_sample_count,
             }

@@ -52,6 +52,7 @@ def _extractor() -> SequenceAssetFeatureExtractor:
         "asset_state": spaces.Box(-10.0, 10.0, shape=(3, 4)),
         "global_state": spaces.Box(-10.0, 10.0, shape=(5,)),
         "active": spaces.Box(0.0, 1.0, shape=(3,)),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(3,)),
     }
     for timeframe in timeframes:
         shape = (3, 4, 2)
@@ -94,6 +95,7 @@ def _observations() -> dict[str, torch.Tensor]:
             [[1.0, 1.0, 0.0], [1.0, 0.0, 1.0]],
             dtype=torch.float32,
         ),
+        "current_weights": torch.zeros(2, 3, dtype=torch.float32),
     }
     for timeframe in ("15m", "1h", "4h", "1d"):
         observations[f"sequence_{timeframe}_values"] = torch.randn(2, 3, 4, 2)

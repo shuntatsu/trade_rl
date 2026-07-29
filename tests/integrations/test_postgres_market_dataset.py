@@ -70,13 +70,9 @@ def _bundle(symbols: tuple[str, ...], start_ms: int) -> NativeIndicatorArtifactB
     for symbol_index, symbol in enumerate(symbols):
         for timeframe in NATIVE_TIMEFRAMES:
             names = tuple(
-                spec.name
-                for spec in specs
-                if spec.name.startswith(f"{timeframe}__")
+                spec.name for spec in specs if spec.name.startswith(f"{timeframe}__")
             )
-            values = np.full(
-                (4, len(names)), float(symbol_index + 1), dtype=np.float32
-            )
+            values = np.full((4, len(names)), float(symbol_index + 1), dtype=np.float32)
             available = np.ones(values.shape, dtype=np.bool_)
             artifacts.append(
                 NativeIndicatorArtifact(

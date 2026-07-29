@@ -195,9 +195,7 @@ def test_pinned_sequence_transfer_uses_non_blocking_cuda_copy(
     pinned = fake_torch.pinned_tensors[0]
     assert result is pinned.gpu_result
     assert fake_torch.asarray_value is values
-    assert fake_torch.empty_like_args == [
-        (fake_torch.cpu_tensor, "cpu", True)
-    ]
+    assert fake_torch.empty_like_args == [(fake_torch.cpu_tensor, "cpu", True)]
     assert pinned.copy_source is fake_torch.cpu_tensor
     assert pinned.to_device is fake_torch.cuda_device
     assert pinned.non_blocking is True

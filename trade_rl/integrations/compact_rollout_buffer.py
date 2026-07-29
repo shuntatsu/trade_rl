@@ -26,6 +26,7 @@ from trade_rl.rl.training_performance import (
 
 _SEQUENCE_PREFIX = "sequence_"
 _DECISION_INDEX_KEY = "decision_index"
+_CURRENT_WEIGHTS_KEY = "current_weights"
 _FLOAT16_MAX = float(np.finfo(np.float16).max)
 _SEQUENCE_TRANSFER_MODES = frozenset({"synchronous", "pinned_non_blocking"})
 
@@ -116,6 +117,7 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
     ) -> None:
         if _DECISION_INDEX_KEY not in observation_space.spaces:
             raise ValueError("index-backed rollout requires decision_index observation")
+        self._validate_current_weight_space(observation_space, action_space)
         self._sequence_keys = tuple(
             key for key in observation_space.spaces if key.startswith(_SEQUENCE_PREFIX)
         )
@@ -142,6 +144,71 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             gamma=gamma,
             n_envs=n_envs,
         )
+
+    @staticmethod
+    def _validate_current_weight_space(
+        observation_space: spaces.Dict,
+        action_space: spaces.Space,
+    ) -> None:
+        if _CURRENT_WEIGHTS_KEY not in observation_space.spaces:
+            raise ValueError(
+                "index-backed rollout requires current_weights observation"
+            )
+        current_space = observation_space.spaces[_CURRENT_WEIGHTS_KEY]
+        if not isinstance(current_space, spaces.Box):
+            raise ValueError("current_weights observation must be a Box")
+        if not isinstance(action_space, spaces.Box) or action_space.shape is None:
+            raise ValueError("index-backed rollout requires a Box action space")
+        if len(action_space.shape) != 1 or current_space.shape != action_space.shape:
+            raise ValueError("current_weights shape must match the action dimensions")
+        if np.dtype(current_space.dtype) != np.dtype(np.float32):
+            raise ValueError("current_weights observation must use float32")
+        if not np.all(current_space.low == -1.0) or not np.all(
+            current_space.high == 1.0
+        ):
+            raise ValueError("current_weights observation bounds must be [-1, 1]")
+
+    def _validated_current_weights(self, obs: dict[str, np.ndarray]) -> np.ndarray:
+        raw = np.asarray(obs[_CURRENT_WEIGHTS_KEY])
+        expected_shape = (self.n_envs, self.action_dim)
+        if raw.dtype != np.dtype(np.float32):
+            raise ValueError("current_weights rollout values must use float32")
+        if raw.shape != expected_shape:
+            raise ValueError(
+                "current_weights rollout shape must match environments and actions"
+            )
+        if not np.isfinite(raw).all():
+            raise ValueError("current_weights rollout values must be finite")
+        if np.any(raw < -1.0) or np.any(raw > 1.0):
+            raise ValueError("current_weights rollout values must be within [-1, 1]")
+        return raw
+
+    def _validate_sample_indices(self, batch_inds: np.ndarray) -> np.ndarray:
+        raw = np.asarray(batch_inds)
+        if raw.ndim != 1 or not np.issubdtype(raw.dtype, np.integer):
+            raise ValueError("rollout sample indices must be one-dimensional integers")
+        indices = np.asarray(raw, dtype=np.int64)
+        initialized_steps = self.buffer_size if self.full else self.pos
+        if self.generator_ready:
+            initialized = initialized_steps * self.n_envs
+            expected_shape: tuple[int, ...] = (
+                self.buffer_size * self.n_envs,
+                self.action_dim,
+            )
+        else:
+            initialized = initialized_steps
+            expected_shape = (self.buffer_size, self.n_envs, self.action_dim)
+        if indices.size == 0 or np.any(indices < 0) or np.any(indices >= initialized):
+            raise ValueError("rollout sample references uninitialized storage")
+        stored = self.observations.get(_CURRENT_WEIGHTS_KEY)
+        if (
+            stored is None
+            or stored.shape != expected_shape
+            or stored.dtype != np.dtype(np.float32)
+            or not np.isfinite(stored[indices]).all()
+        ):
+            raise RuntimeError("current_weights rollout storage is invalid")
+        return indices
 
     def bind_sequence_reconstructor(
         self,
@@ -270,6 +337,7 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         decision_index = np.asarray(obs[_DECISION_INDEX_KEY])
         if not np.issubdtype(decision_index.dtype, np.integer):
             raise ValueError("decision_index observation must be integral")
+        self._validated_current_weights(obs)
         super().add(obs, action, reward, episode_start, value, log_prob)
 
     def _get_samples(
@@ -281,18 +349,17 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             raise ValueError(
                 "index-backed sequence rollout does not support VecNormalize"
             )
-        observations = {
-            key: values[batch_inds]
-            for key, values in self.observations.items()
-            if key != _DECISION_INDEX_KEY
-        }
         reconstructor = self.sequence_reconstructor
         if reconstructor is None:
             raise RuntimeError("sequence rollout reconstructor is not bound")
+        indices = self._validate_sample_indices(batch_inds)
+        observations = {
+            key: values[indices]
+            for key, values in self.observations.items()
+            if key != _DECISION_INDEX_KEY
+        }
         sequence_observations = self._materialize_sequence_observations(reconstructor)
-        tensor_indices = self.to_torch(
-            np.asarray(batch_inds, dtype=np.int64), copy=False
-        )
+        tensor_indices = self.to_torch(indices, copy=False)
         torch_observations = {
             key: self.to_torch(value) for key, value in observations.items()
         }

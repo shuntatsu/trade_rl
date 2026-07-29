@@ -105,6 +105,36 @@ def _boolean(value: object, *, field: str, default: bool) -> bool:
     return value
 
 
+TRAINING_RUN_CONFIG_SCHEMA = "training_run_config_v3"
+_REQUIRED_V3_TRAINING_FIELDS = frozenset(
+    {
+        "policy_actor_head",
+        "hierarchical_gate_temperature",
+        "behavior_cloning_gate_loss_weight",
+        "behavior_cloning_target_loss_weight",
+        "behavior_cloning_composed_loss_weight",
+        "behavior_cloning_gate_change_threshold",
+        "behavior_cloning_max_positive_class_weight",
+        "behavior_cloning_min_gate_precision",
+        "behavior_cloning_min_gate_recall",
+        "behavior_cloning_max_active_target_rmse",
+        "behavior_cloning_min_activity_ratio",
+        "behavior_cloning_max_activity_ratio",
+        "behavior_cloning_min_causal_holdout_trades",
+        "behavior_cloning_max_causal_holdout_regret",
+    }
+)
+
+
+def _require_v3_training_fields(payload: dict[str, Any]) -> None:
+    missing = sorted(_REQUIRED_V3_TRAINING_FIELDS - set(payload))
+    if missing:
+        raise ValueError(
+            "training_run_config_v3 training is missing required field(s): "
+            + ", ".join(missing)
+        )
+
+
 def _signal_artifact_digest(path: Path | None, *, kind: SignalKind) -> str | None:
     if path is None:
         return None
@@ -130,7 +160,7 @@ class TrainingRunConfig:
     export_structured_torchscript: bool = False
     export_tolerance: float = 1e-5
     git_commit: str | None = None
-    schema_version: str = "training_run_config_v2"
+    schema_version: str = TRAINING_RUN_CONFIG_SCHEMA
     git_dirty: bool | None = None
 
     def __post_init__(self) -> None:
@@ -178,10 +208,15 @@ class TrainingRunConfig:
             raise ValueError("git_commit must be non-empty when provided")
         if self.git_dirty is not None and not isinstance(self.git_dirty, bool):
             raise ValueError("git_dirty must be a boolean or null")
-        if self.schema_version == "training_run_config_v1":
-            raise ValueError("migrate training_run_config_v1 to training_run_config_v2")
-        if self.schema_version != "training_run_config_v2":
-            raise ValueError("unsupported training run configuration schema")
+        if self.schema_version in {"training_run_config_v1", "training_run_config_v2"}:
+            raise ValueError(
+                f"migrate {self.schema_version} to {TRAINING_RUN_CONFIG_SCHEMA}"
+            )
+        if self.schema_version != TRAINING_RUN_CONFIG_SCHEMA:
+            raise ValueError(
+                f"unsupported training run configuration schema; expected "
+                f"{TRAINING_RUN_CONFIG_SCHEMA}"
+            )
 
     @classmethod
     def from_mapping(cls, raw: object) -> TrainingRunConfig:
@@ -212,14 +247,21 @@ class TrainingRunConfig:
         schema_version = payload["schema_version"]
         if not isinstance(schema_version, str):
             raise ValueError("schema_version must be a string")
-        if schema_version == "training_run_config_v1":
-            raise ValueError("migrate training_run_config_v1 to training_run_config_v2")
-        if schema_version != "training_run_config_v2":
-            raise ValueError("unsupported training run configuration schema")
+        if schema_version in {"training_run_config_v1", "training_run_config_v2"}:
+            raise ValueError(
+                f"migrate {schema_version} to {TRAINING_RUN_CONFIG_SCHEMA}"
+            )
+        if schema_version != TRAINING_RUN_CONFIG_SCHEMA:
+            raise ValueError(
+                f"unsupported training run configuration schema; expected "
+                f"{TRAINING_RUN_CONFIG_SCHEMA}"
+            )
 
+        training_mapping = _mapping(payload["training"], field="training")
+        _require_v3_training_fields(training_mapping)
         training_data = _tuple_fields(
             require_dataclass_fields(
-                _mapping(payload["training"], field="training"),
+                training_mapping,
                 ResidualTrainingConfig,
                 field="training",
             ),
@@ -557,6 +599,8 @@ def _policy_loader_payload(
     *,
     algorithm: str,
     structured_sequence: bool = False,
+    policy_actor_head: str | None = None,
+    hierarchical_gate_temperature: float | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "algorithm": algorithm,
@@ -565,16 +609,37 @@ def _policy_loader_payload(
             for index in range(ensemble.expected_members)
         ),
         "schema_version": (
-            "sb3_policy_loader_v2" if structured_sequence else "sb3_policy_loader_v1"
+            "sb3_policy_loader_v3" if structured_sequence else "sb3_policy_loader_v1"
         ),
     }
     if structured_sequence:
+        if ensemble.architecture_digest is None:
+            raise ValueError("structured policy loader requires architecture digest")
+        if policy_actor_head != "hierarchical_gate_target_v1":
+            raise ValueError(
+                "structured policy loader requires hierarchical actor head"
+            )
+        if (
+            isinstance(hierarchical_gate_temperature, bool)
+            or not isinstance(hierarchical_gate_temperature, int | float)
+            or not math.isfinite(float(hierarchical_gate_temperature))
+            or float(hierarchical_gate_temperature) <= 0.0
+        ):
+            raise ValueError(
+                "structured policy loader requires positive gate temperature"
+            )
         payload.update(
             {
+                "architecture_digest": ensemble.architecture_digest,
+                "current_weight_key": "current_weights",
+                "current_weight_source": "effective_book_weights",
                 "dataset_reference": "dataset-reference.json",
                 "environment": "environment.json",
+                "hierarchical_gate_temperature": float(hierarchical_gate_temperature),
                 "normalizer": "normalizer.json",
                 "observation_mode": "structured_sequence",
+                "observation_schema": ensemble.observation_schema,
+                "policy_actor_head": policy_actor_head,
                 "sequence_normalizer": "sequence-normalizer.json",
             }
         )
@@ -584,7 +649,7 @@ def _policy_loader_payload(
 def _serving_support_payload(config: TrainingRunConfig) -> dict[str, object]:
     if config.training.observation_encoder == "hierarchical_sequence_v2":
         return {
-            "loader_schema": "sb3_policy_loader_v2",
+            "loader_schema": "sb3_policy_loader_v3",
             "observation_mode": "structured_sequence",
             "runtime": "native_sb3_structured_sequence_v1",
             "schema_version": "serving_support_v2",
@@ -981,6 +1046,10 @@ def execute_training_run(
                 algorithm=config.training.algorithm,
                 structured_sequence=(
                     config.training.observation_encoder == "hierarchical_sequence_v2"
+                ),
+                policy_actor_head=config.training.policy_actor_head,
+                hierarchical_gate_temperature=(
+                    config.training.hierarchical_gate_temperature
                 ),
             ),
         )

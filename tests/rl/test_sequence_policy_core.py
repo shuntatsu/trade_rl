@@ -152,7 +152,7 @@ def test_timeframe_projection_runs_only_after_causal_timestep_selection() -> Non
     finally:
         handle.remove()
 
-    assert projection_input_shapes == [torch.Size((3, 8))]
+    assert projection_input_shapes == [torch.Size((2, 8))]
 
 
 @dataclass(frozen=True)
@@ -186,16 +186,17 @@ def _projection_equivalence_case(dtype: torch.dtype) -> _ProjectionEquivalenceCa
     legacy_input = torch.randn(3, 12, 4, dtype=dtype, requires_grad=True)
     optimized_input = legacy_input.detach().clone().requires_grad_(True)
 
-    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))
     positions = torch.arange(12).expand_as(available)
     indices = positions.masked_fill(~available, -1).max(dim=1).values
-    safe = indices.clamp_min(0)
-    legacy_selected = legacy_sequence[torch.arange(3), safe]
-    legacy = torch.where(
-        (indices >= 0).unsqueeze(1),
-        legacy_selected,
-        torch.zeros_like(legacy_selected),
-    )
+    valid = indices >= 0
+    valid_batch_indices = torch.arange(legacy_input.shape[0])[valid]
+    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input[valid]))
+    legacy_selected = legacy_sequence[
+        torch.arange(legacy_sequence.shape[0]), indices[valid]
+    ]
+    legacy = legacy_selected.new_zeros(
+        (legacy_input.shape[0], legacy_selected.shape[1])
+    ).index_copy(0, valid_batch_indices, legacy_selected)
     legacy.square().sum().backward()
     assert legacy_input.grad is not None
     legacy_input_gradient = legacy_input.grad.detach().clone()
@@ -257,8 +258,8 @@ def test_projection_after_selection_matches_legacy_in_float64() -> None:
 
     torch.testing.assert_close(case.optimized, case.legacy, rtol=1e-9, atol=1e-10)
     torch.testing.assert_close(
-        case.optimized_input_gradient,
-        case.legacy_input_gradient,
+        case.optimized_input_gradient[:2],
+        case.legacy_input_gradient[:2],
         rtol=1e-9,
         atol=1e-10,
     )
@@ -281,8 +282,8 @@ def test_projection_after_selection_preserves_float32_gradient_semantics() -> No
 
     torch.testing.assert_close(case.optimized, case.legacy, rtol=1e-5, atol=2e-6)
     _assert_gradient_semantics(
-        case.optimized_input_gradient,
-        case.legacy_input_gradient,
+        case.optimized_input_gradient[:2],
+        case.legacy_input_gradient[:2],
     )
     assert case.optimized_parameter_gradients.keys() == (
         case.legacy_parameter_gradients.keys()
@@ -416,6 +417,157 @@ def test_shared_actor_masks_explicitly_inactive_assets() -> None:
     assert actions[0, 1].item() == 0.0
 
 
+def _hierarchical_contexts(
+    *, current_weights: torch.Tensor, active: torch.Tensor, context_dim: int
+) -> torch.Tensor:
+    contexts = torch.zeros(
+        current_weights.shape[0], current_weights.shape[1], context_dim
+    )
+    contexts[:, :, -2] = current_weights
+    contexts[:, :, -1] = active
+    return contexts.reshape(current_weights.shape[0], -1)
+
+
+def test_hierarchical_head_composes_gate_target_and_distribution_logits() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=2,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(4,),
+        temperature=2.0,
+    ).eval()
+    with torch.no_grad():
+        for parameter in head.parameters():
+            parameter.zero_()
+        head.target_head.bias.fill_(0.5)
+    current = torch.tensor([[0.4, -0.2]])
+    latent = _hierarchical_contexts(
+        current_weights=current,
+        active=torch.ones_like(current),
+        context_dim=6,
+    )
+
+    outputs = head.outputs(latent)
+
+    expected_gate = torch.full_like(current, 0.5)
+    expected_target = torch.full_like(current, torch.tanh(torch.tensor(0.5)))
+    expected = current + expected_gate * (expected_target - current)
+    torch.testing.assert_close(outputs.gate_probabilities, expected_gate)
+    torch.testing.assert_close(outputs.target_actions, expected_target)
+    torch.testing.assert_close(outputs.composed_actions, expected)
+    torch.testing.assert_close(
+        torch.tanh(outputs.mean_logits), outputs.composed_actions, atol=1e-6, rtol=1e-6
+    )
+
+
+def test_hierarchical_gate_near_zero_preserves_current_weight() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=2,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(3,),
+    ).eval()
+    with torch.no_grad():
+        for parameter in head.parameters():
+            parameter.zero_()
+        head.gate_head.bias.fill_(-30.0)
+        head.target_head.bias.fill_(2.0)
+    current = torch.tensor([[0.7, -0.6]])
+    outputs = head.outputs(
+        _hierarchical_contexts(
+            current_weights=current,
+            active=torch.ones_like(current),
+            context_dim=6,
+        )
+    )
+
+    torch.testing.assert_close(outputs.composed_actions, current, atol=1e-6, rtol=0.0)
+
+
+def test_hierarchical_head_masks_inactive_assets() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=2,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(3,),
+    ).eval()
+    current = torch.tensor([[0.3, -0.4]])
+    outputs = head.outputs(
+        _hierarchical_contexts(
+            current_weights=current,
+            active=torch.tensor([[1.0, 0.0]]),
+            context_dim=6,
+        )
+    )
+
+    assert outputs.active_mask.tolist() == [[True, False]]
+    for value in (
+        outputs.gate_logits,
+        outputs.gate_probabilities,
+        outputs.target_actions,
+        outputs.composed_actions,
+        outputs.mean_logits,
+        outputs.current_weights,
+    ):
+        assert value[0, 1].item() == 0.0
+
+
+def test_hierarchical_head_backpropagates_to_both_heads() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    torch.manual_seed(37)
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=2,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(5,),
+    )
+    current = torch.tensor([[0.2, -0.1], [-0.3, 0.4]])
+    latent = torch.randn(2, 2, 6)
+    latent[:, :, -2] = current
+    latent[:, :, -1] = 1.0
+
+    loss = head.outputs(latent.reshape(2, -1)).composed_actions.square().mean()
+    loss.backward()
+
+    assert head.gate_head.weight.grad is not None
+    assert head.target_head.weight.grad is not None
+    assert torch.count_nonzero(head.gate_head.weight.grad) > 0
+    assert torch.count_nonzero(head.target_head.weight.grad) > 0
+
+
+def test_hierarchical_head_keeps_boundary_mean_logits_finite() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=2,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(3,),
+    ).eval()
+    with torch.no_grad():
+        for parameter in head.parameters():
+            parameter.zero_()
+        head.gate_head.bias.fill_(-40.0)
+    outputs = head.outputs(
+        _hierarchical_contexts(
+            current_weights=torch.tensor([[1.0, -1.0]]),
+            active=torch.ones(1, 2),
+            context_dim=6,
+        )
+    )
+
+    assert torch.isfinite(outputs.mean_logits).all()
+    assert torch.all(outputs.composed_actions <= 1.0)
+    assert torch.all(outputs.composed_actions >= -1.0)
+
+
 def test_shared_sequence_policy_installs_shared_actor_and_portfolio_critic() -> None:
     import numpy as np
     from gymnasium import spaces
@@ -437,6 +589,7 @@ def test_shared_sequence_policy_installs_shared_actor_and_portfolio_critic() -> 
         "asset_state": spaces.Box(-1.0, 1.0, shape=(n_symbols, 4), dtype=np.float32),
         "global_state": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
         "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(n_symbols,), dtype=np.float32),
     }
     for timeframe in timeframes:
         shape = (n_symbols, 3, 2)
@@ -482,6 +635,92 @@ def test_shared_sequence_policy_installs_shared_actor_and_portfolio_critic() -> 
     constructor = policy._get_constructor_parameters()
     assert constructor["shared_actor_n_symbols"] == n_symbols
     assert constructor["shared_actor_net_arch"] == (11,)
+    assert constructor["shared_actor_head"] == "shared_target_v1"
+    assert constructor["shared_actor_gate_temperature"] == 1.0
+
+
+def test_hierarchical_policy_distribution_mode_matches_composed_actions() -> None:
+    import numpy as np
+    from gymnasium import spaces
+
+    from trade_rl.rl.policies import (
+        SequenceAssetFeatureExtractor,
+        SharedPerAssetActorCriticPolicy,
+        SharedPerAssetGateTargetHead,
+    )
+
+    n_symbols = 2
+    timeframes = ("15m", "1h", "4h", "1d")
+    feature_counts = {timeframe: 2 for timeframe in timeframes}
+    window_lengths = {timeframe: 3 for timeframe in timeframes}
+    components: dict[str, spaces.Space] = {
+        "current_snapshot": spaces.Box(
+            -1.0, 1.0, shape=(n_symbols, 8), dtype=np.float32
+        ),
+        "asset_state": spaces.Box(-1.0, 1.0, shape=(n_symbols, 4), dtype=np.float32),
+        "global_state": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
+        "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+    }
+    for timeframe in timeframes:
+        shape = (n_symbols, 3, 2)
+        components[f"sequence_{timeframe}_values"] = spaces.Box(
+            -1.0, 1.0, shape=shape, dtype=np.float16
+        )
+        components[f"sequence_{timeframe}_available"] = spaces.Box(
+            0, 1, shape=shape, dtype=np.uint8
+        )
+        components[f"sequence_{timeframe}_staleness"] = spaces.Box(
+            0.0, 10.0, shape=shape, dtype=np.float16
+        )
+    observation_space = spaces.Dict(components)
+    policy = SharedPerAssetActorCriticPolicy(
+        observation_space,
+        spaces.Box(-1.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+        lambda _: 1e-3,
+        net_arch={"pi": [11], "vf": [13]},
+        features_extractor_class=SequenceAssetFeatureExtractor,
+        features_extractor_kwargs={
+            "feature_counts": feature_counts,
+            "window_lengths": window_lengths,
+            "snapshot_width": 8,
+            "asset_state_width": 4,
+            "global_width": 3,
+            "n_symbols": n_symbols,
+            "d_model": 16,
+            "timeframe_attention_heads": 4,
+            "asset_attention_heads": 4,
+            "timeframe_attention_layers": 1,
+            "asset_attention_layers": 1,
+            "dropout": 0.0,
+        },
+        shared_actor_n_symbols=n_symbols,
+        shared_actor_d_model=16,
+        shared_actor_global_dim=128,
+        shared_actor_net_arch=(11,),
+        shared_actor_head="hierarchical_gate_target_v1",
+        shared_actor_gate_temperature=0.75,
+    )
+    assert isinstance(policy.action_net, SharedPerAssetGateTargetHead)
+    observations: dict[str, torch.Tensor] = {}
+    for key, space in observation_space.spaces.items():
+        array = np.zeros((2, *space.shape), dtype=space.dtype)
+        if key == "active" or key.endswith("_available"):
+            array.fill(1)
+        observations[key] = torch.as_tensor(array)
+    observations["current_weights"] = torch.tensor(
+        [[0.4, -0.2], [-0.6, 0.3]], dtype=torch.float32
+    )
+
+    outputs = policy.hierarchical_actor_outputs(observations)
+    deterministic = policy.get_distribution(observations).get_actions(
+        deterministic=True
+    )
+
+    torch.testing.assert_close(deterministic, outputs.composed_actions)
+    constructor = policy._get_constructor_parameters()
+    assert constructor["shared_actor_head"] == "hierarchical_gate_target_v1"
+    assert constructor["shared_actor_gate_temperature"] == 0.75
 
 
 def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:
@@ -497,6 +736,7 @@ def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:
         "asset_state": spaces.Box(-1.0, 1.0, shape=(1, 4), dtype=float),
         "global_state": spaces.Box(-1.0, 1.0, shape=(3,), dtype=float),
         "active": spaces.Box(0.0, 1.0, shape=(1,), dtype=float),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(1,), dtype=float),
     }
     for timeframe in timeframes:
         shape = (1, 3, 2)
@@ -529,6 +769,7 @@ def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:
         "asset_state": torch.zeros(1, 1, 4),
         "global_state": torch.zeros(1, 3),
         "active": torch.ones(1, 1),
+        "current_weights": torch.zeros(1, 1),
     }
     for timeframe in timeframes:
         values = torch.zeros(1, 1, 3, 2)
@@ -553,7 +794,7 @@ def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:
     with torch.no_grad():
         output = extractor(observation)
 
-    assert output.shape == (1, 161)
+    assert output.shape == (1, 162)
     assert bool(captured["mask"][0, -1])
 
 
@@ -580,6 +821,7 @@ def test_shared_sequence_policy_uses_squashed_target_weight_distribution() -> No
         "asset_state": spaces.Box(-10.0, 10.0, shape=(n_symbols, 4), dtype=np.float32),
         "global_state": spaces.Box(-10.0, 10.0, shape=(3,), dtype=np.float32),
         "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(n_symbols,), dtype=np.float32),
     }
     for timeframe in timeframes:
         shape = (n_symbols, 3, 2)

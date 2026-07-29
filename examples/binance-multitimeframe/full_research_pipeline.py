@@ -391,9 +391,7 @@ def _build_dataset(
             tick_sizes=tuple(
                 float(metadata[symbol]["tick_size"]) for symbol in _SYMBOLS
             ),
-            lot_sizes=tuple(
-                float(metadata[symbol]["lot_size"]) for symbol in _SYMBOLS
-            ),
+            lot_sizes=tuple(float(metadata[symbol]["lot_size"]) for symbol in _SYMBOLS),
             minimum_notionals=tuple(
                 float(metadata[symbol]["minimum_notional"]) for symbol in _SYMBOLS
             ),
@@ -409,8 +407,7 @@ def _build_dataset(
     published = publish_market_dataset_artifact(output, dataset)
     if dataset.n_bars != _EXPECTED_15M_BARS:
         raise RuntimeError(
-            "expected "
-            f"{_EXPECTED_15M_BARS:,} 15-minute bars, observed {dataset.n_bars}"
+            f"expected {_EXPECTED_15M_BARS:,} 15-minute bars, observed {dataset.n_bars}"
         )
     expected_dataset_symbols = _SLOT_SYMBOLS if use_postgres else _SYMBOLS
     if dataset.symbols != expected_dataset_symbols:

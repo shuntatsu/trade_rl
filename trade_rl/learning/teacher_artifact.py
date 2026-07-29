@@ -593,7 +593,13 @@ def collect_teacher_rollout(
     structured_observations: dict[str, list[np.ndarray]] | None = None
     expected_keys: tuple[str, ...] | None = None
     expected_shapes: dict[str, tuple[int, ...]] = {}
-    compact_keys = ("active", "asset_state", "current_snapshot", "global_state")
+    compact_keys = (
+        "active",
+        "asset_state",
+        "current_snapshot",
+        "current_weights",
+        "global_state",
+    )
     for offset, target in enumerate(action_array):
         expected_index = start + offset
         if environment.current_index != expected_index:

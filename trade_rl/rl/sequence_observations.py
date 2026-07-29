@@ -17,9 +17,9 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import timeframe_hours
 from trade_rl.data.market import MarketDataset
-from trade_rl.rl.observations import ObservationLayout
+from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE, ObservationLayout
 
-SEQUENCE_OBSERVATION_SCHEMA = "native_timeframe_sequence_observation_v2"
+SEQUENCE_OBSERVATION_SCHEMA = "native_timeframe_sequence_observation_v3"
 _FLOAT16_MAX = float(np.finfo(np.float16).max)
 _SEQUENCE_POLICY_PLANE_MATERIALIZATION: ContextVar[bool] = ContextVar(
     "sequence_policy_plane_materialization",
@@ -133,6 +133,12 @@ def _compile_sequence_layout(
         "value_dtype": "float32",
         "availability_dtype": "bool",
         "staleness_dtype": "float32",
+        "current_weights": {
+            "source": CURRENT_WEIGHT_SOURCE,
+            "shape": (len(symbols),),
+            "dtype": "float32",
+            "bounds": (-1.0, 1.0),
+        },
     }
     return _CompiledSequenceLayout(
         feature_indices=MappingProxyType(indices),
@@ -225,6 +231,12 @@ class SequenceObservationBuilder:
             "value_dtype": "float32",
             "availability_dtype": "bool",
             "staleness_dtype": "float32",
+            "current_weights": {
+                "source": CURRENT_WEIGHT_SOURCE,
+                "shape": (dataset.n_symbols,),
+                "dtype": "float32",
+                "bounds": (-1.0, 1.0),
+            },
         }
 
     def layout_digest(self, dataset: MarketDataset) -> str:
@@ -477,11 +489,18 @@ def build_structured_current_observation(
     asset_stop = layout.n_symbols * layout.per_symbol_width
     per_asset = flat[:asset_stop].reshape(layout.n_symbols, layout.per_symbol_width)
     snapshot_width = 4 * n_features
+    current_weights = np.asarray(
+        per_asset[:, layout.current_weight_column],
+        dtype=np.float32,
+    ).copy(order="C")
+    if not np.isfinite(current_weights).all() or np.any(np.abs(current_weights) > 1.0):
+        raise ValueError("effective current weights must be finite and within [-1, 1]")
     result: dict[str, np.ndarray] = {
         "current_snapshot": np.asarray(per_asset[:, :snapshot_width], dtype=np.float32),
         "asset_state": np.asarray(per_asset[:, snapshot_width:], dtype=np.float32),
         "global_state": np.asarray(flat[asset_stop:], dtype=np.float32),
         "active": np.asarray(per_asset[:, snapshot_width], dtype=np.float32),
+        "current_weights": current_weights,
     }
     return result
 

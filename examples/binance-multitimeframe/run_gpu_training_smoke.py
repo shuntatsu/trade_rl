@@ -76,6 +76,7 @@ def _smoke_config_payload(
     training.update(
         {
             "observation_encoder": "hierarchical_sequence_v2",
+            "policy_actor_head": "hierarchical_gate_target_v1",
             "asset_embedding_dim": 64,
             "global_embedding_dim": 64,
             "batch_size": 32,

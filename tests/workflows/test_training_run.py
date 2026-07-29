@@ -9,7 +9,7 @@ import pytest
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.execution_promotion import load_execution_evidence
-from trade_rl.workflows.training_run import execute_training_run
+from trade_rl.workflows.training_run import TrainingRunConfig, execute_training_run
 
 
 def _dataset() -> MarketDataset:
@@ -42,7 +42,7 @@ def _config(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "training_run_config_v2",
+                "schema_version": "training_run_config_v3",
                 "training": {
                     "timesteps": 8,
                     "gamma": 0.99,
@@ -51,6 +51,20 @@ def _config(path: Path) -> None:
                     "batch_size": 8,
                     "n_epochs": 1,
                     "observation_encoder": "flat_mlp",
+                    "policy_actor_head": "standard_continuous_v1",
+                    "hierarchical_gate_temperature": 1.0,
+                    "behavior_cloning_gate_loss_weight": 1.0,
+                    "behavior_cloning_target_loss_weight": 1.0,
+                    "behavior_cloning_composed_loss_weight": 1.0,
+                    "behavior_cloning_gate_change_threshold": 0.05,
+                    "behavior_cloning_max_positive_class_weight": 20.0,
+                    "behavior_cloning_min_gate_precision": 0.0,
+                    "behavior_cloning_min_gate_recall": 0.0,
+                    "behavior_cloning_max_active_target_rmse": 1.0,
+                    "behavior_cloning_min_activity_ratio": 0.0,
+                    "behavior_cloning_max_activity_ratio": 1.0,
+                    "behavior_cloning_min_causal_holdout_trades": 0,
+                    "behavior_cloning_max_causal_holdout_regret": 0.0,
                     "device": "cpu",
                 },
                 "environment": {
@@ -162,3 +176,23 @@ def test_execute_training_run_uses_explicit_provenance_without_git_lookup(
     )
     assert provenance["git_commit"] == "c" * 40
     assert provenance["git_dirty"] is False
+
+
+def test_v2_training_config_is_rejected_with_migration_message(tmp_path: Path) -> None:
+    config_path = tmp_path / "v2.json"
+    _config(config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = "training_run_config_v2"
+
+    with pytest.raises(ValueError, match="training_run_config_v3"):
+        TrainingRunConfig.from_mapping(payload)
+
+
+def test_v3_requires_explicit_actor_head(tmp_path: Path) -> None:
+    config_path = tmp_path / "missing-actor.json"
+    _config(config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    del payload["training"]["policy_actor_head"]
+
+    with pytest.raises(ValueError, match="policy_actor_head"):
+        TrainingRunConfig.from_mapping(payload)

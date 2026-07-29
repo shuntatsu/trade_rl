@@ -38,6 +38,7 @@ class _FakeStructuredPolicy(nn.Module):
             "asset_state": spaces.Box(-10.0, 10.0, shape=(3, 2)),
             "global_state": spaces.Box(-10.0, 10.0, shape=(5,)),
             "active": spaces.Box(0.0, 1.0, shape=(3,)),
+            "current_weights": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
         }
         for timeframe in ("15m", "1h", "4h", "1d"):
             shape = (3, 4, 2)
@@ -71,7 +72,12 @@ class _FakeStructuredPolicy(nn.Module):
         short = observation["sequence_15m_values"].mean(dim=(2, 3))
         long = observation["sequence_1d_values"].mean(dim=(2, 3))
         quality = observation["sequence_1d_available"].mean(dim=(2, 3))
-        raw = snapshot.mean(dim=2) + short - long * quality
+        raw = (
+            snapshot.mean(dim=2)
+            + short
+            - long * quality
+            + observation["current_weights"]
+        )
         return torch.tanh(raw) * active
 
 
@@ -83,12 +89,39 @@ class _FakeModel:
             "schema_version": "hierarchical_sequence_policy_v2",
             "timeframes": ["15m", "1h", "4h", "1d"],
             "d_model": 16,
+            "action_names": (
+                "target_weight:BTC",
+                "target_weight:ETH",
+                "target_weight:BNB",
+            ),
+            "symbols": ("BTC", "ETH", "BNB"),
+        }
+        sequence_digest = content_digest(architecture)
+        current_weight = {
+            "bounds": (-1.0, 1.0),
+            "dtype": "float32",
+            "key": "current_weights",
+            "observation_schema": SEQUENCE_OBSERVATION_SCHEMA,
+            "shape": (3,),
+            "source": "effective_book_weights",
+        }
+        policy_architecture = {
+            "actor_head": "hierarchical_gate_target_v1",
+            "current_weight_observation": current_weight,
+            "gate_temperature": 1.0,
+            "observation_encoder": "hierarchical_sequence_v2",
+            "schema_version": "hierarchical_gate_target_policy_v1",
+            "sequence_architecture_digest": sequence_digest,
         }
         identity = {
+            "actor_head": "hierarchical_gate_target_v1",
+            "current_weight_observation": current_weight,
+            "gate_temperature": 1.0,
             "observation_encoder": "hierarchical_sequence_v2",
-            "schema_version": "sb3_policy_identity_v1",
+            "policy_architecture_digest": content_digest(policy_architecture),
+            "schema_version": "sb3_policy_identity_v2",
             "sequence_architecture": architecture,
-            "sequence_architecture_digest": content_digest(architecture),
+            "sequence_architecture_digest": sequence_digest,
         }
         setattr(self, SB3_POLICY_IDENTITY_ATTRIBUTE, identity)
 
@@ -100,6 +133,7 @@ def _observation() -> dict[str, np.ndarray]:
         "asset_state": rng.normal(size=(3, 2)).astype(np.float32),
         "global_state": rng.normal(size=(5,)).astype(np.float32),
         "active": np.asarray([1.0, 1.0, 0.0], dtype=np.float32),
+        "current_weights": np.asarray([0.2, -0.4, 0.0], dtype=np.float32),
     }
     for timeframe in ("15m", "1h", "4h", "1d"):
         observation[f"sequence_{timeframe}_values"] = rng.normal(size=(3, 4, 2)).astype(
@@ -282,3 +316,17 @@ def test_structured_export_restores_policy_state_after_failure(
     assert model.policy.training is True
     assert not (tmp_path / STRUCTURED_EXPORT_MODEL_NAME).exists()
     assert not (tmp_path / STRUCTURED_EXPORT_MANIFEST_NAME).exists()
+
+
+def test_structured_export_requires_current_weights(tmp_path: Any) -> None:
+    model = _FakeModel()
+    del model.policy.observation_space.spaces["current_weights"]
+    observation = _observation()
+    observation.pop("current_weights")
+    with pytest.raises(ValueError, match="canonical contract"):
+        export_structured_policy_actor(
+            model=model,
+            output_dir=tmp_path,
+            example_observation=observation,
+            action_size=3,
+        )

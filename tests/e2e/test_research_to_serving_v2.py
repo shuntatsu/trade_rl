@@ -108,7 +108,7 @@ def _config(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "training_run_config_v2",
+                "schema_version": "training_run_config_v3",
                 "training": {
                     "timesteps": 8,
                     "gamma": 0.99,
@@ -117,6 +117,20 @@ def _config(path: Path) -> None:
                     "batch_size": 8,
                     "n_epochs": 1,
                     "observation_encoder": "flat_mlp",
+                    "policy_actor_head": "standard_continuous_v1",
+                    "hierarchical_gate_temperature": 1.0,
+                    "behavior_cloning_gate_loss_weight": 1.0,
+                    "behavior_cloning_target_loss_weight": 1.0,
+                    "behavior_cloning_composed_loss_weight": 1.0,
+                    "behavior_cloning_gate_change_threshold": 0.05,
+                    "behavior_cloning_max_positive_class_weight": 20.0,
+                    "behavior_cloning_min_gate_precision": 0.0,
+                    "behavior_cloning_min_gate_recall": 0.0,
+                    "behavior_cloning_max_active_target_rmse": 1.0,
+                    "behavior_cloning_min_activity_ratio": 0.0,
+                    "behavior_cloning_max_activity_ratio": 1.0,
+                    "behavior_cloning_min_causal_holdout_trades": 0,
+                    "behavior_cloning_max_causal_holdout_regret": 0.0,
                     "device": "cpu",
                 },
                 "environment": {

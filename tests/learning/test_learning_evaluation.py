@@ -10,11 +10,16 @@ import pytest
 from trade_rl.learning.evaluation import (
     CAUSAL_GENERALIZATION_SCOPE,
     ORACLE_DIAGNOSTIC_SCOPE,
+    BehaviorCloningGateThresholds,
+    BehaviorCloningHoldoutEvaluation,
     OracleTeacherEvaluation,
     PathPerformanceMetrics,
     evaluate_behavior_cloning_holdout,
     evaluate_path_performance,
     write_learning_evaluation,
+)
+from trade_rl.learning.hierarchical_bc_metrics import (
+    HierarchicalBehaviorCloningMetrics,
 )
 
 
@@ -204,7 +209,9 @@ def test_evaluation_json_is_atomic_digest_bound_and_scope_explicit(
         ("costs", (0.0, -0.1)),
     ],
 )
-def test_path_metrics_reject_invalid_accounting_inputs(field: str, value: object) -> None:
+def test_path_metrics_reject_invalid_accounting_inputs(
+    field: str, value: object
+) -> None:
     values: dict[str, object] = {
         "gross_step_returns": (0.0, 0.0),
         "net_step_returns": (0.0, 0.0),
@@ -222,3 +229,174 @@ def test_path_metrics_reject_invalid_accounting_inputs(field: str, value: object
             turnover=values["turnover"],
             costs=values["costs"],
         )
+
+
+def _hierarchical_metrics(
+    *,
+    positive_support: int = 8,
+    predicted_positive_support: int = 8,
+    precision: float = 0.8,
+    recall: float = 0.8,
+    target_rmse: float | None = 0.05,
+    activity_ratio: float | None = 1.0,
+    constant: bool = False,
+    all_hold: bool = False,
+    all_trade: bool = False,
+) -> HierarchicalBehaviorCloningMetrics:
+    return HierarchicalBehaviorCloningMetrics(
+        active_support=16,
+        positive_support=positive_support,
+        predicted_positive_support=predicted_positive_support,
+        gate_precision=precision,
+        gate_recall=recall,
+        gate_f1=0.8,
+        active_target_rmse=target_rmse,
+        composed_rmse=0.04,
+        teacher_activity_rate=positive_support / 16,
+        policy_activity_rate=predicted_positive_support / 16,
+        activity_ratio=activity_ratio,
+        event_recalls=(0.8, 0.8, 0.8, 0.8),
+        constant_action_collapse=constant,
+        all_hold_collapse=all_hold,
+        all_trade_collapse=all_trade,
+        insufficient_target_support=positive_support == 0,
+    )
+
+
+def _gate_thresholds() -> BehaviorCloningGateThresholds:
+    return BehaviorCloningGateThresholds(
+        minimum_composed_loss_relative_improvement=0.1,
+        minimum_gate_precision=0.6,
+        minimum_gate_recall=0.6,
+        maximum_active_target_rmse=0.1,
+        minimum_activity_ratio=0.5,
+        maximum_activity_ratio=1.5,
+        minimum_teacher_positive_support=2,
+        minimum_causal_holdout_trades=1,
+        maximum_causal_holdout_regret=0.2,
+    )
+
+
+def _holdout_with_evidence(
+    *,
+    submitted: int,
+    executed: int,
+    constant: bool,
+    net: tuple[float, ...] = (0.01, 0.0, -0.005),
+) -> BehaviorCloningHoldoutEvaluation:
+    from trade_rl.learning.evaluation import ActionPathCollapseEvidence
+
+    oracle = _path((0.02, 0.01, 0.0))
+    policy = _path(
+        net,
+        turnover=tuple(0.2 if index < executed else 0.0 for index in range(3)),
+    )
+    evidence = ActionPathCollapseEvidence(
+        decision_count=3,
+        action_dimension_count=1,
+        active_dimension_count=3,
+        inactive_dimension_count=0,
+        proposal_distance_count=submitted,
+        submitted_change_count=submitted,
+        downstream_no_trade_suppression_count=max(0, submitted - executed),
+        execution_rejection_count=0,
+        executed_change_count=executed,
+        trade_count=policy.trade_count,
+        constant_submitted_actions=constant,
+    )
+    return evaluate_behavior_cloning_holdout(
+        teacher_train_range=(0, 5),
+        heldout_range=(5, 9),
+        oracle_actions=np.array([[0.5], [-0.5], [0.0]], dtype=np.float32),
+        policy_actions=np.array([[0.2], [0.2], [0.2]], dtype=np.float32),
+        oracle_performance=oracle,
+        causal_policy_performance=policy,
+        causal_policy_evidence=evidence,
+    )
+
+
+def test_mandatory_bc_gates_pass_without_requiring_oracle_agreement() -> None:
+    from trade_rl.learning.evaluation import evaluate_behavior_cloning_gates
+
+    holdout = _holdout_with_evidence(submitted=2, executed=2, constant=False)
+    assert holdout.action_agreement_rate == 0.0
+
+    gates = evaluate_behavior_cloning_gates(
+        initial_composed_loss=0.2,
+        final_composed_loss=0.1,
+        reconstruction_metrics=_hierarchical_metrics(),
+        holdout=holdout,
+        thresholds=_gate_thresholds(),
+    )
+
+    assert gates.teacher_reconstruction_gate.required is True
+    assert gates.causal_non_collapse_gate.required is True
+    assert gates.passed is True
+    gates.require_passed()
+
+
+def test_mandatory_bc_gate_rejects_zero_trade_causal_holdout() -> None:
+    from trade_rl.learning.evaluation import evaluate_behavior_cloning_gates
+
+    gates = evaluate_behavior_cloning_gates(
+        initial_composed_loss=0.2,
+        final_composed_loss=0.1,
+        reconstruction_metrics=_hierarchical_metrics(),
+        holdout=_holdout_with_evidence(submitted=0, executed=0, constant=True),
+        thresholds=_gate_thresholds(),
+    )
+
+    assert gates.teacher_reconstruction_gate.passed is True
+    assert gates.causal_non_collapse_gate.passed is False
+    with pytest.raises(RuntimeError, match="zero-trade collapse"):
+        gates.require_passed()
+
+
+def test_mandatory_bc_gate_reports_insufficient_teacher_support_as_failure() -> None:
+    from trade_rl.learning.evaluation import evaluate_behavior_cloning_gates
+
+    gates = evaluate_behavior_cloning_gates(
+        initial_composed_loss=0.2,
+        final_composed_loss=0.1,
+        reconstruction_metrics=_hierarchical_metrics(
+            positive_support=0,
+            predicted_positive_support=0,
+            precision=0.0,
+            recall=0.0,
+            target_rmse=None,
+            activity_ratio=1.0,
+            constant=True,
+            all_hold=True,
+        ),
+        holdout=_holdout_with_evidence(submitted=0, executed=0, constant=True),
+        thresholds=_gate_thresholds(),
+    )
+
+    statuses = {metric.status for metric in gates.teacher_reconstruction_gate.metrics}
+    assert "insufficient_support" in statuses
+    assert gates.passed is False
+
+
+def test_mandatory_bc_gate_rejects_catastrophic_cash_baseline_regret() -> None:
+    from trade_rl.learning.evaluation import evaluate_behavior_cloning_gates
+
+    gates = evaluate_behavior_cloning_gates(
+        initial_composed_loss=0.2,
+        final_composed_loss=0.1,
+        reconstruction_metrics=_hierarchical_metrics(),
+        holdout=_holdout_with_evidence(
+            submitted=2,
+            executed=2,
+            constant=False,
+            net=(-0.1, -0.1, -0.1),
+        ),
+        thresholds=_gate_thresholds(),
+    )
+
+    metric = next(
+        item
+        for item in gates.causal_non_collapse_gate.metrics
+        if item.name == "cash_baseline_after_cost_regret"
+    )
+    assert metric.status == "failed"
+    assert gates.passed is False

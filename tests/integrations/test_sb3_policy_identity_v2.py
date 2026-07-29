@@ -46,7 +46,13 @@ def _model(architecture: SequencePolicyArchitecture) -> SimpleNamespace:
     extractor = SimpleNamespace(
         asset_encoder=SimpleNamespace(architecture=architecture)
     )
-    return SimpleNamespace(policy=SimpleNamespace(features_extractor=extractor))
+    return SimpleNamespace(
+        policy=SimpleNamespace(
+            features_extractor=extractor,
+            shared_actor_head="hierarchical_gate_target_v1",
+            shared_actor_gate_temperature=1.0,
+        )
+    )
 
 
 def _assembly() -> SimpleNamespace:
@@ -54,6 +60,8 @@ def _assembly() -> SimpleNamespace:
         observation_encoder="hierarchical_sequence_v2",
         sequence_symbols=("BTCUSDT", "ETHUSDT", "BNBUSDT"),
         sequence_action_names=("BTCUSDT", "ETHUSDT", "BNBUSDT"),
+        policy_actor_head="hierarchical_gate_target_v1",
+        hierarchical_gate_temperature=1.0,
     )
 
 
@@ -63,6 +71,10 @@ def test_identity_is_derived_from_constructed_sequence_architecture() -> None:
 
     assert payload["observation_encoder"] == "hierarchical_sequence_v2"
     assert payload["sequence_architecture_digest"]
+    assert payload["policy_architecture_digest"]
+    assert payload["actor_head"] == "hierarchical_gate_target_v1"
+    assert payload["gate_temperature"] == 1.0
+    assert payload["current_weight_observation"]["key"] == "current_weights"
     assert model_sb3_policy_identity(model) == payload
 
 
@@ -114,3 +126,21 @@ def test_policy_assembly_exposes_identity_inputs() -> None:
     assert "observation_encoder" in fields
     assert "sequence_symbols" in fields
     assert "sequence_action_names" in fields
+    assert "policy_actor_head" in fields
+    assert "hierarchical_gate_temperature" in fields
+
+
+def test_actor_head_and_temperature_drift_are_rejected() -> None:
+    model = _model(_architecture())
+    expected = bind_sb3_policy_identity(model, _assembly())
+    drifted = _model(_architecture())
+    drifted.policy.shared_actor_gate_temperature = 0.5
+    assembly = _assembly()
+    assembly.hierarchical_gate_temperature = 0.5
+    bind_sb3_policy_identity(drifted, assembly)
+    with pytest.raises(ValueError, match="architecture identity mismatch"):
+        validate_model_sb3_policy_identity(drifted, expected)
+    wrong_head = _model(_architecture())
+    wrong_head.policy.shared_actor_head = "legacy_shared_target_v1"
+    with pytest.raises(ValueError, match="actor-head"):
+        bind_sb3_policy_identity(wrong_head, _assembly())

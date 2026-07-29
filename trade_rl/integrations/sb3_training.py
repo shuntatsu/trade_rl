@@ -24,17 +24,44 @@ from trade_rl.integrations.sb3_model_assembly import (
 )
 from trade_rl.learning import (
     BehaviorCloningConfig,
+    BehaviorCloningGateEvaluation,
+    BehaviorCloningGateThresholds,
+    BehaviorCloningHoldoutEvaluation,
     OracleTeacherConfig,
-    OracleTeacherEvaluation,
     StructuredTeacherObservationProvider,
     SupervisedPolicyDataset,
     collect_teacher_rollout,
-    evaluate_action_path,
-    evaluate_behavior_cloning_holdout,
+    evaluate_behavior_cloning_gates,
     load_teacher_artifact,
     oracle_target_path,
     write_learning_evaluation,
     write_teacher_artifact,
+)
+from trade_rl.learning.episode_behavior_cloning import (
+    BehaviorCloningSplit,
+    align_behavior_cloning_validation,
+)
+from trade_rl.learning.episode_oracle_bc import (
+    EpisodeBehaviorCloningHoldoutEvaluation,
+    evaluate_episode_behavior_cloning_holdout,
+    oracle_episode_sampling_config,
+    resolve_episode_initial_weights,
+)
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeSamplingConfig,
+    build_episode_oracle_batch,
+)
+from trade_rl.learning.episode_teacher_artifact import (
+    EPISODE_TEACHER_ARTIFACT_SCHEMA,
+    EpisodeSupervisedPolicyDataset,
+    collect_episode_teacher_rollout,
+    load_episode_teacher_artifact,
+    write_episode_teacher_artifact,
+)
+from trade_rl.learning.hierarchical_teacher_labels import (
+    HierarchicalTeacherLabels,
+    build_hierarchical_teacher_labels,
 )
 from trade_rl.rl.algorithm_configs import (
     CostCriticPPOConfig,
@@ -60,6 +87,19 @@ from trade_rl.rl.training_performance import (
     activate_training_performance,
     write_training_performance_evidence,
 )
+
+
+def _oracle_episode_sampling_config(
+    environment: Any,
+    *,
+    train_range: tuple[int, int],
+    seed: int,
+) -> OracleEpisodeSamplingConfig:
+    return oracle_episode_sampling_config(
+        environment,
+        train_range=train_range,
+        seed=seed,
+    )
 
 
 def _configure_torch_cuda_runtime(
@@ -143,9 +183,7 @@ def _configure_sequence_runtime(
         "compile_target": compile_target,
         "fullgraph": False,
         "dynamic": False,
-        "inductor_compile_threads": os.environ.get(
-            "TORCHINDUCTOR_COMPILE_THREADS"
-        ),
+        "inductor_compile_threads": os.environ.get("TORCHINDUCTOR_COMPILE_THREADS"),
         "sequence_transfer_mode": config.sequence_transfer_mode,
         "torch_version": str(torch.__version__),
         "schema_version": "sequence_runtime_v2",
@@ -256,6 +294,149 @@ class _TrainingInfoFilter(gym.Wrapper):
 
 def _filtered_training_environment(factory: Callable[[], Any]) -> Any:
     return _TrainingInfoFilter(factory())
+
+
+def _required_hierarchical_config(config: object, name: str) -> int | float:
+    value = getattr(config, name, None)
+    if value is None:
+        raise ValueError(
+            f"hierarchical BC requires explicit training_run_config_v3 field {name}"
+        )
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(
+            f"hierarchical BC training_run_config_v3 field {name} must be numeric"
+        )
+    if not np.isfinite(float(value)):
+        raise ValueError(
+            f"hierarchical BC training_run_config_v3 field {name} must be finite"
+        )
+    return value
+
+
+def _hierarchical_teacher_labels(
+    *,
+    policy: object,
+    teacher_dataset: SupervisedPolicyDataset,
+    config: object,
+) -> HierarchicalTeacherLabels | None:
+    if not callable(getattr(policy, "hierarchical_actor_outputs", None)):
+        return None
+    observations = teacher_dataset.observations
+    if not isinstance(observations, Mapping):
+        raise ValueError("hierarchical BC requires structured teacher observations")
+    missing = {"active", "current_weights"} - set(observations)
+    if missing:
+        raise ValueError(
+            "hierarchical BC teacher observations are missing "
+            + ", ".join(sorted(missing))
+        )
+    change_threshold = _required_hierarchical_config(
+        config, "behavior_cloning_gate_change_threshold"
+    )
+    return build_hierarchical_teacher_labels(
+        teacher_targets=np.asarray(teacher_dataset.actions),
+        current_weights=np.asarray(observations["current_weights"]),
+        active_mask=np.asarray(observations["active"]) > 0.5,
+        change_threshold=float(change_threshold),
+        source_teacher_digest=teacher_dataset.action_digest,
+    )
+
+
+def _hierarchical_behavior_cloning_config(
+    config: ResidualTrainingConfig,
+) -> BehaviorCloningConfig:
+    return BehaviorCloningConfig(
+        epochs=config.behavior_cloning_epochs,
+        learning_rate=config.behavior_cloning_learning_rate,
+        batch_size=config.behavior_cloning_batch_size,
+        validation_fraction=config.behavior_cloning_validation_fraction,
+        early_stopping_patience=config.behavior_cloning_patience,
+        minimum_improvement=config.behavior_cloning_minimum_improvement,
+        gate_loss_weight=float(
+            _required_hierarchical_config(config, "behavior_cloning_gate_loss_weight")
+        ),
+        target_loss_weight=float(
+            _required_hierarchical_config(config, "behavior_cloning_target_loss_weight")
+        ),
+        composed_loss_weight=float(
+            _required_hierarchical_config(
+                config, "behavior_cloning_composed_loss_weight"
+            )
+        ),
+        max_positive_class_weight=float(
+            _required_hierarchical_config(
+                config, "behavior_cloning_max_positive_class_weight"
+            )
+        ),
+    )
+
+
+def _behavior_cloning_gate_thresholds(
+    config: ResidualTrainingConfig,
+) -> BehaviorCloningGateThresholds:
+    return BehaviorCloningGateThresholds(
+        minimum_composed_loss_relative_improvement=(
+            config.behavior_cloning_required_relative_improvement
+        ),
+        minimum_gate_precision=float(
+            _required_hierarchical_config(config, "behavior_cloning_min_gate_precision")
+        ),
+        minimum_gate_recall=float(
+            _required_hierarchical_config(config, "behavior_cloning_min_gate_recall")
+        ),
+        maximum_active_target_rmse=float(
+            _required_hierarchical_config(
+                config, "behavior_cloning_max_active_target_rmse"
+            )
+        ),
+        minimum_activity_ratio=float(
+            _required_hierarchical_config(config, "behavior_cloning_min_activity_ratio")
+        ),
+        maximum_activity_ratio=float(
+            _required_hierarchical_config(config, "behavior_cloning_max_activity_ratio")
+        ),
+        minimum_teacher_positive_support=1,
+        minimum_causal_holdout_trades=int(
+            _required_hierarchical_config(
+                config, "behavior_cloning_min_causal_holdout_trades"
+            )
+        ),
+        maximum_causal_holdout_regret=float(
+            _required_hierarchical_config(
+                config, "behavior_cloning_max_causal_holdout_regret"
+            )
+        ),
+    )
+
+
+def _evaluate_hierarchical_behavior_cloning_gate(
+    *,
+    cloning: object,
+    holdout: Any,
+    thresholds: BehaviorCloningGateThresholds,
+) -> BehaviorCloningGateEvaluation:
+    initial_losses = getattr(cloning, "initial_hierarchical_losses", None)
+    final_losses = getattr(cloning, "final_hierarchical_losses", None)
+    validation_metrics = getattr(cloning, "validation_hierarchical_metrics", None)
+    if validation_metrics is None:
+        validation_metrics = getattr(cloning, "final_hierarchical_metrics", None)
+    return evaluate_behavior_cloning_gates(
+        initial_composed_loss=(
+            None if initial_losses is None else float(initial_losses.composed)
+        ),
+        final_composed_loss=(
+            None if final_losses is None else float(final_losses.composed)
+        ),
+        reconstruction_metrics=validation_metrics,
+        holdout=holdout,
+        thresholds=thresholds,
+    )
+
+
+def _enforce_behavior_cloning_gates(
+    evaluation: BehaviorCloningGateEvaluation,
+) -> None:
+    evaluation.require_passed()
 
 
 def _build_training_environment(
@@ -376,10 +557,133 @@ class StableBaselines3Backend:
             None if not raw_teacher_cache else Path(raw_teacher_cache).resolve()
         )
         self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
+        self._oracle_episode_batch_cache: dict[
+            tuple[str, int, int, str, str], EpisodeOracleBatch
+        ] = {}
         self._trend_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
         self._teacher_dataset_cache: dict[
             tuple[str, int, int, str, str, str], SupervisedPolicyDataset
         ] = {}
+        self._episode_teacher_dataset_cache: dict[
+            tuple[str, int, int, str, str, str], EpisodeSupervisedPolicyDataset
+        ] = {}
+
+    def _oracle_episode_batch(
+        self,
+        environment: Any,
+        train_range: tuple[int, int],
+        teacher_config: OracleTeacherConfig,
+        sampling_config: OracleEpisodeSamplingConfig,
+    ) -> EpisodeOracleBatch:
+        dataset = environment.dataset
+        dataset_id = getattr(dataset, "dataset_id", None)
+        if not isinstance(dataset_id, str):
+            raise ValueError("Oracle episode dataset must expose dataset_id")
+        start, stop = train_range
+        key = (
+            dataset_id,
+            int(start),
+            int(stop),
+            teacher_config.digest,
+            sampling_config.digest,
+        )
+        cached = self._oracle_episode_batch_cache.get(key)
+        if cached is not None:
+            return cached
+        batch = build_episode_oracle_batch(
+            dataset,
+            minimum_start_index=start,
+            sampling_config=sampling_config,
+            teacher_config=teacher_config,
+            initial_weight_provider=lambda mode, index: resolve_episode_initial_weights(
+                environment,
+                mode,
+                index,
+            ),
+        )
+        self._oracle_episode_batch_cache[key] = batch
+        return batch
+
+    def _episode_teacher_dataset(
+        self,
+        environment: Any,
+        batch: EpisodeOracleBatch,
+        *,
+        train_range: tuple[int, int],
+        teacher_config: OracleTeacherConfig,
+    ) -> EpisodeSupervisedPolicyDataset:
+        start, stop = train_range
+        environment_digest = getattr(environment, "environment_digest", None)
+        action_spec_digest = getattr(environment, "action_spec_digest", None)
+        if not isinstance(environment_digest, str):
+            raise ValueError(
+                "episode teacher environment must expose environment_digest"
+            )
+        if not isinstance(action_spec_digest, str):
+            raise ValueError(
+                "episode teacher environment must expose action_spec_digest"
+            )
+        teacher_identity = content_digest(
+            {
+                "episode_batch_digest": batch.digest,
+                "schema_version": EPISODE_TEACHER_ARTIFACT_SCHEMA,
+                "teacher_config_digest": teacher_config.digest,
+            }
+        )
+        key = (
+            batch.dataset_id,
+            int(start),
+            int(stop),
+            environment_digest,
+            action_spec_digest,
+            teacher_identity,
+        )
+        cached = self._episode_teacher_dataset_cache.get(key)
+        if cached is not None:
+            return cached
+        cache_path: Path | None = None
+        if self.teacher_cache_root is not None:
+            cache_path = self.teacher_cache_root / _teacher_cache_key(
+                dataset_id=batch.dataset_id,
+                train_range=(start, stop),
+                environment_digest=environment_digest,
+                action_spec_digest=action_spec_digest,
+                teacher_config_digest=teacher_identity,
+            )
+            if cache_path.exists():
+                _, teacher_dataset = load_episode_teacher_artifact(
+                    cache_path,
+                    expected_dataset_id=batch.dataset_id,
+                    expected_environment_digest=environment_digest,
+                    expected_action_spec_digest=action_spec_digest,
+                )
+                if teacher_dataset.teacher_config_digest != teacher_identity:
+                    raise ValueError("cached episode teacher identity mismatch")
+                self._episode_teacher_dataset_cache[key] = teacher_dataset
+                return teacher_dataset
+        teacher_dataset = collect_episode_teacher_rollout(
+            environment,
+            batch,
+            teacher_config_digest=teacher_identity,
+        )
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{cache_path.name}.", dir=str(cache_path.parent)
+                )
+            )
+            try:
+                write_episode_teacher_artifact(temporary, teacher_dataset)
+                try:
+                    temporary.replace(cache_path)
+                except FileExistsError:
+                    pass
+            finally:
+                if temporary.exists():
+                    shutil.rmtree(temporary)
+        self._episode_teacher_dataset_cache[key] = teacher_dataset
+        return teacher_dataset
 
     def _oracle_targets(
         self,
@@ -789,6 +1093,9 @@ class StableBaselines3Backend:
                         int(dataset.n_bars),
                     )
                     teacher_kind = config.behavior_cloning_teacher
+                    episode_batch: EpisodeOracleBatch | None = None
+                    episode_split: BehaviorCloningSplit | None = None
+                    teacher_dataset: SupervisedPolicyDataset
                     if teacher_kind == "oracle":
                         risk_config = unwrapped_teacher.pre_trade_risk.config
                         teacher_config: Any = OracleTeacherConfig(
@@ -806,8 +1113,27 @@ class StableBaselines3Backend:
                                 unwrapped_teacher.config.signal_delay_decisions
                             ),
                         )
-                        targets = self._oracle_targets(
-                            dataset, train_range, teacher_config
+                        sampling_config = _oracle_episode_sampling_config(
+                            unwrapped_teacher,
+                            train_range=train_range,
+                            seed=seed,
+                        )
+                        episode_batch = self._oracle_episode_batch(
+                            unwrapped_teacher,
+                            train_range,
+                            teacher_config,
+                            sampling_config,
+                        )
+                        targets = np.concatenate(episode_batch.targets, axis=0)
+                        teacher_dataset = self._episode_teacher_dataset(
+                            teacher_environment,
+                            episode_batch,
+                            train_range=train_range,
+                            teacher_config=teacher_config,
+                        )
+                        teacher_digest = write_episode_teacher_artifact(
+                            output_path.parent / "teacher",
+                            teacher_dataset,
                         )
                     else:
                         trend_strategy = getattr(
@@ -838,17 +1164,17 @@ class StableBaselines3Backend:
                             trend_strategy,
                             teacher_digest=teacher_config.digest,
                         )
-                    teacher_dataset = self._teacher_dataset(
-                        teacher_environment,
-                        targets,
-                        dataset_id=dataset.dataset_id,
-                        train_range=train_range,
-                        teacher_config=teacher_config,
-                    )
-                    teacher_digest = write_teacher_artifact(
-                        output_path.parent / "teacher",
-                        teacher_dataset,
-                    )
+                        teacher_dataset = self._teacher_dataset(
+                            teacher_environment,
+                            targets,
+                            dataset_id=dataset.dataset_id,
+                            train_range=train_range,
+                            teacher_config=teacher_config,
+                        )
+                        teacher_digest = write_teacher_artifact(
+                            output_path.parent / "teacher",
+                            teacher_dataset,
+                        )
                     observation_provider = None
                     if isinstance(teacher_dataset.observations, Mapping):
                         sequence_builder = getattr(
@@ -869,10 +1195,15 @@ class StableBaselines3Backend:
                                 unwrapped_teacher, "sequence_policy_plane", None
                             ),
                         )
-                    cloning = pretrain_policy(
-                        model.policy,
-                        teacher_dataset,
-                        config=BehaviorCloningConfig(
+                    hierarchical_labels = _hierarchical_teacher_labels(
+                        policy=model.policy,
+                        teacher_dataset=teacher_dataset,
+                        config=config,
+                    )
+                    cloning_config = (
+                        _hierarchical_behavior_cloning_config(config)
+                        if hierarchical_labels is not None
+                        else BehaviorCloningConfig(
                             epochs=config.behavior_cloning_epochs,
                             learning_rate=config.behavior_cloning_learning_rate,
                             batch_size=config.behavior_cloning_batch_size,
@@ -883,9 +1214,22 @@ class StableBaselines3Backend:
                             minimum_improvement=(
                                 config.behavior_cloning_minimum_improvement
                             ),
-                        ),
+                        )
+                    )
+                    if episode_batch is not None:
+                        cloning_config, episode_split = (
+                            align_behavior_cloning_validation(
+                                cloning_config,
+                                teacher_dataset,
+                            )
+                        )
+                    cloning = pretrain_policy(
+                        model.policy,
+                        teacher_dataset,
+                        config=cloning_config,
                         seed=seed,
                         observation_provider=observation_provider,
+                        hierarchical_labels=hierarchical_labels,
                     )
                     required_relative_improvement = (
                         config.behavior_cloning_required_relative_improvement
@@ -896,125 +1240,48 @@ class StableBaselines3Backend:
                         required_relative_improvement=(required_relative_improvement),
                     )
                     oracle_audit_payload: dict[str, object] | None = None
+                    holdout_evaluation: (
+                        BehaviorCloningHoldoutEvaluation
+                        | EpisodeBehaviorCloningHoldoutEvaluation
+                        | None
+                    ) = None
                     if teacher_kind == "oracle":
-                        oracle_environment = self.environment_factory()
-                        try:
-                            oracle_path = evaluate_action_path(
-                                oracle_environment,
-                                evaluation_range=train_range,
-                                actions=targets,
+                        if episode_batch is None or episode_split is None:
+                            raise RuntimeError(
+                                "Oracle episode teacher evidence is unavailable"
                             )
-                        finally:
-                            oracle_environment.close()
-                        oracle_evaluation = OracleTeacherEvaluation(
-                            evaluation_range=train_range,
-                            performance=oracle_path.performance,
+                        (
+                            oracle_audit_payload,
+                            holdout_evaluation,
+                        ) = evaluate_episode_behavior_cloning_holdout(
+                            environment_factory=self.environment_factory,
+                            model=model,
+                            batch=episode_batch,
+                            split=episode_split,
+                            output_root=output_path.parent,
                         )
-                        oracle_evaluation_digest = write_learning_evaluation(
-                            output_path.parent / "oracle-evaluation.json",
-                            oracle_evaluation,
+                    gate_evaluation: BehaviorCloningGateEvaluation | None = None
+                    gate_evaluation_digest: str | None = None
+                    if hierarchical_labels is not None:
+                        gate_evaluation = _evaluate_hierarchical_behavior_cloning_gate(
+                            cloning=cloning,
+                            holdout=holdout_evaluation,
+                            thresholds=_behavior_cloning_gate_thresholds(config),
                         )
-                        validation_count = cloning.validation_sample_count
-                        if validation_count > 0:
-                            heldout_start = train_range[1] - 1 - validation_count
-                            heldout_range = (heldout_start, train_range[1])
-                            heldout_offset = heldout_start - train_range[0]
-                            heldout_targets = targets[
-                                heldout_offset : heldout_offset + validation_count
-                            ]
-                            oracle_holdout_environment = self.environment_factory()
-                            try:
-                                oracle_holdout = evaluate_action_path(
-                                    oracle_holdout_environment,
-                                    evaluation_range=heldout_range,
-                                    actions=heldout_targets,
-                                )
-                            finally:
-                                oracle_holdout_environment.close()
-                            policy_holdout_environment = self.environment_factory()
-                            try:
-                                policy_holdout = evaluate_action_path(
-                                    policy_holdout_environment,
-                                    evaluation_range=heldout_range,
-                                    model=model,
-                                )
-                            finally:
-                                policy_holdout_environment.close()
-                            holdout = evaluate_behavior_cloning_holdout(
-                                teacher_train_range=(
-                                    train_range[0],
-                                    heldout_start + 1,
-                                ),
-                                heldout_range=heldout_range,
-                                oracle_actions=oracle_holdout.actions,
-                                policy_actions=policy_holdout.actions,
-                                oracle_performance=oracle_holdout.performance,
-                                causal_policy_performance=(
-                                    policy_holdout.performance
-                                ),
-                                action_tolerance=0.05,
-                            )
-                            holdout_digest = write_learning_evaluation(
-                                output_path.parent
-                                / "behavior-cloning-holdout.json",
-                                holdout,
-                            )
-                            regret_scale = max(
-                                abs(
-                                    holdout.oracle_reference.performance.net_return
-                                ),
-                                0.05,
-                            )
-                            normalized_regret = (
-                                holdout.heldout_oracle_regret / regret_scale
-                            )
-                            reproduction_passed = bool(
-                                holdout.action_agreement_rate >= 0.80
-                                and holdout.action_rmse <= 0.10
-                                and normalized_regret <= 0.25
-                            )
-                            oracle_audit_payload = {
-                                "action_agreement_minimum": 0.80,
-                                "action_agreement_rate": (
-                                    holdout.action_agreement_rate
-                                ),
-                                "action_rmse": holdout.action_rmse,
-                                "action_rmse_maximum": 0.10,
-                                "behavior_cloning_holdout_digest": (
-                                    holdout_digest
-                                ),
-                                "heldout_oracle_regret": (
-                                    holdout.heldout_oracle_regret
-                                ),
-                                "normalized_oracle_regret": normalized_regret,
-                                "normalized_oracle_regret_maximum": 0.25,
-                                "oracle_evaluation_digest": (
-                                    oracle_evaluation_digest
-                                ),
-                                "passed": reproduction_passed,
-                                "required": False,
-                                "reason": (
-                                    "the teacher is a hindsight upper-bound diagnostic; "
-                                    "a causal policy cannot be required to reproduce "
-                                    "future-dependent actions on an unseen time tail"
-                                ),
-                                "schema_version": (
-                                    "oracle_bc_reproduction_gate_v1"
-                                ),
-                            }
-                        else:
-                            oracle_audit_payload = {
-                                "oracle_evaluation_digest": oracle_evaluation_digest,
-                                "passed": True,
-                                "reason": "chronological holdout is disabled",
-                                "required": False,
-                                "schema_version": (
-                                    "oracle_bc_reproduction_gate_v1"
-                                ),
-                            }
+                        gate_evaluation_digest = write_learning_evaluation(
+                            output_path.parent / "behavior-cloning-gates.json",
+                            gate_evaluation,
+                        )
+                        quality_passed = gate_evaluation.passed
                     cloning_payload = {
                         "artifact_digest": teacher_digest,
                         "behavior_cloning_digest": cloning.digest,
+                        "behavior_cloning_gate_digest": gate_evaluation_digest,
+                        "behavior_cloning_gates": (
+                            None
+                            if gate_evaluation is None
+                            else gate_evaluation.to_dict()
+                        ),
                         "final_mse": cloning.final_mse,
                         "initial_mse": cloning.initial_mse,
                         "sample_count": cloning.sample_count,
@@ -1027,14 +1294,28 @@ class StableBaselines3Backend:
                             required_relative_improvement
                         ),
                         "teacher_kind": teacher_kind,
+                        "episode_sampling": (
+                            None
+                            if episode_batch is None
+                            else {
+                                "batch_digest": episode_batch.digest,
+                                "decision_count": episode_batch.decision_count,
+                                "episode_count": episode_batch.episode_count,
+                                "sampling_config_digest": (
+                                    episode_batch.sampling_config_digest
+                                ),
+                            }
+                        ),
                         "oracle_reproduction": oracle_audit_payload,
-                        "schema_version": "behavior_cloning_run_v4",
+                        "schema_version": "behavior_cloning_run_v6",
                     }
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     (output_path.parent / "behavior-cloning.json").write_bytes(
                         canonical_json_bytes(cloning_payload)
                     )
-                    if not quality_passed:
+                    if gate_evaluation is not None:
+                        _enforce_behavior_cloning_gates(gate_evaluation)
+                    elif not quality_passed:
                         raise RuntimeError(
                             "behavior cloning failed the required MSE improvement gate"
                         )
@@ -1152,7 +1433,7 @@ class StableBaselines3Backend:
                 raw_architecture_digest = (
                     None
                     if policy_identity is None
-                    else policy_identity.get("sequence_architecture_digest")
+                    else policy_identity.get("policy_architecture_digest")
                 )
                 if not isinstance(raw_architecture_digest, str):
                     raise RuntimeError(

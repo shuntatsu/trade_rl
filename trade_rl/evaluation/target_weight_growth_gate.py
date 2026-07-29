@@ -112,7 +112,9 @@ class GrowthEvaluationCell:
                 field_name,
                 _non_negative_integer(getattr(self, field_name), field=field_name),
             )
-        constraints = tuple(sorted(tuple(self.soft_constraints), key=lambda item: item.name))
+        constraints = tuple(
+            sorted(tuple(self.soft_constraints), key=lambda item: item.name)
+        )
         names = tuple(item.name for item in constraints)
         if len(set(names)) != len(names):
             raise ValueError("soft constraint names must be unique")
@@ -325,12 +327,8 @@ class GrowthProfileSelectionDecision:
     def digest_payload(self) -> dict[str, object]:
         return {
             "comparison_evidence_digest": self.comparison_evidence_digest,
-            "lagrangian_minus_ppo_lower_bound": (
-                self.lagrangian_minus_ppo_lower_bound
-            ),
-            "lagrangian_minus_ppo_upper_bound": (
-                self.lagrangian_minus_ppo_upper_bound
-            ),
+            "lagrangian_minus_ppo_lower_bound": (self.lagrangian_minus_ppo_lower_bound),
+            "lagrangian_minus_ppo_upper_bound": (self.lagrangian_minus_ppo_upper_bound),
             "reason": self.reason,
             "schema_version": self.schema_version,
             "selected_profile": self.selected_profile,
@@ -368,9 +366,7 @@ def _cluster_bootstrap_bounds(
     for sample_index in range(samples):
         sampled_folds = rng.choice(folds, size=len(folds), replace=True)
         sample_values = tuple(
-            value
-            for fold in sampled_folds
-            for value in values_by_fold[int(fold)]
+            value for fold in sampled_folds for value in values_by_fold[int(fold)]
         )
         estimates[sample_index] = float(np.mean(sample_values))
     two_sided_alpha = (1.0 - confidence) / 2.0
@@ -402,9 +398,7 @@ def _support_reasons(
     for scenario in config.required_scenarios:
         scenario_cells = tuple(cell for cell in cells if cell.scenario == scenario)
         for fold in folds:
-            observed = {
-                cell.seed for cell in scenario_cells if cell.fold_index == fold
-            }
+            observed = {cell.seed for cell in scenario_cells if cell.fold_index == fold}
             if observed != required_seed_set:
                 reasons.append(
                     "support_mismatch:"
@@ -446,7 +440,9 @@ def _soft_constraint_summaries(
     for name in expected_names:
         observations = {
             cell.fold_index: next(
-                item.observed_value for item in cell.soft_constraints if item.name == name
+                item.observed_value
+                for item in cell.soft_constraints
+                if item.name == name
             )
             for cell in nominal
         }
@@ -505,19 +501,13 @@ def evaluate_target_weight_growth_gate(
         reasons.append("identity_not_verified")
 
     nominal = tuple(
-        cell
-        for cell in normalized
-        if cell.scenario == resolved_config.nominal_scenario
+        cell for cell in normalized if cell.scenario == resolved_config.nominal_scenario
     )
     cost_2x = tuple(
-        cell
-        for cell in normalized
-        if cell.scenario == resolved_config.cost_2x_scenario
+        cell for cell in normalized if cell.scenario == resolved_config.cost_2x_scenario
     )
     cost_3x = tuple(
-        cell
-        for cell in normalized
-        if cell.scenario == resolved_config.cost_3x_scenario
+        cell for cell in normalized if cell.scenario == resolved_config.cost_3x_scenario
     )
 
     nominal_growth = tuple(cell.selected_net_log_growth for cell in nominal)
@@ -572,9 +562,7 @@ def evaluate_target_weight_growth_gate(
     seed_medians = tuple(
         float(
             median(
-                cell.selected_net_log_growth
-                for cell in nominal
-                if cell.seed == seed
+                cell.selected_net_log_growth for cell in nominal if cell.seed == seed
             )
         )
         for seed in resolved_config.required_seeds
@@ -587,9 +575,7 @@ def evaluate_target_weight_growth_gate(
     if positive_seed_count < resolved_config.required_positive_seed_count:
         reasons.append("insufficient_positive_seeds")
 
-    catastrophic_event_count = sum(
-        cell.catastrophic_event_count for cell in normalized
-    )
+    catastrophic_event_count = sum(cell.catastrophic_event_count for cell in normalized)
     if catastrophic_event_count:
         reasons.append("catastrophic_event_detected")
 

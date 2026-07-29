@@ -56,7 +56,9 @@ class ExecutionSensitivityConfig(_base.ExecutionSensitivityConfig):
         if len(set(names)) != len(names):
             raise ValueError("execution sensitivity scenario names must be unique")
         standard = tuple(
-            item for item in self.scenarios if item.name in _STANDARD_EXECUTION_SCENARIOS
+            item
+            for item in self.scenarios
+            if item.name in _STANDARD_EXECUTION_SCENARIOS
         )
         _base.ExecutionSensitivityConfig(
             scenarios=standard,
@@ -289,7 +291,9 @@ class MarketWalkForwardConfig(_base.MarketWalkForwardConfig):
                 expanded_path,
                 n_bars=n_bars,
             )
-        sensitivity = _extended_execution_sensitivity(expanded, base.execution_sensitivity)
+        sensitivity = _extended_execution_sensitivity(
+            expanded, base.execution_sensitivity
+        )
         raw_mode = payload.get(
             "sealed_test_ledger_mode",
             SealedTestLedgerMode.LOCAL_EXPLORATORY.value,

@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/target-weight-constrained-growth-design
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -15,7 +18,7 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Set up uv
@@ -43,7 +46,7 @@ jobs:
       - name: Upload formatter output
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: formatted-source-${{ github.sha }}
+          name: formatted-source-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             formatted-source.tar.gz
             formatted-files.txt

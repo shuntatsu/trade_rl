@@ -1,3 +1,3 @@
-target=agent/hierarchical-bc-actor-design
-phase=green-event-precedence
+target=825ad737b77eaa6826ed0c31825c3cfcd5bcd553
+phase=reviewed-final-verification
 attempt=1

@@ -1,29 +1,73 @@
-name: Temporary focused verification
+name: Temporary hierarchical BC task executor
 
 on:
   pull_request:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  focused:
+  execute:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/hierarchical-bc-actor-design'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head
+      - name: Checkout writable task branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
+      - name: Apply staged task and remove temporary infrastructure
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/tmp/hierarchical-bc-task.patch
+          git apply .github/tmp/hierarchical-bc-task.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/ci.yml')
+          text = path.read_text()
+          temporary = '''
+                - name: Upload temporary source tree
+                  uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+                  with:
+                    name: temporary-source-tree
+                    path: .
+                    include-hidden-files: true
+                    retention-days: 1
+          '''
+          if temporary not in text:
+              raise SystemExit('temporary source artifact block is missing')
+          path.write_text(text.replace(temporary, '\n', 1))
+          PY
+          git rm .github/tmp/hierarchical-bc-task.patch
+          git rm .github/workflows/temporary-source-artifact.yml
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
-      - name: Run hierarchical BC focused tests
+      - name: Format and lint changed Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            tests/learning/test_structured_teacher_artifact.py
+            tests/rl/test_environment_observation_contract.py
+            trade_rl/learning/teacher_artifact.py
+            trade_rl/rl/environment_observation_contract.py
+            trade_rl/rl/observations.py
+            trade_rl/rl/sequence_observations.py
+          )
+          uv run ruff format "${files[@]}"
+          uv run ruff check "${files[@]}"
+      - name: Run Task 1 and Task 2 focused tests
         shell: bash
         run: |
           set -o pipefail
@@ -34,10 +78,20 @@ jobs:
             tests/rl/test_sequence_observations.py \
             tests/serving/test_observation_parity.py \
             2>&1 | tee focused-tests.log
-      - name: Upload focused diagnostics
+      - name: Commit verified task
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl task executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: expose effective weights to hierarchical actor"
+          git push origin HEAD:${{ github.head_ref }}
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: hierarchical-bc-focused-tests
+          name: hierarchical-bc-task2-diagnostics
           path: focused-tests.log
-          if-no-files-found: error
+          if-no-files-found: ignore

@@ -1,0 +1,661 @@
+name: Apply final contract review fixes
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'agent/harden-data-bc-serving-contracts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install test environment
+        run: uv sync --extra dev --extra train-sb3 --extra postgres
+      - name: Write final RED tests
+        run: |
+          cat > tests/integrations/test_postgres_market_dataset.py <<'PY'
+          from __future__ import annotations
+
+          from datetime import UTC, datetime, timedelta
+
+          import numpy as np
+          import pytest
+
+          from trade_rl.data.builder import MarketDatasetBuilder
+          from trade_rl.data.contracts import (
+              FeatureKind,
+              FeatureSpec,
+              InstrumentContract,
+              InstrumentExecutionRule,
+              MarketBuildConfig,
+              VolumeUnit,
+          )
+          from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+          from trade_rl.integrations.binance import binance_multitimeframe_feature_specs
+          from trade_rl.integrations.postgres_indicator_artifacts import (
+              NativeIndicatorArtifact,
+              NativeIndicatorArtifactBundle,
+          )
+          from trade_rl.integrations.postgres_market_dataset import (
+              NATIVE_TIMEFRAMES,
+              build_postgres_market_dataset,
+          )
+
+          _ECONOMIC_FIELDS = (
+              "symbol_active",
+              "asset_active",
+              "tradable",
+              "information_available",
+              "available_at",
+              "fee_rate",
+              "maker_fee_rate",
+              "taker_fee_rate",
+              "spread_rate",
+              "max_participation_rate",
+              "minimum_notional",
+              "lot_size",
+              "tick_size",
+              "borrow_available",
+              "borrow_rate",
+              "funding_due",
+              "buy_allowed",
+              "sell_allowed",
+              "mark_price",
+              "index_price",
+          )
+
+
+          class _Cursor:
+              def __init__(self, database: _Database) -> None:
+                  self.database = database
+                  self.rows: list[tuple[object, ...]] = []
+
+              def __enter__(self) -> _Cursor:
+                  return self
+
+              def __exit__(self, *args: object) -> None:
+                  return None
+
+              def execute(self, query: str, params: object = None) -> None:
+                  assert isinstance(params, tuple)
+                  symbol = str(params[0])
+                  self.rows = (
+                      self.database.klines[symbol]
+                      if "klines" in query
+                      else self.database.funding[symbol]
+                  )
+
+              def fetchall(self) -> list[tuple[object, ...]]:
+                  return self.rows
+
+
+          class _Database:
+              def __init__(self, symbols: tuple[str, ...], start_ms: int) -> None:
+                  self.klines: dict[str, list[tuple[object, ...]]] = {}
+                  self.funding: dict[str, list[tuple[object, ...]]] = {}
+                  for symbol_index, symbol in enumerate(symbols):
+                      base = 10.0 + symbol_index
+                      self.klines[symbol] = [
+                          (
+                              start_ms + row * 900_000,
+                              base + row,
+                              base + row + 1.0,
+                              base + row - 1.0,
+                              base + row + 0.5,
+                              1_000.0 + row,
+                          )
+                          for row in range(4)
+                      ]
+                      self.funding[symbol] = [(start_ms + 1_800_000, 0.0001)]
+
+              def cursor(self) -> _Cursor:
+                  return _Cursor(self)
+
+
+          def _bundle(
+              symbols: tuple[str, ...], start_ms: int
+          ) -> NativeIndicatorArtifactBundle:
+              specs = binance_multitimeframe_feature_specs(
+                  base_timeframe="15m", feature_timeframes=("1h", "4h", "1d")
+              )
+              artifacts: list[NativeIndicatorArtifact] = []
+              event_time = start_ms + np.arange(1, 5, dtype=np.int64) * 900_000
+              for symbol_index, symbol in enumerate(symbols):
+                  for timeframe in NATIVE_TIMEFRAMES:
+                      names = tuple(
+                          spec.name
+                          for spec in specs
+                          if spec.name.startswith(f"{timeframe}__")
+                      )
+                      values = np.full(
+                          (4, len(names)), float(symbol_index + 1), dtype=np.float32
+                      )
+                      available = np.ones(values.shape, dtype=np.bool_)
+                      artifacts.append(
+                          NativeIndicatorArtifact(
+                              symbol=symbol,
+                              timeframe=timeframe,
+                              feature_names=names,
+                              event_time_ms=event_time.copy(),
+                              values=values,
+                              available=available,
+                              payload_schema=f"npz_native_indicator_v1:{'1' * 64}",
+                              payload_sha256=f"{symbol_index + 1:064x}",
+                          )
+                      )
+              return NativeIndicatorArtifactBundle(
+                  cache_id="cache",
+                  market="usds-m",
+                  symbols=symbols,
+                  timeframes=NATIVE_TIMEFRAMES,
+                  start_time=datetime(2021, 1, 1, tzinfo=UTC),
+                  end_time=datetime(2026, 7, 1, tzinfo=UTC),
+                  feature_config_digest="2" * 64,
+                  artifacts=tuple(artifacts),
+              )
+
+
+          def _metadata(
+              symbols: tuple[str, ...],
+              start: datetime,
+              *,
+              first_listing_delay: timedelta = timedelta(0),
+          ) -> dict[str, dict[str, object]]:
+              return {
+                  symbol: {
+                      "listed_at": (
+                          start + (first_listing_delay if index == 0 else timedelta(0))
+                      ).isoformat(),
+                      "tick_size": 0.1 + index * 0.01,
+                      "lot_size": 0.001 + index * 0.0001,
+                      "minimum_notional": 5.0 + index,
+                  }
+                  for index, symbol in enumerate(symbols)
+              }
+
+
+          def _rule_histories(
+              symbols: tuple[str, ...],
+              start: datetime,
+              metadata: dict[str, dict[str, object]],
+          ) -> dict[str, tuple[InstrumentExecutionRule, ...]]:
+              histories: dict[str, tuple[InstrumentExecutionRule, ...]] = {}
+              for index, symbol in enumerate(symbols):
+                  entry = metadata[symbol]
+                  base = InstrumentExecutionRule(
+                      effective_at=start,
+                      tick_size=float(entry["tick_size"]),
+                      lot_size=float(entry["lot_size"]),
+                      minimum_notional=float(entry["minimum_notional"]),
+                  )
+                  histories[symbol] = (
+                      base,
+                      *(
+                          (
+                              InstrumentExecutionRule(
+                                  effective_at=start + timedelta(minutes=45),
+                                  tick_size=0.25,
+                                  lot_size=0.0025,
+                                  minimum_notional=12.0,
+                              ),
+                          )
+                          if index == 0
+                          else ()
+                      ),
+                  )
+              return histories
+
+
+          def _raw_source(symbols: tuple[str, ...], start: datetime) -> InMemoryMarketDataSource:
+              timestamps = np.datetime64(start.replace(tzinfo=None), "ns") + np.arange(
+                  1, 5
+              ) * np.timedelta64(15, "m")
+              values: dict[str, RawMarketSeries] = {}
+              for index, symbol in enumerate(symbols):
+                  base = 10.0 + index
+                  rows = np.arange(4, dtype=np.float64)
+                  funding_count = np.array([0, 1, 0, 0], dtype=np.int32)
+                  values[symbol] = RawMarketSeries(
+                      timestamps=timestamps,
+                      open=base + rows,
+                      high=base + rows + 1.0,
+                      low=base + rows - 1.0,
+                      close=base + rows + 0.5,
+                      volume=1_000.0 + rows,
+                      funding_rate=np.array([0.0, 0.0001, 0.0, 0.0]),
+                      tradable=np.ones(4, dtype=np.bool_),
+                      funding_available=funding_count > 0,
+                      funding_event_count=funding_count,
+                  )
+              return InMemoryMarketDataSource(values)
+
+
+          def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
+              symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
+              vocabulary = (
+                  "BTCUSDT",
+                  "ETHUSDT",
+                  "BNBUSDT",
+                  "SOLUSDT",
+                  "XRPUSDT",
+              )
+              start = datetime(2024, 1, 1, tzinfo=UTC)
+              end = start + timedelta(hours=1)
+              start_ms = int(start.timestamp() * 1000)
+              metadata = _metadata(
+                  symbols, start, first_listing_delay=timedelta(minutes=30)
+              )
+
+              dataset = build_postgres_market_dataset(
+                  _Database(symbols, start_ms),
+                  symbols=symbols,
+                  symbol_vocabulary=vocabulary,
+                  start_time=start,
+                  end_time=end,
+                  metadata=metadata,
+                  metadata_evidence_digest="3" * 64,
+                  indicator_bundle=_bundle(symbols, start_ms),
+                  slot_symbols=("SLOT0", "SLOT1", "SLOT2"),
+              )
+
+              assert dataset.symbols == ("SLOT0", "SLOT1", "SLOT2")
+              assert dataset.n_features == 226 + len(vocabulary)
+              assert dataset.identity_verified
+              assert dataset.feature_names[-5:] == tuple(
+                  f"15m__symbol_id_{symbol}" for symbol in vocabulary
+              )
+              identity = dataset.features[:, :, -5:]
+              np.testing.assert_array_equal(identity[0, 0], [0, 0, 0, 0, 0])
+              np.testing.assert_array_equal(identity[1, 0], [0, 0, 0, 1, 0])
+              np.testing.assert_array_equal(identity[0, 1], [0, 1, 0, 0, 0])
+              np.testing.assert_array_equal(dataset.symbol_active[:, 0], [False, True, True, True])
+              assert not dataset.feature_available[0, 0].any()
+              assert dataset.funding_event_count[:, 0].tolist() == [0, 1, 0, 0]
+              assert dataset.funding_rate[1, 0] == 0.0001
+
+
+          def test_postgres_metadata_is_required_instead_of_defaulting_to_zero() -> None:
+              symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
+              start = datetime(2024, 1, 1, tzinfo=UTC)
+              end = start + timedelta(hours=1)
+              metadata = _metadata(symbols, start)
+              del metadata[symbols[0]]["tick_size"]
+
+              with pytest.raises(ValueError, match="SOLUSDT.tick_size"):
+                  build_postgres_market_dataset(
+                      _Database(symbols, int(start.timestamp() * 1000)),
+                      symbols=symbols,
+                      symbol_vocabulary=symbols,
+                      start_time=start,
+                      end_time=end,
+                      metadata=metadata,
+                      metadata_evidence_digest="3" * 64,
+                      indicator_bundle=_bundle(symbols, int(start.timestamp() * 1000)),
+                  )
+
+
+          def test_postgres_and_builder_paths_have_identical_economic_arrays() -> None:
+              symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
+              start = datetime(2024, 1, 1, tzinfo=UTC)
+              end = start + timedelta(hours=1)
+              start_ms = int(start.timestamp() * 1000)
+              metadata = _metadata(symbols, start)
+              histories = _rule_histories(symbols, start, metadata)
+              postgres = build_postgres_market_dataset(
+                  _Database(symbols, start_ms),
+                  symbols=symbols,
+                  symbol_vocabulary=symbols,
+                  start_time=start,
+                  end_time=end,
+                  metadata=metadata,
+                  metadata_evidence_digest="3" * 64,
+                  execution_rule_histories=histories,
+                  indicator_bundle=_bundle(symbols, start_ms),
+              )
+              instruments = tuple(
+                  InstrumentContract(
+                      symbol=symbol,
+                      listed_at=start,
+                      volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+                      tick_size=float(metadata[symbol]["tick_size"]),
+                      lot_size=float(metadata[symbol]["lot_size"]),
+                      minimum_notional=float(metadata[symbol]["minimum_notional"]),
+                      execution_rules=histories[symbol],
+                  )
+                  for symbol in symbols
+              )
+              builder = MarketDatasetBuilder(
+                  MarketBuildConfig(
+                      base_timeframe="15m",
+                      features=(
+                          FeatureSpec(
+                              name="ret_1",
+                              kind=FeatureKind.LOG_RETURN,
+                              lookback=1,
+                          ),
+                      ),
+                  )
+              ).build(_raw_source(symbols, start), instruments)
+
+              for field in _ECONOMIC_FIELDS:
+                  np.testing.assert_array_equal(
+                      getattr(postgres, field),
+                      getattr(builder, field),
+                      err_msg=field,
+                  )
+          PY
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/rl/test_environment_info_service.py')
+          source = path.read_text(encoding='utf-8')
+          anchor = '''    assert info["action_path"] is action_path
+          assert info["constraint_costs"] is costs
+          '''
+          anchor = anchor.replace('          assert', '    assert')
+          replacement = anchor + '''    np.testing.assert_array_equal(
+              info["sampled_policy_action"], action_path.policy_target
+          )
+          np.testing.assert_array_equal(
+              info["effective_filled_weights"], action_path.filled_weight
+          )
+          assert not np.array_equal(info["sampled_policy_action"], info["submitted_target"])
+          '''
+          replacement = replacement.replace('          )', '    )').replace('          assert', '    assert')
+          if anchor not in source:
+              raise RuntimeError('environment telemetry RED anchor not found')
+          path.write_text(source.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
+      - name: Verify RED failures
+        shell: bash
+        run: |
+          set +e
+          uv run pytest \
+            tests/integrations/test_postgres_market_dataset.py \
+            tests/rl/test_environment_info_service.py -q > red.log 2>&1
+          status=$?
+          cat red.log
+          test "$status" -ne 0
+          grep -Eq 'sampled_policy_action|tick_size|symbol_active|feature_available' red.log
+      - name: Implement final review fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/integrations/postgres_market_dataset.py')
+          source = path.read_text(encoding='utf-8')
+          old = '''def _metadata_number(
+              metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+          ) -> float:
+              raw = metadata.get(symbol, {}).get(field, 0.0)
+              if isinstance(raw, bool) or not isinstance(raw, int | float):
+                  raise ValueError(f"metadata {symbol}.{field} must be numeric")
+              resolved = float(raw)
+              if not math.isfinite(resolved) or resolved < 0.0:
+                  raise ValueError(f"metadata {symbol}.{field} must be finite and non-negative")
+              return resolved
+          '''
+          old = old.replace('          )', ')').replace('          metadata', '    metadata').replace('          raw', '    raw').replace('          if', '    if').replace('          raise', '        raise').replace('          resolved', '    resolved').replace('          return', '    return')
+          new = '''def _metadata_entry(
+              metadata: Mapping[str, Mapping[str, object]], symbol: str
+          ) -> Mapping[str, object]:
+              entry = metadata.get(symbol)
+              if not isinstance(entry, Mapping):
+                  raise ValueError(f"metadata {symbol} must be an object")
+              return entry
+
+
+          def _metadata_number(
+              metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+          ) -> float:
+              entry = _metadata_entry(metadata, symbol)
+              if field not in entry:
+                  raise ValueError(f"metadata {symbol}.{field} is required")
+              raw = entry[field]
+              if isinstance(raw, bool) or not isinstance(raw, str | int | float):
+                  raise ValueError(f"metadata {symbol}.{field} must be numeric")
+              try:
+                  resolved = float(raw)
+              except ValueError as error:
+                  raise ValueError(f"metadata {symbol}.{field} must be numeric") from error
+              if not math.isfinite(resolved) or resolved <= 0.0:
+                  raise ValueError(f"metadata {symbol}.{field} must be finite and positive")
+              return resolved
+
+
+          def _metadata_datetime(
+              metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+          ) -> datetime:
+              entry = _metadata_entry(metadata, symbol)
+              raw = entry.get(field)
+              if not isinstance(raw, str) or not raw:
+                  raise ValueError(f"metadata {symbol}.{field} is required")
+              try:
+                  parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+              except ValueError as error:
+                  raise ValueError(
+                      f"metadata {symbol}.{field} must be an ISO-8601 timestamp"
+                  ) from error
+              return _aware_utc(parsed, field=f"metadata {symbol}.{field}")
+
+
+          def _metadata_optional_datetime(
+              metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+          ) -> datetime | None:
+              entry = _metadata_entry(metadata, symbol)
+              raw = entry.get(field)
+              if raw is None:
+                  return None
+              if not isinstance(raw, str) or not raw:
+                  raise ValueError(f"metadata {symbol}.{field} must be an ISO-8601 timestamp")
+              try:
+                  parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+              except ValueError as error:
+                  raise ValueError(
+                      f"metadata {symbol}.{field} must be an ISO-8601 timestamp"
+                  ) from error
+              return _aware_utc(parsed, field=f"metadata {symbol}.{field}")
+          '''
+          import textwrap
+          new = textwrap.dedent(new)
+          if old not in source:
+              raise RuntimeError('metadata helper anchor not found')
+          source = source.replace(old, new, 1)
+          old_contract = '''            symbol=symbol,
+                      listed_at=start,
+                      volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+          '''.replace('                      ', '            ')
+          new_contract = '''            symbol=symbol,
+                      listed_at=_metadata_datetime(metadata, symbol, "listed_at"),
+                      delisted_at=_metadata_optional_datetime(
+                          metadata, symbol, "delisted_at"
+                      ),
+                      volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+          '''.replace('                      ', '            ').replace('                          ', '                ')
+          if old_contract not in source:
+              raise RuntimeError('PostgreSQL instrument listing anchor not found')
+          source = source.replace(old_contract, new_contract, 1)
+          economics_anchor = '''    economics = build_market_economic_semantics(
+              timestamps=timestamps,
+              instruments=instruments,
+              row_present=np.ones(price_shape, dtype=np.bool_),
+              raw_tradable=np.ones(price_shape, dtype=np.bool_),
+              source_information_available=np.ones(price_shape, dtype=np.bool_),
+              available_at=available_at,
+              close=raw["close"],
+              funding_event_count=funding_counts,
+          )
+
+              log_returns = np.zeros(price_shape, dtype=np.float64)
+              log_returns[1:] = np.log(raw["close"][1:] / raw["close"][:-1])
+              global_features = np.zeros((n_bars, 4), dtype=np.float32)
+              global_features[:, 0] = economics.symbol_active.mean(axis=1)
+              global_features[:, 1] = (economics.tradable & economics.information_available).mean(
+                  axis=1
+              )
+              global_features[:, 2] = np.mean(log_returns, axis=1, dtype=np.float64)
+              global_features[:, 3] = np.std(log_returns, axis=1, dtype=np.float64)
+              global_available = np.ones((n_bars, 4), dtype=np.bool_)
+              global_available[0, 2:] = False
+          '''
+          economics_anchor = textwrap.dedent(economics_anchor)
+          economics_new = '''    economics = build_market_economic_semantics(
+              timestamps=timestamps,
+              instruments=instruments,
+              row_present=np.ones(price_shape, dtype=np.bool_),
+              raw_tradable=np.ones(price_shape, dtype=np.bool_),
+              source_information_available=np.ones(price_shape, dtype=np.bool_),
+              available_at=available_at,
+              close=raw["close"],
+              funding_event_count=funding_counts,
+          )
+          observable_features = economics.information_available[:, :, None]
+          feature_available &= observable_features
+          features = np.where(feature_available, features, np.float32(0.0))
+          feature_age = np.where(feature_available, feature_age, np.float32(0.0))
+          feature_staleness = np.where(
+              feature_available, feature_staleness, np.float32(1.0)
+          )
+
+          log_returns = np.zeros(price_shape, dtype=np.float64)
+          return_available = np.zeros(price_shape, dtype=np.bool_)
+          contiguous = (
+              economics.information_available[1:]
+              & economics.information_available[:-1]
+          )
+          candidate_returns = np.log(raw["close"][1:] / raw["close"][:-1])
+          np.copyto(log_returns[1:], candidate_returns, where=contiguous)
+          return_available[1:] = contiguous
+          global_features = np.zeros((n_bars, 4), dtype=np.float32)
+          global_features[:, 0] = economics.symbol_active.mean(axis=1)
+          global_features[:, 1] = (
+              economics.tradable & economics.information_available
+          ).mean(axis=1)
+          global_available = np.ones((n_bars, 4), dtype=np.bool_)
+          for index in range(n_bars):
+              sample = log_returns[index, return_available[index]]
+              if sample.size:
+                  global_features[index, 2] = float(np.mean(sample))
+                  global_features[index, 3] = float(np.std(sample))
+              else:
+                  global_available[index, 2:] = False
+          '''
+          economics_new = textwrap.dedent(economics_new)
+          if economics_anchor not in source:
+              raise RuntimeError('PostgreSQL economics/global anchor not found')
+          path.write_text(source.replace(economics_anchor, economics_new, 1), encoding='utf-8')
+
+          env_path = Path('trade_rl/rl/environment_info.py')
+          env = env_path.read_text(encoding='utf-8')
+          old_env = '''            "sampled_policy_action": np.asarray(
+                      request.submitted_target,
+                      dtype=np.float64,
+                  ).copy(),
+                  "effective_filled_weights": np.asarray(
+                      request.hybrid.weights,
+                      dtype=np.float64,
+                  ).copy(),
+          '''.replace('                  ', '            ')
+          new_env = '''            "sampled_policy_action": np.asarray(
+                      action_path.policy_target,
+                      dtype=np.float64,
+                  ).copy(),
+                  "effective_filled_weights": np.asarray(
+                      action_path.filled_weight,
+                      dtype=np.float64,
+                  ).copy(),
+          '''.replace('                  ', '            ')
+          if old_env not in env:
+              raise RuntimeError('environment action stage anchor not found')
+          env_path.write_text(env.replace(old_env, new_env, 1), encoding='utf-8')
+
+          economics_path = Path('trade_rl/data/economic_semantics.py')
+          economics_source = economics_path.read_text(encoding='utf-8')
+          economics_source = economics_source.replace(
+              'from dataclasses import dataclass, fields\n',
+              'from dataclasses import dataclass, fields\nfrom datetime import UTC\n',
+              1,
+          )
+          economics_source = economics_source.replace(
+              'contract.listed_at.astimezone(__import__("datetime").UTC)',
+              'contract.listed_at.astimezone(UTC)',
+          ).replace(
+              'contract.delisted_at.astimezone(__import__("datetime").UTC)',
+              'contract.delisted_at.astimezone(UTC)',
+          )
+          validation_anchor = '''        for item in fields(self):
+              value = getattr(self, item.name)
+              if value.flags.writeable:
+                  raise ValueError(f"economic array {item.name} must be immutable")
+          '''
+          validation_new = validation_anchor + '''        if np.any(self.max_participation_rate < 0.0) or np.any(
+              self.max_participation_rate > 1.0
+          ):
+              raise ValueError("max_participation_rate must be within [0, 1]")
+          for name in (
+              "spread_rate",
+              "borrow_rate",
+              "minimum_notional",
+              "lot_size",
+              "tick_size",
+          ):
+              if np.any(getattr(self, name) < 0.0):
+                  raise ValueError(f"economic array {name} must be non-negative")
+          for name in ("mark_price", "index_price"):
+              if np.any(getattr(self, name) <= 0.0):
+                  raise ValueError(f"economic array {name} must be strictly positive")
+          '''
+          if validation_anchor not in economics_source:
+              raise RuntimeError('economic validation anchor not found')
+          economics_path.write_text(
+              economics_source.replace(validation_anchor, validation_new, 1),
+              encoding='utf-8',
+          )
+          PY
+          rm -f research-contract-hardening.patch
+      - name: Verify GREEN and full static contracts
+        run: |
+          uv run ruff check --fix \
+            trade_rl/data/economic_semantics.py \
+            trade_rl/integrations/postgres_market_dataset.py \
+            trade_rl/rl/environment_info.py \
+            tests/integrations/test_postgres_market_dataset.py \
+            tests/rl/test_environment_info_service.py
+          uv run ruff format \
+            trade_rl/data/economic_semantics.py \
+            trade_rl/integrations/postgres_market_dataset.py \
+            trade_rl/rl/environment_info.py \
+            tests/integrations/test_postgres_market_dataset.py \
+            tests/rl/test_environment_info_service.py
+          uv run pytest \
+            tests/data/test_economic_semantics.py \
+            tests/integrations/test_postgres_market_dataset.py \
+            tests/rl/test_environment_info_service.py -q
+          uv run mypy trade_rl
+          uv run ruff check .
+          uv run ruff format --check .
+          git diff --check
+      - name: Commit reviewed fixes
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          git commit -m 'fix: complete economic and action telemetry contracts'
+          git push origin "HEAD:${HEAD_BRANCH}"

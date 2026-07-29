@@ -28,7 +28,6 @@ from trade_rl.learning.teacher_artifact import (
     _deterministic_npz,
     _normalize_observations,
     _observation_arrays,
-    _observation_digest,
     _sha256,
 )
 
@@ -78,7 +77,9 @@ class EpisodeSupervisedPolicyDataset(SupervisedPolicyDataset):
             raise ValueError("episode teacher training envelope is invalid")
         actions = np.asarray(self.actions, dtype=np.float32).copy(order="C")
         if actions.ndim != 2 or len(actions) == 0 or not np.isfinite(actions).all():
-            raise ValueError("episode teacher actions must be a non-empty finite matrix")
+            raise ValueError(
+                "episode teacher actions must be a non-empty finite matrix"
+            )
         observations = _normalize_observations(
             self.observations,
             expected_count=len(actions),
@@ -96,7 +97,9 @@ class EpisodeSupervisedPolicyDataset(SupervisedPolicyDataset):
         if np.any(decision_indices < self.train_start) or np.any(
             decision_indices >= self.train_stop - 1
         ):
-            raise ValueError("episode teacher decision indices leave the train envelope")
+            raise ValueError(
+                "episode teacher decision indices leave the train envelope"
+            )
         if np.any(episode_ids < 0):
             raise ValueError("episode teacher ids must be non-negative")
         unique_ids = np.unique(episode_ids)
@@ -115,11 +118,17 @@ class EpisodeSupervisedPolicyDataset(SupervisedPolicyDataset):
                 indices,
                 np.arange(indices[0], indices[0] + len(indices), dtype=np.int64),
             ):
-                raise ValueError("episode teacher decisions must be contiguous per episode")
+                raise ValueError(
+                    "episode teacher decisions must be contiguous per episode"
+                )
         if isinstance(observations, Mapping) and "decision_index" in observations:
-            observed = np.asarray(observations["decision_index"], dtype=np.int64).reshape(-1)
+            observed = np.asarray(
+                observations["decision_index"], dtype=np.int64
+            ).reshape(-1)
             if not np.array_equal(observed, decision_indices):
-                raise ValueError("compact observation decision indices mismatch provenance")
+                raise ValueError(
+                    "compact observation decision indices mismatch provenance"
+                )
         actions.setflags(write=False)
         object.__setattr__(self, "observations", observations)
         object.__setattr__(self, "actions", actions)
@@ -390,10 +399,14 @@ def load_episode_teacher_artifact(
         and dataset.action_spec_digest != expected_action_spec_digest
     ):
         raise ValueError("episode teacher action specification identity mismatch")
-    if expected_train_range is not None and (
-        dataset.train_start,
-        dataset.train_stop,
-    ) != expected_train_range:
+    if (
+        expected_train_range is not None
+        and (
+            dataset.train_start,
+            dataset.train_stop,
+        )
+        != expected_train_range
+    ):
         raise ValueError("episode teacher training envelope mismatch")
     return manifest, dataset
 
@@ -422,7 +435,9 @@ def _append_observation(
                 {key: np.asarray(observation[key]).shape for key in keys}
             )
         if keys != expected_keys or structured is None:
-            raise ValueError("teacher structured observation keys changed during rollout")
+            raise ValueError(
+                "teacher structured observation keys changed during rollout"
+            )
         for key in keys:
             if np.asarray(observation[key]).shape != expected_shapes[key]:
                 raise ValueError("teacher observation shape changed during rollout")
@@ -486,7 +501,9 @@ def collect_episode_teacher_rollout(
             episode_ids.append(contract.episode_index)
             observation, _, terminated, truncated, _ = environment.step(target)
             if (terminated or truncated) != (offset == expected_count - 1):
-                raise ValueError("episode teacher environment ended outside its contract")
+                raise ValueError(
+                    "episode teacher environment ended outside its contract"
+                )
     observations: ObservationBatch
     if structured_observations is not None:
         observations = {

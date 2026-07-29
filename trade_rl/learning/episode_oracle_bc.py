@@ -21,7 +21,10 @@ from trade_rl.learning.evaluation import (
     ActionPathCollapseEvidence,
     PathPerformanceMetrics,
 )
-from trade_rl.learning.rollout_evaluation import ActionPathEvaluation, evaluate_action_path
+from trade_rl.learning.rollout_evaluation import (
+    ActionPathEvaluation,
+    evaluate_action_path,
+)
 
 EPISODE_ORACLE_BC_EVALUATION_SCHEMA = "episode_oracle_bc_evaluation_v1"
 
@@ -46,7 +49,9 @@ def oracle_episode_sampling_config(
         raise ValueError("Oracle episode train range is invalid")
     decision_bars = int(getattr(environment, "decision_bars", 0))
     if decision_bars != 1:
-        raise ValueError("episode-aligned Oracle currently requires one bar per decision")
+        raise ValueError(
+            "episode-aligned Oracle currently requires one bar per decision"
+        )
     episode_bars = int(getattr(environment, "episode_bars", 0))
     if episode_bars <= 0:
         raise ValueError("Oracle episode horizon must be positive")
@@ -80,7 +85,9 @@ def resolve_episode_initial_weights(
     else:
         private_resolver = getattr(environment, "_initial_weights", None)
         if not callable(private_resolver):
-            raise TypeError("training environment cannot resolve initial portfolio weights")
+            raise TypeError(
+                "training environment cannot resolve initial portfolio weights"
+            )
         if mode not in {"cash", "baseline"}:
             raise ValueError("unsupported episode Oracle initial state mode")
         raw = private_resolver(mode, start)
@@ -173,7 +180,9 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
             self.normalized_oracle_regret,
         ):
             if not math.isfinite(value) or value < 0.0:
-                raise ValueError("episode BC holdout metrics must be finite and non-negative")
+                raise ValueError(
+                    "episode BC holdout metrics must be finite and non-negative"
+                )
         if self.action_agreement_rate > 1.0:
             raise ValueError("episode BC action agreement exceeds one")
 
@@ -201,7 +210,9 @@ def _aggregate_collapse_evidence(
         decision_count=sum(item.decision_count for item in evidence),
         action_dimension_count=first.action_dimension_count,
         active_dimension_count=sum(item.active_dimension_count for item in evidence),
-        inactive_dimension_count=sum(item.inactive_dimension_count for item in evidence),
+        inactive_dimension_count=sum(
+            item.inactive_dimension_count for item in evidence
+        ),
         proposal_distance_count=sum(item.proposal_distance_count for item in evidence),
         submitted_change_count=sum(item.submitted_change_count for item in evidence),
         downstream_no_trade_suppression_count=sum(
@@ -278,9 +289,9 @@ def evaluate_episode_behavior_cloning_holdout(
             contract,
             model=model,
         )
-        difference = oracle_path.actions.astype(np.float64) - policy_path.actions.astype(
+        difference = oracle_path.actions.astype(
             np.float64
-        )
+        ) - policy_path.actions.astype(np.float64)
         regret = max(
             0.0,
             oracle_path.performance.net_return - policy_path.performance.net_return,

@@ -19,13 +19,13 @@ from trade_rl.learning.episode_oracle_teacher import (
     OracleEpisodeContract,
     episode_oracle_target_path,
 )
-from trade_rl.learning.oracle_teacher import OracleTeacherConfig
 from trade_rl.learning.episode_teacher_artifact import (
     EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout,
     load_episode_teacher_artifact,
     write_episode_teacher_artifact,
 )
+from trade_rl.learning.oracle_teacher import OracleTeacherConfig
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig

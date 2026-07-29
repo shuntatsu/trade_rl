@@ -616,9 +616,13 @@ class StableBaselines3Backend:
         environment_digest = getattr(environment, "environment_digest", None)
         action_spec_digest = getattr(environment, "action_spec_digest", None)
         if not isinstance(environment_digest, str):
-            raise ValueError("episode teacher environment must expose environment_digest")
+            raise ValueError(
+                "episode teacher environment must expose environment_digest"
+            )
         if not isinstance(action_spec_digest, str):
-            raise ValueError("episode teacher environment must expose action_spec_digest")
+            raise ValueError(
+                "episode teacher environment must expose action_spec_digest"
+            )
         teacher_identity = content_digest(
             {
                 "episode_batch_digest": batch.digest,
@@ -665,7 +669,9 @@ class StableBaselines3Backend:
         if cache_path is not None:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = Path(
-                tempfile.mkdtemp(prefix=f".{cache_path.name}.", dir=str(cache_path.parent))
+                tempfile.mkdtemp(
+                    prefix=f".{cache_path.name}.", dir=str(cache_path.parent)
+                )
             )
             try:
                 write_episode_teacher_artifact(temporary, teacher_dataset)
@@ -1210,9 +1216,11 @@ class StableBaselines3Backend:
                         )
                     )
                     if episode_batch is not None:
-                        cloning_config, episode_split = align_behavior_cloning_validation(
-                            cloning_config,
-                            teacher_dataset,
+                        cloning_config, episode_split = (
+                            align_behavior_cloning_validation(
+                                cloning_config,
+                                teacher_dataset,
+                            )
                         )
                     cloning = pretrain_policy(
                         model.policy,
@@ -1238,7 +1246,9 @@ class StableBaselines3Backend:
                     ) = None
                     if teacher_kind == "oracle":
                         if episode_batch is None or episode_split is None:
-                            raise RuntimeError("Oracle episode teacher evidence is unavailable")
+                            raise RuntimeError(
+                                "Oracle episode teacher evidence is unavailable"
+                            )
                         (
                             oracle_audit_payload,
                             holdout_evaluation,

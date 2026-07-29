@@ -30,11 +30,13 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
                 "portfolio_value_after": 101.0,
                 "drawdown_after": 0.1,
                 "interval_cost": 0.5,
+                "sampled_policy_to_filled_l1": 0.2,
             },
             {
                 "portfolio_value_after": 103.0,
                 "drawdown_after": 0.2,
                 "interval_cost": 0.7,
+                "sampled_policy_to_filled_l1": 0.8,
             },
         ],
     }
@@ -46,6 +48,7 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
     assert logger.values["trade_rl/interval_cost_mean"] == pytest.approx(0.6)
     assert logger.values["trade_rl/action_abs_mean"] == pytest.approx(0.5)
     assert logger.values["trade_rl/action_abs_max"] == pytest.approx(0.75)
+    assert logger.values["trade_rl/effective_action_l1_mean"] == pytest.approx(0.5)
 
 
 def test_tensorboard_callback_ignores_noncanonical_info_aliases() -> None:
@@ -56,7 +59,13 @@ def test_tensorboard_callback_ignores_noncanonical_info_aliases() -> None:
     callback.locals = {
         "rewards": (),
         "actions": (),
-        "infos": [{"portfolio_value": 101.0, "drawdown": 0.1}],
+        "infos": [
+            {
+                "portfolio_value": 101.0,
+                "drawdown": 0.1,
+                "effective_action_l1": 0.4,
+            }
+        ],
     }
     assert callback._on_step()
     callback._on_rollout_end()

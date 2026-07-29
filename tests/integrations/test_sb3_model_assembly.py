@@ -48,6 +48,29 @@ class _Probe(gym.Env[np.ndarray, np.ndarray]):
         return np.zeros(5, dtype=np.float32), 0.0, False, False, {}
 
 
+class _SequenceDataset:
+    dataset_id = "d" * 64
+    symbols = ("BTCUSDT",)
+
+
+class _SequenceBuilder:
+    def layout_digest(self, dataset: object) -> str:
+        assert dataset is _SequenceProbe.dataset
+        return "e" * 64
+
+
+class _SequenceProbe:
+    dataset = _SequenceDataset()
+    sequence_observation_builder = _SequenceBuilder()
+    sequence_normalizer = None
+    sequence_policy_plane = None
+    sequence_layout_metadata = {"n_symbols": 1}
+
+    @property
+    def unwrapped(self) -> "_SequenceProbe":
+        return self
+
+
 def _identity() -> dict[str, object]:
     return {
         "action_names": ("target_weight:BTCUSDT",),
@@ -187,3 +210,46 @@ def test_model_assembly_dependency_boundary() -> None:
         "trade_rl.integrations.sb3_training",
     )
     assert [name for name in forbidden if name in source] == []
+
+
+def test_sequence_assembly_binds_hierarchical_actor_identity() -> None:
+    from trade_rl.integrations.sb3_model_assembly import _sequence_policy_assembly
+
+    config = _config(
+        observation_encoder="hierarchical_sequence_v2",
+        policy="MultiInputPolicy",
+        policy_actor_head="hierarchical_gate_target_v1",
+        hierarchical_gate_temperature=0.75,
+    )
+
+    _, policy_kwargs, _, _, uses_shared_actor = _sequence_policy_assembly(
+        probe=_SequenceProbe(),
+        identity=_identity(),
+        config=config,
+    )
+
+    assert uses_shared_actor is True
+    assert policy_kwargs["shared_actor_head"] == "hierarchical_gate_target_v1"
+    assert policy_kwargs["shared_actor_gate_temperature"] == pytest.approx(0.75)
+
+
+def test_hierarchical_actor_fields_are_digest_bound() -> None:
+    from trade_rl.artifacts.hashing import content_digest
+
+    first = _config(
+        observation_encoder="hierarchical_sequence_v2",
+        policy="MultiInputPolicy",
+        hierarchical_gate_temperature=0.75,
+    )
+    second = _config(
+        observation_encoder="hierarchical_sequence_v2",
+        policy="MultiInputPolicy",
+        hierarchical_gate_temperature=1.25,
+    )
+
+    assert first.digest_payload()["policy_actor_head"] == (
+        "hierarchical_gate_target_v1"
+    )
+    assert content_digest(first.digest_payload()) != content_digest(
+        second.digest_payload()
+    )

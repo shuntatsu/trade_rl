@@ -184,6 +184,8 @@ def _sequence_policy_assembly(
                 "shared_actor_d_model": config.sequence_d_model,
                 "shared_actor_global_dim": 128,
                 "shared_actor_net_arch": tuple(config.policy_net_arch),
+                "shared_actor_head": config.policy_actor_head,
+                "shared_actor_gate_temperature": (config.hierarchical_gate_temperature),
             }
         )
     policy_identifier: object = (

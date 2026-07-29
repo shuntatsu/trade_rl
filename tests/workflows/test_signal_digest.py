@@ -18,13 +18,27 @@ from trade_rl.workflows.walk_forward_evaluation import resolve_signal_digest
 def _run(alpha_path: object) -> TrainingRunConfig:
     return TrainingRunConfig.from_mapping(
         {
-            "schema_version": "training_run_config_v2",
+            "schema_version": "training_run_config_v3",
             "training": {
                 "timesteps": 8,
                 "gamma": 0.99,
                 "seeds": [0],
                 "n_steps": 8,
                 "batch_size": 8,
+                "policy_actor_head": "standard_continuous_v1",
+                "hierarchical_gate_temperature": 1.0,
+                "behavior_cloning_gate_loss_weight": 1.0,
+                "behavior_cloning_target_loss_weight": 1.0,
+                "behavior_cloning_composed_loss_weight": 1.0,
+                "behavior_cloning_gate_change_threshold": 0.05,
+                "behavior_cloning_max_positive_class_weight": 20.0,
+                "behavior_cloning_min_gate_precision": 0.0,
+                "behavior_cloning_min_gate_recall": 0.0,
+                "behavior_cloning_max_active_target_rmse": 1.0,
+                "behavior_cloning_min_activity_ratio": 0.0,
+                "behavior_cloning_max_activity_ratio": 1.0,
+                "behavior_cloning_min_causal_holdout_trades": 0,
+                "behavior_cloning_max_causal_holdout_regret": 0.0,
             },
             "environment": {
                 "episode_bars": 4,

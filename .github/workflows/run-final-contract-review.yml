@@ -27,7 +27,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python tools/apply_final_contract_review.py tests
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/rl/test_environment_info_service.py')
+          source = path.read_text(encoding='utf-8')
+          marker = 'info["sampled_policy_action"], action_path.policy_target'
+          if marker not in source:
+              anchor = '    assert info["constraint_costs"] is costs\n'
+              addition = anchor + '''    np.testing.assert_array_equal(
+              info["sampled_policy_action"], action_path.policy_target
+          )
+          np.testing.assert_array_equal(
+              info["effective_filled_weights"], action_path.filled_weight
+          )
+          assert not np.array_equal(
+              info["sampled_policy_action"], info["submitted_target"]
+          )
+          '''
+              if anchor not in source:
+                  raise RuntimeError('environment telemetry RED anchor not found')
+              path.write_text(source.replace(anchor, addition, 1), encoding='utf-8')
+          PY
           set +e
           uv run pytest \
             tests/integrations/test_postgres_market_dataset.py \

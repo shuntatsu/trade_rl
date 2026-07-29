@@ -41,7 +41,36 @@ jobs:
           test "$status" -ne 0
           grep -q 'TracerWarning' red.log
       - name: Apply implementation
-        run: python tools/apply_export_tracer_safety.py implementation
+        run: |
+          python tools/apply_export_tracer_safety.py implementation
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/rl/structured_export.py')
+          source = path.read_text(encoding='utf-8')
+          old = '''        actor = _StructuredDeterministicActor(
+              policy,
+              tuple(item.name for item in specs),
+              synthesize_decision_index=(
+                  "decision_index" in policy.observation_space.spaces
+              ),
+          ).eval()
+          '''
+          new = '''        raw_observation_spaces = getattr(policy.observation_space, "spaces", None)
+          synthesize_decision_index = (
+              isinstance(raw_observation_spaces, Mapping)
+              and "decision_index" in raw_observation_spaces
+          )
+          actor = _StructuredDeterministicActor(
+              policy,
+              tuple(item.name for item in specs),
+              synthesize_decision_index=synthesize_decision_index,
+          ).eval()
+          '''
+          if old not in source:
+              raise RuntimeError('structured export actor anchor not found')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Verify GREEN tracer safety
         run: |
           uv run ruff check --fix \

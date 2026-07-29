@@ -62,6 +62,7 @@ def _sequence_policy() -> SharedPerAssetActorCriticPolicy:
         "asset_state": spaces.Box(-10.0, 10.0, shape=(n_symbols, 4), dtype=np.float32),
         "global_state": spaces.Box(-10.0, 10.0, shape=(3,), dtype=np.float32),
         "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(n_symbols,), dtype=np.float32),
     }
     for timeframe in timeframes:
         shape = (n_symbols, 3, 2)

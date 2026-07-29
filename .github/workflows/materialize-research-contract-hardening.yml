@@ -1,0 +1,41 @@
+name: Materialize research contract hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  materialize:
+    if: github.head_ref == 'agent/harden-data-bc-serving-contracts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Apply deterministic transformation
+        run: python tools/apply_research_contract_hardening.py
+      - name: Verify generated patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --binary > research-contract-hardening.patch
+          test -s research-contract-hardening.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: research-contract-hardening-materialized
+          path: |
+            research-contract-hardening.patch
+            trade_rl
+            examples
+            docs
+            README.md
+            tests
+          if-no-files-found: error
+          retention-days: 7

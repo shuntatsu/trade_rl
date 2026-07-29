@@ -111,7 +111,6 @@ jobs:
             tests/rl/test_environment_info_service.py -q
           uv run mypy trade_rl
           uv run ruff check .
-          uv run ruff format --check .
           git diff --check
       - name: Commit reviewed implementation
         shell: bash

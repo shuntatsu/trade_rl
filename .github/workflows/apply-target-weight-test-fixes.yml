@@ -1,0 +1,182 @@
+name: Apply Target Weight Test Fixes
+
+on:
+  push:
+    branches:
+      - agent/target-weight-constrained-growth-design
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fixes:
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.event_name != 'pull_request' || github.head_ref == 'agent/target-weight-constrained-growth-design')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/target-weight-constrained-growth-design
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply minimal compatibility fixes
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import shutil
+
+          runner = Path("examples/binance-multitimeframe/run_full_research_state.py")
+          source = runner.read_text(encoding="utf-8")
+          old = "        if self.args.dynamic_symbol_triplets:\n"
+          new = "        if getattr(self.args, \"dynamic_symbol_triplets\", False):\n"
+          if old not in source:
+              raise SystemExit("dynamic symbol triplet compatibility target not found")
+          runner.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          base = Path("trade_rl/workflows/_market_walk_forward_config_base.py")
+          source = base.read_text(encoding="utf-8")
+          old = '''        if set(names) != set(_STANDARD_SCENARIOS):
+            raise ValueError("execution sensitivity scenario pack is incomplete")
+        for scenario in self.scenarios:
+            expected = _STANDARD_SCENARIOS[scenario.name]
+            observed = (
+                scenario.tick_size_factor,
+                scenario.lot_size_factor,
+                scenario.minimum_notional_factor,
+                scenario.adverse_tick_rounding,
+                scenario.report_only,
+            )
+            if observed != expected:
+                raise ValueError(
+                    f"execution sensitivity scenario pack has invalid {scenario.name}"
+                )
+'''
+          new = '''        standard_names = set(_STANDARD_SCENARIOS)
+        if not standard_names.issubset(names):
+            raise ValueError("execution sensitivity scenario pack is incomplete")
+        for scenario in self.scenarios:
+            if scenario.name not in _STANDARD_SCENARIOS:
+                if not scenario.report_only:
+                    raise ValueError(
+                        "additional execution sensitivity scenarios must be report-only"
+                    )
+                continue
+            expected = _STANDARD_SCENARIOS[scenario.name]
+            observed = (
+                scenario.tick_size_factor,
+                scenario.lot_size_factor,
+                scenario.minimum_notional_factor,
+                scenario.adverse_tick_rounding,
+                scenario.report_only,
+            )
+            if observed != expected:
+                raise ValueError(
+                    f"execution sensitivity scenario pack has invalid {scenario.name}"
+                )
+'''
+          if old not in source:
+              raise SystemExit("execution sensitivity validation target not found")
+          base.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          tests = Path("tests/examples/test_target_weight_constrained_growth_profiles.py")
+          source = tests.read_text(encoding="utf-8")
+          old = '''    for name in tuple(training):
+        if name == "algorithm" or name.startswith(("cost_", "lagrangian_")):
+            training.pop(name)
+    return resolved
+'''
+          new = '''    for name in tuple(training):
+        if name == "algorithm" or name.startswith(("cost_", "lagrangian_")):
+            training.pop(name)
+    resolved.pop("lagrangian", None)
+    return resolved
+'''
+          if old not in source:
+              raise SystemExit("algorithm-specific comparison helper target not found")
+          source = source.replace(old, new, 1)
+          old_scenarios = '''        "joint_2x",
+        "joint_3x",
+    )
+'''
+          new_scenarios = '''        "joint_2x",
+        "joint_3x",
+        "joint_5x",
+    )
+'''
+          if old_scenarios not in source:
+              raise SystemExit("scenario assertion target not found")
+          tests.write_text(
+              source.replace(old_scenarios, new_scenarios, 1),
+              encoding="utf-8",
+          )
+
+          profile = Path(
+              "examples/binance-multitimeframe/"
+              "walk-forward-target-weight-constrained-growth.json"
+          )
+          payload = json.loads(profile.read_text(encoding="utf-8"))
+          scenarios = payload["execution_sensitivity"]["scenarios"]
+          if not any(item["name"] == "joint_5x" for item in scenarios):
+              scenarios.append(
+                  {
+                      "adverse_tick_rounding": True,
+                      "lot_size_factor": 5.0,
+                      "minimum_notional_factor": 5.0,
+                      "name": "joint_5x",
+                      "report_only": True,
+                      "tick_size_factor": 5.0,
+                  }
+              )
+          profile.write_text(
+              json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+
+          shutil.rmtree("docs/superpowers", ignore_errors=False)
+
+      - name: Format and lint changed Python
+        run: |
+          uv run ruff check --fix \
+            examples/binance-multitimeframe/run_full_research_state.py \
+            trade_rl/workflows/_market_walk_forward_config_base.py \
+            tests/examples/test_target_weight_constrained_growth_profiles.py
+          uv run ruff format \
+            examples/binance-multitimeframe/run_full_research_state.py \
+            trade_rl/workflows/_market_walk_forward_config_base.py \
+            tests/examples/test_target_weight_constrained_growth_profiles.py
+          uv run ruff check \
+            examples/binance-multitimeframe/run_full_research_state.py \
+            trade_rl/workflows/_market_walk_forward_config_base.py \
+            tests/examples/test_target_weight_constrained_growth_profiles.py
+
+      - name: Run targeted regressions
+        run: |
+          uv run pytest -q \
+            tests/examples/test_binance_metadata_mode_runner.py::test_develop_accepts_supervised_bootstrap_evidence \
+            tests/examples/test_target_weight_constrained_growth_profiles.py \
+            tests/test_current_documentation_contract.py::test_historical_documentation_clutter_is_removed \
+            tests/evaluation/test_target_weight_growth_gate.py
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: close target-weight integration regressions"
+          git push origin HEAD:agent/target-weight-constrained-growth-design

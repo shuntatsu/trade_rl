@@ -55,21 +55,22 @@ jobs:
               1,
           )
           marker = '                    "observation_encoder": "flat_mlp",\n'
-          fields = '''                    "policy_actor_head": "standard_continuous_v1",
-                    "hierarchical_gate_temperature": 1.0,
-                    "behavior_cloning_gate_loss_weight": 1.0,
-                    "behavior_cloning_target_loss_weight": 1.0,
-                    "behavior_cloning_composed_loss_weight": 1.0,
-                    "behavior_cloning_gate_change_threshold": 0.05,
-                    "behavior_cloning_max_positive_class_weight": 20.0,
-                    "behavior_cloning_min_gate_precision": 0.0,
-                    "behavior_cloning_min_gate_recall": 0.0,
-                    "behavior_cloning_max_active_target_rmse": 1.0,
-                    "behavior_cloning_min_activity_ratio": 0.0,
-                    "behavior_cloning_max_activity_ratio": 1.0,
-                    "behavior_cloning_min_causal_holdout_trades": 0,
-                    "behavior_cloning_max_causal_holdout_regret": 0.0,
-'''
+          fields = (
+              '                    "policy_actor_head": "standard_continuous_v1",\n'
+              '                    "hierarchical_gate_temperature": 1.0,\n'
+              '                    "behavior_cloning_gate_loss_weight": 1.0,\n'
+              '                    "behavior_cloning_target_loss_weight": 1.0,\n'
+              '                    "behavior_cloning_composed_loss_weight": 1.0,\n'
+              '                    "behavior_cloning_gate_change_threshold": 0.05,\n'
+              '                    "behavior_cloning_max_positive_class_weight": 20.0,\n'
+              '                    "behavior_cloning_min_gate_precision": 0.0,\n'
+              '                    "behavior_cloning_min_gate_recall": 0.0,\n'
+              '                    "behavior_cloning_max_active_target_rmse": 1.0,\n'
+              '                    "behavior_cloning_min_activity_ratio": 0.0,\n'
+              '                    "behavior_cloning_max_activity_ratio": 1.0,\n'
+              '                    "behavior_cloning_min_causal_holdout_trades": 0,\n'
+              '                    "behavior_cloning_max_causal_holdout_regret": 0.0,\n'
+          )
           if fields not in text:
               if marker not in text:
                   raise RuntimeError('E2E v3 training insertion point missing')

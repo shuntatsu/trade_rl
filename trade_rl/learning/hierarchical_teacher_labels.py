@@ -99,7 +99,7 @@ def _classify_events(
         & (np.abs(current_weights) >= change_threshold)
         & (np.abs(target_actions) < change_threshold)
     )
-    reverse = changed & (current_weights * target_actions < 0.0)
+    reverse = changed & ~enter & ~exit_ & (current_weights * target_actions < 0.0)
     resize = changed & ~(enter | exit_ | reverse)
 
     events = np.full(

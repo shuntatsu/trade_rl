@@ -16,8 +16,9 @@ def test_v3_preserves_explicit_bc_holdout_statistical_settings() -> None:
     config = TrainingRunConfig.from_json(PROFILE)
 
     assert config.training.behavior_cloning_causal_holdout_bootstrap_resamples == 2_000
-    assert config.training.behavior_cloning_causal_holdout_confidence_level == pytest.approx(
-        0.95
+    assert (
+        config.training.behavior_cloning_causal_holdout_confidence_level
+        == pytest.approx(0.95)
     )
 
 

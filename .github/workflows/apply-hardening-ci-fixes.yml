@@ -68,8 +68,8 @@ jobs:
       - name: Verify focused regression
         run: |
           uv sync --extra dev --extra postgres
-          uv run ruff check --fix trade_rl/data/builder.py
-          uv run ruff format trade_rl/data/builder.py
+          uv run ruff check --fix trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
+          uv run ruff format trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
           uv run pytest tests/data/test_market_artifact_catalog.py tests/data/test_economic_semantics.py -q
           uv run ruff check trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
           uv run ruff format --check trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
@@ -84,6 +84,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add trade_rl/data/builder.py
-          git commit -m 'fix: remove obsolete economic builder state'
+          git add trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
+          git commit -m 'fix: normalize shared economic semantics'
           git push origin "HEAD:${HEAD_BRANCH}"

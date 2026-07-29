@@ -9,7 +9,76 @@ permissions:
   contents: write
 
 jobs:
-  fix:
+  windows:
+    if: github.head_ref == 'agent/task9-final-fixtures'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/hierarchical-bc-actor-design
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply valid-row reference patch
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          path = Path("tests/rl/test_sequence_policy_core.py")
+          text = path.read_text(encoding="utf-8")
+          old = (
+              "    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))\n"
+              "    positions = torch.arange(12).expand_as(available)\n"
+              "    indices = positions.masked_fill(~available, -1).max(dim=1).values\n"
+              "    safe = indices.clamp_min(0)\n"
+              "    legacy_selected = legacy_sequence[torch.arange(3), safe]\n"
+              "    legacy = torch.where(\n"
+              "        (indices >= 0).unsqueeze(1),\n"
+              "        legacy_selected,\n"
+              "        torch.zeros_like(legacy_selected),\n"
+              "    )\n"
+          )
+          new = (
+              "    positions = torch.arange(12).expand_as(available)\n"
+              "    indices = positions.masked_fill(~available, -1).max(dim=1).values\n"
+              "    valid = indices >= 0\n"
+              "    valid_batch_indices = torch.arange(legacy_input.shape[0])[valid]\n"
+              "    legacy_sequence = encoder.projection(\n"
+              "        encoder.forward_sequence(legacy_input[valid])\n"
+              "    )\n"
+              "    legacy_selected = legacy_sequence[\n"
+              "        torch.arange(legacy_sequence.shape[0]), indices[valid]\n"
+              "    ]\n"
+              "    legacy = legacy_selected.new_zeros(\n"
+              "        (legacy_input.shape[0], legacy_selected.shape[1])\n"
+              "    ).index_copy(0, valid_batch_indices, legacy_selected)\n"
+          )
+          if old not in text:
+              raise RuntimeError("sequence reference block was not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          '@ | Set-Content -Encoding utf8 patch_sequence_reference.py
+          python patch_sequence_reference.py
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Repeat Windows regression
+        shell: pwsh
+        run: |
+          foreach ($attempt in 1..10) {
+            Write-Host "attempt=$attempt"
+            uv run pytest -q `
+              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 `
+              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+  linux:
+    needs: windows
     if: github.head_ref == 'agent/task9-final-fixtures'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -25,82 +94,65 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Patch final fixtures
+      - name: Apply valid-row reference patch
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          architecture = Path('tests/architecture/test_architecture_audit_fixes.py')
-          text = architecture.read_text(encoding='utf-8')
-          old = '        "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),\n'
+          path = Path('tests/rl/test_sequence_policy_core.py')
+          text = path.read_text(encoding='utf-8')
+          old = (
+              '    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))\n'
+              '    positions = torch.arange(12).expand_as(available)\n'
+              '    indices = positions.masked_fill(~available, -1).max(dim=1).values\n'
+              '    safe = indices.clamp_min(0)\n'
+              '    legacy_selected = legacy_sequence[torch.arange(3), safe]\n'
+              '    legacy = torch.where(\n'
+              '        (indices >= 0).unsqueeze(1),\n'
+              '        legacy_selected,\n'
+              '        torch.zeros_like(legacy_selected),\n'
+              '    )\n'
+          )
           new = (
-              old
-              + '        "current_weights": spaces.Box(\n'
-              + '            -1.0, 1.0, shape=(n_symbols,), dtype=np.float32\n'
-              + '        ),\n'
+              '    positions = torch.arange(12).expand_as(available)\n'
+              '    indices = positions.masked_fill(~available, -1).max(dim=1).values\n'
+              '    valid = indices >= 0\n'
+              '    valid_batch_indices = torch.arange(legacy_input.shape[0])[valid]\n'
+              '    legacy_sequence = encoder.projection(\n'
+              '        encoder.forward_sequence(legacy_input[valid])\n'
+              '    )\n'
+              '    legacy_selected = legacy_sequence[\n'
+              '        torch.arange(legacy_sequence.shape[0]), indices[valid]\n'
+              '    ]\n'
+              '    legacy = legacy_selected.new_zeros(\n'
+              '        (legacy_input.shape[0], legacy_selected.shape[1])\n'
+              '    ).index_copy(0, valid_batch_indices, legacy_selected)\n'
           )
-          if new not in text:
-              if old not in text:
-                  raise RuntimeError('architecture current_weights insertion point missing')
-              text = text.replace(old, new, 1)
-          architecture.write_text(text, encoding='utf-8')
-
-          e2e = Path('tests/e2e/test_research_to_serving_v2.py')
-          text = e2e.read_text(encoding='utf-8')
-          text = text.replace(
-              '"schema_version": "training_run_config_v2"',
-              '"schema_version": "training_run_config_v3"',
-              1,
-          )
-          marker = '                    "observation_encoder": "flat_mlp",\n'
-          fields = (
-              '                    "policy_actor_head": "standard_continuous_v1",\n'
-              '                    "hierarchical_gate_temperature": 1.0,\n'
-              '                    "behavior_cloning_gate_loss_weight": 1.0,\n'
-              '                    "behavior_cloning_target_loss_weight": 1.0,\n'
-              '                    "behavior_cloning_composed_loss_weight": 1.0,\n'
-              '                    "behavior_cloning_gate_change_threshold": 0.05,\n'
-              '                    "behavior_cloning_max_positive_class_weight": 20.0,\n'
-              '                    "behavior_cloning_min_gate_precision": 0.0,\n'
-              '                    "behavior_cloning_min_gate_recall": 0.0,\n'
-              '                    "behavior_cloning_max_active_target_rmse": 1.0,\n'
-              '                    "behavior_cloning_min_activity_ratio": 0.0,\n'
-              '                    "behavior_cloning_max_activity_ratio": 1.0,\n'
-              '                    "behavior_cloning_min_causal_holdout_trades": 0,\n'
-              '                    "behavior_cloning_max_causal_holdout_regret": 0.0,\n'
-          )
-          if fields not in text:
-              if marker not in text:
-                  raise RuntimeError('E2E v3 training insertion point missing')
-              text = text.replace(marker, marker + fields, 1)
-          e2e.write_text(text, encoding='utf-8')
+          if old not in text:
+              raise RuntimeError('sequence reference block was not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
       - name: Install
-        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - name: Verify final fixtures
+        run: uv sync --extra dev --extra train-sb3
+      - name: Verify and commit
         shell: bash
         run: |
           set -euo pipefail
-          uv run ruff format \
-            tests/architecture/test_architecture_audit_fixes.py \
-            tests/e2e/test_research_to_serving_v2.py
+          uv run ruff format tests/rl/test_sequence_policy_core.py
           uv run ruff check .
           uv run ruff format --check .
           uv run mypy .
-          uv run pytest -q \
-            tests/architecture/test_architecture_audit_fixes.py::test_shared_actor_uses_explicit_activity_and_one_shared_exploration_scale \
-            tests/e2e/test_research_to_serving_v2.py::test_research_training_to_attested_runtime_prediction
-      - name: Commit verified fixtures
-        shell: bash
-        run: |
-          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            uv run pytest -q \
+              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 \
+              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
+          done
           git config user.name "trade-rl task executor"
           git config user.email "actions@users.noreply.github.com"
-          git add \
-            tests/architecture/test_architecture_audit_fixes.py \
-            tests/e2e/test_research_to_serving_v2.py
+          git add tests/rl/test_sequence_policy_core.py
           git diff --cached --check
-          git commit -m "test: complete v3 actor fixtures"
+          git commit -m "test: compare sequence gradients on valid rows"
+          git pull --rebase origin agent/hierarchical-bc-actor-design
           git push origin HEAD:agent/hierarchical-bc-actor-design

@@ -145,7 +145,7 @@ def _comparison_cells(delta: float) -> tuple[GrowthProfileComparisonCell, ...]:
         GrowthProfileComparisonCell(
             fold_index=fold_index,
             seed=seed,
-            lagrangian_minus_ppo_net_log_growth=delta + 0.00001 * fold_index,
+            lagrangian_minus_ppo_net_log_growth=delta,
         )
         for fold_index in range(6)
         for seed in (0, 1, 2)

@@ -29,35 +29,40 @@ jobs:
           from pathlib import Path
 
           path = Path('trade_rl/rl/structured_export.py')
-          source = path.read_text(encoding='utf-8')
-          source = source.replace(
-              'from trade_rl.rl.policies import SharedPerAssetActorCriticPolicy\n',
+          lines = path.read_text(encoding='utf-8').splitlines()
+          import_line = 'from trade_rl.rl.policies import SharedPerAssetActorCriticPolicy'
+          if lines.count(import_line) != 1:
+              raise RuntimeError('structured export policy import not found')
+          lines.remove(import_line)
+          annotation = '        policy: SharedPerAssetActorCriticPolicy,'
+          if lines.count(annotation) != 1:
+              raise RuntimeError('structured actor policy annotation not found')
+          lines[lines.index(annotation)] = '        policy: Any,'
+          start = next(
+              index
+              for index, line in enumerate(lines)
+              if line.strip() == 'policy = getattr(model, "policy", None)'
+              and index + 1 < len(lines)
+              and 'SharedPerAssetActorCriticPolicy' in lines[index + 1]
+          )
+          end = next(
+              index
+              for index in range(start + 1, len(lines))
+              if lines[index].strip() == 'original_training = bool(policy.training)'
+          )
+          indent = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
+          replacement = [
+              f'{indent}policy = getattr(model, "policy", None)',
+              f'{indent}if not isinstance(policy, nn.Module):',
+              f'{indent}    raise TypeError("structured export policy must be a torch module")',
+              f'{indent}if not callable(getattr(policy, "deterministic_actions", None)):',
+              f'{indent}    raise TypeError(',
+              f'{indent}        "structured export policy must expose deterministic_actions"',
+              f'{indent}    )',
               '',
-              1,
-          )
-          source = source.replace(
-              '        policy: SharedPerAssetActorCriticPolicy,\n',
-              '        policy: Any,\n',
-              1,
-          )
-          old = '''    policy = getattr(model, "policy", None)
-          if not isinstance(policy, SharedPerAssetActorCriticPolicy):
-              raise TypeError("structured export requires the shared per-asset policy")
-          '''
-          new = '''    policy = getattr(model, "policy", None)
-          if not isinstance(policy, nn.Module):
-              raise TypeError("structured export policy must be a torch module")
-          if not callable(getattr(policy, "deterministic_actions", None)):
-              raise TypeError(
-                  "structured export policy must expose deterministic_actions"
-              )
-          '''
-          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
-          if source.count(old) != 1:
-              raise RuntimeError('structured export validation anchor not found')
-          source = source.replace(old, new, 1)
-          path.write_text(source, encoding='utf-8')
+          ]
+          lines[start:end] = replacement
+          path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
           uv run ruff check --fix trade_rl/rl/structured_export.py
           uv run ruff format trade_rl/rl/structured_export.py

@@ -1,4 +1,4 @@
-name: Task 9 Final Fixture Remediation
+name: Task 9 Event Classification TDD
 
 on:
   pull_request:
@@ -9,76 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    if: github.head_ref == 'agent/task9-final-fixtures'
-    runs-on: windows-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout target
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: agent/hierarchical-bc-actor-design
-          persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-        with:
-          python-version: "3.12"
-          enable-cache: true
-      - name: Apply valid-row reference patch
-        shell: pwsh
-        run: |
-          @'
-          from pathlib import Path
-
-          path = Path("tests/rl/test_sequence_policy_core.py")
-          text = path.read_text(encoding="utf-8")
-          old = (
-              "    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))\n"
-              "    positions = torch.arange(12).expand_as(available)\n"
-              "    indices = positions.masked_fill(~available, -1).max(dim=1).values\n"
-              "    safe = indices.clamp_min(0)\n"
-              "    legacy_selected = legacy_sequence[torch.arange(3), safe]\n"
-              "    legacy = torch.where(\n"
-              "        (indices >= 0).unsqueeze(1),\n"
-              "        legacy_selected,\n"
-              "        torch.zeros_like(legacy_selected),\n"
-              "    )\n"
-          )
-          new = (
-              "    positions = torch.arange(12).expand_as(available)\n"
-              "    indices = positions.masked_fill(~available, -1).max(dim=1).values\n"
-              "    valid = indices >= 0\n"
-              "    valid_batch_indices = torch.arange(legacy_input.shape[0])[valid]\n"
-              "    legacy_sequence = encoder.projection(\n"
-              "        encoder.forward_sequence(legacy_input[valid])\n"
-              "    )\n"
-              "    legacy_selected = legacy_sequence[\n"
-              "        torch.arange(legacy_sequence.shape[0]), indices[valid]\n"
-              "    ]\n"
-              "    legacy = legacy_selected.new_zeros(\n"
-              "        (legacy_input.shape[0], legacy_selected.shape[1])\n"
-              "    ).index_copy(0, valid_batch_indices, legacy_selected)\n"
-          )
-          if old not in text:
-              raise RuntimeError("sequence reference block was not found")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
-          '@ | Set-Content -Encoding utf8 patch_sequence_reference.py
-          python patch_sequence_reference.py
-      - name: Install
-        run: uv sync --extra dev --extra train-sb3
-      - name: Repeat Windows regression
-        shell: pwsh
-        run: |
-          foreach ($attempt in 1..10) {
-            Write-Host "attempt=$attempt"
-            uv run pytest -q `
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 `
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-
-  linux:
-    needs: windows
+  tdd:
     if: github.head_ref == 'agent/task9-final-fixtures'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -94,65 +25,91 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Apply valid-row reference patch
+      - name: Add boundary regression test only
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('tests/rl/test_sequence_policy_core.py')
+          path = Path('tests/learning/test_hierarchical_teacher_labels.py')
           text = path.read_text(encoding='utf-8')
-          old = (
-              '    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))\n'
-              '    positions = torch.arange(12).expand_as(available)\n'
-              '    indices = positions.masked_fill(~available, -1).max(dim=1).values\n'
-              '    safe = indices.clamp_min(0)\n'
-              '    legacy_selected = legacy_sequence[torch.arange(3), safe]\n'
-              '    legacy = torch.where(\n'
-              '        (indices >= 0).unsqueeze(1),\n'
-              '        legacy_selected,\n'
-              '        torch.zeros_like(legacy_selected),\n'
-              '    )\n'
-          )
-          new = (
-              '    positions = torch.arange(12).expand_as(available)\n'
-              '    indices = positions.masked_fill(~available, -1).max(dim=1).values\n'
-              '    valid = indices >= 0\n'
-              '    valid_batch_indices = torch.arange(legacy_input.shape[0])[valid]\n'
-              '    legacy_sequence = encoder.projection(\n'
-              '        encoder.forward_sequence(legacy_input[valid])\n'
-              '    )\n'
-              '    legacy_selected = legacy_sequence[\n'
-              '        torch.arange(legacy_sequence.shape[0]), indices[valid]\n'
-              '    ]\n'
-              '    legacy = legacy_selected.new_zeros(\n'
-              '        (legacy_input.shape[0], legacy_selected.shape[1])\n'
-              '    ).index_copy(0, valid_batch_indices, legacy_selected)\n'
-          )
-          if old not in text:
-              raise RuntimeError('sequence reference block was not found')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          test = '''
+
+
+def test_effectively_flat_enter_exit_take_precedence_over_reverse() -> None:
+    current = np.array([[0.005], [0.4]], dtype=np.float32)
+    target = np.array([[-0.4], [-0.005]], dtype=np.float32)
+
+    labels = _build(current, target, threshold=0.01)
+
+    assert labels.gate_labels[:, 0].tolist() == [True, True]
+    assert labels.events[:, 0].tolist() == [
+        TeacherActionEvent.ENTER,
+        TeacherActionEvent.EXIT,
+    ]
+'''
+          if 'test_effectively_flat_enter_exit_take_precedence_over_reverse' not in text:
+              path.write_text(text + test, encoding='utf-8')
           PY
-      - name: Install
-        run: uv sync --extra dev --extra train-sb3
-      - name: Verify and commit
+      - name: Verify RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/learning/test_hierarchical_teacher_labels.py::test_effectively_flat_enter_exit_take_precedence_over_reverse \
+            > red.log 2>&1
+          status=$?
+          set -e
+          cat red.log
+          test "$status" -eq 1
+          grep -q "FAILED" red.log
+          grep -q "AssertionError" red.log
+      - name: Apply minimal precedence fix
         shell: bash
         run: |
           set -euo pipefail
-          uv run ruff format tests/rl/test_sequence_policy_core.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/learning/hierarchical_teacher_labels.py')
+          text = path.read_text(encoding='utf-8')
+          old = '    reverse = changed & (current_weights * target_actions < 0.0)\n'
+          new = (
+              '    reverse = (\n'
+              '        changed\n'
+              '        & ~enter\n'
+              '        & ~exit_\n'
+              '        & (current_weights * target_actions < 0.0)\n'
+              '    )\n'
+          )
+          if old not in text:
+              raise RuntimeError('event reverse classification block was not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Verify GREEN and static contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/learning/hierarchical_teacher_labels.py \
+            tests/learning/test_hierarchical_teacher_labels.py
           uv run ruff check .
           uv run ruff format --check .
           uv run mypy .
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            uv run pytest -q \
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 \
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
-          done
+          uv run pytest -q \
+            tests/learning/test_hierarchical_teacher_labels.py \
+            tests/learning/test_hierarchical_bc_metrics.py
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "trade-rl task executor"
           git config user.email "actions@users.noreply.github.com"
-          git add tests/rl/test_sequence_policy_core.py
+          git add \
+            trade_rl/learning/hierarchical_teacher_labels.py \
+            tests/learning/test_hierarchical_teacher_labels.py
           git diff --cached --check
-          git commit -m "test: compare sequence gradients on valid rows"
+          git commit -m "fix: prioritize enter and exit teacher events"
           git pull --rebase origin agent/hierarchical-bc-actor-design
           git push origin HEAD:agent/hierarchical-bc-actor-design

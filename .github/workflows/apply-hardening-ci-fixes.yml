@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.12'
           enable-cache: true
-      - name: Remove duplicate economic keywords
+      - name: Remove obsolete economic builder state
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -32,27 +32,44 @@ jobs:
           result = []
           in_constructor = False
           economics_expanded = False
-          duplicate_names = {'tick_size=tick_size,', 'lot_size=lot_size,', 'minimum_notional=minimum_notional,'}
-          removed = []
+          duplicate_names = {
+              'tick_size=tick_size,',
+              'lot_size=lot_size,',
+              'minimum_notional=minimum_notional,',
+          }
+          obsolete_initializers = {
+              'tick_size = np.zeros_like(open_price)',
+              'lot_size = np.zeros_like(open_price)',
+              'minimum_notional = np.zeros_like(open_price)',
+          }
+          removed_duplicates = []
+          removed_initializers = []
           for line in lines:
               stripped = line.strip()
+              if stripped in obsolete_initializers:
+                  removed_initializers.append(stripped)
+                  continue
               if stripped == 'return MarketDataset(':
                   in_constructor = True
               if in_constructor and stripped == '**economics.market_dataset_kwargs(),':
                   economics_expanded = True
               if in_constructor and economics_expanded and stripped in duplicate_names:
-                  removed.append(stripped)
+                  removed_duplicates.append(stripped)
                   continue
               result.append(line)
               if in_constructor and stripped == ').with_content_identity(metadata)':
                   in_constructor = False
-          if set(removed) != duplicate_names:
-              raise RuntimeError(f'unexpected duplicate removal set: {removed}')
+          if removed_duplicates and set(removed_duplicates) != duplicate_names:
+              raise RuntimeError(f'unexpected duplicate removal set: {removed_duplicates}')
+          if removed_initializers and set(removed_initializers) != obsolete_initializers:
+              raise RuntimeError(f'unexpected initializer removal set: {removed_initializers}')
           path.write_text(''.join(result), encoding='utf-8')
           PY
       - name: Verify focused regression
         run: |
           uv sync --extra dev --extra postgres
+          uv run ruff check --fix trade_rl/data/builder.py
+          uv run ruff format trade_rl/data/builder.py
           uv run pytest tests/data/test_market_artifact_catalog.py tests/data/test_economic_semantics.py -q
           uv run ruff check trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
           uv run ruff format --check trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
@@ -68,5 +85,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add trade_rl/data/builder.py
-          git commit -m 'fix: remove duplicate economic dataset keywords'
+          git commit -m 'fix: remove obsolete economic builder state'
           git push origin "HEAD:${HEAD_BRANCH}"

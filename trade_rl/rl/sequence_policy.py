@@ -134,6 +134,7 @@ class CausalTimeframeEncoder(nn.Module):
             )
             current = width
         self.blocks = nn.Sequential(*blocks)
+        self.latent_dim = latent_dim
         self.window_length = window_length
         self.dilations = dilations
         self.receptive_field = 1 + 2 * sum(dilations)
@@ -170,11 +171,15 @@ class CausalTimeframeEncoder(nn.Module):
         positions = torch.arange(value.shape[1], device=value.device).expand_as(mask)
         indices = positions.masked_fill(~mask, -1).max(dim=1).values
         safe = indices.clamp_min(0)
-        selected = encoded[torch.arange(value.shape[0], device=value.device), safe]
+        valid = indices >= 0
+        batch_indices = torch.arange(value.shape[0], device=value.device)
+        valid_batch_indices = batch_indices[valid]
+        selected = encoded[valid_batch_indices, safe[valid]]
         projected = self.projection(selected)
-        return torch.where(
-            (indices >= 0).unsqueeze(1), projected, torch.zeros_like(projected)
+        output = (encoded.sum(dim=(1, 2)).unsqueeze(1) * 0.0).expand(
+            -1, self.latent_dim
         )
+        return output.clone().index_copy(0, valid_batch_indices, projected)
 
 
 @dataclass(frozen=True, slots=True)

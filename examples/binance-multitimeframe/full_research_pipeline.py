@@ -339,6 +339,38 @@ def _resolve_metadata(
     )
 
 
+def validate_maintained_dataset_preset(
+    dataset: MarketDataset,
+    *,
+    use_postgres: bool,
+) -> None:
+    if dataset.n_bars != _EXPECTED_15M_BARS:
+        raise RuntimeError(
+            f"expected {_EXPECTED_15M_BARS:,} 15-minute bars, observed {dataset.n_bars}"
+        )
+    expected_dataset_symbols = _SLOT_SYMBOLS if use_postgres else _SYMBOLS
+    if dataset.symbols != expected_dataset_symbols:
+        raise RuntimeError(f"unexpected symbol order: {dataset.symbols}")
+    expected_features = tuple(
+        spec.name
+        for spec in binance_multitimeframe_feature_specs(
+            base_timeframe="15m",
+            feature_timeframes=_FEATURE_TIMEFRAMES,
+        )
+    )
+    if len(expected_features) != 226:
+        raise RuntimeError(
+            f"extended feature contract must contain 226 features, got {len(expected_features)}"
+        )
+    expected_dataset_features = (
+        (*expected_features, *(f"15m__symbol_id_{symbol}" for symbol in _SYMBOL_POOL))
+        if use_postgres
+        else expected_features
+    )
+    if dataset.feature_names != expected_dataset_features:
+        raise RuntimeError(f"unexpected feature contract: {dataset.feature_names}")
+
+
 def _build_dataset(
     *,
     output: Path,
@@ -370,6 +402,7 @@ def _build_dataset(
                 end_time=_parse_utc(_END),
                 metadata=metadata,
                 metadata_evidence_digest=metadata_evidence_digest,
+                execution_rule_histories=execution_rule_histories,
                 symbol_triplet_provenance=_ACTIVE_SYMBOL_TRIPLET,
             )
         feature_timeframes = _NATIVE_TIMEFRAMES
@@ -404,32 +437,8 @@ def _build_dataset(
         dataset = result.dataset
         feature_timeframes = result.feature_timeframes
         sources_used = result.sources_used
+    validate_maintained_dataset_preset(dataset, use_postgres=use_postgres)
     published = publish_market_dataset_artifact(output, dataset)
-    if dataset.n_bars != _EXPECTED_15M_BARS:
-        raise RuntimeError(
-            f"expected {_EXPECTED_15M_BARS:,} 15-minute bars, observed {dataset.n_bars}"
-        )
-    expected_dataset_symbols = _SLOT_SYMBOLS if use_postgres else _SYMBOLS
-    if dataset.symbols != expected_dataset_symbols:
-        raise RuntimeError(f"unexpected symbol order: {dataset.symbols}")
-    expected_features = tuple(
-        spec.name
-        for spec in binance_multitimeframe_feature_specs(
-            base_timeframe="15m",
-            feature_timeframes=_FEATURE_TIMEFRAMES,
-        )
-    )
-    if len(expected_features) != 226:
-        raise RuntimeError(
-            f"extended feature contract must contain 226 features, got {len(expected_features)}"
-        )
-    expected_dataset_features = (
-        (*expected_features, *(f"15m__symbol_id_{symbol}" for symbol in _SYMBOL_POOL))
-        if use_postgres
-        else expected_features
-    )
-    if dataset.feature_names != expected_dataset_features:
-        raise RuntimeError(f"unexpected feature contract: {dataset.feature_names}")
     return {
         "artifact_digest": published.artifact_digest,
         "dataset_id": dataset.dataset_id,

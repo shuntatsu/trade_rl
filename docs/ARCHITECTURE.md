@@ -81,7 +81,7 @@ Reward schema v4は絶対対数資産成長を主目的にします。Baseline-r
 
 ## Observation encoder architecture
 
-`training_run_config_v2`は`observation_encoder`を1つだけ持ちます。
+`training_run_config_v3`は`observation_encoder`と階層Actor契約を明示します。
 
 - `flat_mlp`: Flat observationをMLPへ入力
 - `asset_set`: 銘柄別構造を使う非系列Encoder
@@ -176,7 +176,7 @@ TelemetryとTensorBoardは、Fitting、Checkpoint選択、Sealed評価、Run ide
 
 Flat actorのONNX/TorchScript Exportと、Sequence actorの構造化Exportを分離します。
 
-`structured_policy_export_v1`はCanonical Dict input order、Shape、Dtype、Parity corpus、Model digest、Policy identity、Architecture digestを保存します。構造化Modelは`policy.structured.torchscript.pt`です。
+`structured_policy_export_v2`はCanonical Dict input order、Shape、Dtype、Parity corpus、Model digest、Policy identity、Architecture digestを保存します。構造化Modelは`policy.structured.torchscript.pt`です。
 
 Serving bundleの正本は`serving_bundle_v5`です。`CanonicalStructuredPolicyLoader`は、Sequence observation schema、Bundle file closure、Export manifest、Model digest、Architecture digestをPolicy実行前に検証します。
 
@@ -193,3 +193,17 @@ PostgreSQLは任意のmetadata catalogです。Artifact identity、Cache key、L
 Self-hosted GPU runnerはPull Requestの任意Codeを実行しません。維持対象の完全実行は、Owner-authored `main`、指定Environment、固定Action SHA、read-only Sourceを要求します。
 
 GPU Evidenceが欠けてもCPU CIを成功扱いに偽装せず、GPU Gateを未取得として別に記録します。
+
+## Maintained contract clarifications
+
+因果データ契約は`data/contracts.py`だけに閉じていません。FeatureとInstrumentの宣言は`contracts.py`、Barと`available_at`は`RawMarketSeries`、市場配列は`MarketDataset`、`values`・`available`・`staleness`は`SequenceObservation`がそれぞれ保持し、frozen型、read-only配列、実行時検証を重ねて将来参照を拒否します。
+
+7種類のconstraint costはscalar rewardから独立したCost Critic／Lagrangian用チャネルです。すべてがhard constraintという意味ではありません。Weight、gross、margin、liquidation、exchange rule等のhard safetyは環境とpre-trade riskが強制し、turnoverやexecution cost等はsoft budgetとして扱います。
+
+`hierarchical_gate_target_v1`という互換名はCheckpoint identityのため維持しますが、sigmoid出力の意味はBernoulli Gateではなく連続的な**change intensity**です。TensorBoardはdeterministic composed actionと探索後のsampled policy actionのL1差を、Environment infoはsampled policy actionから約定後effective filled weightsまでの差を記録します。
+
+Constrained PPOのPR C正本は修正版PR #193です。PR #191は置換前のDraft履歴であり、維持対象実装の根拠には使用しません。
+
+Workflow securityはrunnerの任意の表示名をallowlistするのではなく、GitHub-hosted形式かprivileged runnerかを分類し、privileged runnerについてtrigger、owner、main、Environment、権限、immutable checkoutを検証します。この方針をrunner classificationと呼びます。
+
+構造化配信の正本は`structured_policy_export_v2`と`serving_bundle_v5`です。秘密鍵ファイルのloaderは`offline_keys`、鍵生成と署名は`offline_signing`、承認署名は`offline_approval`等の明示的offline moduleへ限定します。Import Linterはruntime/trainingからこれらへの静的依存を禁止しますが、OS sandboxそのものを主張するものではありません。

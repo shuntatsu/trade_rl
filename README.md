@@ -153,3 +153,9 @@ npm run check:layout --prefix studio
 - Venue kill switchとOperational alerting
 
 これらの実装と実証Evidenceが揃うまで、Production statusは**NO-GO**です。
+
+## 維持対象の契約バージョン
+
+維持対象の学習設定は`training_run_config_v3`、構造化Policy exportは`structured_policy_export_v2`、Serving bundleは`serving_bundle_v5`です。QuickstartはPipeline確認用ですが、Reward dataclassの既定値変更で意味が静かに変わらないよう、hybrid reward値をJSONへ明示しています。
+
+データの因果性はFeature契約だけでなく、Raw Barのavailability、MarketDatasetのeconomic arrays、SequenceObservationのstalenessまで多層で検証します。constraint costは報酬と分離されていますが、hard safetyとLagrangian soft budgetは同義ではありません。

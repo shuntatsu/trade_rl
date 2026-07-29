@@ -17,6 +17,9 @@ _TAGS = (
     "trade_rl/interval_cost_mean",
     "trade_rl/action_abs_mean",
     "trade_rl/action_abs_max",
+    "trade_rl/change_intensity_mean",
+    "trade_rl/exploration_l1_mean",
+    "trade_rl/effective_action_l1_mean",
 )
 
 
@@ -64,6 +67,29 @@ def build_tensorboard_metrics_callback(
                 absolute = tuple(abs(item) for item in actions)
                 self._values["trade_rl/action_abs_mean"].extend(absolute)
                 self._values["trade_rl/action_abs_max"].append(max(absolute))
+            if self.n_calls % log_interval == 0:
+                observations = self.locals.get("obs_tensor")
+                output_factory = getattr(
+                    getattr(self.model, "policy", None),
+                    "hierarchical_actor_outputs",
+                    None,
+                )
+                if observations is not None and callable(output_factory):
+                    import torch
+
+                    with torch.no_grad():
+                        outputs = output_factory(observations)
+                    intensity = outputs.change_intensity.detach().cpu().numpy()
+                    deterministic = outputs.composed_actions.detach().cpu().numpy()
+                    sampled_matrix = np.asarray(
+                        self.locals.get("actions", ()), dtype=np.float64
+                    )
+                    if sampled_matrix.shape == deterministic.shape:
+                        self._extend("trade_rl/change_intensity_mean", intensity)
+                        self._extend(
+                            "trade_rl/exploration_l1_mean",
+                            np.sum(np.abs(sampled_matrix - deterministic), axis=1),
+                        )
             infos = self.locals.get("infos", ())
             if isinstance(infos, (list, tuple)):
                 for info in infos:
@@ -80,6 +106,10 @@ def build_tensorboard_metrics_callback(
                     self._extend(
                         "trade_rl/interval_cost_mean",
                         info.get("interval_cost", ()),
+                    )
+                    self._extend(
+                        "trade_rl/effective_action_l1_mean",
+                        info.get("sampled_policy_to_filled_l1", ()),
                     )
             return True
 

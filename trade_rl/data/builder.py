@@ -17,6 +17,7 @@ from trade_rl.data.cross_asset_features import (
     CROSS_ASSET_FEATURE_KINDS,
     calculate_cross_asset_feature_events,
 )
+from trade_rl.data.economic_semantics import build_market_economic_semantics
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
@@ -256,9 +257,6 @@ class MarketDatasetBuilder:
         information_available = np.zeros_like(row_present)
         available_at = np.broadcast_to(timestamps[:, None], row_present.shape).copy()
         symbol_active = np.zeros_like(row_present)
-        tick_size = np.zeros_like(open_price)
-        lot_size = np.zeros_like(open_price)
-        minimum_notional = np.zeros_like(open_price)
 
         for symbol_index, (contract, raw) in enumerate(zip(instruments, raw_series)):
             aligned = _align_series(raw, timestamps, step_ns=alignment_step)
@@ -275,21 +273,21 @@ class MarketDatasetBuilder:
             information_available[:, symbol_index] = aligned["information_available"]
             available_at[:, symbol_index] = aligned["available_at"]
 
-            listed = _utc_datetime64(contract.listed_at)
-            active = timestamps >= listed
-            if contract.delisted_at is not None:
-                active &= timestamps < _utc_datetime64(contract.delisted_at)
-            symbol_active[:, symbol_index] = active
-            resolved_tick, resolved_lot, resolved_minimum = (
-                contract.execution_rule_arrays(timestamps)
-            )
-            tick_size[:, symbol_index] = resolved_tick
-            lot_size[:, symbol_index] = resolved_lot
-            minimum_notional[:, symbol_index] = resolved_minimum
-
-        information_available &= symbol_active & row_present
+        economics = build_market_economic_semantics(
+            timestamps=timestamps,
+            instruments=instruments,
+            row_present=row_present,
+            raw_tradable=raw_tradable,
+            source_information_available=information_available,
+            available_at=available_at,
+            close=close,
+            funding_event_count=funding_event_count,
+        )
+        symbol_active = economics.symbol_active
+        information_available = economics.information_available
+        available_at = economics.available_at
         causal_row_present = row_present & information_available
-        tradable = symbol_active & row_present & raw_tradable
+        tradable = economics.tradable
         features = np.zeros((n_bars, n_symbols, n_features), dtype=np.float64)
         feature_available = np.zeros_like(features, dtype=np.bool_)
         feature_age_hours = np.ones_like(features, dtype=np.float64)
@@ -481,10 +479,26 @@ class MarketDatasetBuilder:
             volume=volume,
             funding_rate=funding_rate,
             funding_event_count=funding_event_count,
-            tradable=tradable,
-            symbol_active=symbol_active,
-            information_available=information_available,
-            available_at=available_at,
+            symbol_active=economics.symbol_active,
+            asset_active=economics.asset_active,
+            tradable=economics.tradable,
+            information_available=economics.information_available,
+            available_at=economics.available_at,
+            fee_rate=economics.fee_rate,
+            maker_fee_rate=economics.maker_fee_rate,
+            taker_fee_rate=economics.taker_fee_rate,
+            spread_rate=economics.spread_rate,
+            max_participation_rate=economics.max_participation_rate,
+            minimum_notional=economics.minimum_notional,
+            lot_size=economics.lot_size,
+            tick_size=economics.tick_size,
+            borrow_available=economics.borrow_available,
+            borrow_rate=economics.borrow_rate,
+            funding_due=economics.funding_due,
+            buy_allowed=economics.buy_allowed,
+            sell_allowed=economics.sell_allowed,
+            mark_price=economics.mark_price,
+            index_price=economics.index_price,
             feature_available=feature_available,
             feature_staleness_hours=feature_age_hours,
             feature_staleness=feature_staleness,
@@ -495,9 +509,6 @@ class MarketDatasetBuilder:
                 [contract.contract_multiplier for contract in instruments],
                 dtype=np.float64,
             ),
-            tick_size=tick_size,
-            lot_size=lot_size,
-            minimum_notional=minimum_notional,
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
             periods_per_year=periods_per_year,

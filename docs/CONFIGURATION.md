@@ -1,10 +1,10 @@
-# Training Configuration v2
+# Training Configuration v3
 
-維持対象のTop-level Schemaは`training_run_config_v2`です。設定は`trade-rl train run`と`trade-rl walk-forward run`で使用します。
+維持対象のTop-level Schemaは`training_run_config_v3`です。設定は`trade-rl train run`と`trade-rl walk-forward run`で使用します。
 
 ```json
 {
-  "schema_version": "training_run_config_v2",
+  "schema_version": "training_run_config_v3",
   "training": {},
   "environment": {},
   "action": {},
@@ -180,7 +180,7 @@ Checkpoint manifestはTraining config digestとPolicy architecture identityを�
 
 Flat policyでは`exports.onnx`と`exports.torchscript`を使用できます。
 
-`hierarchical_sequence_v2`はFlat tensor Exportを使わず、`structured_policy_export_v1`を使用します。構造化Exportは次をManifestへ固定します。
+`hierarchical_sequence_v2`はFlat tensor Exportを使わず、`structured_policy_export_v2`を使用します。構造化Exportは次をManifestへ固定します。
 
 - Canonical Dict input順
 - Input shapeとdtype

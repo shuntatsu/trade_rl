@@ -399,6 +399,15 @@ class EnvironmentInfoBuilder:
                 request.executed_target,
                 dtype=np.float64,
             ).copy(),
+            "sampled_policy_action": np.asarray(
+                action_path.policy_target,
+                dtype=np.float64,
+            ).copy(),
+            "effective_filled_weights": np.asarray(
+                action_path.filled_weight,
+                dtype=np.float64,
+            ).copy(),
+            "sampled_policy_to_filled_l1": action_path.policy_to_filled_l1,
             "drawdown_after": self.drawdown(request.hybrid),
             "portfolio_value_after": request.hybrid.portfolio_value,
             "reward_growth_raw": reward.absolute_log_growth,

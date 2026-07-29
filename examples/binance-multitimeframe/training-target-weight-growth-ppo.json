@@ -34,10 +34,22 @@
     ],
     "liquidate_on_end": false,
     "sequence_windows": [
-      ["15m", 96],
-      ["1h", 168],
-      ["4h", 120],
-      ["1d", 60]
+      [
+        "15m",
+        96
+      ],
+      [
+        "1h",
+        168
+      ],
+      [
+        "4h",
+        120
+      ],
+      [
+        "1d",
+        60
+      ]
     ],
     "signal_delay_decisions": 1,
     "structured_sequence_observation": true
@@ -54,7 +66,12 @@
     "path_mode": "conservative",
     "processing_bar_volume_capacity": true,
     "spread_rate": 0.0002,
-    "trigger_volume_fractions": [1.0, 0.5, 0.25, 0.0]
+    "trigger_volume_fractions": [
+      1.0,
+      0.5,
+      0.25,
+      0.0
+    ]
   },
   "exports": {
     "onnx": false,
@@ -106,12 +123,12 @@
     "behavior_cloning_max_causal_holdout_regret": 0.2,
     "behavior_cloning_max_positive_class_weight": 20.0,
     "behavior_cloning_min_activity_ratio": 0.25,
-    "behavior_cloning_min_causal_holdout_trades": 1,
+    "behavior_cloning_min_causal_holdout_trades": 30,
     "behavior_cloning_min_gate_precision": 0.5,
     "behavior_cloning_min_gate_recall": 0.6,
     "behavior_cloning_minimum_improvement": 1e-07,
     "behavior_cloning_patience": 5,
-    "behavior_cloning_required_relative_improvement": 0.0,
+    "behavior_cloning_required_relative_improvement": 0.005,
     "behavior_cloning_target_loss_weight": 1.0,
     "behavior_cloning_teacher": "oracle",
     "behavior_cloning_validation_fraction": 0.1,
@@ -135,8 +152,16 @@
     "observation_encoder": "hierarchical_sequence_v2",
     "policy": "MultiInputPolicy",
     "policy_actor_head": "hierarchical_gate_target_v1",
-    "policy_net_arch": [384, 256, 128],
-    "seeds": [0, 1, 2],
+    "policy_net_arch": [
+      384,
+      256,
+      128
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
     "sequence_asset_attention_heads": 8,
     "sequence_asset_attention_layers": 2,
     "sequence_asset_ffn_multiplier": 3,
@@ -155,8 +180,14 @@
     "tensorboard_enabled": true,
     "tensorboard_log_interval": 1,
     "timesteps": 524288,
-    "value_net_arch": [512, 384, 256],
-    "vector_environment_mode": "subprocess"
+    "value_net_arch": [
+      512,
+      384,
+      256
+    ],
+    "vector_environment_mode": "subprocess",
+    "behavior_cloning_causal_holdout_bootstrap_resamples": 2000,
+    "behavior_cloning_causal_holdout_confidence_level": 0.95
   },
   "trend": {
     "base_hours": 168.0,

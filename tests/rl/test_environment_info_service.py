@@ -160,6 +160,9 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "execution_delay_warmup",
         "submitted_target",
         "executed_target",
+        "sampled_policy_action",
+        "effective_filled_weights",
+        "sampled_policy_to_filled_l1",
         "drawdown_after",
         "portfolio_value_after",
         "reward_growth_raw",
@@ -239,6 +242,13 @@ def test_step_info_exposes_action_path_and_constraint_scalars() -> None:
 
     assert info["action_path"] is action_path
     assert info["constraint_costs"] is costs
+    np.testing.assert_array_equal(
+        info["sampled_policy_action"], action_path.policy_target
+    )
+    np.testing.assert_array_equal(
+        info["effective_filled_weights"], action_path.filled_weight
+    )
+    assert not np.array_equal(info["sampled_policy_action"], info["submitted_target"])
     assert info["action_path_policy_to_execution_intent_l1"] == 0.0
     assert info["action_path_execution_intent_to_pretrade_l1"] == pytest.approx(0.3)
     assert info["action_path_policy_to_pretrade_l1"] == pytest.approx(0.3)

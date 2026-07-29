@@ -10,7 +10,13 @@ from typing import Final
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.contracts import FeatureSpec, VolumeUnit
+from trade_rl.data.contracts import (
+    FeatureSpec,
+    InstrumentContract,
+    InstrumentExecutionRule,
+    VolumeUnit,
+)
+from trade_rl.data.economic_semantics import build_market_economic_semantics
 from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.binance import binance_multitimeframe_feature_specs
@@ -49,16 +55,65 @@ def _epoch_ms(value: datetime) -> int:
     return int(round(value.timestamp() * 1000.0))
 
 
+def _metadata_entry(
+    metadata: Mapping[str, Mapping[str, object]], symbol: str
+) -> Mapping[str, object]:
+    entry = metadata.get(symbol)
+    if not isinstance(entry, Mapping):
+        raise ValueError(f"metadata {symbol} must be an object")
+    return entry
+
+
 def _metadata_number(
     metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
 ) -> float:
-    raw = metadata.get(symbol, {}).get(field, 0.0)
-    if isinstance(raw, bool) or not isinstance(raw, int | float):
+    entry = _metadata_entry(metadata, symbol)
+    if field not in entry:
+        raise ValueError(f"metadata {symbol}.{field} is required")
+    raw = entry[field]
+    if isinstance(raw, bool) or not isinstance(raw, str | int | float):
         raise ValueError(f"metadata {symbol}.{field} must be numeric")
-    resolved = float(raw)
-    if not math.isfinite(resolved) or resolved < 0.0:
-        raise ValueError(f"metadata {symbol}.{field} must be finite and non-negative")
+    try:
+        resolved = float(raw)
+    except ValueError as error:
+        raise ValueError(f"metadata {symbol}.{field} must be numeric") from error
+    if not math.isfinite(resolved) or resolved <= 0.0:
+        raise ValueError(f"metadata {symbol}.{field} must be finite and positive")
     return resolved
+
+
+def _metadata_datetime(
+    metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+) -> datetime:
+    entry = _metadata_entry(metadata, symbol)
+    raw = entry.get(field)
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"metadata {symbol}.{field} is required")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(
+            f"metadata {symbol}.{field} must be an ISO-8601 timestamp"
+        ) from error
+    return _aware_utc(parsed, field=f"metadata {symbol}.{field}")
+
+
+def _metadata_optional_datetime(
+    metadata: Mapping[str, Mapping[str, object]], symbol: str, field: str
+) -> datetime | None:
+    entry = _metadata_entry(metadata, symbol)
+    raw = entry.get(field)
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"metadata {symbol}.{field} must be an ISO-8601 timestamp")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(
+            f"metadata {symbol}.{field} must be an ISO-8601 timestamp"
+        ) from error
+    return _aware_utc(parsed, field=f"metadata {symbol}.{field}")
 
 
 def _load_base_market(
@@ -275,6 +330,8 @@ def build_postgres_market_dataset(
     end_time: datetime,
     metadata: Mapping[str, Mapping[str, object]],
     metadata_evidence_digest: str,
+    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
+    | None = None,
     indicator_bundle: NativeIndicatorArtifactBundle | None = None,
     slot_symbols: Sequence[str] | None = None,
     symbol_triplet_provenance: Mapping[str, object] | None = None,
@@ -338,41 +395,71 @@ def build_postgres_market_dataset(
     )
     n_bars = len(timestamps_ms)
     price_shape = (n_bars, len(selected))
-    active = np.ones(price_shape, dtype=np.bool_)
-    tradable = np.ones(price_shape, dtype=np.bool_)
     timestamps = timestamps_ms.astype("datetime64[ms]").astype("datetime64[ns]")
     available_at = np.broadcast_to(timestamps[:, None], price_shape).copy()
+    if execution_rule_histories is not None:
+        missing_histories = set(selected) - set(execution_rule_histories)
+        unknown_histories = set(execution_rule_histories) - set(selected)
+        if missing_histories or unknown_histories:
+            raise ValueError(
+                "PostgreSQL execution-rule histories must match selected symbols"
+            )
+    instruments = tuple(
+        InstrumentContract(
+            symbol=symbol,
+            listed_at=_metadata_datetime(metadata, symbol, "listed_at"),
+            delisted_at=_metadata_optional_datetime(metadata, symbol, "delisted_at"),
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+            tick_size=_metadata_number(metadata, symbol, "tick_size"),
+            lot_size=_metadata_number(metadata, symbol, "lot_size"),
+            minimum_notional=_metadata_number(metadata, symbol, "minimum_notional"),
+            execution_rules=(
+                ()
+                if execution_rule_histories is None
+                else tuple(execution_rule_histories[symbol])
+            ),
+        )
+        for symbol in selected
+    )
+
+    economics = build_market_economic_semantics(
+        timestamps=timestamps,
+        instruments=instruments,
+        row_present=np.ones(price_shape, dtype=np.bool_),
+        raw_tradable=np.ones(price_shape, dtype=np.bool_),
+        source_information_available=np.ones(price_shape, dtype=np.bool_),
+        available_at=available_at,
+        close=raw["close"],
+        funding_event_count=funding_counts,
+    )
+    observable_features = economics.information_available[:, :, None]
+    feature_available &= observable_features
+    features = np.where(feature_available, features, np.float32(0.0))
+    feature_age = np.where(feature_available, feature_age, np.float32(0.0))
+    feature_staleness = np.where(feature_available, feature_staleness, np.float32(1.0))
 
     log_returns = np.zeros(price_shape, dtype=np.float64)
-    log_returns[1:] = np.log(raw["close"][1:] / raw["close"][:-1])
+    return_available = np.zeros(price_shape, dtype=np.bool_)
+    contiguous = (
+        economics.information_available[1:] & economics.information_available[:-1]
+    )
+    candidate_returns = np.log(raw["close"][1:] / raw["close"][:-1])
+    np.copyto(log_returns[1:], candidate_returns, where=contiguous)
+    return_available[1:] = contiguous
     global_features = np.zeros((n_bars, 4), dtype=np.float32)
-    global_features[:, :2] = 1.0
-    global_features[:, 2] = np.mean(log_returns, axis=1, dtype=np.float64)
-    global_features[:, 3] = np.std(log_returns, axis=1, dtype=np.float64)
+    global_features[:, 0] = economics.symbol_active.mean(axis=1)
+    global_features[:, 1] = (economics.tradable & economics.information_available).mean(
+        axis=1
+    )
     global_available = np.ones((n_bars, 4), dtype=np.bool_)
-    global_available[0, 2:] = False
+    for index in range(n_bars):
+        sample = log_returns[index, return_available[index]]
+        if sample.size:
+            global_features[index, 2] = float(np.mean(sample))
+            global_features[index, 3] = float(np.std(sample))
+        else:
+            global_available[index, 2:] = False
 
-    tick_size = np.broadcast_to(
-        np.asarray(
-            [_metadata_number(metadata, symbol, "tick_size") for symbol in selected]
-        ),
-        price_shape,
-    ).copy()
-    lot_size = np.broadcast_to(
-        np.asarray(
-            [_metadata_number(metadata, symbol, "lot_size") for symbol in selected]
-        ),
-        price_shape,
-    ).copy()
-    minimum_notional = np.broadcast_to(
-        np.asarray(
-            [
-                _metadata_number(metadata, symbol, "minimum_notional")
-                for symbol in selected
-            ]
-        ),
-        price_shape,
-    ).copy()
     normalization_digest = content_and_arrays_digest(
         {
             "feature_config_digest": feature_config_digest,
@@ -397,7 +484,26 @@ def build_postgres_market_dataset(
         volume=raw["volume"],
         funding_rate=funding,
         funding_event_count=funding_counts,
-        tradable=tradable,
+        symbol_active=economics.symbol_active,
+        asset_active=economics.asset_active,
+        tradable=economics.tradable,
+        information_available=economics.information_available,
+        available_at=economics.available_at,
+        fee_rate=economics.fee_rate,
+        maker_fee_rate=economics.maker_fee_rate,
+        taker_fee_rate=economics.taker_fee_rate,
+        spread_rate=economics.spread_rate,
+        max_participation_rate=economics.max_participation_rate,
+        minimum_notional=economics.minimum_notional,
+        lot_size=economics.lot_size,
+        tick_size=economics.tick_size,
+        borrow_available=economics.borrow_available,
+        borrow_rate=economics.borrow_rate,
+        funding_due=economics.funding_due,
+        buy_allowed=economics.buy_allowed,
+        sell_allowed=economics.sell_allowed,
+        mark_price=economics.mark_price,
+        index_price=economics.index_price,
         feature_available=feature_available,
         feature_names=feature_names,
         global_feature_names=(
@@ -413,14 +519,6 @@ def build_postgres_market_dataset(
         global_feature_available=global_available,
         global_feature_staleness_hours=np.zeros((n_bars, 4), dtype=np.float32),
         global_feature_missing_reason=np.asarray(~global_available, dtype=np.int16),
-        minimum_notional=minimum_notional,
-        lot_size=lot_size,
-        tick_size=tick_size,
-        funding_due=funding_counts > 0,
-        asset_active=active,
-        symbol_active=active,
-        information_available=active,
-        available_at=available_at,
         volume_units=tuple(VolumeUnit.QUOTE_NOTIONAL for _ in selected),
         contract_multipliers=np.ones(len(selected), dtype=np.float64),
         feature_config_digest=feature_config_digest,

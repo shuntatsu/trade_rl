@@ -3,7 +3,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
+import pytest
 
+from trade_rl.data.builder import MarketDatasetBuilder
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    InstrumentExecutionRule,
+    MarketBuildConfig,
+    VolumeUnit,
+)
+from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.integrations.binance import binance_multitimeframe_feature_specs
 from trade_rl.integrations.postgres_indicator_artifacts import (
     NativeIndicatorArtifact,
@@ -12,6 +23,29 @@ from trade_rl.integrations.postgres_indicator_artifacts import (
 from trade_rl.integrations.postgres_market_dataset import (
     NATIVE_TIMEFRAMES,
     build_postgres_market_dataset,
+)
+
+_ECONOMIC_FIELDS = (
+    "symbol_active",
+    "asset_active",
+    "tradable",
+    "information_available",
+    "available_at",
+    "fee_rate",
+    "maker_fee_rate",
+    "taker_fee_rate",
+    "spread_rate",
+    "max_participation_rate",
+    "minimum_notional",
+    "lot_size",
+    "tick_size",
+    "borrow_available",
+    "borrow_rate",
+    "funding_due",
+    "buy_allowed",
+    "sell_allowed",
+    "mark_price",
+    "index_price",
 )
 
 
@@ -29,10 +63,11 @@ class _Cursor:
     def execute(self, query: str, params: object = None) -> None:
         assert isinstance(params, tuple)
         symbol = str(params[0])
-        if "klines" in query:
-            self.rows = self.database.klines[symbol]
-        else:
-            self.rows = self.database.funding[symbol]
+        self.rows = (
+            self.database.klines[symbol]
+            if "klines" in query
+            else self.database.funding[symbol]
+        )
 
     def fetchall(self) -> list[tuple[object, ...]]:
         return self.rows
@@ -98,6 +133,81 @@ def _bundle(symbols: tuple[str, ...], start_ms: int) -> NativeIndicatorArtifactB
     )
 
 
+def _metadata(
+    symbols: tuple[str, ...],
+    start: datetime,
+    *,
+    first_listing_delay: timedelta = timedelta(0),
+) -> dict[str, dict[str, object]]:
+    return {
+        symbol: {
+            "listed_at": (
+                start + (first_listing_delay if index == 0 else timedelta(0))
+            ).isoformat(),
+            "tick_size": 0.1 + index * 0.01,
+            "lot_size": 0.001 + index * 0.0001,
+            "minimum_notional": 5.0 + index,
+        }
+        for index, symbol in enumerate(symbols)
+    }
+
+
+def _rule_histories(
+    symbols: tuple[str, ...],
+    start: datetime,
+    metadata: dict[str, dict[str, object]],
+) -> dict[str, tuple[InstrumentExecutionRule, ...]]:
+    histories: dict[str, tuple[InstrumentExecutionRule, ...]] = {}
+    for index, symbol in enumerate(symbols):
+        entry = metadata[symbol]
+        base = InstrumentExecutionRule(
+            effective_at=start,
+            tick_size=float(entry["tick_size"]),
+            lot_size=float(entry["lot_size"]),
+            minimum_notional=float(entry["minimum_notional"]),
+        )
+        histories[symbol] = (
+            base,
+            *(
+                (
+                    InstrumentExecutionRule(
+                        effective_at=start + timedelta(minutes=45),
+                        tick_size=0.25,
+                        lot_size=0.0025,
+                        minimum_notional=12.0,
+                    ),
+                )
+                if index == 0
+                else ()
+            ),
+        )
+    return histories
+
+
+def _raw_source(symbols: tuple[str, ...], start: datetime) -> InMemoryMarketDataSource:
+    timestamps = np.datetime64(start.replace(tzinfo=None), "ns") + np.arange(
+        1, 5
+    ) * np.timedelta64(15, "m")
+    values: dict[str, RawMarketSeries] = {}
+    for index, symbol in enumerate(symbols):
+        base = 10.0 + index
+        rows = np.arange(4, dtype=np.float64)
+        funding_count = np.array([0, 1, 0, 0], dtype=np.int32)
+        values[symbol] = RawMarketSeries(
+            timestamps=timestamps,
+            open=base + rows,
+            high=base + rows + 1.0,
+            low=base + rows - 1.0,
+            close=base + rows + 0.5,
+            volume=1_000.0 + rows,
+            funding_rate=np.array([0.0, 0.0001, 0.0, 0.0]),
+            tradable=np.ones(4, dtype=np.bool_),
+            funding_available=funding_count > 0,
+            funding_event_count=funding_count,
+        )
+    return InMemoryMarketDataSource(values)
+
+
 def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
     symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
     vocabulary = (
@@ -110,6 +220,7 @@ def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
     start = datetime(2024, 1, 1, tzinfo=UTC)
     end = start + timedelta(hours=1)
     start_ms = int(start.timestamp() * 1000)
+    metadata = _metadata(symbols, start, first_listing_delay=timedelta(minutes=30))
 
     dataset = build_postgres_market_dataset(
         _Database(symbols, start_ms),
@@ -117,7 +228,7 @@ def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
         symbol_vocabulary=vocabulary,
         start_time=start,
         end_time=end,
-        metadata={symbol: {} for symbol in symbols},
+        metadata=metadata,
         metadata_evidence_digest="3" * 64,
         indicator_bundle=_bundle(symbols, start_ms),
         slot_symbols=("SLOT0", "SLOT1", "SLOT2"),
@@ -130,8 +241,83 @@ def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
         f"15m__symbol_id_{symbol}" for symbol in vocabulary
     )
     identity = dataset.features[:, :, -5:]
-    np.testing.assert_array_equal(identity[0, 0], [0, 0, 0, 1, 0])
+    np.testing.assert_array_equal(identity[0, 0], [0, 0, 0, 0, 0])
+    np.testing.assert_array_equal(identity[1, 0], [0, 0, 0, 1, 0])
     np.testing.assert_array_equal(identity[0, 1], [0, 1, 0, 0, 0])
-    np.testing.assert_array_equal(identity[0, 2], [0, 0, 1, 0, 0])
+    np.testing.assert_array_equal(
+        dataset.symbol_active[:, 0], [False, True, True, True]
+    )
+    assert not dataset.feature_available[0, 0].any()
     assert dataset.funding_event_count[:, 0].tolist() == [0, 1, 0, 0]
     assert dataset.funding_rate[1, 0] == 0.0001
+
+
+def test_postgres_metadata_is_required_instead_of_defaulting_to_zero() -> None:
+    symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    metadata = _metadata(symbols, start)
+    del metadata[symbols[0]]["tick_size"]
+
+    with pytest.raises(ValueError, match="SOLUSDT.tick_size"):
+        build_postgres_market_dataset(
+            _Database(symbols, int(start.timestamp() * 1000)),
+            symbols=symbols,
+            symbol_vocabulary=symbols,
+            start_time=start,
+            end_time=end,
+            metadata=metadata,
+            metadata_evidence_digest="3" * 64,
+            indicator_bundle=_bundle(symbols, int(start.timestamp() * 1000)),
+        )
+
+
+def test_postgres_and_builder_paths_have_identical_economic_arrays() -> None:
+    symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    start_ms = int(start.timestamp() * 1000)
+    metadata = _metadata(symbols, start)
+    histories = _rule_histories(symbols, start, metadata)
+    postgres = build_postgres_market_dataset(
+        _Database(symbols, start_ms),
+        symbols=symbols,
+        symbol_vocabulary=symbols,
+        start_time=start,
+        end_time=end,
+        metadata=metadata,
+        metadata_evidence_digest="3" * 64,
+        execution_rule_histories=histories,
+        indicator_bundle=_bundle(symbols, start_ms),
+    )
+    instruments = tuple(
+        InstrumentContract(
+            symbol=symbol,
+            listed_at=start,
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+            tick_size=float(metadata[symbol]["tick_size"]),
+            lot_size=float(metadata[symbol]["lot_size"]),
+            minimum_notional=float(metadata[symbol]["minimum_notional"]),
+            execution_rules=histories[symbol],
+        )
+        for symbol in symbols
+    )
+    builder = MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe="15m",
+            features=(
+                FeatureSpec(
+                    name="ret_1",
+                    kind=FeatureKind.LOG_RETURN,
+                    lookback=1,
+                ),
+            ),
+        )
+    ).build(_raw_source(symbols, start), instruments)
+
+    for field in _ECONOMIC_FIELDS:
+        np.testing.assert_array_equal(
+            getattr(postgres, field),
+            getattr(builder, field),
+            err_msg=field,
+        )

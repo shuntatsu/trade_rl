@@ -39,8 +39,9 @@ def test_vision_archive_disk_cache_avoids_second_download(
     assert second == payload
     assert calls == [url]
     cache_files = tuple(path for path in tmp_path.rglob("*") if path.is_file())
-    assert len(cache_files) == 1
-    assert cache_files[0].read_bytes() == payload
+    assert {path.suffix for path in cache_files} == {".bin", ".json"}
+    binary = next(path for path in cache_files if path.suffix == ".bin")
+    assert binary.read_bytes() == payload
 
 
 def test_rest_requests_are_not_loaded_from_vision_cache(

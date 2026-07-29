@@ -370,7 +370,7 @@ class SharedPerAssetActionHead(nn.Module):
 
 @dataclass(frozen=True, slots=True)
 class HierarchicalActorOutputs:
-    """Gate, proposal, and composed target-weight outputs for one policy batch."""
+    """Change-intensity, proposal, and composed target-weight outputs."""
 
     gate_logits: torch.Tensor
     gate_probabilities: torch.Tensor
@@ -379,6 +379,12 @@ class HierarchicalActorOutputs:
     mean_logits: torch.Tensor
     current_weights: torch.Tensor
     active_mask: torch.Tensor
+
+    @property
+    def change_intensity(self) -> torch.Tensor:
+        """Continuous interpolation intensity; not a Bernoulli trade decision."""
+
+        return self.gate_probabilities
 
 
 class SharedPerAssetGateTargetHead(nn.Module):

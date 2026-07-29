@@ -42,6 +42,19 @@ def test_labels_classify_enter_exit_reverse_without_reordering() -> None:
     np.testing.assert_array_equal(labels.target_actions, target)
 
 
+def test_effectively_flat_enter_exit_take_precedence_over_reverse() -> None:
+    current = np.array([[0.005], [0.4]], dtype=np.float32)
+    target = np.array([[-0.4], [-0.005]], dtype=np.float32)
+
+    labels = _build(current, target, threshold=0.01)
+
+    assert labels.gate_labels[:, 0].tolist() == [True, True]
+    assert labels.events[:, 0].tolist() == [
+        TeacherActionEvent.ENTER,
+        TeacherActionEvent.EXIT,
+    ]
+
+
 def test_labels_classify_resize_and_mask_inactive_dimensions() -> None:
     current = np.array([[0.2, -0.2], [0.2, 0.0]], dtype=np.float32)
     target = np.array([[0.5, -0.2], [0.21, 0.7]], dtype=np.float32)

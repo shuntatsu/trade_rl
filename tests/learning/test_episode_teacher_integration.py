@@ -13,19 +13,20 @@ from trade_rl.integrations.sb3_training import (
     StableBaselines3Backend,
     _oracle_episode_sampling_config,
 )
-from trade_rl.learning.behavior_cloning import behavior_cloning_split
+from trade_rl.learning.episode_behavior_cloning import behavior_cloning_split
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
     episode_oracle_target_path,
 )
 from trade_rl.learning.oracle_teacher import OracleTeacherConfig
-from trade_rl.learning.teacher_artifact import (
-    SupervisedPolicyDataset,
+from trade_rl.learning.episode_teacher_artifact import (
+    EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout,
-    load_teacher_artifact,
-    write_teacher_artifact,
+    load_episode_teacher_artifact,
+    write_episode_teacher_artifact,
 )
+from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -171,8 +172,8 @@ def test_episode_teacher_rollout_round_trip_preserves_boundaries(
         batch.contracts[1].initial_weights,
     )
 
-    write_teacher_artifact(tmp_path, supervised)
-    manifest, loaded = load_teacher_artifact(tmp_path)
+    write_episode_teacher_artifact(tmp_path, supervised)
+    manifest, loaded = load_episode_teacher_artifact(tmp_path)
 
     assert manifest.episode_count == 2
     np.testing.assert_array_equal(loaded.episode_ids, supervised.episode_ids)
@@ -181,9 +182,9 @@ def test_episode_teacher_rollout_round_trip_preserves_boundaries(
     assert loaded.decision_indices.flags.writeable is False
 
 
-def _supervised_with_episode_ids() -> SupervisedPolicyDataset:
+def _supervised_with_episode_ids() -> EpisodeSupervisedPolicyDataset:
     sample_count = 12
-    return SupervisedPolicyDataset(
+    return EpisodeSupervisedPolicyDataset(
         observations=np.zeros((sample_count, 2), dtype=np.float32),
         actions=np.zeros((sample_count, 1), dtype=np.float32),
         dataset_id="a" * 64,

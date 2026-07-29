@@ -82,6 +82,8 @@ def _without_algorithm_specific_training(
     for name in tuple(training):
         if name == "algorithm" or name.startswith(("cost_", "lagrangian_")):
             training.pop(name)
+    resolved.pop("cost_critic", None)
+    resolved.pop("lagrangian", None)
     return resolved
 
 
@@ -166,8 +168,23 @@ def test_walk_forward_references_canonical_standalone_profiles() -> None:
         "lot_2x",
         "minimum_notional_2x",
         "joint_2x",
+        "joint_5x",
         "joint_3x",
     )
+    extensions = tuple(
+        scenario
+        for scenario in config.execution_sensitivity.scenarios
+        if scenario.name not in {
+            "nominal",
+            "tick_2x",
+            "lot_2x",
+            "minimum_notional_2x",
+            "joint_2x",
+            "joint_5x",
+        }
+    )
+    assert tuple(item.name for item in extensions) == ("joint_3x",)
+    assert all(item.report_only for item in extensions)
     assert config.execution_sensitivity.required_scenario == "joint_2x"
     assert config.workflow.max_folds == 6
     assert config.workflow.selection_bars == 2_880

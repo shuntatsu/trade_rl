@@ -10,7 +10,6 @@ from trade_rl.workflows.training_run import TrainingRunConfig
 def _pure_growth_mapping() -> dict[str, object]:
     return {
         "schema_version": "training_run_config_v2",
-        "objective": "pure_net_log_growth",
         "training": {
             "algorithm": "ppo",
             "timesteps": 8,
@@ -51,12 +50,12 @@ def _pure_growth_mapping() -> dict[str, object]:
     }
 
 
-def test_training_config_accepts_explicit_target_weight_pure_growth() -> None:
+def test_training_config_accepts_target_weight_pure_growth() -> None:
     config = TrainingRunConfig.from_mapping(_pure_growth_mapping())
 
-    assert config.objective == "pure_net_log_growth"
-    assert config.is_pure_growth_profile() is True
+    assert config.reward.is_pure_net_log_growth() is True
     assert config.training.gamma == pytest.approx(1.0)
+    assert config.action.mode.value == "target_weight"
 
 
 @pytest.mark.parametrize(
@@ -66,11 +65,11 @@ def test_training_config_accepts_explicit_target_weight_pure_growth() -> None:
         "incremental_drawdown_weight",
         "baseline_underperformance_weight",
         "projection_penalty_weight",
-        "terminal_equity_weight",
-        "margin_deficit_weight",
     ],
 )
-def test_pure_growth_rejects_nonzero_objective_mixing(field: str) -> None:
+def test_terminal_and_margin_disabled_contract_rejects_objective_mixing(
+    field: str,
+) -> None:
     raw = deepcopy(_pure_growth_mapping())
     reward = dict(raw["reward"])  # type: ignore[arg-type]
     reward[field] = 0.1
@@ -80,7 +79,7 @@ def test_pure_growth_rejects_nonzero_objective_mixing(field: str) -> None:
         TrainingRunConfig.from_mapping(raw)
 
 
-def test_pure_growth_requires_unit_absolute_growth_weight() -> None:
+def test_terminal_and_margin_disabled_contract_requires_unit_growth_weight() -> None:
     raw = deepcopy(_pure_growth_mapping())
     reward = dict(raw["reward"])  # type: ignore[arg-type]
     reward["absolute_growth_weight"] = 0.5
@@ -90,28 +89,16 @@ def test_pure_growth_requires_unit_absolute_growth_weight() -> None:
         TrainingRunConfig.from_mapping(raw)
 
 
-def test_pure_growth_requires_target_weight_action() -> None:
-    raw = deepcopy(_pure_growth_mapping())
-    raw["action"] = {
-        "mode": "residual",
-        "alpha_enabled": False,
-        "risk_tilt_enabled": False,
-        "n_factors": 0,
-        "residual_scale": 0.25,
-    }
-
-    with pytest.raises(ValueError, match="pure_net_log_growth.*target_weight"):
-        TrainingRunConfig.from_mapping(raw)
-
-
-def test_legacy_objective_remains_the_backward_compatible_default() -> None:
+def test_legacy_shaping_remains_backward_compatible() -> None:
     raw = _pure_growth_mapping()
-    raw.pop("objective")
     reward = dict(raw["reward"])  # type: ignore[arg-type]
+    reward.pop("terminal_equity_weight")
+    reward.pop("margin_deficit_weight")
     reward["baseline_underperformance_weight"] = 0.1
     raw["reward"] = reward
 
     config = TrainingRunConfig.from_mapping(raw)
 
-    assert config.objective == "legacy_shaped"
-    assert config.is_pure_growth_profile() is False
+    assert config.reward.is_pure_net_log_growth() is False
+    assert config.reward.terminal_equity_weight == pytest.approx(1.0)
+    assert config.reward.margin_deficit_weight == pytest.approx(1.0)

@@ -1,0 +1,108 @@
+name: Temporary Task 8 GREEN v2
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/hierarchical-bc-actor-design'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout writable branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply Task 8 implementation and fixture repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/tmp/task8-full.patch.gz.b64 | gzip --decompress > /tmp/task8.patch
+          git apply --check /tmp/task8.patch
+          git apply /tmp/task8.patch
+          base64 --decode .github/tmp/task8_fixture_fix.py.gz.b64 | gzip --decompress > /tmp/task8_fixture_fix.py
+          python /tmp/task8_fixture_fix.py
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format and lint Task 8 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            trade_rl/integrations/sb3_model_assembly.py
+            trade_rl/integrations/sb3_serving.py
+            trade_rl/integrations/sb3_training.py
+            trade_rl/rl/policy_identity.py
+            trade_rl/rl/structured_export.py
+            trade_rl/workflows/training_run.py
+            tests/integrations/test_sb3_policy_identity_v2.py
+            tests/rl/test_structured_export.py
+            tests/serving/test_sb3_loader.py
+            tests/serving/test_structured_policy_loader.py
+            tests/workflows/test_training_run_config.py
+          )
+          uv run ruff format "${files[@]}"
+          uv run ruff check --fix "${files[@]}"
+          uv run ruff check "${files[@]}"
+      - name: Type-check Task 8 production files
+        run: >-
+          uv run mypy
+          trade_rl/integrations/sb3_model_assembly.py
+          trade_rl/integrations/sb3_serving.py
+          trade_rl/integrations/sb3_training.py
+          trade_rl/rl/policy_identity.py
+          trade_rl/rl/structured_export.py
+          trade_rl/workflows/training_run.py
+      - name: Run Task 8 focused tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/integrations/test_sb3_policy_identity_v2.py \
+            tests/rl/test_structured_export.py \
+            tests/serving/test_sb3_loader.py \
+            tests/serving/test_observation_snapshot_fail_closed.py \
+            tests/serving/test_observation_parity.py \
+            tests/serving/test_structured_policy_loader.py \
+            tests/workflows/test_training_run_config.py \
+            2>&1 | tee task8-tests.log
+      - name: Commit verified Task 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl task executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            trade_rl/integrations/sb3_model_assembly.py \
+            trade_rl/integrations/sb3_serving.py \
+            trade_rl/integrations/sb3_training.py \
+            trade_rl/rl/policy_identity.py \
+            trade_rl/rl/structured_export.py \
+            trade_rl/workflows/training_run.py \
+            tests/integrations/test_sb3_policy_identity_v2.py \
+            tests/rl/test_structured_export.py \
+            tests/serving/test_sb3_loader.py \
+            tests/serving/test_structured_policy_loader.py \
+            tests/workflows/test_training_run_config.py
+          git diff --cached --check
+          git commit -m "feat: bind hierarchical actor identity through serving"
+          git push origin HEAD:${{ github.head_ref }}
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-bc-task8-v2-diagnostics
+          path: task8-tests.log
+          if-no-files-found: ignore

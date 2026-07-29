@@ -330,17 +330,86 @@ def patch_pipeline_order() -> None:
     replace_once(
         pipeline,
         "def _build_dataset(\n",
-        '''def validate_maintained_dataset_preset(\n    dataset: MarketDataset,\n    *,\n    selected_symbols: tuple[str, ...],\n    use_postgres: bool,\n) -> None:\n    expected_features = len(\n        binance_multitimeframe_feature_specs(\n            base_timeframe=BASE_TIMEFRAME,\n            feature_timeframes=FEATURE_TIMEFRAMES,\n        )\n    )\n    if use_postgres:\n        expected_features += len(MAINTAINED_SYMBOL_VOCABULARY)\n    expected_bars = int(\n        (\n            np.datetime64(DATASET_END.replace(tzinfo=None), "m")\n            - np.datetime64(DATASET_START.replace(tzinfo=None), "m")\n        )\n        / np.timedelta64(15, "m")\n    )\n    if dataset.n_bars != expected_bars:\n        raise RuntimeError(\n            f"full dataset bar count mismatch: {dataset.n_bars} != {expected_bars}"\n        )\n    expected_symbols = (\n        SLOT_SYMBOLS if use_postgres else selected_symbols\n    )\n    if dataset.symbols != expected_symbols:\n        raise RuntimeError("full dataset symbol order mismatch")\n    if dataset.n_features != expected_features:\n        raise RuntimeError("full dataset feature count mismatch")\n\n\ndef _build_dataset(\n''',
+        '''def validate_maintained_dataset_preset(
+    dataset: MarketDataset,
+    *,
+    use_postgres: bool,
+) -> None:
+    if dataset.n_bars != _EXPECTED_15M_BARS:
+        raise RuntimeError(
+            f"expected {_EXPECTED_15M_BARS:,} 15-minute bars, observed {dataset.n_bars}"
+        )
+    expected_dataset_symbols = _SLOT_SYMBOLS if use_postgres else _SYMBOLS
+    if dataset.symbols != expected_dataset_symbols:
+        raise RuntimeError(f"unexpected symbol order: {dataset.symbols}")
+    expected_features = tuple(
+        spec.name
+        for spec in binance_multitimeframe_feature_specs(
+            base_timeframe="15m",
+            feature_timeframes=_FEATURE_TIMEFRAMES,
+        )
+    )
+    if len(expected_features) != 226:
+        raise RuntimeError(
+            f"extended feature contract must contain 226 features, got {len(expected_features)}"
+        )
+    expected_dataset_features = (
+        (*expected_features, *(f"15m__symbol_id_{symbol}" for symbol in _SYMBOL_POOL))
+        if use_postgres
+        else expected_features
+    )
+    if dataset.feature_names != expected_dataset_features:
+        raise RuntimeError(f"unexpected feature contract: {dataset.feature_names}")
+
+
+def _build_dataset(
+''',
     )
     replace_once(
         pipeline,
-        '''            metadata=metadata_evidence.metadata,\n            metadata_evidence_digest=metadata_evidence.digest,\n            indicator_bundle=indicator_bundle,\n''',
-        '''            metadata=metadata_evidence.metadata,\n            metadata_evidence_digest=metadata_evidence.digest,\n            execution_rule_histories=execution_rule_histories,\n            indicator_bundle=indicator_bundle,\n''',
+        '''                metadata=metadata,
+                metadata_evidence_digest=metadata_evidence_digest,
+                symbol_triplet_provenance=_ACTIVE_SYMBOL_TRIPLET,
+''',
+        '''                metadata=metadata,
+                metadata_evidence_digest=metadata_evidence_digest,
+                execution_rule_histories=execution_rule_histories,
+                symbol_triplet_provenance=_ACTIVE_SYMBOL_TRIPLET,
+''',
     )
-    old = '''    published = publish_market_dataset_artifact(output, dataset)\n    expected_features = len(\n        binance_multitimeframe_feature_specs(\n            base_timeframe=BASE_TIMEFRAME,\n            feature_timeframes=FEATURE_TIMEFRAMES,\n        )\n    )\n    if use_postgres:\n        expected_features += len(MAINTAINED_SYMBOL_VOCABULARY)\n    expected_bars = int(\n        (\n            np.datetime64(DATASET_END.replace(tzinfo=None), "m")\n            - np.datetime64(DATASET_START.replace(tzinfo=None), "m")\n        )\n        / np.timedelta64(15, "m")\n    )\n    if dataset.n_bars != expected_bars:\n        raise RuntimeError(\n            f"full dataset bar count mismatch: {dataset.n_bars} != {expected_bars}"\n        )\n    expected_symbols = SLOT_SYMBOLS if use_postgres else selected_symbols\n    if dataset.symbols != expected_symbols:\n        raise RuntimeError("full dataset symbol order mismatch")\n    if dataset.n_features != expected_features:\n        raise RuntimeError("full dataset feature count mismatch")\n'''
-    new = '''    validate_maintained_dataset_preset(\n        dataset,\n        selected_symbols=selected_symbols,\n        use_postgres=use_postgres,\n    )\n    published = publish_market_dataset_artifact(output, dataset)\n'''
-    replace_once(pipeline, old, new)
-
+    replace_once(
+        pipeline,
+        '''    published = publish_market_dataset_artifact(output, dataset)
+    if dataset.n_bars != _EXPECTED_15M_BARS:
+        raise RuntimeError(
+            f"expected {_EXPECTED_15M_BARS:,} 15-minute bars, observed {dataset.n_bars}"
+        )
+    expected_dataset_symbols = _SLOT_SYMBOLS if use_postgres else _SYMBOLS
+    if dataset.symbols != expected_dataset_symbols:
+        raise RuntimeError(f"unexpected symbol order: {dataset.symbols}")
+    expected_features = tuple(
+        spec.name
+        for spec in binance_multitimeframe_feature_specs(
+            base_timeframe="15m",
+            feature_timeframes=_FEATURE_TIMEFRAMES,
+        )
+    )
+    if len(expected_features) != 226:
+        raise RuntimeError(
+            f"extended feature contract must contain 226 features, got {len(expected_features)}"
+        )
+    expected_dataset_features = (
+        (*expected_features, *(f"15m__symbol_id_{symbol}" for symbol in _SYMBOL_POOL))
+        if use_postgres
+        else expected_features
+    )
+    if dataset.feature_names != expected_dataset_features:
+        raise RuntimeError(f"unexpected feature contract: {dataset.feature_names}")
+''',
+        '''    validate_maintained_dataset_preset(dataset, use_postgres=use_postgres)
+    published = publish_market_dataset_artifact(output, dataset)
+''',
+    )
 
 def patch_binance_cache() -> None:
     path = "trade_rl/integrations/binance.py"

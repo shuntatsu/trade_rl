@@ -145,6 +145,8 @@ class ResidualTrainingConfig:
     behavior_cloning_max_activity_ratio: float = 1.0
     behavior_cloning_min_causal_holdout_trades: int = 0
     behavior_cloning_max_causal_holdout_regret: float = 0.0
+    behavior_cloning_causal_holdout_bootstrap_resamples: int = 2_000
+    behavior_cloning_causal_holdout_confidence_level: float = 0.95
     lagrangian_budgets: tuple[float, ...] = ()
     lagrangian_dual_learning_rates: tuple[float, ...] = ()
     lagrangian_ema_betas: tuple[float, ...] = ()
@@ -294,6 +296,27 @@ class ResidualTrainingConfig:
         ):
             raise ValueError(
                 "behavior_cloning_max_causal_holdout_regret must be finite and non-negative"
+            )
+        if (
+            isinstance(self.behavior_cloning_causal_holdout_bootstrap_resamples, bool)
+            or not isinstance(
+                self.behavior_cloning_causal_holdout_bootstrap_resamples, int
+            )
+            or self.behavior_cloning_causal_holdout_bootstrap_resamples < 1_000
+        ):
+            raise ValueError(
+                "behavior_cloning_causal_holdout_bootstrap_resamples must be at least 1000"
+            )
+        if (
+            not math.isfinite(
+                self.behavior_cloning_causal_holdout_confidence_level
+            )
+            or not 0.5
+            < self.behavior_cloning_causal_holdout_confidence_level
+            < 1.0
+        ):
+            raise ValueError(
+                "behavior_cloning_causal_holdout_confidence_level must be within (0.5, 1)"
             )
         if self.checkpoint_interval_steps is not None and (
             isinstance(self.checkpoint_interval_steps, bool)

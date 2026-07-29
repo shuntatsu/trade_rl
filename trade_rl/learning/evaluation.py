@@ -53,6 +53,34 @@ def _compounded_return(step_returns: np.ndarray) -> float:
     return float(np.prod(1.0 + step_returns, dtype=np.float64) - 1.0)
 
 
+def deterministic_bootstrap_upper_bound(
+    values: object,
+    *,
+    confidence_level: float,
+    resamples: int,
+    seed_material: str,
+) -> float:
+    """Return a reproducible one-sided bootstrap upper bound for the mean."""
+
+    sample = _finite_vector(values, field="bootstrap values")
+    if np.any(sample < 0.0):
+        raise ValueError("bootstrap regret values must be non-negative")
+    if (
+        not math.isfinite(confidence_level)
+        or not 0.5 < confidence_level < 1.0
+    ):
+        raise ValueError("bootstrap confidence_level must be within (0.5, 1)")
+    if isinstance(resamples, bool) or not isinstance(resamples, int) or resamples < 1_000:
+        raise ValueError("bootstrap resamples must be an integer of at least 1000")
+    if not isinstance(seed_material, str) or not seed_material:
+        raise ValueError("bootstrap seed_material must be non-empty")
+    seed = int(content_digest({"seed_material": seed_material})[:16], 16)
+    rng = np.random.default_rng(seed)
+    indices = rng.integers(0, len(sample), size=(resamples, len(sample)))
+    means = sample[indices].mean(axis=1, dtype=np.float64)
+    return float(np.quantile(means, confidence_level, method="higher"))
+
+
 @dataclass(frozen=True, slots=True)
 class ActionPathCollapseEvidence:
     """Explain where submitted target changes disappeared before execution."""
@@ -161,6 +189,8 @@ class BehaviorCloningGateThresholds:
     minimum_teacher_positive_support: int
     minimum_causal_holdout_trades: int
     maximum_causal_holdout_regret: float
+    minimum_causal_holdout_episodes: int = 1
+    maximum_causal_holdout_regret_upper_bound: float | None = None
 
     def __post_init__(self) -> None:
         fractions = (
@@ -196,6 +226,17 @@ class BehaviorCloningGateThresholds:
             or self.maximum_causal_holdout_regret < 0.0
         ):
             raise ValueError("maximum_causal_holdout_regret must be non-negative")
+        if (
+            isinstance(self.minimum_causal_holdout_episodes, bool)
+            or not isinstance(self.minimum_causal_holdout_episodes, int)
+            or self.minimum_causal_holdout_episodes <= 0
+        ):
+            raise ValueError("minimum_causal_holdout_episodes must be positive")
+        upper = self.maximum_causal_holdout_regret_upper_bound
+        if upper is not None and (not math.isfinite(upper) or upper < 0.0):
+            raise ValueError(
+                "maximum_causal_holdout_regret_upper_bound must be non-negative"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -835,6 +876,20 @@ def evaluate_behavior_cloning_gates(
         if holdout is None
         else max(0.0, -holdout.causal_policy_performance.net_return)
     )
+    causal_records = () if holdout is None else tuple(getattr(holdout, "records", ()))
+    causal_episode_support = len(causal_records) if causal_records else (0 if holdout is None else 1)
+    causal_regret_upper = (
+        None
+        if holdout is None
+        else getattr(holdout, "causal_regret_upper_confidence_bound", None)
+    )
+    if causal_regret_upper is None and holdout is not None and not causal_records:
+        causal_regret_upper = getattr(holdout, "heldout_oracle_regret", None)
+    upper_threshold = (
+        thresholds.maximum_causal_holdout_regret
+        if thresholds.maximum_causal_holdout_regret_upper_bound is None
+        else thresholds.maximum_causal_holdout_regret_upper_bound
+    )
     zero_trade_failure = (
         "zero-trade collapse: causal holdout executed no target changes despite "
         "nonzero teacher change support"
@@ -876,6 +931,21 @@ def evaluate_behavior_cloning_gates(
             minimum_support=thresholds.minimum_teacher_positive_support,
             passed=constant_actions is not None and not constant_actions,
             failure_reason="constant submitted actions detected on causal holdout",
+        ),
+        _gate_metric(
+            name="causal_regret_upper_confidence_bound",
+            observed=causal_regret_upper,
+            comparison="<=",
+            threshold=upper_threshold,
+            support=causal_episode_support,
+            minimum_support=thresholds.minimum_causal_holdout_episodes,
+            passed=(
+                causal_regret_upper is not None
+                and causal_regret_upper <= upper_threshold
+            ),
+            failure_reason=(
+                "causal holdout regret upper confidence bound exceeds the limit"
+            ),
         ),
         _gate_metric(
             name="cash_baseline_after_cost_regret",
@@ -947,6 +1017,7 @@ __all__ = [
     "BehaviorCloningHoldoutEvaluation",
     "OracleTeacherEvaluation",
     "PathPerformanceMetrics",
+    "deterministic_bootstrap_upper_bound",
     "evaluate_behavior_cloning_gates",
     "evaluate_behavior_cloning_holdout",
     "evaluate_path_performance",

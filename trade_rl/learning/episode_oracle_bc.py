@@ -20,6 +20,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 from trade_rl.learning.evaluation import (
     ActionPathCollapseEvidence,
     PathPerformanceMetrics,
+    deterministic_bootstrap_upper_bound,
 )
 from trade_rl.learning.rollout_evaluation import (
     ActionPathEvaluation,
@@ -165,6 +166,9 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
     action_rmse: float
     heldout_oracle_regret: float
     normalized_oracle_regret: float
+    causal_regret_upper_confidence_bound: float
+    bootstrap_confidence_level: float
+    bootstrap_resamples: int
     schema_version: str = EPISODE_ORACLE_BC_EVALUATION_SCHEMA
 
     def __post_init__(self) -> None:
@@ -178,6 +182,8 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
             self.action_rmse,
             self.heldout_oracle_regret,
             self.normalized_oracle_regret,
+            self.causal_regret_upper_confidence_bound,
+            self.bootstrap_confidence_level,
         ):
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(
@@ -185,6 +191,10 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
                 )
         if self.action_agreement_rate > 1.0:
             raise ValueError("episode BC action agreement exceeds one")
+        if not 0.5 < self.bootstrap_confidence_level < 1.0:
+            raise ValueError("episode BC bootstrap confidence is invalid")
+        if self.bootstrap_resamples < 1_000:
+            raise ValueError("episode BC bootstrap resamples are insufficient")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -196,6 +206,11 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
             "episode_count": len(self.records),
             "heldout_oracle_regret": self.heldout_oracle_regret,
             "normalized_oracle_regret": self.normalized_oracle_regret,
+            "causal_regret_upper_confidence_bound": (
+                self.causal_regret_upper_confidence_bound
+            ),
+            "bootstrap_confidence_level": self.bootstrap_confidence_level,
+            "bootstrap_resamples": self.bootstrap_resamples,
             "records": tuple(record.to_dict() for record in self.records),
             "schema_version": self.schema_version,
         }
@@ -244,6 +259,8 @@ def evaluate_episode_behavior_cloning_holdout(
     split: BehaviorCloningSplit,
     output_root: Path,
     action_tolerance: float = 0.05,
+    bootstrap_confidence_level: float = 0.95,
+    bootstrap_resamples: int = 2_000,
 ) -> tuple[dict[str, object], EpisodeBehaviorCloningHoldoutEvaluation | None]:
     """Evaluate complete validation episodes and retain the worst Oracle regret."""
 
@@ -319,6 +336,20 @@ def evaluate_episode_behavior_cloning_holdout(
         )
         policy_paths.append(policy_path)
     resolved_records = tuple(records)
+    regret_upper = deterministic_bootstrap_upper_bound(
+        np.asarray(
+            [record.normalized_oracle_regret for record in resolved_records],
+            dtype=np.float64,
+        ),
+        confidence_level=bootstrap_confidence_level,
+        resamples=bootstrap_resamples,
+        seed_material=content_digest(
+            {
+                "batch_digest": batch.digest,
+                "validation_episode_ids": validation_ids,
+            }
+        ),
+    )
     worst = max(resolved_records, key=lambda record: record.normalized_oracle_regret)
     holdout = EpisodeBehaviorCloningHoldoutEvaluation(
         records=resolved_records,
@@ -335,6 +366,9 @@ def evaluate_episode_behavior_cloning_holdout(
         normalized_oracle_regret=max(
             record.normalized_oracle_regret for record in resolved_records
         ),
+        causal_regret_upper_confidence_bound=regret_upper,
+        bootstrap_confidence_level=bootstrap_confidence_level,
+        bootstrap_resamples=bootstrap_resamples,
     )
     holdout_digest = _write_evaluation(
         output_root / "behavior-cloning-holdout.json",
@@ -356,6 +390,11 @@ def evaluate_episode_behavior_cloning_holdout(
             "heldout_episode_count": len(resolved_records),
             "heldout_oracle_regret": holdout.heldout_oracle_regret,
             "normalized_oracle_regret": holdout.normalized_oracle_regret,
+            "causal_regret_upper_confidence_bound": (
+                holdout.causal_regret_upper_confidence_bound
+            ),
+            "bootstrap_confidence_level": holdout.bootstrap_confidence_level,
+            "bootstrap_resamples": holdout.bootstrap_resamples,
             "normalized_oracle_regret_maximum": 0.25,
             "oracle_evaluation_digest": oracle_evaluation_digest,
             "passed": passed,

@@ -398,15 +398,77 @@ class BinancePublicTransport:
         digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
         return self.cache_root / digest[:2] / f"{digest}.bin"
 
+    def _validated_cached_vision_payload(self, url: str, cache_path: Path) -> bytes:
+        evidence_path = cache_path.with_suffix(".json")
+        if not evidence_path.is_file():
+            raise BinanceTransportError(
+                f"cached Binance Vision archive lacks content evidence: {cache_path}"
+            )
+        try:
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise BinanceTransportError("cached Binance Vision evidence is invalid") from error
+        expected = {
+            "acquired_at",
+            "downloader",
+            "etag",
+            "last_modified",
+            "schema_version",
+            "sha256",
+            "size_bytes",
+            "url",
+        }
+        if not isinstance(evidence, dict) or set(evidence) != expected:
+            raise BinanceTransportError("cached Binance Vision evidence fields are invalid")
+        payload = cache_path.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        if (
+            evidence.get("schema_version") != "binance_vision_raw_cache_v1"
+            or evidence.get("url") != url
+            or evidence.get("size_bytes") != len(payload)
+            or evidence.get("sha256") != digest
+        ):
+            raise BinanceTransportError(
+                f"cached Binance Vision archive content digest or size mismatch: {cache_path}"
+            )
+        return payload
+
+    def _write_vision_cache(
+        self,
+        *,
+        url: str,
+        cache_path: Path,
+        payload: bytes,
+        etag: str | None,
+        last_modified: str | None,
+    ) -> None:
+        evidence = {
+            "acquired_at": datetime.now(UTC).isoformat(),
+            "downloader": _USER_AGENT,
+            "etag": etag,
+            "last_modified": last_modified,
+            "schema_version": "binance_vision_raw_cache_v1",
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size_bytes": len(payload),
+            "url": url,
+        }
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path = cache_path.with_suffix(".json")
+        binary_temporary = cache_path.with_suffix(".bin.tmp")
+        evidence_temporary = evidence_path.with_suffix(".json.tmp")
+        binary_temporary.write_bytes(payload)
+        evidence_temporary.write_text(
+            json.dumps(evidence, allow_nan=False, sort_keys=True, separators=(",", ":"))
+            + "\n",
+            encoding="utf-8",
+        )
+        binary_temporary.replace(cache_path)
+        evidence_temporary.replace(evidence_path)
+
     def _request_bytes(self, url: str) -> bytes:
         cache_path = self._vision_cache_path(url)
         if cache_path is not None and cache_path.is_file():
-            payload = cache_path.read_bytes()
-            if not payload:
-                raise BinanceTransportError(
-                    f"cached Binance Vision archive is empty: {cache_path}"
-                )
-            return payload
+            return self._validated_cached_vision_payload(url, cache_path)
         request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
         last_error: BaseException | None = None
         for attempt in range(self.max_attempts):
@@ -416,15 +478,24 @@ class BinancePublicTransport:
                     timeout=self.timeout_seconds,
                 ) as response:
                     payload = response.read()
+                    headers = getattr(response, "headers", {})
+                    header_get = getattr(headers, "get", lambda _name: None)
+                    etag = header_get("ETag")
+                    last_modified = header_get("Last-Modified")
                 if not payload:
                     raise BinanceTransportError(
                         f"Binance returned an empty response for {url}"
                     )
                 if cache_path is not None:
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    temporary = cache_path.with_suffix(".tmp")
-                    temporary.write_bytes(payload)
-                    temporary.replace(cache_path)
+                    self._write_vision_cache(
+                        url=url,
+                        cache_path=cache_path,
+                        payload=payload,
+                        etag=None if etag is None else str(etag),
+                        last_modified=(
+                            None if last_modified is None else str(last_modified)
+                        ),
+                    )
                 return payload
             except urllib.error.HTTPError as error:
                 last_error = error

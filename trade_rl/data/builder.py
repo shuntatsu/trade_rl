@@ -13,6 +13,7 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
 )
+from trade_rl.data.economic_semantics import build_market_economic_semantics
 from trade_rl.data.cross_asset_features import (
     CROSS_ASSET_FEATURE_KINDS,
     calculate_cross_asset_feature_events,
@@ -275,21 +276,22 @@ class MarketDatasetBuilder:
             information_available[:, symbol_index] = aligned["information_available"]
             available_at[:, symbol_index] = aligned["available_at"]
 
-            listed = _utc_datetime64(contract.listed_at)
-            active = timestamps >= listed
-            if contract.delisted_at is not None:
-                active &= timestamps < _utc_datetime64(contract.delisted_at)
-            symbol_active[:, symbol_index] = active
-            resolved_tick, resolved_lot, resolved_minimum = (
-                contract.execution_rule_arrays(timestamps)
-            )
-            tick_size[:, symbol_index] = resolved_tick
-            lot_size[:, symbol_index] = resolved_lot
-            minimum_notional[:, symbol_index] = resolved_minimum
 
-        information_available &= symbol_active & row_present
+        economics = build_market_economic_semantics(
+            timestamps=timestamps,
+            instruments=instruments,
+            row_present=row_present,
+            raw_tradable=raw_tradable,
+            source_information_available=information_available,
+            available_at=available_at,
+            close=close,
+            funding_event_count=funding_event_count,
+        )
+        symbol_active = economics.symbol_active
+        information_available = economics.information_available
+        available_at = economics.available_at
         causal_row_present = row_present & information_available
-        tradable = symbol_active & row_present & raw_tradable
+        tradable = economics.tradable
         features = np.zeros((n_bars, n_symbols, n_features), dtype=np.float64)
         feature_available = np.zeros_like(features, dtype=np.bool_)
         feature_age_hours = np.ones_like(features, dtype=np.float64)
@@ -481,10 +483,7 @@ class MarketDatasetBuilder:
             volume=volume,
             funding_rate=funding_rate,
             funding_event_count=funding_event_count,
-            tradable=tradable,
-            symbol_active=symbol_active,
-            information_available=information_available,
-            available_at=available_at,
+            **economics.market_dataset_kwargs(),
             feature_available=feature_available,
             feature_staleness_hours=feature_age_hours,
             feature_staleness=feature_staleness,

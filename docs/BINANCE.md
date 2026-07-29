@@ -120,3 +120,7 @@ Private keyをRepository、Docker image、Actions secret、Runtimeへ配置し�
 - `historical_signed`以外の制約がReportに残っている
 
 Dataset生成成功は、取引戦略の有効性やProduction readinessを意味しません。
+
+### Raw archive content evidence
+
+Vision archive cacheはpayloadだけを信用しません。各`.bin`に`binance_vision_raw_cache_v1` sidecarを併置し、URL、取得時刻、byte数、SHA-256、ETag、Last-Modified、downloader identityを固定します。再利用時はbyte列を再hashし、sidecar欠落、size不一致、digest不一致をfail closedします。

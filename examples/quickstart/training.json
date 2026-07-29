@@ -33,7 +33,13 @@
     "tolerance": 1e-05,
     "torchscript": false
   },
-  "reward": {},
+  "reward": {
+    "absolute_growth_weight": 1.0,
+    "incremental_drawdown_weight": 0.05,
+    "baseline_underperformance_weight": 0.1,
+    "terminal_equity_weight": 1.0,
+    "margin_deficit_weight": 1.0
+  },
   "risk": {
     "drawdown_start": 0.1,
     "drawdown_stop": 0.2,
@@ -74,7 +80,9 @@
     "behavior_cloning_min_activity_ratio": 0.0,
     "behavior_cloning_max_activity_ratio": 1.0,
     "behavior_cloning_min_causal_holdout_trades": 0,
-    "behavior_cloning_max_causal_holdout_regret": 0.0
+    "behavior_cloning_max_causal_holdout_regret": 0.0,
+    "behavior_cloning_causal_holdout_bootstrap_resamples": 2000,
+    "behavior_cloning_causal_holdout_confidence_level": 0.95
   },
   "trend": {
     "base_hours": 48.0,

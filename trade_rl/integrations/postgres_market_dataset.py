@@ -10,7 +10,13 @@ from typing import Final
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.contracts import FeatureSpec, VolumeUnit
+from trade_rl.data.contracts import (
+    FeatureSpec,
+    InstrumentContract,
+    InstrumentExecutionRule,
+    VolumeUnit,
+)
+from trade_rl.data.economic_semantics import build_market_economic_semantics
 from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.binance import binance_multitimeframe_feature_specs
@@ -275,6 +281,7 @@ def build_postgres_market_dataset(
     end_time: datetime,
     metadata: Mapping[str, Mapping[str, object]],
     metadata_evidence_digest: str,
+    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]] | None = None,
     indicator_bundle: NativeIndicatorArtifactBundle | None = None,
     slot_symbols: Sequence[str] | None = None,
     symbol_triplet_provenance: Mapping[str, object] | None = None,
@@ -338,15 +345,47 @@ def build_postgres_market_dataset(
     )
     n_bars = len(timestamps_ms)
     price_shape = (n_bars, len(selected))
-    active = np.ones(price_shape, dtype=np.bool_)
-    tradable = np.ones(price_shape, dtype=np.bool_)
     timestamps = timestamps_ms.astype("datetime64[ms]").astype("datetime64[ns]")
     available_at = np.broadcast_to(timestamps[:, None], price_shape).copy()
+    if execution_rule_histories is not None:
+        missing_histories = set(selected) - set(execution_rule_histories)
+        unknown_histories = set(execution_rule_histories) - set(selected)
+        if missing_histories or unknown_histories:
+            raise ValueError("PostgreSQL execution-rule histories must match selected symbols")
+    instruments = tuple(
+        InstrumentContract(
+            symbol=symbol,
+            listed_at=start,
+            volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+            tick_size=_metadata_number(metadata, symbol, "tick_size"),
+            lot_size=_metadata_number(metadata, symbol, "lot_size"),
+            minimum_notional=_metadata_number(metadata, symbol, "minimum_notional"),
+            execution_rules=(
+                ()
+                if execution_rule_histories is None
+                else tuple(execution_rule_histories[symbol])
+            ),
+        )
+        for symbol in selected
+    )
+    economics = build_market_economic_semantics(
+        timestamps=timestamps,
+        instruments=instruments,
+        row_present=np.ones(price_shape, dtype=np.bool_),
+        raw_tradable=np.ones(price_shape, dtype=np.bool_),
+        source_information_available=np.ones(price_shape, dtype=np.bool_),
+        available_at=available_at,
+        close=raw["close"],
+        funding_event_count=funding_counts,
+    )
 
     log_returns = np.zeros(price_shape, dtype=np.float64)
     log_returns[1:] = np.log(raw["close"][1:] / raw["close"][:-1])
     global_features = np.zeros((n_bars, 4), dtype=np.float32)
-    global_features[:, :2] = 1.0
+    global_features[:, 0] = economics.symbol_active.mean(axis=1)
+    global_features[:, 1] = (
+        economics.tradable & economics.information_available
+    ).mean(axis=1)
     global_features[:, 2] = np.mean(log_returns, axis=1, dtype=np.float64)
     global_features[:, 3] = np.std(log_returns, axis=1, dtype=np.float64)
     global_available = np.ones((n_bars, 4), dtype=np.bool_)
@@ -397,7 +436,7 @@ def build_postgres_market_dataset(
         volume=raw["volume"],
         funding_rate=funding,
         funding_event_count=funding_counts,
-        tradable=tradable,
+        **economics.market_dataset_kwargs(),
         feature_available=feature_available,
         feature_names=feature_names,
         global_feature_names=(

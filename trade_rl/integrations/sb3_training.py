@@ -406,6 +406,12 @@ def _behavior_cloning_gate_thresholds(
                 config, "behavior_cloning_max_causal_holdout_regret"
             )
         ),
+        minimum_causal_holdout_episodes=2,
+        maximum_causal_holdout_regret_upper_bound=float(
+            _required_hierarchical_config(
+                config, "behavior_cloning_max_causal_holdout_regret"
+            )
+        ),
     )
 
 
@@ -1259,6 +1265,12 @@ class StableBaselines3Backend:
                             batch=episode_batch,
                             split=episode_split,
                             output_root=output_path.parent,
+                            bootstrap_confidence_level=(
+                                config.behavior_cloning_causal_holdout_confidence_level
+                            ),
+                            bootstrap_resamples=(
+                                config.behavior_cloning_causal_holdout_bootstrap_resamples
+                            ),
                         )
                     gate_evaluation: BehaviorCloningGateEvaluation | None = None
                     gate_evaluation_digest: str | None = None

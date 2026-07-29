@@ -61,12 +61,31 @@ def _load_model(algorithm: str, checkpoint_path: Path) -> Any:
 
 
 class _DeterministicActor(nn.Module):
-    def __init__(self, policy: Any) -> None:
+    def __init__(self, policy: Any, *, algorithm: str) -> None:
         super().__init__()
         self.policy = policy
+        self.direct_ppo = algorithm == "ppo"
+        action_space = getattr(policy, "action_space", None)
+        low = np.asarray(getattr(action_space, "low", -1.0), dtype=np.float32)
+        high = np.asarray(getattr(action_space, "high", 1.0), dtype=np.float32)
+        self.register_buffer("action_low", torch.as_tensor(low), persistent=False)
+        self.register_buffer("action_high", torch.as_tensor(high), persistent=False)
+        action_dist = getattr(policy, "action_dist", None)
+        self.squash_output = action_dist.__class__.__name__.endswith(
+            "SquashedDiagGaussianDistribution"
+        )
 
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
-        return self.policy._predict(observation, deterministic=True)
+        if not self.direct_ppo:
+            return self.policy._predict(observation, deterministic=True)
+        features = self.policy.extract_features(observation)
+        if isinstance(features, tuple):
+            features = features[0]
+        latent_pi = self.policy.mlp_extractor.forward_actor(features)
+        actions = self.policy.action_net(latent_pi)
+        if self.squash_output:
+            actions = torch.tanh(actions)
+        return torch.maximum(torch.minimum(actions, self.action_high), self.action_low)
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,7 +326,7 @@ def export_policy_actor(
     model = _load_model(algorithm, checkpoint_path)
     policy = model.policy.to("cpu")
     policy.set_training_mode(False)
-    actor = _DeterministicActor(policy).eval()
+    actor = _DeterministicActor(policy, algorithm=algorithm).eval()
     corpus = _corpus(observation_size)
     expected = _expected_actions(model, corpus, action_size)
     records: list[ExportRecord] = []

@@ -8,6 +8,7 @@ from typing import Mapping
 import torch
 from torch import nn
 
+from trade_rl.rl.export_context import graph_export_active
 from trade_rl.rl.gated_transformer import GatedTransformerStack
 
 _TIMEFRAMES = ("15m", "1h", "4h", "1d")
@@ -35,14 +36,15 @@ def _quality_summary(
     *,
     window_length: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    if available.ndim not in {3, 4}:
-        raise ValueError(
-            "availability must be [batch, assets, time] or include channels"
-        )
-    if staleness.shape != available.shape:
-        raise ValueError("staleness must match availability shape")
-    if available.shape[2] != window_length:
-        raise ValueError("quality plane window does not match architecture")
+    if not graph_export_active():
+        if available.ndim not in {3, 4}:
+            raise ValueError(
+                "availability must be [batch, assets, time] or include channels"
+            )
+        if staleness.shape != available.shape:
+            raise ValueError("staleness must match availability shape")
+        if available.shape[2] != window_length:
+            raise ValueError("quality plane window does not match architecture")
     available = available.to(dtype=torch.bool)
     usable = available.any(dim=-1) if available.ndim == 4 else available
     has_any = usable.any(dim=-1)
@@ -165,12 +167,18 @@ class CrossTimeframeFusion(nn.Module):
         staleness: Mapping[str, torch.Tensor],
         context: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, int, int]:
-        if tuple(latents) != self.timeframes:
-            raise ValueError("latents must use ordered 15m/1h/4h/1d timeframes")
-        if tuple(available) != self.timeframes or tuple(staleness) != self.timeframes:
-            raise ValueError("quality planes must use ordered 15m/1h/4h/1d timeframes")
-        if context.ndim != 3 or context.shape[-1] != self.d_model:
-            raise ValueError("context must be [batch, assets, d_model]")
+        if not graph_export_active():
+            if tuple(latents) != self.timeframes:
+                raise ValueError("latents must use ordered 15m/1h/4h/1d timeframes")
+            if (
+                tuple(available) != self.timeframes
+                or tuple(staleness) != self.timeframes
+            ):
+                raise ValueError(
+                    "quality planes must use ordered 15m/1h/4h/1d timeframes"
+                )
+            if context.ndim != 3 or context.shape[-1] != self.d_model:
+                raise ValueError("context must be [batch, assets, d_model]")
         batch, assets, _ = context.shape
         tokens = [self.context_norm(context)]
         valid_tokens = [
@@ -185,11 +193,15 @@ class CrossTimeframeFusion(nn.Module):
 
         for index, timeframe in enumerate(self.timeframes):
             latent = latents[timeframe]
-            if latent.shape != (batch, assets, self.latent_dims[timeframe]):
+            if not graph_export_active() and latent.shape != (
+                batch,
+                assets,
+                self.latent_dims[timeframe],
+            ):
                 raise ValueError("timeframe latent shape does not match architecture")
             plane = available[timeframe]
             stale = staleness[timeframe]
-            if plane.shape[:2] != (batch, assets):
+            if not graph_export_active() and plane.shape[:2] != (batch, assets):
                 raise ValueError("timeframe availability batch or asset shape mismatch")
             quality, has_any = _quality_summary(
                 plane,

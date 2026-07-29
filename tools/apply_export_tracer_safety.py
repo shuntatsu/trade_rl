@@ -20,7 +20,7 @@ def replace_once(relative: str, old: str, new: str) -> None:
 def write_tests() -> None:
     test_path = ROOT / "tests/rl/test_export_tracer_safety.py"
     test_path.write_text(
-        '''from __future__ import annotations
+        """from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -151,7 +151,7 @@ def test_traced_asset_encoder_generalizes_across_availability_and_active_masks()
                     atol=1e-5,
                     rtol=0.0,
                 )
-''',
+""",
         encoding="utf-8",
     )
     replace_once(
@@ -212,7 +212,7 @@ __all__ = ["graph_export_active"]
     )
     replace_once(
         "trade_rl/rl/sequence_policy.py",
-        '''    def forward_sequence(self, value: torch.Tensor) -> torch.Tensor:
+        """    def forward_sequence(self, value: torch.Tensor) -> torch.Tensor:
         if value.ndim != 3:
             raise ValueError("timeframe input must be [batch, time, channels]")
         if value.shape[1] != self.window_length:
@@ -245,8 +245,8 @@ __all__ = ["graph_export_active"]
         output = projected.new_zeros((value.shape[0], self.latent_dim))
         batch_indices = torch.arange(value.shape[0], device=value.device)[valid]
         return output.index_copy(0, batch_indices, projected)
-''',
-        '''    def forward_sequence(self, value: torch.Tensor) -> torch.Tensor:
+""",
+        """    def forward_sequence(self, value: torch.Tensor) -> torch.Tensor:
         if not graph_export_active():
             if value.ndim != 3:
                 raise ValueError("timeframe input must be [batch, time, channels]")
@@ -274,19 +274,19 @@ __all__ = ["graph_export_active"]
         ]
         projected = self.projection(selected)
         return projected * valid.unsqueeze(-1).to(dtype=projected.dtype)
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/sequence_policy.py",
-        '''        if snapshot.ndim != 3 or asset_state.ndim != 3 or active.ndim != 2:
+        """        if snapshot.ndim != 3 or asset_state.ndim != 3 or active.ndim != 2:
             raise ValueError("asset encoder expects batched asset tensors")
         batch, assets, _ = snapshot.shape
         if assets != self.architecture.n_symbols:
             raise ValueError("asset count does not match architecture")
         if asset_state.shape[:2] != (batch, assets) or active.shape != (batch, assets):
             raise ValueError("asset tensors disagree on batch or asset dimensions")
-''',
-        '''        if not graph_export_active():
+""",
+        """        if not graph_export_active():
             if snapshot.ndim != 3 or asset_state.ndim != 3 or active.ndim != 2:
                 raise ValueError("asset encoder expects batched asset tensors")
         batch, assets, _ = snapshot.shape
@@ -298,11 +298,11 @@ __all__ = ["graph_export_active"]
                 assets,
             ):
                 raise ValueError("asset tensors disagree on batch or asset dimensions")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/sequence_policy.py",
-        '''            if sequence.ndim != 4 or sequence.shape[:2] != (batch, assets):
+        """            if sequence.ndim != 4 or sequence.shape[:2] != (batch, assets):
                 raise ValueError(
                     "sequence tensor has invalid batch or asset dimensions"
                 )
@@ -318,8 +318,8 @@ __all__ = ["graph_export_active"]
             raw_staleness = staleness[timeframe]
             if raw_staleness.shape != availability.shape:
                 raise ValueError("sequence staleness must match sequence availability")
-''',
-        '''            if not graph_export_active():
+""",
+        """            if not graph_export_active():
                 if sequence.ndim != 4 or sequence.shape[:2] != (batch, assets):
                     raise ValueError(
                         "sequence tensor has invalid batch or asset dimensions"
@@ -336,11 +336,11 @@ __all__ = ["graph_export_active"]
             raw_staleness = staleness[timeframe]
             if not graph_export_active() and raw_staleness.shape != availability.shape:
                 raise ValueError("sequence staleness must match sequence availability")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/sequence_policy.py",
-        '''        active_mask = active.to(dtype=torch.bool)
+        """        active_mask = active.to(dtype=torch.bool)
         has_active = active_mask.any(dim=1)
         safe_mask = active_mask.clone()
         if torch.any(~has_active):
@@ -348,14 +348,14 @@ __all__ = ["graph_export_active"]
             fused = fused.clone()
             fused[~has_active, 0] = 0.0
         contextual = self.cross_asset(fused, valid=safe_mask)
-''',
-        '''        active_mask = active.to(dtype=torch.bool)
+""",
+        """        active_mask = active.to(dtype=torch.bool)
         has_active = active_mask.any(dim=1)
         fallback = (~has_active).unsqueeze(1) & identities.unsqueeze(0).eq(0)
         safe_mask = active_mask | fallback
         fused = torch.where(fallback.unsqueeze(-1), torch.zeros_like(fused), fused)
         contextual = self.cross_asset(fused, valid=safe_mask)
-''',
+""",
     )
 
     replace_once(
@@ -366,7 +366,7 @@ __all__ = ["graph_export_active"]
     )
     replace_once(
         "trade_rl/rl/timeframe_fusion.py",
-        '''    if available.ndim not in {3, 4}:
+        """    if available.ndim not in {3, 4}:
         raise ValueError(
             "availability must be [batch, assets, time] or include channels"
         )
@@ -374,8 +374,8 @@ __all__ = ["graph_export_active"]
         raise ValueError("staleness must match availability shape")
     if available.shape[2] != window_length:
         raise ValueError("quality plane window does not match architecture")
-''',
-        '''    if not graph_export_active():
+""",
+        """    if not graph_export_active():
         if available.ndim not in {3, 4}:
             raise ValueError(
                 "availability must be [batch, assets, time] or include channels"
@@ -384,18 +384,18 @@ __all__ = ["graph_export_active"]
             raise ValueError("staleness must match availability shape")
         if available.shape[2] != window_length:
             raise ValueError("quality plane window does not match architecture")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/timeframe_fusion.py",
-        '''        if tuple(latents) != self.timeframes:
+        """        if tuple(latents) != self.timeframes:
             raise ValueError("latents must use ordered 15m/1h/4h/1d timeframes")
         if tuple(available) != self.timeframes or tuple(staleness) != self.timeframes:
             raise ValueError("quality planes must use ordered 15m/1h/4h/1d timeframes")
         if context.ndim != 3 or context.shape[-1] != self.d_model:
             raise ValueError("context must be [batch, assets, d_model]")
-''',
-        '''        if not graph_export_active():
+""",
+        """        if not graph_export_active():
             if tuple(latents) != self.timeframes:
                 raise ValueError("latents must use ordered 15m/1h/4h/1d timeframes")
             if tuple(available) != self.timeframes or tuple(staleness) != self.timeframes:
@@ -404,18 +404,18 @@ __all__ = ["graph_export_active"]
                 )
             if context.ndim != 3 or context.shape[-1] != self.d_model:
                 raise ValueError("context must be [batch, assets, d_model]")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/timeframe_fusion.py",
-        '''            if latent.shape != (batch, assets, self.latent_dims[timeframe]):
+        """            if latent.shape != (batch, assets, self.latent_dims[timeframe]):
                 raise ValueError("timeframe latent shape does not match architecture")
             plane = available[timeframe]
             stale = staleness[timeframe]
             if plane.shape[:2] != (batch, assets):
                 raise ValueError("timeframe availability batch or asset shape mismatch")
-''',
-        '''            if not graph_export_active() and latent.shape != (
+""",
+        """            if not graph_export_active() and latent.shape != (
                 batch,
                 assets,
                 self.latent_dims[timeframe],
@@ -425,7 +425,7 @@ __all__ = ["graph_export_active"]
             stale = staleness[timeframe]
             if not graph_export_active() and plane.shape[:2] != (batch, assets):
                 raise ValueError("timeframe availability batch or asset shape mismatch")
-''',
+""",
     )
 
     replace_once(
@@ -435,29 +435,29 @@ __all__ = ["graph_export_active"]
     )
     replace_once(
         "trade_rl/rl/gated_transformer.py",
-        '''        if residual.shape != branch.shape:
+        """        if residual.shape != branch.shape:
             raise ValueError("residual and branch tensors must have identical shapes")
         if residual.ndim != 3 or residual.shape[-1] != self.gate.numel():
             raise ValueError("gated residual expects [batch, tokens, d_model]")
-''',
-        '''        if not graph_export_active():
+""",
+        """        if not graph_export_active():
             if residual.shape != branch.shape:
                 raise ValueError("residual and branch tensors must have identical shapes")
             if residual.ndim != 3 or residual.shape[-1] != self.gate.numel():
                 raise ValueError("gated residual expects [batch, tokens, d_model]")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/gated_transformer.py",
-        '''        if value.ndim != 3 or value.shape[-1] != self.d_model:
+        """        if value.ndim != 3 or value.shape[-1] != self.d_model:
             raise ValueError("transformer stack expects [batch, tokens, d_model]")
         if valid.shape != value.shape[:2]:
             raise ValueError("valid mask must match batch and token dimensions")
         valid = valid.to(device=value.device, dtype=torch.bool)
         if torch.any(~valid.any(dim=1)):
             raise ValueError("every batch row requires at least one valid token")
-''',
-        '''        if not graph_export_active():
+""",
+        """        if not graph_export_active():
             if value.ndim != 3 or value.shape[-1] != self.d_model:
                 raise ValueError("transformer stack expects [batch, tokens, d_model]")
             if valid.shape != value.shape[:2]:
@@ -465,7 +465,7 @@ __all__ = ["graph_export_active"]
         valid = valid.to(device=value.device, dtype=torch.bool)
         if not graph_export_active() and torch.any(~valid.any(dim=1)):
             raise ValueError("every batch row requires at least one valid token")
-''',
+""",
     )
 
     replace_once(
@@ -476,47 +476,47 @@ __all__ = ["graph_export_active"]
     )
     replace_once(
         "trade_rl/rl/policies.py",
-        '''        if features.ndim != 2 or features.shape[1] != expected_width:
+        """        if features.ndim != 2 or features.shape[1] != expected_width:
             raise ValueError("shared actor features do not match declared layout")
-''',
-        '''        if not graph_export_active() and (
+""",
+        """        if not graph_export_active() and (
             features.ndim != 2 or features.shape[1] != expected_width
         ):
             raise ValueError("shared actor features do not match declared layout")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/policies.py",
-        '''        if actor_latent.ndim != 2:
+        """        if actor_latent.ndim != 2:
             raise ValueError("actor latent must be rank-two")
         expected = self.n_symbols * self.context_dim
         if actor_latent.shape[1] != expected:
             raise ValueError("actor latent does not match hierarchical head layout")
-''',
-        '''        if not graph_export_active() and actor_latent.ndim != 2:
+""",
+        """        if not graph_export_active() and actor_latent.ndim != 2:
             raise ValueError("actor latent must be rank-two")
         expected = self.n_symbols * self.context_dim
         if not graph_export_active() and actor_latent.shape[1] != expected:
             raise ValueError("actor latent does not match hierarchical head layout")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/policies.py",
-        '''        if mask.ndim != 2 or mask.shape[1] != self.action_dim:
+        """        if mask.ndim != 2 or mask.shape[1] != self.action_dim:
             raise ValueError("active action mask does not match action dimensions")
-''',
-        '''        if not graph_export_active() and (
+""",
+        """        if not graph_export_active() and (
             mask.ndim != 2 or mask.shape[1] != self.action_dim
         ):
             raise ValueError("active action mask does not match action dimensions")
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/policies.py",
-        '''    def hierarchical_actor_outputs(
+        """    def hierarchical_actor_outputs(
         self, observations: dict[str, torch.Tensor]
     ) -> HierarchicalActorOutputs:
-''',
+""",
         '''    def deterministic_actions(
         self, observations: dict[str, torch.Tensor]
     ) -> torch.Tensor:
@@ -536,15 +536,15 @@ __all__ = ["graph_export_active"]
 
     replace_once(
         "trade_rl/rl/export.py",
-        '''class _DeterministicActor(nn.Module):
+        """class _DeterministicActor(nn.Module):
     def __init__(self, policy: Any) -> None:
         super().__init__()
         self.policy = policy
 
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
         return self.policy._predict(observation, deterministic=True)
-''',
-        '''class _DeterministicActor(nn.Module):
+""",
+        """class _DeterministicActor(nn.Module):
     def __init__(self, policy: Any, *, algorithm: str) -> None:
         super().__init__()
         self.policy = policy
@@ -570,7 +570,7 @@ __all__ = ["graph_export_active"]
         if self.squash_output:
             actions = torch.tanh(actions)
         return torch.maximum(torch.minimum(actions, self.action_high), self.action_low)
-''',
+""",
     )
     replace_once(
         "trade_rl/rl/export.py",
@@ -586,27 +586,27 @@ __all__ = ["graph_export_active"]
     )
     replace_once(
         "trade_rl/rl/structured_export.py",
-        '''        policy: nn.Module,
-''',
-        '''        policy: SharedPerAssetActorCriticPolicy,
-''',
+        """        policy: nn.Module,
+""",
+        """        policy: SharedPerAssetActorCriticPolicy,
+""",
     )
     replace_once(
         "trade_rl/rl/structured_export.py",
-        '''        prediction = self.policy._predict(observation, deterministic=True)
+        """        prediction = self.policy._predict(observation, deterministic=True)
         return prediction
-''',
-        '''        return self.policy.deterministic_actions(observation)
-''',
+""",
+        """        return self.policy.deterministic_actions(observation)
+""",
     )
     replace_once(
         "trade_rl/rl/structured_export.py",
-        '''    if not isinstance(policy, nn.Module):
+        """    if not isinstance(policy, nn.Module):
         raise TypeError("structured export model policy must be a torch module")
-''',
-        '''    if not isinstance(policy, SharedPerAssetActorCriticPolicy):
+""",
+        """    if not isinstance(policy, SharedPerAssetActorCriticPolicy):
         raise TypeError("structured export requires the shared per-asset policy")
-''',
+""",
     )
 
 

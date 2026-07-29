@@ -17,6 +17,7 @@ from torch import nn
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.policies import SharedPerAssetActorCriticPolicy
 from trade_rl.rl.policy_identity import (
     model_sb3_policy_identity,
     validated_sb3_policy_identity,
@@ -209,7 +210,7 @@ class StructuredExportManifest:
 class _StructuredDeterministicActor(nn.Module):
     def __init__(
         self,
-        policy: nn.Module,
+        policy: SharedPerAssetActorCriticPolicy,
         keys: tuple[str, ...],
         *,
         synthesize_decision_index: bool,
@@ -227,8 +228,7 @@ class _StructuredDeterministicActor(nn.Module):
                 dtype=torch.int64,
                 device=inputs[0].device,
             )
-        prediction = self.policy._predict(observation, deterministic=True)
-        return prediction
+        return self.policy.deterministic_actions(observation)
 
 
 def _observation_specs(model: object) -> tuple[StructuredInputSpec, ...]:
@@ -372,8 +372,8 @@ def export_structured_policy_actor(
     if identity.get("observation_encoder") != "hierarchical_sequence_v2":
         raise ValueError("structured export requires hierarchical sequence policy")
     policy = getattr(model, "policy", None)
-    if not isinstance(policy, nn.Module):
-        raise TypeError("structured export model policy must be a torch module")
+    if not isinstance(policy, SharedPerAssetActorCriticPolicy):
+        raise TypeError("structured export requires the shared per-asset policy")
 
     original_training = bool(policy.training)
     original_device = getattr(model, "device", None)
@@ -399,7 +399,7 @@ def export_structured_policy_actor(
             policy,
             tuple(item.name for item in specs),
             synthesize_decision_index=(
-                "decision_index" in policy.observation_space.spaces
+                "decision_index" in getattr(policy.observation_space, "spaces", {})
             ),
         ).eval()
         corpus = _parity_corpus(example, specs)

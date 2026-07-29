@@ -9,6 +9,7 @@ from typing import Mapping
 import torch
 from torch import nn
 
+from trade_rl.rl.export_context import graph_export_active
 from trade_rl.rl.gated_transformer import GatedTransformerStack
 from trade_rl.rl.timeframe_fusion import CrossTimeframeFusion
 
@@ -153,10 +154,11 @@ class CausalTimeframeEncoder(nn.Module):
         )
 
     def forward_sequence(self, value: torch.Tensor) -> torch.Tensor:
-        if value.ndim != 3:
-            raise ValueError("timeframe input must be [batch, time, channels]")
-        if value.shape[1] != self.window_length:
-            raise ValueError("timeframe input length does not match architecture")
+        if not graph_export_active():
+            if value.ndim != 3:
+                raise ValueError("timeframe input must be [batch, time, channels]")
+            if value.shape[1] != self.window_length:
+                raise ValueError("timeframe input length does not match architecture")
         return self.blocks(value.transpose(1, 2)).transpose(1, 2)
 
     def forward(
@@ -165,26 +167,20 @@ class CausalTimeframeEncoder(nn.Module):
         if available is None:
             encoded = self.forward_sequence(value)
             return self.projection(encoded[:, -1])
-        if available.shape != value.shape[:2]:
+        if not graph_export_active() and available.shape != value.shape[:2]:
             raise ValueError("availability mask must match batch and time dimensions")
         mask = available.to(dtype=torch.bool)
         positions = torch.arange(value.shape[1], device=value.device).expand_as(mask)
         indices = positions.masked_fill(~mask, -1).max(dim=1).values
         valid = indices >= 0
-        if not torch.any(valid):
-            return (value.sum(dim=(1, 2)).unsqueeze(1) * 0.0).expand(
-                -1, self.latent_dim
-            )
-        valid_values = value[valid]
-        encoded = self.forward_sequence(valid_values)
-        valid_indices = indices[valid]
+        safe_value = torch.where(mask.unsqueeze(-1), value, torch.zeros_like(value))
+        encoded = self.forward_sequence(safe_value)
+        safe_indices = indices.clamp_min(0)
         selected = encoded[
-            torch.arange(encoded.shape[0], device=value.device), valid_indices
+            torch.arange(encoded.shape[0], device=value.device), safe_indices
         ]
         projected = self.projection(selected)
-        output = projected.new_zeros((value.shape[0], self.latent_dim))
-        batch_indices = torch.arange(value.shape[0], device=value.device)[valid]
-        return output.index_copy(0, batch_indices, projected)
+        return projected * valid.unsqueeze(-1).to(dtype=projected.dtype)
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,34 +336,42 @@ class MultiTimeframeAssetEncoder(nn.Module):
         asset_state: torch.Tensor,
         active: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if snapshot.ndim != 3 or asset_state.ndim != 3 or active.ndim != 2:
-            raise ValueError("asset encoder expects batched asset tensors")
+        if not graph_export_active():
+            if snapshot.ndim != 3 or asset_state.ndim != 3 or active.ndim != 2:
+                raise ValueError("asset encoder expects batched asset tensors")
         batch, assets, _ = snapshot.shape
-        if assets != self.architecture.n_symbols:
-            raise ValueError("asset count does not match architecture")
-        if asset_state.shape[:2] != (batch, assets) or active.shape != (batch, assets):
-            raise ValueError("asset tensors disagree on batch or asset dimensions")
+        if not graph_export_active():
+            if assets != self.architecture.n_symbols:
+                raise ValueError("asset count does not match architecture")
+            if asset_state.shape[:2] != (batch, assets) or active.shape != (
+                batch,
+                assets,
+            ):
+                raise ValueError("asset tensors disagree on batch or asset dimensions")
         latents: dict[str, torch.Tensor] = {}
         quality_available: dict[str, torch.Tensor] = {}
         quality_staleness: dict[str, torch.Tensor] = {}
         for timeframe in self.timeframes:
             sequence = sequences[timeframe]
             availability = available[timeframe]
-            if sequence.ndim != 4 or sequence.shape[:2] != (batch, assets):
-                raise ValueError(
-                    "sequence tensor has invalid batch or asset dimensions"
-                )
-            if sequence.shape[2] != self.architecture.window_lengths[timeframe]:
-                raise ValueError("sequence length does not match architecture")
-            if sequence.shape[-1] != self.architecture.input_channels[timeframe]:
-                raise ValueError("sequence channel count does not match architecture")
-            if (
-                availability.ndim not in {3, 4}
-                or availability.shape[:3] != sequence.shape[:3]
-            ):
-                raise ValueError("sequence availability shape is invalid")
+            if not graph_export_active():
+                if sequence.ndim != 4 or sequence.shape[:2] != (batch, assets):
+                    raise ValueError(
+                        "sequence tensor has invalid batch or asset dimensions"
+                    )
+                if sequence.shape[2] != self.architecture.window_lengths[timeframe]:
+                    raise ValueError("sequence length does not match architecture")
+                if sequence.shape[-1] != self.architecture.input_channels[timeframe]:
+                    raise ValueError(
+                        "sequence channel count does not match architecture"
+                    )
+                if (
+                    availability.ndim not in {3, 4}
+                    or availability.shape[:3] != sequence.shape[:3]
+                ):
+                    raise ValueError("sequence availability shape is invalid")
             raw_staleness = staleness[timeframe]
-            if raw_staleness.shape != availability.shape:
+            if not graph_export_active() and raw_staleness.shape != availability.shape:
                 raise ValueError("sequence staleness must match sequence availability")
             timestep_mask = (
                 availability.any(dim=-1) if availability.ndim == 4 else availability
@@ -400,11 +404,9 @@ class MultiTimeframeAssetEncoder(nn.Module):
 
         active_mask = active.to(dtype=torch.bool)
         has_active = active_mask.any(dim=1)
-        safe_mask = active_mask.clone()
-        if torch.any(~has_active):
-            safe_mask[~has_active, 0] = True
-            fused = fused.clone()
-            fused[~has_active, 0] = 0.0
+        fallback = (~has_active).unsqueeze(1) & identities.unsqueeze(0).eq(0)
+        safe_mask = active_mask | fallback
+        fused = torch.where(fallback.unsqueeze(-1), torch.zeros_like(fused), fused)
         contextual = self.cross_asset(fused, valid=safe_mask)
         contextual = torch.where(
             active_mask.unsqueeze(-1), contextual, torch.zeros_like(contextual)

@@ -7,6 +7,8 @@ import math
 import torch
 from torch import nn
 
+from trade_rl.rl.export_context import graph_export_active
+
 
 class GatedResidual(nn.Module):
     """Apply a learnable per-channel gate to one residual branch."""
@@ -20,10 +22,13 @@ class GatedResidual(nn.Module):
         self.gate = nn.Parameter(torch.full((d_model,), float(gate_bias)))
 
     def forward(self, residual: torch.Tensor, branch: torch.Tensor) -> torch.Tensor:
-        if residual.shape != branch.shape:
-            raise ValueError("residual and branch tensors must have identical shapes")
-        if residual.ndim != 3 or residual.shape[-1] != self.gate.numel():
-            raise ValueError("gated residual expects [batch, tokens, d_model]")
+        if not graph_export_active():
+            if residual.shape != branch.shape:
+                raise ValueError(
+                    "residual and branch tensors must have identical shapes"
+                )
+            if residual.ndim != 3 or residual.shape[-1] != self.gate.numel():
+                raise ValueError("gated residual expects [batch, tokens, d_model]")
         scale = torch.sigmoid(self.gate).view(1, 1, -1)
         return residual + scale * branch
 
@@ -150,12 +155,13 @@ class GatedTransformerStack(nn.Module):
         value: torch.Tensor,
         valid: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if value.ndim != 3 or value.shape[-1] != self.d_model:
-            raise ValueError("transformer stack expects [batch, tokens, d_model]")
-        if valid.shape != value.shape[:2]:
-            raise ValueError("valid mask must match batch and token dimensions")
+        if not graph_export_active():
+            if value.ndim != 3 or value.shape[-1] != self.d_model:
+                raise ValueError("transformer stack expects [batch, tokens, d_model]")
+            if valid.shape != value.shape[:2]:
+                raise ValueError("valid mask must match batch and token dimensions")
         valid = valid.to(device=value.device, dtype=torch.bool)
-        if torch.any(~valid.any(dim=1)):
+        if not graph_export_active() and torch.any(~valid.any(dim=1)):
             raise ValueError("every batch row requires at least one valid token")
         return value * valid.unsqueeze(-1).to(dtype=value.dtype), valid
 

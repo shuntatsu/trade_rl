@@ -29,56 +29,47 @@ jobs:
           from pathlib import Path
 
           path = Path('trade_rl/rl/structured_export.py')
-          source = path.read_text(encoding='utf-8')
-          old_init = '''        self.policy = policy
-          self.keys = keys
-          self.synthesize_decision_index = synthesize_decision_index
-          '''
-          new_init = '''        self.policy = policy
-          self.keys = keys
-          self.synthesize_decision_index = synthesize_decision_index
-          self.use_direct_actions = callable(
-              getattr(policy, "deterministic_actions", None)
-          )
-          '''
-          old_forward = '''        return self.policy.deterministic_actions(observation)
-          '''
-          new_forward = '''        if self.use_direct_actions:
-              return self.policy.deterministic_actions(observation)
-          return self.policy._predict(observation, deterministic=True)
-          '''
-          old_validation = '''    if not callable(getattr(policy, "deterministic_actions", None)):
-              raise TypeError("structured export policy must expose deterministic_actions")
-          '''
-          new_validation = '''    has_direct_actions = callable(
-              getattr(policy, "deterministic_actions", None)
-          )
-          has_predict = callable(getattr(policy, "_predict", None))
-          if not has_direct_actions and not has_predict:
-              raise TypeError(
-                  "structured export policy must expose deterministic_actions or _predict"
-              )
-          '''
+          lines = path.read_text(encoding='utf-8').splitlines()
 
-          def normalized(value: str) -> str:
-              return (
-                  '\n'.join(
-                      line[10:] if line.startswith('          ') else line
-                      for line in value.splitlines()
-                  )
-                  + '\n'
-              )
+          init_anchor = '        self.synthesize_decision_index = synthesize_decision_index'
+          if lines.count(init_anchor) != 1:
+              raise RuntimeError('structured actor init anchor not found')
+          init_index = lines.index(init_anchor) + 1
+          lines[init_index:init_index] = [
+              '        self.use_direct_actions = callable(',
+              '            getattr(policy, "deterministic_actions", None)',
+              '        )',
+          ]
 
-          replacements = (
-              (normalized(old_init), normalized(new_init)),
-              (normalized(old_forward), normalized(new_forward)),
-              (normalized(old_validation), normalized(new_validation)),
+          forward_anchor = '        return self.policy.deterministic_actions(observation)'
+          if lines.count(forward_anchor) != 1:
+              raise RuntimeError('structured actor forward anchor not found')
+          forward_index = lines.index(forward_anchor)
+          lines[forward_index : forward_index + 1] = [
+              '        if self.use_direct_actions:',
+              '            return self.policy.deterministic_actions(observation)',
+              '        return self.policy._predict(observation, deterministic=True)',
+          ]
+
+          validation_start = next(
+              index
+              for index, line in enumerate(lines)
+              if line.strip()
+              == 'if not callable(getattr(policy, "deterministic_actions", None)):'
           )
-          for old, new in replacements:
-              if source.count(old) != 1:
-                  raise RuntimeError(f'structured compatibility anchor missing: {old!r}')
-              source = source.replace(old, new, 1)
-          path.write_text(source, encoding='utf-8')
+          validation_end = validation_start + 2
+          lines[validation_start:validation_end] = [
+              '    has_direct_actions = callable(',
+              '        getattr(policy, "deterministic_actions", None)',
+              '    )',
+              '    has_predict = callable(getattr(policy, "_predict", None))',
+              '    if not has_direct_actions and not has_predict:',
+              '        raise TypeError(',
+              '            "structured export policy must expose "',
+              '            "deterministic_actions or _predict"',
+              '        )',
+          ]
+          path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
           uv run ruff check --fix trade_rl/rl/structured_export.py
           uv run ruff format trade_rl/rl/structured_export.py

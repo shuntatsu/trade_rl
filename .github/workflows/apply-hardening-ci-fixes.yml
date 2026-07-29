@@ -32,7 +32,6 @@ jobs:
           from pathlib import Path
 
           root = Path('.')
-
           training_run = root / 'trade_rl/workflows/training_run.py'
           source = training_run.read_text(encoding='utf-8')
           for line in (
@@ -71,23 +70,6 @@ jobs:
                   encoding='utf-8',
               )
 
-          cache_test = root / 'tests/integrations/test_binance_vision_cache.py'
-          source = cache_test.read_text(encoding='utf-8')
-          old = '''    cache_files = tuple(path for path in tmp_path.rglob("*") if path.is_file())
-          assert len(cache_files) == 1
-          assert cache_files[0].read_bytes() == payload
-          '''
-          old = old.replace('          assert', '    assert')
-          new = '''    cache_files = tuple(path for path in tmp_path.rglob("*") if path.is_file())
-          assert {path.suffix for path in cache_files} == {".bin", ".json"}
-          binary = next(path for path in cache_files if path.suffix == ".bin")
-          assert binary.read_bytes() == payload
-          '''
-          new = new.replace('          assert', '    assert').replace('          binary', '    binary')
-          if old not in source:
-              raise RuntimeError('Binance cache test anchor not found')
-          cache_test.write_text(source.replace(old, new), encoding='utf-8')
-
           info_test = root / 'tests/rl/test_environment_info_service.py'
           source = info_test.read_text(encoding='utf-8')
           anchor = '        "executed_target",\n'
@@ -105,8 +87,16 @@ jobs:
 
           docs_test = root / 'tests/test_current_documentation_contract.py'
           source = docs_test.read_text(encoding='utf-8')
-          source = source.replace('        "training_run_config_v2",\n', '        "training_run_config_v3",\n', 1)
-          source = source.replace('        "structured_policy_export_v1",\n', '        "structured_policy_export_v2",\n', 1)
+          source = source.replace(
+              '        "training_run_config_v2",\n',
+              '        "training_run_config_v3",\n',
+              1,
+          )
+          source = source.replace(
+              '        "structured_policy_export_v1",\n',
+              '        "structured_policy_export_v2",\n',
+              1,
+          )
           docs_test.write_text(source, encoding='utf-8')
 
           historical = root / 'docs/superpowers'

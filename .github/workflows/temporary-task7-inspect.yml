@@ -1,0 +1,32 @@
+name: Temporary Task 7 Inspect
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.head_ref == 'agent/hierarchical-bc-actor-design'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Upload Task 7 sources
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: task7-sources
+          path: |
+            trade_rl/rl/training.py
+            trade_rl/workflows/training_run.py
+            trade_rl/integrations/sb3_model_assembly.py
+            trade_rl/rl/policies.py
+            tests/workflows/test_training_run.py
+            tests/integrations/test_sb3_model_assembly.py
+            tests/workflows/test_signal_digest.py
+            examples/binance-multitimeframe/walk-forward-full.json

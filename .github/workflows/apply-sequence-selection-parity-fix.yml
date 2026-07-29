@@ -1,0 +1,66 @@
+name: Apply sequence selection parity fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'agent/fix-export-tracer-warnings'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3 --extra export
+      - name: Restore pre-selection encoder semantics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/rl/sequence_policy.py')
+          source = path.read_text(encoding='utf-8')
+          old = '''        safe_value = torch.where(mask.unsqueeze(-1), value, torch.zeros_like(value))
+          encoded = self.forward_sequence(safe_value)
+          '''
+          new = '''        encoded = self.forward_sequence(value)
+          '''
+          if source.count(old) != 1:
+              raise RuntimeError('sequence selection parity anchor not found')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+          uv run ruff check trade_rl/rl/sequence_policy.py
+          uv run ruff format --check trade_rl/rl/sequence_policy.py
+      - name: Verify projection and tracer contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for iteration in $(seq 1 10); do
+            uv run pytest \
+              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 \
+              tests/rl/test_export_tracer_safety.py \
+              -q
+          done
+          uv run mypy trade_rl
+          git diff --check
+      - name: Commit fix
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/rl/sequence_policy.py
+          git commit -m 'fix: preserve sequence projection semantics during export'
+          git push origin "HEAD:${HEAD_BRANCH}"

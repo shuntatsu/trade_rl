@@ -1,0 +1,85 @@
+name: Apply serving export boundary fix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'agent/fix-export-tracer-warnings'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3 --extra export
+      - name: Remove SB3 policy import from structured export
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/rl/structured_export.py')
+          source = path.read_text(encoding='utf-8')
+          source = source.replace(
+              'from trade_rl.rl.policies import SharedPerAssetActorCriticPolicy\n',
+              '',
+              1,
+          )
+          source = source.replace(
+              '        policy: SharedPerAssetActorCriticPolicy,\n',
+              '        policy: Any,\n',
+              1,
+          )
+          old = '''    policy = getattr(model, "policy", None)
+          if not isinstance(policy, SharedPerAssetActorCriticPolicy):
+              raise TypeError("structured export requires the shared per-asset policy")
+          '''
+          new = '''    policy = getattr(model, "policy", None)
+          if not isinstance(policy, nn.Module):
+              raise TypeError("structured export policy must be a torch module")
+          if not callable(getattr(policy, "deterministic_actions", None)):
+              raise TypeError(
+                  "structured export policy must expose deterministic_actions"
+              )
+          '''
+          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          if source.count(old) != 1:
+              raise RuntimeError('structured export validation anchor not found')
+          source = source.replace(old, new, 1)
+          path.write_text(source, encoding='utf-8')
+          PY
+          uv run ruff check --fix trade_rl/rl/structured_export.py
+          uv run ruff format trade_rl/rl/structured_export.py
+      - name: Verify architecture and export contracts
+        run: |
+          uv run lint-imports
+          uv run pytest \
+            tests/rl/test_policy_export.py \
+            tests/workflows/test_market_walk_forward.py::test_structured_walk_forward_trains_three_seed_ensemble_end_to_end \
+            -q
+          uv run mypy trade_rl
+          uv run ruff check .
+          uv run ruff format --check .
+          git diff --check
+      - name: Commit boundary fix
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/rl/structured_export.py
+          git commit -m 'fix: keep structured export below serving boundary'
+          git push origin "HEAD:${HEAD_BRANCH}"

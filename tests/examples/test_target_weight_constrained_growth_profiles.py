@@ -166,7 +166,7 @@ def test_walk_forward_references_canonical_standalone_profiles() -> None:
         "lot_2x",
         "minimum_notional_2x",
         "joint_2x",
-        "joint_5x",
+        "joint_3x",
     )
     assert config.execution_sensitivity.required_scenario == "joint_2x"
     assert config.workflow.max_folds == 6

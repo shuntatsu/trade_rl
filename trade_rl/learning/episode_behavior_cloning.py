@@ -12,8 +12,11 @@ from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
 
 
 class EpisodeDataset(Protocol):
-    sample_count: int
-    episode_ids: np.ndarray
+    @property
+    def sample_count(self) -> int: ...
+
+    @property
+    def episode_ids(self) -> np.ndarray: ...
 
 
 @dataclass(frozen=True, slots=True)

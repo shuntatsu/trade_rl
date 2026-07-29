@@ -478,7 +478,12 @@ def collect_episode_teacher_rollout(
                 "initial_state_mode": contract.initial_state_mode,
             }
         )
-        if int(info.get("start_index", -1)) != contract.start:
+        raw_start = info.get("start_index")
+        if (
+            isinstance(raw_start, bool)
+            or not isinstance(raw_start, int)
+            or raw_start != contract.start
+        ):
             raise ValueError("episode teacher environment reset start mismatch")
         if isinstance(observation, Mapping) and "current_weights" in observation:
             actual = np.asarray(observation["current_weights"], dtype=np.float64)

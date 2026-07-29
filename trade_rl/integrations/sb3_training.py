@@ -1095,6 +1095,7 @@ class StableBaselines3Backend:
                     teacher_kind = config.behavior_cloning_teacher
                     episode_batch: EpisodeOracleBatch | None = None
                     episode_split: BehaviorCloningSplit | None = None
+                    teacher_dataset: SupervisedPolicyDataset
                     if teacher_kind == "oracle":
                         risk_config = unwrapped_teacher.pre_trade_risk.config
                         teacher_config: Any = OracleTeacherConfig(

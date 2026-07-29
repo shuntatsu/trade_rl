@@ -34,21 +34,20 @@ jobs:
 
           path = Path('tests/learning/test_hierarchical_teacher_labels.py')
           text = path.read_text(encoding='utf-8')
-          test = '''
-
-
-def test_effectively_flat_enter_exit_take_precedence_over_reverse() -> None:
-    current = np.array([[0.005], [0.4]], dtype=np.float32)
-    target = np.array([[-0.4], [-0.005]], dtype=np.float32)
-
-    labels = _build(current, target, threshold=0.01)
-
-    assert labels.gate_labels[:, 0].tolist() == [True, True]
-    assert labels.events[:, 0].tolist() == [
-        TeacherActionEvent.ENTER,
-        TeacherActionEvent.EXIT,
-    ]
-'''
+          test = (
+              '\n\n\n'
+              'def test_effectively_flat_enter_exit_take_precedence_over_reverse() -> None:\n'
+              '    current = np.array([[0.005], [0.4]], dtype=np.float32)\n'
+              '    target = np.array([[-0.4], [-0.005]], dtype=np.float32)\n'
+              '\n'
+              '    labels = _build(current, target, threshold=0.01)\n'
+              '\n'
+              '    assert labels.gate_labels[:, 0].tolist() == [True, True]\n'
+              '    assert labels.events[:, 0].tolist() == [\n'
+              '        TeacherActionEvent.ENTER,\n'
+              '        TeacherActionEvent.EXIT,\n'
+              '    ]\n'
+          )
           if 'test_effectively_flat_enter_exit_take_precedence_over_reverse' not in text:
               path.write_text(text + test, encoding='utf-8')
           PY

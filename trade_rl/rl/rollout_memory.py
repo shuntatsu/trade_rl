@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 from gymnasium import spaces
 
 _FLOAT32_BYTES = 4
+_CURRENT_WEIGHTS_KEY = "current_weights"
 _PPO_SCALAR_ARRAYS = (
     6  # rewards, returns, episode starts, values, log probs, advantages
 )
@@ -21,6 +23,25 @@ def _space_elements(observation_space: spaces.Space) -> int:
     if shape is None:
         raise ValueError("observation space must declare a finite shape")
     return math.prod(int(width) for width in shape)
+
+
+def _current_weight_component_bytes(
+    observation_space: spaces.Dict,
+    *,
+    action_dim: int,
+) -> int:
+    if _CURRENT_WEIGHTS_KEY not in observation_space.spaces:
+        raise ValueError("index-backed rollout requires current_weights observation")
+    component = observation_space.spaces[_CURRENT_WEIGHTS_KEY]
+    if not isinstance(component, spaces.Box):
+        raise ValueError("current_weights observation must be a Box")
+    if component.shape != (action_dim,):
+        raise ValueError("current_weights shape must match action_dim")
+    if np.dtype(component.dtype) != np.dtype(np.float32):
+        raise ValueError("current_weights observation must use float32")
+    if not np.all(component.low == -1.0) or not np.all(component.high == 1.0):
+        raise ValueError("current_weights observation bounds must be [-1, 1]")
+    return action_dim * _FLOAT32_BYTES
 
 
 def estimate_ppo_rollout_buffer_bytes(
@@ -68,6 +89,10 @@ def estimate_index_backed_ppo_rollout_buffer_bytes(
         )
     if "decision_index" not in observation_space.spaces:
         raise ValueError("index-backed rollout requires decision_index observation")
+    current_weight_bytes = _current_weight_component_bytes(
+        observation_space,
+        action_dim=action_dim,
+    )
     observation_bytes = 0
     materialized_sequence_bytes = 0
     for key, component in observation_space.spaces.items():
@@ -80,10 +105,12 @@ def estimate_index_backed_ppo_rollout_buffer_bytes(
         component_bytes = math.prod(int(width) for width in shape) * int(dtype.itemsize)
         if key.startswith("sequence_"):
             materialized_sequence_bytes += component_bytes
-        else:
+        elif key != _CURRENT_WEIGHTS_KEY:
             observation_bytes += component_bytes
     per_transition = (
-        observation_bytes + (action_dim + _PPO_SCALAR_ARRAYS) * _FLOAT32_BYTES
+        observation_bytes
+        + current_weight_bytes
+        + (action_dim + _PPO_SCALAR_ARRAYS) * _FLOAT32_BYTES
     )
     return (per_transition + materialized_sequence_bytes) * n_steps * n_envs
 

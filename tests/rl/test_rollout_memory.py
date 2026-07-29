@@ -53,6 +53,7 @@ def test_production_sequence_rollout_fits_configured_memory_cap() -> None:
         "asset_state": spaces.Box(-np.inf, np.inf, shape=(3, 18), dtype=np.float32),
         "global_state": spaces.Box(-np.inf, np.inf, shape=(35,), dtype=np.float32),
         "active": spaces.Box(0.0, 1.0, shape=(3,), dtype=np.float32),
+        "current_weights": spaces.Box(-1.0, 1.0, shape=(3,), dtype=np.float32),
     }
     for timeframe, count in counts.items():
         shape = (3, lengths[timeframe], count)
@@ -73,10 +74,59 @@ def test_production_sequence_rollout_fits_configured_memory_cap() -> None:
     compact_estimated = estimate_index_backed_ppo_rollout_buffer_bytes(
         space, n_steps=128, n_envs=4, action_dim=3
     )
-    assert default_estimated == 473_122_816
-    assert compact_estimated == 200_499_200
+    assert default_estimated == 473_128_960
+    assert compact_estimated == 200_505_344
     assert compact_estimated < default_estimated / 2
     assert compact_estimated < 805_306_368
+
+
+def test_index_backed_memory_requires_exact_current_weight_contract() -> None:
+    space = _sequence_observation_space()
+    del space.spaces["current_weights"]
+    with pytest.raises(ValueError, match="current_weights"):
+        estimate_index_backed_ppo_rollout_buffer_bytes(
+            space,
+            n_steps=4,
+            n_envs=2,
+            action_dim=2,
+        )
+
+
+def test_current_weight_storage_byte_count_is_exact() -> None:
+    space = _sequence_observation_space()
+    estimate = estimate_index_backed_ppo_rollout_buffer_bytes(
+        space,
+        n_steps=4,
+        n_envs=2,
+        action_dim=2,
+    )
+    without_weights = spaces.Dict(
+        {key: value for key, value in space.spaces.items() if key != "current_weights"}
+    )
+    without_weights.spaces["current_weights"] = spaces.Box(
+        -1, 1, shape=(1,), dtype=np.float32
+    )
+    with pytest.raises(ValueError, match="action_dim"):
+        estimate_index_backed_ppo_rollout_buffer_bytes(
+            without_weights,
+            n_steps=4,
+            n_envs=2,
+            action_dim=2,
+        )
+    expected_weight_bytes = 4 * 2 * 2 * np.dtype(np.float32).itemsize
+    assert expected_weight_bytes == 64
+    compact_components = sum(
+        np.prod(component.shape, dtype=np.int64) * component.dtype.itemsize
+        for key, component in space.spaces.items()
+        if not key.startswith("sequence_")
+    )
+    sequence_components = sum(
+        np.prod(component.shape, dtype=np.int64) * component.dtype.itemsize
+        for key, component in space.spaces.items()
+        if key.startswith("sequence_")
+    )
+    expected = int((compact_components + sequence_components + (2 + 6) * 4) * 4 * 2)
+    assert estimate == expected
 
 
 def test_index_backed_rollout_buffer_does_not_allocate_sequence_arrays() -> None:
@@ -298,6 +348,7 @@ def _sequence_observation_space() -> spaces.Dict:
         "asset_state": spaces.Box(-np.inf, np.inf, shape=(2, 4), dtype=np.float32),
         "global_state": spaces.Box(-np.inf, np.inf, shape=(3,), dtype=np.float32),
         "active": spaces.Box(0, 1, shape=(2,), dtype=np.float32),
+        "current_weights": spaces.Box(-1, 1, shape=(2,), dtype=np.float32),
     }
     lengths = {"15m": 4, "1h": 3, "4h": 2, "1d": 1}
     for timeframe, length in lengths.items():

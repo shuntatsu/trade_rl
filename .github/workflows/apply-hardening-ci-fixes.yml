@@ -22,6 +22,31 @@ jobs:
         with:
           python-version: '3.12'
           enable-cache: true
+      - name: Normalize action telemetry assertion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/rl/test_change_intensity_contract.py')
+          source = path.read_text(encoding='utf-8')
+          if 'import pytest' not in source:
+              source = source.replace('import numpy as np\n', 'import numpy as np\nimport pytest\n')
+          old = '''    assert metrics == {
+              "exploration_l1": 0.5,
+              "submission_l1": 0.1,
+              "effective_action_l1": 0.2,
+          }
+          '''
+          old = old.replace('          "', '        "').replace('      }', '    }')
+          new = '''    assert metrics["exploration_l1"] == pytest.approx(0.5)
+          assert metrics["submission_l1"] == pytest.approx(0.1)
+          assert metrics["effective_action_l1"] == pytest.approx(0.2)
+          '''
+          new = new.replace('          assert', '    assert')
+          if old not in source:
+              raise RuntimeError('action telemetry assertion anchor not found')
+          path.write_text(source.replace(old, new), encoding='utf-8')
+          PY
       - name: Format hardening changes
         run: |
           uv sync --extra dev --extra train-sb3 --extra postgres

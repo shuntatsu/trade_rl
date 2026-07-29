@@ -118,9 +118,9 @@ def test_discounted_profile_changes_only_real_time_discount() -> None:
     assert discounted.training.algorithm == "lagrangian_ppo"
     assert discounted.training.gamma == pytest.approx(0.998969062762624)
     assert discounted.training.discount_half_life_hours == pytest.approx(168.0)
-    assert _without_discount(
-        canonical.candidate_digest_payload()
-    ) == _without_discount(discounted.candidate_digest_payload())
+    assert _without_discount(canonical.candidate_digest_payload()) == _without_discount(
+        discounted.candidate_digest_payload()
+    )
 
 
 def test_walk_forward_references_canonical_standalone_profiles() -> None:

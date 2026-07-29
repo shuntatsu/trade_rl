@@ -1328,7 +1328,7 @@ class StableBaselines3Backend:
                 raw_architecture_digest = (
                     None
                     if policy_identity is None
-                    else policy_identity.get("sequence_architecture_digest")
+                    else policy_identity.get("policy_architecture_digest")
                 )
                 if not isinstance(raw_architecture_digest, str):
                     raise RuntimeError(

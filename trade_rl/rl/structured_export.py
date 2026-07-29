@@ -17,13 +17,22 @@ from torch import nn
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.rl.policy_identity import model_sb3_policy_identity
+from trade_rl.rl.policy_identity import (
+    model_sb3_policy_identity,
+    validated_sb3_policy_identity,
+)
 
-STRUCTURED_EXPORT_SCHEMA: Final = "structured_policy_export_v1"
+STRUCTURED_EXPORT_SCHEMA: Final = "structured_policy_export_v2"
 STRUCTURED_EXPORT_MANIFEST_NAME: Final = "structured-export.json"
 STRUCTURED_EXPORT_MODEL_NAME: Final = "policy.structured.torchscript.pt"
 _TIMEFRAMES: Final = ("15m", "1h", "4h", "1d")
-_BASE_KEYS: Final = ("current_snapshot", "asset_state", "global_state", "active")
+_BASE_KEYS: Final = (
+    "current_snapshot",
+    "asset_state",
+    "global_state",
+    "active",
+    "current_weights",
+)
 _SEQUENCE_PLANES: Final = ("values", "available", "staleness")
 _TRAINING_ONLY_KEYS: Final = frozenset({"decision_index"})
 _SUPPORTED_DTYPES: Final = frozenset(
@@ -109,15 +118,13 @@ class StructuredExportManifest:
             raise ValueError("structured export model must be non-empty")
         if not isinstance(self.policy_identity, Mapping) or not self.policy_identity:
             raise ValueError("structured export requires policy identity")
-        policy_payload = dict(self.policy_identity)
+        policy_payload = validated_sb3_policy_identity(self.policy_identity)
+        object.__setattr__(self, "policy_identity", policy_payload)
         if content_digest(policy_payload) != self.policy_identity_digest:
             raise ValueError("structured export policy identity digest mismatch")
         if policy_payload.get("observation_encoder") != "hierarchical_sequence_v2":
             raise ValueError("structured export requires hierarchical sequence policy")
-        if (
-            policy_payload.get("sequence_architecture_digest")
-            != self.architecture_digest
-        ):
+        if policy_payload.get("policy_architecture_digest") != self.architecture_digest:
             raise ValueError("structured export architecture digest mismatch")
         if (
             tuple(item.name for item in self.inputs)
@@ -163,8 +170,8 @@ class StructuredExportManifest:
         tolerance: float,
         max_abs_error: float,
     ) -> StructuredExportManifest:
-        policy_payload = dict(policy_identity)
-        architecture_digest = policy_payload.get("sequence_architecture_digest")
+        policy_payload = validated_sb3_policy_identity(policy_identity)
+        architecture_digest = policy_payload.get("policy_architecture_digest")
         if not isinstance(architecture_digest, str):
             raise ValueError("structured export policy lacks architecture digest")
         model_digest = _file_digest(model_path)

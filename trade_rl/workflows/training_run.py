@@ -599,6 +599,8 @@ def _policy_loader_payload(
     *,
     algorithm: str,
     structured_sequence: bool = False,
+    policy_actor_head: str | None = None,
+    hierarchical_gate_temperature: float | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "algorithm": algorithm,
@@ -607,16 +609,37 @@ def _policy_loader_payload(
             for index in range(ensemble.expected_members)
         ),
         "schema_version": (
-            "sb3_policy_loader_v2" if structured_sequence else "sb3_policy_loader_v1"
+            "sb3_policy_loader_v3" if structured_sequence else "sb3_policy_loader_v1"
         ),
     }
     if structured_sequence:
+        if ensemble.architecture_digest is None:
+            raise ValueError("structured policy loader requires architecture digest")
+        if policy_actor_head != "hierarchical_gate_target_v1":
+            raise ValueError(
+                "structured policy loader requires hierarchical actor head"
+            )
+        if (
+            isinstance(hierarchical_gate_temperature, bool)
+            or not isinstance(hierarchical_gate_temperature, int | float)
+            or not math.isfinite(float(hierarchical_gate_temperature))
+            or float(hierarchical_gate_temperature) <= 0.0
+        ):
+            raise ValueError(
+                "structured policy loader requires positive gate temperature"
+            )
         payload.update(
             {
+                "architecture_digest": ensemble.architecture_digest,
+                "current_weight_key": "current_weights",
+                "current_weight_source": "effective_book_weights",
                 "dataset_reference": "dataset-reference.json",
                 "environment": "environment.json",
+                "hierarchical_gate_temperature": float(hierarchical_gate_temperature),
                 "normalizer": "normalizer.json",
                 "observation_mode": "structured_sequence",
+                "observation_schema": ensemble.observation_schema,
+                "policy_actor_head": policy_actor_head,
                 "sequence_normalizer": "sequence-normalizer.json",
             }
         )
@@ -626,7 +649,7 @@ def _policy_loader_payload(
 def _serving_support_payload(config: TrainingRunConfig) -> dict[str, object]:
     if config.training.observation_encoder == "hierarchical_sequence_v2":
         return {
-            "loader_schema": "sb3_policy_loader_v2",
+            "loader_schema": "sb3_policy_loader_v3",
             "observation_mode": "structured_sequence",
             "runtime": "native_sb3_structured_sequence_v1",
             "schema_version": "serving_support_v2",
@@ -1023,6 +1046,10 @@ def execute_training_run(
                 algorithm=config.training.algorithm,
                 structured_sequence=(
                     config.training.observation_encoder == "hierarchical_sequence_v2"
+                ),
+                policy_actor_head=config.training.policy_actor_head,
+                hierarchical_gate_temperature=(
+                    config.training.hierarchical_gate_temperature
                 ),
             ),
         )

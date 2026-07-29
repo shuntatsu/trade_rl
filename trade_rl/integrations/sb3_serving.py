@@ -14,8 +14,9 @@ from gymnasium import spaces
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.sb3_ensemble import predict_deterministic_mean_action
 from trade_rl.rl.normalization import ObservationNormalizer
-from trade_rl.rl.observations import ObservationBuilder
+from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE, ObservationBuilder
 from trade_rl.rl.sequence_observations import (
+    SEQUENCE_OBSERVATION_SCHEMA,
     SequenceObservationBuilder,
     SequenceWindowSpec,
     build_structured_policy_observation,
@@ -28,7 +29,7 @@ from trade_rl.serving.sequence_normalizer import (
 
 SB3_POLICY_LOADER_NAME: Final = "policy-loader.json"
 SB3_POLICY_LOADER_SCHEMA: Final = "sb3_policy_loader_v1"
-SB3_STRUCTURED_POLICY_LOADER_SCHEMA: Final = "sb3_policy_loader_v2"
+SB3_STRUCTURED_POLICY_LOADER_SCHEMA: Final = "sb3_policy_loader_v3"
 _SUPPORTED_ALGORITHMS: Final = frozenset({"ppo", "sac", "td3", "tqc"})
 
 
@@ -36,6 +37,67 @@ def _mapping(value: object, *, field: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field} must be a mapping")
     return value
+
+
+def _sha256(value: object, *, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _positive_temperature(value: object) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(float(value))
+        or float(value) <= 0.0
+    ):
+        raise ValueError("structured SB3 gate temperature must be finite and positive")
+    return float(value)
+
+
+def _validate_structured_model_identity(
+    model: object,
+    *,
+    architecture_digest: str,
+    actor_head: str,
+    gate_temperature: float,
+    action_size: int,
+) -> None:
+    from trade_rl.rl.policy_identity import model_sb3_policy_identity
+
+    identity = model_sb3_policy_identity(model)
+    if identity is None:
+        raise ValueError("structured SB3 member policy identity is missing")
+    if identity.get("policy_architecture_digest") != architecture_digest:
+        raise ValueError("structured SB3 member architecture identity mismatch")
+    if identity.get("actor_head") != actor_head:
+        raise ValueError("structured SB3 member actor-head identity mismatch")
+    observed_temperature = identity.get("gate_temperature")
+    if (
+        isinstance(observed_temperature, bool)
+        or not isinstance(observed_temperature, int | float)
+        or not math.isclose(
+            float(observed_temperature), gate_temperature, rel_tol=0.0, abs_tol=1e-12
+        )
+    ):
+        raise ValueError("structured SB3 member gate-temperature identity mismatch")
+    current_weight = identity.get("current_weight_observation")
+    if not isinstance(current_weight, Mapping):
+        raise ValueError("structured SB3 member current-weight identity is missing")
+    if (
+        current_weight.get("key") != "current_weights"
+        or current_weight.get("source") != CURRENT_WEIGHT_SOURCE
+        or current_weight.get("observation_schema") != SEQUENCE_OBSERVATION_SCHEMA
+        or tuple(current_weight.get("shape", ())) != (action_size,)
+        or current_weight.get("dtype") != "float32"
+        or tuple(current_weight.get("bounds", ())) != (-1.0, 1.0)
+    ):
+        raise ValueError("structured SB3 member current-weight identity mismatch")
 
 
 def _safe_relative_path(value: object, *, field: str) -> str:
@@ -104,6 +166,16 @@ class _SB3StructuredSequenceEnsemblePolicy:
         self.n_factors = n_factors
         self.finite_horizon = finite_horizon
         self.observation_space = first_space
+        current_weight_space = first_space.spaces.get("current_weights")
+        if not isinstance(current_weight_space, spaces.Box):
+            raise ValueError("structured SB3 member lacks current_weights observation")
+        if (
+            current_weight_space.shape != (action_size,)
+            or np.dtype(current_weight_space.dtype) != np.dtype(np.float32)
+            or not np.all(current_weight_space.low == -1.0)
+            or not np.all(current_weight_space.high == 1.0)
+        ):
+            raise ValueError("structured SB3 current_weights observation is invalid")
         expected = {
             key: (space.shape, np.dtype(space.dtype))
             for key, space in first_space.spaces.items()
@@ -332,7 +404,32 @@ class StableBaselines3PolicyLoader:
                 action_size=bundle.manifest.action_size,
             )
         if payload.get("observation_mode") != "structured_sequence":
-            raise ValueError("SB3 v2 loader requires structured_sequence mode")
+            raise ValueError("SB3 v3 loader requires structured_sequence mode")
+        architecture_digest = _sha256(
+            payload.get("architecture_digest"), field="architecture_digest"
+        )
+        actor_head = payload.get("policy_actor_head")
+        if actor_head != "hierarchical_gate_target_v1":
+            raise ValueError("structured SB3 loader actor-head identity is invalid")
+        gate_temperature = _positive_temperature(
+            payload.get("hierarchical_gate_temperature")
+        )
+        if payload.get("observation_schema") != SEQUENCE_OBSERVATION_SCHEMA:
+            raise ValueError("structured SB3 loader observation schema is invalid")
+        if payload.get("current_weight_key") != "current_weights":
+            raise ValueError("structured SB3 loader current-weight key is invalid")
+        if payload.get("current_weight_source") != CURRENT_WEIGHT_SOURCE:
+            raise ValueError("structured SB3 loader current-weight source is invalid")
+        if bundle.manifest.observation_schema != SEQUENCE_OBSERVATION_SCHEMA:
+            raise ValueError("serving bundle observation schema is incompatible")
+        for model in models:
+            _validate_structured_model_identity(
+                model,
+                architecture_digest=architecture_digest,
+                actor_head=actor_head,
+                gate_temperature=gate_temperature,
+                action_size=bundle.manifest.action_size,
+            )
         required_paths = {
             "dataset_reference": "dataset-reference.json",
             "environment": "environment.json",

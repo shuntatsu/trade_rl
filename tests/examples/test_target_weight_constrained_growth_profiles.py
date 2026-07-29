@@ -157,3 +157,17 @@ def test_walk_forward_references_canonical_standalone_profiles() -> None:
     assert config.workflow.max_folds == 6
     assert config.workflow.selection_bars == 2_880
     assert config.workflow.test_bars == 2_880
+
+
+def test_walk_forward_resolves_run_files_from_a_relative_config_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(ROOT)
+    relative_path = Path("examples/binance-multitimeframe") / WALK_FORWARD
+
+    config = MarketWalkForwardConfig.from_json(relative_path, n_bars=55_392)
+
+    assert tuple(candidate.name for candidate in config.candidates) == EXPECTED_NAMES
+    assert config.candidates[0].run.candidate_digest_payload() == _load(
+        PPO
+    ).candidate_digest_payload()

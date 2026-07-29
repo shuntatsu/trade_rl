@@ -41,7 +41,7 @@ jobs:
           source = gate.read_text(encoding="utf-8")
           source = source.replace(
               "from __future__ import annotations\n\nimport math",
-              "from __future__ import annotations\n\nfrom collections.abc import Callable\nimport math",
+              "from __future__ import annotations\n\nimport math\nfrom collections.abc import Callable",
           )
           source = source.replace(
               "def _group_values_by_fold(\n"
@@ -112,8 +112,11 @@ jobs:
           )
           test.write_text(source, encoding="utf-8")
 
-      - name: Format and check
+      - name: Fix, format, and check
         run: |
+          uv run ruff check --fix \
+            trade_rl/evaluation/target_weight_growth_gate.py \
+            tests/evaluation/test_target_weight_growth_gate.py
           uv run ruff format \
             trade_rl/evaluation/target_weight_growth_gate.py \
             tests/evaluation/test_target_weight_growth_gate.py
@@ -125,6 +128,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if git diff --quiet; then
+            echo "No typing changes were produced"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \

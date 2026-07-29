@@ -34,9 +34,9 @@
 tests\rl\test_sequence_policy_core.py:276: AssertionError
 =========================== short test summary info ===========================
 FAILED tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 - assert tensor(48) == 0
- +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF9F46D4E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
- +    where <built-in method count_nonzero of type object at 0x00007FF9F46D4E90> = torch.count_nonzero
-1 failed, 1 passed in 1.73s
+ +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF91ED04E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
+ +    where <built-in method count_nonzero of type object at 0x00007FF91ED04E90> = torch.count_nonzero
+1 failed, 1 passed in 1.80s
 attempt=9
 F.                                                                       [100%]
 ================================== FAILURES ===================================
@@ -65,15 +65,15 @@ __________ test_projection_after_selection_matches_legacy_in_float64 __________
         assert torch.count_nonzero(case.optimized[2]) == 0
 >       assert torch.count_nonzero(case.optimized_input_gradient[2]) == 0
 E       assert tensor(48) == 0
-E        +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF9F46D4E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
-E        +    where <built-in method count_nonzero of type object at 0x00007FF9F46D4E90> = torch.count_nonzero
+E        +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF91ED04E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
+E        +    where <built-in method count_nonzero of type object at 0x00007FF91ED04E90> = torch.count_nonzero
 
 tests\rl\test_sequence_policy_core.py:276: AssertionError
 =========================== short test summary info ===========================
 FAILED tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 - assert tensor(48) == 0
- +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF9F46D4E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
- +    where <built-in method count_nonzero of type object at 0x00007FF9F46D4E90> = torch.count_nonzero
-1 failed, 1 passed in 1.74s
+ +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF91ED04E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
+ +    where <built-in method count_nonzero of type object at 0x00007FF91ED04E90> = torch.count_nonzero
+1 failed, 1 passed in 1.85s
 attempt=10
 F.                                                                       [100%]
 ================================== FAILURES ===================================
@@ -102,15 +102,15 @@ __________ test_projection_after_selection_matches_legacy_in_float64 __________
         assert torch.count_nonzero(case.optimized[2]) == 0
 >       assert torch.count_nonzero(case.optimized_input_gradient[2]) == 0
 E       assert tensor(48) == 0
-E        +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF9F4204E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
-E        +    where <built-in method count_nonzero of type object at 0x00007FF9F4204E90> = torch.count_nonzero
+E        +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF91ED04E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
+E        +    where <built-in method count_nonzero of type object at 0x00007FF91ED04E90> = torch.count_nonzero
 
 tests\rl\test_sequence_policy_core.py:276: AssertionError
 =========================== short test summary info ===========================
 FAILED tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 - assert tensor(48) == 0
- +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF9F4204E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
- +    where <built-in method count_nonzero of type object at 0x00007FF9F4204E90> = torch.count_nonzero
-1 failed, 1 passed in 2.10s
+ +  where tensor(48) = <built-in method count_nonzero of type object at 0x00007FF91ED04E90>(tensor([[ 0.7021,  0.2630, -0.2838, -0.1238],\n        [ 0.4004, -0.0262, -0.6826, -0.2752],\n        [ 0.4178, -0.2951,...780],\n        [-0.0489, -0.3231,  0.1844, -0.2094],\n        [-0.0719, -0.4010,  0.1507, -0.0115]], dtype=torch.float64))
+ +    where <built-in method count_nonzero of type object at 0x00007FF91ED04E90> = torch.count_nonzero
+1 failed, 1 passed in 1.84s
 
 ```
 
@@ -228,7 +228,7 @@ FAILED tests/workflows/test_market_walk_forward.py::test_execution_sensitivity_c
   Expected regex: 'must be a boolean'
   Actual message: 'migrate training_run_config_v2 to training_run_config_v3'
 FAILED tests/workflows/test_walk_forward_manifest_provenance.py::test_market_walk_forward_publishes_dedicated_manifest_and_provenance - ValueError: migrate training_run_config_v2 to training_run_config_v3
-39 failed, 2209 passed, 2 skipped, 3 warnings in 130.40s (0:02:10)
+39 failed, 2209 passed, 2 skipped, 3 warnings in 122.15s (0:02:02)
 
 ```
 

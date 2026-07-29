@@ -1,0 +1,12 @@
+diff --git a/trade_rl/workflows/training_run.py b/trade_rl/workflows/training_run.py
+index b362abb..07fdb29 100644
+--- a/trade_rl/workflows/training_run.py
++++ b/trade_rl/workflows/training_run.py
+@@ -123,6 +123,8 @@ _REQUIRED_V3_TRAINING_FIELDS = frozenset(
+         "behavior_cloning_max_activity_ratio",
+         "behavior_cloning_min_causal_holdout_trades",
+         "behavior_cloning_max_causal_holdout_regret",
++        "behavior_cloning_causal_holdout_bootstrap_resamples",
++        "behavior_cloning_causal_holdout_confidence_level",
+     }
+ )

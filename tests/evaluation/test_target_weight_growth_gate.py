@@ -66,13 +66,18 @@ def test_growth_production_gate_accepts_complete_stable_evidence() -> None:
     assert decision.passed is True
     assert decision.reasons == ()
     assert decision.nominal_cell_count == 18
+    assert decision.nominal_growth_median is not None
     assert decision.nominal_growth_median > 0.0
+    assert decision.nominal_paired_median is not None
     assert decision.nominal_paired_median > 0.0
+    assert decision.nominal_paired_lower_bound is not None
     assert decision.nominal_paired_lower_bound > 0.0
     assert decision.positive_fold_count == 6
     assert decision.nonnegative_seed_count == 3
     assert decision.positive_seed_count == 3
+    assert decision.cost_2x_paired_median is not None
     assert decision.cost_2x_paired_median > 0.0
+    assert decision.cost_3x_growth_median is not None
     assert decision.cost_3x_growth_median >= 0.0
     assert decision.catastrophic_event_count == 0
     assert all(summary.passed for summary in decision.soft_constraints)
@@ -163,6 +168,7 @@ def test_profile_selection_chooses_lagrangian_only_with_positive_ci() -> None:
     )
 
     assert decision.selected_profile == "g1_lagrangian"
+    assert decision.lagrangian_minus_ppo_lower_bound is not None
     assert decision.lagrangian_minus_ppo_lower_bound > 0.0
 
 

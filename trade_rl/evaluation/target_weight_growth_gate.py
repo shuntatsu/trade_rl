@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from statistics import median
 
@@ -341,13 +342,11 @@ class GrowthProfileSelectionDecision:
 
 def _group_values_by_fold(
     cells: tuple[GrowthEvaluationCell, ...],
-    value_getter: object,
+    value_getter: Callable[[GrowthEvaluationCell], float],
 ) -> dict[int, tuple[float, ...]]:
-    getter = value_getter
     grouped: dict[int, list[float]] = {}
     for cell in cells:
-        value = getter(cell)  # type: ignore[operator]
-        grouped.setdefault(cell.fold_index, []).append(float(value))
+        grouped.setdefault(cell.fold_index, []).append(value_getter(cell))
     return {fold: tuple(values) for fold, values in grouped.items()}
 
 
@@ -438,14 +437,6 @@ def _soft_constraint_summaries(
     if reasons:
         return (), tuple(sorted(set(reasons)))
     for name in expected_names:
-        observations = {
-            cell.fold_index: next(
-                item.observed_value
-                for item in cell.soft_constraints
-                if item.name == name
-            )
-            for cell in nominal
-        }
         by_fold: dict[int, tuple[float, ...]] = {}
         for fold in sorted({cell.fold_index for cell in nominal}):
             by_fold[fold] = tuple(
@@ -477,7 +468,6 @@ def _soft_constraint_summaries(
         )
         if not passed:
             reasons.append(f"soft_constraint_budget_failed:{name}")
-        del observations
     return tuple(summaries), tuple(sorted(set(reasons)))
 
 

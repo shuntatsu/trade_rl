@@ -94,7 +94,7 @@ def test_current_schema_contracts_are_documented() -> None:
         assert value in readme
         assert value in architecture
     for value in (
-        "training_run_config_v2",
+        "training_run_config_v3",
         "flat_mlp",
         "asset_set",
         "hierarchical_sequence_v2",
@@ -103,7 +103,7 @@ def test_current_schema_contracts_are_documented() -> None:
         "sequence_asset_attention_heads",
         "sequence_asset_attention_layers",
         "sb3_policy_identity_v1",
-        "structured_policy_export_v1",
+        "structured_policy_export_v2",
         "CanonicalStructuredPolicyLoader",
     ):
         assert value in configuration

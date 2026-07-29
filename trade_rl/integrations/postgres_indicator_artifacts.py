@@ -14,9 +14,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 
-INDICATOR_CACHE_ID: Final = (
-    "binance-usds-m-native-indicators-15x-202101-202606-v1"
-)
+INDICATOR_CACHE_ID: Final = "binance-usds-m-native-indicators-15x-202101-202606-v1"
 INDICATOR_ARTIFACT_TABLE: Final = (
     "market_raw.binance_usds_m_indicator_artifacts_202101_202606"
 )
@@ -190,7 +188,10 @@ def _load_npz(
         raise ValueError("indicator event_time_ms contract mismatch")
     if values.dtype != np.dtype(np.float32) or values.shape != expected_matrix_shape:
         raise ValueError("indicator values contract mismatch")
-    if available.dtype != np.dtype(np.bool_) or available.shape != expected_matrix_shape:
+    if (
+        available.dtype != np.dtype(np.bool_)
+        or available.shape != expected_matrix_shape
+    ):
         raise ValueError("indicator available contract mismatch")
     if row_count <= 0 or feature_count <= 0:
         raise ValueError("indicator dimensions must be positive")
@@ -278,13 +279,11 @@ def load_postgres_indicator_artifacts(
     maintained_timeframes, names_by_timeframe = _feature_names_by_timeframe(
         feature_specs
     )
-    if _integer(artifact_count, field="artifact_count") != len(
-        manifest_symbols
-    ) * len(maintained_timeframes):
+    if _integer(artifact_count, field="artifact_count") != len(manifest_symbols) * len(
+        maintained_timeframes
+    ):
         raise ValueError("indicator manifest artifact count mismatch")
-    unknown_timeframes = sorted(
-        set(requested_timeframes) - set(maintained_timeframes)
-    )
+    unknown_timeframes = sorted(set(requested_timeframes) - set(maintained_timeframes))
     if unknown_timeframes:
         raise ValueError(
             f"indicator timeframes are not in manifest: {unknown_timeframes}"
@@ -328,9 +327,7 @@ def load_postgres_indicator_artifacts(
                 payload_schema.removeprefix(_PAYLOAD_SCHEMA_PREFIX),
                 field="payload_schema digest",
             )
-            previous_schema = schema_by_timeframe.setdefault(
-                timeframe, payload_schema
-            )
+            previous_schema = schema_by_timeframe.setdefault(timeframe, payload_schema)
             if previous_schema != payload_schema:
                 raise ValueError("indicator payload schema differs within timeframe")
             payload_digest = _sha256(row[8], field="payload_sha256")

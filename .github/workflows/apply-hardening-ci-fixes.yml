@@ -1,0 +1,85 @@
+name: Apply hardening CI fixes
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'agent/harden-data-bc-serving-contracts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Expand economic semantics with typed keywords
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          explicit = '''            symbol_active=economics.symbol_active,
+          asset_active=economics.asset_active,
+          tradable=economics.tradable,
+          information_available=economics.information_available,
+          available_at=economics.available_at,
+          fee_rate=economics.fee_rate,
+          maker_fee_rate=economics.maker_fee_rate,
+          taker_fee_rate=economics.taker_fee_rate,
+          spread_rate=economics.spread_rate,
+          max_participation_rate=economics.max_participation_rate,
+          minimum_notional=economics.minimum_notional,
+          lot_size=economics.lot_size,
+          tick_size=economics.tick_size,
+          borrow_available=economics.borrow_available,
+          borrow_rate=economics.borrow_rate,
+          funding_due=economics.funding_due,
+          buy_allowed=economics.buy_allowed,
+          sell_allowed=economics.sell_allowed,
+          mark_price=economics.mark_price,
+          index_price=economics.index_price,
+          '''
+          explicit = explicit.replace('          ', '            ')
+          for relative in (
+              'trade_rl/data/builder.py',
+              'trade_rl/integrations/postgres_market_dataset.py',
+          ):
+              path = Path(relative)
+              source = path.read_text(encoding='utf-8')
+              anchor = '            **economics.market_dataset_kwargs(),\n'
+              if anchor not in source:
+                  raise RuntimeError(f'{relative}: economics expansion anchor not found')
+              path.write_text(source.replace(anchor, explicit, 1), encoding='utf-8')
+          PY
+      - name: Verify typed economic wiring
+        run: |
+          uv sync --extra dev --extra train-sb3 --extra postgres
+          uv run ruff check --fix trade_rl/data/builder.py trade_rl/integrations/postgres_market_dataset.py
+          uv run ruff format trade_rl/data/builder.py trade_rl/integrations/postgres_market_dataset.py
+          uv run mypy trade_rl
+          uv run pytest \
+            tests/data/test_economic_semantics.py \
+            tests/data/test_market_artifact_catalog.py \
+            tests/integrations/test_postgres_market_dataset.py -q
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Commit typed wiring
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/data/builder.py trade_rl/integrations/postgres_market_dataset.py
+          git commit -m 'fix: type economic dataset construction'
+          git push origin "HEAD:${HEAD_BRANCH}"

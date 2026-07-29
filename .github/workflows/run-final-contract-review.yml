@@ -35,16 +35,17 @@ jobs:
           marker = 'info["sampled_policy_action"], action_path.policy_target'
           if marker not in source:
               anchor = '    assert info["constraint_costs"] is costs\n'
-              addition = anchor + '''    np.testing.assert_array_equal(
-              info["sampled_policy_action"], action_path.policy_target
-          )
-          np.testing.assert_array_equal(
-              info["effective_filled_weights"], action_path.filled_weight
-          )
-          assert not np.array_equal(
-              info["sampled_policy_action"], info["submitted_target"]
-          )
-          '''
+              addition = anchor + (
+                  '    np.testing.assert_array_equal(\n'
+                  '        info["sampled_policy_action"], action_path.policy_target\n'
+                  '    )\n'
+                  '    np.testing.assert_array_equal(\n'
+                  '        info["effective_filled_weights"], action_path.filled_weight\n'
+                  '    )\n'
+                  '    assert not np.array_equal(\n'
+                  '        info["sampled_policy_action"], info["submitted_target"]\n'
+                  '    )\n'
+              )
               if anchor not in source:
                   raise RuntimeError('environment telemetry RED anchor not found')
               path.write_text(source.replace(anchor, addition, 1), encoding='utf-8')

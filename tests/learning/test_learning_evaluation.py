@@ -204,7 +204,9 @@ def test_evaluation_json_is_atomic_digest_bound_and_scope_explicit(
         ("costs", (0.0, -0.1)),
     ],
 )
-def test_path_metrics_reject_invalid_accounting_inputs(field: str, value: object) -> None:
+def test_path_metrics_reject_invalid_accounting_inputs(
+    field: str, value: object
+) -> None:
     values: dict[str, object] = {
         "gross_step_returns": (0.0, 0.0),
         "net_step_returns": (0.0, 0.0),

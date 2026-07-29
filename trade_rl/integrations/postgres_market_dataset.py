@@ -102,7 +102,9 @@ def _load_base_market(
             if matrix.shape != (expected_rows, 6) or not np.isfinite(matrix).all():
                 raise ValueError(f"PostgreSQL Klines are invalid for {symbol}")
             open_ms = np.asarray(matrix[:, 0], dtype=np.int64)
-            expected_clock = start_ms + np.arange(expected_rows, dtype=np.int64) * _STEP_MS
+            expected_clock = (
+                start_ms + np.arange(expected_rows, dtype=np.int64) * _STEP_MS
+            )
             if not np.array_equal(open_ms, expected_clock):
                 raise ValueError(f"PostgreSQL Klines are not contiguous for {symbol}")
             event_ms = open_ms + _STEP_MS
@@ -146,13 +148,13 @@ def _load_funding(
                     or isinstance(raw_rate, bool)
                     or not isinstance(raw_rate, int | float)
                 ):
-                    raise ValueError(
-                        f"PostgreSQL funding row is invalid for {symbol}"
-                    )
+                    raise ValueError(f"PostgreSQL funding row is invalid for {symbol}")
                 event = int(raw_time)
                 rate = float(raw_rate)
                 if previous is not None and event <= previous:
-                    raise ValueError(f"PostgreSQL funding times are not unique for {symbol}")
+                    raise ValueError(
+                        f"PostgreSQL funding times are not unique for {symbol}"
+                    )
                 previous = event
                 if not math.isfinite(rate):
                     raise ValueError(f"PostgreSQL funding rate is invalid for {symbol}")
@@ -196,10 +198,10 @@ def _align_indicators(
         for name in bundle.get(bundle.symbols[0], timeframe).feature_names
     )
     if native_names != tuple(spec.name for spec in specs):
-        raise ValueError("PostgreSQL indicator feature order differs from code contract")
-    identity_names = tuple(
-        f"15m__symbol_id_{symbol}" for symbol in symbol_vocabulary
-    )
+        raise ValueError(
+            "PostgreSQL indicator feature order differs from code contract"
+        )
+    identity_names = tuple(f"15m__symbol_id_{symbol}" for symbol in symbol_vocabulary)
     feature_names = (*native_names, *identity_names)
     shape = (len(timestamps_ms), len(bundle.symbols), len(feature_names))
     values = np.zeros(shape, dtype=np.float32)
@@ -219,7 +221,9 @@ def _align_indicators(
                 if valid_rows.size == 0:
                     continue
                 source_times = artifact.event_time_ms[valid_rows]
-                positions = np.searchsorted(source_times, timestamps_ms, side="right") - 1
+                positions = (
+                    np.searchsorted(source_times, timestamps_ms, side="right") - 1
+                )
                 present = positions >= 0
                 safe_positions = np.maximum(positions, 0)
                 source_indices = valid_rows[safe_positions]
@@ -349,16 +353,23 @@ def build_postgres_market_dataset(
     global_available[0, 2:] = False
 
     tick_size = np.broadcast_to(
-        np.asarray([_metadata_number(metadata, symbol, "tick_size") for symbol in selected]),
+        np.asarray(
+            [_metadata_number(metadata, symbol, "tick_size") for symbol in selected]
+        ),
         price_shape,
     ).copy()
     lot_size = np.broadcast_to(
-        np.asarray([_metadata_number(metadata, symbol, "lot_size") for symbol in selected]),
+        np.asarray(
+            [_metadata_number(metadata, symbol, "lot_size") for symbol in selected]
+        ),
         price_shape,
     ).copy()
     minimum_notional = np.broadcast_to(
         np.asarray(
-            [_metadata_number(metadata, symbol, "minimum_notional") for symbol in selected]
+            [
+                _metadata_number(metadata, symbol, "minimum_notional")
+                for symbol in selected
+            ]
         ),
         price_shape,
     ).copy()

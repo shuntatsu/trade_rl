@@ -149,12 +149,10 @@ def evaluate_action_path(
         ):
             raise ValueError("hybrid execution is missing filled_turnover")
         turnover.append(
-            float(filled_turnover)
-            + _liquidation_metric(info, "filled_turnover")
+            float(filled_turnover) + _liquidation_metric(info, "filled_turnover")
         )
         costs.append(
-            _metric(info, "interval_cost")
-            + _liquidation_metric(info, "interval_cost")
+            _metric(info, "interval_cost") + _liquidation_metric(info, "interval_cost")
         )
         if (bool(terminated) or bool(truncated)) != (offset == expected_count - 1):
             raise ValueError("evaluation environment ended outside the range")

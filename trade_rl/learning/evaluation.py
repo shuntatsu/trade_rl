@@ -118,7 +118,10 @@ def evaluate_path_performance(
     reward = _finite_vector(rewards, field="rewards")
     traded_turnover = _finite_vector(turnover, field="turnover")
     paid_cost = _finite_vector(costs, field="costs")
-    if len({len(gross), len(net), len(reward), len(traded_turnover), len(paid_cost)}) != 1:
+    if (
+        len({len(gross), len(net), len(reward), len(traded_turnover), len(paid_cost)})
+        != 1
+    ):
         raise ValueError("path evaluation arrays must have equal lengths")
     if np.any(gross <= -1.0) or np.any(net <= -1.0):
         raise ValueError("step returns must be greater than -1")
@@ -201,7 +204,9 @@ class OracleTeacherEvaluation:
             or not self.uses_future_information
             or self.eligible_for_production_generalization
         ):
-            raise ValueError("oracle evaluation must remain a hindsight-only diagnostic")
+            raise ValueError(
+                "oracle evaluation must remain a hindsight-only diagnostic"
+            )
         if self.schema_version != LEARNING_EVALUATION_SCHEMA:
             raise ValueError("unsupported learning evaluation schema")
 
@@ -244,7 +249,10 @@ class BehaviorCloningHoldoutEvaluation:
             )
         if self.oracle_reference.evaluation_range != self.heldout_range:
             raise ValueError("oracle reference must cover the exact heldout range")
-        if self.causal_policy_performance.step_count != heldout_stop - heldout_start - 1:
+        if (
+            self.causal_policy_performance.step_count
+            != heldout_stop - heldout_start - 1
+        ):
             raise ValueError("policy metrics do not cover the exact heldout range")
         for field, value in (
             ("action_agreement_rate", self.action_agreement_rate),
@@ -259,7 +267,11 @@ class BehaviorCloningHoldoutEvaluation:
                 raise ValueError(f"{field} must be finite")
         if not 0.0 <= self.action_agreement_rate <= 1.0:
             raise ValueError("action_agreement_rate must be within [0, 1]")
-        if self.action_mae < 0.0 or self.action_rmse < 0.0 or self.heldout_oracle_regret < 0.0:
+        if (
+            self.action_mae < 0.0
+            or self.action_rmse < 0.0
+            or self.heldout_oracle_regret < 0.0
+        ):
             raise ValueError("action errors and oracle regret must be non-negative")
         if (
             self.policy_scope != CAUSAL_GENERALIZATION_SCOPE
@@ -304,15 +316,14 @@ def evaluate_behavior_cloning_holdout(
         or not np.isfinite(oracle).all()
         or not np.isfinite(policy).all()
     ):
-        raise ValueError("oracle and policy actions must be equal finite rank-two arrays")
+        raise ValueError(
+            "oracle and policy actions must be equal finite rank-two arrays"
+        )
     start, stop = _evaluation_range(heldout_range, field="heldout_range")
     expected_count = stop - start - 1
     if len(oracle) != expected_count:
         raise ValueError("actions do not cover the exact heldout range")
-    if (
-        not math.isfinite(action_tolerance)
-        or action_tolerance < 0.0
-    ):
+    if not math.isfinite(action_tolerance) or action_tolerance < 0.0:
         raise ValueError("action_tolerance must be finite and non-negative")
 
     difference = oracle - policy
@@ -322,7 +333,9 @@ def evaluate_behavior_cloning_holdout(
     )
     gross_gap = oracle_performance.gross_return - causal_policy_performance.gross_return
     net_gap = oracle_performance.net_return - causal_policy_performance.net_return
-    reward_gap = oracle_performance.reward_total - causal_policy_performance.reward_total
+    reward_gap = (
+        oracle_performance.reward_total - causal_policy_performance.reward_total
+    )
     return BehaviorCloningHoldoutEvaluation(
         teacher_train_range=teacher_train_range,
         heldout_range=heldout_range,

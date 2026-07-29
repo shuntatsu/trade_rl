@@ -93,9 +93,7 @@ def main() -> int:
     sys.argv[:] = ensure_cache_root_argument(sys.argv, cache_root)
     return run_bootstrap(
         cache_root=cache_root,
-        postgres_market_data=os.environ.get(
-            "TRADE_RL_POSTGRES_MARKET_DATA", ""
-        ).lower()
+        postgres_market_data=os.environ.get("TRADE_RL_POSTGRES_MARKET_DATA", "").lower()
         == "true",
     )
 

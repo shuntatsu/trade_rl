@@ -13,11 +13,11 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
 )
-from trade_rl.data.economic_semantics import build_market_economic_semantics
 from trade_rl.data.cross_asset_features import (
     CROSS_ASSET_FEATURE_KINDS,
     calculate_cross_asset_feature_events,
 )
+from trade_rl.data.economic_semantics import build_market_economic_semantics
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
@@ -257,9 +257,6 @@ class MarketDatasetBuilder:
         information_available = np.zeros_like(row_present)
         available_at = np.broadcast_to(timestamps[:, None], row_present.shape).copy()
         symbol_active = np.zeros_like(row_present)
-        tick_size = np.zeros_like(open_price)
-        lot_size = np.zeros_like(open_price)
-        minimum_notional = np.zeros_like(open_price)
 
         for symbol_index, (contract, raw) in enumerate(zip(instruments, raw_series)):
             aligned = _align_series(raw, timestamps, step_ns=alignment_step)
@@ -275,7 +272,6 @@ class MarketDatasetBuilder:
             funding_event_count[:, symbol_index] = aligned["funding_event_count"]
             information_available[:, symbol_index] = aligned["information_available"]
             available_at[:, symbol_index] = aligned["available_at"]
-
 
         economics = build_market_economic_semantics(
             timestamps=timestamps,
@@ -494,9 +490,6 @@ class MarketDatasetBuilder:
                 [contract.contract_multiplier for contract in instruments],
                 dtype=np.float64,
             ),
-            tick_size=tick_size,
-            lot_size=lot_size,
-            minimum_notional=minimum_notional,
             feature_config_digest=feature_config_digest,
             normalization_digest=normalization_digest,
             periods_per_year=periods_per_year,

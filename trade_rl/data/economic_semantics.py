@@ -10,7 +10,9 @@ import numpy as np
 from trade_rl.data.contracts import InstrumentContract
 
 
-def _readonly(value: object, *, shape: tuple[int, int], dtype: np.dtype, field: str) -> np.ndarray:
+def _readonly(
+    value: object, *, shape: tuple[int, int], dtype: np.dtype, field: str
+) -> np.ndarray:
     array = np.asarray(value, dtype=dtype)
     if array.ndim == 0:
         array = np.full(shape, array.item(), dtype=dtype)
@@ -18,7 +20,9 @@ def _readonly(value: object, *, shape: tuple[int, int], dtype: np.dtype, field: 
         try:
             array = np.broadcast_to(array, shape)
         except ValueError as error:
-            raise ValueError(f"{field} cannot be broadcast to economic-array shape") from error
+            raise ValueError(
+                f"{field} cannot be broadcast to economic-array shape"
+            ) from error
     result = np.array(array, dtype=dtype, copy=True, order="C")
     if np.issubdtype(result.dtype, np.floating) and not np.isfinite(result).all():
         raise ValueError(f"{field} must contain only finite values")
@@ -94,8 +98,12 @@ def build_market_economic_semantics(
     if not instruments:
         raise ValueError("economic semantics require instruments")
     shape = (len(resolved_timestamps), len(instruments))
-    rows = _readonly(row_present, shape=shape, dtype=np.dtype(np.bool_), field="row_present")
-    raw_trade = _readonly(raw_tradable, shape=shape, dtype=np.dtype(np.bool_), field="raw_tradable")
+    rows = _readonly(
+        row_present, shape=shape, dtype=np.dtype(np.bool_), field="row_present"
+    )
+    raw_trade = _readonly(
+        raw_tradable, shape=shape, dtype=np.dtype(np.bool_), field="raw_tradable"
+    )
     source_info = _readonly(
         source_information_available,
         shape=shape,
@@ -108,7 +116,9 @@ def build_market_economic_semantics(
         dtype=np.dtype("datetime64[ns]"),
         field="available_at",
     )
-    close_array = _readonly(close, shape=shape, dtype=np.dtype(np.float64), field="close")
+    close_array = _readonly(
+        close, shape=shape, dtype=np.dtype(np.float64), field="close"
+    )
     funding_counts = _readonly(
         funding_event_count,
         shape=shape,
@@ -123,10 +133,20 @@ def build_market_economic_semantics(
     lot = np.zeros(shape, dtype=np.float64)
     minimum = np.zeros(shape, dtype=np.float64)
     for symbol_index, contract in enumerate(instruments):
-        listed = np.datetime64(contract.listed_at.astimezone(__import__("datetime").UTC).replace(tzinfo=None), "ns")
+        listed = np.datetime64(
+            contract.listed_at.astimezone(__import__("datetime").UTC).replace(
+                tzinfo=None
+            ),
+            "ns",
+        )
         mask = resolved_timestamps >= listed
         if contract.delisted_at is not None:
-            delisted = np.datetime64(contract.delisted_at.astimezone(__import__("datetime").UTC).replace(tzinfo=None), "ns")
+            delisted = np.datetime64(
+                contract.delisted_at.astimezone(__import__("datetime").UTC).replace(
+                    tzinfo=None
+                ),
+                "ns",
+            )
             mask &= resolved_timestamps < delisted
         active[:, symbol_index] = mask
         resolved_tick, resolved_lot, resolved_minimum = contract.execution_rule_arrays(
@@ -139,7 +159,9 @@ def build_market_economic_semantics(
     causal_time = resolved_available_at <= np.broadcast_to(
         resolved_timestamps[:, None], shape
     )
-    active_ro = _readonly(active, shape=shape, dtype=np.dtype(np.bool_), field="symbol_active")
+    active_ro = _readonly(
+        active, shape=shape, dtype=np.dtype(np.bool_), field="symbol_active"
+    )
     information = _readonly(
         source_info & rows & active & causal_time,
         shape=shape,
@@ -170,11 +192,19 @@ def build_market_economic_semantics(
         dtype=np.dtype(np.bool_),
         field="sell_allowed",
     )
-    resolved_mark = close_array if mark_price is None else _readonly(
-        mark_price, shape=shape, dtype=np.dtype(np.float64), field="mark_price"
+    resolved_mark = (
+        close_array
+        if mark_price is None
+        else _readonly(
+            mark_price, shape=shape, dtype=np.dtype(np.float64), field="mark_price"
+        )
     )
-    resolved_index = close_array if index_price is None else _readonly(
-        index_price, shape=shape, dtype=np.dtype(np.float64), field="index_price"
+    resolved_index = (
+        close_array
+        if index_price is None
+        else _readonly(
+            index_price, shape=shape, dtype=np.dtype(np.float64), field="index_price"
+        )
     )
     return MarketEconomicSemantics(
         symbol_active=active_ro,
@@ -182,22 +212,49 @@ def build_market_economic_semantics(
         tradable=tradable,
         information_available=information,
         available_at=resolved_available_at,
-        fee_rate=_readonly(fee_rate, shape=shape, dtype=np.dtype(np.float64), field="fee_rate"),
-        maker_fee_rate=_readonly(maker_fee_rate, shape=shape, dtype=np.dtype(np.float64), field="maker_fee_rate"),
-        taker_fee_rate=_readonly(taker_fee_rate, shape=shape, dtype=np.dtype(np.float64), field="taker_fee_rate"),
-        spread_rate=_readonly(spread_rate, shape=shape, dtype=np.dtype(np.float64), field="spread_rate"),
+        fee_rate=_readonly(
+            fee_rate, shape=shape, dtype=np.dtype(np.float64), field="fee_rate"
+        ),
+        maker_fee_rate=_readonly(
+            maker_fee_rate,
+            shape=shape,
+            dtype=np.dtype(np.float64),
+            field="maker_fee_rate",
+        ),
+        taker_fee_rate=_readonly(
+            taker_fee_rate,
+            shape=shape,
+            dtype=np.dtype(np.float64),
+            field="taker_fee_rate",
+        ),
+        spread_rate=_readonly(
+            spread_rate, shape=shape, dtype=np.dtype(np.float64), field="spread_rate"
+        ),
         max_participation_rate=_readonly(
             max_participation_rate,
             shape=shape,
             dtype=np.dtype(np.float64),
             field="max_participation_rate",
         ),
-        minimum_notional=_readonly(minimum, shape=shape, dtype=np.dtype(np.float64), field="minimum_notional"),
-        lot_size=_readonly(lot, shape=shape, dtype=np.dtype(np.float64), field="lot_size"),
-        tick_size=_readonly(tick, shape=shape, dtype=np.dtype(np.float64), field="tick_size"),
+        minimum_notional=_readonly(
+            minimum, shape=shape, dtype=np.dtype(np.float64), field="minimum_notional"
+        ),
+        lot_size=_readonly(
+            lot, shape=shape, dtype=np.dtype(np.float64), field="lot_size"
+        ),
+        tick_size=_readonly(
+            tick, shape=shape, dtype=np.dtype(np.float64), field="tick_size"
+        ),
         borrow_available=resolved_borrow_available,
-        borrow_rate=_readonly(borrow_rate, shape=shape, dtype=np.dtype(np.float64), field="borrow_rate"),
-        funding_due=_readonly(funding_counts > 0, shape=shape, dtype=np.dtype(np.bool_), field="funding_due"),
+        borrow_rate=_readonly(
+            borrow_rate, shape=shape, dtype=np.dtype(np.float64), field="borrow_rate"
+        ),
+        funding_due=_readonly(
+            funding_counts > 0,
+            shape=shape,
+            dtype=np.dtype(np.bool_),
+            field="funding_due",
+        ),
         buy_allowed=resolved_buy_allowed,
         sell_allowed=resolved_sell_allowed,
         mark_price=resolved_mark,

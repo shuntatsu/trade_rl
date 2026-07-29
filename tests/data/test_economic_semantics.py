@@ -23,8 +23,15 @@ def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:
         lot_size=0.001,
         minimum_notional=5.0,
         execution_rules=(
-            InstrumentExecutionRule(effective_at=start, tick_size=0.1, lot_size=0.001, minimum_notional=5.0),
-            InstrumentExecutionRule(effective_at=start + timedelta(minutes=45), tick_size=0.2, lot_size=0.002, minimum_notional=10.0),
+            InstrumentExecutionRule(
+                effective_at=start, tick_size=0.1, lot_size=0.001, minimum_notional=5.0
+            ),
+            InstrumentExecutionRule(
+                effective_at=start + timedelta(minutes=45),
+                tick_size=0.2,
+                lot_size=0.002,
+                minimum_notional=10.0,
+            ),
         ),
     )
     shape = (len(timestamps), 1)
@@ -40,11 +47,26 @@ def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:
     )
     assert semantics.tick_size[:, 0].tolist() == [0.1, 0.1, 0.2, 0.2]
     assert semantics.minimum_notional[:, 0].tolist() == [5.0, 5.0, 10.0, 10.0]
-    assert set(semantics.market_dataset_kwargs()) >= {"fee_rate", "spread_rate", "borrow_rate", "mark_price", "index_price"}
-    assert all(not value.flags.writeable for value in semantics.market_dataset_kwargs().values())
+    assert set(semantics.market_dataset_kwargs()) >= {
+        "fee_rate",
+        "spread_rate",
+        "borrow_rate",
+        "mark_price",
+        "index_price",
+    }
+    assert all(
+        not value.flags.writeable
+        for value in semantics.market_dataset_kwargs().values()
+    )
 
 
 def test_vision_and_postgres_use_the_same_constructor() -> None:
     root = Path(__file__).resolve().parents[2]
-    assert "build_market_economic_semantics" in (root / "trade_rl/data/builder.py").read_text()
-    assert "build_market_economic_semantics" in (root / "trade_rl/integrations/postgres_market_dataset.py").read_text()
+    assert (
+        "build_market_economic_semantics"
+        in (root / "trade_rl/data/builder.py").read_text()
+    )
+    assert (
+        "build_market_economic_semantics"
+        in (root / "trade_rl/integrations/postgres_market_dataset.py").read_text()
+    )

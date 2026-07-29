@@ -73,6 +73,18 @@ def _without_discount(payload: dict[str, object]) -> dict[str, object]:
     return resolved
 
 
+def _without_algorithm_specific_training(
+    payload: dict[str, object],
+) -> dict[str, object]:
+    resolved = deepcopy(payload)
+    training = resolved["training"]
+    assert isinstance(training, dict)
+    for name in tuple(training):
+        if name == "algorithm" or name.startswith(("cost_", "lagrangian_")):
+            training.pop(name)
+    return resolved
+
+
 def test_target_weight_growth_ppo_is_gamma_one_control() -> None:
     config = _load(PPO)
 
@@ -92,6 +104,9 @@ def test_target_weight_lagrangian_uses_same_growth_recipe_and_all_costs() -> Non
     assert constrained.risk == ppo.risk
     assert constrained.reward == ppo.reward
     assert constrained.portfolio_risk == ppo.portfolio_risk
+    assert _without_algorithm_specific_training(
+        ppo.candidate_digest_payload()
+    ) == _without_algorithm_specific_training(constrained.candidate_digest_payload())
     assert constrained.training.algorithm == "lagrangian_ppo"
     assert constrained.training.gamma == pytest.approx(1.0)
     assert constrained.training.discount_half_life_hours is None

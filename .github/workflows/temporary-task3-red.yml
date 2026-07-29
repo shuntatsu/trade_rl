@@ -1,0 +1,37 @@
+name: Temporary Task 3 RED
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    if: github.head_ref == 'agent/hierarchical-bc-actor-design'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply Task 3 tests only
+        env:
+          TASK_PATCH_GZ_B64: H4sICA7naWoAA3Rhc2szLXRlc3RzLnBhdGNoAM1ZyZLbOBK96yswOokWxRKppaoUwwmPY+bQlz50R8ylooIBkaDEMRcNAZVLdvvfO7GQBLipVG5HjLxIJIFEIvO9xAMYJXGMFotDwhC+Y4Qyelem4kdQFmlanFmQkawoL87pgvbXWkySPCKvyH3cR/cb7DhxeE8e9h5yl8vtej1ZLBbXR5nM5/M3jPTxI1psVvYWzeH/RwSXEYmRaHwqi+gcsqTIA0r+dyZ5SGoDccJoEBZ5nBzOJYmUwSDEp5mFFv9AvxY52U1Q9ZliSgkLKMOMTHeInnBIqPOpeJ0t8pOT5LGNqm96xCfiz1Y2ch8sG0XsApfwME4LzFaeZWtWD2mxx+lNZjf2NaMYpvzSMrd0luAP/692r9/MvDYTnsuS5Cz4QpLDkVHTXtOOfxbum8w3nSp/v8uvuCgRSzISlzgjNgqLc85Qkssf1EkYyejM0tIhRkE+4lFOSX5gR/pUG3hWFiyBjfuV7Xpofr+1t6ufgY6wyCAsLACTSQZpjMCt6ncgaBDscfgZjJxORT3A/hzHpAz2F3Blps2LRxhyDoggJ+q73gO/IPkL9dc2wtLbKMn8lexjTRb8i4OzZHxq+Jwarvhofb8KXM8LHtyt0bjHbx95y2WwfnwM4Fsm67rlh+BxazYetLxZboIV0B+NNv57z2h3yLva64FbX26D1fZhguDPfDKvc23kQSWzhKQnJaEBeeWmTLjz5LMS7uv5ntcpghw3oCn24NMLlkjiT2eWbBqRVDZ3JHOeOpx6lg2/JOyIThwLzClxQgET/8Hpmfy7LIvSRjDD8Oh3Olu7hlC3Is6gr0Sdea+C4LpzX6DRa93WoKk/sngWtDy0gkxZUeIDEU4FgrNBovLxI3GvgvEOJtaet2PSF4+eWPTEwWpyzMdT2QPfVDn9VwKzbSx8+0wuO/TC0y/qIlza6hIqog6nqi6iJOat0N/8btH+PubDMCwb78xiv3ChzNdF3h0u8tYtwG6C9tdhujXVn4Vu4efriYRQgypUC3cggmv0AXnqH8RHBGqmLbYyf8lXYlTPAWs+2q5lu6r28W+gRy6xdM60AMAgfHWb1U0ckTEtWUnOtmsLHGuaiGctn/inBmHddAiITR9AZF4w3s0BbVMyytMxm9bUnVoGTOr7/+dzeut8qhzCJMApbRKznuTNe6c/RzNQLWjL5yMmJdBkjFIBpq52fj0wFF3Uv/i1qBMVsABCqgIMt0NOttoZXJb4Qjt6Jy6LDMHSGIFaSnnMyaEUNZg61eTMMVACkwI/NZnzC/fok3CIV7/fZPtPorktVJv3+MAl/Wrj2feVahut/NxLraD+kHT3bAj5X6/c3yfc9YLr/ZhoN6v3kDFhSAlzpa0Bx9+m7iYDcyBDp+4RfoDynq75D4/fieCH26/mpQ3OL2Wt0fNRd9OpA0pu+fpRpW9Db+gzyckXFCcpQVkRkWo/KnerS/lxHLJ92HrRvdim3kXk5S4/p6mxHb1lRA7npb1Ec9d2Nx6AeTIXHAqC+MxgdxEEFUNwDkyURrlqkky7nJL8ULX4Z37hT9RVfs4gCpgC0up7crGtL0FghUdl6nDJckyTc1ZZk9BohnoHqceYLLVfmAL/UPAbAUVNWQk7rqLcVfo4RmVzf0ZJCnSJSJhQzmzISgL+7TiR8kiUI0FzuMueoIutPXjWdIPqB6CF55iK57O21R7oO7AZ4NQAnmhlvySQpBx9MxVBU/qBFoGQZ5xsyrhmSTCO/7XAFUMBuFudud8bpaxK2gdYnUw212T+XWjhP0RZhmnyr24BlAKsVpttbVuVhPbOvb8sGMtgyy2UUOGCptxSStqtjKVLBXVAAbdCraeOvHbL43I5oEilIGhpuZ4S2a8R64Y0xyd6LNjYCQj/jCwn7uhpiAhMe/R+gL3LgQqBbR/c7bAPzcahhqVkvhr3g2qrdASXVxz+DJDmqkedVXqnJ9yEr13hQq8SvNx1mgmgj5WdnQGxsZZaCLVpaEGoxQWAvjObCvYS7Z3H9g/xTesNCxDUFNj+n87T7ubT1cepj7H0MPpm7ZWzMVqYMzEe2V0YaDOddQrUDaW6W1i7TNcK+NPT5vl5jNw9xG7d6WuskRuMfiVlQWecMAOkNQbsp6hhZph6lSW98OMomkkk7sY1sg63XX+U2+cnSpDwIZopaGY6hxi+GY8rwSjJF1xGTR93vDk5JRQEWCB2U7wNOHq1kwixLyRNNYr+OC0O/FB3399i/CiKgr4551HAyuQUsCNcHI61pquOqTA0oDg7pYR2jqeULPLrMlmdgNQLsIHlpeNtbNCFjgnqZrmVvTVE2CbzlF3LHOZpx49ulo46kFXO8sHJK1OGnAOBn/zkRZQ737Xq4dSOUrXThus7I3LUITxIC4lyz3qPFTF3bqXviEQahBs8ZaCDHWlb7k0DoB9OO0X82ohPUHuXz3ol1RKj5WUYi8otCbOWZ2FaUKJrLZmCa05p7lRmcwrFuh8pskkfC1mR+vxdj0Zm85aiwUd1KJfh8rNzwnynBtD/Wnk+m1aeweYuI5QC/KfVQE/aeUYL1IAC8LcLaV6p0VQ5PNU97rHAixjOe3nBjSQ57B/HbQz1FYi9Nrw73J+f+iR5bYBnzRo+3a52THJlCGKcpBIeVQXuWTWVZRVyEEysrDSPVmzedKyqbOgnqqKc1AVquKKYhbK1ASzJf0kIBTNLKAXgt2ctZtspj9pAvEbq415fZrTXKVrH3rcptxw7qwk0Z4DU+TD2jqUdPc2X21glBeI1at2qGkc4Nmqq9xR/gC26IahInO2ba0oWTfd8aaVvpY2upKu3cII8tI89rZ3F75r0/lkkUgjoKH5fbRdaGPJ1R9/ALvVWciQq2pFnP8WC5mVZ+31kp9XYu8lb2DTKnMGQde604yPWT15mqrJzzvkCkOAUeBUNvFC8rs60/Z7fyK23zdTwwJinEiDBgbBaKBrqoruBsSZ/AvKgYrR6IwAA
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$TASK_PATCH_GZ_B64" | base64 --decode | gzip --decompress > /tmp/task3-tests.patch
+          git apply --check /tmp/task3-tests.patch
+          git apply /tmp/task3-tests.patch
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Run Task 3 tests expecting RED
+        run: uv run pytest -q tests/integrations/test_compact_rollout_buffer.py tests/rl/test_rollout_memory.py

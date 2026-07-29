@@ -1,0 +1,102 @@
+name: Temporary Task 9 Sequence Gradient Fix
+
+on:
+  push:
+    branches:
+      - agent/hierarchical-bc-actor-design
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Repeat sequence gradient contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            echo "attempt=${attempt}"
+            uv run pytest -q \
+              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 \
+              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
+          done
+
+  fix:
+    name: apply root-cause fix
+    if: ${{ !contains(github.event.head_commit.message, 'fix: isolate unavailable sequence gradients') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout writable branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/hierarchical-bc-actor-design
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply gradient isolation fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/sequence_policy.py")
+          text = path.read_text(encoding="utf-8")
+          old_init = """        self.blocks = nn.Sequential(*blocks)\n        self.window_length = window_length\n"""
+          new_init = """        self.blocks = nn.Sequential(*blocks)\n        self.latent_dim = latent_dim\n        self.window_length = window_length\n"""
+          if old_init not in text:
+              raise RuntimeError("timeframe encoder identity block was not found")
+          text = text.replace(old_init, new_init, 1)
+
+          old_forward = """        safe = indices.clamp_min(0)\n        selected = encoded[torch.arange(value.shape[0], device=value.device), safe]\n        projected = self.projection(selected)\n        return torch.where(\n            (indices >= 0).unsqueeze(1), projected, torch.zeros_like(projected)\n        )\n"""
+          new_forward = """        safe = indices.clamp_min(0)\n        valid = indices >= 0\n        batch_indices = torch.arange(value.shape[0], device=value.device)\n        valid_batch_indices = batch_indices[valid]\n        selected = encoded[valid_batch_indices, safe[valid]]\n        projected = self.projection(selected)\n        output = (encoded.sum(dim=(1, 2)).unsqueeze(1) * 0.0).expand(\n            -1, self.latent_dim\n        )\n        return output.clone().index_copy(0, valid_batch_indices, projected)\n"""
+          if old_forward not in text:
+              raise RuntimeError("masked projection block was not found")
+          path.write_text(text.replace(old_forward, new_forward, 1), encoding="utf-8")
+          PY
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Verify focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format trade_rl/rl/sequence_policy.py
+          uv run ruff check trade_rl/rl/sequence_policy.py
+          uv run mypy trade_rl/rl/sequence_policy.py
+          uv run pytest -q \
+            tests/rl/test_sequence_policy_core.py::test_timeframe_projection_runs_only_after_causal_timestep_selection \
+            tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 \
+            tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl task executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add trade_rl/rl/sequence_policy.py
+          git diff --cached --check
+          git commit -m "fix: isolate unavailable sequence gradients"
+          git push origin HEAD:agent/hierarchical-bc-actor-design

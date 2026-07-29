@@ -142,7 +142,7 @@ def test_walk_forward_selects_and_outer_tests_deployable_ensemble_identity() -> 
     ]
 
 
-def test_maintained_training_environment_liquidates_at_episode_end() -> None:
+def test_maintained_training_environment_uses_mark_to_market_truncation() -> None:
     resolver = getattr(
         market_walk_forward_module,
         "_maintained_training_environment",
@@ -158,9 +158,9 @@ def test_maintained_training_environment_liquidates_at_episode_end() -> None:
         ),
         episode_bars=100,
     )
-    assert resolved.liquidate_on_end is True
+    assert resolved.liquidate_on_end is False
     assert resolved.fail_on_incomplete_emergency_liquidation is False
-    assert resolved.terminal_accounting_mode == "liquidate_at_close"
+    assert resolved.terminal_accounting_mode == "mark_to_market"
 
 
 def test_release_attestation_requires_authenticated_signature() -> None:

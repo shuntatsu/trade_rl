@@ -186,16 +186,17 @@ def _projection_equivalence_case(dtype: torch.dtype) -> _ProjectionEquivalenceCa
     legacy_input = torch.randn(3, 12, 4, dtype=dtype, requires_grad=True)
     optimized_input = legacy_input.detach().clone().requires_grad_(True)
 
-    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input))
     positions = torch.arange(12).expand_as(available)
     indices = positions.masked_fill(~available, -1).max(dim=1).values
-    safe = indices.clamp_min(0)
-    legacy_selected = legacy_sequence[torch.arange(3), safe]
-    legacy = torch.where(
-        (indices >= 0).unsqueeze(1),
-        legacy_selected,
-        torch.zeros_like(legacy_selected),
-    )
+    valid = indices >= 0
+    valid_batch_indices = torch.arange(legacy_input.shape[0])[valid]
+    legacy_sequence = encoder.projection(encoder.forward_sequence(legacy_input[valid]))
+    legacy_selected = legacy_sequence[
+        torch.arange(legacy_sequence.shape[0]), indices[valid]
+    ]
+    legacy = legacy_selected.new_zeros(
+        (legacy_input.shape[0], legacy_selected.shape[1])
+    ).index_copy(0, valid_batch_indices, legacy_selected)
     legacy.square().sum().backward()
     assert legacy_input.grad is not None
     legacy_input_gradient = legacy_input.grad.detach().clone()

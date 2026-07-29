@@ -1,9 +1,9 @@
 name: Task 9 Detached Verification
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/task9-verification
+      - main
 
 permissions:
   contents: write

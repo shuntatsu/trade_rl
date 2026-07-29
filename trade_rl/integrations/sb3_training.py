@@ -28,13 +28,10 @@ from trade_rl.learning import (
     BehaviorCloningGateThresholds,
     BehaviorCloningHoldoutEvaluation,
     OracleTeacherConfig,
-    OracleTeacherEvaluation,
     StructuredTeacherObservationProvider,
     SupervisedPolicyDataset,
     collect_teacher_rollout,
-    evaluate_action_path,
     evaluate_behavior_cloning_gates,
-    evaluate_behavior_cloning_holdout,
     load_teacher_artifact,
     oracle_target_path,
     write_learning_evaluation,
@@ -415,7 +412,7 @@ def _behavior_cloning_gate_thresholds(
 def _evaluate_hierarchical_behavior_cloning_gate(
     *,
     cloning: object,
-    holdout: BehaviorCloningHoldoutEvaluation | None,
+    holdout: Any,
     thresholds: BehaviorCloningGateThresholds,
 ) -> BehaviorCloningGateEvaluation:
     initial_losses = getattr(cloning, "initial_hierarchical_losses", None)

@@ -446,8 +446,7 @@ def collect_episode_teacher_rollout(
 ) -> EpisodeSupervisedPolicyDataset:
     """Roll out each sampled episode independently with its declared reset state."""
 
-    if batch.teacher_config_digest != teacher_config_digest:
-        raise ValueError("episode teacher batch configuration identity mismatch")
+    require_sha256(teacher_config_digest, field="teacher_config_digest")
     flat_observations: list[np.ndarray] = []
     structured_observations: dict[str, list[np.ndarray]] | None = None
     expected_keys: tuple[str, ...] | None = None

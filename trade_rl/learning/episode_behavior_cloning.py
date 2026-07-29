@@ -78,7 +78,10 @@ def behavior_cloning_split(
     sample_count = int(dataset.sample_count)
     if sample_count <= 0:
         raise ValueError("behavior cloning dataset must not be empty")
-    episode_ids = np.asarray(dataset.episode_ids, dtype=np.int64).reshape(-1)
+    episode_ids = np.asarray(
+        getattr(dataset, "episode_ids", np.zeros(sample_count, dtype=np.int64)),
+        dtype=np.int64,
+    ).reshape(-1)
     if len(episode_ids) != sample_count or np.any(episode_ids < 0):
         raise ValueError("episode ids do not cover the behavior cloning dataset")
     ordered_episodes = np.unique(episode_ids)

@@ -1,0 +1,88 @@
+name: Apply export tracer safety hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: github.head_ref == 'agent/fix-export-tracer-warnings'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install export test environment
+        run: uv sync --extra dev --extra train-sb3 --extra export
+      - name: Verify RED tracer warnings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_export_tracer_safety.py tests
+          set +e
+          uv run pytest \
+            tests/rl/test_export_tracer_safety.py \
+            tests/rl/test_policy_export.py::test_torchscript_actor_export_matches_sb3_prediction \
+            tests/workflows/test_market_walk_forward.py::test_structured_walk_forward_trains_three_seed_ensemble_end_to_end \
+            -q > red.log 2>&1
+          status=$?
+          set -e
+          cat red.log
+          test "$status" -ne 0
+          grep -q 'TracerWarning' red.log
+      - name: Apply implementation
+        run: python tools/apply_export_tracer_safety.py implementation
+      - name: Verify GREEN tracer safety
+        run: |
+          uv run ruff check --fix \
+            trade_rl/rl/export_context.py \
+            trade_rl/rl/sequence_policy.py \
+            trade_rl/rl/timeframe_fusion.py \
+            trade_rl/rl/gated_transformer.py \
+            trade_rl/rl/policies.py \
+            trade_rl/rl/export.py \
+            trade_rl/rl/structured_export.py \
+            tests/rl/test_export_tracer_safety.py \
+            tests/rl/test_policy_export.py \
+            tests/workflows/test_market_walk_forward.py
+          uv run ruff format \
+            trade_rl/rl/export_context.py \
+            trade_rl/rl/sequence_policy.py \
+            trade_rl/rl/timeframe_fusion.py \
+            trade_rl/rl/gated_transformer.py \
+            trade_rl/rl/policies.py \
+            trade_rl/rl/export.py \
+            trade_rl/rl/structured_export.py \
+            tests/rl/test_export_tracer_safety.py \
+            tests/rl/test_policy_export.py \
+            tests/workflows/test_market_walk_forward.py
+          uv run pytest \
+            tests/rl/test_export_tracer_safety.py \
+            tests/rl/test_policy_export.py \
+            tests/workflows/test_market_walk_forward.py::test_structured_walk_forward_trains_three_seed_ensemble_end_to_end \
+            -q
+          uv run mypy trade_rl
+          uv run ruff check .
+          uv run ruff format --check .
+          git diff --check
+      - name: Commit implementation
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          git commit -m 'fix: make policy exports tracer-safe'
+          git push origin "HEAD:${HEAD_BRANCH}"

@@ -80,7 +80,9 @@ def _without_algorithm_specific_training(
     training = resolved["training"]
     assert isinstance(training, dict)
     for name in tuple(training):
-        if name == "algorithm" or name.startswith(("cost_", "lagrangian_")):
+        if name in {"algorithm", "cost_critic", "lagrangian"} or name.startswith(
+            ("cost_", "lagrangian_")
+        ):
             training.pop(name)
     resolved.pop("cost_critic", None)
     resolved.pop("lagrangian", None)

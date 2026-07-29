@@ -64,7 +64,23 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 - Derived featureはSource ageをStalenessへ伝播
 - Symbol順、Feature順、Clock windowをDatasetとPolicy identityへ固定
 
-設定例は[training-full.json](../examples/binance-multitimeframe/training-full.json)を参照してください。
+## Target-weight growth profiles
+
+長期複利成長の比較では、報酬、action space、BC、encoder、執行条件を同時に変更しません。次の3設定はすべてdirect target-weight、同一Oracle BC、同一Transformer、同一hard-risk条件を使用します。
+
+| Profile | 役割 | Objective |
+|---|---|---|
+| [`training-target-weight-growth-ppo.json`](../examples/binance-multitimeframe/training-target-weight-growth-ppo.json) | 必須対照群 | `gamma=1.0`の実コスト控除後net log growth、通常PPO |
+| [`training-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じgrowth objective、Lagrangian PPOでsoft constraint予算を管理 |
+| [`training-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-life、その他は制約付きgamma-one設定と同一 |
+
+6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用します。walk-forwardは`run_file`で上記standalone profileを参照するため、埋め込みコピーによる設定ドリフトを起こしません。
+
+[`training-full.json`](../examples/binance-multitimeframe/training-full.json)は、baseline、drawdown、excess growth、時間割引を混合したlegacy shaping比較として維持します。Production defaultではありません。
+
+Hard safetyは学習成功へ依存させません。`max_abs_weight`、`max_gross`、drawdown stop、minimum equity、証拠金、取引所ルールは環境とpre-trade riskが常に強制します。Lagrangianはdrawdown excess、turnover、execution costなどのsoft budgetだけを調整します。
+
+720時間は経済的な投資終了ではなく訓練窓です。全target-weight growth profileは`liquidate_on_end=false`を明示し、時間上限をmark-to-market truncationとして扱います。
 
 ## Metadata evidence
 

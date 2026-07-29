@@ -6,7 +6,7 @@ path = Path(__file__).with_name("apply_research_contract_hardening.py")
 content = path.read_text(encoding="utf-8")
 start = content.index("def patch_pipeline_order() -> None:\n")
 end = content.index("\ndef patch_binance_cache() -> None:\n", start)
-replacement = r'''def patch_pipeline_order() -> None:
+replacement = r"""def patch_pipeline_order() -> None:
     pipeline = "examples/binance-multitimeframe/full_research_pipeline.py"
     replace_once(
         pipeline,
@@ -91,5 +91,5 @@ def _build_dataset(
     published = publish_market_dataset_artifact(output, dataset)
 ''',
     )
-'''
+"""
 path.write_text(content[:start] + replacement + content[end:], encoding="utf-8")

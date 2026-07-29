@@ -1,0 +1,154 @@
+name: Temporary Task 6 FIX
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/hierarchical-bc-actor-design'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout writable branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply Task 6 and MyPy fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip
+          import re
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/temporary-task6.yml').read_text(encoding='utf-8')
+          parts = {
+              int(index): value
+              for index, value in re.findall(r'TASK_PATCH_GZ_HEX_(\d+): ([0-9a-f]+)', workflow)
+          }
+          if tuple(sorted(parts)) != (1, 2, 3, 4):
+              raise RuntimeError(f'unexpected Task 6 payload parts: {sorted(parts)}')
+          payload = ''.join(parts[index] for index in range(1, 5))
+          Path('/tmp/task6.patch').write_bytes(gzip.decompress(bytes.fromhex(payload)))
+          PY
+          git apply --check /tmp/task6.patch
+          git apply /tmp/task6.patch
+          cat > /tmp/task6-mypy-fix.patch <<'PATCH'
+          diff --git a/trade_rl/integrations/compact_rollout_buffer.py b/trade_rl/integrations/compact_rollout_buffer.py
+          --- a/trade_rl/integrations/compact_rollout_buffer.py
+          +++ b/trade_rl/integrations/compact_rollout_buffer.py
+          @@ -191,7 +191,9 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
+                   initialized_steps = self.buffer_size if self.full else self.pos
+                   if self.generator_ready:
+                       initialized = initialized_steps * self.n_envs
+          -            expected_shape = (self.buffer_size * self.n_envs, self.action_dim)
+          +            expected_shape: tuple[int, ...] = (
+          +                self.buffer_size * self.n_envs, self.action_dim
+          +            )
+                   else:
+                       initialized = initialized_steps
+                       expected_shape = (self.buffer_size, self.n_envs, self.action_dim)
+          diff --git a/trade_rl/integrations/sb3_training.py b/trade_rl/integrations/sb3_training.py
+          --- a/trade_rl/integrations/sb3_training.py
+          +++ b/trade_rl/integrations/sb3_training.py
+          @@ -267,12 +267,20 @@ def _filtered_training_environment(factory: Callable[[], Any]) -> Any:
+           
+           
+           
+          -def _required_hierarchical_config(config: object, name: str) -> object:
+          +def _required_hierarchical_config(config: object, name: str) -> int | float:
+               value = getattr(config, name, None)
+               if value is None:
+                   raise ValueError(
+                       f"hierarchical BC requires explicit training_run_config_v3 field {name}"
+                   )
+          +    if isinstance(value, bool) or not isinstance(value, int | float):
+          +        raise ValueError(
+          +            f"hierarchical BC training_run_config_v3 field {name} must be numeric"
+          +        )
+          +    if not np.isfinite(float(value)):
+          +        raise ValueError(
+          +            f"hierarchical BC training_run_config_v3 field {name} must be finite"
+          +        )
+               return value
+          PATCH
+          sed -i 's/^          //' /tmp/task6-mypy-fix.patch
+          git apply --check /tmp/task6-mypy-fix.patch
+          git apply /tmp/task6-mypy-fix.patch
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format and lint Task 6 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            trade_rl/integrations/compact_rollout_buffer.py
+            trade_rl/learning/evaluation.py
+            trade_rl/learning/rollout_evaluation.py
+            trade_rl/learning/__init__.py
+            trade_rl/integrations/sb3_training.py
+            tests/learning/test_learning_evaluation.py
+            tests/learning/test_rollout_evaluation.py
+            tests/integrations/test_sb3_training.py
+          )
+          uv run ruff format "${files[@]}"
+          uv run ruff check --fix "${files[@]}"
+          uv run ruff check "${files[@]}"
+      - name: Type-check Task 6 production files
+        run: >-
+          uv run mypy
+          trade_rl/integrations/compact_rollout_buffer.py
+          trade_rl/learning/evaluation.py
+          trade_rl/learning/rollout_evaluation.py
+          trade_rl/learning/__init__.py
+          trade_rl/integrations/sb3_training.py
+      - name: Run Task 6 focused tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/integrations/test_compact_rollout_buffer.py \
+            tests/learning/test_learning_evaluation.py \
+            tests/learning/test_rollout_evaluation.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/learning/test_hierarchical_bc_metrics.py \
+            tests/integrations/test_sb3_training.py \
+            2>&1 | tee task6-tests.log
+      - name: Commit verified Task 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl task executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            trade_rl/integrations/compact_rollout_buffer.py \
+            trade_rl/learning/evaluation.py \
+            trade_rl/learning/rollout_evaluation.py \
+            trade_rl/learning/__init__.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/learning/test_learning_evaluation.py \
+            tests/learning/test_rollout_evaluation.py \
+            tests/integrations/test_sb3_training.py
+          git diff --cached --check
+          git commit -m "feat: require BC reconstruction and non-collapse gates"
+          git push origin HEAD:${{ github.head_ref }}
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-bc-task6-fix-diagnostics
+          path: task6-tests.log
+          if-no-files-found: ignore

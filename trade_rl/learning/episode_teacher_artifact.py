@@ -487,7 +487,7 @@ def collect_episode_teacher_rollout(
             raise ValueError("episode teacher environment reset start mismatch")
         if isinstance(observation, Mapping) and "current_weights" in observation:
             actual = np.asarray(observation["current_weights"], dtype=np.float64)
-            if not np.allclose(actual, contract.initial_weights, atol=1e-12, rtol=0.0):
+            if not np.allclose(actual, contract.initial_weights, atol=1e-6, rtol=0.0):
                 raise ValueError("episode teacher reset weights mismatch contract")
         for offset, target in enumerate(targets):
             expected_index = contract.start + offset

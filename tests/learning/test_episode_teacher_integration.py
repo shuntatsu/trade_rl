@@ -248,7 +248,9 @@ def test_oracle_episode_sampling_is_derived_from_environment_contract() -> None:
 
     train_decisions = train_range[1] - train_range[0] - 1
     assert sampling.episode_bars == environment.episode_bars
-    assert sampling.episode_count == math.ceil(train_decisions / environment.episode_bars)
+    assert sampling.episode_count == math.ceil(
+        train_decisions / environment.episode_bars
+    )
     assert sampling.initial_state_modes == environment.config.initial_state_modes
     assert sampling.seed == 17
 

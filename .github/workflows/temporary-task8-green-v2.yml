@@ -34,6 +34,22 @@ jobs:
           git apply /tmp/task8.patch
           base64 --decode .github/tmp/task8_fixture_fix.py.gz.b64 | gzip --decompress > /tmp/task8_fixture_fix.py
           python /tmp/task8_fixture_fix.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/workflows/test_training_run_config.py')
+          text = path.read_text(encoding='utf-8')
+          duplicate = (
+              '            "policy_actor_head": "hierarchical_gate_target_v1",\n'
+              '            "policy_actor_head": "hierarchical_gate_target_v1",\n'
+          )
+          while duplicate in text:
+              text = text.replace(
+                  duplicate,
+                  '            "policy_actor_head": "hierarchical_gate_target_v1",\n',
+              )
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
       - name: Format and lint Task 8 files

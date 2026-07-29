@@ -11,6 +11,8 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
     configuration = (root / "docs/CONFIGURATION.md").read_text()
     binance = (root / "docs/BINANCE.md").read_text()
     assert "training_run_config_v3" in readme
+    assert "training_run_config_v2" not in readme
+    assert "structured_policy_export_v1" not in readme
     assert "training_run_config_v3" in architecture
     assert "structured_policy_export_v2" in architecture
     assert "# Training Configuration v3" in configuration

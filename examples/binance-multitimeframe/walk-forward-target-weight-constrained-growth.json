@@ -48,11 +48,11 @@
       },
       {
         "adverse_tick_rounding": true,
-        "lot_size_factor": 5.0,
-        "minimum_notional_factor": 5.0,
-        "name": "joint_5x",
+        "lot_size_factor": 3.0,
+        "minimum_notional_factor": 3.0,
+        "name": "joint_3x",
         "report_only": true,
-        "tick_size_factor": 5.0
+        "tick_size_factor": 3.0
       }
     ],
     "schema_version": "execution_sensitivity_config_v1"

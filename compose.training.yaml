@@ -10,6 +10,24 @@ x-training-image: &training-image
       TRADE_RL_LOCKFILE_DIGEST: ${TRADE_RL_LOCKFILE_DIGEST:-}
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TRADE_RL_POSTGRES_DB:-trade_rl}
+      POSTGRES_USER: ${TRADE_RL_POSTGRES_USER:-trade_rl}
+      POSTGRES_PASSWORD: ${TRADE_RL_POSTGRES_PASSWORD:-trade_rl}
+    volumes:
+      - trade-rl-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   market-data-sync:
     <<: *training-image
     command:
@@ -29,6 +47,9 @@ services:
 
   trainer:
     <<: *training-image
+    depends_on:
+      postgres:
+        condition: service_healthy
     command:
       - python
       - examples/binance-multitimeframe/training_bootstrap.py
@@ -46,10 +67,17 @@ services:
       TRADE_RL_CONFIRMATION_PUBLIC_KEYS: ${TRADE_RL_CONFIRMATION_PUBLIC_KEYS:-}
       TRADE_RL_TRUSTED_NOW: ${TRADE_RL_TRUSTED_NOW:-}
       TRADE_RL_IMAGE_DIGEST: ${TRADE_RL_IMAGE_DIGEST:-}
+      TRADE_RL_DATABASE_URL: ${TRADE_RL_DATABASE_URL:-postgresql://${TRADE_RL_POSTGRES_USER:-trade_rl}:${TRADE_RL_POSTGRES_PASSWORD:-trade_rl}@postgres:5432/${TRADE_RL_POSTGRES_DB:-trade_rl}}
+      TRADE_RL_POSTGRES_MARKET_DATA: ${TRADE_RL_POSTGRES_MARKET_DATA:-false}
+      TRADE_RL_DYNAMIC_SYMBOL_TRIPLETS: ${TRADE_RL_DYNAMIC_SYMBOL_TRIPLETS:-false}
+      TRADE_RL_SYMBOL_TRIPLET_SEED: ${TRADE_RL_SYMBOL_TRIPLET_SEED:-20260729}
+      TRADE_RL_SYMBOL_TRIPLET_TRAIN_SLOT: ${TRADE_RL_SYMBOL_TRIPLET_TRAIN_SLOT:-0}
       TRADE_RL_MARKET_DATA_CACHE_ROOT: /workspace/market-data/binance-vision
       TRADE_RL_TEACHER_CACHE_ROOT: /workspace/var/cache/teacher-artifacts
       OMP_NUM_THREADS: "8"
       MKL_NUM_THREADS: "8"
+      # Bound the persistent Inductor subprocess pool on memory-constrained hosts.
+      TORCHINDUCTOR_COMPILE_THREADS: "4"
     volumes:
       - trade-rl-market-archives:/workspace/market-data/binance-vision:ro
       - trade-rl-training-data:/workspace/var
@@ -59,6 +87,7 @@ services:
         read_only: true
 
 volumes:
+  trade-rl-postgres:
   trade-rl-market-archives:
     name: trade-rl-market-archives
   trade-rl-training-data:

@@ -31,10 +31,12 @@ def _file_digest(path: Path) -> str:
 
 def _torch_dtype(name: str) -> torch.dtype:
     resolved = {
+        "float16": torch.float16,
         "float32": torch.float32,
         "float64": torch.float64,
         "int32": torch.int32,
         "int64": torch.int64,
+        "uint8": torch.uint8,
         "bool": torch.bool,
     }.get(name)
     if resolved is None:

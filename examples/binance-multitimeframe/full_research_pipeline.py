@@ -18,6 +18,7 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.data.contracts import InstrumentExecutionRule
+from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.confirmation import load_confirmation_evidence
 from trade_rl.evaluation.research_gate import (
     ResearchEvidenceRequirements,
@@ -31,6 +32,9 @@ from trade_rl.integrations.binance import (
     BinanceTransportMode,
     binance_multitimeframe_feature_specs,
     build_binance_market_dataset,
+)
+from trade_rl.integrations.postgres_market_dataset import (
+    build_postgres_market_dataset,
 )
 from trade_rl.release.asymmetric import (
     PublicVerificationKey,
@@ -46,8 +50,32 @@ from trade_rl.workflows.binance_metadata_modes import (
     resolve_conservative_static,
     resolve_frozen_snapshot,
 )
+from trade_rl.workflows.symbol_triplet_manifest import (
+    SymbolTripletSlot,
+    build_symbol_triplet_manifest,
+    write_symbol_triplet_manifest,
+)
 
+_SYMBOL_POOL = (
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "DOGEUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+    "BCHUSDT",
+    "DOTUSDT",
+    "AVAXUSDT",
+    "UNIUSDT",
+    "TRXUSDT",
+    "ETCUSDT",
+)
+_SLOT_SYMBOLS = ("SLOT0", "SLOT1", "SLOT2")
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
+_ACTIVE_SYMBOL_TRIPLET: dict[str, object] | None = None
 _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
 _FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
@@ -57,6 +85,65 @@ _EXPECTED_POLICY_OBSERVATIONS = 231_026
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
+
+
+def _activate_symbol_triplet(
+    *, work_root: Path, seed: int, train_slot: int
+) -> SymbolTripletSlot:
+    """Bind one complete Generation to a stable generic three-slot mapping."""
+
+    global _ACTIVE_SYMBOL_TRIPLET, _SYMBOLS
+    manifest = build_symbol_triplet_manifest(_SYMBOL_POOL, seed=seed)
+    train_slots = manifest.slots_for("train")
+    if (
+        isinstance(train_slot, bool)
+        or not isinstance(train_slot, int)
+        or not 0 <= train_slot < len(train_slots)
+    ):
+        raise ValueError("triplet train slot is outside the balanced train split")
+    selected = train_slots[train_slot]
+    _SYMBOLS = selected.symbols
+    _ACTIVE_SYMBOL_TRIPLET = {
+        "manifest_digest": manifest.digest,
+        "schedule_identity": manifest.schedule_identity,
+        "selected": selected.digest_payload(),
+    }
+    write_symbol_triplet_manifest(work_root / "symbol-triplets.json", manifest)
+    _write_json(
+        work_root / "selected-symbol-triplet.json",
+        {
+            "manifest_digest": manifest.digest,
+            "schedule_identity": manifest.schedule_identity,
+            "schema_version": "selected_symbol_triplet_v1",
+            "selected": selected.digest_payload(),
+            "slot_symbols": _SLOT_SYMBOLS,
+            "symbol_vocabulary": _SYMBOL_POOL,
+        },
+    )
+    return selected
+
+
+def _policy_observation_count(dataset: MarketDataset) -> int:
+    from trade_rl.rl.observations import ObservationBuilder
+    from trade_rl.rl.sequence_observations import SequenceObservationBuilder
+
+    n_symbols = dataset.n_symbols
+    flat = (
+        ObservationBuilder(action_size=3, n_factors=0, finite_horizon=True)
+        .layout(dataset)
+        .size
+    )
+    sequence = SequenceObservationBuilder().schema_payload(dataset)
+    raw_windows = sequence.get("windows")
+    if not isinstance(raw_windows, (tuple, list)):
+        raise RuntimeError("sequence schema windows must be ordered")
+    return flat + sum(
+        n_symbols
+        * int(dict(window)["length"])
+        * len(tuple(dict(window)["feature_names"]))
+        * 3
+        for window in raw_windows
+    )
 
 
 def _parse_utc(value: str) -> datetime:
@@ -262,34 +349,72 @@ def _build_dataset(
     metadata_mode: BinanceMetadataMode,
     metadata_evidence_digest: str,
 ) -> dict[str, object]:
-    result = build_binance_market_dataset(
-        market=BinanceMarket.USDS_M,
-        symbols=_SYMBOLS,
-        interval="15m",
-        feature_timeframes=_FEATURE_TIMEFRAMES,
-        start_time=_parse_utc(_START),
-        end_time=_parse_utc(_END),
-        transport_mode=BinanceTransportMode.VISION,
-        transport=transport,
-        tick_sizes=tuple(float(metadata[symbol]["tick_size"]) for symbol in _SYMBOLS),
-        lot_sizes=tuple(float(metadata[symbol]["lot_size"]) for symbol in _SYMBOLS),
-        minimum_notionals=tuple(
-            float(metadata[symbol]["minimum_notional"]) for symbol in _SYMBOLS
-        ),
-        listed_ats=tuple(
-            _parse_utc(str(metadata[symbol]["listed_at"])) for symbol in _SYMBOLS
-        ),
-        execution_rule_histories=execution_rule_histories,
-        metadata_evidence=metadata_evidence,
-    )
-    published = publish_market_dataset_artifact(output, result.dataset)
-    if result.dataset.n_bars != _EXPECTED_15M_BARS:
+    use_postgres = os.environ.get("TRADE_RL_POSTGRES_MARKET_DATA", "").lower() == "true"
+    if use_postgres:
+        database_url = os.environ.get("TRADE_RL_DATABASE_URL", "").strip()
+        if not database_url:
+            raise ValueError(
+                "TRADE_RL_DATABASE_URL is required for PostgreSQL market data"
+            )
+        try:
+            import psycopg
+        except ImportError as error:  # pragma: no cover - optional dependency boundary
+            raise RuntimeError("PostgreSQL market data requires psycopg") from error
+        with psycopg.connect(database_url) as connection:
+            dataset = build_postgres_market_dataset(
+                connection,
+                symbols=_SYMBOLS,
+                symbol_vocabulary=_SYMBOL_POOL,
+                slot_symbols=_SLOT_SYMBOLS,
+                start_time=_parse_utc(_START),
+                end_time=_parse_utc(_END),
+                metadata=metadata,
+                metadata_evidence_digest=metadata_evidence_digest,
+                symbol_triplet_provenance=_ACTIVE_SYMBOL_TRIPLET,
+            )
+        feature_timeframes = _NATIVE_TIMEFRAMES
+        sources_used = (
+            "postgres:market_raw.binance_usds_m_klines_202101_202606",
+            "postgres:market_raw.binance_usds_m_funding_202101_202606",
+            "postgres:market_raw.binance_usds_m_indicator_artifacts_202101_202606",
+        )
+    else:
+        result = build_binance_market_dataset(
+            market=BinanceMarket.USDS_M,
+            symbols=_SYMBOLS,
+            interval="15m",
+            feature_timeframes=_FEATURE_TIMEFRAMES,
+            start_time=_parse_utc(_START),
+            end_time=_parse_utc(_END),
+            transport_mode=BinanceTransportMode.VISION,
+            transport=transport,
+            tick_sizes=tuple(
+                float(metadata[symbol]["tick_size"]) for symbol in _SYMBOLS
+            ),
+            lot_sizes=tuple(
+                float(metadata[symbol]["lot_size"]) for symbol in _SYMBOLS
+            ),
+            minimum_notionals=tuple(
+                float(metadata[symbol]["minimum_notional"]) for symbol in _SYMBOLS
+            ),
+            listed_ats=tuple(
+                _parse_utc(str(metadata[symbol]["listed_at"])) for symbol in _SYMBOLS
+            ),
+            execution_rule_histories=execution_rule_histories,
+            metadata_evidence=metadata_evidence,
+        )
+        dataset = result.dataset
+        feature_timeframes = result.feature_timeframes
+        sources_used = result.sources_used
+    published = publish_market_dataset_artifact(output, dataset)
+    if dataset.n_bars != _EXPECTED_15M_BARS:
         raise RuntimeError(
             "expected "
-            f"{_EXPECTED_15M_BARS:,} 15-minute bars, observed {result.dataset.n_bars}"
+            f"{_EXPECTED_15M_BARS:,} 15-minute bars, observed {dataset.n_bars}"
         )
-    if result.dataset.symbols != _SYMBOLS:
-        raise RuntimeError(f"unexpected symbol order: {result.dataset.symbols}")
+    expected_dataset_symbols = _SLOT_SYMBOLS if use_postgres else _SYMBOLS
+    if dataset.symbols != expected_dataset_symbols:
+        raise RuntimeError(f"unexpected symbol order: {dataset.symbols}")
     expected_features = tuple(
         spec.name
         for spec in binance_multitimeframe_feature_specs(
@@ -301,24 +426,29 @@ def _build_dataset(
         raise RuntimeError(
             f"extended feature contract must contain 226 features, got {len(expected_features)}"
         )
-    if result.dataset.feature_names != expected_features:
-        raise RuntimeError(
-            f"unexpected feature contract: {result.dataset.feature_names}"
-        )
+    expected_dataset_features = (
+        (*expected_features, *(f"15m__symbol_id_{symbol}" for symbol in _SYMBOL_POOL))
+        if use_postgres
+        else expected_features
+    )
+    if dataset.feature_names != expected_dataset_features:
+        raise RuntimeError(f"unexpected feature contract: {dataset.feature_names}")
     return {
         "artifact_digest": published.artifact_digest,
-        "dataset_id": result.dataset.dataset_id,
-        "feature_names": list(result.dataset.feature_names),
+        "dataset_id": dataset.dataset_id,
+        "feature_names": list(dataset.feature_names),
         "metadata_mode": metadata_mode.value,
         "metadata_evidence_digest": metadata_evidence_digest,
-        "feature_timeframes": list(result.feature_timeframes),
-        "n_bars": result.dataset.n_bars,
-        "n_features": result.dataset.n_features,
-        "raw_feature_count": result.dataset.n_features,
-        "policy_observation_count": _EXPECTED_POLICY_OBSERVATIONS,
-        "n_symbols": result.dataset.n_symbols,
-        "sources_used": list(result.sources_used),
-        "symbols": list(result.dataset.symbols),
+        "feature_timeframes": list(feature_timeframes),
+        "n_bars": dataset.n_bars,
+        "n_features": dataset.n_features,
+        "raw_feature_count": dataset.n_features,
+        "policy_observation_count": _policy_observation_count(dataset),
+        "n_symbols": dataset.n_symbols,
+        "selected_symbols": list(_SYMBOLS),
+        "slot_symbols": list(dataset.symbols),
+        "sources_used": list(sources_used),
+        "symbols": list(dataset.symbols),
     }
 
 
@@ -807,6 +937,8 @@ def _finalize_research_run(
 
 # Public aliases used by the state runner and tests.
 parse_utc = _parse_utc
+activate_symbol_triplet = _activate_symbol_triplet
+policy_observation_count = _policy_observation_count
 write_json = _write_json
 load_json = _load_json
 training_policy_digest = _training_policy_digest
@@ -827,16 +959,20 @@ __all__ = [
     "_EXPECTED_POLICY_OBSERVATIONS",
     "_FEATURE_TIMEFRAMES",
     "_NATIVE_TIMEFRAMES",
+    "_SLOT_SYMBOLS",
     "_START",
+    "_SYMBOL_POOL",
     "_SYMBOLS",
     "_TRAIN_RUN_COMMAND",
     "_WALK_FORWARD_RUN_COMMAND",
     "build_dataset",
+    "activate_symbol_triplet",
     "evaluate_walk_forward_research_gate",
     "execution_sensitivity_gate",
     "finalize_research_run",
     "load_json",
     "parse_utc",
+    "policy_observation_count",
     "prepare_run_roots",
     "require_file",
     "resolve_metadata",

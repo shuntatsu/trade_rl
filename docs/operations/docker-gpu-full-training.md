@@ -44,7 +44,10 @@ Containerは次をFail closedで確認します。
 ```text
 observation_encoder: hierarchical_sequence_v2
 policy: MultiInputPolicy
+action: target_weight (BTCUSDT, ETHUSDT, BNBUSDT order)
 algorithm: ppo
+behavior cloning: oracle teacher / 15 epochs / 10% chronological validation
+learning rate: linear 0.00012 -> 0.000012
 n_envs: 4
 seeds: 0, 1, 2
 device: cuda
@@ -52,6 +55,7 @@ sequence_d_model: 336
 timeframe attention: 8 heads / 2 layers
 asset attention: 8 heads / 2 layers
 max_policy_parameters: 12,000,000
+tensorboard diagnostics: enabled
 ```
 
 このPresetは維持対象候補であり、最適値を意味しません。
@@ -113,7 +117,7 @@ Expectationが存在しない場合は`idle`です。Container消失、Identity�
 
 ## TensorBoardとStudio
 
-`tensorboard_enabled`を有効にすると、Seed/RunごとのEvent fileを生成します。StudioはLoopback API経由でAllowlist済みScalarだけを読みます。TensorBoard serverの公開は不要です。
+維持対象Full configurationは`tensorboard_enabled=true`で、Seed/RunごとのEvent fileを生成します。StudioはLoopback API経由でAllowlist済みScalarだけを読みます。TensorBoard serverの公開は不要です。
 
 Sequence diagnosticsにはAttention、Gate、Missing ratio、Gradient normが含まれます。診断はModel selection Evidenceではありません。
 

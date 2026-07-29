@@ -49,6 +49,8 @@ def _dataset() -> MarketDataset:
 def _candidate_run() -> dict[str, object]:
     return {
         "schema_version": "training_run_config_v2",
+        "git_commit": "b" * 40,
+        "git_dirty": False,
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
@@ -138,10 +140,16 @@ def test_market_walk_forward_publishes_dedicated_manifest_and_provenance(
         encoding="utf-8",
     )
     expected_provenance = _provenance(tmp_path)
+    provenance_call: dict[str, object] = {}
+
+    def capture_provenance(*args: object, **kwargs: object):
+        provenance_call.update(kwargs)
+        return expected_provenance
+
     monkeypatch.setattr(
         workflow_module,
         "capture_runtime_provenance",
-        lambda *args, **kwargs: expected_provenance,
+        capture_provenance,
         raising=False,
     )
 
@@ -163,6 +171,8 @@ def test_market_walk_forward_publishes_dedicated_manifest_and_provenance(
     assert manifest.fold_count == 1
     assert manifest.provenance_digest == expected_provenance.digest
     assert provenance_payload["digest"] == manifest.provenance_digest
+    assert provenance_call["git_commit"] == "b" * 40
+    assert provenance_call["git_dirty"] is False
     assert manifest.workflow_config_digest != manifest.provenance_digest
     assert manifest.policy_set_digest != manifest.workflow_config_digest
     with pytest.raises(ValueError, match="unsupported training run schema"):

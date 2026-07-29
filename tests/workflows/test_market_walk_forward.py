@@ -316,7 +316,11 @@ def _sequence_candidate_config():
                 "n_factors": 0,
                 "target_weight_count": 1,
             },
-            "exports": {"onnx": False, "torchscript": False},
+            "exports": {
+                "onnx": False,
+                "structured_torchscript": True,
+                "torchscript": False,
+            },
         }
     )
 
@@ -477,6 +481,12 @@ def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
         assert fold["selected_member_policy_digests"] == []
         assert fold["sealed_test_evaluations"] == 1
     assert (published / "fold-000" / "sequence-normalizer-sequence-ppo.json").is_file()
+    candidate_root = published / "fold-000" / "candidates" / "sequence-ppo"
+    assert (candidate_root / "structured-policy-loader.json").is_file()
+    for member_index in range(3):
+        member_root = candidate_root / "members" / f"member-{member_index:03d}"
+        assert (member_root / "structured-export.json").is_file()
+        assert (member_root / "policy.structured.torchscript.pt").is_file()
     checkpoint_selection = json.loads(
         (
             published

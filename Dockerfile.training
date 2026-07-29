@@ -30,9 +30,15 @@ RUN groupadd --system trainer \
     && useradd --system --gid trainer --create-home trainer \
     && pip install --no-cache-dir uv==0.10.0
 
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends build-essential
+
 WORKDIR /workspace
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --extra train-sb3 --no-dev --no-install-project \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --extra train-sb3 --extra postgres --no-dev --no-install-project \
     && mkdir -p \
         /workspace/var/runs \
         /workspace/var/cache/teacher-artifacts \
@@ -46,7 +52,9 @@ RUN uv sync --frozen --extra train-sb3 --no-dev --no-install-project \
 
 COPY --chown=trainer:trainer trade_rl ./trade_rl
 COPY --chown=trainer:trainer examples ./examples
-RUN uv sync --frozen --extra train-sb3 --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --extra train-sb3 --extra postgres --no-dev \
+    && python -c 'import torch; compiled = torch.compile(lambda value: value + 1); assert compiled(torch.ones(1)).item() == 2.0'
 
 ARG TRADE_RL_GIT_COMMIT
 ARG TRADE_RL_GIT_DIRTY

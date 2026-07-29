@@ -149,6 +149,12 @@ class BinanceFullResearchStages:
 
     def _develop(self, work_root: Path) -> ResearchPhaseOutcome:
         _require_fresh_develop_root(work_root)
+        if self.args.dynamic_symbol_triplets:
+            pipeline.activate_symbol_triplet(
+                work_root=work_root,
+                seed=self.args.symbol_triplet_seed,
+                train_slot=self.args.symbol_triplet_train_slot,
+            )
         cache_root = self.args.cache_root
         if not cache_root.is_absolute():
             cache_root = _ROOT / cache_root
@@ -214,9 +220,10 @@ class BinanceFullResearchStages:
             for window in raw_windows
         )
         policy_observation_count = flat_observation_count + sequence_observation_count
-        if policy_observation_count != pipeline._EXPECTED_POLICY_OBSERVATIONS:
+        expected_policy_observations = pipeline.policy_observation_count(dataset)
+        if policy_observation_count != expected_policy_observations:
             raise RuntimeError(
-                f"expected {pipeline._EXPECTED_POLICY_OBSERVATIONS:,} policy observations, "
+                f"expected {expected_policy_observations:,} policy observations, "
                 f"observed {policy_observation_count:,}"
             )
 
@@ -258,6 +265,9 @@ class BinanceFullResearchStages:
             policy_observation_count=policy_observation_count,
             walk_forward=walk_forward,
         )
+        selected_triplet_path = work_root / "selected-symbol-triplet.json"
+        if selected_triplet_path.is_file():
+            summary["symbol_triplet"] = pipeline.load_json(selected_triplet_path)
         gate = pipeline.evaluate_walk_forward_research_gate(
             walk_forward_path, strict=True
         )
@@ -494,6 +504,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirmation")
     parser.add_argument("--confirmation-public-keys")
     parser.add_argument("--trusted-now", type=_parse_datetime)
+    parser.add_argument(
+        "--dynamic-symbol-triplets",
+        action="store_true",
+        default=os.environ.get("TRADE_RL_DYNAMIC_SYMBOL_TRIPLETS", "").lower()
+        == "true",
+    )
+    parser.add_argument(
+        "--symbol-triplet-seed",
+        type=int,
+        default=int(os.environ.get("TRADE_RL_SYMBOL_TRIPLET_SEED", "20260729")),
+    )
+    parser.add_argument(
+        "--symbol-triplet-train-slot",
+        type=int,
+        default=int(os.environ.get("TRADE_RL_SYMBOL_TRIPLET_TRAIN_SLOT", "0")),
+    )
     args = parser.parse_args(argv)
     work_root = (
         args.work_root if args.work_root.is_absolute() else _ROOT / args.work_root

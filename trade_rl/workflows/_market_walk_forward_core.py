@@ -543,12 +543,25 @@ class MarketCandidateTrainer(CandidateTrainer):
             ),
             environment_dataset_id=training_dataset.dataset_id,
             config=run.training,
-            backend=StableBaselines3Backend(factory),
+            backend=StableBaselines3Backend(
+                factory,
+                structured_export_enabled=run.export_structured_torchscript,
+                structured_export_tolerance=run.export_tolerance,
+            ),
             output_dir=candidate_root / "members",
             created_at=self.created_at,
         )
         _write_json(candidate_root / "ensemble.json", asdict(ensemble))
         _write_json(candidate_root / "training-config.json", run.digest_payload())
+        if run.export_structured_torchscript:
+            from trade_rl.serving.policy_loader import (
+                write_structured_policy_loader_manifest,
+            )
+
+            write_structured_policy_loader_manifest(
+                candidate_root,
+                expected_members=ensemble.expected_members,
+            )
 
         scored: list[CheckpointPolicyEvaluation] = []
         for index, member in enumerate(ensemble.members):
@@ -1114,6 +1127,8 @@ def execute_market_walk_forward(
     config_digest = content_digest(config.digest_payload())
     provenance = capture_runtime_provenance(
         Path(__file__).resolve().parents[2],
+        git_commit=config.candidates[0].run.git_commit,
+        git_dirty=config.candidates[0].run.git_dirty,
         deterministic_seed_config={
             "candidate_seeds": tuple(
                 {

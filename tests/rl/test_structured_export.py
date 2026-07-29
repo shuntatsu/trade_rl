@@ -183,6 +183,29 @@ def test_structured_export_round_trip_and_canonical_loader(tmp_path: Any) -> Non
     assert policy.predict(smoke).shape == (3,)
 
 
+def test_structured_export_excludes_training_only_decision_index(tmp_path: Any) -> None:
+    model = _FakeModel()
+    model.policy.observation_space.spaces["decision_index"] = spaces.Box(
+        low=0,
+        high=100,
+        shape=(1,),
+        dtype=np.int64,
+    )
+    observation = _observation()
+    observation["decision_index"] = np.asarray([77], dtype=np.int64)
+
+    manifest = export_structured_policy_actor(
+        model=model,
+        output_dir=tmp_path,
+        example_observation=observation,
+        action_size=3,
+    )
+
+    assert tuple(item.name for item in manifest.inputs) == (
+        canonical_structured_observation_keys()
+    )
+
+
 def test_structured_loader_rejects_architecture_and_input_drift(tmp_path: Any) -> None:
     manifest = export_structured_policy_actor(
         model=_FakeModel(),

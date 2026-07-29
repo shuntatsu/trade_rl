@@ -15,6 +15,10 @@ def test_training_compose_separates_market_data_ownership() -> None:
     )
     assert "trade-rl-training-data:/workspace/legacy-var:ro" in compose
     assert "trade-rl-training-data:/workspace/var" in compose
+    assert "postgres:" in compose
+    assert "condition: service_healthy" in compose
+    assert "TRADE_RL_DATABASE_URL:" in compose
+    assert 'TORCHINDUCTOR_COMPILE_THREADS: "4"' in compose
     assert "--legacy-cache-root" in compose
     assert "trade-rl-training-runs:" not in compose
     assert "trade-rl-teacher-cache:" not in compose

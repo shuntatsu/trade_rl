@@ -13,7 +13,9 @@
           "validation_mode": "clip"
         },
         "alpha_contract": {
-          "kind": "target_weight"
+          "expected_return_scale": 0.01,
+          "kind": "target_weight",
+          "max_gross": 1.0
         },
         "environment": {
           "decision_hours": 0.25,
@@ -115,8 +117,11 @@
           "decision_hours": 0.25,
           "device": "cuda",
           "ent_coef": 0.0,
+          "gae_lambda": 0.95,
           "gamma": 1.0,
           "learning_rate": 0.00012,
+          "learning_rate_final_ratio": 0.1,
+          "learning_rate_schedule": "linear",
           "log_std_init": -2.3,
           "max_checkpoints": 8,
           "max_policy_parameters": 12000000,
@@ -148,6 +153,8 @@
           "sequence_timeframe_ffn_multiplier": 3,
           "sequence_timeframe_gate_bias": -2.0,
           "target_kl": 0.02,
+          "tensorboard_enabled": true,
+          "tensorboard_log_interval": 1,
           "timesteps": 524288,
           "value_net_arch": [
             512,

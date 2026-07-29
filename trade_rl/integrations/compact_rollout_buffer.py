@@ -128,6 +128,11 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         self.sequence_transfer_mode = _validate_sequence_transfer_mode(
             sequence_transfer_mode
         )
+        # Keep one pinned staging tensor per reconstructed component.  Reusing
+        # these allocations prevents the pinned allocator from growing by a
+        # complete sequence rollout on every PPO update.
+        self._pinned_sequence_staging: dict[str, Any] = {}
+        self._pinned_sequence_copy_events: dict[str, Any] = {}
         super().__init__(
             buffer_size,
             observation_space,
@@ -176,7 +181,12 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         self.pos = 0
         self.full = False
 
-    def _sequence_to_torch(self, value: np.ndarray) -> Any:
+    def _sequence_to_torch(
+        self,
+        value: np.ndarray,
+        *,
+        staging_key: str = "__sequence__",
+    ) -> Any:
         # Convert one reconstructed sequence tensor using the configured path.
 
         mode = _validate_sequence_transfer_mode(
@@ -192,9 +202,36 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         cpu_tensor = torch.as_tensor(value)
         if not cpu_tensor.is_contiguous():
             cpu_tensor = cpu_tensor.contiguous()
-        pinned = torch.empty_like(cpu_tensor, device="cpu", pin_memory=True)
+
+        staging = getattr(self, "_pinned_sequence_staging", None)
+        if staging is None:
+            staging = {}
+            self._pinned_sequence_staging = staging
+        copy_events = getattr(self, "_pinned_sequence_copy_events", None)
+        if copy_events is None:
+            copy_events = {}
+            self._pinned_sequence_copy_events = copy_events
+
+        previous_copy = copy_events.pop(staging_key, None)
+        if previous_copy is not None:
+            # The pinned source must not be overwritten until its preceding
+            # asynchronous H2D transfer has completed.
+            previous_copy.synchronize()
+
+        pinned = staging.get(staging_key)
+        if (
+            pinned is None
+            or pinned.shape != cpu_tensor.shape
+            or pinned.dtype != cpu_tensor.dtype
+        ):
+            pinned = torch.empty_like(cpu_tensor, device="cpu", pin_memory=True)
+            staging[staging_key] = pinned
         pinned.copy_(cpu_tensor)
-        return pinned.to(device, non_blocking=True)
+        result = pinned.to(device, non_blocking=True)
+        transfer_complete = torch.cuda.Event()
+        transfer_complete.record(torch.cuda.current_stream(device))
+        copy_events[staging_key] = transfer_complete
+        return result
 
     def _materialize_sequence_observations(
         self, reconstructor: SequenceRolloutReconstructor
@@ -208,7 +245,7 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
             reconstructed = reconstructor.reconstruct(decision_indices)
         with measure_sequence_tensor_conversion():
             cached = {
-                key: self._sequence_to_torch(value)
+                key: self._sequence_to_torch(value, staging_key=key)
                 for key, value in reconstructed.items()
             }
         self._materialized_sequence_observations = cached

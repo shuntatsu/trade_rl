@@ -4,10 +4,22 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningConfig,
     BehaviorCloningResult,
 )
+from trade_rl.learning.evaluation import (
+    BehaviorCloningHoldoutEvaluation,
+    OracleTeacherEvaluation,
+    PathPerformanceMetrics,
+    evaluate_behavior_cloning_holdout,
+    evaluate_path_performance,
+    write_learning_evaluation,
+)
 from trade_rl.learning.oracle_teacher import (
     ORACLE_TEACHER_SCHEMA,
     OracleTeacherConfig,
     oracle_target_path,
+)
+from trade_rl.learning.rollout_evaluation import (
+    ActionPathEvaluation,
+    evaluate_action_path,
 )
 from trade_rl.learning.teacher_artifact import (
     TEACHER_ARRAYS_NAME,
@@ -29,11 +41,19 @@ __all__ = [
     "OracleTeacherConfig",
     "BehaviorCloningConfig",
     "BehaviorCloningResult",
+    "ActionPathEvaluation",
+    "BehaviorCloningHoldoutEvaluation",
+    "OracleTeacherEvaluation",
+    "PathPerformanceMetrics",
     "StructuredTeacherObservationProvider",
     "SupervisedPolicyDataset",
     "TeacherArtifactManifest",
     "collect_teacher_rollout",
+    "evaluate_behavior_cloning_holdout",
+    "evaluate_action_path",
+    "evaluate_path_performance",
     "load_teacher_artifact",
     "oracle_target_path",
+    "write_learning_evaluation",
     "write_teacher_artifact",
 ]

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -46,3 +47,14 @@ def test_growth_optimal_walk_forward_profile_uses_same_objective() -> None:
     assert config.maximum_selection_drawdown == pytest.approx(0.20)
     assert config.minimum_selection_uplift == pytest.approx(0.001)
     assert config.execution_sensitivity.required_scenario == "joint_2x"
+
+
+def test_growth_optimal_walk_forward_candidate_matches_standalone_profile() -> None:
+    standalone = json.loads(
+        (EXAMPLE_ROOT / "training-growth-optimal.json").read_text(encoding="utf-8")
+    )
+    walk_forward = json.loads(
+        (EXAMPLE_ROOT / "walk-forward-growth-optimal.json").read_text(encoding="utf-8")
+    )
+
+    assert walk_forward["candidates"][0]["run"] == standalone

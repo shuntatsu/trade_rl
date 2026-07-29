@@ -130,16 +130,19 @@ def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> No
     runtime = dockerfile.split(" AS training-runtime", 1)[1]
 
     dependency_sync = runtime.index(
-        "uv sync --frozen --extra train-sb3 --no-dev --no-install-project"
+        "uv sync --frozen --extra train-sb3 --extra postgres --no-dev --no-install-project"
     )
     source_copy = runtime.index("COPY --chown=trainer:trainer trade_rl ./trade_rl")
     project_sync = runtime.index(
-        "RUN uv sync --frozen --extra train-sb3 --no-dev", source_copy
+        "uv sync --frozen --extra train-sb3 --extra postgres --no-dev", source_copy
     )
     commit_argument = runtime.index("ARG TRADE_RL_GIT_COMMIT")
     marker_copy = runtime.index("COPY --from=provenance-validation")
 
     assert dependency_sync < source_copy < project_sync < commit_argument < marker_copy
+    assert runtime.count("RUN --mount=type=cache,target=/root/.cache/uv") == 2
+    assert "apt-get install -y --no-install-recommends build-essential" in runtime
+    assert "compiled = torch.compile" in runtime
     assert "chown -R" not in dockerfile
     assert "chown trainer:trainer /workspace/var" in runtime
     assert "chown" not in runtime[commit_argument:]

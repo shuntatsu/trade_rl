@@ -104,6 +104,8 @@ def execute_market_walk_forward(
     config_digest = content_digest(config.digest_payload())
     provenance = capture_runtime_provenance(
         Path(__file__).resolve().parents[2],
+        git_commit=config.candidates[0].run.git_commit,
+        git_dirty=config.candidates[0].run.git_dirty,
         deterministic_seed_config={
             "candidate_seeds": tuple(
                 {

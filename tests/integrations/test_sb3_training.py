@@ -433,7 +433,9 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
 
 
 def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None:
-    n_bars = 40
+    # Keep the chronological holdout large enough to make the Oracle
+    # reproduction gate meaningful instead of hinging on only four actions.
+    n_bars = 80
     close = np.column_stack(
         [
             np.linspace(100.0, 130.0, n_bars),
@@ -491,8 +493,9 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
             n_epochs=1,
             observation_encoder=("flat_mlp"),
             device="cpu",
-            behavior_cloning_epochs=1,
+            behavior_cloning_epochs=15,
             behavior_cloning_batch_size=16,
+            behavior_cloning_validation_fraction=0.1,
         ),
         output_path=tmp_path / "member" / "policy.zip",
     )
@@ -500,6 +503,13 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
     assert result.actual_timesteps == 2
     assert (tmp_path / "member" / "teacher" / "manifest.json").is_file()
     assert (tmp_path / "member" / "behavior-cloning.json").is_file()
+    assert (tmp_path / "member" / "oracle-evaluation.json").is_file()
+    assert (tmp_path / "member" / "behavior-cloning-holdout.json").is_file()
+    cloning = json.loads(
+        (tmp_path / "member" / "behavior-cloning.json").read_text(encoding="utf-8")
+    )
+    assert cloning["oracle_reproduction"]["passed"] is True
+    assert cloning["oracle_reproduction"]["required"] is False
 
 
 def test_backend_caches_oracle_targets_across_seed_members(

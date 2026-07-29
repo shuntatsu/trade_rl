@@ -302,7 +302,9 @@ def _require_valid_runtime_state(evidence: dict[str, Any]) -> None:
 
 
 def _container_logs(name: str, runner: CommandRunner) -> str:
-    command = ("docker", "logs", "--tail", "200", name)
+    # Stop evidence is the last durable chance to retain the complete runtime
+    # stream before an operator eventually removes the exact container.
+    command = ("docker", "logs", name)
     completed = runner(command)
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()

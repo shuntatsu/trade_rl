@@ -25,7 +25,10 @@ STRUCTURED_EXPORT_MODEL_NAME: Final = "policy.structured.torchscript.pt"
 _TIMEFRAMES: Final = ("15m", "1h", "4h", "1d")
 _BASE_KEYS: Final = ("current_snapshot", "asset_state", "global_state", "active")
 _SEQUENCE_PLANES: Final = ("values", "available", "staleness")
-_SUPPORTED_DTYPES: Final = frozenset({"float32", "float64", "int32", "int64", "bool"})
+_TRAINING_ONLY_KEYS: Final = frozenset({"decision_index"})
+_SUPPORTED_DTYPES: Final = frozenset(
+    {"float16", "float32", "float64", "int32", "int64", "uint8", "bool"}
+)
 
 
 def _file_digest(path: Path) -> str:
@@ -197,13 +200,26 @@ class StructuredExportManifest:
 
 
 class _StructuredDeterministicActor(nn.Module):
-    def __init__(self, policy: nn.Module, keys: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        policy: nn.Module,
+        keys: tuple[str, ...],
+        *,
+        synthesize_decision_index: bool,
+    ) -> None:
         super().__init__()
         self.policy = policy
         self.keys = keys
+        self.synthesize_decision_index = synthesize_decision_index
 
     def forward(self, *inputs: torch.Tensor) -> torch.Tensor:
         observation = {self.keys[index]: value for index, value in enumerate(inputs)}
+        if self.synthesize_decision_index:
+            observation["decision_index"] = torch.zeros(
+                (inputs[0].shape[0], 1),
+                dtype=torch.int64,
+                device=inputs[0].device,
+            )
         prediction = self.policy._predict(observation, deterministic=True)
         return prediction
 
@@ -215,7 +231,10 @@ def _observation_specs(model: object) -> tuple[StructuredInputSpec, ...]:
     if not isinstance(raw_spaces, Mapping):
         raise ValueError("structured export requires Dict observation space")
     expected = canonical_structured_observation_keys()
-    if set(raw_spaces) != set(expected):
+    extra = set(raw_spaces) - set(expected)
+    if not set(expected).issubset(raw_spaces) or not extra.issubset(
+        _TRAINING_ONLY_KEYS
+    ):
         raise ValueError("structured observation keys do not match canonical contract")
     specs: list[StructuredInputSpec] = []
     for key in expected:
@@ -240,10 +259,12 @@ def _numpy_dtype(name: str) -> np.dtype[Any]:
 
 def _torch_dtype(name: str) -> torch.dtype:
     resolved = {
+        "float16": torch.float16,
         "float32": torch.float32,
         "float64": torch.float64,
         "int32": torch.int32,
         "int64": torch.int64,
+        "uint8": torch.uint8,
         "bool": torch.bool,
     }.get(name)
     if resolved is None:
@@ -255,7 +276,11 @@ def _validated_example(
     example_observation: Mapping[str, np.ndarray],
     specs: tuple[StructuredInputSpec, ...],
 ) -> tuple[torch.Tensor, ...]:
-    if set(example_observation) != {item.name for item in specs}:
+    expected = {item.name for item in specs}
+    extra = set(example_observation) - expected
+    if not expected.issubset(example_observation) or not extra.issubset(
+        _TRAINING_ONLY_KEYS
+    ):
         raise ValueError("structured export example keys are invalid")
     tensors: list[torch.Tensor] = []
     batch_size: int | None = None
@@ -364,7 +389,11 @@ def export_structured_policy_actor(
         specs = _observation_specs(model)
         example = _validated_example(example_observation, specs)
         actor = _StructuredDeterministicActor(
-            policy, tuple(item.name for item in specs)
+            policy,
+            tuple(item.name for item in specs),
+            synthesize_decision_index=(
+                "decision_index" in policy.observation_space.spaces
+            ),
         ).eval()
         corpus = _parity_corpus(example, specs)
         with torch.no_grad():

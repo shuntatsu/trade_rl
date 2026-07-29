@@ -80,7 +80,7 @@ def test_maintained_full_cuda_configs_enable_sequence_runtime() -> None:
     )["candidates"][0]["run"]["training"]
 
     for training in (direct, walk_forward):
-        assert training["sequence_compile"] is True
+        assert training["sequence_compile"] is False
         assert training["sequence_compile_mode"] == "reduce-overhead"
         assert training["sequence_transfer_mode"] == "pinned_non_blocking"
 
@@ -88,6 +88,8 @@ def test_maintained_full_cuda_configs_enable_sequence_runtime() -> None:
 class _FakeCpuTensor:
     def __init__(self) -> None:
         self.contiguous_calls = 0
+        self.shape = (1, 2, 1)
+        self.dtype = "float16"
 
     def is_contiguous(self) -> bool:
         return True
@@ -98,29 +100,63 @@ class _FakeCpuTensor:
 
 
 class _FakePinnedTensor:
-    def __init__(self) -> None:
+    def __init__(self, calls: list[str]) -> None:
+        self.calls = calls
+        self.shape = (1, 2, 1)
+        self.dtype = "float16"
         self.copy_source: object | None = None
         self.to_device: object | None = None
         self.non_blocking: bool | None = None
         self.gpu_result = object()
 
     def copy_(self, source: object) -> _FakePinnedTensor:
+        self.calls.append("copy")
         self.copy_source = source
         return self
 
     def to(self, device: object, *, non_blocking: bool = False) -> object:
+        self.calls.append("to")
         self.to_device = device
         self.non_blocking = non_blocking
         return self.gpu_result
 
 
+class _FakeCudaEvent:
+    def __init__(self, calls: list[str]) -> None:
+        self.calls = calls
+
+    def record(self, stream: object) -> None:
+        assert stream == "current_cuda_stream"
+        self.calls.append("record")
+
+    def synchronize(self) -> None:
+        self.calls.append("synchronize")
+
+
+class _FakeCuda:
+    def __init__(self, calls: list[str]) -> None:
+        self.calls = calls
+        self.events: list[_FakeCudaEvent] = []
+
+    def Event(self) -> _FakeCudaEvent:  # noqa: N802 - mirror torch.cuda API
+        event = _FakeCudaEvent(self.calls)
+        self.events.append(event)
+        return event
+
+    def current_stream(self, device: object) -> str:
+        assert getattr(device, "type", None) == "cuda"
+        return "current_cuda_stream"
+
+
 class _FakeTransferTorch:
     def __init__(self) -> None:
+        self.calls: list[str] = []
         self.cpu_tensor = _FakeCpuTensor()
-        self.pinned_tensor = _FakePinnedTensor()
+        self.pinned_tensors: list[_FakePinnedTensor] = []
         self.asarray_value: object | None = None
-        self.empty_like_args: tuple[object, object, bool] | None = None
+        self.empty_like_args: list[tuple[object, object, bool]] = []
         self.cuda_device = SimpleNamespace(type="cuda")
+        self.cuda = _FakeCuda(self.calls)
 
     def device(self, value: object) -> object:
         assert value == "cuda"
@@ -137,8 +173,11 @@ class _FakeTransferTorch:
         device: object,
         pin_memory: bool,
     ) -> _FakePinnedTensor:
-        self.empty_like_args = (source, device, pin_memory)
-        return self.pinned_tensor
+        self.calls.append("allocate")
+        self.empty_like_args.append((source, device, pin_memory))
+        pinned = _FakePinnedTensor(self.calls)
+        self.pinned_tensors.append(pinned)
+        return pinned
 
 
 def test_pinned_sequence_transfer_uses_non_blocking_cuda_copy(
@@ -151,18 +190,69 @@ def test_pinned_sequence_transfer_uses_non_blocking_cuda_copy(
     buffer.sequence_transfer_mode = "pinned_non_blocking"
     values = np.asarray([[[1.0], [2.0]]], dtype=np.float16)
 
-    result = buffer._sequence_to_torch(values)
+    result = buffer._sequence_to_torch(values, staging_key="sequence_1h_values")
 
-    assert result is fake_torch.pinned_tensor.gpu_result
+    pinned = fake_torch.pinned_tensors[0]
+    assert result is pinned.gpu_result
     assert fake_torch.asarray_value is values
-    assert fake_torch.empty_like_args == (
-        fake_torch.cpu_tensor,
-        "cpu",
-        True,
-    )
-    assert fake_torch.pinned_tensor.copy_source is fake_torch.cpu_tensor
-    assert fake_torch.pinned_tensor.to_device is fake_torch.cuda_device
-    assert fake_torch.pinned_tensor.non_blocking is True
+    assert fake_torch.empty_like_args == [
+        (fake_torch.cpu_tensor, "cpu", True)
+    ]
+    assert pinned.copy_source is fake_torch.cpu_tensor
+    assert pinned.to_device is fake_torch.cuda_device
+    assert pinned.non_blocking is True
+    assert fake_torch.calls == ["allocate", "copy", "to", "record"]
+
+
+def test_pinned_sequence_staging_is_reused_across_rollout_resets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_torch = _FakeTransferTorch()
+    monkeypatch.setattr(compact_rollout, "torch", fake_torch)
+    buffer = object.__new__(IndexBackedDictRolloutBuffer)
+    buffer.device = "cuda"
+    buffer.sequence_transfer_mode = "pinned_non_blocking"
+    buffer._compact_keys = ()
+    buffer.buffer_size = 1
+    buffer.n_envs = 1
+    buffer.action_dim = 1
+    values = np.asarray([[[1.0], [2.0]]], dtype=np.float16)
+
+    first = buffer._sequence_to_torch(values, staging_key="sequence_1h_values")
+    buffer.reset()
+    second = buffer._sequence_to_torch(values, staging_key="sequence_1h_values")
+
+    assert first is second
+    assert len(fake_torch.pinned_tensors) == 1
+    assert len(fake_torch.cuda.events) == 2
+    assert fake_torch.calls == [
+        "allocate",
+        "copy",
+        "to",
+        "record",
+        "synchronize",
+        "copy",
+        "to",
+        "record",
+    ]
+
+
+def test_pinned_sequence_staging_allocates_once_per_sequence_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_torch = _FakeTransferTorch()
+    monkeypatch.setattr(compact_rollout, "torch", fake_torch)
+    buffer = object.__new__(IndexBackedDictRolloutBuffer)
+    buffer.device = "cuda"
+    buffer.sequence_transfer_mode = "pinned_non_blocking"
+    values = np.asarray([[[1.0], [2.0]]], dtype=np.float16)
+
+    buffer._sequence_to_torch(values, staging_key="sequence_1h_values")
+    buffer._sequence_to_torch(values, staging_key="sequence_1h_available")
+    buffer._sequence_to_torch(values, staging_key="sequence_1h_values")
+
+    assert len(fake_torch.pinned_tensors) == 2
+    assert len(fake_torch.empty_like_args) == 2
 
 
 def test_synchronous_sequence_transfer_preserves_existing_to_torch_path() -> None:
@@ -213,7 +303,10 @@ def _runtime_config(**overrides: object) -> object:
     return SimpleNamespace(**values)
 
 
-def test_sequence_compile_targets_only_feature_extractor_and_records_contract() -> None:
+def test_sequence_compile_targets_only_feature_extractor_and_records_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TORCHINDUCTOR_COMPILE_THREADS", raising=False)
     configure = getattr(sb3_training, "_configure_sequence_runtime", None)
     assert callable(configure)
     extractor = _FakeExtractor()
@@ -241,9 +334,10 @@ def test_sequence_compile_targets_only_feature_extractor_and_records_contract() 
         "compile_target": "_FakeExtractor",
         "fullgraph": False,
         "dynamic": False,
+        "inductor_compile_threads": None,
         "sequence_transfer_mode": "pinned_non_blocking",
         "torch_version": "2.3.1",
-        "schema_version": "sequence_runtime_v1",
+        "schema_version": "sequence_runtime_v2",
     }
 
 

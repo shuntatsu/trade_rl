@@ -24,7 +24,7 @@ def test_launcher_runs_sync_before_trainer() -> None:
 
     assert commands[0][-1] == "market-data-sync"
     assert commands[1][-1] == "trainer"
-    assert "--no-deps" in commands[1]
+    assert "--no-deps" not in commands[1]
 
 
 def test_launcher_stops_when_sync_fails() -> None:

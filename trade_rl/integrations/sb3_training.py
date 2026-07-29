@@ -25,11 +25,15 @@ from trade_rl.integrations.sb3_model_assembly import (
 from trade_rl.learning import (
     BehaviorCloningConfig,
     OracleTeacherConfig,
+    OracleTeacherEvaluation,
     StructuredTeacherObservationProvider,
     SupervisedPolicyDataset,
     collect_teacher_rollout,
+    evaluate_action_path,
+    evaluate_behavior_cloning_holdout,
     load_teacher_artifact,
     oracle_target_path,
+    write_learning_evaluation,
     write_teacher_artifact,
 )
 from trade_rl.rl.algorithm_configs import (
@@ -139,9 +143,12 @@ def _configure_sequence_runtime(
         "compile_target": compile_target,
         "fullgraph": False,
         "dynamic": False,
+        "inductor_compile_threads": os.environ.get(
+            "TORCHINDUCTOR_COMPILE_THREADS"
+        ),
         "sequence_transfer_mode": config.sequence_transfer_mode,
         "torch_version": str(torch.__version__),
-        "schema_version": "sequence_runtime_v1",
+        "schema_version": "sequence_runtime_v2",
     }
 
 
@@ -888,6 +895,123 @@ class StableBaselines3Backend:
                         final_mse=cloning.final_mse,
                         required_relative_improvement=(required_relative_improvement),
                     )
+                    oracle_audit_payload: dict[str, object] | None = None
+                    if teacher_kind == "oracle":
+                        oracle_environment = self.environment_factory()
+                        try:
+                            oracle_path = evaluate_action_path(
+                                oracle_environment,
+                                evaluation_range=train_range,
+                                actions=targets,
+                            )
+                        finally:
+                            oracle_environment.close()
+                        oracle_evaluation = OracleTeacherEvaluation(
+                            evaluation_range=train_range,
+                            performance=oracle_path.performance,
+                        )
+                        oracle_evaluation_digest = write_learning_evaluation(
+                            output_path.parent / "oracle-evaluation.json",
+                            oracle_evaluation,
+                        )
+                        validation_count = cloning.validation_sample_count
+                        if validation_count > 0:
+                            heldout_start = train_range[1] - 1 - validation_count
+                            heldout_range = (heldout_start, train_range[1])
+                            heldout_offset = heldout_start - train_range[0]
+                            heldout_targets = targets[
+                                heldout_offset : heldout_offset + validation_count
+                            ]
+                            oracle_holdout_environment = self.environment_factory()
+                            try:
+                                oracle_holdout = evaluate_action_path(
+                                    oracle_holdout_environment,
+                                    evaluation_range=heldout_range,
+                                    actions=heldout_targets,
+                                )
+                            finally:
+                                oracle_holdout_environment.close()
+                            policy_holdout_environment = self.environment_factory()
+                            try:
+                                policy_holdout = evaluate_action_path(
+                                    policy_holdout_environment,
+                                    evaluation_range=heldout_range,
+                                    model=model,
+                                )
+                            finally:
+                                policy_holdout_environment.close()
+                            holdout = evaluate_behavior_cloning_holdout(
+                                teacher_train_range=(
+                                    train_range[0],
+                                    heldout_start + 1,
+                                ),
+                                heldout_range=heldout_range,
+                                oracle_actions=oracle_holdout.actions,
+                                policy_actions=policy_holdout.actions,
+                                oracle_performance=oracle_holdout.performance,
+                                causal_policy_performance=(
+                                    policy_holdout.performance
+                                ),
+                                action_tolerance=0.05,
+                            )
+                            holdout_digest = write_learning_evaluation(
+                                output_path.parent
+                                / "behavior-cloning-holdout.json",
+                                holdout,
+                            )
+                            regret_scale = max(
+                                abs(
+                                    holdout.oracle_reference.performance.net_return
+                                ),
+                                0.05,
+                            )
+                            normalized_regret = (
+                                holdout.heldout_oracle_regret / regret_scale
+                            )
+                            reproduction_passed = bool(
+                                holdout.action_agreement_rate >= 0.80
+                                and holdout.action_rmse <= 0.10
+                                and normalized_regret <= 0.25
+                            )
+                            oracle_audit_payload = {
+                                "action_agreement_minimum": 0.80,
+                                "action_agreement_rate": (
+                                    holdout.action_agreement_rate
+                                ),
+                                "action_rmse": holdout.action_rmse,
+                                "action_rmse_maximum": 0.10,
+                                "behavior_cloning_holdout_digest": (
+                                    holdout_digest
+                                ),
+                                "heldout_oracle_regret": (
+                                    holdout.heldout_oracle_regret
+                                ),
+                                "normalized_oracle_regret": normalized_regret,
+                                "normalized_oracle_regret_maximum": 0.25,
+                                "oracle_evaluation_digest": (
+                                    oracle_evaluation_digest
+                                ),
+                                "passed": reproduction_passed,
+                                "required": False,
+                                "reason": (
+                                    "the teacher is a hindsight upper-bound diagnostic; "
+                                    "a causal policy cannot be required to reproduce "
+                                    "future-dependent actions on an unseen time tail"
+                                ),
+                                "schema_version": (
+                                    "oracle_bc_reproduction_gate_v1"
+                                ),
+                            }
+                        else:
+                            oracle_audit_payload = {
+                                "oracle_evaluation_digest": oracle_evaluation_digest,
+                                "passed": True,
+                                "reason": "chronological holdout is disabled",
+                                "required": False,
+                                "schema_version": (
+                                    "oracle_bc_reproduction_gate_v1"
+                                ),
+                            }
                     cloning_payload = {
                         "artifact_digest": teacher_digest,
                         "behavior_cloning_digest": cloning.digest,
@@ -903,7 +1027,8 @@ class StableBaselines3Backend:
                             required_relative_improvement
                         ),
                         "teacher_kind": teacher_kind,
-                        "schema_version": "behavior_cloning_run_v3",
+                        "oracle_reproduction": oracle_audit_payload,
+                        "schema_version": "behavior_cloning_run_v4",
                     }
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     (output_path.parent / "behavior-cloning.json").write_bytes(
@@ -911,8 +1036,7 @@ class StableBaselines3Backend:
                     )
                     if not quality_passed:
                         raise RuntimeError(
-                            "behavior cloning failed the required relative "
-                            "improvement gate"
+                            "behavior cloning failed the required MSE improvement gate"
                         )
                 finally:
                     teacher_environment.close()

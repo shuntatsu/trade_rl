@@ -15,7 +15,7 @@ def build_commands(compose_file: Path) -> tuple[tuple[str, ...], tuple[str, ...]
     prefix = ("docker", "compose", "-f", str(compose_file), "run", "--rm")
     return (
         (*prefix, "market-data-sync"),
-        (*prefix, "--no-deps", "trainer"),
+        (*prefix, "trainer"),
     )
 
 

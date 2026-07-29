@@ -240,6 +240,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "generation": generation,
             "metadata_mode": metadata_mode,
             "phase": phase,
+            "dynamic_symbol_triplets": os.environ.get(
+                "TRADE_RL_DYNAMIC_SYMBOL_TRIPLETS", "false"
+            ),
+            "symbol_triplet_seed": os.environ.get(
+                "TRADE_RL_SYMBOL_TRIPLET_SEED", "20260729"
+            ),
+            "symbol_triplet_train_slot": os.environ.get(
+                "TRADE_RL_SYMBOL_TRIPLET_TRAIN_SLOT", "0"
+            ),
         },
         image_digest=image_digest,
     )

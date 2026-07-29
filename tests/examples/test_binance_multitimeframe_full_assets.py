@@ -34,7 +34,9 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.timesteps >= 524_288
     assert config.training.n_steps == 256
     assert config.training.batch_size == 256
-    assert config.training.behavior_cloning_epochs == 0
+    assert config.training.behavior_cloning_epochs == 15
+    assert config.training.behavior_cloning_teacher == "oracle"
+    assert config.training.behavior_cloning_validation_fraction == pytest.approx(0.1)
     assert config.training.n_epochs == 10
     assert config.training.ent_coef == 0.0
     assert config.training.log_std_init == pytest.approx(-2.3)
@@ -50,9 +52,14 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.risk.max_turnover is None
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
-    assert config.action.mode.value == "residual"
-    assert config.action.residual_scale == pytest.approx(0.25)
-    assert config.action.target_weight_count == 0
+    assert config.action.mode.value == "target_weight"
+    assert config.action.residual_scale == pytest.approx(1.0)
+    assert config.action.target_weight_count == 3
+    assert config.action.names_for_symbols(("BTCUSDT", "ETHUSDT", "BNBUSDT")) == (
+        "target_weight:BTCUSDT",
+        "target_weight:ETHUSDT",
+        "target_weight:BNBUSDT",
+    )
     assert config.action.n_factors == 0
     assert config.factor_artifact is None
     assert config.risk.entry_threshold == 0.10
@@ -68,6 +75,14 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
 
 
 def test_full_walk_forward_config_has_six_material_folds() -> None:
+    standalone_payload = json.loads(
+        (EXAMPLE_ROOT / "training-full.json").read_text(encoding="utf-8")
+    )
+    walk_forward_payload = json.loads(
+        (EXAMPLE_ROOT / "walk-forward-full.json").read_text(encoding="utf-8")
+    )
+    assert walk_forward_payload["candidates"][0]["run"] == standalone_payload
+
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / "walk-forward-full.json",
         n_bars=55_392,
@@ -80,12 +95,19 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert sum(fold.test.size for fold in folds) == 17_280
     assert (folds[0].test.start, folds[0].test.stop) == (26_336, 29_216)
     assert (folds[-1].test.start, folds[-1].test.stop) == (40_736, 43_616)
-    # baseline-anchored residual PPO のみの1候補構成
+    # Stable candidate IDを維持した単一のtarget-weight PPO候補。
     assert [candidate.name for candidate in config.candidates] == ["residual-ppo-15m"]
     oracle = next(
         item.run for item in config.candidates if item.name == "residual-ppo-15m"
     )
-    assert oracle.training.behavior_cloning_epochs == 0
+    assert oracle.training.behavior_cloning_epochs == 15
+    assert oracle.training.behavior_cloning_teacher == "oracle"
+    assert oracle.training.behavior_cloning_validation_fraction == pytest.approx(0.1)
+    assert oracle.training.learning_rate_schedule == "linear"
+    assert oracle.training.learning_rate_final_ratio == pytest.approx(0.1)
+    assert oracle.training.tensorboard_enabled
+    assert oracle.export_structured_torchscript
+    assert oracle == TrainingRunConfig.from_json(EXAMPLE_ROOT / "training-full.json")
     assert oracle.reward.projection_penalty_weight == 0.0
     assert oracle.training.n_steps == 256
     assert oracle.training.batch_size == 256
@@ -113,9 +135,14 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     )
     assert oracle.risk.max_turnover is None
     assert not oracle.action.risk_tilt_enabled
-    assert oracle.action.mode.value == "residual"
-    assert oracle.action.residual_scale == pytest.approx(0.25)
-    assert oracle.action.target_weight_count == 0
+    assert oracle.action.mode.value == "target_weight"
+    assert oracle.action.residual_scale == pytest.approx(1.0)
+    assert oracle.action.target_weight_count == 3
+    assert oracle.action.names_for_symbols(("BTCUSDT", "ETHUSDT", "BNBUSDT")) == (
+        "target_weight:BTCUSDT",
+        "target_weight:ETHUSDT",
+        "target_weight:BNBUSDT",
+    )
     assert oracle.action.n_factors == 0
     assert oracle.factor_artifact is None
     assert config.minimum_seed_success_fraction == pytest.approx(2.0 / 3.0)

@@ -60,7 +60,37 @@ jobs:
           test "$status" -ne 0
           grep -Eq 'sampled_policy_action|tick_size|symbol_active|feature_available' red.log
       - name: Apply implementation
-        run: python tools/apply_final_contract_review_v2.py
+        run: |
+          python tools/apply_final_contract_review_v2.py
+          python - <<'PY'
+          from pathlib import Path
+
+          postgres = Path('trade_rl/integrations/postgres_market_dataset.py')
+          source = postgres.read_text(encoding='utf-8')
+          start = source.index('economics = build_market_economic_semantics(\n')
+          end = source.index('    normalization_digest = content_and_arrays_digest(\n', start)
+          block = source[start:end]
+          if not block.startswith('    '):
+              block = ''.join(
+                  ('    ' + line if line.strip() else line)
+                  for line in block.splitlines(keepends=True)
+              )
+              source = source[:start] + block + source[end:]
+              postgres.write_text(source, encoding='utf-8')
+
+          economics = Path('trade_rl/data/economic_semantics.py')
+          source = economics.read_text(encoding='utf-8')
+          start = source.index('if np.any(self.max_participation_rate < 0.0)')
+          end = source.index('    def market_dataset_kwargs', start)
+          block = source[start:end]
+          if not block.startswith('        '):
+              block = ''.join(
+                  ('        ' + line if line.strip() else line)
+                  for line in block.splitlines(keepends=True)
+              )
+              source = source[:start] + block + source[end:]
+              economics.write_text(source, encoding='utf-8')
+          PY
       - name: Verify GREEN
         run: |
           uv run ruff check --fix \

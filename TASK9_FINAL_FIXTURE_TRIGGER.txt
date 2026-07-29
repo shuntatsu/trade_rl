@@ -1,3 +1,4 @@
 target=agent/hierarchical-bc-actor-design
-remaining_failures=windows-gradient-reference
-attempt=4
+review_finding=event-precedence
+phase=red-green
+attempt=1

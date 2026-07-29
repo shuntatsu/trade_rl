@@ -262,6 +262,7 @@ class SealedTestLedgerMode(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class MarketWalkForwardConfig(_base.MarketWalkForwardConfig):
+    execution_sensitivity: ExecutionSensitivityConfig = ExecutionSensitivityConfig()
     sealed_test_ledger_mode: SealedTestLedgerMode = (
         SealedTestLedgerMode.LOCAL_EXPLORATORY
     )

@@ -33,7 +33,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
-def _market(n_bars: int = 96) -> MarketDataset:
+def _market(n_bars: int = 512) -> MarketDataset:
     phase = np.arange(n_bars, dtype=np.float64)
     close = (100.0 * np.exp(phase * 0.001))[:, None]
     return MarketDataset(

@@ -65,12 +65,13 @@ def deterministic_bootstrap_upper_bound(
     sample = _finite_vector(values, field="bootstrap values")
     if np.any(sample < 0.0):
         raise ValueError("bootstrap regret values must be non-negative")
-    if (
-        not math.isfinite(confidence_level)
-        or not 0.5 < confidence_level < 1.0
-    ):
+    if not math.isfinite(confidence_level) or not 0.5 < confidence_level < 1.0:
         raise ValueError("bootstrap confidence_level must be within (0.5, 1)")
-    if isinstance(resamples, bool) or not isinstance(resamples, int) or resamples < 1_000:
+    if (
+        isinstance(resamples, bool)
+        or not isinstance(resamples, int)
+        or resamples < 1_000
+    ):
         raise ValueError("bootstrap resamples must be an integer of at least 1000")
     if not isinstance(seed_material, str) or not seed_material:
         raise ValueError("bootstrap seed_material must be non-empty")
@@ -877,7 +878,9 @@ def evaluate_behavior_cloning_gates(
         else max(0.0, -holdout.causal_policy_performance.net_return)
     )
     causal_records = () if holdout is None else tuple(getattr(holdout, "records", ()))
-    causal_episode_support = len(causal_records) if causal_records else (0 if holdout is None else 1)
+    causal_episode_support = (
+        len(causal_records) if causal_records else (0 if holdout is None else 1)
+    )
     causal_regret_upper = (
         None
         if holdout is None

@@ -10,8 +10,12 @@ from trade_rl.learning.evaluation import deterministic_bootstrap_upper_bound
 
 def test_bootstrap_upper_bound_is_deterministic_and_one_sided() -> None:
     values = np.array([0.01, 0.03, 0.02, 0.08, 0.04])
-    first = deterministic_bootstrap_upper_bound(values, confidence_level=0.95, resamples=2_000, seed_material="a" * 64)
-    second = deterministic_bootstrap_upper_bound(values, confidence_level=0.95, resamples=2_000, seed_material="a" * 64)
+    first = deterministic_bootstrap_upper_bound(
+        values, confidence_level=0.95, resamples=2_000, seed_material="a" * 64
+    )
+    second = deterministic_bootstrap_upper_bound(
+        values, confidence_level=0.95, resamples=2_000, seed_material="a" * 64
+    )
     assert first == second
     assert first >= float(np.mean(values))
 

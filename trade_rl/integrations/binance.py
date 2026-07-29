@@ -407,7 +407,9 @@ class BinancePublicTransport:
         try:
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise BinanceTransportError("cached Binance Vision evidence is invalid") from error
+            raise BinanceTransportError(
+                "cached Binance Vision evidence is invalid"
+            ) from error
         expected = {
             "acquired_at",
             "downloader",
@@ -419,7 +421,9 @@ class BinancePublicTransport:
             "url",
         }
         if not isinstance(evidence, dict) or set(evidence) != expected:
-            raise BinanceTransportError("cached Binance Vision evidence fields are invalid")
+            raise BinanceTransportError(
+                "cached Binance Vision evidence fields are invalid"
+            )
         payload = cache_path.read_bytes()
         digest = hashlib.sha256(payload).hexdigest()
         if (

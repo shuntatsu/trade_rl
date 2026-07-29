@@ -26,7 +26,9 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
 
 def test_quickstart_pins_hybrid_reward() -> None:
     root = Path(__file__).resolve().parents[1]
-    reward = json.loads((root / "examples/quickstart/training.json").read_text())["reward"]
+    reward = json.loads((root / "examples/quickstart/training.json").read_text())[
+        "reward"
+    ]
     assert reward["absolute_growth_weight"] == 1.0
     assert reward["incremental_drawdown_weight"] == 0.05
     assert reward["baseline_underperformance_weight"] == 0.10

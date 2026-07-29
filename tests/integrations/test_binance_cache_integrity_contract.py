@@ -24,11 +24,17 @@ class _Response:
         return self.payload
 
 
-def test_vision_cache_sidecar_detects_tampering(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vision_cache_sidecar_detects_tampering(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = b"official-archive"
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: _Response(payload))
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda request, timeout: _Response(payload)
+    )
     transport = BinancePublicTransport(cache_root=tmp_path, max_attempts=1)
-    url = "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/15m/file.zip"
+    url = (
+        "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/15m/file.zip"
+    )
     assert transport._request_bytes(url) == payload
     binary = next(tmp_path.rglob("*.bin"))
     evidence = json.loads(binary.with_suffix(".json").read_text())

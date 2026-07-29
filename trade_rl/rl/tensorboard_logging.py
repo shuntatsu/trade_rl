@@ -88,9 +88,7 @@ def build_tensorboard_metrics_callback(
                         self._extend("trade_rl/change_intensity_mean", intensity)
                         self._extend(
                             "trade_rl/exploration_l1_mean",
-                            np.sum(
-                                np.abs(sampled_matrix - deterministic), axis=1
-                            ),
+                            np.sum(np.abs(sampled_matrix - deterministic), axis=1),
                         )
             infos = self.locals.get("infos", ())
             if isinstance(infos, (list, tuple)):

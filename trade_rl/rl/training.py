@@ -308,12 +308,8 @@ class ResidualTrainingConfig:
                 "behavior_cloning_causal_holdout_bootstrap_resamples must be at least 1000"
             )
         if (
-            not math.isfinite(
-                self.behavior_cloning_causal_holdout_confidence_level
-            )
-            or not 0.5
-            < self.behavior_cloning_causal_holdout_confidence_level
-            < 1.0
+            not math.isfinite(self.behavior_cloning_causal_holdout_confidence_level)
+            or not 0.5 < self.behavior_cloning_causal_holdout_confidence_level < 1.0
         ):
             raise ValueError(
                 "behavior_cloning_causal_holdout_confidence_level must be within (0.5, 1)"

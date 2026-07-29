@@ -1,0 +1,63 @@
+name: Temporary Task 5 RED
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    if: github.head_ref == 'agent/hierarchical-bc-actor-design'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply Task 5 tests only
+        env:
+          TASK_PATCH_GZ_HEX: 1f8b08000000000002ffc5594b6fe33610befb571039496b5bb11cef6e1a548ba05b143df405746f4140d0126db34b4b2a2939f516fdef1d8a944c518fd89ba0cdc1b2a999e13cbe190e27f3f91c5d27f4709d969c4fa6d3295a5f175416f29a532252966eab9f78c7a82022deb19870bc8ef19e1682c532c88f93fb7b345fcc16681acededfa2fbfbc97423b23dc2785316a5a01823b6cf33512092a659410a96a572329d4ccd6a5aeef3232212a5b95aad780b41128a050f6a258281fd6bd103afcf13575012efa8c09cac296f447a932982bf75c9788247e86793a9af149f4c13ba4166d1f3ef347b5c0a41d30245605e408420472357fd3d3c2c82c50cc1c7e30cc1f755fbfb7c11dce81f0bf3e37176624e8a634e2390bae119296e96e695af1f05115b3ab2edd8568b60f9b5db0a0a214f9f779aa54dfd426b2c23fdb476342ec44f946d7740607e5b14242ed881e23d919f9566594a25e6ec33f58cac93d2eb2ce3d8b785ef48baa5b8d8092a77194f22b0faadf55e66a58869a37dc2b6900dd115b9426fd0bbd5c9f83afe55b210ceb11286734113162bc46326b1a00a5834c144e238e39ce4927a3e9a7f40bf80ca06300684d109497abd067c348475cba55b5250d83b5b9335e3ac60542adbbf509149cf83682ffd59278eb6538035cf24482795ee1772c719249054661a6e6d48e0c4d1e2d00451934f2d3becd0bcb51d5e455e4a0ab95a57a3c6f1b57b1193e89328e920b52e0d36f90f84cb7efa4a1d41c1ed1c4591ca9f5e32309e557894655e5512a05df5536a7880abfa78160eaa0c978111a607e5cc3f4b02113e56be3e545fd2048bfd05c05256c1aa095265a3f94ea48ab26745f955a0a896c6c06676d7b95baf9e81af41863e780d21c8e84b6326418a0a43381066070da3649b708cc4942fa3bf0ade18bc1af39f236c2021d4993ba6808692b6452a422f54b55f816786aaaff0e10f6893ca82a4b5dbfb32a9531a75ce29a0badc04da05962634a7f001cbb534bce1642bffc35aa98e90ffa3545ec47d09aefb6bdd6869ec14d2e1ca388682ce1e9ca65ecda8cf535f61eedd6a32876694f4b69f6bba230796091cf3ac6ae0a0ef1c6e56fba855971adedece6ea04f854778b354ad2a9ae81e24038c048a57516b3d153394516dd1ac2621e9cecb33cee26320c8931fd0bf7200b277039d52e8fb5a9ab1139a5dc305de6c0b3b49700554d912731081f08f16787f2d8bbc2ca4017ed56942a6b002630bcb92f28d858f37ee51cab32d031946ab4f349599b068da057490cc056d2fa19baab57a81a508e4a7f5ab8fae959740ae37926cbbcf58e259ccbec3dd364571b6161c6ad722a077970603f35b154a4f6b96a6c1cf595272eaf7054aedd5eb9732a7c2f38386d0eff145633decf1134b01ef5e0875b9dff0e7899bd76a4b5d73b482d56681eed106e99b7cb758d68c4800f1b23929c6b7d18a3eb7510f87dac7b51a2eb02c3eb948fff4aee2bcbc6a0aa20a45eb3880c84289c87462b95984b23524f1811884ab36ed411662d6c2faa385f5916c557f1b4ad4651854b4053f5c99f5abc7ce7da743eaf4cf364b3ba99a987846baefe678e3a9aa9e59de6d38fcd6116792f078660ad6c9a3f2c818336d897983ccd50ccd6b0a8bdd5c22fb3c6a85c9b13bb2becfda54eddcef5e307b4fe27ac1a26b4149494c184082ad4bc5f172007d6f49bbeb7ac37ead433682667b73bf53dfec79454b484cea8b4351e69c3efcae2ad38101ab2e73df9302280a65dc1f342e1e8d9a2f1eb29c3b686945e19452bd338e79a8e71bf345706b9e2bf30cf578c33c56fa5111299ef3a71dade18e2e55d5d8a19d76a74305a89ec09e86007d4066e0f2be1ac7f88357ae443b1e640c84c432dd8e7df4775361ee6a87cd50a794dcd5a6fce34c559488ee85ca688359e24e42aa741384a518ce0751448b9ef52c8fbeb196697a60224bf74a9f7abcb2ee08358da5cc69dc50c5ddad0d60e07cdab06d4398b8d39ad6e5e125c3aa9edbe9d74fab6a61af3eae32f10a8c13f56aefe02ea9135c5bee5cdedab729a7c9c6557cd5640b523b552e809657826deaa257dfbbdcf6c7d94f5de57a0a52ada22cb94a01b89e6b2ce936da0a4f5f67e67781db6a661552a2ef8c311fb52d1fab55e7b0a17916ef64142e17ced951173c75d1a66e44aad2468a788725fb42a395f3ea40384baa5cc51ba1e3031296ae04d8811fabdcc9d5463970d034a6514717730a4a690018413fd67f1cda446187a8393286c96cc74a4a9328bcb1565a613ce7a6aac35bb57d0c58dafc1592d46d525daa147efa58372c7d35c6e6ff0be39c56f82e62f7ecf37d5c79d322d3e4c4f2ed19ce72d8fccbec3e6388f9bc8c33870846501730a650a9adcd884f2fb7aafb45254a8f4e655b2bfcc48a1d344e7aa2fab21aa52b9222e9ab4467d731bdf0da856bb46c85741e2e87ebd6ed58e2bf46de7f7d0e5e8ac0ce40ea79393d93ff7f01b49417e0391d0000
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip
+          import os
+          from pathlib import Path
+
+          Path('/tmp/task5-tests.patch').write_bytes(
+              gzip.decompress(bytes.fromhex(os.environ['TASK_PATCH_GZ_HEX']))
+          )
+          PY
+          git apply --check /tmp/task5-tests.patch
+          git apply /tmp/task5-tests.patch
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Verify expected RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/learning/test_hierarchical_bc_metrics.py \
+            tests/learning/test_behavior_cloning.py \
+            > task5-red.log 2>&1
+          status=$?
+          set -e
+          cat task5-red.log
+          test "$status" -ne 0
+          grep -E 'hierarchical_bc_metrics|hierarchical_labels' task5-red.log
+      - name: Upload RED diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-bc-task5-red
+          path: task5-red.log
+          if-no-files-found: error

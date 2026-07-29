@@ -281,7 +281,8 @@ def build_postgres_market_dataset(
     end_time: datetime,
     metadata: Mapping[str, Mapping[str, object]],
     metadata_evidence_digest: str,
-    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]] | None = None,
+    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
+    | None = None,
     indicator_bundle: NativeIndicatorArtifactBundle | None = None,
     slot_symbols: Sequence[str] | None = None,
     symbol_triplet_provenance: Mapping[str, object] | None = None,
@@ -351,7 +352,9 @@ def build_postgres_market_dataset(
         missing_histories = set(selected) - set(execution_rule_histories)
         unknown_histories = set(execution_rule_histories) - set(selected)
         if missing_histories or unknown_histories:
-            raise ValueError("PostgreSQL execution-rule histories must match selected symbols")
+            raise ValueError(
+                "PostgreSQL execution-rule histories must match selected symbols"
+            )
     instruments = tuple(
         InstrumentContract(
             symbol=symbol,
@@ -383,35 +386,14 @@ def build_postgres_market_dataset(
     log_returns[1:] = np.log(raw["close"][1:] / raw["close"][:-1])
     global_features = np.zeros((n_bars, 4), dtype=np.float32)
     global_features[:, 0] = economics.symbol_active.mean(axis=1)
-    global_features[:, 1] = (
-        economics.tradable & economics.information_available
-    ).mean(axis=1)
+    global_features[:, 1] = (economics.tradable & economics.information_available).mean(
+        axis=1
+    )
     global_features[:, 2] = np.mean(log_returns, axis=1, dtype=np.float64)
     global_features[:, 3] = np.std(log_returns, axis=1, dtype=np.float64)
     global_available = np.ones((n_bars, 4), dtype=np.bool_)
     global_available[0, 2:] = False
 
-    tick_size = np.broadcast_to(
-        np.asarray(
-            [_metadata_number(metadata, symbol, "tick_size") for symbol in selected]
-        ),
-        price_shape,
-    ).copy()
-    lot_size = np.broadcast_to(
-        np.asarray(
-            [_metadata_number(metadata, symbol, "lot_size") for symbol in selected]
-        ),
-        price_shape,
-    ).copy()
-    minimum_notional = np.broadcast_to(
-        np.asarray(
-            [
-                _metadata_number(metadata, symbol, "minimum_notional")
-                for symbol in selected
-            ]
-        ),
-        price_shape,
-    ).copy()
     normalization_digest = content_and_arrays_digest(
         {
             "feature_config_digest": feature_config_digest,
@@ -452,14 +434,6 @@ def build_postgres_market_dataset(
         global_feature_available=global_available,
         global_feature_staleness_hours=np.zeros((n_bars, 4), dtype=np.float32),
         global_feature_missing_reason=np.asarray(~global_available, dtype=np.int16),
-        minimum_notional=minimum_notional,
-        lot_size=lot_size,
-        tick_size=tick_size,
-        funding_due=funding_counts > 0,
-        asset_active=active,
-        symbol_active=active,
-        information_available=active,
-        available_at=available_at,
         volume_units=tuple(VolumeUnit.QUOTE_NOTIONAL for _ in selected),
         contract_multipliers=np.ones(len(selected), dtype=np.float64),
         feature_config_digest=feature_config_digest,

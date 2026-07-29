@@ -30,14 +30,17 @@ jobs:
 
           path = Path('trade_rl/rl/sequence_policy.py')
           source = path.read_text(encoding='utf-8')
-          old = '''        safe_value = torch.where(mask.unsqueeze(-1), value, torch.zeros_like(value))
-          encoded = self.forward_sequence(safe_value)
-          '''
-          new = '''        encoded = self.forward_sequence(value)
-          '''
-          if source.count(old) != 1:
-              raise RuntimeError('sequence selection parity anchor not found')
-          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          zero_line = '        safe_value = torch.where(mask.unsqueeze(-1), value, torch.zeros_like(value))\n'
+          encode_line = '        encoded = self.forward_sequence(safe_value)\n'
+          if source.count(zero_line) != 1 or source.count(encode_line) != 1:
+              raise RuntimeError('sequence selection parity lines not found')
+          source = source.replace(zero_line, '', 1)
+          source = source.replace(
+              encode_line,
+              '        encoded = self.forward_sequence(value)\n',
+              1,
+          )
+          path.write_text(source, encoding='utf-8')
           PY
           uv run ruff check trade_rl/rl/sequence_policy.py
           uv run ruff format --check trade_rl/rl/sequence_policy.py

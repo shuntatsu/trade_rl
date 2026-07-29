@@ -30,6 +30,7 @@ def test_standalone_training_preserves_mark_to_market_truncation() -> None:
 
     normalized = normalize_training_run_config(config)
 
+    assert normalized is config
     assert normalized.environment.liquidate_on_end is False
     assert normalized.environment.terminal_accounting_mode == "mark_to_market"
     assert normalized.environment.finite_horizon_observation is False

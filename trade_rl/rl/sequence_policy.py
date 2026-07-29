@@ -173,13 +173,16 @@ class CausalTimeframeEncoder(nn.Module):
         positions = torch.arange(value.shape[1], device=value.device).expand_as(mask)
         indices = positions.masked_fill(~mask, -1).max(dim=1).values
         valid = indices >= 0
-        encoded = self.forward_sequence(value)
-        safe_indices = indices.clamp_min(0)
+        valid_values = value[valid]
+        encoded = self.forward_sequence(valid_values)
+        valid_indices = indices[valid]
         selected = encoded[
-            torch.arange(encoded.shape[0], device=value.device), safe_indices
+            torch.arange(encoded.shape[0], device=value.device), valid_indices
         ]
         projected = self.projection(selected)
-        return projected * valid.unsqueeze(-1).to(dtype=projected.dtype)
+        output = projected.new_zeros((value.shape[0], self.latent_dim))
+        batch_indices = torch.arange(value.shape[0], device=value.device)[valid]
+        return output.index_copy(0, batch_indices, projected)
 
 
 @dataclass(frozen=True, slots=True)

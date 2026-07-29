@@ -8,19 +8,17 @@ on:
 permissions:
   contents: read
 
-env:
-  TARGET_SHA: 32285f4ca0269cab5855c54aa1f58ad5fc088196
-
 jobs:
-  windows:
-    name: Windows sequence and compatibility
-    runs-on: windows-latest
-    timeout-minutes: 60
+  red:
+    name: RED event precedence regression
+    if: github.head_ref == 'agent/task9-verification'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout exact target
+      - name: Checkout test-only target
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ env.TARGET_SHA }}
+          ref: 2fcdfb14d4972b8fcbfd30bf7ede5333853acfd9
           persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -29,137 +27,16 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3
-      - name: Repeat Windows sequence-gradient regression
-        shell: pwsh
-        run: |
-          foreach ($attempt in 1..10) {
-            Write-Host "attempt=$attempt"
-            uv run pytest -q `
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 `
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-      - name: Windows compatibility suite
-        run: uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
-
-  linux-core:
-    name: Linux full core
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - name: Checkout exact target
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: ${{ env.TARGET_SHA }}
-          persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-        with:
-          python-version: "3.12"
-          enable-cache: true
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: studio/package-lock.json
-      - name: Install Python
-        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - name: Install Studio
-        run: npm ci --prefix studio --no-audit --no-fund
-      - name: Studio tests
-        run: npm test --prefix studio -- --run
-      - name: Studio typecheck
-        run: npm run typecheck --prefix studio
-      - name: Studio build
-        run: npm run build --prefix studio
-      - name: Studio fixed layout
-        env:
-          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
-        run: npm run check:layout --prefix studio
-      - name: Workflow security
-        run: uv run python .github/check_workflow_security.py .
-      - name: Ruff
-        run: uv run ruff check .
-      - name: Format
-        run: uv run ruff format --check .
-      - name: Mypy
-        run: uv run mypy .
-      - name: Import architecture
-        run: uv run lint-imports
-      - name: Dead code
-        run: uv run vulture trade_rl tests --min-confidence 100
-      - name: Recovery and serving smoke
-        run: >-
-          uv run pytest -q
-          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
-          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
-      - name: CPU Oracle BC to PPO smoke
-        run: >-
-          uv run pytest -q
-          tests/integrations/test_sb3_training.py::test_backend_runs_oracle_behavior_cloning_before_ppo
-      - name: Repeat Linux sequence-gradient regression
+      - name: Require expected failing regression
         shell: bash
         run: |
-          set -euo pipefail
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            echo "attempt=${attempt}"
-            uv run pytest -q \
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_matches_legacy_in_float64 \
-              tests/rl/test_sequence_policy_core.py::test_projection_after_selection_preserves_float32_gradient_semantics
-          done
-      - name: Full tests and branch coverage
-        shell: bash
-        run: |
-          set -o pipefail
+          set +e
           uv run pytest -q \
-            --cov=trade_rl \
-            --cov-branch \
-            --cov-report=term-missing \
-            --cov-report=json:coverage.json \
-            2>&1 | tee pytest-final.log
-      - name: Critical branch coverage
-        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
-      - name: CLI smoke
-        run: uv run trade-rl --version
-      - name: Upload final diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: task9-final-linux
-          path: |
-            pytest-final.log
-            coverage.json
-            studio/qa-screenshots
-          if-no-files-found: ignore
-
-  training-image:
-    name: Training image
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout exact target
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: ${{ env.TARGET_SHA }}
-          persist-credentials: false
-      - name: Build complete training image
-        shell: bash
-        run: |
-          set -euo pipefail
-          commit="$(git rev-parse HEAD)"
-          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
-          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
-          docker build \
-            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
-            --build-arg TRADE_RL_GIT_DIRTY=false \
-            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
-            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
-            --file Dockerfile.training \
-            --tag trade-rl-training:task9 \
-            .
-      - name: Probe non-root runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run --rm --user 999:999 trade-rl-training:task9 trade-rl --version
+            tests/learning/test_hierarchical_teacher_labels.py::test_effectively_flat_enter_exit_take_precedence_over_reverse \
+            > red.log 2>&1
+          status=$?
+          set -e
+          cat red.log
+          test "$status" -eq 1
+          grep -q "FAILED" red.log
+          grep -q "AssertionError" red.log

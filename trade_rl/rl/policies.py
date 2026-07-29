@@ -18,6 +18,8 @@ from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch import nn
 
+from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE
+
 
 def _sequence_encoder_autocast(reference: torch.Tensor) -> Any:
     """Use stable BF16 tensor-core math for the memory-heavy CUDA encoder."""
@@ -113,6 +115,8 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         asset_state_width: int,
         global_width: int,
         n_symbols: int,
+        current_weight_source: str = CURRENT_WEIGHT_SOURCE,
+        current_weight_shape: tuple[int, ...] | None = None,
         sequence_tcn_capacity: str = "standard",
         d_model: int = 320,
         timeframe_attention_heads: int = 8,
@@ -132,6 +136,15 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         )
 
         timeframes = ("15m", "1h", "4h", "1d")
+        if current_weight_source != CURRENT_WEIGHT_SOURCE:
+            raise ValueError("sequence current weight source is unsupported")
+        resolved_current_weight_shape = (
+            (n_symbols,)
+            if current_weight_shape is None
+            else tuple(current_weight_shape)
+        )
+        if resolved_current_weight_shape != (n_symbols,):
+            raise ValueError("sequence current weight shape does not match symbols")
         if tuple(feature_counts) != timeframes or tuple(window_lengths) != timeframes:
             raise ValueError("sequence metadata must use ordered maintained clocks")
         expected_shapes: dict[str, tuple[int, ...]] = {

@@ -162,24 +162,29 @@ class CausalTimeframeEncoder(nn.Module):
     def forward(
         self, value: torch.Tensor, available: torch.Tensor | None = None
     ) -> torch.Tensor:
-        encoded = self.forward_sequence(value)
         if available is None:
+            encoded = self.forward_sequence(value)
             return self.projection(encoded[:, -1])
         if available.shape != value.shape[:2]:
             raise ValueError("availability mask must match batch and time dimensions")
         mask = available.to(dtype=torch.bool)
         positions = torch.arange(value.shape[1], device=value.device).expand_as(mask)
         indices = positions.masked_fill(~mask, -1).max(dim=1).values
-        safe = indices.clamp_min(0)
         valid = indices >= 0
-        batch_indices = torch.arange(value.shape[0], device=value.device)
-        valid_batch_indices = batch_indices[valid]
-        selected = encoded[valid_batch_indices, safe[valid]]
+        if not torch.any(valid):
+            return (value.sum(dim=(1, 2)).unsqueeze(1) * 0.0).expand(
+                -1, self.latent_dim
+            )
+        valid_values = value[valid]
+        encoded = self.forward_sequence(valid_values)
+        valid_indices = indices[valid]
+        selected = encoded[
+            torch.arange(encoded.shape[0], device=value.device), valid_indices
+        ]
         projected = self.projection(selected)
-        output = (encoded.sum(dim=(1, 2)).unsqueeze(1) * 0.0).expand(
-            -1, self.latent_dim
-        )
-        return output.clone().index_copy(0, valid_batch_indices, projected)
+        output = projected.new_zeros((value.shape[0], self.latent_dim))
+        batch_indices = torch.arange(value.shape[0], device=value.device)[valid]
+        return output.index_copy(0, batch_indices, projected)
 
 
 @dataclass(frozen=True, slots=True)

@@ -47,7 +47,7 @@
     "max_gross": 1.0,
     "max_turnover": 1.0
   },
-  "schema_version": "training_run_config_v2",
+  "schema_version": "training_run_config_v3",
   "training": {
     "algorithm": "ppo",
     "asset_embedding_dim": 16,
@@ -67,7 +67,21 @@
     "seeds": [
       0
     ],
-    "timesteps": 64
+    "timesteps": 64,
+    "policy_actor_head": "standard_continuous_v1",
+    "hierarchical_gate_temperature": 1.0,
+    "behavior_cloning_gate_loss_weight": 1.0,
+    "behavior_cloning_target_loss_weight": 1.0,
+    "behavior_cloning_composed_loss_weight": 1.0,
+    "behavior_cloning_gate_change_threshold": 0.05,
+    "behavior_cloning_max_positive_class_weight": 20.0,
+    "behavior_cloning_min_gate_precision": 0.0,
+    "behavior_cloning_min_gate_recall": 0.0,
+    "behavior_cloning_max_active_target_rmse": 1.0,
+    "behavior_cloning_min_activity_ratio": 0.0,
+    "behavior_cloning_max_activity_ratio": 1.0,
+    "behavior_cloning_min_causal_holdout_trades": 0,
+    "behavior_cloning_max_causal_holdout_regret": 0.0
   },
   "trend": {
     "base_hours": 8.0,

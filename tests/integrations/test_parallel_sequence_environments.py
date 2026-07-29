@@ -99,7 +99,7 @@ def test_compact_assembler_avoids_sequence_plane_and_matches_current_state() -> 
         n_features=1,
         action_size=1,
         n_factors=0,
-        per_symbol_width=6,
+        per_symbol_width=11,
         global_width=2,
     )
     plane = _Plane()
@@ -115,7 +115,10 @@ def test_compact_assembler_avoids_sequence_plane_and_matches_current_state() -> 
         n_factors=0,
         finite_horizon=False,
     )
-    current = np.arange(layout.size, dtype=np.float32)
+    current = np.linspace(-0.5, 0.5, layout.size, dtype=np.float32)
+    current[: layout.n_symbols * layout.per_symbol_width].reshape(
+        layout.n_symbols, layout.per_symbol_width
+    )[:, layout.current_weight_column] = np.asarray((0.25, -0.5))
 
     def flat_pair(
         self: object, *args: Any, **kwargs: Any
@@ -140,7 +143,13 @@ def test_compact_assembler_avoids_sequence_plane_and_matches_current_state() -> 
 
     full = assembler.observation(runtime, **arguments)  # type: ignore[arg-type]
     assert plane.calls == [9]
-    for key in ("current_snapshot", "asset_state", "global_state", "active"):
+    for key in (
+        "current_snapshot",
+        "asset_state",
+        "global_state",
+        "active",
+        "current_weights",
+    ):
         np.testing.assert_array_equal(compact[key], full[key])
 
 
@@ -151,6 +160,7 @@ def _full_space() -> spaces.Dict:
             "current_snapshot": spaces.Box(
                 -np.inf, np.inf, shape=(1, 1), dtype=np.float32
             ),
+            "current_weights": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
             "sequence_15m_values": spaces.Box(
                 -np.inf, np.inf, shape=(1, 1, 1), dtype=np.float16
             ),
@@ -175,6 +185,7 @@ def test_environment_compact_transport_switches_space_without_changing_full_cont
     environment.set_compact_sequence_training_observations(True)
     assert tuple(environment.observation_space.spaces) == (
         "current_snapshot",
+        "current_weights",
         "decision_index",
     )
     assert environment._compact_sequence_training_observations is True
@@ -263,6 +274,7 @@ def _compact_batch(indices: tuple[int, ...]) -> dict[str, np.ndarray]:
     return {
         "decision_index": np.asarray(indices, dtype=np.int64).reshape(-1, 1),
         "current_snapshot": np.asarray(indices, dtype=np.float32).reshape(-1, 1, 1),
+        "current_weights": np.zeros((len(indices), 1), dtype=np.float32),
     }
 
 

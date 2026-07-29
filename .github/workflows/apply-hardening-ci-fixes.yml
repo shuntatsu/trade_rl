@@ -27,38 +27,48 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          explicit = '''            symbol_active=economics.symbol_active,
-          asset_active=economics.asset_active,
-          tradable=economics.tradable,
-          information_available=economics.information_available,
-          available_at=economics.available_at,
-          fee_rate=economics.fee_rate,
-          maker_fee_rate=economics.maker_fee_rate,
-          taker_fee_rate=economics.taker_fee_rate,
-          spread_rate=economics.spread_rate,
-          max_participation_rate=economics.max_participation_rate,
-          minimum_notional=economics.minimum_notional,
-          lot_size=economics.lot_size,
-          tick_size=economics.tick_size,
-          borrow_available=economics.borrow_available,
-          borrow_rate=economics.borrow_rate,
-          funding_due=economics.funding_due,
-          buy_allowed=economics.buy_allowed,
-          sell_allowed=economics.sell_allowed,
-          mark_price=economics.mark_price,
-          index_price=economics.index_price,
-          '''
-          explicit = explicit.replace('          ', '            ')
+          names = (
+              'symbol_active',
+              'asset_active',
+              'tradable',
+              'information_available',
+              'available_at',
+              'fee_rate',
+              'maker_fee_rate',
+              'taker_fee_rate',
+              'spread_rate',
+              'max_participation_rate',
+              'minimum_notional',
+              'lot_size',
+              'tick_size',
+              'borrow_available',
+              'borrow_rate',
+              'funding_due',
+              'buy_allowed',
+              'sell_allowed',
+              'mark_price',
+              'index_price',
+          )
           for relative in (
               'trade_rl/data/builder.py',
               'trade_rl/integrations/postgres_market_dataset.py',
           ):
               path = Path(relative)
-              source = path.read_text(encoding='utf-8')
-              anchor = '            **economics.market_dataset_kwargs(),\n'
-              if anchor not in source:
-                  raise RuntimeError(f'{relative}: economics expansion anchor not found')
-              path.write_text(source.replace(anchor, explicit, 1), encoding='utf-8')
+              lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
+              result = []
+              replaced = 0
+              for line in lines:
+                  if line.strip() == '**economics.market_dataset_kwargs(),':
+                      indent = line[: len(line) - len(line.lstrip())]
+                      result.extend(
+                          f'{indent}{name}=economics.{name},\n' for name in names
+                      )
+                      replaced += 1
+                  else:
+                      result.append(line)
+              if replaced != 1:
+                  raise RuntimeError(f'{relative}: expected one economics expansion, got {replaced}')
+              path.write_text(''.join(result), encoding='utf-8')
           PY
       - name: Verify typed economic wiring
         run: |

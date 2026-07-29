@@ -29,31 +29,35 @@ jobs:
           from pathlib import Path
 
           path = Path('trade_rl/rl/sequence_policy.py')
-          source = path.read_text(encoding='utf-8')
-          old = '''        encoded = self.forward_sequence(value)
-          safe_indices = indices.clamp_min(0)
-          selected = encoded[
-              torch.arange(encoded.shape[0], device=value.device), safe_indices
+          lines = path.read_text(encoding='utf-8').splitlines()
+          start = next(
+              index
+              for index, line in enumerate(lines)
+              if line.strip() == 'encoded = self.forward_sequence(value)'
+              and index + 1 < len(lines)
+              and lines[index + 1].strip() == 'safe_indices = indices.clamp_min(0)'
+          )
+          end = next(
+              index
+              for index in range(start, len(lines))
+              if lines[index].strip()
+              == 'return projected * valid.unsqueeze(-1).to(dtype=projected.dtype)'
+          )
+          indent = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
+          replacement = [
+              f'{indent}valid_values = value[valid]',
+              f'{indent}encoded = self.forward_sequence(valid_values)',
+              f'{indent}valid_indices = indices[valid]',
+              f'{indent}selected = encoded[',
+              f'{indent}    torch.arange(encoded.shape[0], device=value.device), valid_indices',
+              f'{indent}]',
+              f'{indent}projected = self.projection(selected)',
+              f'{indent}output = projected.new_zeros((value.shape[0], self.latent_dim))',
+              f'{indent}batch_indices = torch.arange(value.shape[0], device=value.device)[valid]',
+              f'{indent}return output.index_copy(0, batch_indices, projected)',
           ]
-          projected = self.projection(selected)
-          return projected * valid.unsqueeze(-1).to(dtype=projected.dtype)
-          '''
-          new = '''        valid_values = value[valid]
-          encoded = self.forward_sequence(valid_values)
-          valid_indices = indices[valid]
-          selected = encoded[
-              torch.arange(encoded.shape[0], device=value.device), valid_indices
-          ]
-          projected = self.projection(selected)
-          output = projected.new_zeros((value.shape[0], self.latent_dim))
-          batch_indices = torch.arange(value.shape[0], device=value.device)[valid]
-          return output.index_copy(0, batch_indices, projected)
-          '''
-          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
-          if source.count(old) != 1:
-              raise RuntimeError('dynamic valid-selection anchor not found')
-          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          lines[start : end + 1] = replacement
+          path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
           uv run ruff check trade_rl/rl/sequence_policy.py
           uv run ruff format --check trade_rl/rl/sequence_policy.py

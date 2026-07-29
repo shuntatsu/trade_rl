@@ -20,10 +20,13 @@ jobs:
       - name: Upload Task 8 sources
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: task8-sources
+          name: task8-sources-complete
           path: |
             trade_rl/integrations/sb3_serving.py
+            trade_rl/integrations/sb3_training.py
             trade_rl/serving/package.py
+            trade_rl/serving/policy_loader.py
+            trade_rl/workflows/training_run.py
             trade_rl/rl/policy_identity.py
             trade_rl/rl/structured_export.py
             trade_rl/rl/checkpointing.py
@@ -35,3 +38,4 @@ jobs:
             tests/serving/test_structured_policy_loader.py
             tests/integrations/test_sb3_policy_identity_v2.py
             tests/rl/test_structured_export.py
+            tests/workflows/test_training_run_config.py

@@ -60,7 +60,7 @@ jobs:
           test "$status" -ne 0
           grep -Eq 'sampled_policy_action|tick_size|symbol_active|feature_available' red.log
       - name: Apply implementation
-        run: python tools/apply_final_contract_review.py implementation
+        run: python tools/apply_final_contract_review_v2.py
       - name: Verify GREEN
         run: |
           uv run ruff check --fix \

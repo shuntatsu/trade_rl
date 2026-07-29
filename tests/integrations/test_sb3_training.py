@@ -908,3 +908,114 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
     learn = captured["learn"]
     assert isinstance(learn, dict)
     assert learn["tb_log_name"] == "seed-0-ppo"
+
+
+def test_hierarchical_teacher_labels_bind_effective_current_weights() -> None:
+    from trade_rl.integrations.sb3_training import _hierarchical_teacher_labels
+    from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
+
+    class HierarchicalPolicy:
+        def hierarchical_actor_outputs(self) -> None:
+            return None
+
+    observations = {
+        "current_weights": np.array([[0.0], [0.4], [0.4]], dtype=np.float32),
+        "active": np.ones((3, 1), dtype=np.float32),
+    }
+    dataset = SupervisedPolicyDataset(
+        observations=observations,
+        actions=np.array([[0.4], [0.4], [0.0]], dtype=np.float32),
+        dataset_id="1" * 64,
+        train_start=0,
+        train_stop=4,
+        environment_digest="2" * 64,
+        action_spec_digest="3" * 64,
+        teacher_config_digest="4" * 64,
+    )
+    config = SimpleNamespace(behavior_cloning_gate_change_threshold=0.05)
+
+    labels = _hierarchical_teacher_labels(
+        policy=HierarchicalPolicy(),
+        teacher_dataset=dataset,
+        config=config,
+    )
+
+    assert labels is not None
+    assert labels.gate_labels[:, 0].tolist() == [True, False, True]
+    np.testing.assert_array_equal(
+        labels.current_weights, observations["current_weights"]
+    )
+    assert labels.source_teacher_digest == dataset.action_digest
+
+
+def test_hierarchical_teacher_labels_fail_closed_without_v3_threshold() -> None:
+    from trade_rl.integrations.sb3_training import _hierarchical_teacher_labels
+    from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
+
+    class HierarchicalPolicy:
+        def hierarchical_actor_outputs(self) -> None:
+            return None
+
+    dataset = SupervisedPolicyDataset(
+        observations={
+            "current_weights": np.zeros((2, 1), dtype=np.float32),
+            "active": np.ones((2, 1), dtype=np.float32),
+        },
+        actions=np.array([[0.2], [0.0]], dtype=np.float32),
+        dataset_id="1" * 64,
+        train_start=0,
+        train_stop=3,
+        environment_digest="2" * 64,
+        action_spec_digest="3" * 64,
+        teacher_config_digest="4" * 64,
+    )
+
+    with pytest.raises(ValueError, match="training_run_config_v3"):
+        _hierarchical_teacher_labels(
+            policy=HierarchicalPolicy(),
+            teacher_dataset=dataset,
+            config=SimpleNamespace(),
+        )
+
+
+def test_bc_gate_enforcement_rejects_zero_trade_report() -> None:
+    from trade_rl.integrations.sb3_training import _enforce_behavior_cloning_gates
+    from trade_rl.learning.evaluation import (
+        BehaviorCloningGateEvaluation,
+        BehaviorCloningGateGroup,
+        BehaviorCloningGateMetric,
+    )
+
+    passed = BehaviorCloningGateMetric(
+        name="gate_recall",
+        status="passed",
+        observed=0.8,
+        comparison=">=",
+        threshold=0.6,
+        support=8,
+        minimum_support=1,
+        reason="gate_recall passed",
+    )
+    zero_trade = BehaviorCloningGateMetric(
+        name="executed_change_count",
+        status="failed",
+        observed=0,
+        comparison=">=",
+        threshold=1,
+        support=8,
+        minimum_support=1,
+        reason="zero-trade collapse: causal holdout executed no target changes",
+    )
+    report = BehaviorCloningGateEvaluation(
+        teacher_reconstruction_gate=BehaviorCloningGateGroup(
+            name="teacher_reconstruction_gate",
+            metrics=(passed,),
+        ),
+        causal_non_collapse_gate=BehaviorCloningGateGroup(
+            name="causal_non_collapse_gate",
+            metrics=(zero_trade,),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="zero-trade collapse"):
+        _enforce_behavior_cloning_gates(report)

@@ -191,7 +191,10 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
         initialized_steps = self.buffer_size if self.full else self.pos
         if self.generator_ready:
             initialized = initialized_steps * self.n_envs
-            expected_shape = (self.buffer_size * self.n_envs, self.action_dim)
+            expected_shape: tuple[int, ...] = (
+                self.buffer_size * self.n_envs,
+                self.action_dim,
+            )
         else:
             initialized = initialized_steps
             expected_shape = (self.buffer_size, self.n_envs, self.action_dim)

@@ -66,6 +66,7 @@ jobs:
             trade_rl/rl/sequence_observations.py
           )
           uv run ruff format "${files[@]}"
+          uv run ruff check --fix "${files[@]}"
           uv run ruff check "${files[@]}"
       - name: Run Task 1 and Task 2 focused tests
         shell: bash

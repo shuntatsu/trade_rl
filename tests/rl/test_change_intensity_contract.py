@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import numpy as np
-import pytest
+import importlib.util
+
 import torch
 
-from trade_rl.rl.action_telemetry import hierarchical_action_stage_metrics
 from trade_rl.rl.policies import HierarchicalActorOutputs
 
 
@@ -22,13 +21,5 @@ def test_hierarchical_gate_is_exposed_as_change_intensity() -> None:
     assert outputs.change_intensity is outputs.gate_probabilities
 
 
-def test_action_stage_metrics_measure_exploration_and_effective_action() -> None:
-    metrics = hierarchical_action_stage_metrics(
-        deterministic_composed=np.array([0.1, 0.2]),
-        sampled_policy_action=np.array([0.4, 0.0]),
-        submitted_target=np.array([0.3, 0.0]),
-        effective_filled_weights=np.array([0.25, 0.05]),
-    )
-    assert metrics["exploration_l1"] == pytest.approx(0.5)
-    assert metrics["submission_l1"] == pytest.approx(0.1)
-    assert metrics["effective_action_l1"] == pytest.approx(0.2)
+def test_action_telemetry_module_is_not_maintained() -> None:
+    assert importlib.util.find_spec("trade_rl.rl.action_telemetry") is None

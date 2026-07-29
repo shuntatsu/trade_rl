@@ -1,0 +1,73 @@
+name: Apply HTTPX2 TestClient migration
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.head_ref == 'agent/fix-export-tracer-warnings'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Confirm no direct HTTPX imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE '(^|[[:space:]])(from|import)[[:space:]]+httpx([[:space:].]|$)' -- '*.py'; then
+            echo 'direct httpx imports must be migrated explicitly' >&2
+            exit 1
+          fi
+      - name: Update dependency and lock
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('pyproject.toml')
+          source = path.read_text(encoding='utf-8')
+          old = '    "httpx>=0.28,<0.29",\n'
+          new = '    "httpx2>=2.7,<3",\n'
+          if source.count(old) != 1:
+              raise RuntimeError('expected one maintained httpx dependency')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+          uv lock
+          uv sync --extra dev --extra train-sb3
+      - name: Verify TestClient warning is removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -W error - <<'PY'
+          from fastapi.testclient import TestClient
+
+          assert TestClient is not None
+          PY
+          mapfile -t files < <(git grep -l 'TestClient' -- tests || true)
+          if ((${#files[@]})); then
+            uv run pytest "${files[@]}" -q
+          fi
+          uv run ruff check pyproject.toml
+          git diff --check
+      - name: Commit dependency migration
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pyproject.toml uv.lock
+          git commit -m 'chore: migrate TestClient dependency to httpx2'
+          git push origin "HEAD:${HEAD_BRANCH}"

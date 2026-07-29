@@ -43,10 +43,15 @@ jobs:
         run: |
           set -euo pipefail
           uv run ruff format \
+            examples/binance-multitimeframe/run_full_research_state.py \
+            examples/binance-multitimeframe/run_gpu_training_smoke.py \
             trade_rl/rl/sequence_policy.py \
-            tests/rl/test_sequence_policy_core.py \
+            tests/integrations/test_parallel_sequence_environments.py \
             tests/rl/test_sequence_diagnostics.py \
-            tests/integrations/test_parallel_sequence_environments.py
+            tests/rl/test_sequence_policy_core.py \
+            tests/workflows/test_explicit_sealed_ledger_mode.py \
+            tests/workflows/test_market_walk_forward.py \
+            tests/workflows/test_walk_forward_manifest_provenance.py
           uv run ruff check .
           uv run ruff format --check .
           uv run mypy .

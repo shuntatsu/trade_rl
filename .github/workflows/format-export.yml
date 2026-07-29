@@ -1,0 +1,51 @@
+name: Format Export
+
+on:
+  push:
+    branches:
+      - agent/target-weight-constrained-growth-design
+
+permissions:
+  contents: read
+
+jobs:
+  format-export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Format
+        run: uv run ruff format .
+
+      - name: Package formatted files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=AM > formatted-files.txt
+          if [[ ! -s formatted-files.txt ]]; then
+            echo "No formatting changes were produced" >&2
+            exit 1
+          fi
+          tar -czf formatted-source.tar.gz --files-from formatted-files.txt
+
+      - name: Upload formatter output
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: formatted-source-${{ github.sha }}
+          path: |
+            formatted-source.tar.gz
+            formatted-files.txt
+          if-no-files-found: error
+          retention-days: 1

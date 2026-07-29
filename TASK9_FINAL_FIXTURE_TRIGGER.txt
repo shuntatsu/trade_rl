@@ -1,0 +1,2 @@
+target=agent/hierarchical-bc-actor-design
+remaining_failures=2

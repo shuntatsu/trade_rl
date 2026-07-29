@@ -1,0 +1,129 @@
+name: Harden Target Weight Growth Types
+
+on:
+  push:
+    branches:
+      - agent/target-weight-constrained-growth-design
+
+permissions:
+  contents: write
+
+jobs:
+  harden-types:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/target-weight-constrained-growth-design
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Harden typing
+        shell: python
+        run: |
+          from pathlib import Path
+
+          gate = Path("trade_rl/evaluation/target_weight_growth_gate.py")
+          source = gate.read_text(encoding="utf-8")
+          source = source.replace(
+              "from __future__ import annotations\n\nimport math",
+              "from __future__ import annotations\n\nfrom collections.abc import Callable\nimport math",
+          )
+          source = source.replace(
+              "def _group_values_by_fold(\n"
+              "    cells: tuple[GrowthEvaluationCell, ...],\n"
+              "    value_getter: object,\n"
+              ") -> dict[int, tuple[float, ...]]:\n"
+              "    getter = value_getter\n"
+              "    grouped: dict[int, list[float]] = {}\n"
+              "    for cell in cells:\n"
+              "        value = getter(cell)  # type: ignore[operator]\n"
+              "        grouped.setdefault(cell.fold_index, []).append(float(value))\n",
+              "def _group_values_by_fold(\n"
+              "    cells: tuple[GrowthEvaluationCell, ...],\n"
+              "    value_getter: Callable[[GrowthEvaluationCell], float],\n"
+              ") -> dict[int, tuple[float, ...]]:\n"
+              "    grouped: dict[int, list[float]] = {}\n"
+              "    for cell in cells:\n"
+              "        grouped.setdefault(cell.fold_index, []).append(value_getter(cell))\n",
+          )
+          source = source.replace(
+              "    for name in expected_names:\n"
+              "        observations = {\n"
+              "            cell.fold_index: next(\n"
+              "                item.observed_value\n"
+              "                for item in cell.soft_constraints\n"
+              "                if item.name == name\n"
+              "            )\n"
+              "            for cell in nominal\n"
+              "        }\n"
+              "        by_fold: dict[int, tuple[float, ...]] = {}\n",
+              "    for name in expected_names:\n"
+              "        by_fold: dict[int, tuple[float, ...]] = {}\n",
+          )
+          source = source.replace("        del observations\n", "")
+          gate.write_text(source, encoding="utf-8")
+
+          test = Path("tests/evaluation/test_target_weight_growth_gate.py")
+          source = test.read_text(encoding="utf-8")
+          source = source.replace(
+              "    assert decision.nominal_cell_count == 18\n"
+              "    assert decision.nominal_growth_median > 0.0\n"
+              "    assert decision.nominal_paired_median > 0.0\n"
+              "    assert decision.nominal_paired_lower_bound > 0.0\n",
+              "    assert decision.nominal_cell_count == 18\n"
+              "    assert decision.nominal_growth_median is not None\n"
+              "    assert decision.nominal_growth_median > 0.0\n"
+              "    assert decision.nominal_paired_median is not None\n"
+              "    assert decision.nominal_paired_median > 0.0\n"
+              "    assert decision.nominal_paired_lower_bound is not None\n"
+              "    assert decision.nominal_paired_lower_bound > 0.0\n",
+          )
+          source = source.replace(
+              "    assert decision.positive_seed_count == 3\n"
+              "    assert decision.cost_2x_paired_median > 0.0\n"
+              "    assert decision.cost_3x_growth_median >= 0.0\n",
+              "    assert decision.positive_seed_count == 3\n"
+              "    assert decision.cost_2x_paired_median is not None\n"
+              "    assert decision.cost_2x_paired_median > 0.0\n"
+              "    assert decision.cost_3x_growth_median is not None\n"
+              "    assert decision.cost_3x_growth_median >= 0.0\n",
+          )
+          source = source.replace(
+              "    assert decision.selected_profile == \"g1_lagrangian\"\n"
+              "    assert decision.lagrangian_minus_ppo_lower_bound > 0.0\n",
+              "    assert decision.selected_profile == \"g1_lagrangian\"\n"
+              "    assert decision.lagrangian_minus_ppo_lower_bound is not None\n"
+              "    assert decision.lagrangian_minus_ppo_lower_bound > 0.0\n",
+          )
+          test.write_text(source, encoding="utf-8")
+
+      - name: Format and check
+        run: |
+          uv run ruff format \
+            trade_rl/evaluation/target_weight_growth_gate.py \
+            tests/evaluation/test_target_weight_growth_gate.py
+          uv run ruff check \
+            trade_rl/evaluation/target_weight_growth_gate.py \
+            tests/evaluation/test_target_weight_growth_gate.py
+
+      - name: Commit typing hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/target_weight_growth_gate.py \
+            tests/evaluation/test_target_weight_growth_gate.py
+          git commit -m "refactor: harden target-weight growth gate typing"
+          git push origin HEAD:agent/target-weight-constrained-growth-design

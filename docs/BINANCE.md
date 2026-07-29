@@ -74,13 +74,34 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 | [`training-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じgrowth objective、Lagrangian PPOでsoft constraint予算を管理 |
 | [`training-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-life、その他は制約付きgamma-one設定と同一 |
 
-6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用します。walk-forwardは`run_file`で上記standalone profileを参照するため、埋め込みコピーによる設定ドリフトを起こしません。
+6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用します。walk-forwardは`run_file`で上記standalone profileを参照するため、埋め込みコピーによる設定ドリフトを起こしません。Nominal、joint 2x、joint 3xの証拠を同じfold-seed identityへ紐付けます。
 
 [`training-full.json`](../examples/binance-multitimeframe/training-full.json)は、baseline、drawdown、excess growth、時間割引を混合したlegacy shaping比較として維持します。Production defaultではありません。
 
 Hard safetyは学習成功へ依存させません。`max_abs_weight`、`max_gross`、drawdown stop、minimum equity、証拠金、取引所ルールは環境とpre-trade riskが常に強制します。Lagrangianはdrawdown excess、turnover、execution costなどのsoft budgetだけを調整します。
 
-720時間は経済的な投資終了ではなく訓練窓です。全target-weight growth profileは`liquidate_on_end=false`を明示し、時間上限をmark-to-market truncationとして扱います。
+720時間は経済的な投資終了ではなく訓練窓です。全target-weight growth profileは`liquidate_on_end=false`を明示し、時間上限をmark-to-market truncationとして扱います。さらに`finite_horizon_observation=false`として、方策へ人工的な残り時間を知らせません。
+
+## Target-weight production gate
+
+`trade_rl.evaluation.target_weight_growth_gate`は、6 fold × 3 seedの共通経済証拠からGO/NO-GOを決定します。異なるgammaやreward shapingのepisode rewardは比較せず、実コスト控除後net log growthを使用します。
+
+Production候補は次をすべて満たす必要があります。
+
+- Nominal 18 cellのnet log growth中央値が正
+- Baselineとのpaired difference中央値が正
+- Fold-cluster bootstrap 95%下限が0を上回る
+- 6 fold中4 fold以上でseed中央値のpaired differenceが正
+- 全3 seedでfold中央値が非負、うち2 seed以上が正
+- Forced liquidation、margin deficit、insolvency、hard-safety violationが全scenarioでゼロ
+- 各soft constraintは全foldのpoint estimateとpooled one-sided 95%上限がbudget以下
+- Joint 2xでpaired difference中央値が正
+- Joint 3xでnet log growth中央値が非負
+- Architecture、reward、constraint、checkpoint/serving identityが検証済み
+
+G1-PPOとG1-Lagrangianが両方gateを満たした場合、fold-cluster bootstrapでLagrangian minus PPOのnet log growth下限が0を上回るときだけLagrangianを採用します。差が有意でなければ、運用が単純なG1-PPOを採用します。どちらもgateを満たさなければRLはProduction採用しません。
+
+判定結果と入力証拠はcanonical payloadとSHA-256 digestを持ち、後続ArtifactStoreへ同一内容で保存できます。
 
 ## Metadata evidence
 

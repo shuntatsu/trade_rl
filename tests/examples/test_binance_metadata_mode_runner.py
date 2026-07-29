@@ -212,6 +212,7 @@ def test_develop_accepts_supervised_bootstrap_evidence(
         Namespace(
             cache_root=tmp_path / "cache",
             conservative_static_path=None,
+            dynamic_symbol_triplets=False,
             metadata_mode="frozen_snapshot",
         )
     )
@@ -232,6 +233,7 @@ def test_develop_rejects_prior_research_artifacts_without_deleting_them(
         Namespace(
             cache_root=tmp_path / "cache",
             conservative_static_path=None,
+            dynamic_symbol_triplets=False,
             metadata_mode="frozen_snapshot",
         )
     )

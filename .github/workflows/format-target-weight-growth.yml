@@ -1,0 +1,52 @@
+name: Format Target Weight Growth
+
+on:
+  push:
+    branches:
+      - agent/target-weight-constrained-growth-design
+
+permissions:
+  contents: write
+
+jobs:
+  apply-format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/target-weight-constrained-growth-design
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Format target-weight growth files
+        run: |
+          uv run ruff format \
+            trade_rl/evaluation/target_weight_growth_gate.py \
+            tests/evaluation/test_target_weight_growth_gate.py \
+            tests/examples/test_target_weight_constrained_growth_profiles.py
+
+      - name: Commit formatter output
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No formatting changes were produced"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/target_weight_growth_gate.py \
+            tests/evaluation/test_target_weight_growth_gate.py \
+            tests/examples/test_target_weight_constrained_growth_profiles.py
+          git commit -m "style: format target-weight growth implementation"
+          git push origin HEAD:agent/target-weight-constrained-growth-design

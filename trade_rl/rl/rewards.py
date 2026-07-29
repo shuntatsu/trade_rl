@@ -141,6 +141,19 @@ class RewardConfig:
             drawdown_slopes=self.drawdown_slopes,
         )
 
+    def is_pure_net_log_growth(self) -> bool:
+        """Return whether reward total is exactly scaled hybrid net log growth."""
+
+        return (
+            self.absolute_growth_weight == 1.0
+            and self.excess_growth_weight == 0.0
+            and self.incremental_drawdown_weight == 0.0
+            and self.baseline_underperformance_weight == 0.0
+            and self.projection_penalty_weight == 0.0
+            and self.terminal_equity_weight == 0.0
+            and self.margin_deficit_weight == 0.0
+        )
+
     def __post_init__(self) -> None:
         for field_name, value in (
             ("scale", self.scale),
@@ -183,6 +196,11 @@ class RewardConfig:
             raise ValueError("reward weights and tolerances must be non-negative")
         if self.baseline_progressive_power < 1.0:
             raise ValueError("baseline_progressive_power must be at least one")
+        if self.baseline_tolerance == 0.0 and self.baseline_progressive_power > 1.0:
+            raise ValueError(
+                "baseline_tolerance must be positive when "
+                "baseline_progressive_power is greater than one"
+            )
         if self.baseline_window_hours <= 0.0:
             raise ValueError("baseline_window_hours must be positive")
         if self.baseline_minimum_history_hours <= 0.0:
@@ -207,6 +225,15 @@ class RewardConfig:
             raise ValueError("baseline minimum history cannot exceed the window")
         if not 0.0 < self.equity_floor_fraction <= 1.0:
             raise ValueError("equity_floor_fraction must be within (0, 1]")
+        if (
+            self.terminal_equity_weight == 0.0
+            and self.margin_deficit_weight == 0.0
+            and not self.is_pure_net_log_growth()
+        ):
+            raise ValueError(
+                "terminal- and margin-disabled rewards must satisfy the "
+                "pure_net_log_growth contract"
+            )
         # Reuse the public contract validation for stage ordering and slopes.
         self.absolute_growth_contract()
 

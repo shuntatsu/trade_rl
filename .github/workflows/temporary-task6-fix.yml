@@ -46,48 +46,31 @@ jobs:
           PY
           git apply --check /tmp/task6.patch
           git apply /tmp/task6.patch
-          cat > /tmp/task6-mypy-fix.patch <<'PATCH'
-          diff --git a/trade_rl/integrations/compact_rollout_buffer.py b/trade_rl/integrations/compact_rollout_buffer.py
-          --- a/trade_rl/integrations/compact_rollout_buffer.py
-          +++ b/trade_rl/integrations/compact_rollout_buffer.py
-          @@ -191,7 +191,9 @@ class IndexBackedDictRolloutBuffer(DictRolloutBuffer):
-                   initialized_steps = self.buffer_size if self.full else self.pos
-                   if self.generator_ready:
-                       initialized = initialized_steps * self.n_envs
-          -            expected_shape = (self.buffer_size * self.n_envs, self.action_dim)
-          +            expected_shape: tuple[int, ...] = (
-          +                self.buffer_size * self.n_envs, self.action_dim
-          +            )
-                   else:
-                       initialized = initialized_steps
-                       expected_shape = (self.buffer_size, self.n_envs, self.action_dim)
-          diff --git a/trade_rl/integrations/sb3_training.py b/trade_rl/integrations/sb3_training.py
-          --- a/trade_rl/integrations/sb3_training.py
-          +++ b/trade_rl/integrations/sb3_training.py
-          @@ -267,12 +267,20 @@ def _filtered_training_environment(factory: Callable[[], Any]) -> Any:
-           
-           
-           
-          -def _required_hierarchical_config(config: object, name: str) -> object:
-          +def _required_hierarchical_config(config: object, name: str) -> int | float:
-               value = getattr(config, name, None)
-               if value is None:
-                   raise ValueError(
-                       f"hierarchical BC requires explicit training_run_config_v3 field {name}"
-                   )
-          +    if isinstance(value, bool) or not isinstance(value, int | float):
-          +        raise ValueError(
-          +            f"hierarchical BC training_run_config_v3 field {name} must be numeric"
-          +        )
-          +    if not np.isfinite(float(value)):
-          +        raise ValueError(
-          +            f"hierarchical BC training_run_config_v3 field {name} must be finite"
-          +        )
-               return value
-          PATCH
-          sed -i 's/^          //' /tmp/task6-mypy-fix.patch
-          git apply --check /tmp/task6-mypy-fix.patch
-          git apply /tmp/task6-mypy-fix.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          compact = Path('trade_rl/integrations/compact_rollout_buffer.py')
+          compact_text = compact.read_text(encoding='utf-8')
+          compact_old = '''            expected_shape = (self.buffer_size * self.n_envs, self.action_dim)\n'''
+          compact_new = '''            expected_shape: tuple[int, ...] = (\n                self.buffer_size * self.n_envs, self.action_dim\n            )\n'''
+          if compact_old not in compact_text:
+              raise RuntimeError('compact rollout expected-shape assignment was not found')
+          compact.write_text(
+              compact_text.replace(compact_old, compact_new, 1),
+              encoding='utf-8',
+          )
+
+          training = Path('trade_rl/integrations/sb3_training.py')
+          training_text = training.read_text(encoding='utf-8')
+          training_old = '''def _required_hierarchical_config(config: object, name: str) -> object:\n    value = getattr(config, name, None)\n    if value is None:\n        raise ValueError(\n            f"hierarchical BC requires explicit training_run_config_v3 field {name}"\n        )\n    return value\n'''
+          training_new = '''def _required_hierarchical_config(config: object, name: str) -> int | float:\n    value = getattr(config, name, None)\n    if value is None:\n        raise ValueError(\n            f"hierarchical BC requires explicit training_run_config_v3 field {name}"\n        )\n    if isinstance(value, bool) or not isinstance(value, int | float):\n        raise ValueError(\n            f"hierarchical BC training_run_config_v3 field {name} must be numeric"\n        )\n    if not np.isfinite(float(value)):\n        raise ValueError(\n            f"hierarchical BC training_run_config_v3 field {name} must be finite"\n        )\n    return value\n'''
+          if training_old not in training_text:
+              raise RuntimeError('hierarchical config helper was not found')
+          training.write_text(
+              training_text.replace(training_old, training_new, 1),
+              encoding='utf-8',
+          )
+          PY
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
       - name: Format and lint Task 6 files

@@ -22,9 +22,9 @@ def test_v3_preserves_explicit_bc_holdout_statistical_settings() -> None:
         == pytest.approx(0.95)
     )
     assert identity["behavior_cloning_causal_holdout_bootstrap_resamples"] == 2_000
-    assert identity["behavior_cloning_causal_holdout_confidence_level"] == pytest.approx(
-        0.95
-    )
+    assert identity[
+        "behavior_cloning_causal_holdout_confidence_level"
+    ] == pytest.approx(0.95)
 
 
 @pytest.mark.parametrize(

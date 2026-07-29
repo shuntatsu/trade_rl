@@ -69,6 +69,112 @@ def migrate_json(root: Path) -> None:
                 )
 
 
+def sync_maintained_full_config(root: Path) -> None:
+    example = root / "examples/binance-multitimeframe"
+    walk_forward_path = example / "walk-forward-full.json"
+    training_path = example / "training-full.json"
+    walk_forward = json.loads(walk_forward_path.read_text(encoding="utf-8"))
+    candidates = walk_forward.get("candidates")
+    if not isinstance(candidates, list) or len(candidates) != 1:
+        raise RuntimeError("maintained walk-forward candidate set is invalid")
+    candidate = candidates[0]
+    if not isinstance(candidate, dict) or not isinstance(candidate.get("run"), dict):
+        raise RuntimeError("maintained walk-forward candidate run is invalid")
+    training_path.write_text(
+        json.dumps(candidate["run"], indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _python_v3_fields(actor_head: str) -> str:
+    fields = {"policy_actor_head": actor_head, **REQUIRED_V3_DEFAULTS}
+    return "".join(f"            {name!r}: {value!r},\n" for name, value in fields.items())
+
+
+def migrate_python_candidate(
+    root: Path,
+    relative_path: str,
+    function_name: str,
+    *,
+    actor_head: str,
+) -> None:
+    path = root / relative_path
+    text = path.read_text(encoding="utf-8")
+    start = text.index(f"def {function_name}(")
+    next_function = text.find("\ndef ", start + 1)
+    end = len(text) if next_function < 0 else next_function
+    segment = text[start:end]
+    if '"schema_version": "training_run_config_v3"' in segment:
+        return
+    segment = _replace_once(
+        segment,
+        '"schema_version": "training_run_config_v2"',
+        '"schema_version": "training_run_config_v3"',
+        field=f"{relative_path}:{function_name} schema",
+    )
+    marker = '        "training": {\n'
+    segment = _replace_once(
+        segment,
+        marker,
+        marker + _python_v3_fields(actor_head),
+        field=f"{relative_path}:{function_name} training",
+    )
+    path.write_text(text[:start] + segment + text[end:], encoding="utf-8")
+
+
+def migrate_python_fixtures(root: Path) -> None:
+    migrate_python_candidate(
+        root,
+        "tests/workflows/test_explicit_sealed_ledger_mode.py",
+        "_candidate_run",
+        actor_head="standard_continuous_v1",
+    )
+    migrate_python_candidate(
+        root,
+        "tests/workflows/test_market_walk_forward.py",
+        "_candidate_run",
+        actor_head="standard_continuous_v1",
+    )
+    migrate_python_candidate(
+        root,
+        "tests/workflows/test_market_walk_forward.py",
+        "_sequence_candidate_config",
+        actor_head="hierarchical_gate_target_v1",
+    )
+    migrate_python_candidate(
+        root,
+        "tests/workflows/test_walk_forward_manifest_provenance.py",
+        "_candidate_run",
+        actor_head="standard_continuous_v1",
+    )
+
+
+def fix_gpu_smoke_actor(root: Path) -> None:
+    path = root / "examples/binance-multitimeframe/run_gpu_training_smoke.py"
+    text = path.read_text(encoding="utf-8")
+    old = '            "observation_encoder": "hierarchical_sequence_v2",\n'
+    new = old + '            "policy_actor_head": "hierarchical_gate_target_v1",\n'
+    if new in text:
+        return
+    path.write_text(
+        _replace_once(text, old, new, field="GPU smoke actor head"),
+        encoding="utf-8",
+    )
+
+
+def fix_metadata_runner_defaults(root: Path) -> None:
+    path = root / "examples/binance-multitimeframe/run_full_research_state.py"
+    text = path.read_text(encoding="utf-8")
+    old = "        if self.args.dynamic_symbol_triplets:\n"
+    new = '        if getattr(self.args, "dynamic_symbol_triplets", False):\n'
+    if new in text:
+        return
+    path.write_text(
+        _replace_once(text, old, new, field="dynamic symbol triplet default"),
+        encoding="utf-8",
+    )
+
+
 def fix_sequence_encoder(root: Path) -> None:
     path = root / "trade_rl/rl/sequence_policy.py"
     text = path.read_text(encoding="utf-8")
@@ -266,6 +372,10 @@ def main() -> None:
     root = Path(sys.argv[1]).resolve()
     cleanup(root)
     migrate_json(root)
+    sync_maintained_full_config(root)
+    migrate_python_fixtures(root)
+    fix_gpu_smoke_actor(root)
+    fix_metadata_runner_defaults(root)
     fix_sequence_encoder(root)
     fix_sequence_tests(root)
     fix_sequence_diagnostics(root)

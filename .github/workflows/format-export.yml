@@ -4,22 +4,20 @@ on:
   push:
     branches:
       - agent/target-weight-constrained-growth-design
-  pull_request:
-    branches:
-      - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  format-export:
+  apply-format:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact head
+      - name: Checkout implementation branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
+          ref: agent/target-weight-constrained-growth-design
+          persist-credentials: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -32,23 +30,16 @@ jobs:
       - name: Format
         run: uv run ruff format .
 
-      - name: Package formatted files
+      - name: Commit formatter output
         shell: bash
         run: |
           set -euo pipefail
-          git diff --name-only --diff-filter=AM > formatted-files.txt
-          if [[ ! -s formatted-files.txt ]]; then
-            echo "No formatting changes were produced" >&2
-            exit 1
+          if git diff --quiet; then
+            echo "No formatting changes were produced"
+            exit 0
           fi
-          tar -czf formatted-source.tar.gz --files-from formatted-files.txt
-
-      - name: Upload formatter output
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: formatted-source-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            formatted-source.tar.gz
-            formatted-files.txt
-          if-no-files-found: error
-          retention-days: 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '*.py'
+          git commit -m "style: apply repository formatter"
+          git push origin HEAD:agent/target-weight-constrained-growth-design

@@ -21,7 +21,8 @@ def _absolute_config_path(value: object, *, base: Path, field: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{field} must be a non-empty path string")
     path = Path(value)
-    return str(path if path.is_absolute() else base / path)
+    resolved = path.resolve() if path.is_absolute() else (base / path).resolve()
+    return str(resolved)
 
 
 def _normalize_run_artifact_paths(

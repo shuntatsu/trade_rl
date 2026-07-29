@@ -7,6 +7,7 @@ import pytest
 
 from trade_rl.rl.algorithm_configs import LagrangianPPOConfig, build_algorithm_config
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
+from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,10 +16,16 @@ EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
 PPO = "training-target-weight-growth-ppo.json"
 LAGRANGIAN = "training-target-weight-constrained-growth.json"
 DISCOUNTED = "training-target-weight-constrained-growth-discounted.json"
+WALK_FORWARD = "walk-forward-target-weight-constrained-growth.json"
 
 EXPECTED_BUDGETS = (0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.03)
 EXPECTED_DUAL_LEARNING_RATES = (0.001, 0.01, 0.001, 0.01, 0.001, 0.001, 0.001)
 EXPECTED_MINIMUM_SUPPORT = (1, 20, 1, 20, 1, 1, 1)
+EXPECTED_NAMES = (
+    "target-weight-growth-gamma-one-ppo",
+    "target-weight-constrained-growth-gamma-one",
+    "target-weight-constrained-growth-discounted-168h",
+)
 
 
 def _load(name: str) -> TrainingRunConfig:
@@ -114,3 +121,38 @@ def test_discounted_profile_changes_only_real_time_discount() -> None:
     assert _without_discount(
         canonical.candidate_digest_payload()
     ) == _without_discount(discounted.candidate_digest_payload())
+
+
+def test_walk_forward_references_canonical_standalone_profiles() -> None:
+    config = MarketWalkForwardConfig.from_json(
+        EXAMPLE_ROOT / WALK_FORWARD,
+        n_bars=55_392,
+    )
+
+    assert tuple(candidate.name for candidate in config.candidates) == EXPECTED_NAMES
+    standalone = {
+        EXPECTED_NAMES[0]: _load(PPO),
+        EXPECTED_NAMES[1]: _load(LAGRANGIAN),
+        EXPECTED_NAMES[2]: _load(DISCOUNTED),
+    }
+    for candidate in config.candidates:
+        assert (
+            candidate.run.candidate_digest_payload()
+            == standalone[candidate.name].candidate_digest_payload()
+        )
+
+    scenario_names = tuple(
+        scenario.name for scenario in config.execution_sensitivity.scenarios
+    )
+    assert scenario_names == (
+        "nominal",
+        "tick_2x",
+        "lot_2x",
+        "minimum_notional_2x",
+        "joint_2x",
+        "joint_5x",
+    )
+    assert config.execution_sensitivity.required_scenario == "joint_2x"
+    assert config.workflow.max_folds == 6
+    assert config.workflow.selection_bars == 2_880
+    assert config.workflow.test_bars == 2_880

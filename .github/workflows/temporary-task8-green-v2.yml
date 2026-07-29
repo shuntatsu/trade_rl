@@ -38,17 +38,19 @@ jobs:
           from pathlib import Path
 
           path = Path('tests/workflows/test_training_run_config.py')
-          text = path.read_text(encoding='utf-8')
-          duplicate = (
-              '            "policy_actor_head": "hierarchical_gate_target_v1",\n'
-              '            "policy_actor_head": "hierarchical_gate_target_v1",\n'
-          )
-          while duplicate in text:
-              text = text.replace(
-                  duplicate,
-                  '            "policy_actor_head": "hierarchical_gate_target_v1",\n',
-              )
-          path.write_text(text, encoding='utf-8')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          result: list[str] = []
+          actor = '"policy_actor_head": "hierarchical_gate_target_v1",'
+          for line in lines:
+              if (
+                  result
+                  and actor in line
+                  and actor in result[-1]
+                  and line.strip() == result[-1].strip()
+              ):
+                  continue
+              result.append(line)
+          path.write_text('\n'.join(result) + '\n', encoding='utf-8')
           PY
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3

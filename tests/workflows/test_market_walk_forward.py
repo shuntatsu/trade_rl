@@ -5,6 +5,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
@@ -445,6 +446,7 @@ def test_structured_walk_forward_fits_sequence_normalizer_on_exact_train_range()
     assert normalizer.source_dataset_id == dataset.dataset_id
 
 
+@pytest.mark.filterwarnings("error::torch.jit.TracerWarning")
 def test_structured_walk_forward_trains_three_seed_ensemble_end_to_end(
     tmp_path: Path,
 ) -> None:

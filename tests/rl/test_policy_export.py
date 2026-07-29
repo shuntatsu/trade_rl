@@ -48,6 +48,7 @@ def _checkpoint(path: Path) -> Path:
     return path
 
 
+@pytest.mark.filterwarnings("error::torch.jit.TracerWarning")
 def test_torchscript_actor_export_matches_sb3_prediction(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "policy.zip")
     output = tmp_path / "exports"
@@ -104,6 +105,7 @@ def test_torchscript_only_export_failure_is_rejected(
         )
 
 
+@pytest.mark.filterwarnings("error::torch.jit.TracerWarning")
 def test_onnx_actor_export_matches_sb3_when_dependencies_exist(tmp_path: Path) -> None:
     pytest.importorskip("onnx")
     pytest.importorskip("onnxruntime")

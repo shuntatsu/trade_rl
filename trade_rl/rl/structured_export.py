@@ -209,7 +209,7 @@ class StructuredExportManifest:
 class _StructuredDeterministicActor(nn.Module):
     def __init__(
         self,
-        policy: nn.Module,
+        policy: Any,
         keys: tuple[str, ...],
         *,
         synthesize_decision_index: bool,
@@ -218,6 +218,9 @@ class _StructuredDeterministicActor(nn.Module):
         self.policy = policy
         self.keys = keys
         self.synthesize_decision_index = synthesize_decision_index
+        self.use_direct_actions = callable(
+            getattr(policy, "deterministic_actions", None)
+        )
 
     def forward(self, *inputs: torch.Tensor) -> torch.Tensor:
         observation = {self.keys[index]: value for index, value in enumerate(inputs)}
@@ -227,8 +230,9 @@ class _StructuredDeterministicActor(nn.Module):
                 dtype=torch.int64,
                 device=inputs[0].device,
             )
-        prediction = self.policy._predict(observation, deterministic=True)
-        return prediction
+        if self.use_direct_actions:
+            return self.policy.deterministic_actions(observation)
+        return self.policy._predict(observation, deterministic=True)
 
 
 def _observation_specs(model: object) -> tuple[StructuredInputSpec, ...]:
@@ -373,7 +377,13 @@ def export_structured_policy_actor(
         raise ValueError("structured export requires hierarchical sequence policy")
     policy = getattr(model, "policy", None)
     if not isinstance(policy, nn.Module):
-        raise TypeError("structured export model policy must be a torch module")
+        raise TypeError("structured export policy must be a torch module")
+    has_direct_actions = callable(getattr(policy, "deterministic_actions", None))
+    has_predict = callable(getattr(policy, "_predict", None))
+    if not has_direct_actions and not has_predict:
+        raise TypeError(
+            "structured export policy must expose deterministic_actions or _predict"
+        )
 
     original_training = bool(policy.training)
     original_device = getattr(model, "device", None)
@@ -399,7 +409,7 @@ def export_structured_policy_actor(
             policy,
             tuple(item.name for item in specs),
             synthesize_decision_index=(
-                "decision_index" in policy.observation_space.spaces
+                "decision_index" in getattr(policy.observation_space, "spaces", {})
             ),
         ).eval()
         corpus = _parity_corpus(example, specs)

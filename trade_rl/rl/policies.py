@@ -18,6 +18,7 @@ from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch import nn
 
+from trade_rl.rl.export_context import graph_export_active
 from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE
 
 
@@ -296,7 +297,9 @@ class SharedAssetActorCriticExtractor(nn.Module):
         active_start = global_start + self.global_dim
         current_weight_start = active_start + self.n_symbols
         expected_width = current_weight_start + self.n_symbols
-        if features.ndim != 2 or features.shape[1] != expected_width:
+        if not graph_export_active() and (
+            features.ndim != 2 or features.shape[1] != expected_width
+        ):
             raise ValueError("shared actor features do not match declared layout")
         tokens = features[:, :asset_width].reshape(-1, self.n_symbols, self.token_dim)
         pooled = features[:, pooled_start:global_start]
@@ -425,10 +428,10 @@ class SharedPerAssetGateTargetHead(nn.Module):
         self.target_head = nn.Linear(width, 1)
 
     def _contexts(self, actor_latent: torch.Tensor) -> torch.Tensor:
-        if actor_latent.ndim != 2:
+        if not graph_export_active() and actor_latent.ndim != 2:
             raise ValueError("actor latent must be rank-two")
         expected = self.n_symbols * self.context_dim
-        if actor_latent.shape[1] != expected:
+        if not graph_export_active() and actor_latent.shape[1] != expected:
             raise ValueError("actor latent does not match hierarchical head layout")
         return actor_latent.reshape(-1, self.n_symbols, self.context_dim)
 
@@ -484,7 +487,9 @@ class MaskedSharedSquashedDiagGaussianDistribution(SquashedDiagGaussianDistribut
 
     def set_active_mask(self, active_mask: torch.Tensor) -> None:
         mask = active_mask.to(dtype=torch.bool)
-        if mask.ndim != 2 or mask.shape[1] != self.action_dim:
+        if not graph_export_active() and (
+            mask.ndim != 2 or mask.shape[1] != self.action_dim
+        ):
             raise ValueError("active action mask does not match action dimensions")
         self.active_mask = mask
 
@@ -624,6 +629,17 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         self.action_dist.set_active_mask(self.action_net.active_mask(latent_pi))
         mean_actions = self.action_net(latent_pi)
         return self.action_dist.proba_distribution(mean_actions, self.log_std)
+
+    def deterministic_actions(
+        self, observations: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """Return distribution-free deterministic target weights for export."""
+
+        features = self.extract_features(observations)
+        if isinstance(features, tuple):
+            features = features[0]
+        latent_pi = self.mlp_extractor.forward_actor(features)
+        return torch.tanh(self.action_net(latent_pi))
 
     def hierarchical_actor_outputs(
         self, observations: dict[str, torch.Tensor]

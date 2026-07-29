@@ -42,7 +42,6 @@ jobs:
           manifest = text.index('    manifest = StructuredExportManifest.build(', body)
           replacement = '''    identity = _test_policy_identity(architecture, action_size=2)\n'''
           text = text[:body] + replacement + text[manifest:]
-
           helper = '''\n\ndef _test_policy_identity(\n    architecture: str, *, action_size: int = 2\n) -> dict[str, object]:\n    sequence_architecture = {\n        "action_names": tuple(\n            f"target_weight:{index}" for index in range(action_size)\n        ),\n        "schema_version": "test_sequence_architecture_v1",\n        "symbols": tuple(str(index) for index in range(action_size)),\n        "test_architecture_marker": architecture,\n    }\n    sequence_digest = content_digest(sequence_architecture)\n    current_weight = {\n        "bounds": (-1.0, 1.0),\n        "dtype": "float32",\n        "key": "current_weights",\n        "observation_schema": "native_timeframe_sequence_observation_v3",\n        "shape": (action_size,),\n        "source": "effective_book_weights",\n    }\n    policy_architecture = {\n        "actor_head": "hierarchical_gate_target_v1",\n        "current_weight_observation": current_weight,\n        "gate_temperature": 1.0,\n        "observation_encoder": "hierarchical_sequence_v2",\n        "schema_version": "hierarchical_gate_target_policy_v1",\n        "sequence_architecture_digest": sequence_digest,\n    }\n    return {\n        "actor_head": "hierarchical_gate_target_v1",\n        "current_weight_observation": current_weight,\n        "gate_temperature": 1.0,\n        "observation_encoder": "hierarchical_sequence_v2",\n        "policy_architecture_digest": content_digest(policy_architecture),\n        "schema_version": "sb3_policy_identity_v2",\n        "sequence_architecture": sequence_architecture,\n        "sequence_architecture_digest": sequence_digest,\n    }\n'''
           insert_at = text.index('\ndef _member(')
           text = text[:insert_at] + helper + text[insert_at:]
@@ -73,6 +72,48 @@ jobs:
           if 'identity["policy_architecture_digest"]' in text:
               raise RuntimeError('unscoped structured-loader identity reference remains')
           path.write_text(text, encoding='utf-8')
+
+          export_test = Path('tests/rl/test_structured_export.py')
+          export_text = export_test.read_text(encoding='utf-8')
+          export_old = '''        architecture = {\n            "timeframes": ["15m", "1h", "4h", "1d"],\n            "d_model": 16,\n        }\n'''
+          export_new = '''        architecture = {\n            "action_names": (\n                "target_weight:BTC",\n                "target_weight:ETH",\n                "target_weight:BNB",\n            ),\n            "d_model": 16,\n            "symbols": ("BTC", "ETH", "BNB"),\n            "timeframes": ["15m", "1h", "4h", "1d"],\n        }\n'''
+          if export_old not in export_text:
+              raise RuntimeError('structured export architecture fixture was not found')
+          export_test.write_text(
+              export_text.replace(export_old, export_new, 1), encoding='utf-8'
+          )
+
+          config_test = Path('tests/workflows/test_training_run_config.py')
+          config_text = config_test.read_text(encoding='utf-8')
+          replacements = (
+              ('"policy_actor_head": "hierarchical_gate_target_v1"',
+               '"policy_actor_head": "standard_continuous_v1"'),
+              ('"behavior_cloning_min_gate_precision": 0.5',
+               '"behavior_cloning_min_gate_precision": 0.0'),
+              ('"behavior_cloning_min_gate_recall": 0.6',
+               '"behavior_cloning_min_gate_recall": 0.0'),
+              ('"behavior_cloning_max_active_target_rmse": 0.15',
+               '"behavior_cloning_max_active_target_rmse": 1.0'),
+              ('"behavior_cloning_min_activity_ratio": 0.25',
+               '"behavior_cloning_min_activity_ratio": 0.0'),
+              ('"behavior_cloning_max_activity_ratio": 4.0',
+               '"behavior_cloning_max_activity_ratio": 1.0'),
+              ('"behavior_cloning_min_causal_holdout_trades": 1',
+               '"behavior_cloning_min_causal_holdout_trades": 0'),
+              ('"behavior_cloning_max_causal_holdout_regret": 0.2',
+               '"behavior_cloning_max_causal_holdout_regret": 0.0'),
+          )
+          for old, new in replacements:
+              if old not in config_text:
+                  raise RuntimeError(f'configuration fixture value was not found: {old}')
+              config_text = config_text.replace(old, new, 1)
+          structured_old = '''            "policy": "MultiInputPolicy",\n            "observation_encoder": "hierarchical_sequence_v2",\n'''
+          structured_new = '''            "policy": "MultiInputPolicy",\n            "observation_encoder": "hierarchical_sequence_v2",\n            "policy_actor_head": "hierarchical_gate_target_v1",\n'''
+          if structured_old not in config_text:
+              raise RuntimeError('structured training fixture was not found')
+          config_test.write_text(
+              config_text.replace(structured_old, structured_new, 1), encoding='utf-8'
+          )
           PY
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3

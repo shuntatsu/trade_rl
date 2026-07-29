@@ -29,6 +29,27 @@ jobs:
           base64 --decode .github/tmp/task8-tests.patch.gz.b64 | gzip --decompress > /tmp/task8-tests.patch
           git apply --check /tmp/task8-tests.patch
           git apply /tmp/task8-tests.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/serving/test_sb3_loader.py')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          start = next(
+              index
+              for index, line in enumerate(lines)
+              if line.startswith('def _structured_bundle(')
+          )
+          stop = next(
+              index
+              for index in range(start + 1, len(lines))
+              if lines[index].lstrip().startswith('dataset = ')
+          )
+          for index in range(start + 1, stop):
+              stripped = lines[index].lstrip()
+              if stripped.startswith(('from ', 'import ')):
+                  lines[index] = '    ' + stripped
+          path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
       - name: Verify expected RED

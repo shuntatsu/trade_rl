@@ -126,6 +126,7 @@ def test_structured_rollout_stores_compact_state_and_reconstructs_exact_sequence
         "active",
         "asset_state",
         "current_snapshot",
+        "current_weights",
         "decision_index",
         "global_state",
     }
@@ -134,6 +135,12 @@ def test_structured_rollout_stores_compact_state_and_reconstructs_exact_sequence
     observation, _ = replay.reset(
         options={"start_idx": start, "episode_bars": 4, "initial_state_mode": "cash"}
     )
+    assert isinstance(observation, dict)
+    np.testing.assert_array_equal(observation["current_weights"], replay.hybrid.weights)
+    copied_weights = observation["current_weights"].copy()
+    observation["current_weights"][:] = 0.25
+    np.testing.assert_array_equal(replay.hybrid.weights, copied_weights)
+    observation["current_weights"][:] = copied_weights
     direct: dict[str, list[np.ndarray]] = {}
     for target in targets:
         assert isinstance(observation, dict)

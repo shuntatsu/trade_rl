@@ -222,9 +222,19 @@ def test_structured_contract_preserves_components_and_minimum_index() -> None:
         "asset_state_width": contract.layout.per_symbol_width - 4 * dataset.n_features,
         "global_width": contract.layout.global_width,
         "n_symbols": dataset.n_symbols,
+        "current_weight_source": "effective_book_weights",
+        "current_weight_shape": (dataset.n_symbols,),
     }
     assert isinstance(contract.observation_space, gym.spaces.Dict)
     assert contract.observation_space["decision_index"].dtype == np.dtype(np.int64)
+    assert contract.observation_space["current_weights"].shape == (dataset.n_symbols,)
+    assert contract.observation_space["current_weights"].dtype == np.dtype(np.float32)
+    np.testing.assert_array_equal(
+        contract.observation_space["current_weights"].low, -1.0
+    )
+    np.testing.assert_array_equal(
+        contract.observation_space["current_weights"].high, 1.0
+    )
     for timeframe in ("15m", "1h", "4h", "1d"):
         expected_shape = (dataset.n_symbols, 2, 1)
         assert (

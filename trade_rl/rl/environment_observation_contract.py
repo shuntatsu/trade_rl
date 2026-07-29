@@ -14,6 +14,7 @@ from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
+    CURRENT_WEIGHT_SOURCE,
     OBSERVATION_SCHEMA,
     ObservationBuilder,
     ObservationLayout,
@@ -268,6 +269,12 @@ class EnvironmentObservationContractBuilder:
                 shape=(self.dataset.n_symbols,),
                 dtype=np.float32,
             ),
+            "current_weights": spaces.Box(
+                low=-1.0,
+                high=1.0,
+                shape=(self.dataset.n_symbols,),
+                dtype=np.float32,
+            ),
         }
         feature_counts: dict[str, int] = {}
         window_lengths: dict[str, int] = {}
@@ -315,6 +322,8 @@ class EnvironmentObservationContractBuilder:
             ),
             "global_width": layout.global_width,
             "n_symbols": self.dataset.n_symbols,
+            "current_weight_source": CURRENT_WEIGHT_SOURCE,
+            "current_weight_shape": (self.dataset.n_symbols,),
         }
         component_dtypes = {
             key: str(np.dtype(space.dtype))

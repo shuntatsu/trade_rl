@@ -150,6 +150,11 @@ def test_structured_policy_observation_splits_current_state_and_sequences() -> N
         dataset, action_size=2, n_factors=0, finite_horizon=True
     )
     flat = np.arange(layout.size, dtype=np.float32)
+    per_asset = flat[: layout.n_symbols * layout.per_symbol_width].reshape(
+        layout.n_symbols, layout.per_symbol_width
+    )
+    expected_current_weights = np.asarray((0.25, -0.5), dtype=np.float32)
+    per_asset[:, layout.current_weight_column] = expected_current_weights
 
     structured = build_structured_policy_observation(
         sequence=sequence,
@@ -168,6 +173,10 @@ def test_structured_policy_observation_splits_current_state_and_sequences() -> N
     )
     assert structured["global_state"].shape == (layout.global_width,)
     assert structured["active"].shape == (dataset.n_symbols,)
+    np.testing.assert_array_equal(
+        structured["current_weights"], expected_current_weights
+    )
+    assert structured["current_weights"].flags.owndata is True
     assert structured["sequence_1h_values"].shape == (dataset.n_symbols, 3, 2)
     assert structured["sequence_1h_available"].dtype == np.uint8
     assert structured["sequence_1h_staleness"].dtype == np.float16
@@ -176,7 +185,7 @@ def test_structured_policy_observation_splits_current_state_and_sequences() -> N
 def test_sequence_observation_schema_is_index_backed() -> None:
     from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 
-    assert SEQUENCE_OBSERVATION_SCHEMA == "native_timeframe_sequence_observation_v2"
+    assert SEQUENCE_OBSERVATION_SCHEMA == "native_timeframe_sequence_observation_v3"
 
 
 def test_sequence_builder_compiles_static_layout_once_per_dataset(

@@ -1,4 +1,4 @@
 target=agent/hierarchical-bc-actor-design
 review_finding=event-precedence
 phase=red-green
-attempt=1
+attempt=2

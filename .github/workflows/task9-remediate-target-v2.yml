@@ -1,0 +1,105 @@
+name: Task 9 Remediate Target v2
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'agent/task9-verification'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout writable target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/hierarchical-bc-actor-design
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Patch final fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          architecture = Path('tests/architecture/test_architecture_audit_fixes.py')
+          text = architecture.read_text(encoding='utf-8')
+          old = '        "active": spaces.Box(0.0, 1.0, shape=(n_symbols,), dtype=np.float32),\n'
+          new = (
+              old
+              + '        "current_weights": spaces.Box(\n'
+              + '            -1.0, 1.0, shape=(n_symbols,), dtype=np.float32\n'
+              + '        ),\n'
+          )
+          if new not in text:
+              if old not in text:
+                  raise RuntimeError('architecture current_weights insertion point missing')
+              text = text.replace(old, new, 1)
+          architecture.write_text(text, encoding='utf-8')
+
+          e2e = Path('tests/e2e/test_research_to_serving_v2.py')
+          text = e2e.read_text(encoding='utf-8')
+          text = text.replace(
+              '"schema_version": "training_run_config_v2"',
+              '"schema_version": "training_run_config_v3"',
+              1,
+          )
+          marker = '                    "observation_encoder": "flat_mlp",\n'
+          fields = '''                    "policy_actor_head": "standard_continuous_v1",
+                    "hierarchical_gate_temperature": 1.0,
+                    "behavior_cloning_gate_loss_weight": 1.0,
+                    "behavior_cloning_target_loss_weight": 1.0,
+                    "behavior_cloning_composed_loss_weight": 1.0,
+                    "behavior_cloning_gate_change_threshold": 0.05,
+                    "behavior_cloning_max_positive_class_weight": 20.0,
+                    "behavior_cloning_min_gate_precision": 0.0,
+                    "behavior_cloning_min_gate_recall": 0.0,
+                    "behavior_cloning_max_active_target_rmse": 1.0,
+                    "behavior_cloning_min_activity_ratio": 0.0,
+                    "behavior_cloning_max_activity_ratio": 1.0,
+                    "behavior_cloning_min_causal_holdout_trades": 0,
+                    "behavior_cloning_max_causal_holdout_regret": 0.0,
+'''
+          if fields not in text:
+              if marker not in text:
+                  raise RuntimeError('E2E v3 training insertion point missing')
+              text = text.replace(marker, marker + fields, 1)
+          e2e.write_text(text, encoding='utf-8')
+          PY
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+      - name: Verify final fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            tests/architecture/test_architecture_audit_fixes.py \
+            tests/e2e/test_research_to_serving_v2.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run pytest -q \
+            tests/architecture/test_architecture_audit_fixes.py::test_shared_actor_uses_explicit_activity_and_one_shared_exploration_scale \
+            tests/e2e/test_research_to_serving_v2.py::test_research_training_to_attested_runtime_prediction
+      - name: Commit verified fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl task executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            tests/architecture/test_architecture_audit_fixes.py \
+            tests/e2e/test_research_to_serving_v2.py
+          git diff --cached --check
+          git commit -m "test: complete v3 actor fixtures"
+          git push origin HEAD:agent/hierarchical-bc-actor-design

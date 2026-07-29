@@ -4,9 +4,9 @@
 
 **Goal:** Add fair target-weight PPO/Lagrangian growth profiles whose objective is execution-adjusted net log growth, while keeping hard safety in the environment and preserving continuing-task truncation semantics.
 
-**Architecture:** Keep the existing `ActionMode.TARGET_WEIGHT`, `PreTradeRisk`, execution/accounting, reward tracker, cost critic and Lagrangian PPO implementations. Bind pure growth to the canonical `RewardConfig` weight identity, reject the unstable zero-tolerance progressive hinge, add canonical standalone profiles, and let walk-forward configurations reference those profiles instead of duplicating them.
+**Architecture:** Keep the existing `ActionMode.TARGET_WEIGHT`, `PreTradeRisk`, execution/accounting, reward tracker, cost critic and Lagrangian PPO implementations. Bind pure growth to the canonical `RewardConfig` weight identity, reject the unstable zero-tolerance progressive hinge, add canonical standalone profiles, let walk-forward configurations reference those profiles instead of duplicating them, and evaluate the sealed fold-seed-scenario evidence through a deterministic production gate.
 
-**Tech Stack:** Python 3.12, dataclasses, pytest, Gymnasium, Stable-Baselines3, JSON example profiles.
+**Tech Stack:** Python 3.12, dataclasses, NumPy, pytest, Gymnasium, Stable-Baselines3, JSON example profiles.
 
 ## Global constraints
 
@@ -16,6 +16,7 @@
 - Hard safety remains enforced by `PreTradeRisk` and accounting independently of Lagrangian multipliers.
 - Baseline, drawdown, terminal equity, margin deficit and projection shaping weights are zero in pure-growth profiles.
 - The artificial 720-hour training boundary is hidden from the policy with `finite_horizon_observation = false` and is handled as mark-to-market truncation.
+- Production selection uses unseen economic evidence, never episode reward values from different objectives.
 - Existing residual growth profiles remain research controls.
 - No production code is changed before a failing test is committed.
 
@@ -59,7 +60,7 @@
 - [x] Explicitly disable terminal, margin, baseline, drawdown, excess and projection shaping.
 - [x] Explicitly set `liquidate_on_end = false`.
 - [x] Explicitly set `finite_horizon_observation = false` so the policy cannot exploit the artificial window boundary.
-- [x] Add profile equality and cost-schema tests.
+- [x] Add complete profile-equality and cost-schema tests.
 - [ ] Confirm all profile tests in CI.
 
 ### Task 4: Canonical walk-forward references
@@ -70,9 +71,10 @@
 
 - [x] Add candidate `run_file` support while preserving the legacy embedded `run` format.
 - [x] Require exactly one of `run` or `run_file` per candidate.
-- [x] Resolve referenced artifact and resume paths relative to the standalone run file.
+- [x] Resolve run files, referenced artifacts and resume paths from their source configuration directories.
 - [x] Delegate the expanded payload to the existing canonical walk-forward validator.
 - [x] Prove walk-forward candidate digests match the standalone profile digests.
+- [x] Configure nominal, joint 2x and joint 3x evidence scenarios.
 - [ ] Confirm existing embedded-run walk-forward tests remain green in CI.
 
 ### Task 5: Time-limit truncation regression
@@ -85,13 +87,30 @@
 - [x] Hide the remaining-horizon observation from the new continuing-task profiles.
 - [ ] Confirm transition, vector-environment and Cost-Critic suites in CI.
 
-### Task 6: Documentation and verification
+### Task 6: Deterministic production gate
+
+**Files:**
+- Create: `trade_rl/evaluation/target_weight_growth_gate.py`
+- Create: `tests/evaluation/test_target_weight_growth_gate.py`
+
+- [x] Define validated fold-seed-scenario evidence cells with paired baseline growth, catastrophic counts and soft-constraint estimates.
+- [x] Require complete 6-fold × 3-seed support for nominal, joint 2x and joint 3x scenarios.
+- [x] Implement fold-cluster bootstrap with fixed sample count and seed.
+- [x] Require positive nominal growth, positive paired baseline difference, cross-fold and cross-seed stability, zero catastrophic events and verified identity.
+- [x] Require every soft-constraint fold estimate and pooled one-sided upper bound to remain within budget.
+- [x] Require joint 2x paired growth to remain positive and joint 3x growth to remain non-negative.
+- [x] Select Lagrangian over PPO only when the paired Lagrangian-minus-PPO growth lower bound is positive; otherwise prefer PPO.
+- [x] Bind inputs and decisions to canonical SHA-256 evidence digests.
+- [ ] Confirm gate tests, MyPy and coverage in CI.
+
+### Task 7: Documentation and verification
 
 **Files:**
 - Modify: `docs/BINANCE.md`
 - Modify: design and plan records
 
 - [x] Document G1-PPO as required control, G1-Lagrangian as candidate, D168 as time-preference ablation, and legacy full as a non-default research comparison.
+- [x] Document the production gate, 2x/3x stress requirements and PPO/Lagrangian selection rule.
 - [x] Open draft PR #253.
 - [x] Remove pre-existing Ruff-format debt so the full CI pipeline can execute.
 - [ ] Run Ruff, format, MyPy, import-linter, full pytest and critical coverage in CI.

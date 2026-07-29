@@ -188,3 +188,132 @@ def test_behavior_cloning_uses_deterministic_action_space_output() -> None:
 
     torch.testing.assert_close(action, torch.tanh(policy.raw).expand(3, -1))
     assert not torch.allclose(action, policy.raw.expand(3, -1))
+
+
+class _HierarchicalOutputs:
+    def __init__(
+        self,
+        *,
+        gate_logits: torch.Tensor,
+        target_actions: torch.Tensor,
+        composed_actions: torch.Tensor,
+    ) -> None:
+        self.gate_logits = gate_logits
+        self.gate_probabilities = torch.sigmoid(gate_logits)
+        self.target_actions = target_actions
+        self.composed_actions = composed_actions
+
+
+class _HierarchicalPolicy(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.gate = torch.nn.Linear(1, 1)
+        self.target = torch.nn.Linear(1, 1)
+        torch.nn.init.zeros_(self.gate.weight)
+        torch.nn.init.constant_(self.gate.bias, -2.0)
+        torch.nn.init.zeros_(self.target.weight)
+        torch.nn.init.zeros_(self.target.bias)
+        self.device = torch.device("cpu")
+
+    def hierarchical_actor_outputs(
+        self, observations: dict[str, torch.Tensor]
+    ) -> _HierarchicalOutputs:
+        feature = observations["feature"]
+        current = observations["current_weights"]
+        gate_logits = self.gate(feature)
+        target = torch.tanh(self.target(feature))
+        probability = torch.sigmoid(gate_logits)
+        composed = current + probability * (target - current)
+        return _HierarchicalOutputs(
+            gate_logits=gate_logits,
+            target_actions=target,
+            composed_actions=composed,
+        )
+
+    def get_distribution(self, observations: dict[str, torch.Tensor]) -> _Distribution:
+        return _Distribution(
+            self.hierarchical_actor_outputs(observations).composed_actions
+        )
+
+
+def _hierarchical_case() -> tuple[SupervisedPolicyDataset, object]:
+    from trade_rl.learning.hierarchical_teacher_labels import (
+        build_hierarchical_teacher_labels,
+    )
+
+    feature = np.array(
+        [[-1.0], [-0.8], [-0.4], [-0.1], [0.1], [0.4], [0.8], [1.0]],
+        dtype=np.float32,
+    )
+    current = np.zeros_like(feature)
+    actions = np.where(feature > 0.0, 0.7, 0.0).astype(np.float32)
+    dataset = SupervisedPolicyDataset(
+        observations={"feature": feature, "current_weights": current},
+        actions=actions,
+        dataset_id="a" * 64,
+        train_start=0,
+        train_stop=9,
+        environment_digest="b" * 64,
+        action_spec_digest="c" * 64,
+        teacher_config_digest="d" * 64,
+    )
+    labels = build_hierarchical_teacher_labels(
+        teacher_targets=actions,
+        current_weights=current,
+        active_mask=np.ones_like(actions, dtype=np.bool_),
+        change_threshold=0.05,
+        source_teacher_digest=dataset.action_digest,
+    )
+    return dataset, labels
+
+
+def test_hierarchical_behavior_cloning_trains_component_losses_and_metrics() -> None:
+    dataset, labels = _hierarchical_case()
+    result = pretrain_policy(
+        _HierarchicalPolicy(),
+        dataset,
+        config=BehaviorCloningConfig(
+            epochs=120,
+            learning_rate=0.05,
+            batch_size=4,
+            validation_fraction=0.25,
+            early_stopping_patience=20,
+            gate_loss_weight=2.0,
+            target_loss_weight=1.0,
+            composed_loss_weight=1.0,
+        ),
+        seed=13,
+        hierarchical_labels=labels,
+    )
+
+    assert result.initial_hierarchical_losses is not None
+    assert result.final_hierarchical_losses is not None
+    assert result.final_hierarchical_metrics is not None
+    assert result.validation_hierarchical_metrics is not None
+    assert (
+        result.final_hierarchical_losses.weighted
+        < result.initial_hierarchical_losses.weighted
+    )
+    assert result.final_hierarchical_metrics.positive_support == 4
+    assert result.final_hierarchical_metrics.all_hold_collapse is False
+    assert result.hierarchical_label_digest == labels.label_config_digest
+
+
+def test_hierarchical_behavior_cloning_reports_hold_collapse_without_events() -> None:
+    dataset, labels = _hierarchical_case()
+    policy = _HierarchicalPolicy()
+    result = pretrain_policy(
+        policy,
+        dataset,
+        config=BehaviorCloningConfig(
+            epochs=1,
+            learning_rate=1e-12,
+            batch_size=8,
+        ),
+        seed=3,
+        hierarchical_labels=labels,
+    )
+
+    assert result.final_hierarchical_metrics is not None
+    assert result.final_hierarchical_metrics.all_hold_collapse is True
+    assert result.final_hierarchical_metrics.gate_recall == 0.0

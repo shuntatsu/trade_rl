@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -16,6 +17,12 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningResult,
     ObservationBatchProvider,
 )
+from trade_rl.learning.hierarchical_bc_metrics import (
+    HierarchicalBehaviorCloningLosses,
+    HierarchicalBehaviorCloningMetrics,
+    hierarchical_bc_metrics,
+)
+from trade_rl.learning.hierarchical_teacher_labels import HierarchicalTeacherLabels
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 
 
@@ -89,6 +96,158 @@ def _mean_squared_error(
     return total / count
 
 
+@dataclass(frozen=True, slots=True)
+class _HierarchicalEvaluation:
+    losses: HierarchicalBehaviorCloningLosses
+    metrics: HierarchicalBehaviorCloningMetrics
+
+
+def _positive_class_weight(
+    labels: HierarchicalTeacherLabels,
+    train_indices: np.ndarray,
+    *,
+    maximum: float,
+) -> float:
+    active = labels.active_mask[train_indices]
+    positive = labels.gate_labels[train_indices] & active
+    positive_count = int(np.count_nonzero(positive))
+    negative_count = int(np.count_nonzero(active & ~positive))
+    if positive_count == 0:
+        return 1.0
+    return min(maximum, max(1.0, negative_count / positive_count))
+
+
+def _hierarchical_batch_losses(
+    policy: Any,
+    observations: Any,
+    labels: HierarchicalTeacherLabels,
+    indices: np.ndarray,
+    *,
+    config: BehaviorCloningConfig,
+    positive_class_weight: float,
+    device: torch.device,
+) -> tuple[Any, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    method = getattr(policy, "hierarchical_actor_outputs", None)
+    if not callable(method):
+        raise ValueError("hierarchical BC requires policy hierarchical_actor_outputs")
+    outputs = method(observations)
+    gate_logits = outputs.gate_logits
+    target_actions = outputs.target_actions
+    composed_actions = outputs.composed_actions
+    expected_shape = (len(indices), labels.action_count)
+    if tuple(gate_logits.shape) != expected_shape:
+        raise ValueError("hierarchical policy output does not match teacher labels")
+    active = torch.as_tensor(
+        labels.active_mask[indices], dtype=torch.bool, device=device
+    )
+    gate_labels = torch.as_tensor(
+        labels.gate_labels[indices], dtype=torch.float32, device=device
+    )
+    targets = torch.as_tensor(
+        labels.target_actions[indices], dtype=torch.float32, device=device
+    )
+    if not bool(torch.any(active)):
+        raise ValueError("hierarchical BC batch contains no active action dimensions")
+    gate_loss = functional.binary_cross_entropy_with_logits(
+        gate_logits[active],
+        gate_labels[active],
+        pos_weight=torch.as_tensor(positive_class_weight, device=device),
+    )
+    event_mask = active & (gate_labels > 0.5)
+    if bool(torch.any(event_mask)):
+        target_loss = functional.smooth_l1_loss(
+            target_actions[event_mask], targets[event_mask]
+        )
+    else:
+        target_loss = target_actions.sum() * 0.0
+    composed_loss = functional.smooth_l1_loss(composed_actions[active], targets[active])
+    weighted = (
+        config.gate_loss_weight * gate_loss
+        + config.target_loss_weight * target_loss
+        + config.composed_loss_weight * composed_loss
+    )
+    return outputs, gate_loss, target_loss, composed_loss, weighted
+
+
+def _evaluate_hierarchical(
+    policy: Any,
+    dataset: SupervisedPolicyDataset,
+    labels: HierarchicalTeacherLabels,
+    *,
+    indices: np.ndarray,
+    batch_size: int,
+    config: BehaviorCloningConfig,
+    positive_class_weight: float,
+    device: torch.device,
+    provider: ObservationBatchProvider | None,
+) -> _HierarchicalEvaluation:
+    gate_batches: list[np.ndarray] = []
+    proposal_batches: list[np.ndarray] = []
+    composed_batches: list[np.ndarray] = []
+    gate_total = 0.0
+    target_total = 0.0
+    composed_total = 0.0
+    weighted_total = 0.0
+    batch_weight = 0
+    with torch.no_grad():
+        for offset in range(0, len(indices), batch_size):
+            batch_indices = indices[offset : offset + batch_size]
+            observations = _tensor_observations(
+                _observation_batch(dataset, batch_indices, provider=provider),
+                device=device,
+            )
+            outputs, gate, target, composed, weighted = _hierarchical_batch_losses(
+                policy,
+                observations,
+                labels,
+                batch_indices,
+                config=config,
+                positive_class_weight=positive_class_weight,
+                device=device,
+            )
+            size = len(batch_indices)
+            gate_total += float(gate.detach().cpu()) * size
+            target_total += float(target.detach().cpu()) * size
+            composed_total += float(composed.detach().cpu()) * size
+            weighted_total += float(weighted.detach().cpu()) * size
+            batch_weight += size
+            gate_batches.append(outputs.gate_probabilities.detach().cpu().numpy())
+            proposal_batches.append(outputs.target_actions.detach().cpu().numpy())
+            composed_batches.append(outputs.composed_actions.detach().cpu().numpy())
+    if batch_weight <= 0:
+        raise ValueError("hierarchical BC evaluation batch is empty")
+    metrics = hierarchical_bc_metrics(
+        gate_probabilities=np.concatenate(gate_batches, axis=0),
+        proposal_actions=np.concatenate(proposal_batches, axis=0),
+        composed_actions=np.concatenate(composed_batches, axis=0),
+        labels=labels,
+        gate_threshold=config.gate_prediction_threshold,
+        indices=indices,
+    )
+    return _HierarchicalEvaluation(
+        losses=HierarchicalBehaviorCloningLosses(
+            gate=gate_total / batch_weight,
+            target=target_total / batch_weight,
+            composed=composed_total / batch_weight,
+            weighted=weighted_total / batch_weight,
+        ),
+        metrics=metrics,
+    )
+
+
+def _validate_hierarchical_labels(
+    dataset: SupervisedPolicyDataset,
+    labels: HierarchicalTeacherLabels,
+) -> None:
+    if labels.sample_count != dataset.sample_count:
+        raise ValueError("hierarchical teacher labels sample count mismatch")
+    actions = np.asarray(dataset.actions)
+    if actions.ndim != 2 or labels.action_count != actions.shape[1]:
+        raise ValueError("hierarchical teacher labels action count mismatch")
+    if not np.array_equal(labels.target_actions, actions):
+        raise ValueError("hierarchical teacher targets do not match supervised actions")
+
+
 def pretrain_policy(
     policy: Any,
     dataset: SupervisedPolicyDataset,
@@ -96,11 +255,14 @@ def pretrain_policy(
     config: BehaviorCloningConfig,
     seed: int,
     observation_provider: ObservationBatchProvider | None = None,
+    hierarchical_labels: HierarchicalTeacherLabels | None = None,
 ) -> BehaviorCloningResult:
-    """Fit actor-mean MSE with bounded batches and a chronological validation tail."""
+    """Fit legacy MSE or hierarchical BC with a chronological validation tail."""
 
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("behavior-cloning seed must be non-negative")
+    if hierarchical_labels is not None:
+        _validate_hierarchical_labels(dataset, hierarchical_labels)
     device = torch.device(policy.device)
     sample_count = dataset.sample_count
     validation_count = (
@@ -122,6 +284,30 @@ def pretrain_policy(
         device=device,
         provider=observation_provider,
     )
+    positive_class_weight = (
+        1.0
+        if hierarchical_labels is None
+        else _positive_class_weight(
+            hierarchical_labels,
+            train_indices,
+            maximum=config.max_positive_class_weight,
+        )
+    )
+    initial_hierarchical = (
+        None
+        if hierarchical_labels is None
+        else _evaluate_hierarchical(
+            policy,
+            dataset,
+            hierarchical_labels,
+            indices=all_indices,
+            batch_size=config.batch_size,
+            config=config,
+            positive_class_weight=positive_class_weight,
+            device=device,
+            provider=observation_provider,
+        )
+    )
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=config.learning_rate)
     generator = torch.Generator(device="cpu")
@@ -141,13 +327,24 @@ def pretrain_policy(
                 ),
                 device=device,
             )
-            actions = torch.as_tensor(
-                np.asarray(dataset.actions)[batch_indices],
-                dtype=torch.float32,
-                device=device,
-            )
-            mean = actor_mean(policy, observations)
-            loss = functional.mse_loss(mean, actions)
+            if hierarchical_labels is None:
+                actions = torch.as_tensor(
+                    np.asarray(dataset.actions)[batch_indices],
+                    dtype=torch.float32,
+                    device=device,
+                )
+                mean = actor_mean(policy, observations)
+                loss = functional.mse_loss(mean, actions)
+            else:
+                _, _, _, _, loss = _hierarchical_batch_losses(
+                    policy,
+                    observations,
+                    hierarchical_labels,
+                    batch_indices,
+                    config=config,
+                    positive_class_weight=positive_class_weight,
+                    device=device,
+                )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -155,14 +352,27 @@ def pretrain_policy(
             best_state = copy.deepcopy(policy.state_dict())
             best_epoch = epoch
             continue
-        validation_loss = _mean_squared_error(
-            policy,
-            dataset,
-            indices=validation_indices,
-            batch_size=config.batch_size,
-            device=device,
-            provider=observation_provider,
-        )
+        if hierarchical_labels is None:
+            validation_loss = _mean_squared_error(
+                policy,
+                dataset,
+                indices=validation_indices,
+                batch_size=config.batch_size,
+                device=device,
+                provider=observation_provider,
+            )
+        else:
+            validation_loss = _evaluate_hierarchical(
+                policy,
+                dataset,
+                hierarchical_labels,
+                indices=validation_indices,
+                batch_size=config.batch_size,
+                config=config,
+                positive_class_weight=positive_class_weight,
+                device=device,
+                provider=observation_provider,
+            ).losses.weighted
         if validation_loss + config.minimum_improvement < best_validation:
             best_validation = validation_loss
             best_state = copy.deepcopy(policy.state_dict())
@@ -194,6 +404,36 @@ def pretrain_policy(
             provider=observation_provider,
         )
     )
+    final_hierarchical = (
+        None
+        if hierarchical_labels is None
+        else _evaluate_hierarchical(
+            policy,
+            dataset,
+            hierarchical_labels,
+            indices=all_indices,
+            batch_size=config.batch_size,
+            config=config,
+            positive_class_weight=positive_class_weight,
+            device=device,
+            provider=observation_provider,
+        )
+    )
+    validation_hierarchical = (
+        None
+        if hierarchical_labels is None or validation_count == 0
+        else _evaluate_hierarchical(
+            policy,
+            dataset,
+            hierarchical_labels,
+            indices=validation_indices,
+            batch_size=config.batch_size,
+            config=config,
+            positive_class_weight=positive_class_weight,
+            device=device,
+            provider=observation_provider,
+        )
+    )
     return BehaviorCloningResult(
         initial_mse=initial_mse,
         final_mse=final_mse,
@@ -206,6 +446,29 @@ def pretrain_policy(
         validation_mse=validation_mse,
         validation_sample_count=validation_count,
         best_epoch=best_epoch,
+        hierarchical_label_digest=(
+            None
+            if hierarchical_labels is None
+            else hierarchical_labels.label_config_digest
+        ),
+        initial_hierarchical_losses=(
+            None if initial_hierarchical is None else initial_hierarchical.losses
+        ),
+        final_hierarchical_losses=(
+            None if final_hierarchical is None else final_hierarchical.losses
+        ),
+        validation_hierarchical_losses=(
+            None if validation_hierarchical is None else validation_hierarchical.losses
+        ),
+        initial_hierarchical_metrics=(
+            None if initial_hierarchical is None else initial_hierarchical.metrics
+        ),
+        final_hierarchical_metrics=(
+            None if final_hierarchical is None else final_hierarchical.metrics
+        ),
+        validation_hierarchical_metrics=(
+            None if validation_hierarchical is None else validation_hierarchical.metrics
+        ),
     )
 
 

@@ -32,6 +32,48 @@ jobs:
           base64 --decode .github/tmp/task8-full.patch.gz.b64 | gzip --decompress > /tmp/task8.patch
           git apply --check /tmp/task8.patch
           git apply /tmp/task8.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/serving/test_structured_policy_loader.py')
+          text = path.read_text(encoding='utf-8')
+          start = text.index('def _member(')
+          body = text.index('    sequence_architecture = {', start)
+          manifest = text.index('    manifest = StructuredExportManifest.build(', body)
+          replacement = '''    identity = _test_policy_identity(architecture, action_size=2)\n'''
+          text = text[:body] + replacement + text[manifest:]
+
+          helper = '''\n\ndef _test_policy_identity(\n    architecture: str, *, action_size: int = 2\n) -> dict[str, object]:\n    sequence_architecture = {\n        "action_names": tuple(\n            f"target_weight:{index}" for index in range(action_size)\n        ),\n        "schema_version": "test_sequence_architecture_v1",\n        "symbols": tuple(str(index) for index in range(action_size)),\n        "test_architecture_marker": architecture,\n    }\n    sequence_digest = content_digest(sequence_architecture)\n    current_weight = {\n        "bounds": (-1.0, 1.0),\n        "dtype": "float32",\n        "key": "current_weights",\n        "observation_schema": "native_timeframe_sequence_observation_v3",\n        "shape": (action_size,),\n        "source": "effective_book_weights",\n    }\n    policy_architecture = {\n        "actor_head": "hierarchical_gate_target_v1",\n        "current_weight_observation": current_weight,\n        "gate_temperature": 1.0,\n        "observation_encoder": "hierarchical_sequence_v2",\n        "schema_version": "hierarchical_gate_target_policy_v1",\n        "sequence_architecture_digest": sequence_digest,\n    }\n    return {\n        "actor_head": "hierarchical_gate_target_v1",\n        "current_weight_observation": current_weight,\n        "gate_temperature": 1.0,\n        "observation_encoder": "hierarchical_sequence_v2",\n        "policy_architecture_digest": content_digest(policy_architecture),\n        "schema_version": "sb3_policy_identity_v2",\n        "sequence_architecture": sequence_architecture,\n        "sequence_architecture_digest": sequence_digest,\n    }\n'''
+          insert_at = text.index('\ndef _member(')
+          text = text[:insert_at] + helper + text[insert_at:]
+          text = text.replace(
+              '        architecture_digest=identity["policy_architecture_digest"],',
+              '        architecture_digest=_test_policy_identity(architecture)[\n'
+              '            "policy_architecture_digest"\n'
+              '        ],',
+          )
+          text = text.replace(
+              '        expected_architecture_digest=architecture\n',
+              '        expected_architecture_digest=_test_policy_identity(architecture)[\n'
+              '            "policy_architecture_digest"\n'
+              '        ]\n',
+          )
+          text = text.replace(
+              '    assert snapshot.architecture_digest == architecture\n',
+              '    assert snapshot.architecture_digest == _test_policy_identity(architecture)[\n'
+              '        "policy_architecture_digest"\n'
+              '    ]\n',
+          )
+          text = text.replace(
+              '    assert payload["architecture_digest"] == architecture\n',
+              '    assert payload["architecture_digest"] == _test_policy_identity(architecture)[\n'
+              '        "policy_architecture_digest"\n'
+              '    ]\n',
+          )
+          if 'identity["policy_architecture_digest"]' in text:
+              raise RuntimeError('unscoped structured-loader identity reference remains')
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
       - name: Format and lint Task 8 files

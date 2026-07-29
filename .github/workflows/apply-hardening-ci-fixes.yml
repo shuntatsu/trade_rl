@@ -1,0 +1,58 @@
+name: Apply hardening CI fixes
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'agent/harden-data-bc-serving-contracts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Remove duplicate economic keywords
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('trade_rl/data/builder.py')
+          source = path.read_text(encoding='utf-8')
+          duplicate = '''            tick_size=tick_size,
+                      lot_size=lot_size,
+                      minimum_notional=minimum_notional,
+          '''
+          duplicate = duplicate.replace('          lot', '            lot').replace('          minimum', '            minimum')
+          if duplicate in source:
+              path.write_text(source.replace(duplicate, ''), encoding='utf-8')
+          PY
+      - name: Verify focused regression
+        run: |
+          uv sync --extra dev --extra postgres
+          uv run pytest tests/data/test_market_artifact_catalog.py tests/data/test_economic_semantics.py -q
+          uv run ruff check trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
+          uv run ruff format --check trade_rl/data/builder.py trade_rl/data/economic_semantics.py tests/data/test_economic_semantics.py
+      - name: Commit fix
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/data/builder.py
+          git commit -m 'fix: remove duplicate economic dataset keywords'
+          git push origin "HEAD:${HEAD_BRANCH}"

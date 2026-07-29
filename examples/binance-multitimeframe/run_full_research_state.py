@@ -89,11 +89,6 @@ def _absolute_artifact_path(raw: object, *, field: str) -> Path:
 
 def _normalize_selected_config(path: Path) -> TrainingRunConfig:
     payload = pipeline.load_json(path)
-    environment = payload.get("environment")
-    if not isinstance(environment, dict):
-        raise ValueError("selected training config environment is missing")
-    environment["liquidate_on_end"] = True
-    payload["environment"] = environment
     payload["resume_checkpoints"] = {}
     pipeline.write_json(path, payload)
     config = normalize_training_run_config(TrainingRunConfig.from_json(path))

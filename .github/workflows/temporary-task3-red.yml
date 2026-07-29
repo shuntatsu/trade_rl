@@ -1,37 +1,81 @@
-name: Temporary Task 3 RED
+name: Temporary Task 3 GREEN
 
 on:
   pull_request:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
-    if: github.head_ref == 'agent/hierarchical-bc-actor-design'
+  green:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/hierarchical-bc-actor-design'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout branch
+      - name: Checkout writable branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Apply Task 3 tests only
+      - name: Apply Task 3 implementation
         env:
-          TASK_PATCH_GZ_B64: H4sICA7naWoAA3Rhc2szLXRlc3RzLnBhdGNoAM1ZyZLbOBK96yswOokWxRKppaoUwwmPY+bQlz50R8ylooIBkaDEMRcNAZVLdvvfO7GQBLipVG5HjLxIJIFEIvO9xAMYJXGMFotDwhC+Y4Qyelem4kdQFmlanFmQkawoL87pgvbXWkySPCKvyH3cR/cb7DhxeE8e9h5yl8vtej1ZLBbXR5nM5/M3jPTxI1psVvYWzeH/RwSXEYmRaHwqi+gcsqTIA0r+dyZ5SGoDccJoEBZ5nBzOJYmUwSDEp5mFFv9AvxY52U1Q9ZliSgkLKMOMTHeInnBIqPOpeJ0t8pOT5LGNqm96xCfiz1Y2ch8sG0XsApfwME4LzFaeZWtWD2mxx+lNZjf2NaMYpvzSMrd0luAP/692r9/MvDYTnsuS5Cz4QpLDkVHTXtOOfxbum8w3nSp/v8uvuCgRSzISlzgjNgqLc85Qkssf1EkYyejM0tIhRkE+4lFOSX5gR/pUG3hWFiyBjfuV7Xpofr+1t6ufgY6wyCAsLACTSQZpjMCt6ncgaBDscfgZjJxORT3A/hzHpAz2F3Blps2LRxhyDoggJ+q73gO/IPkL9dc2wtLbKMn8lexjTRb8i4OzZHxq+Jwarvhofb8KXM8LHtyt0bjHbx95y2WwfnwM4Fsm67rlh+BxazYetLxZboIV0B+NNv57z2h3yLva64FbX26D1fZhguDPfDKvc23kQSWzhKQnJaEBeeWmTLjz5LMS7uv5ntcpghw3oCn24NMLlkjiT2eWbBqRVDZ3JHOeOpx6lg2/JOyIThwLzClxQgET/8Hpmfy7LIvSRjDD8Oh3Olu7hlC3Is6gr0Sdea+C4LpzX6DRa93WoKk/sngWtDy0gkxZUeIDEU4FgrNBovLxI3GvgvEOJtaet2PSF4+eWPTEwWpyzMdT2QPfVDn9VwKzbSx8+0wuO/TC0y/qIlza6hIqog6nqi6iJOat0N/8btH+PubDMCwb78xiv3ChzNdF3h0u8tYtwG6C9tdhujXVn4Vu4efriYRQgypUC3cggmv0AXnqH8RHBGqmLbYyf8lXYlTPAWs+2q5lu6r28W+gRy6xdM60AMAgfHWb1U0ckTEtWUnOtmsLHGuaiGctn/inBmHddAiITR9AZF4w3s0BbVMyytMxm9bUnVoGTOr7/+dzeut8qhzCJMApbRKznuTNe6c/RzNQLWjL5yMmJdBkjFIBpq52fj0wFF3Uv/i1qBMVsABCqgIMt0NOttoZXJb4Qjt6Jy6LDMHSGIFaSnnMyaEUNZg61eTMMVACkwI/NZnzC/fok3CIV7/fZPtPorktVJv3+MAl/Wrj2feVahut/NxLraD+kHT3bAj5X6/c3yfc9YLr/ZhoN6v3kDFhSAlzpa0Bx9+m7iYDcyBDp+4RfoDynq75D4/fieCH26/mpQ3OL2Wt0fNRd9OpA0pu+fpRpW9Db+gzyckXFCcpQVkRkWo/KnerS/lxHLJ92HrRvdim3kXk5S4/p6mxHb1lRA7npb1Ec9d2Nx6AeTIXHAqC+MxgdxEEFUNwDkyURrlqkky7nJL8ULX4Z37hT9RVfs4gCpgC0up7crGtL0FghUdl6nDJckyTc1ZZk9BohnoHqceYLLVfmAL/UPAbAUVNWQk7rqLcVfo4RmVzf0ZJCnSJSJhQzmzISgL+7TiR8kiUI0FzuMueoIutPXjWdIPqB6CF55iK57O21R7oO7AZ4NQAnmhlvySQpBx9MxVBU/qBFoGQZ5xsyrhmSTCO/7XAFUMBuFudud8bpaxK2gdYnUw212T+XWjhP0RZhmnyr24BlAKsVpttbVuVhPbOvb8sGMtgyy2UUOGCptxSStqtjKVLBXVAAbdCraeOvHbL43I5oEilIGhpuZ4S2a8R64Y0xyd6LNjYCQj/jCwn7uhpiAhMe/R+gL3LgQqBbR/c7bAPzcahhqVkvhr3g2qrdASXVxz+DJDmqkedVXqnJ9yEr13hQq8SvNx1mgmgj5WdnQGxsZZaCLVpaEGoxQWAvjObCvYS7Z3H9g/xTesNCxDUFNj+n87T7ubT1cepj7H0MPpm7ZWzMVqYMzEe2V0YaDOddQrUDaW6W1i7TNcK+NPT5vl5jNw9xG7d6WuskRuMfiVlQWecMAOkNQbsp6hhZph6lSW98OMomkkk7sY1sg63XX+U2+cnSpDwIZopaGY6hxi+GY8rwSjJF1xGTR93vDk5JRQEWCB2U7wNOHq1kwixLyRNNYr+OC0O/FB3399i/CiKgr4551HAyuQUsCNcHI61pquOqTA0oDg7pYR2jqeULPLrMlmdgNQLsIHlpeNtbNCFjgnqZrmVvTVE2CbzlF3LHOZpx49ulo46kFXO8sHJK1OGnAOBn/zkRZQ737Xq4dSOUrXThus7I3LUITxIC4lyz3qPFTF3bqXviEQahBs8ZaCDHWlb7k0DoB9OO0X82ohPUHuXz3ol1RKj5WUYi8otCbOWZ2FaUKJrLZmCa05p7lRmcwrFuh8pskkfC1mR+vxdj0Zm85aiwUd1KJfh8rNzwnynBtD/Wnk+m1aeweYuI5QC/KfVQE/aeUYL1IAC8LcLaV6p0VQ5PNU97rHAixjOe3nBjSQ57B/HbQz1FYi9Nrw73J+f+iR5bYBnzRo+3a52THJlCGKcpBIeVQXuWTWVZRVyEEysrDSPVmzedKyqbOgnqqKc1AVquKKYhbK1ASzJf0kIBTNLKAXgt2ctZtspj9pAvEbq415fZrTXKVrH3rcptxw7qwk0Z4DU+TD2jqUdPc2X21glBeI1at2qGkc4Nmqq9xR/gC26IahInO2ba0oWTfd8aaVvpY2upKu3cII8tI89rZ3F75r0/lkkUgjoKH5fbRdaGPJ1R9/ALvVWciQq2pFnP8WC5mVZ+31kp9XYu8lb2DTKnMGQde604yPWT15mqrJzzvkCkOAUeBUNvFC8rs60/Z7fyK23zdTwwJinEiDBgbBaKBrqoruBsSZ/AvKgYrR6IwAA
+          TASK_PATCH_GZ_B64: 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
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' "$TASK_PATCH_GZ_B64" | base64 --decode | gzip --decompress > /tmp/task3-tests.patch
-          git apply --check /tmp/task3-tests.patch
-          git apply /tmp/task3-tests.patch
+          printf '%s' "$TASK_PATCH_GZ_B64" | base64 --decode | gzip --decompress > /tmp/task3.patch
+          git apply --check /tmp/task3.patch
+          git apply /tmp/task3.patch
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
-      - name: Run Task 3 tests expecting RED
-        run: uv run pytest -q tests/integrations/test_compact_rollout_buffer.py tests/rl/test_rollout_memory.py
+      - name: Format and lint Task 3 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            trade_rl/integrations/compact_rollout_buffer.py
+            trade_rl/rl/rollout_memory.py
+            tests/integrations/test_compact_rollout_buffer.py
+            tests/rl/test_rollout_memory.py
+          )
+          uv run ruff format "${files[@]}"
+          uv run ruff check --fix "${files[@]}"
+          uv run ruff check "${files[@]}"
+      - name: Run Task 3 focused tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/integrations/test_compact_rollout_buffer.py \
+            tests/integrations/test_compact_rollout_performance.py \
+            tests/rl/test_rollout_memory.py \
+            2>&1 | tee task3-tests.log
+      - name: Commit verified Task 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl task executor"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            trade_rl/integrations/compact_rollout_buffer.py \
+            trade_rl/rl/rollout_memory.py \
+            tests/integrations/test_compact_rollout_buffer.py \
+            tests/rl/test_rollout_memory.py
+          git diff --cached --check
+          git commit -m "feat: preserve current weights in compact rollouts"
+          git push origin HEAD:${{ github.head_ref }}
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hierarchical-bc-task3-diagnostics
+          path: task3-tests.log
+          if-no-files-found: ignore

@@ -14,7 +14,7 @@ def _book() -> BookState:
     )
 
 
-def test_shadow_failure_truncates_without_terminating_policy_mdp() -> None:
+def test_shadow_failure_remains_diagnostic_for_policy_mdp() -> None:
     hybrid = _book()
     shadow = _book()
     shadow.terminate(EconomicTerminationReason.MINIMUM_EQUITY)
@@ -28,8 +28,8 @@ def test_shadow_failure_truncates_without_terminating_policy_mdp() -> None:
     )
 
     assert transition.terminated is False
-    assert transition.truncated is True
-    assert transition.reason == "shadow_minimum_equity"
+    assert transition.truncated is False
+    assert transition.reason is None
 
 
 def test_hybrid_failure_remains_a_true_policy_termination() -> None:

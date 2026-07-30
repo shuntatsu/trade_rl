@@ -101,3 +101,34 @@ def test_asset_encoder_is_permutation_equivariant() -> None:
 
     torch.testing.assert_close(permuted_tokens, tokens[:, permutation])
     torch.testing.assert_close(permuted_pooled, pooled)
+
+
+def test_all_inactive_fallback_does_not_expose_a_first_slot_identity() -> None:
+    torch.manual_seed(20260730)
+    encoder = MultiTimeframeAssetEncoder(_architecture()).eval()
+    inputs = _inputs()
+    sequences = inputs["sequences"]
+    available = inputs["available"]
+    staleness = inputs["staleness"]
+    snapshot = inputs["snapshot"]
+    asset_state = inputs["asset_state"]
+    active = inputs["active"]
+    assert isinstance(sequences, dict)
+    assert isinstance(available, dict)
+    assert isinstance(staleness, dict)
+    assert isinstance(snapshot, torch.Tensor)
+    assert isinstance(asset_state, torch.Tensor)
+    assert isinstance(active, torch.Tensor)
+
+    with torch.no_grad():
+        tokens, pooled = encoder(
+            sequences=sequences,
+            available=available,
+            staleness=staleness,
+            snapshot=snapshot,
+            asset_state=asset_state,
+            active=torch.zeros_like(active),
+        )
+
+    torch.testing.assert_close(tokens, torch.zeros_like(tokens))
+    torch.testing.assert_close(pooled, torch.zeros_like(pooled))

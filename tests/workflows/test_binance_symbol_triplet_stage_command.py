@@ -132,7 +132,9 @@ def test_completed_plan_returns_before_metadata_and_database(
     monkeypatch.setattr(
         module,
         "_resolve_metadata_for_request",
-        lambda *_args, **_kwargs: pytest.fail("completed plan must not resolve metadata"),
+        lambda *_args, **_kwargs: pytest.fail(
+            "completed plan must not resolve metadata"
+        ),
     )
     monkeypatch.setattr(
         module,
@@ -194,7 +196,9 @@ def test_active_command_persists_metadata_and_executes_postgres_stage(
         observed.update(kwargs)
         return sentinel
 
-    monkeypatch.setattr(module, "execute_binance_symbol_triplet_postgres_stage", execute)
+    monkeypatch.setattr(
+        module, "execute_binance_symbol_triplet_postgres_stage", execute
+    )
     monkeypatch.setenv("TRADE_RL_DATABASE_URL", "postgresql://example.invalid/trade_rl")
 
     result = module.execute_binance_symbol_triplet_stage_command(

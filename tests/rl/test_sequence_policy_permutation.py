@@ -28,12 +28,9 @@ def _architecture() -> SequencePolicyArchitecture:
 
 
 def _inputs() -> dict[str, object]:
-    sequences = {
-        timeframe: torch.randn(2, 3, 4, 3) for timeframe in _TIMEFRAMES
-    }
+    sequences = {timeframe: torch.randn(2, 3, 4, 3) for timeframe in _TIMEFRAMES}
     available = {
-        timeframe: torch.ones(2, 3, 4, dtype=torch.bool)
-        for timeframe in _TIMEFRAMES
+        timeframe: torch.ones(2, 3, 4, dtype=torch.bool) for timeframe in _TIMEFRAMES
     }
     return {
         "sequences": sequences,
@@ -52,9 +49,7 @@ def test_asset_encoder_has_no_slot_identity_parameters() -> None:
     encoder = MultiTimeframeAssetEncoder(_architecture())
 
     assert not hasattr(encoder, "symbol_embedding")
-    assert all(
-        "symbol_embedding" not in name for name, _ in encoder.named_parameters()
-    )
+    assert all("symbol_embedding" not in name for name, _ in encoder.named_parameters())
 
 
 def test_asset_encoder_is_permutation_equivariant() -> None:
@@ -85,15 +80,9 @@ def test_asset_encoder_is_permutation_equivariant() -> None:
             active=active,
         )
         permuted_tokens, permuted_pooled = encoder(
-            sequences={
-                key: value[:, permutation] for key, value in sequences.items()
-            },
-            available={
-                key: value[:, permutation] for key, value in available.items()
-            },
-            staleness={
-                key: value[:, permutation] for key, value in staleness.items()
-            },
+            sequences={key: value[:, permutation] for key, value in sequences.items()},
+            available={key: value[:, permutation] for key, value in available.items()},
+            staleness={key: value[:, permutation] for key, value in staleness.items()},
             snapshot=snapshot[:, permutation],
             asset_state=asset_state[:, permutation],
             active=active[:, permutation],

@@ -122,6 +122,8 @@ _REQUIRED_V3_TRAINING_FIELDS = frozenset(
         "behavior_cloning_max_activity_ratio",
         "behavior_cloning_min_causal_holdout_trades",
         "behavior_cloning_max_causal_holdout_regret",
+        "behavior_cloning_causal_holdout_bootstrap_resamples",
+        "behavior_cloning_causal_holdout_confidence_level",
     }
 )
 

@@ -955,6 +955,16 @@ class ResidualTrainingConfig:
                         self.behavior_cloning_max_causal_holdout_regret,
                         0.0,
                     ),
+                    (
+                        "behavior_cloning_causal_holdout_bootstrap_resamples",
+                        self.behavior_cloning_causal_holdout_bootstrap_resamples,
+                        2_000,
+                    ),
+                    (
+                        "behavior_cloning_causal_holdout_confidence_level",
+                        self.behavior_cloning_causal_holdout_confidence_level,
+                        0.95,
+                    ),
                 ),
                 context="behavior cloning disabled",
             )
@@ -1017,6 +1027,12 @@ class ResidualTrainingConfig:
             ),
             "behavior_cloning_max_causal_holdout_regret": (
                 self.behavior_cloning_max_causal_holdout_regret
+            ),
+            "behavior_cloning_causal_holdout_bootstrap_resamples": (
+                self.behavior_cloning_causal_holdout_bootstrap_resamples
+            ),
+            "behavior_cloning_causal_holdout_confidence_level": (
+                self.behavior_cloning_causal_holdout_confidence_level
             ),
             "buffer_size": self.buffer_size,
             "global_embedding_dim": self.global_embedding_dim,

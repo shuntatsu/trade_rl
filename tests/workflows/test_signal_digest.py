@@ -39,6 +39,8 @@ def _run(alpha_path: object) -> TrainingRunConfig:
                 "behavior_cloning_max_activity_ratio": 1.0,
                 "behavior_cloning_min_causal_holdout_trades": 0,
                 "behavior_cloning_max_causal_holdout_regret": 0.0,
+                "behavior_cloning_causal_holdout_bootstrap_resamples": 2_000,
+                "behavior_cloning_causal_holdout_confidence_level": 0.95,
             },
             "environment": {
                 "episode_bars": 4,

@@ -44,10 +44,14 @@ jobs:
 
           '''
           text = text[:start] + helper + text[end:]
-          old = '''if callable(
-                                  getattr(model.policy, "hierarchical_actor_outputs", None)
-                              )'''
-          new = '''if _uses_hierarchical_actor_head(model.policy)'''
+          old = (
+              "if callable(\n"
+              + " " * 28
+              + 'getattr(model.policy, "hierarchical_actor_outputs", None)\n'
+              + " " * 24
+              + ")"
+          )
+          new = "if _uses_hierarchical_actor_head(model.policy)"
           if text.count(old) != 1:
               raise SystemExit("direct BC routing expression did not match exactly once")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")

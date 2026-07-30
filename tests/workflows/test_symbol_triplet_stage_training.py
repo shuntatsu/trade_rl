@@ -158,6 +158,7 @@ def _write_config(path: Path) -> Path:
                 },
                 "action": {
                     "alpha_enabled": False,
+                    "mode": "target_weight",
                     "n_factors": 0,
                     "target_weight_count": 3,
                 },

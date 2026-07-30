@@ -51,7 +51,7 @@ jobs:
               raise SystemExit("Windows lock block changed")
           path.write_text(text.replace(old_block, new_block, 1), encoding="utf-8")
           PY
-          uv sync --extra dev
+          uv sync --extra dev --extra train-sb3
           uv run ruff format trade_rl/workflows/symbol_triplet_stage_orchestrator.py
           uv run ruff check trade_rl/workflows/symbol_triplet_stage_orchestrator.py
           uv run mypy trade_rl

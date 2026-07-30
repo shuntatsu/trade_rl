@@ -34,6 +34,7 @@ def test_one_bar_returns_are_vectorized_and_require_contiguous_rows() -> None:
 
     expected = np.zeros_like(close)
     expected[1, 0] = np.log(1.1)
+    expected[3, 1] = np.log(1.1)
     np.testing.assert_allclose(returns, expected)
     np.testing.assert_array_equal(
         available,

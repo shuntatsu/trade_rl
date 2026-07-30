@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 from copy import deepcopy
+import json
 from pathlib import Path
 
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
@@ -59,7 +59,9 @@ def test_action_head_ablation_walk_forward_resolves_exact_paired_candidates() ->
         "target-weight-gate-head-ppo",
         "target-weight-direct-head-ppo",
     )
-    assert tuple(candidate.run.training.policy_actor_head for candidate in config.candidates) == (
+    assert tuple(
+        candidate.run.training.policy_actor_head for candidate in config.candidates
+    ) == (
         "hierarchical_gate_target_v1",
         "shared_target_v1",
     )

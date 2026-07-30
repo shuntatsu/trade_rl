@@ -1,9 +1,9 @@
 name: Source Export PR301
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/export-pr301-source
+      - agent/export-pr301-base
 
 permissions:
   contents: read

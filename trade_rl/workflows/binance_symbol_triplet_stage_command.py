@@ -27,9 +27,9 @@ from trade_rl.workflows.binance_symbol_triplet_stage_runner import (
     current_binance_symbol_triplet_stage_request,
     execute_binance_symbol_triplet_postgres_stage,
 )
-from trade_rl.workflows.symbol_triplet_manifest import (
-    SymbolTripletManifest,
-    load_symbol_triplet_manifest,
+from trade_rl.workflows.symbol_disjoint_triplet_manifest import (
+    SymbolDisjointTripletManifest,
+    load_symbol_disjoint_triplet_manifest,
 )
 from trade_rl.workflows.symbol_triplet_stage_orchestrator import (
     SymbolTripletStageRequest,
@@ -208,7 +208,7 @@ def _postgres_connection(database_url: str) -> Iterator[Any]:
 
 
 def _manifest_universe(
-    manifest: SymbolTripletManifest | object,
+    manifest: SymbolDisjointTripletManifest | object,
     request: SymbolTripletStageRequest,
 ) -> tuple[str, ...]:
     raw = getattr(manifest, "universe", request.symbols)
@@ -236,7 +236,7 @@ def execute_binance_symbol_triplet_stage_command(
 ) -> object | None:
     """Execute exactly one active Plan/Cursor stage and return its result."""
 
-    manifest = load_symbol_triplet_manifest(manifest_path)
+    manifest = load_symbol_disjoint_triplet_manifest(manifest_path)
     plan = load_symbol_triplet_training_plan(plan_path, manifest=manifest)
     request = current_binance_symbol_triplet_stage_request(
         plan,

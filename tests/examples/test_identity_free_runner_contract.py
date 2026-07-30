@@ -44,3 +44,28 @@ def test_full_runner_identity_free_policy_observation_count_is_fixed() -> None:
     namespace = _runner_namespace()
 
     assert namespace["_EXPECTED_POLICY_OBSERVATIONS"] == 217_886
+
+
+def test_full_runner_activates_only_symbol_disjoint_train_triplets(
+    tmp_path: Path,
+) -> None:
+    from trade_rl.workflows.symbol_disjoint_manifest import (
+        load_symbol_disjoint_manifest,
+    )
+    from trade_rl.workflows.symbol_disjoint_triplet_manifest import (
+        load_symbol_disjoint_triplet_manifest,
+    )
+
+    namespace = _runner_namespace()
+    activate = namespace["activate_symbol_triplet"]
+    assert callable(activate)
+    selected = activate(work_root=tmp_path, seed=31, train_slot=83)
+    source = load_symbol_disjoint_manifest(tmp_path / "symbol-disjoint.json")
+    manifest = load_symbol_disjoint_triplet_manifest(
+        tmp_path / "symbol-triplets.json", source=source
+    )
+
+    assert len(manifest.slots_for("train")) == 84
+    assert set(selected.symbols) <= set(source.train_symbols)
+    assert set(selected.symbols).isdisjoint(source.validation_symbols)
+    assert set(selected.symbols).isdisjoint(source.test_symbols)

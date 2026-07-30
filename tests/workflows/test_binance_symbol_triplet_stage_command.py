@@ -118,7 +118,9 @@ def test_completed_plan_returns_before_metadata_and_database(
 ) -> None:
     import trade_rl.workflows.binance_symbol_triplet_stage_command as module
 
-    monkeypatch.setattr(module, "load_symbol_triplet_manifest", lambda _: object())
+    monkeypatch.setattr(
+        module, "load_symbol_disjoint_triplet_manifest", lambda _: object()
+    )
     monkeypatch.setattr(
         module,
         "load_symbol_triplet_training_plan",
@@ -169,7 +171,9 @@ def test_active_command_persists_metadata_and_executes_postgres_stage(
     sentinel = object()
     observed: dict[str, Any] = {}
 
-    monkeypatch.setattr(module, "load_symbol_triplet_manifest", lambda _: object())
+    monkeypatch.setattr(
+        module, "load_symbol_disjoint_triplet_manifest", lambda _: object()
+    )
     monkeypatch.setattr(
         module,
         "load_symbol_triplet_training_plan",
@@ -247,7 +251,9 @@ def test_missing_database_url_fails_after_metadata_resolution(
     import trade_rl.workflows.binance_symbol_triplet_stage_command as module
 
     request = _request()
-    monkeypatch.setattr(module, "load_symbol_triplet_manifest", lambda _: object())
+    monkeypatch.setattr(
+        module, "load_symbol_disjoint_triplet_manifest", lambda _: object()
+    )
     monkeypatch.setattr(
         module,
         "load_symbol_triplet_training_plan",
@@ -274,6 +280,32 @@ def test_missing_database_url_fails_after_metadata_resolution(
             work_root=tmp_path / "work",
             cache_root=tmp_path / "cache",
             metadata_mode=BinanceMetadataMode.FROZEN_SNAPSHOT,
+            start_time=_START,
+            end_time=_END,
+        )
+
+
+def test_stage_a_command_rejects_legacy_all_symbol_triplet_manifest(
+    tmp_path: Path,
+) -> None:
+    import trade_rl.workflows.binance_symbol_triplet_stage_command as module
+    from trade_rl.workflows.symbol_triplet_manifest import (
+        write_symbol_triplet_manifest,
+    )
+
+    legacy_path = write_symbol_triplet_manifest(
+        tmp_path / "legacy-manifest.json",
+        build_symbol_triplet_manifest(_SYMBOLS, seed=31),
+    )
+    with pytest.raises(ValueError, match="field closure|symbol-disjoint"):
+        module.execute_binance_symbol_triplet_stage_command(
+            manifest_path=legacy_path,
+            plan_path=tmp_path / "plan.json",
+            cursor_path=tmp_path / "cursor.json",
+            base_config_path=tmp_path / "config.json",
+            work_root=tmp_path / "work",
+            cache_root=tmp_path / "cache",
+            metadata_mode=BinanceMetadataMode.HISTORICAL_SIGNED,
             start_time=_START,
             end_time=_END,
         )

@@ -201,3 +201,34 @@ def test_plan_rejects_non_positive_cycles() -> None:
             cycles=0,
             slot_symbols=_SLOT_SYMBOLS,
         )
+
+
+def test_plan_derives_cycle_size_from_symbol_disjoint_train_manifest() -> None:
+    from trade_rl.workflows.symbol_disjoint_manifest import (
+        build_symbol_disjoint_manifest,
+    )
+    from trade_rl.workflows.symbol_disjoint_triplet_manifest import (
+        build_symbol_disjoint_triplet_manifest,
+    )
+
+    source = build_symbol_disjoint_manifest(
+        _SYMBOLS,
+        seed=20260731,
+        validation_count=3,
+        test_count=3,
+    )
+    manifest = build_symbol_disjoint_triplet_manifest(source)
+    plan = build_symbol_triplet_training_plan(
+        manifest,
+        cycles=2,
+        slot_symbols=_SLOT_SYMBOLS,
+    )
+
+    assert plan.stage_count == 168
+    assert tuple(stage.symbols for stage in plan.stages[:84]) == tuple(
+        slot.symbols for slot in manifest.slots_for("train")
+    )
+    assert tuple(stage.symbols for stage in plan.stages[84:]) == tuple(
+        slot.symbols for slot in manifest.slots_for("train")
+    )
+    assert all(set(stage.symbols) <= set(source.train_symbols) for stage in plan.stages)

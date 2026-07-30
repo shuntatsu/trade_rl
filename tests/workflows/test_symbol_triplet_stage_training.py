@@ -160,6 +160,7 @@ def _write_config(path: Path) -> Path:
                     "alpha_enabled": False,
                     "mode": "target_weight",
                     "n_factors": 0,
+                    "risk_tilt_enabled": False,
                     "target_weight_count": 3,
                 },
                 "exports": {

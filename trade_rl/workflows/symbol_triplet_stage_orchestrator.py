@@ -36,7 +36,9 @@ class _WindowsFileLockApi(Protocol):
     LK_LOCK: int
     LK_UNLCK: int
 
-    def locking(self, file_descriptor: int, mode: int, byte_count: int, /) -> None: ...
+    def locking(
+        self, _file_descriptor: int, _mode: int, _byte_count: int, /
+    ) -> None: ...
 
 
 def _non_negative_integer(value: object, *, field: str) -> int:

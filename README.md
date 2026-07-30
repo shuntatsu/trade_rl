@@ -62,7 +62,7 @@ Flat observationの正本は`baseline_residual_observation_v5`、Serving bundle�
 
 ## Observation encoder
 
-`training_run_config_v2`では、`observation_encoder`を1つだけ選びます。
+`training_run_config_v3`では、`observation_encoder`を1つだけ選びます。
 
 | 値 | 用途 |
 |---|---|
@@ -114,7 +114,7 @@ TensorBoard診断では、損失やKLに加えて、時間足Attention比率、A
 
 ## ServingとExport
 
-Flat policyのExportと、構造化系列PolicyのExportは別契約です。`hierarchical_sequence_v2`は`structured_policy_export_v1`を使い、Canonical input順、Shape、Dtype、Parity corpus、Policy identity、Architecture digestをManifestへ固定します。
+Flat policyのExportと、構造化系列PolicyのExportは別契約です。`hierarchical_sequence_v2`は`structured_policy_export_v2`を使い、Canonical input順、Shape、Dtype、Parity corpus、Policy identity、Architecture digestをManifestへ固定します。
 
 Serving bundleの正本は`serving_bundle_v5`です。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、Architecture digestが一致しない場合、Policy実行前にFail closedします。
 

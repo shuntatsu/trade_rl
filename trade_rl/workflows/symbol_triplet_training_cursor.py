@@ -205,7 +205,9 @@ class SymbolTripletTrainingPlan:
             raise ValueError("symbol-triplet training plan stage count mismatch")
         for stage_index, stage in enumerate(self.stages):
             if stage.stage_index != stage_index:
-                raise ValueError("symbol-triplet training stage indices must be contiguous")
+                raise ValueError(
+            "symbol-triplet training stage indices must be contiguous"
+        )
             if stage.cycle_index != stage_index // train_count:
                 raise ValueError("symbol-triplet training cycle index mismatch")
             if stage.train_split_slot != stage_index % train_count:
@@ -325,7 +327,9 @@ class SymbolTripletTrainingCursor:
             raise ValueError("training cursor next stage is outside the plan")
         if next_stage_index == 0:
             if self.last_completed_stage_id is not None:
-                raise ValueError("initial training cursor cannot have a completed stage")
+                raise ValueError(
+            "initial training cursor cannot have a completed stage"
+        )
         else:
             if self.last_completed_stage_id is None:
                 raise ValueError("advanced training cursor requires a completed stage")

@@ -54,6 +54,7 @@ def test_action_head_ablation_walk_forward_resolves_exact_paired_candidates() ->
     ]
 
     config = MarketWalkForwardConfig.from_json(_WALK_FORWARD, n_bars=55_392)
+    assert len(config.workflow.build_folds()) == 6
     assert tuple(candidate.name for candidate in config.candidates) == (
         "target-weight-gate-head-ppo",
         "target-weight-direct-head-ppo",

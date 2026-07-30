@@ -182,7 +182,15 @@ def _parse_bool(value: str | None, *, default: bool) -> bool:
 class CsvMarketDataSource:
     """Read one maintained real-data CSV file per symbol."""
 
-    _REQUIRED = ("timestamp", "open", "high", "low", "close", "volume")
+    _REQUIRED = (
+        "timestamp",
+        "available_at",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
@@ -212,12 +220,7 @@ class CsvMarketDataSource:
                 try:
                     event_timestamp = _parse_timestamp(row["timestamp"])
                     timestamps.append(event_timestamp)
-                    raw_available_at = row.get("available_at")
-                    available_at.append(
-                        event_timestamp
-                        if raw_available_at is None or not raw_available_at.strip()
-                        else _parse_timestamp(raw_available_at)
-                    )
+                    available_at.append(_parse_timestamp(row["available_at"]))
                     open_price.append(float(row["open"]))
                     high.append(float(row["high"]))
                     low.append(float(row["low"]))

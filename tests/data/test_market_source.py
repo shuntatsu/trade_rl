@@ -45,9 +45,9 @@ def test_csv_source_reads_optional_columns_and_unix_milliseconds(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "BTCUSDT.csv").write_text(
-        "timestamp,open,high,low,close,volume,funding_rate,tradable\n"
-        "1767225600000,100,102,99,101,12,0.0001,true\n"
-        "1767229200000,101,103,100,102,13,,false\n",
+        "timestamp,available_at,open,high,low,close,volume,funding_rate,tradable\n"
+        "1767225600000,1767225600000,100,102,99,101,12,0.0001,true\n"
+        "1767229200000,1767229200000,101,103,100,102,13,,false\n",
         encoding="utf-8",
     )
     source = CsvMarketDataSource(tmp_path)
@@ -57,6 +57,16 @@ def test_csv_source_reads_optional_columns_and_unix_milliseconds(
     assert series.timestamps.dtype == np.dtype("datetime64[ns]")
     np.testing.assert_allclose(series.funding_rate, [0.0001, 0.0])
     np.testing.assert_array_equal(series.tradable, [True, False])
+
+
+def test_csv_source_requires_explicit_available_at(tmp_path: Path) -> None:
+    (tmp_path / "BTCUSDT.csv").write_text(
+        "timestamp,open,high,low,close,volume\n1767225600000,100,102,99,101,12\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="available_at"):
+        CsvMarketDataSource(tmp_path).load("BTCUSDT")
 
 
 def test_csv_source_requires_one_file_per_symbol(tmp_path: Path) -> None:

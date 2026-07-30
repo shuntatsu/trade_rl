@@ -167,10 +167,9 @@ class TrainingRunConfig:
 
     def __post_init__(self) -> None:
         if not self.environment.require_full_reward_preroll:
-            object.__setattr__(
-                self,
-                "environment",
-                replace(self.environment, require_full_reward_preroll=True),
+            raise ValueError(
+                "training requires require_full_reward_preroll=true; "
+                "configuration is not rewritten implicitly"
             )
         if self.environment.resolved_reward_config() != self.reward:
             raise ValueError("environment reward configuration differs from run reward")
@@ -293,9 +292,10 @@ class TrainingRunConfig:
             field="execution",
         )
         execution = ExecutionCostConfig(**execution_data)
+        environment_mapping = _mapping(payload["environment"], field="environment")
         environment_data = _tuple_fields(
             require_dataclass_fields(
-                _mapping(payload["environment"], field="environment"),
+                environment_mapping,
                 ResidualMarketEnvConfig,
                 field="environment",
                 excluded={"reward_config", "reward", "execution_cost"},
@@ -304,6 +304,8 @@ class TrainingRunConfig:
             "initial_state_modes",
             "sequence_windows",
         )
+        if "require_full_reward_preroll" not in environment_mapping:
+            environment_data["require_full_reward_preroll"] = True
         emergency_risk_data = require_dataclass_fields(
             _mapping(
                 environment_data.pop("emergency_risk", {}),

@@ -52,7 +52,6 @@ def test_result_payload_distinguishes_complete_and_published_stage() -> None:
 
 
 def test_main_passes_paths_and_prints_one_json_object(
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
@@ -63,7 +62,6 @@ def test_main_passes_paths_and_prints_one_json_object(
         observed.update(kwargs)
         return None
 
-    namespace["execute_binance_symbol_triplet_stage_command"] = execute
     exit_code = namespace["main"](
         [
             "--manifest-path",
@@ -84,7 +82,8 @@ def test_main_passes_paths_and_prints_one_json_object(
             "2024-12-01T00:00:00Z",
             "--end-time",
             "2026-07-01T00:00:00Z",
-        ]
+        ],
+        execute=execute,
     )
 
     assert exit_code == 0

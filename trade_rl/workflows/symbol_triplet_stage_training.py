@@ -190,7 +190,9 @@ def _write_immutable(path: Path, payload: bytes, *, field: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         if not path.is_file() or path.read_bytes() != payload:
-            raise FileExistsError(f"{field} already exists with different content: {path}")
+            raise FileExistsError(
+                f"{field} already exists with different content: {path}"
+            )
         return path
     temporary = path.with_name(f".{path.name}.tmp")
     try:

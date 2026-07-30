@@ -124,3 +124,18 @@ Dataset生成成功は、取引戦略の有効性やProduction readinessを意�
 ### Raw archive content evidence
 
 Vision archive cacheはpayloadだけを信用しません。各`.bin`に`binance_vision_raw_cache_v1` sidecarを併置し、URL、取得時刻、byte数、SHA-256、ETag、Last-Modified、downloader identityを固定します。再利用時はbyte列を再hashし、sidecar欠落、size不一致、digest不一致をfail closedします。
+
+## Action-head ablation
+
+The maintained Gate-versus-direct target-weight comparison is declared by
+`examples/binance-multitimeframe/walk-forward-action-head-ablation.json`.
+Its two `run_file` candidates are required by regression test to differ only in
+`training.policy_actor_head`; folds, seeds, Oracle teacher, encoder, PPO, reward,
+risk, execution costs, and stress scenarios remain identical.
+
+Run the same market walk-forward command used for the other canonical profiles,
+substituting `walk-forward-action-head-ablation.json` as the configuration file.
+Compare net return, baseline uplift, maximum drawdown, turnover, cost, action-stage
+L1 metrics, and seed dispersion. This experiment does not authorize live exchange
+routing.
+

@@ -22,12 +22,19 @@ SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v4"
 LEGACY_SB3_POLICY_IDENTITY_SCHEMAS: Final = frozenset(
     {"sb3_policy_identity_v2", "sb3_policy_identity_v3"}
 )
-POLICY_ARCHITECTURE_SCHEMA: Final = "hierarchical_gate_target_policy_v3"
+HIERARCHICAL_POLICY_ARCHITECTURE_SCHEMA: Final = "hierarchical_gate_target_policy_v3"
+DIRECT_POLICY_ARCHITECTURE_SCHEMA: Final = "direct_target_weight_policy_v1"
 HIERARCHICAL_EXPLORATION_SCHEMA: Final = "hierarchical_exploration_v1"
+DIRECT_EXPLORATION_SCHEMA: Final = "direct_target_weight_exploration_v1"
 HIERARCHICAL_ACTION_DISTRIBUTION: Final = "masked_shared_squashed_diag_gaussian_v1"
 HIERARCHICAL_EXPLORATION_COUPLING: Final = "post_composition_gate_independent_v1"
+DIRECT_EXPLORATION_COUPLING: Final = "direct_target_mean_v1"
 HIERARCHICAL_LOG_STD_PARAMETERIZATION: Final = "shared_scalar_v1"
 HIERARCHICAL_ACTOR_HEAD: Final = "hierarchical_gate_target_v1"
+DIRECT_ACTOR_HEAD: Final = "shared_target_v1"
+SUPPORTED_SEQUENCE_ACTOR_HEADS: Final = frozenset(
+    {HIERARCHICAL_ACTOR_HEAD, DIRECT_ACTOR_HEAD}
+)
 CURRENT_WEIGHT_KEY: Final = "current_weights"
 _SEQUENCE_ARCHITECTURE_SCHEMA: Final = "hierarchical_sequence_policy_v4"
 _SEQUENCE_ASSET_BINDING_SCHEMA: Final = "sequence_asset_binding_v1"
@@ -105,44 +112,63 @@ def _validated_current_weight_identity(
     return expected
 
 
-def _hierarchical_exploration_payload() -> dict[str, object]:
-    return {
-        "action_distribution": HIERARCHICAL_ACTION_DISTRIBUTION,
-        "change_intensity_coupling": HIERARCHICAL_EXPLORATION_COUPLING,
-        "log_std_parameterization": HIERARCHICAL_LOG_STD_PARAMETERIZATION,
-        "state_dependent_noise": False,
-        "schema_version": HIERARCHICAL_EXPLORATION_SCHEMA,
-        "squashing": "tanh",
-    }
+def _exploration_payload(actor_head: str) -> dict[str, object]:
+    if actor_head == HIERARCHICAL_ACTOR_HEAD:
+        return {
+            "action_distribution": HIERARCHICAL_ACTION_DISTRIBUTION,
+            "change_intensity_coupling": HIERARCHICAL_EXPLORATION_COUPLING,
+            "log_std_parameterization": HIERARCHICAL_LOG_STD_PARAMETERIZATION,
+            "state_dependent_noise": False,
+            "schema_version": HIERARCHICAL_EXPLORATION_SCHEMA,
+            "squashing": "tanh",
+        }
+    if actor_head == DIRECT_ACTOR_HEAD:
+        return {
+            "action_distribution": HIERARCHICAL_ACTION_DISTRIBUTION,
+            "log_std_parameterization": HIERARCHICAL_LOG_STD_PARAMETERIZATION,
+            "mean_coupling": DIRECT_EXPLORATION_COUPLING,
+            "state_dependent_noise": False,
+            "schema_version": DIRECT_EXPLORATION_SCHEMA,
+            "squashing": "tanh",
+        }
+    raise ValueError("unsupported sequence actor-head identity")
 
 
-def _validated_hierarchical_exploration(value: object) -> dict[str, object]:
+def _validated_exploration(value: object, *, actor_head: str) -> dict[str, object]:
     if not isinstance(value, Mapping):
-        raise ValueError("hierarchical exploration identity is missing")
+        raise ValueError("target-weight exploration identity is missing")
     observed = dict(value)
-    expected = _hierarchical_exploration_payload()
+    expected = _exploration_payload(actor_head)
     if observed != expected:
-        raise ValueError("hierarchical exploration identity mismatch")
+        raise ValueError("target-weight exploration identity mismatch")
     return expected
 
 
-def _actual_hierarchical_exploration(policy: object) -> dict[str, object]:
+def _actual_exploration(policy: object, *, actor_head: str) -> dict[str, object]:
     distribution = getattr(policy, "action_distribution_name", None)
     if distribution not in _INTERNAL_ACTION_DISTRIBUTION_NAMES:
-        raise ValueError("hierarchical action distribution identity mismatch")
+        raise ValueError("target-weight action distribution identity mismatch")
     log_std = getattr(policy, "log_std", None)
     shape = tuple(getattr(log_std, "shape", ()))
     if shape != (1,):
-        raise ValueError("hierarchical actor requires shared scalar log_std")
+        raise ValueError("target-weight actor requires shared scalar log_std")
     if getattr(policy, "use_sde", None) is not False:
-        raise ValueError("hierarchical actor does not support gSDE")
-    return _hierarchical_exploration_payload()
+        raise ValueError("target-weight actor does not support gSDE")
+    return _exploration_payload(actor_head)
+
+
+def _policy_architecture_schema(actor_head: str) -> str:
+    if actor_head == HIERARCHICAL_ACTOR_HEAD:
+        return HIERARCHICAL_POLICY_ARCHITECTURE_SCHEMA
+    if actor_head == DIRECT_ACTOR_HEAD:
+        return DIRECT_POLICY_ARCHITECTURE_SCHEMA
+    raise ValueError("unsupported sequence actor-head identity")
 
 
 def _policy_architecture_payload(
     *,
     actor_head: str,
-    gate_temperature: float,
+    gate_temperature: float | None,
     sequence_architecture_digest: str,
     current_weight_observation: Mapping[str, object],
     exploration_contract: Mapping[str, object],
@@ -153,7 +179,7 @@ def _policy_architecture_payload(
         "exploration_contract": dict(exploration_contract),
         "gate_temperature": gate_temperature,
         "observation_encoder": "hierarchical_sequence_v2",
-        "schema_version": POLICY_ARCHITECTURE_SCHEMA,
+        "schema_version": _policy_architecture_schema(actor_head),
         "sequence_architecture_digest": sequence_architecture_digest,
     }
 
@@ -231,16 +257,21 @@ def _validated_payload(value: object) -> dict[str, object]:
         payload["asset_binding"] = binding.digest_payload()
         payload["asset_binding_digest"] = binding.digest
         actor_head = payload.get("actor_head")
-        if actor_head != HIERARCHICAL_ACTOR_HEAD:
-            raise ValueError("hierarchical actor-head identity mismatch")
-        temperature = _positive_temperature(
-            payload.get("gate_temperature"), field="gate_temperature"
-        )
+        if actor_head not in SUPPORTED_SEQUENCE_ACTOR_HEADS:
+            raise ValueError("sequence actor-head identity mismatch")
+        if actor_head == HIERARCHICAL_ACTOR_HEAD:
+            temperature: float | None = _positive_temperature(
+                payload.get("gate_temperature"), field="gate_temperature"
+            )
+        else:
+            if payload.get("gate_temperature") is not None:
+                raise ValueError("direct actor gate temperature must be null")
+            temperature = None
         current_weight = _validated_current_weight_identity(
             payload.get("current_weight_observation"), n_symbols=n_symbols
         )
-        exploration = _validated_hierarchical_exploration(
-            payload.get("exploration_contract")
+        exploration = _validated_exploration(
+            payload.get("exploration_contract"), actor_head=actor_head
         )
         payload["current_weight_observation"] = current_weight
         payload["exploration_contract"] = exploration
@@ -316,25 +347,39 @@ def bind_sb3_policy_identity(model: Any, assembly: object) -> dict[str, object]:
         policy = getattr(model, "policy", None)
         actual_head = getattr(policy, "shared_actor_head", None)
         expected_head = getattr(assembly, "policy_actor_head", None)
-        if actual_head != HIERARCHICAL_ACTOR_HEAD or expected_head != actual_head:
-            raise ValueError("hierarchical actor-head assembly identity mismatch")
-        actual_temperature = _positive_temperature(
+        if (
+            actual_head not in SUPPORTED_SEQUENCE_ACTOR_HEADS
+            or expected_head != actual_head
+        ):
+            raise ValueError("sequence actor-head assembly identity mismatch")
+        actual_raw_temperature = _positive_temperature(
             getattr(policy, "shared_actor_gate_temperature", None),
             field="model gate temperature",
         )
-        expected_temperature = _positive_temperature(
+        expected_raw_temperature = _positive_temperature(
             getattr(assembly, "hierarchical_gate_temperature", None),
             field="assembly gate temperature",
         )
         if not math.isclose(
-            actual_temperature, expected_temperature, rel_tol=0.0, abs_tol=1e-12
+            actual_raw_temperature,
+            expected_raw_temperature,
+            rel_tol=0.0,
+            abs_tol=1e-12,
         ):
-            raise ValueError("hierarchical gate-temperature assembly identity mismatch")
+            raise ValueError("gate-temperature assembly identity mismatch")
+        if actual_head == DIRECT_ACTOR_HEAD:
+            if not math.isclose(
+                actual_raw_temperature, 1.0, rel_tol=0.0, abs_tol=1e-12
+            ):
+                raise ValueError("direct actor gate temperature must remain inactive")
+            gate_temperature: float | None = None
+        else:
+            gate_temperature = actual_raw_temperature
         current_weight = current_weight_observation_identity(architecture.n_symbols)
-        exploration = _actual_hierarchical_exploration(policy)
+        exploration = _actual_exploration(policy, actor_head=actual_head)
         policy_architecture = _policy_architecture_payload(
             actor_head=actual_head,
-            gate_temperature=actual_temperature,
+            gate_temperature=gate_temperature,
             sequence_architecture_digest=identity.digest,
             current_weight_observation=current_weight,
             exploration_contract=exploration,
@@ -346,7 +391,7 @@ def bind_sb3_policy_identity(model: Any, assembly: object) -> dict[str, object]:
                 "asset_binding_digest": binding.digest,
                 "current_weight_observation": current_weight,
                 "exploration_contract": exploration,
-                "gate_temperature": actual_temperature,
+                "gate_temperature": gate_temperature,
                 "policy_architecture_digest": content_digest(policy_architecture),
                 "sequence_architecture": identity.digest_payload(),
                 "sequence_architecture_digest": identity.digest,
@@ -396,15 +441,20 @@ def validate_model_sb3_policy_identity(
 
 __all__ = [
     "CURRENT_WEIGHT_KEY",
+    "DIRECT_ACTOR_HEAD",
+    "DIRECT_EXPLORATION_COUPLING",
+    "DIRECT_EXPLORATION_SCHEMA",
+    "DIRECT_POLICY_ARCHITECTURE_SCHEMA",
     "HIERARCHICAL_ACTION_DISTRIBUTION",
     "HIERARCHICAL_ACTOR_HEAD",
     "HIERARCHICAL_EXPLORATION_COUPLING",
     "HIERARCHICAL_EXPLORATION_SCHEMA",
     "HIERARCHICAL_LOG_STD_PARAMETERIZATION",
+    "HIERARCHICAL_POLICY_ARCHITECTURE_SCHEMA",
     "LEGACY_SB3_POLICY_IDENTITY_SCHEMAS",
-    "POLICY_ARCHITECTURE_SCHEMA",
     "SB3_POLICY_IDENTITY_ATTRIBUTE",
     "SB3_POLICY_IDENTITY_SCHEMA",
+    "SUPPORTED_SEQUENCE_ACTOR_HEADS",
     "bind_sb3_policy_identity",
     "current_weight_observation_identity",
     "model_sb3_policy_identity",

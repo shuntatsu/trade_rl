@@ -1,0 +1,84 @@
+{
+  "candidates": [
+    {
+      "name": "target-weight-gate-head-ppo",
+      "run_file": "training-action-head-ablation-gate.json"
+    },
+    {
+      "name": "target-weight-direct-head-ppo",
+      "run_file": "training-action-head-ablation-direct.json"
+    }
+  ],
+  "checkpoint_finalists_per_seed": 1,
+  "execution_sensitivity": {
+    "maximum_drawdown": 0.2,
+    "minimum_baseline_uplift": 0.0,
+    "minimum_selected_return": 0.0,
+    "required_scenario": "joint_2x",
+    "scenarios": [
+      {
+        "adverse_tick_rounding": false,
+        "name": "nominal"
+      },
+      {
+        "adverse_tick_rounding": true,
+        "name": "tick_2x",
+        "tick_size_factor": 2.0
+      },
+      {
+        "adverse_tick_rounding": true,
+        "lot_size_factor": 2.0,
+        "name": "lot_2x"
+      },
+      {
+        "adverse_tick_rounding": true,
+        "minimum_notional_factor": 2.0,
+        "name": "minimum_notional_2x"
+      },
+      {
+        "adverse_tick_rounding": true,
+        "lot_size_factor": 2.0,
+        "minimum_notional_factor": 2.0,
+        "name": "joint_2x",
+        "tick_size_factor": 2.0
+      },
+      {
+        "adverse_tick_rounding": true,
+        "lot_size_factor": 5.0,
+        "minimum_notional_factor": 5.0,
+        "name": "joint_5x",
+        "report_only": true,
+        "tick_size_factor": 5.0
+      },
+      {
+        "adverse_tick_rounding": true,
+        "lot_size_factor": 3.0,
+        "minimum_notional_factor": 3.0,
+        "name": "joint_3x",
+        "report_only": true,
+        "tick_size_factor": 3.0
+      }
+    ],
+    "schema_version": "execution_sensitivity_config_v1"
+  },
+  "maximum_seed_score_std": 0.1,
+  "maximum_selection_cost_fraction": 0.03,
+  "maximum_selection_drawdown": 0.2,
+  "maximum_selection_turnover_per_day": 1.0,
+  "minimum_seed_success_fraction": 0.6666666666666666,
+  "minimum_selection_score": 0.0,
+  "minimum_selection_uplift": 0.001,
+  "minimum_worst_seed_uplift": 0.0,
+  "schema_version": "market_walk_forward_config_v1",
+  "sealed_test_ledger_mode": "durable_postgres",
+  "workflow": {
+    "checkpoint_bars": 2880,
+    "expanding_train": true,
+    "max_folds": 6,
+    "purge_bars": 192,
+    "selection_bars": 2880,
+    "step_bars": 2880,
+    "test_bars": 2880,
+    "train_bars": 20000
+  }
+}

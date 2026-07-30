@@ -464,14 +464,20 @@ class ResidualTrainingConfig:
             )
         if not isinstance(actor_head, str):
             raise ValueError("policy_actor_head must be a string")
-        expected_actor_head = (
-            "hierarchical_gate_target_v1"
-            if sequence_active
-            else "standard_continuous_v1"
-        )
-        if actor_head != expected_actor_head:
+        sequence_actor_heads = {
+            "hierarchical_gate_target_v1",
+            "shared_target_v1",
+        }
+        if sequence_active:
+            if actor_head not in sequence_actor_heads:
+                raise ValueError(
+                    "policy_actor_head must be hierarchical_gate_target_v1 or "
+                    "shared_target_v1 for observation_encoder="
+                    f"{encoder}"
+                )
+        elif actor_head != "standard_continuous_v1":
             raise ValueError(
-                f"policy_actor_head must be {expected_actor_head} for "
+                "policy_actor_head must be standard_continuous_v1 for "
                 f"observation_encoder={encoder}"
             )
         object.__setattr__(self, "policy_actor_head", actor_head)
@@ -481,6 +487,14 @@ class ResidualTrainingConfig:
         ):
             raise ValueError(
                 "hierarchical_gate_temperature must be finite and positive"
+            )
+        if (
+            actor_head == "shared_target_v1"
+            and self.hierarchical_gate_temperature != 1.0
+        ):
+            raise ValueError(
+                "hierarchical_gate_temperature is inactive for "
+                "policy_actor_head=shared_target_v1"
             )
         if not sequence_active and self.hierarchical_gate_temperature != 1.0:
             raise ValueError(

@@ -85,19 +85,34 @@ def build_tensorboard_metrics_callback(
             hierarchical_effective_indices: set[int] = set()
             if self.n_calls % log_interval == 0:
                 observations = self.locals.get("obs_tensor")
-                output_factory = getattr(
-                    getattr(self.model, "policy", None),
-                    "hierarchical_actor_outputs",
-                    None,
-                )
+                policy = getattr(self.model, "policy", None)
+                output_factory = getattr(policy, "action_stage_outputs", None)
+                if not callable(output_factory):
+                    output_factory = getattr(
+                        policy,
+                        "hierarchical_actor_outputs",
+                        None,
+                    )
                 if observations is not None and callable(output_factory):
                     import torch
 
                     with torch.no_grad():
                         outputs = output_factory(observations)
-                    intensity = outputs.change_intensity.detach().cpu().numpy()
+                    raw_intensity = getattr(outputs, "change_intensity", None)
+                    intensity = (
+                        None
+                        if raw_intensity is None
+                        else raw_intensity.detach().cpu().numpy()
+                    )
                     current = outputs.current_weights.detach().cpu().numpy()
-                    deterministic = outputs.composed_actions.detach().cpu().numpy()
+                    raw_deterministic = getattr(
+                        outputs,
+                        "deterministic_actions",
+                        getattr(outputs, "composed_actions", None),
+                    )
+                    if raw_deterministic is None:
+                        return True
+                    deterministic = raw_deterministic.detach().cpu().numpy()
                     try:
                         sampled_matrix = np.asarray(
                             self.locals.get("actions", ()),
@@ -109,7 +124,8 @@ def build_tensorboard_metrics_callback(
                         sampled_matrix.shape == deterministic.shape
                         and current.shape == deterministic.shape
                     ):
-                        self._extend("trade_rl/change_intensity_mean", intensity)
+                        if intensity is not None:
+                            self._extend("trade_rl/change_intensity_mean", intensity)
                         for index, (
                             current_row,
                             deterministic_row,

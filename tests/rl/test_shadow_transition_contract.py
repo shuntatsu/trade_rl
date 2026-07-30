@@ -5,6 +5,8 @@ from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 
 
 def test_shadow_insolvency_is_diagnostic_not_an_episode_boundary() -> None:
+    """The benchmark book cannot censor an otherwise live agent trajectory."""
+
     hybrid = BookState.zero(1, 1_000.0)
     shadow = BookState.zero(1, 1_000.0)
     shadow.terminate(EconomicTerminationReason.INSOLVENCY)

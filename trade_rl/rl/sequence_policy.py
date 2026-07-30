@@ -316,9 +316,6 @@ class MultiTimeframeAssetEncoder(nn.Module):
             dropout=architecture.dropout,
             gate_bias=architecture.timeframe_gate_bias,
         )
-        self.symbol_embedding = nn.Embedding(
-            architecture.n_symbols, architecture.d_model
-        )
         self.cross_asset = GatedTransformerStack(
             d_model=architecture.d_model,
             heads=architecture.asset_attention_heads,
@@ -401,12 +398,11 @@ class MultiTimeframeAssetEncoder(nn.Module):
             staleness=quality_staleness,
             context=context,
         )
-        identities = torch.arange(assets, device=fused.device)
-        fused = fused + self.symbol_embedding(identities).unsqueeze(0)
+        asset_positions = torch.arange(assets, device=fused.device)
 
         active_mask = active.to(dtype=torch.bool)
         has_active = active_mask.any(dim=1)
-        fallback = (~has_active).unsqueeze(1) & identities.unsqueeze(0).eq(0)
+        fallback = (~has_active).unsqueeze(1) & asset_positions.unsqueeze(0).eq(0)
         safe_mask = active_mask | fallback
         fused = torch.where(fallback.unsqueeze(-1), torch.zeros_like(fused), fused)
         contextual = self.cross_asset(fused, valid=safe_mask)

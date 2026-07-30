@@ -1,0 +1,312 @@
+name: Apply Policy Identity V3
+
+on:
+  push:
+    branches:
+      - agent/bind-hierarchical-exploration-identity
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-policy-identity-v3
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/bind-hierarchical-exploration-identity
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Bind actual exploration semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          policies_path = Path("trade_rl/rl/policies.py")
+          policies = policies_path.read_text(encoding="utf-8")
+          old_name = 'action_distribution_name = "masked_shared_squashed_diag_gaussian"'
+          new_name = 'action_distribution_name = "masked_shared_squashed_diag_gaussian_v1"'
+          if policies.count(old_name) != 1:
+              raise SystemExit("action distribution name insertion point is not unique")
+          policies_path.write_text(policies.replace(old_name, new_name, 1), encoding="utf-8")
+
+          identity_path = Path("trade_rl/rl/policy_identity.py")
+          identity = identity_path.read_text(encoding="utf-8")
+          constants_old = '''SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v2"
+          POLICY_ARCHITECTURE_SCHEMA: Final = "hierarchical_gate_target_policy_v1"
+          HIERARCHICAL_ACTOR_HEAD: Final = "hierarchical_gate_target_v1"
+          '''
+          constants_new = '''SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v3"
+          LEGACY_SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v2"
+          POLICY_ARCHITECTURE_SCHEMA: Final = "hierarchical_gate_target_policy_v2"
+          HIERARCHICAL_EXPLORATION_SCHEMA: Final = "hierarchical_exploration_v1"
+          HIERARCHICAL_ACTION_DISTRIBUTION: Final = (
+              "masked_shared_squashed_diag_gaussian_v1"
+          )
+          HIERARCHICAL_EXPLORATION_COUPLING: Final = (
+              "post_composition_gate_independent_v1"
+          )
+          HIERARCHICAL_LOG_STD_PARAMETERIZATION: Final = "shared_scalar_v1"
+          HIERARCHICAL_ACTOR_HEAD: Final = "hierarchical_gate_target_v1"
+          '''
+          if identity.count(constants_old) != 1:
+              raise SystemExit("policy identity constants insertion point is not unique")
+          identity = identity.replace(constants_old, constants_new, 1)
+
+          architecture_old = '''def _policy_architecture_payload(
+              *,
+              actor_head: str,
+              gate_temperature: float,
+              sequence_architecture_digest: str,
+              current_weight_observation: Mapping[str, object],
+          ) -> dict[str, object]:
+              return {
+                  "actor_head": actor_head,
+                  "current_weight_observation": dict(current_weight_observation),
+                  "gate_temperature": gate_temperature,
+                  "observation_encoder": "hierarchical_sequence_v2",
+                  "schema_version": POLICY_ARCHITECTURE_SCHEMA,
+                  "sequence_architecture_digest": sequence_architecture_digest,
+              }
+          '''
+          architecture_new = '''def _hierarchical_exploration_payload() -> dict[str, object]:
+              return {
+                  "action_distribution": HIERARCHICAL_ACTION_DISTRIBUTION,
+                  "change_intensity_coupling": HIERARCHICAL_EXPLORATION_COUPLING,
+                  "log_std_parameterization": HIERARCHICAL_LOG_STD_PARAMETERIZATION,
+                  "state_dependent_noise": False,
+                  "schema_version": HIERARCHICAL_EXPLORATION_SCHEMA,
+                  "squashing": "tanh",
+              }
+
+
+          def _validated_hierarchical_exploration(value: object) -> dict[str, object]:
+              if not isinstance(value, Mapping):
+                  raise ValueError("hierarchical exploration identity is missing")
+              observed = dict(value)
+              expected = _hierarchical_exploration_payload()
+              if observed != expected:
+                  raise ValueError("hierarchical exploration identity mismatch")
+              return expected
+
+
+          def _actual_hierarchical_exploration(policy: object) -> dict[str, object]:
+              distribution = getattr(policy, "action_distribution_name", None)
+              if distribution != HIERARCHICAL_ACTION_DISTRIBUTION:
+                  raise ValueError("hierarchical action distribution identity mismatch")
+              log_std = getattr(policy, "log_std", None)
+              shape = tuple(getattr(log_std, "shape", ()))
+              if shape != (1,):
+                  raise ValueError("hierarchical actor requires shared scalar log_std")
+              if getattr(policy, "use_sde", None) is not False:
+                  raise ValueError("hierarchical actor does not support gSDE")
+              return _hierarchical_exploration_payload()
+
+
+          def _policy_architecture_payload(
+              *,
+              actor_head: str,
+              gate_temperature: float,
+              sequence_architecture_digest: str,
+              current_weight_observation: Mapping[str, object],
+              exploration_contract: Mapping[str, object],
+          ) -> dict[str, object]:
+              return {
+                  "actor_head": actor_head,
+                  "current_weight_observation": dict(current_weight_observation),
+                  "exploration_contract": dict(exploration_contract),
+                  "gate_temperature": gate_temperature,
+                  "observation_encoder": "hierarchical_sequence_v2",
+                  "schema_version": POLICY_ARCHITECTURE_SCHEMA,
+                  "sequence_architecture_digest": sequence_architecture_digest,
+              }
+          '''
+          if identity.count(architecture_old) != 1:
+              raise SystemExit("policy architecture helper insertion point is not unique")
+          identity = identity.replace(architecture_old, architecture_new, 1)
+
+          schema_old = '''    if payload.get("schema_version") != SB3_POLICY_IDENTITY_SCHEMA:
+                  raise ValueError("unsupported SB3 policy identity schema")
+          '''
+          schema_new = '''    schema = payload.get("schema_version")
+              if schema == LEGACY_SB3_POLICY_IDENTITY_SCHEMA:
+                  raise ValueError(
+                      f"migrate {LEGACY_SB3_POLICY_IDENTITY_SCHEMA} to "
+                      f"{SB3_POLICY_IDENTITY_SCHEMA}"
+                  )
+              if schema != SB3_POLICY_IDENTITY_SCHEMA:
+                  raise ValueError("unsupported SB3 policy identity schema")
+          '''
+          if identity.count(schema_old) != 1:
+              raise SystemExit("policy identity schema insertion point is not unique")
+          identity = identity.replace(schema_old, schema_new, 1)
+
+          validation_old = '''        current_weight = _validated_current_weight_identity(
+                  payload.get("current_weight_observation"), n_symbols=len(symbols)
+              )
+              payload["current_weight_observation"] = current_weight
+              payload["gate_temperature"] = temperature
+              architecture_contract = _policy_architecture_payload(
+                  actor_head=actor_head,
+                  gate_temperature=temperature,
+                  sequence_architecture_digest=sequence_digest,
+                  current_weight_observation=current_weight,
+              )
+          '''
+          validation_new = '''        current_weight = _validated_current_weight_identity(
+                  payload.get("current_weight_observation"), n_symbols=len(symbols)
+              )
+              exploration = _validated_hierarchical_exploration(
+                  payload.get("exploration_contract")
+              )
+              payload["current_weight_observation"] = current_weight
+              payload["exploration_contract"] = exploration
+              payload["gate_temperature"] = temperature
+              architecture_contract = _policy_architecture_payload(
+                  actor_head=actor_head,
+                  gate_temperature=temperature,
+                  sequence_architecture_digest=sequence_digest,
+                  current_weight_observation=current_weight,
+                  exploration_contract=exploration,
+              )
+          '''
+          if identity.count(validation_old) != 1:
+              raise SystemExit("serialized exploration validation insertion point is not unique")
+          identity = identity.replace(validation_old, validation_new, 1)
+
+          identity = identity.replace(
+              '''            "current_weight_observation",
+                      "gate_temperature",
+              ''',
+              '''            "current_weight_observation",
+                      "exploration_contract",
+                      "gate_temperature",
+              ''',
+              1,
+          )
+
+          bind_old = '''        current_weight = current_weight_observation_identity(len(symbols))
+              policy_architecture = _policy_architecture_payload(
+                  actor_head=actual_head,
+                  gate_temperature=actual_temperature,
+                  sequence_architecture_digest=identity.digest,
+                  current_weight_observation=current_weight,
+              )
+          '''
+          bind_new = '''        current_weight = current_weight_observation_identity(len(symbols))
+              exploration = _actual_hierarchical_exploration(policy)
+              policy_architecture = _policy_architecture_payload(
+                  actor_head=actual_head,
+                  gate_temperature=actual_temperature,
+                  sequence_architecture_digest=identity.digest,
+                  current_weight_observation=current_weight,
+                  exploration_contract=exploration,
+              )
+          '''
+          if identity.count(bind_old) != 1:
+              raise SystemExit("actual exploration binding insertion point is not unique")
+          identity = identity.replace(bind_old, bind_new, 1)
+
+          payload_old = '''                "current_weight_observation": current_weight,
+                          "gate_temperature": actual_temperature,
+          '''
+          payload_new = '''                "current_weight_observation": current_weight,
+                          "exploration_contract": exploration,
+                          "gate_temperature": actual_temperature,
+          '''
+          if identity.count(payload_old) != 1:
+              raise SystemExit("policy identity payload insertion point is not unique")
+          identity = identity.replace(payload_old, payload_new, 1)
+
+          exports_old = '''    "HIERARCHICAL_ACTOR_HEAD",
+              "POLICY_ARCHITECTURE_SCHEMA",
+          '''
+          exports_new = '''    "HIERARCHICAL_ACTION_DISTRIBUTION",
+              "HIERARCHICAL_ACTOR_HEAD",
+              "HIERARCHICAL_EXPLORATION_COUPLING",
+              "HIERARCHICAL_EXPLORATION_SCHEMA",
+              "HIERARCHICAL_LOG_STD_PARAMETERIZATION",
+              "POLICY_ARCHITECTURE_SCHEMA",
+          '''
+          if identity.count(exports_old) != 1:
+              raise SystemExit("policy identity export insertion point is not unique")
+          identity_path.write_text(identity.replace(exports_old, exports_new, 1), encoding="utf-8")
+
+          distribution_old = '"masked_shared_squashed_diag_gaussian"'
+          distribution_new = '"masked_shared_squashed_diag_gaussian_v1"'
+          sequence_test = Path("tests/rl/test_sequence_policy_core.py")
+          sequence_text = sequence_test.read_text(encoding="utf-8")
+          if sequence_text.count(distribution_old) != 1:
+              raise SystemExit("sequence policy distribution assertion is not unique")
+          sequence_test.write_text(
+              sequence_text.replace(distribution_old, distribution_new, 1),
+              encoding="utf-8",
+          )
+
+          exploration_literal = '''{
+              "action_distribution": "masked_shared_squashed_diag_gaussian_v1",
+              "change_intensity_coupling": "post_composition_gate_independent_v1",
+              "log_std_parameterization": "shared_scalar_v1",
+              "state_dependent_noise": False,
+              "schema_version": "hierarchical_exploration_v1",
+              "squashing": "tanh",
+          }'''
+          fixture_paths = (
+              Path("tests/serving/test_structured_policy_loader.py"),
+              Path("tests/serving/test_sb3_loader.py"),
+              Path("tests/rl/test_structured_export.py"),
+          )
+          for path in fixture_paths:
+              text = path.read_text(encoding="utf-8")
+              marker = '    policy_architecture = {\n'
+              if text.count(marker) != 1:
+                  raise SystemExit(f"policy architecture fixture marker is not unique: {path}")
+              text = text.replace(
+                  marker,
+                  f"    exploration_contract = {exploration_literal}\n    policy_architecture = {{\n",
+                  1,
+              )
+              text = text.replace(
+                  '        "current_weight_observation": current_weight,\n',
+                  '        "current_weight_observation": current_weight,\n        "exploration_contract": exploration_contract,\n',
+                  2,
+              ) if path.name != "test_sb3_loader.py" else text.replace(
+                  '        "current_weight_observation": current_weight_identity,\n',
+                  '        "current_weight_observation": current_weight_identity,\n        "exploration_contract": exploration_contract,\n',
+                  2,
+              )
+              text = text.replace(
+                  '"hierarchical_gate_target_policy_v1"',
+                  '"hierarchical_gate_target_policy_v2"',
+                  1,
+              )
+              text = text.replace(
+                  '"sb3_policy_identity_v2"',
+                  '"sb3_policy_identity_v3"',
+                  1,
+              )
+              path.write_text(text, encoding="utf-8")
+          PY
+          rm .github/workflows/apply-policy-identity-v3.yml
+          uv run ruff format \
+            trade_rl/rl/policies.py \
+            trade_rl/rl/policy_identity.py \
+            tests/integrations/test_sb3_policy_identity_v3.py \
+            tests/rl/test_sequence_policy_core.py \
+            tests/rl/test_structured_export.py \
+            tests/serving/test_sb3_loader.py \
+            tests/serving/test_structured_policy_loader.py
+          git diff --check
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: bind hierarchical exploration into policy identity"
+          git push origin HEAD:agent/bind-hierarchical-exploration-identity

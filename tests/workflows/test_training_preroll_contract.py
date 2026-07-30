@@ -45,5 +45,7 @@ def _mapping() -> dict[str, object]:
 
 
 def test_training_config_rejects_disabled_full_reward_preroll() -> None:
+    """Explicit opt-out is rejected while omission resolves to the maintained mode."""
+
     with pytest.raises(ValueError, match="require_full_reward_preroll"):
         TrainingRunConfig.from_mapping(_mapping())

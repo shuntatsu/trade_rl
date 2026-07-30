@@ -50,9 +50,10 @@ def test_sequence_architecture_digest_changes_with_model_semantics() -> None:
     base = _architecture()
     deeper = replace(base, timeframe_attention_layers=3)
 
-    assert sequence_architecture_identity(base).digest != sequence_architecture_identity(
-        deeper
-    ).digest
+    assert (
+        sequence_architecture_identity(base).digest
+        != sequence_architecture_identity(deeper).digest
+    )
 
 
 def test_sequence_asset_binding_rejects_symbol_action_mismatch() -> None:

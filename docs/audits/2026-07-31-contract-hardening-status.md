@@ -20,4 +20,4 @@
 
 ## CI
 
-The repository CI matrix is the final source of truth for formatting, Ruff, Mypy, Import Linter, dead-code reporting, full pytest/branch coverage, platform compatibility, container probes, and PostgreSQL integration. Exact final results will be recorded in the pull-request description after the current head completes.
+The repository CI matrix is the final source of truth for formatting, Ruff, Mypy, Import Linter, dead-code reporting, full pytest/branch coverage, platform compatibility, container probes, and PostgreSQL integration. Automation-authored cleanup commits do not recursively start GitHub Actions, so final verification must run on a subsequent repository-authenticated head; exact results are recorded in the pull-request description before merge.

@@ -60,8 +60,10 @@ def test_slippage_rounding_capacity_and_borrow_paths() -> None:
     assert executor._round_quantities(
         np.array([1.13]), index=1
     ).tolist() == pytest.approx([1.0])
-    assert executor._capacity_notional(
-        np.array([100.0]), np.array([2.0])
+    assert executor.dataset.market_notional(
+        1,
+        prices=np.array([100.0]),
+        volume=np.array([2.0]),
     ).tolist() == pytest.approx([200.0])
     constrained = executor._constrain_borrow(
         np.array([-2.0]), current=np.array([-1.0]), index=1

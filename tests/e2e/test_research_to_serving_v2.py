@@ -203,6 +203,18 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     config_path = tmp_path / "training.json"
     _config(config_path)
     config = normalize_training_run_config(TrainingRunConfig.from_json(config_path))
+    execution_cost = config.environment.execution_cost
+    execution_evidence = ExecutionEvidence(
+        dataset_id=dataset.dataset_id,
+        execution_policy_digest=execution_cost.execution_policy_digest,
+        path_mode=execution_cost.path_mode,
+        processing_bar_volume_capacity=(execution_cost.processing_bar_volume_capacity),
+        partial_fill_carry=execution_cost.partial_fill_carry,
+        trigger_volume_fractions=execution_cost.trigger_volume_fractions,
+        order_event_count=1,
+        complete_order_evidence=True,
+        sensitivity_path_modes=("optimistic", "neutral", "conservative"),
+    )
 
     selection_private = Ed25519PrivateKey.from_private_bytes(b"\x51" * 32)
     selection_public = PublicVerificationKey(
@@ -217,6 +229,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         walk_forward_run_digest="1" * 64,
         gate_evidence_digest="2" * 64,
         execution_sensitivity_digest="3" * 64,
+        execution_evidence_digest=execution_evidence.digest,
         dataset_id=dataset.dataset_id,
         selected_configuration="e2e-selected",
         candidate_config_digest=content_digest(config.candidate_digest_payload()),
@@ -240,23 +253,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     selection_keys_path = tmp_path / "selection-keys.json"
     _key_store(selection_keys_path, selection_public)
     execution_evidence_path = tmp_path / "execution-evidence.json"
-    execution_cost = config.environment.execution_cost
-    write_execution_evidence(
-        execution_evidence_path,
-        ExecutionEvidence(
-            dataset_id=dataset.dataset_id,
-            execution_policy_digest=execution_cost.execution_policy_digest,
-            path_mode=execution_cost.path_mode,
-            processing_bar_volume_capacity=(
-                execution_cost.processing_bar_volume_capacity
-            ),
-            partial_fill_carry=execution_cost.partial_fill_carry,
-            trigger_volume_fractions=execution_cost.trigger_volume_fractions,
-            order_event_count=1,
-            complete_order_evidence=True,
-            sensitivity_path_modes=("optimistic", "neutral", "conservative"),
-        ),
-    )
+    write_execution_evidence(execution_evidence_path, execution_evidence)
 
     result = execute_training_run(
         config_path=config_path,

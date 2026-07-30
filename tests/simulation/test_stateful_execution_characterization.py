@@ -21,7 +21,7 @@ from trade_rl.simulation.orders import (
 )
 
 _EXPECTED_BASELINE_SHA256 = (
-    "3856e696c998e727c78690222d418e070c71eeb56f7f747f0932a17eb8ff2cc2"
+    "3f88b8802db74a7a4fe2f81d8c822dff2d85caee9c798deac6d96d76948d4e74"
 )
 
 

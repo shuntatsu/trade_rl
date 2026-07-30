@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -68,6 +70,11 @@ def _manifest(config: ResidualTrainingConfig, **changes: object) -> SimpleNamesp
     return SimpleNamespace(**payload)
 
 
+@contextmanager
+def _passthrough_policy_copy(manifest: SimpleNamespace) -> Iterator[Path]:
+    yield manifest.policy_path
+
+
 def test_transfer_loader_accepts_new_environment_with_compatible_architecture(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -100,6 +107,11 @@ def test_transfer_loader_accepts_new_environment_with_compatible_architecture(
     load_calls: list[tuple[str, object, str]] = []
 
     monkeypatch.setattr(assembly_module, "load_checkpoint_manifest", lambda _: manifest)
+    monkeypatch.setattr(
+        assembly_module,
+        "verified_checkpoint_policy_copy",
+        _passthrough_policy_copy,
+    )
     monkeypatch.setattr(
         assembly_module,
         "checkpoint_identity_payload_for_model",

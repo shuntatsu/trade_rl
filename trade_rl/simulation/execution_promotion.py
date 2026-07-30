@@ -14,7 +14,7 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 EXECUTION_EVIDENCE_FILE_NAME = "execution-evidence.json"
-EXECUTION_EVIDENCE_SCHEMA = "execution_promotion_evidence_v1"
+EXECUTION_EVIDENCE_SCHEMA = "execution_promotion_evidence_v2"
 _DEFAULT_TRIGGER_VOLUME_FRACTIONS = (1.0, 0.5, 0.25, 0.0)
 _PATH_MODES = frozenset({"optimistic", "neutral", "conservative"})
 
@@ -206,6 +206,10 @@ def validate_execution_promotion(
         )
     if not evidence.partial_fill_carry:
         raise ExecutionPromotionError("execution promotion requires partial-fill carry")
+    if evidence.order_event_count <= 0:
+        raise ExecutionPromotionError(
+            "execution promotion requires at least one order event"
+        )
     if not evidence.complete_order_evidence:
         raise ExecutionPromotionError(
             "execution promotion requires complete order evidence"

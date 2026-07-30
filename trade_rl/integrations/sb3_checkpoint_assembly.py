@@ -23,6 +23,7 @@ from trade_rl.rl.checkpointing import (
     checkpoint_identity_payload_for_model,
     load_checkpoint_manifest,
     validate_checkpoint_algorithm_identity,
+    verified_checkpoint_policy_copy,
 )
 from trade_rl.rl.policy_identity import (
     bind_sb3_policy_identity,
@@ -179,11 +180,12 @@ def _load_checkpoint_model(
     algorithm_config: AlgorithmConfig,
 ) -> Any:
     loader: Any = _checkpoint_loader(algorithm_config)
-    model: Any = loader.load(
-        str(manifest.policy_path),
-        env=environment,
-        device=config.device,
-    )
+    with verified_checkpoint_policy_copy(manifest) as verified_policy_path:
+        model: Any = loader.load(
+            str(verified_policy_path),
+            env=environment,
+            device=config.device,
+        )
     if int(model.num_timesteps) != manifest.observed_timestep:
         raise ValueError("checkpoint timestep identity mismatch")
     return model

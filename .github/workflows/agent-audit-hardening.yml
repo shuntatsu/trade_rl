@@ -50,6 +50,13 @@ jobs:
       - name: Align checkpoint loader tests
         run: uv run python scripts/agent_fix_audit_hardening_tests.py
 
+      - name: Normalize changed test imports
+        run: |
+          uv run ruff check --fix \
+            tests/rl/test_checkpoint_trust_boundary.py \
+            tests/integrations/test_sb3_checkpoint_assembly.py \
+            tests/integrations/test_sb3_checkpoint_transfer.py
+
       - name: Verify targeted GREEN suite
         run: |
           uv run pytest \

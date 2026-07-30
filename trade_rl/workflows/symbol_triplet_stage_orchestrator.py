@@ -26,9 +26,7 @@ from trade_rl.workflows.symbol_triplet_training_cursor import (
 )
 from trade_rl.workflows.training_run import TrainingRunConfig
 
-SYMBOL_TRIPLET_STAGE_CHECKPOINT_SCHEMA: Final = (
-    "symbol_triplet_stage_checkpoint_v1"
-)
+SYMBOL_TRIPLET_STAGE_CHECKPOINT_SCHEMA: Final = "symbol_triplet_stage_checkpoint_v1"
 SYMBOL_TRIPLET_STAGE_REQUEST_SCHEMA: Final = "symbol_triplet_stage_request_v1"
 SYMBOL_TRIPLET_STAGE_COMPLETION_SCHEMA: Final = "symbol_triplet_stage_completion_v1"
 
@@ -168,8 +166,7 @@ class SymbolTripletStageRequest:
             "train_split_slot": self.train_split_slot,
             "training_seeds": self.training_seeds,
             "transfer_checkpoints": tuple(
-                checkpoint.to_json_dict()
-                for checkpoint in self.transfer_checkpoints
+                checkpoint.to_json_dict() for checkpoint in self.transfer_checkpoints
             ),
         }
 
@@ -290,7 +287,9 @@ def build_symbol_triplet_stage_request(
                 or previous_completion.stage_id != plan.stages[-1].stage_id
                 or previous_completion.training_seeds != seeds
             ):
-                raise ValueError("previous stage completion does not match completed plan")
+                raise ValueError(
+                    "previous stage completion does not match completed plan"
+                )
         return None
     if stage.stage_index == 0:
         if previous_completion is not None:

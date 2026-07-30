@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from trade_rl.rl.sequence_policy import (
@@ -50,6 +51,15 @@ def test_asset_encoder_has_no_slot_identity_parameters() -> None:
 
     assert not hasattr(encoder, "symbol_embedding")
     assert all("symbol_embedding" not in name for name, _ in encoder.named_parameters())
+
+
+def test_legacy_slot_embedding_checkpoint_is_rejected_fail_closed() -> None:
+    encoder = MultiTimeframeAssetEncoder(_architecture())
+    legacy_state = dict(encoder.state_dict())
+    legacy_state["symbol_embedding.weight"] = torch.zeros(3, 24)
+
+    with pytest.raises(RuntimeError, match="Unexpected key"):
+        encoder.load_state_dict(legacy_state, strict=True)
 
 
 def test_asset_encoder_is_permutation_equivariant() -> None:

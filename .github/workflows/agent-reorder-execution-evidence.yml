@@ -1,0 +1,49 @@
+name: Agent reorder execution evidence
+
+on:
+  push:
+    branches:
+      - agent/harden-audit-contracts
+    paths:
+      - .agent/reorder-execution-evidence-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/harden-audit-contracts
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Install locked environment
+        run: uv sync --frozen --extra dev --extra train-sb3
+
+      - name: Apply selected-final ordering fix
+        run: uv run python scripts/agent_reorder_execution_evidence_check.py
+
+      - name: Verify selected-final contracts
+        run: |
+          uv run ruff check trade_rl/workflows/training_run.py
+          uv run mypy trade_rl/workflows/training_run.py
+          uv run pytest \
+            tests/workflows/test_selection_authorization.py \
+            tests/evaluation/test_execution_promotion.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            -q
+
+      - name: Commit verified ordering fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve selected-final evidence error ordering"
+          git push origin HEAD:agent/harden-audit-contracts

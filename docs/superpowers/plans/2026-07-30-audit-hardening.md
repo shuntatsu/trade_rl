@@ -2,14 +2,15 @@
 
 **Goal:** Make execution promotion, margin configuration, artifact publication, and model-loading boundaries fail closed against the audited defects.
 
-**Architecture:** Preserve existing module boundaries, reject unsupported semantics instead of approximating them, bind execution evidence to the complete execution configuration, and deserialize mutable filesystem artifacts only from private verified copies.
+**Architecture:** Preserve existing module boundaries, reject unsupported semantics instead of approximating them, bind execution evidence to the complete execution configuration and the signed selected-final proposal, and deserialize mutable filesystem artifacts only from private verified copies.
 
-**Tech stack:** Python 3.12, dataclasses, NumPy, pytest, Stable-Baselines3, canonical JSON, and SHA-256 artifact contracts.
+**Tech stack:** Python 3.12, dataclasses, NumPy, pytest, Stable-Baselines3, canonical JSON, SHA-256 artifact contracts, and Ed25519 selection authorization.
 
 ## Global constraints
 
 - Keep selected-final training fail closed.
 - Reject legacy execution-promotion evidence rather than silently migrating it.
+- Require selected-final authorization to bind the exact canonical execution-evidence digest.
 - Do not present proportional account-wide collateral allocation as multi-asset isolated margin.
 - Do not weaken checkpoint architecture, dataset, environment, seed, timestep, or training identity checks.
 - Do not introduce a new runtime dependency.
@@ -28,8 +29,11 @@
 - [x] Advance the schema to `execution_promotion_evidence_v2`.
 - [x] Require at least one order event in addition to `complete_order_evidence`.
 - [x] Bind promotion evidence to the complete `execution_policy_v2` digest.
-- [x] Update maintained promotion fixtures and tests.
-- [x] Pass targeted promotion tests.
+- [x] Bind the exact canonical execution-evidence digest into the signed Selection Proposal.
+- [x] Reject selected-final proposals without the evidence identity and evidence files changed after authorization.
+- [x] Preserve the existing explicit-evidence error before signed-digest validation.
+- [x] Update maintained promotion, selection-authorization, and selected-final E2E fixtures.
+- [x] Pass targeted promotion, signed-selection, and selected-final E2E tests.
 
 ## Task 3: Artifact publication failure handling
 
@@ -61,8 +65,9 @@
 
 - [x] Reproduce the audited failures before implementation.
 - [x] Pass the targeted 71-test GREEN suite after implementation.
-- [x] Pass targeted Ruff and Mypy checks before the implementation commit.
-- [x] Compare the implementation commit against `main` and remove temporary scripts/workflows.
-- [x] Open PR #301 with the design, regression tests, implementation, and compatibility impact.
+- [x] Pass targeted signed-selection and selected-final E2E tests.
+- [x] Pass targeted Ruff and Mypy checks before each implementation commit.
+- [x] Compare the implementation commits against `main` and remove temporary scripts/workflows.
+- [x] Open and update PR #301 with the design, regression tests, implementation, and compatibility impact.
 - [ ] Pass the repository's complete pull-request CI and PostgreSQL workflow on the final branch head.
 - [ ] Inspect final CI diagnostics and merge only after every required check is green.

@@ -15,8 +15,8 @@ from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.rl.observations import ObservationLayout
 from trade_rl.rl.training import ResidualTrainingConfig
 
-_SOURCE_ENVIRONMENT_DIGEST = "s" * 64
-_TARGET_ENVIRONMENT_DIGEST = "t" * 64
+_SOURCE_ENVIRONMENT_DIGEST = "1" * 64
+_TARGET_ENVIRONMENT_DIGEST = "2" * 64
 _ACTION_NAMES = ("tilt",)
 _ACTION_SPEC_DIGEST = content_digest({"names": _ACTION_NAMES})
 

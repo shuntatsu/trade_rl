@@ -986,6 +986,8 @@ def execute_training_run(
             != expected_execution_policy_digest
         ):
             raise ValueError("execution evidence policy digest mismatch")
+    if proposal is not None:
+        proposal.require_execution_evidence_digest(execution_evidence.digest)
     if run_kind == "research_selected_final":
         metadata_promotion.require_promotable()
         if execution_evidence_path is None:

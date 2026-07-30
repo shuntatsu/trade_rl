@@ -80,6 +80,31 @@ def test_selection_proposal_and_authorization_round_trip(tmp_path: Path) -> None
     )
 
 
+def test_selection_proposal_binds_exact_execution_evidence() -> None:
+    proposal = SelectionProposal.create(
+        walk_forward_run_digest="a" * 64,
+        gate_evidence_digest="b" * 64,
+        execution_sensitivity_digest="c" * 64,
+        execution_evidence_digest="9" * 64,
+        dataset_id="d" * 64,
+        selected_configuration="ppo-15m-target",
+        candidate_config_digest="e" * 64,
+        seeds=(0, 1, 2),
+        git_commit="f" * 40,
+        dependency_digest="1" * 64,
+        resume_checkpoint_digests=(),
+    )
+
+    proposal.require_execution_evidence_digest("9" * 64)
+    with pytest.raises(ValueError, match="execution evidence digest mismatch"):
+        proposal.require_execution_evidence_digest("8" * 64)
+
+
+def test_selection_proposal_without_execution_identity_fails_closed() -> None:
+    with pytest.raises(ValueError, match="lacks execution evidence"):
+        _proposal().require_execution_evidence_digest("9" * 64)
+
+
 def test_selection_loader_rejects_seed_type_coercion(tmp_path: Path) -> None:
     proposal = _proposal().to_mapping()
     proposal["seeds"] = ["0", 1, 2]

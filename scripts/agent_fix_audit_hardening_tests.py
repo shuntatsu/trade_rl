@@ -15,6 +15,17 @@ def replace_once(path: str, old: str, new: str) -> None:
     target.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def replace_first(path: str, old: str, new: str, *, expected: int) -> None:
+    target = ROOT / path
+    text = target.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != expected:
+        raise RuntimeError(
+            f"expected {expected} matches in {path}, found {count}: {old[:80]!r}"
+        )
+    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 def replace_count(path: str, old: str, new: str, *, expected: int) -> None:
     target = ROOT / path
     text = target.read_text(encoding="utf-8")
@@ -54,10 +65,11 @@ def main() -> None:
         '''    payload.update(changes)\n    return SimpleNamespace(**payload)\n\n\ndef test_transfer_loader_accepts_new_environment_with_compatible_architecture(\n''',
         '''    payload.update(changes)\n    return SimpleNamespace(**payload)\n\n\n@contextmanager\ndef _passthrough_policy_copy(manifest: SimpleNamespace) -> Iterator[Path]:\n    yield manifest.policy_path\n\n\ndef test_transfer_loader_accepts_new_environment_with_compatible_architecture(\n''',
     )
-    replace_once(
+    replace_first(
         "tests/integrations/test_sb3_checkpoint_transfer.py",
         '''    monkeypatch.setattr(assembly_module, "load_checkpoint_manifest", lambda _: manifest)\n    monkeypatch.setattr(\n        assembly_module,\n        "checkpoint_identity_payload_for_model",\n''',
         '''    monkeypatch.setattr(assembly_module, "load_checkpoint_manifest", lambda _: manifest)\n    monkeypatch.setattr(\n        assembly_module,\n        "verified_checkpoint_policy_copy",\n        _passthrough_policy_copy,\n    )\n    monkeypatch.setattr(\n        assembly_module,\n        "checkpoint_identity_payload_for_model",\n''',
+        expected=3,
     )
 
     replace_once(

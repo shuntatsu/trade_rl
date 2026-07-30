@@ -87,7 +87,9 @@ class SymbolDisjointManifest:
                     f"symbol-disjoint {split} split is below the minimum size"
                 )
         if not set(train).isdisjoint(validation):
-            raise ValueError("symbol-disjoint train and validation splits must be disjoint")
+            raise ValueError(
+                "symbol-disjoint train and validation splits must be disjoint"
+            )
         if not set(train).isdisjoint(test):
             raise ValueError("symbol-disjoint train and test splits must be disjoint")
         if not set(validation).isdisjoint(test):

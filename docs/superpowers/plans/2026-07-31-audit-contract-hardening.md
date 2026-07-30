@@ -38,10 +38,10 @@
 - Produces verified checkpoint and replay-buffer private-copy helpers.
 - Rejects multi-asset isolated margin.
 
-- [ ] Copy the final PR #301 file versions onto the current-main branch.
-- [ ] Verify that the three commits after PR #301's base do not modify the copied paths.
-- [ ] Preserve current-main additions unchanged.
-- [ ] Commit as `Reapply audit execution and artifact hardening`.
+- [x] Copy the final PR #301 file versions onto the current-main branch.
+- [x] Verify that the three commits after PR #301's base do not modify the copied paths.
+- [x] Preserve current-main additions unchanged.
+- [x] Commit as `Reapply audit execution and artifact hardening`.
 
 ### Task 2: Bind real order-event evidence
 

@@ -38,7 +38,7 @@ class ResidualMarketEnvConfig:
     finite_horizon_observation: bool = False
     structured_sequence_observation: bool = False
     sequence_windows: tuple[tuple[str, int], ...] = ()
-    require_full_reward_preroll: bool = True
+    require_full_reward_preroll: bool = False
     initial_state_modes: tuple[str, ...] = ("cash",)
     random_initial_gross: float = 0.50
     stress_drawdown_fraction: float = 0.15

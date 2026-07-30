@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Final
 
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.data.contracts import InstrumentExecutionRule
@@ -38,7 +39,7 @@ from trade_rl.workflows.training_run import (
     normalize_training_run_config,
 )
 
-_PROVENANCE_SCHEMA = "binance_symbol_triplet_stage_provenance_v1"
+_PROVENANCE_SCHEMA: Final = "binance_symbol_triplet_stage_provenance_v1"
 
 
 def _training_seeds(path: str | Path) -> tuple[int, ...]:

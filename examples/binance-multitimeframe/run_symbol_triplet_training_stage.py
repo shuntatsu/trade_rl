@@ -6,7 +6,7 @@ import argparse
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from trade_rl.workflows.binance_metadata_modes import BinanceMetadataMode
 from trade_rl.workflows.binance_symbol_triplet_stage_command import (
@@ -67,9 +67,13 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    execute: Callable[..., Any] = execute_binance_symbol_triplet_stage_command,
+) -> int:
     arguments = _parser().parse_args(argv)
-    result = execute_binance_symbol_triplet_stage_command(
+    result = execute(
         manifest_path=arguments.manifest_path,
         plan_path=arguments.plan_path,
         cursor_path=arguments.cursor_path,

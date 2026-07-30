@@ -275,12 +275,21 @@ def _structured_bundle(root: Path):
         ),
         encoding="utf-8",
     )
+    action_names = ("target_weight:BTCUSDT", "target_weight:ETHUSDT")
+    symbols = ("BTCUSDT", "ETHUSDT")
     sequence_architecture = {
-        "action_names": ("target_weight:BTCUSDT", "target_weight:ETHUSDT"),
-        "schema_version": "test_sequence_architecture_v1",
-        "symbols": ("BTCUSDT", "ETHUSDT"),
+        "asset_identity_mode": "identity_free_v1",
+        "n_symbols": 2,
+        "schema_version": "hierarchical_sequence_policy_v4",
+        "test_architecture_marker": "structured-serving-v1",
     }
     sequence_digest = content_digest(sequence_architecture)
+    asset_binding = {
+        "action_names": action_names,
+        "n_symbols": 2,
+        "schema_version": "sequence_asset_binding_v1",
+        "symbols": symbols,
+    }
     current_weight_identity = {
         "bounds": (-1.0, 1.0),
         "dtype": "float32",
@@ -303,17 +312,19 @@ def _structured_bundle(root: Path):
         "exploration_contract": exploration_contract,
         "gate_temperature": 1.0,
         "observation_encoder": "hierarchical_sequence_v2",
-        "schema_version": "hierarchical_gate_target_policy_v2",
+        "schema_version": "hierarchical_gate_target_policy_v3",
         "sequence_architecture_digest": sequence_digest,
     }
     policy_identity = {
         "actor_head": "hierarchical_gate_target_v1",
+        "asset_binding": asset_binding,
+        "asset_binding_digest": content_digest(asset_binding),
         "current_weight_observation": current_weight_identity,
         "exploration_contract": exploration_contract,
         "gate_temperature": 1.0,
         "observation_encoder": "hierarchical_sequence_v2",
         "policy_architecture_digest": content_digest(policy_architecture),
-        "schema_version": "sb3_policy_identity_v3",
+        "schema_version": "sb3_policy_identity_v4",
         "sequence_architecture": sequence_architecture,
         "sequence_architecture_digest": sequence_digest,
     }
@@ -370,7 +381,6 @@ def _structured_bundle(root: Path):
             0, np.inf, shape=shape, dtype=np.float16
         )
     observation_space = spaces.Dict(sequence_spaces)
-    action_names = ("target_weight:BTCUSDT", "target_weight:ETHUSDT")
     manifest = ServingBundleManifest.build(
         root=root,
         dataset_id=dataset.dataset_id,

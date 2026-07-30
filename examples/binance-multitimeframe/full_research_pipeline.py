@@ -81,7 +81,7 @@ _FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
 _START = "2024-12-01T00:00:00Z"
 _END = "2026-07-01T00:00:00Z"
 _EXPECTED_15M_BARS = 55_392
-_EXPECTED_POLICY_OBSERVATIONS = 231_026
+_EXPECTED_POLICY_OBSERVATIONS = 217_886
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
@@ -362,11 +362,7 @@ def validate_maintained_dataset_preset(
         raise RuntimeError(
             f"extended feature contract must contain 226 features, got {len(expected_features)}"
         )
-    expected_dataset_features = (
-        (*expected_features, *(f"15m__symbol_id_{symbol}" for symbol in _SYMBOL_POOL))
-        if use_postgres
-        else expected_features
-    )
+    expected_dataset_features = expected_features
     if dataset.feature_names != expected_dataset_features:
         raise RuntimeError(f"unexpected feature contract: {dataset.feature_names}")
 

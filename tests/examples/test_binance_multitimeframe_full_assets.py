@@ -169,7 +169,7 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
     assert "binance_multitimeframe_feature_specs" in content
     assert "raw_feature_count" in content
     assert "policy_observation_count" in content
-    assert "231_026" in content
+    assert "217_886" in content
     assert "226" in content
     assert '"train", "run"' in content
     assert '"walk-forward", "run"' in content
@@ -178,8 +178,8 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
 def test_full_runner_observation_contract_includes_pending_order_state() -> None:
     namespace = _runner_namespace()
 
-    assert namespace["_EXPECTED_POLICY_OBSERVATIONS"] == 231_026
-    assert 231_026 - 231_005 == 3 * ORDER_OBSERVATION_WIDTH
+    assert namespace["_EXPECTED_POLICY_OBSERVATIONS"] == 217_886
+    assert 217_886 - 217_865 == 3 * ORDER_OBSERVATION_WIDTH
 
 
 def test_full_runner_separates_selection_from_final_training() -> None:

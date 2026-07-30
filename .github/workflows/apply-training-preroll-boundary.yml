@@ -27,19 +27,13 @@ jobs:
 
           path = Path('trade_rl/workflows/training_run.py')
           text = path.read_text(encoding='utf-8')
-          old = '''        environment_data = _tuple_fields(
-              require_dataclass_fields(
-                  _mapping(payload["environment"], field="environment"),
-                  ResidualMarketEnvConfig,
-                  field="environment",
-                  excluded={"reward_config", "reward", "execution_cost"},
-              ),
-              "episode_hour_choices",
-              "initial_state_modes",
-              "sequence_windows",
-          )
-          '''
-          new = '''        environment_mapping = _mapping(
+          start_marker = '        environment_data = _tuple_fields(\n'
+          end_marker = '        emergency_risk_data = require_dataclass_fields(\n'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('training environment parser boundaries were not found')
+          replacement = '''        environment_mapping = _mapping(
               payload["environment"], field="environment"
           )
           environment_data = _tuple_fields(
@@ -56,15 +50,13 @@ jobs:
           if "require_full_reward_preroll" not in environment_mapping:
               environment_data["require_full_reward_preroll"] = True
           '''
-          if text.count(old) != 1:
-              raise SystemExit('training environment parser insertion point is not unique')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
           PY
           rm .github/workflows/apply-training-preroll-boundary.yml
           uvx ruff format trade_rl/workflows/training_run.py
           git diff --check
           git add -A
           git config user.name 'github-actions[bot]'
-          git config user.email '4189822+github-actions[bot]@users.noreply.github.com'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix: bind reward preroll at training config boundary'
           git push origin HEAD:agent/fix-post-audit-residuals

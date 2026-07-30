@@ -428,5 +428,7 @@ def test_concurrent_stage_commits_use_cursor_compare_and_swap(
     failures = [item for item in outcomes if isinstance(item, BaseException)]
     assert len(successes) == 1
     assert len(failures) == 1
-    assert "stale" in str(failures[0]) or "persisted training cursor" in str(failures[0])
+    assert "stale" in str(failures[0]) or "persisted training cursor" in str(
+        failures[0]
+    )
     assert sum(path.exists() for path in tmp_path.glob("completion-*.json")) == 1

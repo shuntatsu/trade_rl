@@ -39,9 +39,7 @@ def atomic_replace_bytes(path: Path, payload: bytes) -> AtomicReplaceResult:
 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(
-        f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
-    )
+    temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
     try:
         with temporary.open("xb") as handle:
             handle.write(payload)

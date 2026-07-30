@@ -51,7 +51,10 @@ class StructuredTorchScriptPolicy:
             raise FileNotFoundError("structured policy model is missing")
         if model_path.stat().st_size != manifest.model_size_bytes:
             raise ValueError("structured policy model size mismatch")
-        if file_digest(model_path, field="structured policy model") != manifest.model_digest:
+        if (
+            file_digest(model_path, field="structured policy model")
+            != manifest.model_digest
+        ):
             raise ValueError("structured policy model digest mismatch")
         with verified_private_copy(
             model_path,
@@ -131,9 +134,10 @@ class CanonicalStructuredPolicyLoader:
             )
         if manifest_path.stat().st_size != manifest_file.size_bytes:
             raise ValueError("structured export manifest size mismatch")
-        if file_digest(
-            manifest_path, field="structured export manifest"
-        ) != manifest_file.digest:
+        if (
+            file_digest(manifest_path, field="structured export manifest")
+            != manifest_file.digest
+        ):
             raise ValueError("structured export manifest digest mismatch")
         manifest = load_structured_export_manifest(manifest_path)
         if manifest.architecture_digest != self.expected_architecture_digest:
@@ -148,9 +152,10 @@ class CanonicalStructuredPolicyLoader:
             raise FileNotFoundError("structured policy model is missing from bundle")
         if model_path.stat().st_size != model_file.size_bytes:
             raise ValueError("structured bundle model size mismatch")
-        if file_digest(
-            model_path, field="structured bundle model"
-        ) != model_file.digest:
+        if (
+            file_digest(model_path, field="structured bundle model")
+            != model_file.digest
+        ):
             raise ValueError("structured bundle model digest mismatch")
         return StructuredTorchScriptPolicy(root=bundle.root, manifest=manifest)
 

@@ -221,9 +221,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
             },
         ),
         terminal_book={"schema_version": "execution_terminal_book_v1", "cash": 1.0},
-        terminal_order_book={
-            "schema_version": "execution_terminal_order_book_v1"
-        },
+        terminal_order_book={"schema_version": "execution_terminal_order_book_v1"},
     )
     execution_event_artifact_path = tmp_path / "execution-order-events.json"
     write_execution_event_artifact(

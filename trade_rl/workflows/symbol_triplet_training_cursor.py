@@ -502,7 +502,6 @@ def advance_symbol_triplet_training_cursor(
     return advanced
 
 
-
 def _fsync_directory(path: Path) -> None:
     if os.name == "nt":
         return

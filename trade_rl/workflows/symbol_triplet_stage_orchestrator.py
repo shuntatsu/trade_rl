@@ -267,7 +267,9 @@ def _validate_previous_completion(
     if completion.training_seeds != training_seeds:
         raise ValueError("previous stage completion training seeds mismatch")
     if cursor.last_completion_digest != completion.digest:
-        raise ValueError("previous stage completion digest does not match training cursor")
+        raise ValueError(
+            "previous stage completion digest does not match training cursor"
+        )
     completion.validate_plan(plan)
 
 

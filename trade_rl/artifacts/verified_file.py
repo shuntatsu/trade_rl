@@ -56,13 +56,10 @@ def verified_private_copy(
     """Copy verified bytes privately and yield only the immutable copy path."""
 
     require_sha256(expected_digest, field=f"{field}.expected_digest")
-    if (
-        expected_size_bytes is not None
-        and (
-            isinstance(expected_size_bytes, bool)
-            or not isinstance(expected_size_bytes, int)
-            or expected_size_bytes < 0
-        )
+    if expected_size_bytes is not None and (
+        isinstance(expected_size_bytes, bool)
+        or not isinstance(expected_size_bytes, int)
+        or expected_size_bytes < 0
     ):
         raise ValueError(f"{field} expected size must be non-negative")
     safe_name = Path(filename).name

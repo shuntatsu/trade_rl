@@ -344,9 +344,8 @@ def _teacher_change_labels(
 
 def _uses_hierarchical_actor_head(policy: object) -> bool:
     actor_head = getattr(policy, "shared_actor_head", None)
-    return (
-        actor_head in {None, "hierarchical_gate_target_v1"}
-        and callable(getattr(policy, "hierarchical_actor_outputs", None))
+    return actor_head in {None, "hierarchical_gate_target_v1"} and callable(
+        getattr(policy, "hierarchical_actor_outputs", None)
     )
 
 
@@ -363,9 +362,7 @@ def _hierarchical_teacher_labels(
         config=config,
     )
     if labels is None:
-        raise ValueError(
-            "hierarchical BC requires structured teacher observations"
-        )
+        raise ValueError("hierarchical BC requires structured teacher observations")
     return labels
 
 

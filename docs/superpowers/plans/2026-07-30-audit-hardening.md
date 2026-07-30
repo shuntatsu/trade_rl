@@ -66,7 +66,9 @@
 - [x] Reproduce the audited failures before implementation.
 - [x] Pass the targeted 71-test GREEN suite after implementation.
 - [x] Pass targeted signed-selection and selected-final E2E tests.
-- [x] Pass targeted Ruff and Mypy checks before each implementation commit.
+- [x] Pass Ruff checks and canonical formatting across the repository.
+- [x] Pass the complete data/simulation/evaluation/serving compatibility subset after replacing the remaining private-helper test and updating the intentional execution-identity characterization digest.
+- [x] Pass targeted Mypy checks before each implementation commit.
 - [x] Compare the implementation commits against `main` and remove temporary scripts/workflows.
 - [x] Open and update PR #301 with the design, regression tests, implementation, and compatibility impact.
 - [ ] Pass the repository's complete pull-request CI and PostgreSQL workflow on the final branch head.

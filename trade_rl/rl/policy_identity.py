@@ -18,12 +18,8 @@ SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v3"
 LEGACY_SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v2"
 POLICY_ARCHITECTURE_SCHEMA: Final = "hierarchical_gate_target_policy_v2"
 HIERARCHICAL_EXPLORATION_SCHEMA: Final = "hierarchical_exploration_v1"
-HIERARCHICAL_ACTION_DISTRIBUTION: Final = (
-    "masked_shared_squashed_diag_gaussian_v1"
-)
-HIERARCHICAL_EXPLORATION_COUPLING: Final = (
-    "post_composition_gate_independent_v1"
-)
+HIERARCHICAL_ACTION_DISTRIBUTION: Final = "masked_shared_squashed_diag_gaussian_v1"
+HIERARCHICAL_EXPLORATION_COUPLING: Final = "post_composition_gate_independent_v1"
 HIERARCHICAL_LOG_STD_PARAMETERIZATION: Final = "shared_scalar_v1"
 HIERARCHICAL_ACTOR_HEAD: Final = "hierarchical_gate_target_v1"
 CURRENT_WEIGHT_KEY: Final = "current_weights"

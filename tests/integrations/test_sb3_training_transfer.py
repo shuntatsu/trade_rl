@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -13,7 +12,6 @@ from gymnasium import spaces
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.integrations import sb3_training
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
-from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.observations import ObservationLayout
 from trade_rl.rl.training import ResidualTrainingConfig
 

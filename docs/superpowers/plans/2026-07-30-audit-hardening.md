@@ -1,102 +1,68 @@
 # Post-audit Hardening Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Make execution promotion, margin configuration, artifact publication, and model-loading boundaries fail closed against the audited defects.
 
-**Architecture:** Preserve existing module boundaries. Add validation and identity fields at the existing contracts, reject unsupported semantics rather than emulating them, and isolate mutable filesystem inputs before deserialization. Every task begins with a regression test and ends with targeted verification.
+**Architecture:** Preserve existing module boundaries, reject unsupported semantics instead of approximating them, bind execution evidence to the complete execution configuration, and deserialize mutable filesystem artifacts only from private verified copies.
 
-**Tech Stack:** Python 3.12, dataclasses, NumPy, pytest, Stable-Baselines3, canonical JSON and SHA-256 artifact contracts.
+**Tech stack:** Python 3.12, dataclasses, NumPy, pytest, Stable-Baselines3, canonical JSON, and SHA-256 artifact contracts.
 
-## Global Constraints
+## Global constraints
 
 - Keep selected-final training fail closed.
-- Do not silently accept legacy execution-promotion schema versions.
-- Do not add a partial isolated-margin implementation.
-- Do not weaken existing checkpoint architecture, dataset, or policy identity checks.
-- Do not introduce new runtime dependencies.
+- Reject legacy execution-promotion evidence rather than silently migrating it.
+- Do not present proportional account-wide collateral allocation as multi-asset isolated margin.
+- Do not weaken checkpoint architecture, dataset, environment, seed, timestep, or training identity checks.
+- Do not introduce a new runtime dependency.
 
----
+## Task 1: Execution configuration boundary
 
-### Task 1: Execution configuration boundary
+- [x] Add RED tests for tail multipliers below one, economic identity drift, and unsupported multi-asset isolated margin.
+- [x] Require `tail_slippage_multiplier >= 1.0` whenever tail probability is non-zero.
+- [x] Expand `execution_policy_v2` identity to include complete mechanics and economic settings.
+- [x] Reject multi-asset isolated margin while retaining the semantically equivalent single-asset case.
+- [x] Pass targeted simulation tests.
 
-**Files:**
-- Modify: `tests/simulation/test_critical_branch_coverage.py`
-- Modify: `trade_rl/simulation/execution.py`
+## Task 2: Execution promotion evidence v2
 
-**Interfaces:**
-- Produces: `ExecutionCostConfig.execution_economics_digest: str`
-- Preserves: `ExecutionCostConfig.execution_policy_digest: str`
+- [x] Add a RED test proving zero order events could be promoted under the old contract.
+- [x] Advance the schema to `execution_promotion_evidence_v2`.
+- [x] Require at least one order event in addition to `complete_order_evidence`.
+- [x] Bind promotion evidence to the complete `execution_policy_v2` digest.
+- [x] Update maintained promotion fixtures and tests.
+- [x] Pass targeted promotion tests.
 
-- [ ] Add failing tests proving isolated margin is rejected, non-zero tail probability rejects multipliers below one, and economic parameter changes alter the economics digest without altering the mechanics digest.
-- [ ] Run the targeted simulation tests and confirm the new tests fail for the audited behavior.
-- [ ] Add the minimal validation and canonical economics payload/digest.
-- [ ] Run the targeted simulation tests and confirm they pass.
+## Task 3: Artifact publication failure handling
 
-### Task 2: Execution promotion evidence v2
+- [x] Add RED tests for fixed temporary-name reuse and pointer-write partial publication.
+- [x] Use process-unique, exclusively created temporary pointer files.
+- [x] Roll a published run back to staging when the `latest.json` update fails.
+- [x] Increase generated run-ID time resolution from seconds to microseconds.
+- [x] Preserve atomic last-writer-wins semantics for `latest.json` across distinct successful runs.
+- [x] Pass targeted ArtifactStore tests.
 
-**Files:**
-- Modify: `tests/evaluation/test_execution_promotion.py`
-- Modify: `trade_rl/simulation/execution_promotion.py`
-- Modify callers and fixtures found by repository search for `ExecutionEvidence(` and `execution_evidence_from_cost(`.
+## Task 4: Checkpoint and replay deserialization boundary
 
-**Interfaces:**
-- `ExecutionEvidence.execution_economics_digest: str`
-- `execution_evidence_from_cost(..., order_event_count: int, complete_order_evidence: bool, ...) -> ExecutionEvidence`
+- [x] Add RED tests for symlinked checkpoint manifests and policies.
+- [x] Require regular, non-symlink checkpoint and replay files.
+- [x] Open source files with no-follow semantics where the platform supports them.
+- [x] Copy opened content into a private temporary directory and verify digest/size again.
+- [x] Load SB3 checkpoints and pickle replay buffers only from the private verified copy.
+- [x] Keep private-copy behavior tested on Windows; keep symlink-specific tests POSIX-only.
+- [x] Pass targeted checkpoint, resume, and transfer tests.
 
-- [ ] Add failing tests proving zero order events cannot promote and mismatched economics identity cannot promote.
-- [ ] Run the targeted promotion tests and confirm failures are caused by the missing validation and field.
-- [ ] Advance the schema to `execution_promotion_evidence_v2`, bind the economics digest, require positive event count at promotion, and update canonical serialization.
-- [ ] Update all maintained fixtures and selected-final validation callers.
-- [ ] Run targeted promotion, workflow, serving, and e2e tests.
+## Task 5: Dead and misleading API cleanup
 
-### Task 3: Artifact publication concurrency
+- [x] Confirm `ExecutionCostConfig.rate_per_turnover` has no production consumer.
+- [x] Confirm `MarketExecutor._capacity_notional` is preserved only by direct private-helper tests.
+- [x] Remove both APIs and obsolete tests/imports.
+- [x] Retain public market-notional behavior through the maintained dataset path.
 
-**Files:**
-- Modify: artifact-store implementation located by `class ArtifactStore`.
-- Modify: corresponding artifact-store tests.
+## Task 6: Verification and publication
 
-**Interfaces:**
-- Preserves public `ArtifactStore` methods.
-- Adds internal unique temporary path and store-scoped exclusive lock helpers.
-
-- [ ] Add failing tests for unique temporary files, same-second run-id uniqueness, and concurrent latest-pointer writes.
-- [ ] Run the targeted tests and confirm failure against the fixed `.tmp` and second-resolution implementation.
-- [ ] Use exclusive, process-unique temporary files and microsecond-plus-random run identifiers; serialize store mutation with an exclusive lock.
-- [ ] Run targeted artifact tests.
-
-### Task 4: Trusted checkpoint and replay-buffer loading
-
-**Files:**
-- Modify checkpoint manifest/load modules located by `load_checkpoint_manifest` and `load_replay_buffer`.
-- Modify corresponding learning/checkpoint tests.
-
-**Interfaces:**
-- Adds internal regular-file/no-symlink validation.
-- Adds private verified-copy preparation for deserialization.
-
-- [ ] Add failing tests for symlinked manifest/policy/replay files and for source replacement after verification.
-- [ ] Run targeted tests and confirm audited behavior is exposed.
-- [ ] Validate path containment and regular files, copy verified bytes to a private temporary directory, and deserialize only from that copy.
-- [ ] Run targeted checkpoint, resume, transfer, and replay-buffer tests.
-
-### Task 5: Dead and misleading API cleanup
-
-**Files:**
-- Modify: `trade_rl/simulation/execution.py`
-- Modify: `tests/simulation/test_critical_branch_coverage.py`
-
-**Interfaces:**
-- Remove private `_capacity_notional` and obsolete `rate_per_turnover` if repository search confirms no production consumers.
-
-- [ ] Confirm definitions have no production consumers.
-- [ ] Remove tests that directly preserve dead private helpers and replace them with public `MarketDataset.market_notional` coverage where needed.
-- [ ] Run Vulture and targeted tests.
-
-### Task 6: Full verification and publication
-
-- [ ] Run targeted tests for every changed module.
-- [ ] Run full pytest.
-- [ ] Run Ruff, Mypy, Import Linter, Vulture, serving smoke, and security-oriented workflow checks available in the repository.
-- [ ] Compare branch to main and inspect every changed file for scope drift.
-- [ ] Open a draft pull request with root causes, compatibility impact, and exact verification evidence.
+- [x] Reproduce the audited failures before implementation.
+- [x] Pass the targeted 71-test GREEN suite after implementation.
+- [x] Pass targeted Ruff and Mypy checks before the implementation commit.
+- [x] Compare the implementation commit against `main` and remove temporary scripts/workflows.
+- [x] Open PR #301 with the design, regression tests, implementation, and compatibility impact.
+- [ ] Pass the repository's complete pull-request CI and PostgreSQL workflow on the final branch head.
+- [ ] Inspect final CI diagnostics and merge only after every required check is green.

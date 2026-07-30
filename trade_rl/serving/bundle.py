@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
+from trade_rl.artifacts.atomic_pointer import atomic_replace_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import (
@@ -358,9 +359,7 @@ class ServingBundle:
 def write_serving_bundle_manifest(root: Path, manifest: ServingBundleManifest) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     path = root / BUNDLE_MANIFEST_NAME
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_bytes(canonical_json_bytes(manifest))
-    temporary.replace(path)
+    atomic_replace_bytes(path, canonical_json_bytes(manifest))
     return path
 
 

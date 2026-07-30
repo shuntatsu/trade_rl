@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -10,6 +9,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from trade_rl.artifacts.verified_file import file_digest, verified_private_copy
 from trade_rl.domain.common import require_sha256
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.rl.structured_export import (
@@ -19,14 +19,6 @@ from trade_rl.rl.structured_export import (
     load_structured_export_manifest,
 )
 from trade_rl.serving.bundle import ServingBundle
-
-
-def _file_digest(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _torch_dtype(name: str) -> torch.dtype:
@@ -59,9 +51,19 @@ class StructuredTorchScriptPolicy:
             raise FileNotFoundError("structured policy model is missing")
         if model_path.stat().st_size != manifest.model_size_bytes:
             raise ValueError("structured policy model size mismatch")
-        if _file_digest(model_path) != manifest.model_digest:
+        if file_digest(model_path, field="structured policy model") != manifest.model_digest:
             raise ValueError("structured policy model digest mismatch")
-        self.model = torch.jit.load(str(model_path), map_location="cpu").eval()
+        with verified_private_copy(
+            model_path,
+            expected_digest=manifest.model_digest,
+            expected_size_bytes=manifest.model_size_bytes,
+            field="structured policy model",
+            filename=model_path.name,
+        ) as verified_model_path:
+            self.model = torch.jit.load(
+                str(verified_model_path),
+                map_location="cpu",
+            ).eval()
         self._by_name = {item.name: item for item in manifest.inputs}
 
     def _tensor(self, value: np.ndarray, spec: StructuredInputSpec) -> torch.Tensor:
@@ -129,7 +131,9 @@ class CanonicalStructuredPolicyLoader:
             )
         if manifest_path.stat().st_size != manifest_file.size_bytes:
             raise ValueError("structured export manifest size mismatch")
-        if _file_digest(manifest_path) != manifest_file.digest:
+        if file_digest(
+            manifest_path, field="structured export manifest"
+        ) != manifest_file.digest:
             raise ValueError("structured export manifest digest mismatch")
         manifest = load_structured_export_manifest(manifest_path)
         if manifest.architecture_digest != self.expected_architecture_digest:
@@ -144,7 +148,9 @@ class CanonicalStructuredPolicyLoader:
             raise FileNotFoundError("structured policy model is missing from bundle")
         if model_path.stat().st_size != model_file.size_bytes:
             raise ValueError("structured bundle model size mismatch")
-        if _file_digest(model_path) != model_file.digest:
+        if file_digest(
+            model_path, field="structured bundle model"
+        ) != model_file.digest:
             raise ValueError("structured bundle model digest mismatch")
         return StructuredTorchScriptPolicy(root=bundle.root, manifest=manifest)
 

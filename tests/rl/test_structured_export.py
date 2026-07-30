@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -346,3 +348,46 @@ def test_structured_export_requires_current_weights(tmp_path: Any) -> None:
             example_observation=observation,
             action_size=3,
         )
+
+
+def test_structured_policy_deserializes_only_a_private_verified_copy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    manifest = export_structured_policy_actor(
+        model=_FakeModel(),
+        output_dir=tmp_path,
+        example_observation=_observation(),
+        action_size=3,
+    )
+    source = tmp_path / STRUCTURED_EXPORT_MODEL_NAME
+    original_load = torch.jit.load
+    loaded_paths: list[Path] = []
+
+    def recording_load(path: str, *args: Any, **kwargs: Any) -> Any:
+        loaded_paths.append(Path(path))
+        return original_load(path, *args, **kwargs)
+
+    monkeypatch.setattr(torch.jit, "load", recording_load)
+    StructuredTorchScriptPolicy(root=tmp_path, manifest=manifest)
+
+    assert len(loaded_paths) == 1
+    assert loaded_paths[0] != source
+    assert not loaded_paths[0].exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
+def test_structured_policy_rejects_symlink_model(tmp_path: Any) -> None:
+    manifest = export_structured_policy_actor(
+        model=_FakeModel(),
+        output_dir=tmp_path,
+        example_observation=_observation(),
+        action_size=3,
+    )
+    source = tmp_path / STRUCTURED_EXPORT_MODEL_NAME
+    external = tmp_path / "external.pt"
+    source.replace(external)
+    source.symlink_to(external)
+
+    with pytest.raises(ValueError, match="symlink"):
+        StructuredTorchScriptPolicy(root=tmp_path, manifest=manifest)

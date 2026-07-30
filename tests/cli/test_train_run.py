@@ -24,6 +24,7 @@ def test_train_run_command_emits_published_run_json(
             "selection_public_keys_path": None,
             "require_selection_authorization": False,
             "execution_evidence_path": None,
+            "execution_event_artifact_path": None,
         }
         return TrainingRunResult(
             run_id="run-001",

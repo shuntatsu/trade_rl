@@ -38,8 +38,12 @@ from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
+from trade_rl.simulation.execution_replay import (
+    ExecutionEventArtifact,
+    write_execution_event_artifact,
+)
 from trade_rl.simulation.execution_promotion import (
-    ExecutionEvidence,
+    execution_evidence_from_cost,
     write_execution_evidence,
 )
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
@@ -204,15 +208,32 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     _config(config_path)
     config = normalize_training_run_config(TrainingRunConfig.from_json(config_path))
     execution_cost = config.environment.execution_cost
-    execution_evidence = ExecutionEvidence(
+    execution_event_artifact = ExecutionEventArtifact(
         dataset_id=dataset.dataset_id,
         execution_policy_digest=execution_cost.execution_policy_digest,
-        path_mode=execution_cost.path_mode,
-        processing_bar_volume_capacity=(execution_cost.processing_bar_volume_capacity),
-        partial_fill_carry=execution_cost.partial_fill_carry,
-        trigger_volume_fractions=execution_cost.trigger_volume_fractions,
-        order_event_count=1,
-        complete_order_evidence=True,
+        order_event_schema="order_event_v1",
+        events=(
+            {
+                "schema_version": "order_event_v1",
+                "dataset_id": dataset.dataset_id,
+                "execution_policy_digest": execution_cost.execution_policy_digest,
+                "sequence": 0,
+            },
+        ),
+        terminal_book={"schema_version": "execution_terminal_book_v1", "cash": 1.0},
+        terminal_order_book={
+            "schema_version": "execution_terminal_order_book_v1"
+        },
+    )
+    execution_event_artifact_path = tmp_path / "execution-order-events.json"
+    write_execution_event_artifact(
+        execution_event_artifact_path,
+        execution_event_artifact,
+    )
+    execution_evidence = execution_evidence_from_cost(
+        dataset_id=dataset.dataset_id,
+        cost=execution_cost,
+        order_event_artifact_path=execution_event_artifact_path,
         sensitivity_path_modes=("optimistic", "neutral", "conservative"),
     )
 
@@ -266,6 +287,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         selection_public_keys_path=selection_keys_path,
         require_selection_authorization=True,
         execution_evidence_path=execution_evidence_path,
+        execution_event_artifact_path=execution_event_artifact_path,
     )
     run_root = result.path
     ensemble = json.loads((run_root / "ensemble.json").read_text(encoding="utf-8"))

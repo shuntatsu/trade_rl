@@ -9,6 +9,7 @@ from typing import Any, Final, TypedDict
 
 import numpy as np
 
+from trade_rl.artifacts.atomic_pointer import atomic_replace_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
@@ -126,9 +127,7 @@ def write_structured_policy_loader_manifest(
         expected_members=expected_members,
     )
     path = Path(root) / STRUCTURED_POLICY_LOADER_NAME
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_bytes(canonical_json_bytes(payload))
-    temporary.replace(path)
+    atomic_replace_bytes(path, canonical_json_bytes(payload))
     return path
 
 

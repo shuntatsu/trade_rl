@@ -106,6 +106,7 @@ def _training_run_parser() -> argparse.ArgumentParser:
     parser.add_argument("--selection-public-keys", type=Path)
     parser.add_argument("--require-selection-authorization", action="store_true")
     parser.add_argument("--execution-evidence", type=Path)
+    parser.add_argument("--execution-event-artifact", type=Path)
     return parser
 
 
@@ -622,6 +623,7 @@ def _run_training(
             selection_public_keys_path=args.selection_public_keys,
             require_selection_authorization=args.require_selection_authorization,
             execution_evidence_path=args.execution_evidence,
+            execution_event_artifact_path=args.execution_event_artifact,
         )
     except Exception as error:
         return _error(stderr, error, schema="training_run_error_v1")

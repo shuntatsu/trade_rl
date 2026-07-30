@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
+from trade_rl.artifacts.atomic_pointer import (
+    AtomicReplaceDurabilityError,
+    atomic_replace_bytes,
+)
 from trade_rl.artifacts.codec import canonical_json_bytes
 
 _RUN_ID_RE: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -32,16 +35,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
-    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
-    try:
-        with temporary.open("xb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        _fsync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
+    atomic_replace_bytes(path, payload)
 
 
 def _replace_directory(source: Path, destination: Path) -> None:
@@ -99,6 +93,8 @@ class ArtifactStore:
         }
         try:
             _atomic_write(self.root / "latest.json", canonical_json_bytes(pointer))
+        except AtomicReplaceDurabilityError:
+            raise
         except BaseException:
             if published.is_dir() and not stage.exists():
                 _replace_directory(published, stage)

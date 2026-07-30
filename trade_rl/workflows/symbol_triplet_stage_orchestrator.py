@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Iterator
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -253,6 +254,7 @@ def _validate_previous_completion(
     stage: SymbolTripletTrainingStage,
     completion: SymbolTripletStageCompletion,
     *,
+    cursor: SymbolTripletTrainingCursor,
     training_seeds: tuple[int, ...],
 ) -> None:
     expected_previous_index = stage.stage_index - 1
@@ -264,6 +266,8 @@ def _validate_previous_completion(
         raise ValueError("previous stage completion does not match the training cursor")
     if completion.training_seeds != training_seeds:
         raise ValueError("previous stage completion training seeds mismatch")
+    if cursor.last_completion_digest != completion.digest:
+        raise ValueError("previous stage completion digest does not match training cursor")
     completion.validate_plan(plan)
 
 
@@ -286,6 +290,7 @@ def build_symbol_triplet_stage_request(
                 previous_completion.stage_index != plan.stage_count - 1
                 or previous_completion.stage_id != plan.stages[-1].stage_id
                 or previous_completion.training_seeds != seeds
+                or previous_completion.digest != cursor.last_completion_digest
             ):
                 raise ValueError(
                     "previous stage completion does not match completed plan"
@@ -306,6 +311,7 @@ def build_symbol_triplet_stage_request(
         plan,
         stage,
         previous_completion,
+        cursor=cursor,
         training_seeds=seeds,
     )
     return _request_from_stage(
@@ -417,14 +423,65 @@ def _checkpoint_references(
     return tuple(references)
 
 
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _atomic_write(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
     try:
-        temporary.write_bytes(payload)
+        with temporary.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _exclusive_write(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("xb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    _fsync_directory(path.parent)
+
+
+@contextmanager
+def _exclusive_cursor_lock(cursor_path: Path) -> Iterator[None]:
+    lock_path = cursor_path.with_name(f".{cursor_path.name}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            if handle.seek(0, os.SEEK_END) == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _write_completion_and_cursor(
@@ -435,15 +492,14 @@ def _write_completion_and_cursor(
 ) -> None:
     if completion_path == cursor_path:
         raise ValueError("completion and cursor paths must differ")
-    if completion_path.exists():
-        raise FileExistsError(f"stage completion already exists: {completion_path}")
     completion_payload = canonical_json_bytes(completion.to_json_dict())
     cursor_payload = canonical_json_bytes(cursor.to_json_dict())
-    _atomic_write(completion_path, completion_payload)
+    _exclusive_write(completion_path, completion_payload)
     try:
         _atomic_write(cursor_path, cursor_payload)
     except BaseException:
         completion_path.unlink(missing_ok=True)
+        _fsync_directory(completion_path.parent)
         raise
 
 
@@ -459,18 +515,6 @@ def commit_symbol_triplet_stage_completion(
     """Validate all seed checkpoints, publish completion, then advance the cursor."""
 
     stage = _validate_request_for_cursor(plan, cursor, request)
-    resolved_cursor_path = Path(cursor_path)
-    if resolved_cursor_path.exists():
-        from trade_rl.workflows.symbol_triplet_training_cursor import (
-            load_symbol_triplet_training_cursor,
-        )
-
-        persisted_cursor = load_symbol_triplet_training_cursor(
-            resolved_cursor_path,
-            plan=plan,
-        )
-        if persisted_cursor != cursor:
-            raise ValueError("persisted training cursor differs from requested cursor")
     checkpoints = _checkpoint_references(
         checkpoint_roots,
         training_seeds=request.training_seeds,
@@ -486,13 +530,29 @@ def commit_symbol_triplet_stage_completion(
         plan,
         cursor,
         completed_stage_id=stage.stage_id,
+        completion_digest=completion.digest,
     )
-    _write_completion_and_cursor(
-        Path(completion_path),
-        completion,
-        resolved_cursor_path,
-        advanced,
+    resolved_cursor_path = Path(cursor_path)
+    from trade_rl.workflows.symbol_triplet_training_cursor import (
+        load_symbol_triplet_training_cursor,
     )
+
+    with _exclusive_cursor_lock(resolved_cursor_path):
+        if resolved_cursor_path.exists():
+            persisted_cursor = load_symbol_triplet_training_cursor(
+                resolved_cursor_path,
+                plan=plan,
+            )
+            if persisted_cursor.digest != cursor.digest:
+                raise ValueError("stale persisted training cursor digest")
+        elif cursor.next_stage_index != 0:
+            raise ValueError("advanced training cursor is missing from persistence")
+        _write_completion_and_cursor(
+            Path(completion_path),
+            completion,
+            resolved_cursor_path,
+            advanced,
+        )
     return completion, advanced
 
 

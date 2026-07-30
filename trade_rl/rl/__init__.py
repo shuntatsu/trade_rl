@@ -50,9 +50,11 @@ _MODULE_EXPORTS = {
         "PolicyTrainingBackend",
         "PolicyTrainingResult",
         "ResidualTrainingConfig",
+        "train_residual_ensemble",
+    ),
+    "trade_rl.integrations.sb3_training": (
         "StableBaselines3Backend",
         "StableBaselines3PPOBackend",
-        "train_residual_ensemble",
     ),
 }
 _EXPORTS = {name: module for module, names in _MODULE_EXPORTS.items() for name in names}

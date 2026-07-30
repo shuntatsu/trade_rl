@@ -40,3 +40,32 @@ def test_latest_pointer_failure_rolls_published_run_back_to_staging(
 
     assert (store.staging_root / "run").is_dir()
     assert not (store.runs_root / "run").exists()
+
+
+def test_post_replace_fsync_failure_keeps_published_run_and_pointer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import json
+
+    import trade_rl.artifacts.atomic_pointer as pointer_module
+    from trade_rl.artifacts.atomic_pointer import AtomicReplaceDurabilityError
+
+    store = ArtifactStore(tmp_path / "store")
+    stage = store.stage_run("run")
+    (stage / "artifact").write_bytes(b"payload")
+
+    monkeypatch.setattr(
+        pointer_module,
+        "_fsync_directory",
+        lambda _path: (_ for _ in ()).throw(OSError("fsync failed")),
+    )
+
+    with pytest.raises(AtomicReplaceDurabilityError, match="durability"):
+        store.publish_run("run", validate=lambda _: True)
+
+    published = store.runs_root / "run"
+    assert published.is_dir()
+    assert not (store.staging_root / "run").exists()
+    pointer = json.loads((store.root / "latest.json").read_text(encoding="utf-8"))
+    assert pointer["path"] == "runs/run"

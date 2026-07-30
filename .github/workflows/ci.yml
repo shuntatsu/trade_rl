@@ -1,153 +1,242 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
+      - agent/causal-training-hardening
+      - agent/causal-sequence-feature-encoder
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  type-cursor:
-    name: Type A4 cursor JSON boundary atomically
+  quality:
+    name: Rebuilt Core
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Checkout exact head with parent
+      - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 2
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - name: Create typed commit and restore CI
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_BRANCH: ${{ github.head_ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          REPOSITORY: ${{ github.repository }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install Studio frontend
+        run: npm ci --prefix studio --no-audit --no-fund
+
+      - name: Verify Studio frontend
+        shell: bash
         run: |
-          python - <<'PY'
-          from __future__ import annotations
+          set -o pipefail
+          {
+            npm test --prefix studio -- --run
+            npm run typecheck --prefix studio
+            npm run build --prefix studio
+          } 2>&1 | tee studio-frontend.log
 
-          import json
-          import os
-          import subprocess
-          from pathlib import Path
-          from urllib.parse import quote
-          from urllib.request import Request, urlopen
+      - name: Verify Studio fixed viewport layout
+        env:
+          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
+        run: npm run check:layout --prefix studio
 
-          repository = os.environ["REPOSITORY"]
-          token = os.environ["GH_TOKEN"]
-          head_sha = os.environ["HEAD_SHA"]
-          head_branch = os.environ["HEAD_BRANCH"]
-          cursor_path = Path(
-              "trade_rl/workflows/symbol_triplet_training_cursor.py"
-          )
-          content = cursor_path.read_text(encoding="utf-8")
+      - name: Upload Studio layout diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-layout-diagnostics
+          path: |
+            studio-frontend.log
+            studio/qa-screenshots
+          if-no-files-found: error
 
-          replacements = {
-              "from typing import Final": "from typing import Final, cast",
-              '        manifest_digest=payload["manifest_digest"],': '        manifest_digest=cast(str, payload["manifest_digest"]),',
-              '        schedule_identity=payload["schedule_identity"],': '        schedule_identity=cast(str, payload["schedule_identity"]),',
-              '        train_cycle_digest=payload["train_cycle_digest"],': '        train_cycle_digest=cast(str, payload["train_cycle_digest"]),',
-              '        cycles=payload["cycles"],': '        cycles=cast(int, payload["cycles"]),',
-              '        plan_identity=payload["plan_identity"],': '        plan_identity=cast(str, payload["plan_identity"]),',
-              '        schema_version=payload["schema_version"],': '        schema_version=cast(str, payload["schema_version"]),',
-              '        digest=payload["digest"],': '        digest=cast(str, payload["digest"]),',
-              '        plan_digest=payload["plan_digest"],': '        plan_digest=cast(str, payload["plan_digest"]),',
-              '        stage_count=payload["stage_count"],': '        stage_count=cast(int, payload["stage_count"]),',
-              '        next_stage_index=payload["next_stage_index"],': '        next_stage_index=cast(int, payload["next_stage_index"]),',
-              '        last_completed_stage_id=payload["last_completed_stage_id"],': '        last_completed_stage_id=cast(\n            str | None, payload["last_completed_stage_id"]\n        ),',
-          }
-          for old, new in replacements.items():
-              expected = 2 if old == '        schema_version=payload["schema_version"],' or old == '        digest=payload["digest"],' else 1
-              if content.count(old) != expected:
-                  raise RuntimeError(
-                      f"typing patch target drifted for {old!r}: {content.count(old)}"
-                  )
-              content = content.replace(old, new)
+      - name: Workflow security
+        run: uv run python .github/check_workflow_security.py .
 
-          original_ci = subprocess.check_output(
-              ["git", "show", "HEAD^:.github/workflows/ci.yml"],
-              text=True,
-          )
+      - name: Ruff
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check . 2>&1 | tee ruff.log
 
-          def api(method: str, endpoint: str, payload: object | None = None) -> object:
-              url = f"https://api.github.com/repos/{repository}/{endpoint}"
-              data = None if payload is None else json.dumps(payload).encode("utf-8")
-              request = Request(
-                  url,
-                  data=data,
-                  method=method,
-                  headers={
-                      "Accept": "application/vnd.github+json",
-                      "Authorization": f"Bearer {token}",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                  },
-              )
-              with urlopen(request) as response:
-                  return json.loads(response.read())
+      - name: Format
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff format --check --diff . 2>&1 | tee format.log
 
-          commit = api("GET", f"git/commits/{head_sha}")
-          if not isinstance(commit, dict):
-              raise RuntimeError("head commit response is invalid")
-          tree = commit.get("tree")
-          if not isinstance(tree, dict) or not isinstance(tree.get("sha"), str):
-              raise RuntimeError("head tree SHA is missing")
+      - name: Mypy
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy . 2>&1 | tee mypy.log
 
-          def create_blob(value: str) -> str:
-              result = api(
-                  "POST",
-                  "git/blobs",
-                  {"content": value, "encoding": "utf-8"},
-              )
-              if not isinstance(result, dict) or not isinstance(result.get("sha"), str):
-                  raise RuntimeError("created blob SHA is missing")
-              return str(result["sha"])
+      - name: Upload static diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: static-diagnostics
+          path: |
+            ruff.log
+            format.log
+            mypy.log
+          if-no-files-found: ignore
 
-          new_tree = api(
-              "POST",
-              "git/trees",
-              {
-                  "base_tree": tree["sha"],
-                  "tree": [
-                      {
-                          "path": cursor_path.as_posix(),
-                          "mode": "100644",
-                          "type": "blob",
-                          "sha": create_blob(content),
-                      },
-                      {
-                          "path": ".github/workflows/ci.yml",
-                          "mode": "100644",
-                          "type": "blob",
-                          "sha": create_blob(original_ci),
-                      },
-                  ],
-              },
-          )
-          if not isinstance(new_tree, dict) or not isinstance(new_tree.get("sha"), str):
-              raise RuntimeError("created tree SHA is missing")
-          new_commit = api(
-              "POST",
-              "git/commits",
-              {
-                  "message": "fix: type symbol-triplet cursor JSON boundary",
-                  "parents": [head_sha],
-                  "tree": new_tree["sha"],
-              },
-          )
-          if not isinstance(new_commit, dict) or not isinstance(
-              new_commit.get("sha"), str
-          ):
-              raise RuntimeError("created commit SHA is missing")
-          api(
-              "PATCH",
-              f"git/refs/heads/{quote(head_branch, safe='/')}",
-              {"force": False, "sha": new_commit["sha"]},
-          )
-          print(new_commit["sha"])
-          PY
+      - name: Import architecture
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run lint-imports 2>&1 | tee import-linter.log
+
+      - name: Upload architecture diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-diagnostics
+          path: import-linter.log
+          if-no-files-found: error
+
+      - name: Dead-code report
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+
+      - name: Tests and coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest.log
+            coverage.json
+          if-no-files-found: ignore
+
+      - name: Critical branch coverage
+        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+
+      - name: CLI smoke test
+        run: uv run trade-rl --version
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compatibility-${{ matrix.os }}
+          path: compatibility.log
+          if-no-files-found: error
+
+  training-image:
+    name: Training image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Build complete training image
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
+            --file Dockerfile.training \
+            --tag trade-rl-training:ci \
+            .
+
+      - name: Record training image identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
+          repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"
+          {
+            printf 'commit_sha=%s\n' "$commit"
+            printf 'source_tree_digest=%s\n' "$source_digest"
+            printf 'lockfile_digest=%s\n' "$lock_digest"
+            printf 'image_id=%s\n' "$image_id"
+            printf 'repo_digests=%s\n' "$repo_digests"
+          } > training-image-evidence.txt
+
+      - name: Upload training image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: training-image-evidence
+          path: training-image-evidence.txt
+          if-no-files-found: error
+
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:ci -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -569,15 +569,15 @@ def load_symbol_triplet_training_plan(
     if not isinstance(raw_plan_slots, list):
         raise ValueError("symbol-triplet training plan slot symbols must be a list")
     plan = SymbolTripletTrainingPlan(
-        manifest_digest=payload["manifest_digest"],
-        schedule_identity=payload["schedule_identity"],
-        train_cycle_digest=payload["train_cycle_digest"],
-        cycles=payload["cycles"],
+        manifest_digest=cast(str, payload["manifest_digest"]),
+        schedule_identity=cast(str, payload["schedule_identity"]),
+        train_cycle_digest=cast(str, payload["train_cycle_digest"]),
+        cycles=cast(int, payload["cycles"]),
         slot_symbols=tuple(raw_plan_slots),
-        plan_identity=payload["plan_identity"],
+        plan_identity=cast(str, payload["plan_identity"]),
         stages=tuple(stages),
-        schema_version=payload["schema_version"],
-        digest=payload["digest"],
+        schema_version=cast(str, payload["schema_version"]),
+        digest=cast(str, payload["digest"]),
     )
     plan.validate_manifest(manifest)
     return plan
@@ -600,12 +600,14 @@ def load_symbol_triplet_training_cursor(
     if set(payload) != required:
         raise ValueError("symbol-triplet training cursor field closure mismatch")
     cursor = SymbolTripletTrainingCursor(
-        plan_digest=payload["plan_digest"],
-        stage_count=payload["stage_count"],
-        next_stage_index=payload["next_stage_index"],
-        last_completed_stage_id=payload["last_completed_stage_id"],
-        schema_version=payload["schema_version"],
-        digest=payload["digest"],
+        plan_digest=cast(str, payload["plan_digest"]),
+        stage_count=cast(int, payload["stage_count"]),
+        next_stage_index=cast(int, payload["next_stage_index"]),
+        last_completed_stage_id=cast(
+            str | None, payload["last_completed_stage_id"]
+        ),
+        schema_version=cast(str, payload["schema_version"]),
+        digest=cast(str, payload["digest"]),
     )
     cursor.validate_plan(plan)
     return cursor

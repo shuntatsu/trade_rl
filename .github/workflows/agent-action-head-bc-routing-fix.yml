@@ -1,0 +1,96 @@
+name: Agent action-head BC routing fix
+
+on:
+  push:
+    branches:
+      - agent/action-head-ablation-v1
+    paths:
+      - .github/workflows/agent-action-head-bc-routing-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/action-head-ablation-v1
+          fetch-depth: 0
+      - name: Apply exact BC routing fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/integrations/sb3_training.py")
+          text = path.read_text(encoding="utf-8")
+
+          old = '''def _hierarchical_teacher_labels(
+              *,
+              policy: object,
+              teacher_dataset: SupervisedPolicyDataset,
+              config: object,
+          ) -> HierarchicalTeacherLabels | None:
+              if not callable(getattr(policy, "hierarchical_actor_outputs", None)):
+                  return None
+          '''
+          new = '''def _uses_hierarchical_actor_head(policy: object) -> bool:
+              return (
+                  getattr(policy, "shared_actor_head", None)
+                  == "hierarchical_gate_target_v1"
+                  and callable(getattr(policy, "hierarchical_actor_outputs", None))
+              )
+
+
+          def _hierarchical_teacher_labels(
+              *,
+              policy: object,
+              teacher_dataset: SupervisedPolicyDataset,
+              config: object,
+          ) -> HierarchicalTeacherLabels | None:
+              if not _uses_hierarchical_actor_head(policy):
+                  return None
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("hierarchical helper replacement did not match exactly once")
+          text = text.replace(old, new, 1)
+
+          old = '''                    hierarchical_labels = (
+                              teacher_change_labels
+                              if callable(
+                                  getattr(model.policy, "hierarchical_actor_outputs", None)
+                              )
+                              else None
+                          )
+          '''
+          new = '''                    hierarchical_labels = (
+                              teacher_change_labels
+                              if _uses_hierarchical_actor_head(model.policy)
+                              else None
+                          )
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("training routing replacement did not match exactly once")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          design = Path("docs/superpowers/specs/2026-07-30-action-head-ablation-design.md")
+          text = design.read_text(encoding="utf-8")
+          old = "6. v2/v3 identities fail with migration errors;"
+          new = "6. v2 identities fail and existing hierarchical v3 identities remain readable for migration;"
+          if text.count(old) != 1:
+              raise SystemExit("design identity statement did not match exactly once")
+          design.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          rm .github/workflows/agent-action-head-bc-routing-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/sb3_training.py \
+            tests/integrations/test_action_head_bc_routing.py \
+            docs/superpowers/specs/2026-07-30-action-head-ablation-design.md \
+            .github/workflows/agent-action-head-bc-routing-fix.yml
+          git commit -m "fix: route direct BC by actor-head identity"
+          git push origin HEAD:agent/action-head-ablation-v1

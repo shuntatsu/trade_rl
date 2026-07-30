@@ -343,10 +343,10 @@ def _teacher_change_labels(
 
 
 def _uses_hierarchical_actor_head(policy: object) -> bool:
-    return (
-        getattr(policy, "shared_actor_head", None)
-        == "hierarchical_gate_target_v1"
-        and callable(getattr(policy, "hierarchical_actor_outputs", None))
+    return getattr(
+        policy, "shared_actor_head", None
+    ) == "hierarchical_gate_target_v1" and callable(
+        getattr(policy, "hierarchical_actor_outputs", None)
     )
 
 

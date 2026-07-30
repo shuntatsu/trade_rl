@@ -1,0 +1,168 @@
+name: Update execution fixture
+
+on:
+  push:
+    branches:
+      - agent/harden-audit-contracts-v2
+    paths:
+      - .github/workflows/update-execution-fixture.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/harden-audit-contracts-v2
+      - name: Update package fixture
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/serving/test_package.py")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  "from dataclasses import asdict\n",
+                  "from dataclasses import asdict, replace\n",
+              ),
+              (
+                  "import pytest\n",
+                  "import numpy as np\nimport pytest\n",
+              ),
+              (
+                  "from trade_rl.simulation.execution import ExecutionCostConfig\n",
+                  "from trade_rl.simulation.accounting import BookState\n"
+                  "from trade_rl.simulation.execution import ExecutionCostConfig\n",
+              ),
+              (
+                  "from trade_rl.simulation.execution_promotion import (\n"
+                  "    ExecutionEvidence,\n"
+                  "    write_execution_evidence,\n"
+                  ")\n",
+                  "from trade_rl.simulation.execution_promotion import (\n"
+                  "    execution_evidence_from_cost,\n"
+                  "    write_execution_evidence,\n"
+                  ")\n"
+                  "from trade_rl.simulation.execution_replay import (\n"
+                  "    EXECUTION_EVENT_ARTIFACT_FILE_NAME,\n"
+                  "    build_execution_event_artifact,\n"
+                  "    write_execution_event_artifact,\n"
+                  ")\n"
+                  "from trade_rl.simulation.orders import (\n"
+                  "    OrderBookState,\n"
+                  "    OrderEvent,\n"
+                  "    OrderStatus,\n"
+                  ")\n",
+              ),
+              (
+                  "        \"execution-evidence.json\",\n"
+                  "        \"metadata-promotion.json\",\n",
+                  "        \"execution-evidence.json\",\n"
+                  "        EXECUTION_EVENT_ARTIFACT_FILE_NAME,\n"
+                  "        \"metadata-promotion.json\",\n",
+              ),
+          ]
+          for old, new in replacements:
+              assert text.count(old) == 1, old
+              text = text.replace(old, new, 1)
+
+          old_block = '''    write_execution_evidence(
+              root / "execution-evidence.json",
+              ExecutionEvidence(
+                  dataset_id="b" * 64,
+                  execution_policy_digest=(
+                      execution_cost.execution_policy_digest
+                      if execution_policy_digest is None
+                      else execution_policy_digest
+                  ),
+                  path_mode=execution_path_mode,
+                  processing_bar_volume_capacity=True,
+                  partial_fill_carry=True,
+                  trigger_volume_fractions=(1.0, 0.5, 0.25, 0.0),
+                  order_event_count=4,
+                  complete_order_evidence=True,
+                  sensitivity_path_modes=("conservative",),
+              ),
+          )
+          '''
+          new_block = '''    event = OrderEvent(
+              schema_version="order_event_v1",
+              sequence=0,
+              order_id="a" * 64,
+              replaced_order_id=None,
+              dataset_id="b" * 64,
+              execution_policy_digest=execution_cost.execution_policy_digest,
+              symbol_index=0,
+              event_type="filled",
+              processing_index=1,
+              timestamp_ns=1,
+              previous_status=OrderStatus.ELIGIBLE,
+              new_status=OrderStatus.FILLED,
+              requested_quantity=1.0,
+              remaining_quantity=0.0,
+              filled_quantity=1.0,
+              execution_price=100.0,
+              filled_notional=100.0,
+              capacity_before=10.0,
+              capacity_after=9.0,
+              participation_rate=0.1,
+              trigger_segment=None,
+              available_volume_fraction=1.0,
+              reason=None,
+              path_mode="conservative",
+              path_points=(100.0, 101.0, 99.0, 100.5),
+          )
+          event_artifact = build_execution_event_artifact(
+              dataset_id="b" * 64,
+              execution_policy_digest=execution_cost.execution_policy_digest,
+              order_events=(event,),
+              terminal_book=BookState(
+                  quantities=np.array((1.0,), dtype=np.float64),
+                  cash=900.0,
+                  mark_prices=np.array((100.0,), dtype=np.float64),
+                  peak_value=1_000.0,
+              ),
+              terminal_order_book=OrderBookState.empty(),
+          )
+          event_path = write_execution_event_artifact(
+              root / EXECUTION_EVENT_ARTIFACT_FILE_NAME,
+              event_artifact,
+          )
+          execution_evidence = execution_evidence_from_cost(
+              dataset_id="b" * 64,
+              cost=execution_cost,
+              order_event_artifact_path=event_path,
+              sensitivity_path_modes=("conservative",),
+          )
+          if execution_path_mode != "conservative":
+              execution_evidence = replace(
+                  execution_evidence,
+                  path_mode=execution_path_mode,
+              )
+          if execution_policy_digest is not None:
+              execution_evidence = replace(
+                  execution_evidence,
+                  execution_policy_digest=execution_policy_digest,
+              )
+          write_execution_evidence(
+              root / "execution-evidence.json",
+              execution_evidence,
+          )
+          '''
+          assert text.count(old_block) == 1
+          text = text.replace(old_block, new_block, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Remove one-shot workflow and commit
+        run: |
+          git rm .github/workflows/update-execution-fixture.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/serving/test_package.py
+          git commit -m "Bind serving package fixtures to execution events"
+          git push origin HEAD:agent/harden-audit-contracts-v2

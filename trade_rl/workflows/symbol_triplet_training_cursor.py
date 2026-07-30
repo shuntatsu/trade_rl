@@ -317,6 +317,9 @@ class SymbolTripletTrainingCursor:
     def __post_init__(self) -> None:
         if self.schema_version != SYMBOL_TRIPLET_TRAINING_CURSOR_SCHEMA:
             raise ValueError("unsupported symbol-triplet training cursor schema")
+        expected_digest = content_digest(self.digest_payload())
+        if self.digest and self.digest != expected_digest:
+            raise ValueError("symbol-triplet training cursor digest mismatch")
         require_sha256(self.plan_digest, field="training_cursor.plan_digest")
         stage_count = _positive_integer(self.stage_count, field="stage_count")
         next_stage_index = _non_negative_integer(
@@ -337,9 +340,6 @@ class SymbolTripletTrainingCursor:
                 self.last_completed_stage_id,
                 field="training_cursor.last_completed_stage_id",
             )
-        expected_digest = content_digest(self.digest_payload())
-        if self.digest and self.digest != expected_digest:
-            raise ValueError("symbol-triplet training cursor digest mismatch")
         object.__setattr__(self, "stage_count", stage_count)
         object.__setattr__(self, "next_stage_index", next_stage_index)
         object.__setattr__(self, "digest", expected_digest)

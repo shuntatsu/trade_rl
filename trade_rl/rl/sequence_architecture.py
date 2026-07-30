@@ -133,10 +133,14 @@ class SequenceAssetBindingIdentity:
             self.action_names, field="asset binding action names"
         )
         if len(symbols) != self.n_symbols or len(action_names) != self.n_symbols:
-            raise ValueError("asset binding symbol and action counts must match n_symbols")
+            raise ValueError(
+                "asset binding symbol and action counts must match n_symbols"
+            )
         expected = tuple(f"target_weight:{symbol}" for symbol in symbols)
         if action_names != expected:
-            raise ValueError("asset binding requires ordered target-weight action names")
+            raise ValueError(
+                "asset binding requires ordered target-weight action names"
+            )
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "action_names", action_names)
 

@@ -182,12 +182,16 @@ def write_or_validate_binance_metadata_resolution(
         resolution.write_artifacts(resolved_root)
         return report_path
     if not report_path.is_file() or report_path.read_bytes() != expected_report:
-        raise ValueError("Binance metadata evidence report differs from the stage binding")
+        raise ValueError(
+            "Binance metadata evidence report differs from the stage binding"
+        )
     if expected_raw is None:
         if raw_path.exists():
             raise ValueError("Binance metadata evidence has an unexpected raw payload")
     elif not raw_path.is_file() or raw_path.read_bytes() != expected_raw:
-        raise ValueError("Binance metadata evidence raw payload differs from the stage binding")
+        raise ValueError(
+            "Binance metadata evidence raw payload differs from the stage binding"
+        )
     return report_path
 
 
@@ -196,7 +200,9 @@ def _postgres_connection(database_url: str) -> Iterator[Any]:
     try:
         import psycopg
     except ImportError as error:  # pragma: no cover - optional dependency boundary
-        raise RuntimeError("PostgreSQL symbol-triplet training requires psycopg") from error
+        raise RuntimeError(
+            "PostgreSQL symbol-triplet training requires psycopg"
+        ) from error
     with psycopg.connect(database_url) as connection:
         yield connection
 
@@ -207,7 +213,9 @@ def _manifest_universe(
 ) -> tuple[str, ...]:
     raw = getattr(manifest, "universe", request.symbols)
     universe = tuple(cast(Any, raw))
-    if not universe or any(not isinstance(symbol, str) or not symbol for symbol in universe):
+    if not universe or any(
+        not isinstance(symbol, str) or not symbol for symbol in universe
+    ):
         raise ValueError("symbol-triplet manifest universe is invalid")
     return universe
 
@@ -253,7 +261,9 @@ def execute_binance_symbol_triplet_stage_command(
     metadata_root = binance_symbol_triplet_stage_root(work_root, request) / "metadata"
     write_or_validate_binance_metadata_resolution(metadata_root, resolution)
 
-    resolved_database_url = (database_url or os.environ.get("TRADE_RL_DATABASE_URL", "")).strip()
+    resolved_database_url = (
+        database_url or os.environ.get("TRADE_RL_DATABASE_URL", "")
+    ).strip()
     if not resolved_database_url:
         raise ValueError("TRADE_RL_DATABASE_URL is required for PostgreSQL market data")
     with _postgres_connection(resolved_database_url) as connection:

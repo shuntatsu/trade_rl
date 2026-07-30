@@ -6,6 +6,8 @@ from trade_rl.data.builder import _calculate_one_bar_returns
 
 
 def test_one_bar_returns_are_vectorized_and_require_contiguous_rows() -> None:
+    """Only adjacent observable rows contribute to the market breadth channels."""
+
     close = np.asarray(
         [
             [100.0, 200.0],

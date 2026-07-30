@@ -7,7 +7,6 @@ from pathlib import Path
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
-
 _ROOT = Path(__file__).parents[2] / "examples" / "binance-multitimeframe"
 _GATE = _ROOT / "training-action-head-ablation-gate.json"
 _DIRECT = _ROOT / "training-action-head-ablation-direct.json"

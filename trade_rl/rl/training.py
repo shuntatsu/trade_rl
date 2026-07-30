@@ -488,7 +488,10 @@ class ResidualTrainingConfig:
             raise ValueError(
                 "hierarchical_gate_temperature must be finite and positive"
             )
-        if actor_head == "shared_target_v1" and self.hierarchical_gate_temperature != 1.0:
+        if (
+            actor_head == "shared_target_v1"
+            and self.hierarchical_gate_temperature != 1.0
+        ):
             raise ValueError(
                 "hierarchical_gate_temperature is inactive for "
                 "policy_actor_head=shared_target_v1"

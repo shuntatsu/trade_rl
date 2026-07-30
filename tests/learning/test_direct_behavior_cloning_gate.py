@@ -77,7 +77,9 @@ def test_direct_behavior_cloning_gate_rejects_zero_trade_collapse() -> None:
         evaluation.require_passed()
 
 
-def test_direct_behavior_cloning_gate_accepts_reconstruction_and_causal_support() -> None:
+def test_direct_behavior_cloning_gate_accepts_reconstruction_and_causal_support() -> (
+    None
+):
     evaluation = evaluate_direct_behavior_cloning_gates(
         initial_mse=1.0,
         final_mse=0.5,

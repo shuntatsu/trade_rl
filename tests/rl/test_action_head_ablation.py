@@ -81,9 +81,7 @@ class _PolicyHarness(SharedPerAssetActorCriticPolicy):
         self.action_net = action_net
         self.mlp_extractor = _ActorPassThrough()
 
-    def extract_features(
-        self, observations: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    def extract_features(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
         return observations["features"]
 
 

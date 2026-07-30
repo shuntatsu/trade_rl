@@ -85,18 +85,22 @@ class _FakeModel:
     def __init__(self) -> None:
         self.policy = _FakeStructuredPolicy()
         self.device = "cuda:7"
+        symbols = ("BTC", "ETH", "BNB")
+        action_names = tuple(f"target_weight:{symbol}" for symbol in symbols)
         architecture = {
-            "schema_version": "hierarchical_sequence_policy_v2",
-            "timeframes": ["15m", "1h", "4h", "1d"],
+            "asset_identity_mode": "identity_free_v1",
             "d_model": 16,
-            "action_names": (
-                "target_weight:BTC",
-                "target_weight:ETH",
-                "target_weight:BNB",
-            ),
-            "symbols": ("BTC", "ETH", "BNB"),
+            "n_symbols": 3,
+            "schema_version": "hierarchical_sequence_policy_v4",
+            "timeframes": ["15m", "1h", "4h", "1d"],
         }
         sequence_digest = content_digest(architecture)
+        asset_binding = {
+            "action_names": action_names,
+            "n_symbols": 3,
+            "schema_version": "sequence_asset_binding_v1",
+            "symbols": symbols,
+        }
         current_weight = {
             "bounds": (-1.0, 1.0),
             "dtype": "float32",
@@ -119,17 +123,19 @@ class _FakeModel:
             "exploration_contract": exploration_contract,
             "gate_temperature": 1.0,
             "observation_encoder": "hierarchical_sequence_v2",
-            "schema_version": "hierarchical_gate_target_policy_v2",
+            "schema_version": "hierarchical_gate_target_policy_v3",
             "sequence_architecture_digest": sequence_digest,
         }
         identity = {
             "actor_head": "hierarchical_gate_target_v1",
+            "asset_binding": asset_binding,
+            "asset_binding_digest": content_digest(asset_binding),
             "current_weight_observation": current_weight,
             "exploration_contract": exploration_contract,
             "gate_temperature": 1.0,
             "observation_encoder": "hierarchical_sequence_v2",
             "policy_architecture_digest": content_digest(policy_architecture),
-            "schema_version": "sb3_policy_identity_v3",
+            "schema_version": "sb3_policy_identity_v4",
             "sequence_architecture": architecture,
             "sequence_architecture_digest": sequence_digest,
         }

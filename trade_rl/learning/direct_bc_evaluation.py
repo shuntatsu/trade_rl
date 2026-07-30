@@ -116,8 +116,7 @@ def evaluate_direct_behavior_cloning_gates(
         ),
         final_composed_loss=(
             float(final_mse)
-            if isinstance(final_mse, int | float)
-            and not isinstance(final_mse, bool)
+            if isinstance(final_mse, int | float) and not isinstance(final_mse, bool)
             else None
         ),
         reconstruction_metrics=_causal_metric_adapter(

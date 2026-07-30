@@ -63,13 +63,17 @@ def _assembly() -> SimpleNamespace:
     return SimpleNamespace(
         observation_encoder="hierarchical_sequence_v2",
         sequence_symbols=("BTCUSDT", "ETHUSDT", "BNBUSDT"),
-        sequence_action_names=("BTCUSDT", "ETHUSDT", "BNBUSDT"),
+        sequence_action_names=(
+            "target_weight:BTCUSDT",
+            "target_weight:ETHUSDT",
+            "target_weight:BNBUSDT",
+        ),
         policy_actor_head="hierarchical_gate_target_v1",
         hierarchical_gate_temperature=1.0,
     )
 
 
-def test_identity_binds_actual_architecture_and_exploration_contract() -> None:
+def test_identity_binds_structure_binding_and_exploration_contract() -> None:
     model = _model(_architecture())
     payload = bind_sb3_policy_identity(model, _assembly())
 
@@ -77,26 +81,43 @@ def test_identity_binds_actual_architecture_and_exploration_contract() -> None:
     assert payload["observation_encoder"] == "hierarchical_sequence_v2"
     assert payload["sequence_architecture_digest"]
     assert payload["sequence_architecture"]["asset_identity_mode"] == "identity_free_v1"
+    assert "symbols" not in payload["sequence_architecture"]
+    assert payload["asset_binding"] == {
+        "action_names": (
+            "target_weight:BTCUSDT",
+            "target_weight:ETHUSDT",
+            "target_weight:BNBUSDT",
+        ),
+        "n_symbols": 3,
+        "schema_version": "sequence_asset_binding_v1",
+        "symbols": ("BTCUSDT", "ETHUSDT", "BNBUSDT"),
+    }
+    assert payload["asset_binding_digest"]
     assert payload["policy_architecture_digest"]
     assert payload["actor_head"] == "hierarchical_gate_target_v1"
     assert payload["gate_temperature"] == 1.0
     assert payload["current_weight_observation"]["key"] == "current_weights"
     assert payload["exploration_contract"] == {
         "action_distribution": "masked_shared_squashed_diag_gaussian_v1",
+        "change_intensity_coupling": "post_composition_gate_independent_v1",
         "log_std_parameterization": "shared_scalar_v1",
-        "mean_coupling": "post_composition_gate_independent_v1",
         "state_dependent_noise": False,
-        "schema_version": "target_weight_exploration_v2",
+        "schema_version": "hierarchical_exploration_v1",
         "squashing": "tanh",
     }
     assert model_sb3_policy_identity(model) == payload
 
 
-def test_legacy_v2_identity_is_rejected_with_migration_error() -> None:
+@pytest.mark.parametrize(
+    "legacy_schema", ("sb3_policy_identity_v2", "sb3_policy_identity_v3")
+)
+def test_legacy_identity_is_rejected_with_migration_error(
+    legacy_schema: str,
+) -> None:
     payload = bind_sb3_policy_identity(_model(_architecture()), _assembly())
-    legacy = {**payload, "schema_version": "sb3_policy_identity_v2"}
+    legacy = {**payload, "schema_version": legacy_schema}
 
-    with pytest.raises(ValueError, match="migrate sb3_policy_identity_v2"):
+    with pytest.raises(ValueError, match=f"migrate {legacy_schema}"):
         validated_sb3_policy_identity(legacy)
 
 

@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .automation/ruff-format.patch
+      - .github/workflows/apply-ruff-format.yml
 
 permissions:
   contents: write

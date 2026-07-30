@@ -158,7 +158,9 @@ def _policy_architecture_payload(
     }
 
 
-def _validated_sequence_architecture(value: object, *, digest: object) -> dict[str, object]:
+def _validated_sequence_architecture(
+    value: object, *, digest: object
+) -> dict[str, object]:
     if not isinstance(value, Mapping) or not value:
         raise ValueError("sequence architecture identity is missing")
     payload = dict(value)
@@ -375,11 +377,10 @@ def validate_sb3_policy_architecture_compatibility(
 
     observed_payload = _validated_payload(observed)
     expected_payload = _validated_payload(expected)
-    if (
-        observed_payload.get("observation_encoder")
-        != expected_payload.get("observation_encoder")
-        or observed_payload.get("policy_architecture_digest")
-        != expected_payload.get("policy_architecture_digest")
+    if observed_payload.get("observation_encoder") != expected_payload.get(
+        "observation_encoder"
+    ) or observed_payload.get("policy_architecture_digest") != expected_payload.get(
+        "policy_architecture_digest"
     ):
         raise ValueError("SB3 policy architecture compatibility mismatch")
 

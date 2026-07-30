@@ -15,7 +15,9 @@ from trade_rl.integrations.postgres_market_dataset import (
 )
 
 
-def _bundle(symbols: tuple[str, ...], timestamps_ms: np.ndarray) -> NativeIndicatorArtifactBundle:
+def _bundle(
+    symbols: tuple[str, ...], timestamps_ms: np.ndarray
+) -> NativeIndicatorArtifactBundle:
     specs = binance_multitimeframe_feature_specs(
         base_timeframe="15m", feature_timeframes=("1h", "4h", "1d")
     )
@@ -79,7 +81,14 @@ def test_postgres_policy_features_do_not_encode_symbol_vocabulary() -> None:
     )
 
     first_values, first_available, first_age, first_staleness, names, digest = first
-    second_values, second_available, second_age, second_staleness, other_names, other_digest = second
+    (
+        second_values,
+        second_available,
+        second_age,
+        second_staleness,
+        other_names,
+        other_digest,
+    ) = second
 
     assert len(names) == 226
     assert names == other_names

@@ -61,8 +61,7 @@ def test_csv_source_reads_optional_columns_and_unix_milliseconds(
 
 def test_csv_source_requires_explicit_available_at(tmp_path: Path) -> None:
     (tmp_path / "BTCUSDT.csv").write_text(
-        "timestamp,open,high,low,close,volume\n"
-        "1767225600000,100,102,99,101,12\n",
+        "timestamp,open,high,low,close,volume\n1767225600000,100,102,99,101,12\n",
         encoding="utf-8",
     )
 

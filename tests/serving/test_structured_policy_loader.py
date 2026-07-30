@@ -62,21 +62,31 @@ def _test_policy_identity(
         "shape": (action_size,),
         "source": "effective_book_weights",
     }
+    exploration_contract = {
+        "action_distribution": "masked_shared_squashed_diag_gaussian_v1",
+        "change_intensity_coupling": "post_composition_gate_independent_v1",
+        "log_std_parameterization": "shared_scalar_v1",
+        "state_dependent_noise": False,
+        "schema_version": "hierarchical_exploration_v1",
+        "squashing": "tanh",
+    }
     policy_architecture = {
         "actor_head": "hierarchical_gate_target_v1",
         "current_weight_observation": current_weight,
+        "exploration_contract": exploration_contract,
         "gate_temperature": 1.0,
         "observation_encoder": "hierarchical_sequence_v2",
-        "schema_version": "hierarchical_gate_target_policy_v1",
+        "schema_version": "hierarchical_gate_target_policy_v2",
         "sequence_architecture_digest": sequence_digest,
     }
     return {
         "actor_head": "hierarchical_gate_target_v1",
         "current_weight_observation": current_weight,
+        "exploration_contract": exploration_contract,
         "gate_temperature": 1.0,
         "observation_encoder": "hierarchical_sequence_v2",
         "policy_architecture_digest": content_digest(policy_architecture),
-        "schema_version": "sb3_policy_identity_v2",
+        "schema_version": "sb3_policy_identity_v3",
         "sequence_architecture": sequence_architecture,
         "sequence_architecture_digest": sequence_digest,
     }

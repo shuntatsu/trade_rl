@@ -11,6 +11,7 @@ from trade_rl.rl.policy_identity import (
     bind_sb3_policy_identity,
     model_sb3_policy_identity,
     validate_model_sb3_policy_identity,
+    validated_sb3_policy_identity,
 )
 from trade_rl.rl.sequence_policy import SequencePolicyArchitecture
 
@@ -51,6 +52,9 @@ def _model(architecture: SequencePolicyArchitecture) -> SimpleNamespace:
             features_extractor=extractor,
             shared_actor_head="hierarchical_gate_target_v1",
             shared_actor_gate_temperature=1.0,
+            action_distribution_name="masked_shared_squashed_diag_gaussian_v1",
+            log_std=SimpleNamespace(shape=(1,)),
+            use_sde=False,
         )
     )
 
@@ -65,17 +69,34 @@ def _assembly() -> SimpleNamespace:
     )
 
 
-def test_identity_is_derived_from_constructed_sequence_architecture() -> None:
+def test_identity_binds_actual_architecture_and_exploration_contract() -> None:
     model = _model(_architecture())
     payload = bind_sb3_policy_identity(model, _assembly())
 
+    assert payload["schema_version"] == "sb3_policy_identity_v3"
     assert payload["observation_encoder"] == "hierarchical_sequence_v2"
     assert payload["sequence_architecture_digest"]
     assert payload["policy_architecture_digest"]
     assert payload["actor_head"] == "hierarchical_gate_target_v1"
     assert payload["gate_temperature"] == 1.0
     assert payload["current_weight_observation"]["key"] == "current_weights"
+    assert payload["exploration_contract"] == {
+        "action_distribution": "masked_shared_squashed_diag_gaussian_v1",
+        "change_intensity_coupling": "post_composition_gate_independent_v1",
+        "log_std_parameterization": "shared_scalar_v1",
+        "state_dependent_noise": False,
+        "schema_version": "hierarchical_exploration_v1",
+        "squashing": "tanh",
+    }
     assert model_sb3_policy_identity(model) == payload
+
+
+def test_legacy_v2_identity_is_rejected_with_migration_error() -> None:
+    payload = bind_sb3_policy_identity(_model(_architecture()), _assembly())
+    legacy = {**payload, "schema_version": "sb3_policy_identity_v2"}
+
+    with pytest.raises(ValueError, match="migrate sb3_policy_identity_v2"):
+        validated_sb3_policy_identity(legacy)
 
 
 def test_different_actual_timeframe_architecture_is_rejected() -> None:
@@ -86,6 +107,30 @@ def test_different_actual_timeframe_architecture_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="architecture identity mismatch"):
         validate_model_sb3_policy_identity(loaded_model, expected)
+
+
+def test_unsupported_exploration_distribution_is_rejected() -> None:
+    model = _model(_architecture())
+    model.policy.action_distribution_name = "gate_scaled_gaussian_experiment"
+
+    with pytest.raises(ValueError, match="action distribution"):
+        bind_sb3_policy_identity(model, _assembly())
+
+
+def test_non_scalar_log_std_parameterization_is_rejected() -> None:
+    model = _model(_architecture())
+    model.policy.log_std = SimpleNamespace(shape=(3,))
+
+    with pytest.raises(ValueError, match="shared scalar log_std"):
+        bind_sb3_policy_identity(model, _assembly())
+
+
+def test_state_dependent_noise_is_rejected_for_hierarchical_actor() -> None:
+    model = _model(_architecture())
+    model.policy.use_sde = True
+
+    with pytest.raises(ValueError, match="gSDE"):
+        bind_sb3_policy_identity(model, _assembly())
 
 
 def test_checkpoint_identity_composes_policy_and_algorithm_contracts() -> None:

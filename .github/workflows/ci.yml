@@ -1,25 +1,32 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
+      - agent/causal-training-hardening
+      - agent/causal-sequence-feature-encoder
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  connect-transfer-backend:
-    name: Connect A4 transfer backend atomically
-    if: github.event.pull_request.head.ref == 'agent/stage-a4-transfer-training-backend'
+  quality:
+    name: Rebuilt Core
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head with parent
+      - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 2
-          persist-credentials: true
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -27,213 +34,209 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
-      - name: Patch backend, test, restore workflow, and commit
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install Studio frontend
+        run: npm ci --prefix studio --no-audit --no-fund
+
+      - name: Verify Studio frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            npm test --prefix studio -- --run
+            npm run typecheck --prefix studio
+            npm run build --prefix studio
+          } 2>&1 | tee studio-frontend.log
+
+      - name: Verify Studio fixed viewport layout
         env:
-          HEAD_BRANCH: ${{ github.head_ref }}
+          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
+        run: npm run check:layout --prefix studio
+
+      - name: Upload Studio layout diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-layout-diagnostics
+          path: |
+            studio-frontend.log
+            studio/qa-screenshots
+          if-no-files-found: error
+
+      - name: Workflow security
+        run: uv run python .github/check_workflow_security.py .
+
+      - name: Ruff
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check . 2>&1 | tee ruff.log
+
+      - name: Format
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff format --check --diff . 2>&1 | tee format.log
+
+      - name: Mypy
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy . 2>&1 | tee mypy.log
+
+      - name: Upload static diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: static-diagnostics
+          path: |
+            ruff.log
+            format.log
+            mypy.log
+          if-no-files-found: ignore
+
+      - name: Import architecture
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run lint-imports 2>&1 | tee import-linter.log
+
+      - name: Upload architecture diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-diagnostics
+          path: import-linter.log
+          if-no-files-found: error
+
+      - name: Dead-code report
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+
+      - name: Tests and coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest.log
+            coverage.json
+          if-no-files-found: ignore
+
+      - name: Critical branch coverage
+        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+
+      - name: CLI smoke test
+        run: uv run trade-rl --version
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compatibility-${{ matrix.os }}
+          path: compatibility.log
+          if-no-files-found: error
+
+  training-image:
+    name: Training image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Build complete training image
         shell: bash
         run: |
           set -euo pipefail
-          uv sync --extra dev --extra train-sb3
-          python - <<'PY'
-          from pathlib import Path
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
+            --file Dockerfile.training \
+            --tag trade-rl-training:ci \
+            .
 
-          path = Path("trade_rl/integrations/sb3_training.py")
-          content = path.read_text(encoding="utf-8")
-          replacements = (
-              (
-                  "from trade_rl.integrations.sb3_checkpoint_assembly import load_sb3_checkpoint_model\n",
-                  "from trade_rl.integrations.sb3_checkpoint_assembly import (\n"
-                  "    load_sb3_checkpoint_model,\n"
-                  "    load_sb3_checkpoint_transfer_model,\n"
-                  ")\n",
-              ),
-              (
-                  "        resume_replay_artifact: Path | None = None,\n"
-                  "        resume_checkpoint_artifacts: Mapping[int, Path] | None = None,\n"
-                  "        structured_export_enabled: bool = False,\n",
-                  "        resume_replay_artifact: Path | None = None,\n"
-                  "        resume_checkpoint_artifacts: Mapping[int, Path] | None = None,\n"
-                  "        transfer_checkpoint_artifacts: Mapping[int, Path] | None = None,\n"
-                  "        structured_export_enabled: bool = False,\n",
-              ),
-              (
-                  "        self.resume_replay_artifact = resume_replay_artifact\n"
-                  "        self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})\n"
-                  "        if not isinstance(structured_export_enabled, bool):\n",
-                  "        self.resume_replay_artifact = resume_replay_artifact\n"
-                  "        self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})\n"
-                  "        self.transfer_checkpoint_artifacts = dict(\n"
-                  "            transfer_checkpoint_artifacts or {}\n"
-                  "        )\n"
-                  "        overlapping_seeds = (\n"
-                  "            self.resume_checkpoint_artifacts.keys()\n"
-                  "            & self.transfer_checkpoint_artifacts.keys()\n"
-                  "        )\n"
-                  "        if overlapping_seeds:\n"
-                  "            raise ValueError(\n"
-                  "                \"checkpoint resume and transfer cannot target the same seed\"\n"
-                  "            )\n"
-                  "        if (\n"
-                  "            self.resume_replay_artifact is not None\n"
-                  "            and self.transfer_checkpoint_artifacts\n"
-                  "        ):\n"
-                  "            raise ValueError(\n"
-                  "                \"replay resume cannot be combined with checkpoint transfer\"\n"
-                  "            )\n"
-                  "        if not isinstance(structured_export_enabled, bool):\n",
-              ),
-              (
-                  "            resume_manifest = None\n"
-                  "            resume_root = self.resume_checkpoint_artifacts.get(seed)\n"
-                  "            if resume_root is not None:\n"
-                  "                loaded_checkpoint = load_sb3_checkpoint_model(\n"
-                  "                    checkpoint_root=Path(resume_root),\n"
-                  "                    environment=environment,\n"
-                  "                    seed=seed,\n"
-                  "                    config=config,\n"
-                  "                    identity=identity,\n"
-                  "                    algorithm_config=algorithm_config,\n"
-                  "                    policy=policy,\n"
-                  "                    fresh_model=model,\n"
-                  "                )\n"
-                  "                model = loaded_checkpoint.model\n"
-                  "                resume_manifest = loaded_checkpoint.manifest\n",
-                  "            resume_manifest = None\n"
-                  "            transfer_manifest = None\n"
-                  "            resume_root = self.resume_checkpoint_artifacts.get(seed)\n"
-                  "            transfer_root = self.transfer_checkpoint_artifacts.get(seed)\n"
-                  "            if resume_root is not None:\n"
-                  "                loaded_checkpoint = load_sb3_checkpoint_model(\n"
-                  "                    checkpoint_root=Path(resume_root),\n"
-                  "                    environment=environment,\n"
-                  "                    seed=seed,\n"
-                  "                    config=config,\n"
-                  "                    identity=identity,\n"
-                  "                    algorithm_config=algorithm_config,\n"
-                  "                    policy=policy,\n"
-                  "                    fresh_model=model,\n"
-                  "                )\n"
-                  "                model = loaded_checkpoint.model\n"
-                  "                resume_manifest = loaded_checkpoint.manifest\n"
-                  "            elif transfer_root is not None:\n"
-                  "                loaded_checkpoint = load_sb3_checkpoint_transfer_model(\n"
-                  "                    checkpoint_root=Path(transfer_root),\n"
-                  "                    environment=environment,\n"
-                  "                    seed=seed,\n"
-                  "                    config=config,\n"
-                  "                    identity=identity,\n"
-                  "                    algorithm_config=algorithm_config,\n"
-                  "                    policy=policy,\n"
-                  "                    fresh_model=model,\n"
-                  "                )\n"
-                  "                model = loaded_checkpoint.model\n"
-                  "                transfer_manifest = loaded_checkpoint.manifest\n",
-              ),
-              (
-                  "            if config.behavior_cloning_epochs > 0 and resume_manifest is None:\n",
-                  "            if (\n"
-                  "                config.behavior_cloning_epochs > 0\n"
-                  "                and resume_manifest is None\n"
-                  "                and transfer_manifest is None\n"
-                  "            ):\n",
-              ),
-              (
-                  "            remaining_timesteps = config.timesteps\n"
-                  "            starting_timestep = 0\n"
-                  "            if resume_manifest is not None:\n"
-                  "                starting_timestep = resume_manifest.observed_timestep\n"
-                  "                remaining_timesteps = max(0, config.timesteps - starting_timestep)\n"
-                  "            checkpoint_callback = build_checkpoint_callback(\n",
-                  "            remaining_timesteps = config.timesteps\n"
-                  "            starting_timestep = 0\n"
-                  "            target_total_timesteps = config.timesteps\n"
-                  "            if resume_manifest is not None:\n"
-                  "                starting_timestep = resume_manifest.observed_timestep\n"
-                  "                remaining_timesteps = max(0, config.timesteps - starting_timestep)\n"
-                  "            elif transfer_manifest is not None:\n"
-                  "                starting_timestep = transfer_manifest.observed_timestep\n"
-                  "                target_total_timesteps = starting_timestep + config.timesteps\n"
-                  "            checkpoint_callback = build_checkpoint_callback(\n",
-              ),
-              (
-                  "                total_timesteps=config.timesteps,\n"
-                  "                starting_timestep=starting_timestep,\n",
-                  "                total_timesteps=target_total_timesteps,\n"
-                  "                starting_timestep=starting_timestep,\n",
-              ),
-              (
-                  "                if resume_manifest is not None:\n"
-                  "                    learn_kwargs[\"reset_num_timesteps\"] = False\n",
-                  "                if resume_manifest is not None or transfer_manifest is not None:\n"
-                  "                    learn_kwargs[\"reset_num_timesteps\"] = False\n",
-              ),
-              (
-                  "            if resume_manifest is not None:\n"
-                  "                (output_path.parent / \"resume.json\").write_bytes(\n"
-                  "                    canonical_json_bytes(\n"
-                  "                        {\n"
-                  "                            \"checkpoint_digest\": resume_manifest.digest,\n"
-                  "                            \"checkpoint_observed_timestep\": (\n"
-                  "                                resume_manifest.observed_timestep\n"
-                  "                            ),\n"
-                  "                            \"remaining_timesteps\": remaining_timesteps,\n"
-                  "                            \"schema_version\": \"training_resume_v1\",\n"
-                  "                        }\n"
-                  "                    )\n"
-                  "                )\n"
-                  "            save_target = output_path.with_suffix(\"\")\n",
-                  "            if resume_manifest is not None:\n"
-                  "                (output_path.parent / \"resume.json\").write_bytes(\n"
-                  "                    canonical_json_bytes(\n"
-                  "                        {\n"
-                  "                            \"checkpoint_digest\": resume_manifest.digest,\n"
-                  "                            \"checkpoint_observed_timestep\": (\n"
-                  "                                resume_manifest.observed_timestep\n"
-                  "                            ),\n"
-                  "                            \"remaining_timesteps\": remaining_timesteps,\n"
-                  "                            \"schema_version\": \"training_resume_v1\",\n"
-                  "                        }\n"
-                  "                    )\n"
-                  "                )\n"
-                  "            elif transfer_manifest is not None:\n"
-                  "                (output_path.parent / \"transfer.json\").write_bytes(\n"
-                  "                    canonical_json_bytes(\n"
-                  "                        {\n"
-                  "                            \"checkpoint_digest\": transfer_manifest.digest,\n"
-                  "                            \"checkpoint_observed_timestep\": (\n"
-                  "                                transfer_manifest.observed_timestep\n"
-                  "                            ),\n"
-                  "                            \"requested_additional_timesteps\": config.timesteps,\n"
-                  "                            \"schema_version\": \"training_transfer_v1\",\n"
-                  "                            \"source_environment_digest\": (\n"
-                  "                                transfer_manifest.environment_digest\n"
-                  "                            ),\n"
-                  "                            \"target_environment_digest\": str(\n"
-                  "                                identity[\"environment_digest\"]\n"
-                  "                            ),\n"
-                  "                            \"target_total_timesteps\": target_total_timesteps,\n"
-                  "                        }\n"
-                  "                    )\n"
-                  "                )\n"
-                  "            save_target = output_path.with_suffix(\"\")\n",
-              ),
-          )
-          for old, new in replacements:
-              if content.count(old) != 1:
-                  raise RuntimeError(f"transfer backend patch target drifted: {old[:120]!r}")
-              content = content.replace(old, new)
-          path.write_text(content, encoding="utf-8")
-          PY
-          uv run ruff format trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_training_transfer.py
-          uv run ruff check trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_training_transfer.py
-          uv run mypy trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_training_transfer.py
-          uv run pytest -q \
-            tests/integrations/test_sb3_training_transfer.py \
-            tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
-          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_training_transfer.py .github/workflows/ci.yml
-          git commit -m "feat: connect cross-triplet transfer to SB3 training"
-          git push origin "HEAD:${HEAD_BRANCH}"
+      - name: Record training image identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
+          repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"
+          {
+            printf 'commit_sha=%s\n' "$commit"
+            printf 'source_tree_digest=%s\n' "$source_digest"
+            printf 'lockfile_digest=%s\n' "$lock_digest"
+            printf 'image_id=%s\n' "$image_id"
+            printf 'repo_digests=%s\n' "$repo_digests"
+          } > training-image-evidence.txt
+
+      - name: Upload training image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: training-image-evidence
+          path: training-image-evidence.txt
+          if-no-files-found: error
+
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:ci -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '

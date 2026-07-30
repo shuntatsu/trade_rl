@@ -17,6 +17,7 @@
 - focused contract, artifact, promotion, serving, and stage-cursor tests: 112 passed;
 - four additional collection paths require the optional Gymnasium / Stable-Baselines3 environment provided by CI;
 - canonical Ruff formatting was applied to every touched Python file;
+- the Windows file-lock API is isolated behind an explicit typed platform protocol and passes full MyPy with the maintained training dependencies;
 - `git diff --check` passed.
 
 ## CI

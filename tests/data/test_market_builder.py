@@ -204,11 +204,13 @@ def test_dataset_identity_binds_canonical_identity_provenance() -> None:
 
 def test_csv_source_builds_market_dataset(tmp_path: Path) -> None:
     for symbol, scale in (("BTCUSDT", 1.0), ("ETHUSDT", 2.0)):
-        rows = ["timestamp,open,high,low,close,volume,funding_rate,tradable"]
+        rows = [
+            "timestamp,available_at,open,high,low,close,volume,funding_rate,tradable"
+        ]
         series = raw_series(36, scale=scale)
         for index, timestamp in enumerate(series.timestamps):
             rows.append(
-                f"{timestamp},{series.open[index]},{series.high[index]},"
+                f"{timestamp},{timestamp},{series.open[index]},{series.high[index]},"
                 f"{series.low[index]},{series.close[index]},{series.volume[index]},"
                 f"{series.funding_rate[index]},true"
             )

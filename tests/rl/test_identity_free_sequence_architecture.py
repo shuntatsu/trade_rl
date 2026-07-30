@@ -28,23 +28,17 @@ def _architecture() -> SequencePolicyArchitecture:
 
 
 def _identity():
-    return sequence_architecture_identity(
-        _architecture(),
-        symbols=("BTCUSDT", "ETHUSDT", "BNBUSDT"),
-        action_names=(
-            "target_weight:BTCUSDT",
-            "target_weight:ETHUSDT",
-            "target_weight:BNBUSDT",
-        ),
-    )
+    return sequence_architecture_identity(_architecture())
 
 
 def test_sequence_identity_records_identity_free_asset_semantics() -> None:
     identity = _identity()
 
-    assert identity.schema_version == "hierarchical_sequence_policy_v3"
+    assert identity.schema_version == "hierarchical_sequence_policy_v4"
     assert identity.asset_identity_mode == "identity_free_v1"
     assert identity.digest_payload()["asset_identity_mode"] == "identity_free_v1"
+    assert "symbols" not in identity.digest_payload()
+    assert "action_names" not in identity.digest_payload()
 
 
 def test_sequence_identity_rejects_other_asset_identity_modes() -> None:

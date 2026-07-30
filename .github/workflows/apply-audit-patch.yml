@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - .automation/task1.patch.b64.04
+      - .automation/task1.small.b64.07
 
 permissions:
   contents: write
@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .automation/task1.patch.b64.* | base64 --decode > /tmp/task1.patch
+          cat .automation/task1.small.b64.* | base64 --decode > /tmp/task1.patch
           git apply --check /tmp/task1.patch
           git apply /tmp/task1.patch
           rm -rf .automation

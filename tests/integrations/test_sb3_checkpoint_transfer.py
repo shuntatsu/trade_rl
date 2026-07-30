@@ -24,13 +24,17 @@ def _config(**changes: object) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(**payload)  # type: ignore[arg-type]
 
 
-def _policy(config: ResidualTrainingConfig) -> SB3PolicyAssembly:
+def _policy(
+    config: ResidualTrainingConfig,
+    *,
+    sequence_reconstructor: object | None = None,
+) -> SB3PolicyAssembly:
     return SB3PolicyAssembly(
         policy_identifier=config.policy,
         policy_kwargs={"net_arch": {"pi": [128], "vf": [128]}},
         rollout_buffer_bytes=None,
         sequence_metadata=None,
-        sequence_reconstructor=None,
+        sequence_reconstructor=sequence_reconstructor,
         uses_shared_asset_actor=True,
     )
 
@@ -76,7 +80,22 @@ def test_transfer_loader_accepts_new_environment_with_compatible_architecture(
     manifest = _manifest(config)
     source_identity = manifest.algorithm_identity
     target_identity = _checkpoint_identity("c")
-    loaded_model = SimpleNamespace(num_timesteps=12)
+    reconstructor = object()
+    bound: list[tuple[object, str]] = []
+
+    def bind_sequence_reconstructor(
+        value: object,
+        *,
+        sequence_transfer_mode: str,
+    ) -> None:
+        bound.append((value, sequence_transfer_mode))
+
+    loaded_model = SimpleNamespace(
+        num_timesteps=12,
+        rollout_buffer=SimpleNamespace(
+            bind_sequence_reconstructor=bind_sequence_reconstructor
+        ),
+    )
     compatibility_calls: list[tuple[object, object]] = []
     load_calls: list[tuple[str, object, str]] = []
 
@@ -113,7 +132,7 @@ def test_transfer_loader_accepts_new_environment_with_compatible_architecture(
         config=config,
         identity={"environment_digest": "t" * 64},
         algorithm_config=build_algorithm_config(config),
-        policy=_policy(config),
+        policy=_policy(config, sequence_reconstructor=reconstructor),
         fresh_model=SimpleNamespace(),
     )
 
@@ -124,6 +143,11 @@ def test_transfer_loader_accepts_new_environment_with_compatible_architecture(
         (source_identity["policy"], target_identity["policy"]),
         (source_identity["policy"], target_identity["policy"]),
     ]
+    assert bound == [(reconstructor, config.sequence_transfer_mode)]
+    assert loaded_model.rollout_buffer_kwargs == {
+        "sequence_reconstructor": reconstructor,
+        "sequence_transfer_mode": config.sequence_transfer_mode,
+    }
 
 
 def test_transfer_loader_rejects_same_environment(
@@ -212,6 +236,44 @@ def test_transfer_loader_rejects_algorithm_identity_mismatch(
     )
 
     with pytest.raises(ValueError, match="algorithm identity mismatch"):
+        load_sb3_checkpoint_transfer_model(
+            checkpoint_root=Path("checkpoint.json"),
+            environment=object(),
+            seed=7,
+            config=config,
+            identity={"environment_digest": "t" * 64},
+            algorithm_config=build_algorithm_config(config),
+            policy=_policy(config),
+            fresh_model=SimpleNamespace(),
+        )
+
+
+def test_transfer_loader_rejects_policy_architecture_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.integrations.sb3_checkpoint_assembly as assembly_module
+    from trade_rl.integrations.sb3_checkpoint_assembly import (
+        load_sb3_checkpoint_transfer_model,
+    )
+
+    config = _config()
+    manifest = _manifest(config)
+    target_identity = _checkpoint_identity("c")
+    monkeypatch.setattr(assembly_module, "load_checkpoint_manifest", lambda _: manifest)
+    monkeypatch.setattr(
+        assembly_module,
+        "checkpoint_identity_payload_for_model",
+        lambda _: target_identity,
+    )
+    monkeypatch.setattr(
+        assembly_module,
+        "validate_sb3_policy_architecture_compatibility",
+        lambda observed, expected: (_ for _ in ()).throw(
+            ValueError("SB3 policy architecture compatibility mismatch")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="architecture compatibility mismatch"):
         load_sb3_checkpoint_transfer_model(
             checkpoint_root=Path("checkpoint.json"),
             environment=object(),

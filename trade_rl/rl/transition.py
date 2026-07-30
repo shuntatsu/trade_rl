@@ -22,18 +22,19 @@ def classify_economic_transition(
     liquidation_terminal: bool,
     liquidation_complete: bool,
 ) -> EconomicTransition:
-    """Resolve Gymnasium flags and a stable terminal or truncation reason."""
+    """Resolve agent-owned Gymnasium flags and a stable boundary reason.
 
+    The shadow book is diagnostic evidence. Its insolvency must not censor the
+    agent trajectory or change Gymnasium termination semantics.
+    """
+
+    del shadow
     terminated = hybrid.insolvent or liquidation_terminal
-    shadow_truncated = shadow.insolvent and not terminated
-    truncated = (time_limit_reached or shadow_truncated) and not terminated
+    truncated = time_limit_reached and not terminated
     if hybrid.termination_reason is not None:
         reason = EconomicTerminationReason(hybrid.termination_reason).value
     elif liquidation_terminal:
         reason = "forced_close" if liquidation_complete else "liquidation_incomplete"
-    elif shadow.termination_reason is not None:
-        shadow_reason = EconomicTerminationReason(shadow.termination_reason).value
-        reason = f"shadow_{shadow_reason}"
     else:
         reason = None
     return EconomicTransition(

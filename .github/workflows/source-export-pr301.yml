@@ -1,0 +1,28 @@
+name: Source Export PR301
+
+on:
+  push:
+    branches:
+      - agent/export-pr301-source
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - name: Pack source tree
+        shell: bash
+        run: git archive --format=tar.gz --output=/tmp/source-pr301.tgz HEAD
+      - name: Upload source tree
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-pr301
+          path: /tmp/source-pr301.tgz
+          if-no-files-found: error
+          retention-days: 1

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 
 from trade_rl.rl.tensorboard_logging import build_tensorboard_metrics_callback
 
@@ -46,6 +47,41 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
     assert logger.values["trade_rl/interval_cost_mean"] == pytest.approx(0.6)
     assert logger.values["trade_rl/action_abs_mean"] == pytest.approx(0.5)
     assert logger.values["trade_rl/action_abs_max"] == pytest.approx(0.75)
+
+
+def test_tensorboard_callback_records_low_gate_exploration_and_action_stages() -> None:
+    callback = build_tensorboard_metrics_callback(enabled=True)
+    assert callback is not None
+    logger = FakeLogger()
+    outputs = SimpleNamespace(
+        change_intensity=torch.tensor([[0.0, 0.0]]),
+        current_weights=torch.tensor([[0.1, -0.1]]),
+        composed_actions=torch.tensor([[0.1, -0.1]]),
+    )
+    policy = SimpleNamespace(hierarchical_actor_outputs=lambda observations: outputs)
+    callback.model = SimpleNamespace(logger=logger, policy=policy)
+    callback.locals = {
+        "rewards": (),
+        "obs_tensor": {"current_weights": torch.tensor([[0.1, -0.1]])},
+        "actions": np.array([[0.4, -0.2]]),
+        "infos": [
+            {
+                "sampled_policy_action": np.array([0.4, -0.2]),
+                "submitted_target": np.array([0.3, -0.1]),
+                "effective_filled_weights": np.array([0.25, -0.05]),
+            }
+        ],
+    }
+
+    assert callback._on_step()
+    callback._on_rollout_end()
+
+    assert logger.values["trade_rl/change_intensity_mean"] == pytest.approx(0.0)
+    assert logger.values["trade_rl/deterministic_change_l1_mean"] == pytest.approx(0.0)
+    assert logger.values["trade_rl/exploration_l1_mean"] == pytest.approx(0.4)
+    assert logger.values["trade_rl/sampled_change_l1_mean"] == pytest.approx(0.4)
+    assert logger.values["trade_rl/submission_l1_mean"] == pytest.approx(0.2)
+    assert logger.values["trade_rl/effective_action_l1_mean"] == pytest.approx(0.3)
 
 
 def test_tensorboard_callback_ignores_noncanonical_info_aliases() -> None:

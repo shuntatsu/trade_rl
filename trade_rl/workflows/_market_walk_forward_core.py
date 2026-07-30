@@ -35,7 +35,7 @@ from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.rl.checkpointing import checkpoint_manifests
-from trade_rl.rl.environment import ResidualMarketEnv
+from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import observation_passthrough_indices
 from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
@@ -70,7 +70,10 @@ from trade_rl.workflows.market_walk_forward_config import (
 from trade_rl.workflows.market_walk_forward_config import (
     NamedCandidateRun as NamedCandidateRun,
 )
-from trade_rl.workflows.training_run import TrainingRunConfig
+from trade_rl.workflows.training_run import (
+    TrainingRunConfig,
+    require_mark_to_market_training_environment,
+)
 from trade_rl.workflows.walk_forward import (
     WalkForwardExecutionResult,
     execute_walk_forward,
@@ -250,7 +253,7 @@ def _fit_normalizer(
         normalizer=None,
         sequence_normalizer=None,
         episode_bars=episode_bars,
-        liquidate_on_end=True,
+        liquidate_on_end=False,
         alpha_provider=alpha_provider,
         factor_provider=factor_provider,
     )
@@ -387,17 +390,17 @@ def _normalizer_payload(
 
 
 def _maintained_training_environment(
-    config: Any,
+    config: ResidualMarketEnvConfig,
     *,
     episode_bars: int,
-) -> Any:
-    """Resolve training to the same economic terminal accounting used in OOS."""
+) -> ResidualMarketEnvConfig:
+    """Bind fold-local bounds without changing training terminal semantics."""
 
+    maintained = require_mark_to_market_training_environment(config)
     return replace(
-        config,
+        maintained,
         episode_bars=episode_bars,
         episode_hour_choices=(),
-        liquidate_on_end=True,
         fail_on_incomplete_emergency_liquidation=False,
         require_full_reward_preroll=True,
     )

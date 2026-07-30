@@ -791,15 +791,24 @@ def _dataset_artifact_digest(root: Path) -> str:
     return digest
 
 
-def normalize_training_run_config(config: TrainingRunConfig) -> TrainingRunConfig:
-    """Bind full training to the same liquidation-at-close terminal contract as OOS."""
+def require_mark_to_market_training_environment(
+    config: ResidualMarketEnvConfig,
+) -> ResidualMarketEnvConfig:
+    """Reject economic forced-close termination on artificial training windows."""
 
-    if config.environment.liquidate_on_end:
-        return config
-    return replace(
-        config,
-        environment=replace(config.environment, liquidate_on_end=True),
-    )
+    if config.liquidate_on_end:
+        raise ValueError(
+            "training environments must use mark-to-market truncation; "
+            "terminal liquidation belongs to explicit evaluation ranges"
+        )
+    return config
+
+
+def normalize_training_run_config(config: TrainingRunConfig) -> TrainingRunConfig:
+    """Validate the maintained mark-to-market training terminal contract."""
+
+    require_mark_to_market_training_environment(config.environment)
+    return config
 
 
 def _lockfile_digest() -> str:

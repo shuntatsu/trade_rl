@@ -1,0 +1,67 @@
+name: Agent bind execution evidence
+
+on:
+  push:
+    branches:
+      - agent/harden-audit-contracts
+    paths:
+      - .agent/bind-execution-evidence-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/harden-audit-contracts
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Install locked environment
+        run: uv sync --frozen --extra dev --extra train-sb3
+
+      - name: Apply signed evidence binding
+        run: uv run python scripts/agent_bind_execution_evidence.py
+
+      - name: Normalize changed files
+        run: |
+          uv run ruff check --fix \
+            trade_rl/workflows/selection_authorization.py \
+            trade_rl/workflows/training_run.py \
+            tests/workflows/test_selection_authorization.py \
+            tests/e2e/test_research_to_serving_v2.py
+
+      - name: Verify targeted contracts
+        run: |
+          uv run pytest \
+            tests/workflows/test_selection_authorization.py \
+            tests/evaluation/test_execution_promotion.py \
+            tests/evaluation/test_execution_promotion_audit_hardening.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            -q
+
+      - name: Verify static contracts
+        run: |
+          uv run ruff check \
+            trade_rl/workflows/selection_authorization.py \
+            trade_rl/workflows/training_run.py \
+            tests/workflows/test_selection_authorization.py \
+            tests/e2e/test_research_to_serving_v2.py
+          uv run mypy \
+            trade_rl/workflows/selection_authorization.py \
+            trade_rl/workflows/training_run.py
+
+      - name: Commit verified binding
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: bind selected-final execution evidence to authorization"
+          git push origin HEAD:agent/harden-audit-contracts

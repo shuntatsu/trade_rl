@@ -119,7 +119,7 @@ jobs:
           training_path.write_text(training, encoding='utf-8')
           PY
           rm .github/workflows/apply-post-audit-fixes.yml
-          uv run ruff format \
+          uvx ruff format \
             trade_rl/data/builder.py \
             trade_rl/workflows/training_run.py \
             tests/data/test_one_bar_returns.py \

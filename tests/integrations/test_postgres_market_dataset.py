@@ -22,6 +22,7 @@ from trade_rl.integrations.postgres_indicator_artifacts import (
 )
 from trade_rl.integrations.postgres_market_dataset import (
     NATIVE_TIMEFRAMES,
+    POLICY_ASSET_IDENTITY_MODE,
     build_postgres_market_dataset,
 )
 
@@ -208,7 +209,7 @@ def _raw_source(symbols: tuple[str, ...], start: datetime) -> InMemoryMarketData
     return InMemoryMarketDataSource(values)
 
 
-def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
+def test_builds_btc_free_triplet_with_identity_free_policy_features() -> None:
     symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
     vocabulary = (
         "BTCUSDT",
@@ -234,16 +235,11 @@ def test_builds_btc_free_triplet_with_stable_symbol_identity() -> None:
         slot_symbols=("SLOT0", "SLOT1", "SLOT2"),
     )
 
+    assert POLICY_ASSET_IDENTITY_MODE == "identity_free_v1"
     assert dataset.symbols == ("SLOT0", "SLOT1", "SLOT2")
-    assert dataset.n_features == 226 + len(vocabulary)
+    assert dataset.n_features == 226
     assert dataset.identity_verified
-    assert dataset.feature_names[-5:] == tuple(
-        f"15m__symbol_id_{symbol}" for symbol in vocabulary
-    )
-    identity = dataset.features[:, :, -5:]
-    np.testing.assert_array_equal(identity[0, 0], [0, 0, 0, 0, 0])
-    np.testing.assert_array_equal(identity[1, 0], [0, 0, 0, 1, 0])
-    np.testing.assert_array_equal(identity[0, 1], [0, 1, 0, 0, 0])
+    assert not any("symbol_id" in name for name in dataset.feature_names)
     np.testing.assert_array_equal(
         dataset.symbol_active[:, 0], [False, True, True, True]
     )

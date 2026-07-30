@@ -342,18 +342,12 @@ def _teacher_change_labels(
     )
 
 
-def _hierarchical_teacher_labels(
-    *,
-    policy: object,
-    teacher_dataset: SupervisedPolicyDataset,
-    config: object,
-) -> HierarchicalTeacherLabels | None:
-    if not callable(getattr(policy, "hierarchical_actor_outputs", None)):
-        return None
-    labels = _teacher_change_labels(teacher_dataset=teacher_dataset, config=config)
-    if labels is None:
-        raise ValueError("hierarchical BC requires structured teacher observations")
-    return labels
+def _uses_hierarchical_actor_head(policy: object) -> bool:
+    return (
+        getattr(policy, "shared_actor_head", None)
+        == "hierarchical_gate_target_v1"
+        and callable(getattr(policy, "hierarchical_actor_outputs", None))
+    )
 
 
 def _hierarchical_behavior_cloning_config(
@@ -1221,9 +1215,7 @@ class StableBaselines3Backend:
                     )
                     hierarchical_labels = (
                         teacher_change_labels
-                        if callable(
-                            getattr(model.policy, "hierarchical_actor_outputs", None)
-                        )
+                        if _uses_hierarchical_actor_head(model.policy)
                         else None
                     )
                     cloning_config = (

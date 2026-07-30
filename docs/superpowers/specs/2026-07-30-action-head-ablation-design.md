@@ -147,7 +147,7 @@ Use TDD and verify:
 3. both heads expose common deterministic action-stage outputs;
 4. inactive action dimensions remain exactly zero;
 5. v4 identity round-trips for both heads and rejects cross-head loading;
-6. v2/v3 identities fail with migration errors;
+6. v2 identities fail and existing hierarchical v3 identities remain readable for migration;
 7. direct Oracle BC enforces the causal non-collapse gate;
 8. TensorBoard emits comparable stage tags for both heads and Gate telemetry only for the hierarchical head;
 9. paired profiles differ only in actor head and the walk-forward profile resolves both files;

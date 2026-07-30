@@ -17,7 +17,7 @@ def hierarchical_action_stage_metrics(
     current_weights: object,
     deterministic_composed: object,
     sampled_policy_action: object,
-    submitted_target: object | None = None,
+    submitted_order_target: object | None = None,
     effective_filled_weights: object | None = None,
 ) -> dict[str, float]:
     """Return causal L1 distances across hierarchical action stages.
@@ -41,8 +41,11 @@ def hierarchical_action_stage_metrics(
         "exploration_l1": float(np.sum(np.abs(sampled - deterministic))),
         "sampled_change_l1": float(np.sum(np.abs(sampled - current))),
     }
-    if submitted_target is not None:
-        submitted = _vector(submitted_target, field="submitted_target")
+    if submitted_order_target is not None:
+        submitted = _vector(
+            submitted_order_target,
+            field="submitted_order_target",
+        )
         if len(submitted) != len(sampled):
             raise ValueError("hierarchical action stages must have equal dimensions")
         metrics["submission_l1"] = float(np.sum(np.abs(submitted - sampled)))

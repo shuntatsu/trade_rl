@@ -25,7 +25,9 @@ def _first_difference(left: object, right: object, path: str = "root") -> str | 
         if set(left_dict) != set(right_dict):
             return f"{path}: keys {sorted(left_dict)} != {sorted(right_dict)}"
         for key in sorted(left_dict):
-            difference = _first_difference(left_dict[key], right_dict[key], f"{path}.{key}")
+            difference = _first_difference(
+                left_dict[key], right_dict[key], f"{path}.{key}"
+            )
             if difference is not None:
                 return difference
         return None
@@ -34,7 +36,9 @@ def _first_difference(left: object, right: object, path: str = "root") -> str | 
         assert isinstance(right_items, (tuple, list))
         if len(left) != len(right_items):
             return f"{path}: length {len(left)} != {len(right_items)}"
-        for index, (left_item, right_item) in enumerate(zip(left, right_items, strict=True)):
+        for index, (left_item, right_item) in enumerate(
+            zip(left, right_items, strict=True)
+        ):
             difference = _first_difference(left_item, right_item, f"{path}[{index}]")
             if difference is not None:
                 return difference
@@ -61,7 +65,9 @@ def test_diagnose_stage_config_roundtrip(tmp_path: Path) -> None:
     assert request is not None
     stage_config = training_config_for_symbol_triplet_stage(base_config, request)
     mapping = _training_config_mapping(stage_config)
-    round_tripped = TrainingRunConfig.from_mapping(mapping).resolve_artifact_paths(tmp_path)
+    round_tripped = TrainingRunConfig.from_mapping(mapping).resolve_artifact_paths(
+        tmp_path
+    )
     left = stage_config.digest_payload()
     right = round_tripped.digest_payload()
     difference = _first_difference(left, right)

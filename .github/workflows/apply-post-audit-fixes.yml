@@ -57,7 +57,9 @@ jobs:
                   or row_present.shape != close_values.shape
                   or active.shape != close_values.shape
               ):
-                  raise ValueError("one-bar return inputs must share a two-dimensional shape")
+                  raise ValueError(
+                      "one-bar return inputs must share a two-dimensional shape"
+                  )
               valid = row_present & active
               available = np.zeros_like(valid)
               available[1:] = valid[1:] & valid[:-1]
@@ -77,51 +79,41 @@ jobs:
           if builder.count(anchor) != 1:
               raise SystemExit('builder helper insertion point is not unique')
           builder = builder.replace(anchor, helper, 1)
-          old_loop = '''        one_bar_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)
-              one_bar_available = np.zeros((n_bars, n_symbols), dtype=np.bool_)
-              for symbol_index in range(n_symbols):
-                  for index in range(1, n_bars):
-                      mask = (
-                          causal_row_present[:, symbol_index] & symbol_active[:, symbol_index]
-                      )
-                      if not _contiguous_window(mask, index - 1, index + 1):
-                          continue
-                      one_bar_returns[index, symbol_index] = math.log(
-                          close[index, symbol_index] / close[index - 1, symbol_index]
-                      )
-                      one_bar_available[index, symbol_index] = True
-          '''
+          loop_start_marker = (
+              '        one_bar_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)'
+          )
+          loop_end_marker = '\n\n        global_features = np.zeros('
+          loop_start = builder.find(loop_start_marker)
+          loop_end = builder.find(loop_end_marker, loop_start)
+          if loop_start < 0 or loop_end < 0:
+              raise SystemExit('one-bar return loop boundaries were not found')
           new_loop = '''        one_bar_returns, one_bar_available = _calculate_one_bar_returns(
-                  close=close,
-                  causal_row_present=causal_row_present,
-                  symbol_active=symbol_active,
-              )
-          '''
-          if builder.count(old_loop) != 1:
-              raise SystemExit('one-bar return loop replacement point is not unique')
-          builder_path.write_text(builder.replace(old_loop, new_loop, 1), encoding='utf-8')
+              close=close,
+              causal_row_present=causal_row_present,
+              symbol_active=symbol_active,
+          )'''
+          builder = builder[:loop_start] + new_loop + builder[loop_end:]
+          builder_path.write_text(builder, encoding='utf-8')
 
           training_path = Path('trade_rl/workflows/training_run.py')
           training = training_path.read_text(encoding='utf-8')
-          old_preroll = '''        if not self.environment.require_full_reward_preroll:
-              object.__setattr__(
-                  self,
-                  "environment",
-                  replace(self.environment, require_full_reward_preroll=True),
-              )
-          '''
+          preroll_start_marker = (
+              '        if not self.environment.require_full_reward_preroll:'
+          )
+          preroll_end_marker = (
+              '\n        if self.environment.resolved_reward_config() != self.reward:'
+          )
+          preroll_start = training.find(preroll_start_marker)
+          preroll_end = training.find(preroll_end_marker, preroll_start)
+          if preroll_start < 0 or preroll_end < 0:
+              raise SystemExit('training preroll boundaries were not found')
           new_preroll = '''        if not self.environment.require_full_reward_preroll:
               raise ValueError(
                   "training requires require_full_reward_preroll=true; "
                   "configuration is not rewritten implicitly"
-              )
-          '''
-          if training.count(old_preroll) != 1:
-              raise SystemExit('training preroll replacement point is not unique')
-          training_path.write_text(
-              training.replace(old_preroll, new_preroll, 1),
-              encoding='utf-8',
-          )
+              )'''
+          training = training[:preroll_start] + new_preroll + training[preroll_end:]
+          training_path.write_text(training, encoding='utf-8')
           PY
           rm .github/workflows/apply-post-audit-fixes.yml
           uv run ruff format \

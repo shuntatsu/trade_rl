@@ -126,9 +126,7 @@ def sequence_diagnostics_payload(
             has_active = active.any(dim=1)
             fallback = (~has_active).unsqueeze(1) & asset_positions.unsqueeze(0).eq(0)
             safe_active = active | fallback
-            fused = torch.where(
-                fallback.unsqueeze(-1), torch.zeros_like(fused), fused
-            )
+            fused = torch.where(fallback.unsqueeze(-1), torch.zeros_like(fused), fused)
             _, asset_weights = asset_encoder.cross_asset.diagnostic_forward(
                 fused,
                 valid=safe_active,

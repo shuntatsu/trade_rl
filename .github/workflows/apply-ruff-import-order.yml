@@ -1,0 +1,36 @@
+name: Apply Ruff Import Order
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .automation/ruff-import-order.patch
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/harden-audit-contracts-v2
+          fetch-depth: 0
+      - name: Apply verified import-order patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .automation/ruff-import-order.patch
+          git apply .automation/ruff-import-order.patch
+          rm .automation/ruff-import-order.patch
+          rmdir .automation 2>/dev/null || true
+          rm .github/workflows/apply-ruff-import-order.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Fix Ruff import ordering"
+          git push origin HEAD:agent/harden-audit-contracts-v2

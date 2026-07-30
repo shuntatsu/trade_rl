@@ -9,7 +9,6 @@ from typing import Sequence
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import (
     BookState,
@@ -158,6 +157,13 @@ class ExecutionCostConfig:
             raise ValueError("max_participation_rate must be within (0, 1]")
         if not 0.0 <= self.tail_slippage_probability <= 1.0:
             raise ValueError("tail_slippage_probability must be within [0, 1]")
+        if (
+            self.tail_slippage_probability > 0.0
+            and self.tail_slippage_multiplier < 1.0
+        ):
+            raise ValueError(
+                "tail_slippage_multiplier must be at least 1.0 when tail events are enabled"
+            )
         if not 0.0 < self.max_leverage:
             raise ValueError("max_leverage must be positive")
         if not 0.0 <= self.maintenance_margin_rate <= 1.0:
@@ -202,25 +208,38 @@ class ExecutionCostConfig:
     def execution_policy_payload(self) -> dict[str, object]:
         return {
             "allow_short": self.allow_short,
+            "borrow_rate_multiplier": self.borrow_rate_multiplier,
+            "collateral_haircut": self.collateral_haircut,
+            "fee_rate": self.fee_rate,
+            "impact_rate": self.impact_rate,
             "limit_offset_rate": self.limit_offset_rate,
+            "lot_size": self.lot_size,
+            "maintenance_margin_rate": self.maintenance_margin_rate,
+            "maker_fee_rate": self.maker_fee_rate,
+            "margin_mode": self.margin_mode,
             "max_leverage": self.max_leverage,
             "max_participation_rate": self.max_participation_rate,
+            "minimum_notional": self.minimum_notional,
+            "multiplier": self.multiplier,
             "order_latency_bars": self.order_latency_bars,
             "order_type": self.order_type,
             "partial_fill_carry": self.partial_fill_carry,
             "path_mode": self.path_mode,
             "processing_bar_volume_capacity": self.processing_bar_volume_capacity,
-            "schema_version": "execution_policy_v1",
+            "random_seed": self.random_seed,
+            "schema_version": "execution_policy_v2",
+            "slippage_std": self.slippage_std,
+            "spread_rate": self.spread_rate,
+            "tail_slippage_multiplier": self.tail_slippage_multiplier,
+            "tail_slippage_probability": self.tail_slippage_probability,
+            "taker_fee_rate": self.taker_fee_rate,
+            "tick_size": self.tick_size,
             "trigger_volume_fractions": list(self.trigger_volume_fractions),
         }
 
     @property
     def execution_policy_digest(self) -> str:
         return calculate_execution_policy_digest(self.execution_policy_payload())
-
-    @property
-    def rate_per_turnover(self) -> float:
-        return self.multiplier * (self.fee_rate + self.spread_rate)
 
     @classmethod
     def zero(cls) -> ExecutionCostConfig:
@@ -307,6 +326,11 @@ class MarketExecutor:
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
+            raise ValueError(
+                "isolated margin requires a per-symbol collateral ledger; "
+                "only single-asset execution is supported"
+            )
         self.rule_stress = rule_stress or ExecutionRuleStress()
         self._validate_rule_stress()
         self._rng = np.random.default_rng(self.cost.random_seed)
@@ -445,20 +469,6 @@ class MarketExecutor:
         mask = lot > 0.0
         rounded[mask] = np.trunc(rounded[mask] / lot[mask]) * lot[mask]
         return rounded
-
-    def _capacity_notional(
-        self,
-        prices: np.ndarray,
-        capacity_volume: np.ndarray,
-    ) -> np.ndarray:
-        result = np.empty_like(prices, dtype=np.float64)
-        for index, unit in enumerate(self.dataset.volume_units):
-            resolved = VolumeUnit(unit)
-            if resolved is VolumeUnit.QUOTE_NOTIONAL:
-                result[index] = capacity_volume[index]
-            else:
-                result[index] = prices[index] * capacity_volume[index]
-        return result
 
     def _constrain_borrow(
         self,

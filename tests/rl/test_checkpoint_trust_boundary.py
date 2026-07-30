@@ -5,8 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.rl.checkpointing import load_checkpoint_manifest, publish_checkpoint
-
+from trade_rl.rl.checkpointing import (
+    load_checkpoint_manifest,
+    publish_checkpoint,
+    verified_checkpoint_policy_copy,
+)
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
 
@@ -50,3 +53,17 @@ def test_checkpoint_policy_must_not_be_a_symlink(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="symlink"):
         load_checkpoint_manifest(root / "checkpoint.json")
+
+
+def test_checkpoint_deserialization_uses_a_private_verified_copy(
+    tmp_path: Path,
+) -> None:
+    root = _publish(tmp_path)
+    manifest = load_checkpoint_manifest(root / "checkpoint.json")
+
+    with verified_checkpoint_policy_copy(manifest) as verified:
+        assert verified != manifest.policy_path
+        assert verified.read_bytes() == manifest.policy_path.read_bytes()
+        private_root = verified.parent
+
+    assert not private_root.exists()

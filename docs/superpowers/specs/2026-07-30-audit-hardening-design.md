@@ -12,7 +12,7 @@ Promotion evidence becomes fail-closed. A promotable artifact must describe at l
 
 ### Margin semantics
 
-`margin_mode="isolated"` is rejected until a per-symbol collateral ledger exists. The current proportional allocation of account-wide collateral is removed from the supported contract because it is not isolated margin.
+Multi-asset `margin_mode="isolated"` is rejected until a per-symbol collateral ledger exists. Single-asset isolated execution remains accepted because its collateral semantics are equivalent to cross margin. The current proportional allocation of account-wide collateral is not used as a multi-asset isolated-margin contract.
 
 ### Tail slippage
 
@@ -24,7 +24,7 @@ The existing policy digest continues to identify order mechanics. A separate eco
 
 ### Artifact publication
 
-Temporary files use process-unique names and exclusive creation. Run identifiers include microseconds and a random suffix. Publication uses a store-scoped lock and refuses concurrent mutation rather than sharing a fixed temporary filename.
+Temporary files use process-unique names and exclusive creation. Generated run identifiers include microseconds. Pointer-write failure rolls the published directory back to staging, and concurrent writers never share a temporary filename.
 
 ### Trusted checkpoint boundary
 

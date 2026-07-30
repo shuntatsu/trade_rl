@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import stat
+import tempfile
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, BinaryIO, Iterator, Protocol
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -25,9 +29,29 @@ class SavablePolicy(Protocol):
     def save(self, path: str) -> None: ...
 
 
-def _file_digest(path: Path) -> str:
+@contextmanager
+def _open_regular_binary(path: Path, *, field: str) -> Iterator[BinaryIO]:
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(f"{field} must not be a symlink")
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"{field} must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=True) as handle:
+            descriptor = -1
+            yield handle
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _file_digest(path: Path, *, field: str = "checkpoint file") -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with _open_regular_binary(path, field=field) as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -451,9 +475,10 @@ def _optional_algorithm_identity(
 
 def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
     path = Path(path)
-    if not path.is_file():
+    if not path.exists():
         raise FileNotFoundError(f"checkpoint manifest is missing: {path}")
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    with _open_regular_binary(path, field="checkpoint manifest") as handle:
+        raw = json.loads(handle.read().decode("utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("checkpoint manifest must be an object")
     policy_file = raw.get("policy_path")
@@ -474,11 +499,34 @@ def load_checkpoint_manifest(path: Path) -> CheckpointManifest:
         algorithm_identity_digest=algorithm_identity_digest,
         schema_version=str(raw.get("schema_version")),
     )
-    if not manifest.policy_path.is_file():
+    if not manifest.policy_path.exists():
         raise FileNotFoundError(f"checkpoint policy is missing: {manifest.policy_path}")
-    if _file_digest(manifest.policy_path) != manifest.policy_digest:
+    if (
+        _file_digest(manifest.policy_path, field="checkpoint policy")
+        != manifest.policy_digest
+    ):
         raise ValueError("checkpoint policy digest mismatch")
     return manifest
+
+
+@contextmanager
+def verified_checkpoint_policy_copy(
+    manifest: CheckpointManifest,
+) -> Iterator[Path]:
+    """Yield a private immutable copy verified immediately before deserialization."""
+
+    with tempfile.TemporaryDirectory(prefix="trade-rl-checkpoint-") as temporary:
+        target = Path(temporary) / CHECKPOINT_POLICY_NAME
+        with (
+            _open_regular_binary(manifest.policy_path, field="checkpoint policy") as source,
+            target.open("xb") as destination,
+        ):
+            shutil.copyfileobj(source, destination)
+            destination.flush()
+            os.fsync(destination.fileno())
+        if _file_digest(target) != manifest.policy_digest:
+            raise ValueError("checkpoint policy changed during verified copy")
+        yield target
 
 
 def checkpoint_manifests(root: Path) -> tuple[CheckpointManifest, ...]:
@@ -618,4 +666,5 @@ __all__ = [
     "publish_checkpoint",
     "save_policy_without_runtime_state",
     "validate_checkpoint_algorithm_identity",
+    "verified_checkpoint_policy_copy",
 ]

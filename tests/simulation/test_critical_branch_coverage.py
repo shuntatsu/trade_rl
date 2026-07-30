@@ -6,7 +6,6 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
@@ -104,18 +103,6 @@ def test_execution_unit_rounding_capacity_and_borrow_branches() -> None:
     assert base._round_prices(np.array([100.24]), index=1).tolist() == pytest.approx(
         [100.0]
     )
-    assert base._capacity_notional(np.array([100.0]), np.array([2.0])).tolist() == [
-        200.0
-    ]
-
-    quote = MarketExecutor(
-        market(volume_units=(VolumeUnit.QUOTE_NOTIONAL,)),
-        ExecutionCostConfig.zero(),
-    )
-    assert quote._capacity_notional(np.array([100.0]), np.array([2.0])).tolist() == [
-        2.0
-    ]
-
     no_short = MarketExecutor(market(), ExecutionCostConfig(allow_short=False))
     constrained = no_short._constrain_borrow(
         np.array([-1.0]), current=np.array([0.0]), index=1

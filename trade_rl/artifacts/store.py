@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final
@@ -31,13 +32,18 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
-    temporary = path.with_name(f".{path.name}.tmp")
-    with temporary.open("wb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
-    _fsync_directory(path.parent)
+    temporary = path.with_name(
+        f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
+    )
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _replace_directory(source: Path, destination: Path) -> None:
@@ -93,7 +99,14 @@ class ArtifactStore:
             "path": published.relative_to(self.root).as_posix(),
             "run_id": resolved_id,
         }
-        _atomic_write(self.root / "latest.json", canonical_json_bytes(pointer))
+        try:
+            _atomic_write(self.root / "latest.json", canonical_json_bytes(pointer))
+        except BaseException:
+            if published.is_dir() and not stage.exists():
+                _replace_directory(published, stage)
+                _fsync_directory(self.staging_root)
+                _fsync_directory(self.runs_root)
+            raise
         return published
 
     def mark_failed(self, run_id: str) -> Path:

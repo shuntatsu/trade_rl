@@ -89,26 +89,15 @@ def test_execution_evidence_round_trips_canonically(tmp_path: Path) -> None:
         write_execution_evidence(path, replace(evidence, order_event_count=13))
 
 
-def test_execution_evidence_uses_the_canonical_cost_policy_digest() -> None:
+def test_execution_evidence_uses_the_complete_cost_policy_digest() -> None:
     from trade_rl.simulation.execution import ExecutionCostConfig
     from trade_rl.simulation.execution_promotion import execution_evidence_from_cost
-    from trade_rl.simulation.orders import execution_policy_digest
 
     cost = ExecutionCostConfig(path_mode="conservative")
     evidence = execution_evidence_from_cost(dataset_id="d" * 64, cost=cost)
-    expected = execution_policy_digest(
-        {
-            "allow_short": cost.allow_short,
-            "limit_offset_rate": cost.limit_offset_rate,
-            "max_leverage": cost.max_leverage,
-            "max_participation_rate": cost.max_participation_rate,
-            "order_latency_bars": cost.order_latency_bars,
-            "order_type": cost.order_type,
-            "partial_fill_carry": cost.partial_fill_carry,
-            "path_mode": cost.path_mode,
-            "processing_bar_volume_capacity": cost.processing_bar_volume_capacity,
-            "schema_version": "execution_policy_v1",
-            "trigger_volume_fractions": list(cost.trigger_volume_fractions),
-        }
-    )
-    assert evidence.execution_policy_digest == expected
+
+    assert evidence.execution_policy_digest == cost.execution_policy_digest
+    assert evidence.execution_policy_digest != replace(
+        cost,
+        fee_rate=cost.fee_rate + 0.001,
+    ).execution_policy_digest

@@ -6,8 +6,12 @@ import hashlib
 import json
 import os
 import shutil
+import stat
+import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import BinaryIO, Iterator
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -17,9 +21,29 @@ REPLAY_FILE = "replay-buffer.pkl"
 REPLAY_MANIFEST = "manifest.json"
 
 
-def _digest(path: Path) -> str:
+@contextmanager
+def _open_regular_binary(path: Path, *, field: str) -> Iterator[BinaryIO]:
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(f"{field} must not be a symlink")
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"{field} must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=True) as handle:
+            descriptor = -1
+            yield handle
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _digest(path: Path, *, field: str = "replay buffer") -> str:
     value = hashlib.sha256()
-    with path.open("rb") as handle:
+    with _open_regular_binary(path, field=field) as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             value.update(chunk)
     return value.hexdigest()
@@ -115,7 +139,11 @@ def load_replay_buffer_artifact(
         raise ValueError("replay artifact contains undeclared or missing files")
     if any(item.is_symlink() for item in path.iterdir()):
         raise ValueError("replay artifact must not contain symlinks")
-    raw = json.loads((path / REPLAY_MANIFEST).read_text(encoding="utf-8"))
+    with _open_regular_binary(
+        path / REPLAY_MANIFEST,
+        field="replay manifest",
+    ) as handle:
+        raw = json.loads(handle.read().decode("utf-8"))
     manifest = ReplayBufferManifest(**raw)
     replay = path / REPLAY_FILE
     if replay.stat().st_size != manifest.size_bytes:
@@ -125,8 +153,32 @@ def load_replay_buffer_artifact(
     return manifest, replay
 
 
+@contextmanager
+def verified_replay_buffer_copy(
+    manifest: ReplayBufferManifest,
+    replay: Path,
+) -> Iterator[Path]:
+    """Yield a private verified replay copy for unsafe pickle deserialization."""
+
+    with tempfile.TemporaryDirectory(prefix="trade-rl-replay-") as temporary:
+        target = Path(temporary) / REPLAY_FILE
+        with (
+            _open_regular_binary(replay, field="replay buffer") as source,
+            target.open("xb") as destination,
+        ):
+            shutil.copyfileobj(source, destination)
+            destination.flush()
+            os.fsync(destination.fileno())
+        if target.stat().st_size != manifest.size_bytes:
+            raise ValueError("replay buffer changed during verified copy")
+        if _digest(target) != manifest.replay_digest:
+            raise ValueError("replay buffer changed during verified copy")
+        yield target
+
+
 __all__ = [
     "ReplayBufferManifest",
     "load_replay_buffer_artifact",
+    "verified_replay_buffer_copy",
     "write_replay_buffer_artifact",
 ]

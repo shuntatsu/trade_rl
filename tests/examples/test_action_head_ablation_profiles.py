@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import json
+from json import loads
 from pathlib import Path
 
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
@@ -15,7 +15,7 @@ _WALK_FORWARD = _ROOT / "walk-forward-action-head-ablation.json"
 
 
 def _mapping(path: Path) -> dict[str, object]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value = loads(path.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     return value
 

@@ -1,0 +1,153 @@
+name: A4 Runner Contract Patch
+
+on:
+  push:
+    branches:
+      - agent/stage-a4-identity-free-runner-contract
+    paths:
+      - .github/workflows/a4-runner-contract-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: apply one-shot A4 runner patch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Apply exact identity-free contract replacements
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          branch = os.environ["TARGET_BRANCH"]
+          repository = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          workflow_path = ".github/workflows/a4-runner-contract-patch.yml"
+
+          def replace_exact(path: Path, old: str, new: str) -> str:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(
+                      f"{path}: expected one exact replacement target, observed {count}"
+                  )
+              return text.replace(old, new)
+
+          pipeline_path = Path(
+              "examples/binance-multitimeframe/full_research_pipeline.py"
+          )
+          pipeline = replace_exact(
+              pipeline_path,
+              "_EXPECTED_POLICY_OBSERVATIONS = 231_026",
+              "_EXPECTED_POLICY_OBSERVATIONS = 217_886",
+          )
+          old_feature_contract = '''    expected_dataset_features = (
+              (*expected_features, *(f"15m__symbol_id_{symbol}" for symbol in _SYMBOL_POOL))
+              if use_postgres
+              else expected_features
+          )'''
+          pipeline = pipeline.replace(
+              old_feature_contract,
+              "    expected_dataset_features = expected_features",
+          )
+          if old_feature_contract in pipeline or pipeline.count(
+              "    expected_dataset_features = expected_features"
+          ) != 1:
+              raise RuntimeError("runner feature-contract replacement failed closed")
+
+          legacy_test_path = Path(
+              "tests/examples/test_binance_multitimeframe_full_assets.py"
+          )
+          legacy_tests = replace_exact(
+              legacy_test_path,
+              '    assert "231_026" in content',
+              '    assert "217_886" in content',
+          )
+          old_observation_assertions = '''    assert namespace["_EXPECTED_POLICY_OBSERVATIONS"] == 231_026
+              assert 231_026 - 231_005 == 3 * ORDER_OBSERVATION_WIDTH'''
+          new_observation_assertions = '''    assert namespace["_EXPECTED_POLICY_OBSERVATIONS"] == 217_886
+              assert 217_886 - 217_865 == 3 * ORDER_OBSERVATION_WIDTH'''
+          if legacy_tests.count(old_observation_assertions) != 1:
+              raise RuntimeError("legacy observation-contract test target drifted")
+          legacy_tests = legacy_tests.replace(
+              old_observation_assertions, new_observation_assertions
+          )
+
+          updates = (
+              (pipeline_path.as_posix(), pipeline, "fix: bind runner to 226 identity-free features"),
+              (
+                  legacy_test_path.as_posix(),
+                  legacy_tests,
+                  "test: migrate full runner observation contract",
+              ),
+          )
+
+          def api(method: str, path: str, payload: dict[str, object] | None = None):
+              url = f"https://api.github.com/repos/{repository}/{path}"
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              request = Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urlopen(request) as response:
+                  raw = response.read()
+              return {} if not raw else json.loads(raw)
+
+          def current_blob(path: str) -> dict[str, object]:
+              encoded_path = quote(path, safe="/")
+              return api("GET", f"contents/{encoded_path}?ref={quote(branch, safe='')}")
+
+          for path, content, message in updates:
+              current = current_blob(path)
+              sha = current.get("sha")
+              if not isinstance(sha, str):
+                  raise RuntimeError(f"{path}: current blob SHA is missing")
+              api(
+                  "PUT",
+                  f"contents/{quote(path, safe='/')}",
+                  {
+                      "branch": branch,
+                      "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+                      "message": message,
+                      "sha": sha,
+                  },
+              )
+
+          workflow = current_blob(workflow_path)
+          workflow_sha = workflow.get("sha")
+          if not isinstance(workflow_sha, str):
+              raise RuntimeError("one-shot workflow SHA is missing")
+          api(
+              "DELETE",
+              f"contents/{quote(workflow_path, safe='/')}",
+              {
+                  "branch": branch,
+                  "message": "chore: remove one-shot A4 runner patch workflow",
+                  "sha": workflow_sha,
+              },
+          )
+          PY

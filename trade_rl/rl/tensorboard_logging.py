@@ -120,8 +120,8 @@ def build_tensorboard_metrics_callback(
                             info = (
                                 info_items[index] if index < len(info_items) else None
                             )
-                            submitted = (
-                                info.get("submitted_target")
+                            submitted_order = (
+                                info.get("submitted_order_target")
                                 if isinstance(info, dict)
                                 else None
                             )
@@ -135,7 +135,7 @@ def build_tensorboard_metrics_callback(
                                     current_weights=current_row,
                                     deterministic_composed=deterministic_row,
                                     sampled_policy_action=sampled_row,
-                                    submitted_target=submitted,
+                                    submitted_order_target=submitted_order,
                                     effective_filled_weights=effective,
                                 )
                             except ValueError:

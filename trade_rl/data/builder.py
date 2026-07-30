@@ -43,6 +43,38 @@ def _contiguous_window(mask: np.ndarray, start: int, stop: int) -> bool:
     return bool(np.all(mask[start:stop]))
 
 
+def _calculate_one_bar_returns(
+    *,
+    close: np.ndarray,
+    causal_row_present: np.ndarray,
+    symbol_active: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Calculate contiguous one-bar returns without per-bar mask rebuilding."""
+
+    close_values = np.asarray(close, dtype=np.float64)
+    row_present = np.asarray(causal_row_present, dtype=np.bool_)
+    active = np.asarray(symbol_active, dtype=np.bool_)
+    if (
+        close_values.ndim != 2
+        or row_present.shape != close_values.shape
+        or active.shape != close_values.shape
+    ):
+        raise ValueError("one-bar return inputs must share a two-dimensional shape")
+    valid = row_present & active
+    available = np.zeros_like(valid)
+    available[1:] = valid[1:] & valid[:-1]
+    returns = np.zeros_like(close_values)
+    ratios = np.ones_like(close_values[1:])
+    np.divide(
+        close_values[1:],
+        close_values[:-1],
+        out=ratios,
+        where=available[1:],
+    )
+    returns[1:] = np.where(available[1:], np.log(ratios), 0.0)
+    return returns, available
+
+
 def _carry_feature(
     event_values: np.ndarray,
     event_valid: np.ndarray,
@@ -393,19 +425,11 @@ class MarketDatasetBuilder:
                 feature_age_hours[:, symbol_index, feature_index] = age_hours
                 feature_staleness[:, symbol_index, feature_index] = staleness
 
-        one_bar_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)
-        one_bar_available = np.zeros((n_bars, n_symbols), dtype=np.bool_)
-        for symbol_index in range(n_symbols):
-            for index in range(1, n_bars):
-                mask = (
-                    causal_row_present[:, symbol_index] & symbol_active[:, symbol_index]
-                )
-                if not _contiguous_window(mask, index - 1, index + 1):
-                    continue
-                one_bar_returns[index, symbol_index] = math.log(
-                    close[index, symbol_index] / close[index - 1, symbol_index]
-                )
-                one_bar_available[index, symbol_index] = True
+        one_bar_returns, one_bar_available = _calculate_one_bar_returns(
+            close=close,
+            causal_row_present=causal_row_present,
+            symbol_active=symbol_active,
+        )
 
         global_features = np.zeros(
             (n_bars, len(self.config.global_feature_names)), dtype=np.float64

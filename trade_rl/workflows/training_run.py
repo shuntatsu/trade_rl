@@ -167,10 +167,9 @@ class TrainingRunConfig:
 
     def __post_init__(self) -> None:
         if not self.environment.require_full_reward_preroll:
-            object.__setattr__(
-                self,
-                "environment",
-                replace(self.environment, require_full_reward_preroll=True),
+            raise ValueError(
+                "training requires require_full_reward_preroll=true; "
+                "configuration is not rewritten implicitly"
             )
         if self.environment.resolved_reward_config() != self.reward:
             raise ValueError("environment reward configuration differs from run reward")

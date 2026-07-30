@@ -138,13 +138,13 @@ class SymbolTripletStageDatasetBinding:
 
     def validate_dataset(self, dataset_path: str | Path) -> None:
         resolved = _resolved_path(dataset_path)
-        if resolved != self.dataset_path:
-            raise ValueError("dataset binding path mismatch")
         dataset = load_market_dataset_artifact(resolved)
         if dataset.dataset_id != self.dataset_id:
             raise ValueError("dataset identity differs from the stage binding")
         if dataset.symbols != self.slot_symbols:
             raise ValueError("dataset slot symbols differ from the stage binding")
+        if resolved != self.dataset_path:
+            raise ValueError("dataset binding path mismatch")
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,7 +319,7 @@ def _write_stage_config(path: Path, config: TrainingRunConfig) -> Path:
     round_tripped = TrainingRunConfig.from_mapping(mapping).resolve_artifact_paths(
         path.parent
     )
-    if round_tripped != config:
+    if round_tripped.digest_payload() != config.digest_payload():
         raise RuntimeError("stage training configuration did not round-trip exactly")
     return _write_immutable(
         path,
@@ -378,6 +378,8 @@ def _final_checkpoint_roots(
         checkpoint_root = (
             training_path / "members" / f"member-{member_index:03d}" / "checkpoints"
         )
+        if not checkpoint_root.is_dir():
+            raise RuntimeError(f"seed {seed} has no validated final checkpoint")
         manifests = checkpoint_manifests(checkpoint_root)
         eligible = tuple(
             manifest

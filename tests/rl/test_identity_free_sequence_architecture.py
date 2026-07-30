@@ -31,7 +31,11 @@ def _identity():
     return sequence_architecture_identity(
         _architecture(),
         symbols=("BTCUSDT", "ETHUSDT", "BNBUSDT"),
-        action_names=("target_weight:BTCUSDT", "target_weight:ETHUSDT", "target_weight:BNBUSDT"),
+        action_names=(
+            "target_weight:BTCUSDT",
+            "target_weight:ETHUSDT",
+            "target_weight:BNBUSDT",
+        ),
     )
 
 

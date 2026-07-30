@@ -117,7 +117,9 @@ def test_runner_builds_current_postgres_stage_and_calls_training_once(
         return sentinel
 
     monkeypatch.setattr(module, "build_postgres_market_dataset", build_dataset)
-    monkeypatch.setattr(module, "execute_symbol_triplet_stage_training", execute_training)
+    monkeypatch.setattr(
+        module, "execute_symbol_triplet_stage_training", execute_training
+    )
 
     result = module.execute_binance_symbol_triplet_postgres_stage(**kwargs)
 
@@ -165,7 +167,9 @@ def test_runner_resumes_existing_bound_dataset_without_rebuilding(
     plan = _plan()
     kwargs = _run_kwargs(tmp_path, plan)
     monkeypatch.setattr(module, "_training_seeds", lambda _: (0, 1))
-    monkeypatch.setattr(module, "execute_symbol_triplet_stage_training", lambda **_: "ok")
+    monkeypatch.setattr(
+        module, "execute_symbol_triplet_stage_training", lambda **_: "ok"
+    )
     monkeypatch.setattr(
         module,
         "build_postgres_market_dataset",

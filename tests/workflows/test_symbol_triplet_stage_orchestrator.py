@@ -133,11 +133,16 @@ def test_initial_stage_request_has_no_transfer_and_stable_slot_binding() -> None
     assert request is not None
     assert request.stage_id == plan.stages[0].stage_id
     assert request.stage_index == 0
-    assert request.slot_bindings == tuple(zip(_SLOT_SYMBOLS, request.symbols, strict=True))
+    assert request.slot_bindings == tuple(
+        zip(_SLOT_SYMBOLS, request.symbols, strict=True)
+    )
     assert request.transfer_checkpoints == ()
-    assert training_config_for_symbol_triplet_stage(
-        _training_config(), request
-    ).transfer_checkpoints == ()
+    assert (
+        training_config_for_symbol_triplet_stage(
+            _training_config(), request
+        ).transfer_checkpoints
+        == ()
+    )
 
 
 def test_valid_completion_advances_cursor_and_feeds_next_stage(
@@ -173,7 +178,9 @@ def test_valid_completion_advances_cursor_and_feeds_next_stage(
 
     assert advanced.next_stage_index == 1
     assert load_symbol_triplet_training_cursor(cursor_path, plan=plan) == advanced
-    assert load_symbol_triplet_stage_completion(completion_path, plan=plan) == completion
+    assert (
+        load_symbol_triplet_stage_completion(completion_path, plan=plan) == completion
+    )
 
     next_request = build_symbol_triplet_stage_request(
         plan,
@@ -184,11 +191,14 @@ def test_valid_completion_advances_cursor_and_feeds_next_stage(
     assert next_request is not None
     assert next_request.stage_id == plan.stages[1].stage_id
     assert tuple(ref.seed for ref in next_request.transfer_checkpoints) == _SEEDS
-    assert dict(
-        training_config_for_symbol_triplet_stage(
-            _training_config(), next_request
-        ).transfer_checkpoints
-    ) == checkpoint_roots
+    assert (
+        dict(
+            training_config_for_symbol_triplet_stage(
+                _training_config(), next_request
+            ).transfer_checkpoints
+        )
+        == checkpoint_roots
+    )
 
 
 def test_completion_rejects_missing_seed_without_advancing_cursor(

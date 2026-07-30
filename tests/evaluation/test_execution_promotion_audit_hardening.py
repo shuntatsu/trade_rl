@@ -142,7 +142,7 @@ def test_event_artifact_substitution_is_rejected(tmp_path: Path) -> None:
     path.unlink()
     write_execution_event_artifact(path, replacement_artifact)
 
-    with pytest.raises(ExecutionPromotionError, match="artifact digest"):
+    with pytest.raises(ExecutionPromotionError, match="artifact (size|digest)"):
         validate_execution_event_artifact(evidence, path)
 
 

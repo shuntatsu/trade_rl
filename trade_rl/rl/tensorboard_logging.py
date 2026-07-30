@@ -110,10 +110,16 @@ def build_tensorboard_metrics_callback(
                         and current.shape == deterministic.shape
                     ):
                         self._extend("trade_rl/change_intensity_mean", intensity)
-                        for index, (current_row, deterministic_row, sampled_row) in enumerate(
+                        for index, (
+                            current_row,
+                            deterministic_row,
+                            sampled_row,
+                        ) in enumerate(
                             zip(current, deterministic, sampled_matrix, strict=True)
                         ):
-                            info = info_items[index] if index < len(info_items) else None
+                            info = (
+                                info_items[index] if index < len(info_items) else None
+                            )
                             submitted = (
                                 info.get("submitted_target")
                                 if isinstance(info, dict)

@@ -43,3 +43,24 @@ def test_v3_requires_explicit_bc_holdout_statistical_settings(field: str) -> Non
 
     with pytest.raises(ValueError, match=field):
         TrainingRunConfig.from_mapping(modified)
+
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("behavior_cloning_causal_holdout_bootstrap_resamples", 3_000),
+        ("behavior_cloning_causal_holdout_confidence_level", 0.9),
+    ),
+)
+def test_disabled_bc_rejects_non_default_holdout_statistics(
+    field: str,
+    value: object,
+) -> None:
+    payload = json.loads(PROFILE.read_text(encoding="utf-8"))
+    training = payload["training"]
+    assert isinstance(training, dict)
+    training[field] = value
+
+    with pytest.raises(ValueError, match=f"{field}.*inactive"):
+        TrainingRunConfig.from_mapping(payload)

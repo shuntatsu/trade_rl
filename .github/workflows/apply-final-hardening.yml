@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - .automation/final-gz/ready
+      - .automation/rebased/ready
 
 permissions:
   contents: write
@@ -24,16 +24,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd .automation/final-gz
+          cd .automation/rebased
           sha256sum -c checksums.txt
-          cat chunk.* | base64 --decode > /tmp/final-hardening.patch.gz
-          echo "ed5124cb2e2fc4e6a36917c6964b340698405afdb5192d9ea7aa1ca81acedc76  /tmp/final-hardening.patch.gz" | sha256sum -c -
-          gzip -dc /tmp/final-hardening.patch.gz > /tmp/final-hardening.patch
+          cat chunk.* | base64 --decode > /tmp/rebased-hardening.patch.gz
+          echo "791b5c92022f6d3b72e653b1f2816384cdef097ac4ce1bfb366b165a8755f131  /tmp/rebased-hardening.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/rebased-hardening.patch.gz > /tmp/rebased-hardening.patch
+          echo "3572e36f6bdbdc7c5e171259e5238ccbebf66628f1714c13a0f11f597a40346a  /tmp/rebased-hardening.patch" | sha256sum -c -
           cd ../..
-          git apply --check /tmp/final-hardening.patch
-          git apply /tmp/final-hardening.patch
-          rm -rf .automation/final .automation/final-gz
-          rm .github/workflows/apply-final-hardening.yml
+          git apply --check /tmp/rebased-hardening.patch
+          git apply /tmp/rebased-hardening.patch
+          rm -rf .automation
+          rm -f .github/workflows/apply-final-hardening.yml
+          rm -f .github/workflows/source-export-current.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A

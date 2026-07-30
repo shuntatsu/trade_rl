@@ -26,7 +26,8 @@ from trade_rl.simulation.orders import (
 )
 
 _DATASET_ID = "d" * 64
-_POLICY_DIGEST = "e" * 64
+_COST = ExecutionCostConfig(path_mode="conservative")
+_POLICY_DIGEST = _COST.execution_policy_digest
 
 
 def _event(*, reason: str | None = None) -> OrderEvent:
@@ -79,7 +80,7 @@ def _evidence(tmp_path: Path) -> tuple[ExecutionEvidence, Path]:
     path = write_execution_event_artifact(tmp_path / "order-events.json", artifact)
     evidence = execution_evidence_from_cost(
         dataset_id=_DATASET_ID,
-        cost=ExecutionCostConfig(path_mode="conservative"),
+        cost=_COST,
         order_event_artifact_path=path,
         sensitivity_path_modes=("conservative",),
     )

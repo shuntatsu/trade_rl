@@ -1,2 +1,0 @@
-Trigger the one-shot policy identity v3 repair workflow.
-Run requested after branch-integration review on 2026-07-30.

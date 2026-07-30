@@ -1,0 +1,115 @@
+name: Sync Action Head Ablation V2
+
+on:
+  push:
+    branches:
+      - agent/action-head-ablation-v2
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout clean latest-main branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/action-head-ablation-v2
+          fetch-depth: 0
+
+      - name: Import feature-only files from v1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/action-head-ablation-v1
+          git checkout origin/agent/action-head-ablation-v1 -- \
+            docs/BINANCE.md \
+            examples/binance-multitimeframe/training-action-head-ablation-direct.json \
+            examples/binance-multitimeframe/training-action-head-ablation-gate.json \
+            examples/binance-multitimeframe/walk-forward-action-head-ablation.json \
+            tests/examples/test_action_head_ablation_profiles.py \
+            tests/integrations/test_action_head_bc_routing.py \
+            tests/learning/test_direct_behavior_cloning_gate.py \
+            tests/rl/test_action_head_ablation.py \
+            tests/rl/test_action_head_tensorboard_ablation.py \
+            trade_rl/integrations/sb3_training.py \
+            trade_rl/learning/direct_bc_evaluation.py \
+            trade_rl/rl/policies.py \
+            trade_rl/rl/policy_identity.py \
+            trade_rl/rl/tensorboard_logging.py \
+            trade_rl/rl/training.py
+
+      - name: Align action-head identity tests with v4 asset binding
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/rl/test_action_head_ablation.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index('@pytest.mark.parametrize(\n    ("actor_head", "mean_coupling", "gate_temperature"),')
+          end = text.index('\n\ndef test_policy_identity_rejects_cross_head_loading', start)
+          replacement = '''@pytest.mark.parametrize(
+              (
+                  "actor_head",
+                  "coupling_field",
+                  "coupling_value",
+                  "exploration_schema",
+                  "gate_temperature",
+              ),
+              (
+                  (
+                      "hierarchical_gate_target_v1",
+                      "change_intensity_coupling",
+                      "post_composition_gate_independent_v1",
+                      "hierarchical_exploration_v1",
+                      1.0,
+                  ),
+                  (
+                      "shared_target_v1",
+                      "mean_coupling",
+                      "direct_target_mean_v1",
+                      "direct_target_weight_exploration_v1",
+                      None,
+                  ),
+              ),
+          )
+          def test_policy_identity_v4_binds_each_action_head(
+              actor_head: str,
+              coupling_field: str,
+              coupling_value: str,
+              exploration_schema: str,
+              gate_temperature: float | None,
+          ) -> None:
+              payload = bind_sb3_policy_identity(
+                  _identity_model(actor_head),
+                  _identity_assembly(actor_head),
+              )
+
+              assert payload["schema_version"] == "sb3_policy_identity_v4"
+              assert payload["actor_head"] == actor_head
+              assert payload["gate_temperature"] == gate_temperature
+              assert payload["asset_binding"]["action_names"] == (
+                  "target_weight:BTCUSDT",
+                  "target_weight:ETHUSDT",
+                  "target_weight:BNBUSDT",
+              )
+              exploration = payload["exploration_contract"]
+              assert exploration[coupling_field] == coupling_value
+              assert exploration["schema_version"] == exploration_schema
+          '''
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          PY
+
+      - name: Commit clean feature port and remove bootstrap workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/sync-action-head-ablation-v2.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: rebuild action-head ablation on latest main"
+          git push origin HEAD:agent/action-head-ablation-v2

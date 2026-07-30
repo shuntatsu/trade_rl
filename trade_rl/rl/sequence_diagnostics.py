@@ -121,15 +121,14 @@ def sequence_diagnostics_payload(
                     context=context,
                 )
             )
-            identities = torch.arange(assets, device=fused.device)
-            fused = fused + asset_encoder.symbol_embedding(identities).unsqueeze(0)
             active = observations["active"].to(dtype=torch.bool)
-            safe_active = active.clone()
-            has_active = safe_active.any(dim=1)
-            if torch.any(~has_active):
-                safe_active[~has_active, 0] = True
-                fused = fused.clone()
-                fused[~has_active, 0] = 0.0
+            asset_positions = torch.arange(assets, device=fused.device)
+            has_active = active.any(dim=1)
+            fallback = (~has_active).unsqueeze(1) & asset_positions.unsqueeze(0).eq(0)
+            safe_active = active | fallback
+            fused = torch.where(
+                fallback.unsqueeze(-1), torch.zeros_like(fused), fused
+            )
             _, asset_weights = asset_encoder.cross_asset.diagnostic_forward(
                 fused,
                 valid=safe_active,

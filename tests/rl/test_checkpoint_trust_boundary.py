@@ -11,8 +11,6 @@ from trade_rl.rl.checkpointing import (
     verified_checkpoint_policy_copy,
 )
 
-pytestmark = pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
-
 
 class FakeModel:
     def save(self, target: str) -> None:
@@ -33,6 +31,7 @@ def _publish(tmp_path: Path) -> Path:
     return manifest.policy_path.parent
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
 def test_checkpoint_manifest_must_not_be_a_symlink(tmp_path: Path) -> None:
     root = _publish(tmp_path)
     manifest_path = root / "checkpoint.json"
@@ -44,6 +43,7 @@ def test_checkpoint_manifest_must_not_be_a_symlink(tmp_path: Path) -> None:
         load_checkpoint_manifest(manifest_path)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
 def test_checkpoint_policy_must_not_be_a_symlink(tmp_path: Path) -> None:
     root = _publish(tmp_path)
     policy_path = root / "policy.zip"

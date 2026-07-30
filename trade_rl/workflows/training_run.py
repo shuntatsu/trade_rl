@@ -157,6 +157,7 @@ class TrainingRunConfig:
     alpha_artifact: Path | None = None
     factor_artifact: Path | None = None
     resume_checkpoints: tuple[tuple[int, Path], ...] = ()
+    transfer_checkpoints: tuple[tuple[int, Path], ...] = ()
     export_onnx: bool = False
     export_torchscript: bool = False
     export_structured_torchscript: bool = False
@@ -178,6 +179,15 @@ class TrainingRunConfig:
             raise ValueError("resume checkpoint seeds must be unique")
         if any(seed not in self.training.seeds for seed in resume_seeds):
             raise ValueError("resume checkpoint seed is outside training seeds")
+        transfer_seeds = tuple(seed for seed, _ in self.transfer_checkpoints)
+        if len(set(transfer_seeds)) != len(transfer_seeds):
+            raise ValueError("transfer checkpoint seeds must be unique")
+        if any(seed not in self.training.seeds for seed in transfer_seeds):
+            raise ValueError("transfer checkpoint seed is outside training seeds")
+        if set(resume_seeds) & set(transfer_seeds):
+            raise ValueError(
+                "checkpoint resume and transfer cannot target the same seed"
+            )
         if self.action.alpha_enabled != (self.alpha_artifact is not None):
             raise ValueError("alpha action requires exactly one alpha artifact")
         if (self.action.n_factors > 0) != (self.factor_artifact is not None):
@@ -239,6 +249,7 @@ class TrainingRunConfig:
                 "alpha_artifact",
                 "factor_artifact",
                 "resume_checkpoints",
+                "transfer_checkpoints",
                 "exports",
                 "git_commit",
                 "git_dirty",
@@ -344,6 +355,16 @@ class TrainingRunConfig:
             if not isinstance(raw_path, str) or not raw_path:
                 raise ValueError("resume checkpoint paths must be non-empty strings")
             resume_checkpoints.append((int(raw_seed), Path(raw_path)))
+        raw_transfer_checkpoints = payload.get("transfer_checkpoints", {})
+        if not isinstance(raw_transfer_checkpoints, dict):
+            raise ValueError("transfer_checkpoints must be a JSON object")
+        transfer_checkpoints: list[tuple[int, Path]] = []
+        for raw_seed, raw_path in raw_transfer_checkpoints.items():
+            if not isinstance(raw_seed, str) or not raw_seed.isdigit():
+                raise ValueError("transfer checkpoint seed keys must be integers")
+            if not isinstance(raw_path, str) or not raw_path:
+                raise ValueError("transfer checkpoint paths must be non-empty strings")
+            transfer_checkpoints.append((int(raw_seed), Path(raw_path)))
         if raw_alpha_artifact is not None and not isinstance(raw_alpha_artifact, str):
             raise ValueError("alpha_artifact must be a path string or null")
         if raw_factor_artifact is not None and not isinstance(raw_factor_artifact, str):
@@ -395,6 +416,7 @@ class TrainingRunConfig:
                 None if raw_factor_artifact is None else Path(raw_factor_artifact)
             ),
             resume_checkpoints=tuple(sorted(resume_checkpoints)),
+            transfer_checkpoints=tuple(sorted(transfer_checkpoints)),
             export_onnx=_boolean(
                 exports.get("onnx"), field="exports.onnx", default=False
             ),
@@ -429,6 +451,10 @@ class TrainingRunConfig:
             resume_checkpoints=tuple(
                 (seed, resolved(path) or path) for seed, path in self.resume_checkpoints
             ),
+            transfer_checkpoints=tuple(
+                (seed, resolved(path) or path)
+                for seed, path in self.transfer_checkpoints
+            ),
         )
 
     @classmethod
@@ -437,9 +463,12 @@ class TrainingRunConfig:
         return config.resolve_artifact_paths(path.parent)
 
     def _identity_payload(
-        self, *, resume_checkpoint_digests: dict[str, str]
+        self,
+        *,
+        resume_checkpoint_digests: dict[str, str],
+        transfer_checkpoint_digests: dict[str, str],
     ) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "action": asdict(self.action),
             "alpha_contract": asdict(self.alpha_contract),
             "alpha_artifact_digest": _signal_artifact_digest(
@@ -463,11 +492,17 @@ class TrainingRunConfig:
             "training": self.training.digest_payload(),
             "trend": asdict(self.trend),
         }
+        if transfer_checkpoint_digests:
+            payload["transfer_checkpoint_digests"] = transfer_checkpoint_digests
+        return payload
 
     def candidate_digest_payload(self) -> dict[str, object]:
-        """Return the stable learning recipe identity, excluding resume transport."""
+        """Return the stable learning recipe identity, excluding checkpoint transport."""
 
-        return self._identity_payload(resume_checkpoint_digests={})
+        return self._identity_payload(
+            resume_checkpoint_digests={},
+            transfer_checkpoint_digests={},
+        )
 
     def digest_payload(self) -> dict[str, object]:
         return self._identity_payload(
@@ -476,7 +511,13 @@ class TrainingRunConfig:
                     path / "checkpoint.json" if path.is_dir() else path
                 ).digest
                 for seed, path in self.resume_checkpoints
-            }
+            },
+            transfer_checkpoint_digests={
+                str(seed): load_checkpoint_manifest(
+                    path / "checkpoint.json" if path.is_dir() else path
+                ).digest
+                for seed, path in self.transfer_checkpoints
+            },
         )
 
 
@@ -848,6 +889,8 @@ def _selection_authorization(
     assert public_keys_path is not None
     if config.resume_checkpoints:
         raise ValueError("selected final training forbids resume checkpoints")
+    if config.transfer_checkpoints:
+        raise ValueError("selected final training forbids transfer checkpoints")
     proposal = load_selection_proposal(proposal_path)
     authorization = load_selection_authorization(authorization_path)
     trusted_keys: dict[str, PublicVerificationKey] = load_public_verification_keys(
@@ -875,6 +918,19 @@ def _selection_authorization(
     if proposal.dependency_digest != _lockfile_digest():
         raise ValueError("selection proposal dependency digest mismatch")
     return proposal, authorization
+
+
+def _training_backend(
+    environment_factory: Callable[[], Any],
+    config: TrainingRunConfig,
+) -> StableBaselines3Backend:
+    return StableBaselines3Backend(
+        environment_factory,
+        resume_checkpoint_artifacts=dict(config.resume_checkpoints),
+        transfer_checkpoint_artifacts=dict(config.transfer_checkpoints),
+        structured_export_enabled=config.export_structured_torchscript,
+        structured_export_tolerance=config.export_tolerance,
+    )
 
 
 def execute_training_run(
@@ -1028,16 +1084,14 @@ def execute_training_run(
             dataset=_dataset_manifest(dataset, created_at=resolved_created_at),
             environment_dataset_id=dataset.dataset_id,
             config=config.training,
-            backend=StableBaselines3Backend(
+            backend=_training_backend(
                 _environment_factory(
                     dataset,
                     config,
                     normalizer=normalizer,
                     sequence_normalizer=sequence_normalizer,
                 ),
-                resume_checkpoint_artifacts=dict(config.resume_checkpoints),
-                structured_export_enabled=config.export_structured_torchscript,
-                structured_export_tolerance=config.export_tolerance,
+                config,
             ),
             output_dir=stage / "members",
             created_at=resolved_created_at,

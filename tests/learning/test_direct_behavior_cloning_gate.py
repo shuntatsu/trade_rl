@@ -4,10 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from trade_rl.learning.direct_bc_evaluation import (
+    evaluate_direct_behavior_cloning_gates,
+)
 from trade_rl.learning.evaluation import (
     ActionPathCollapseEvidence,
     BehaviorCloningGateThresholds,
-    evaluate_direct_behavior_cloning_gates,
 )
 
 

@@ -231,12 +231,10 @@ def test_policy_identity_rejects_cross_head_loading() -> None:
         validate_model_sb3_policy_identity(direct_model, hierarchical)
 
 
-def test_policy_identity_v3_requires_explicit_migration() -> None:
+def test_policy_identity_v4_round_trips_through_validation() -> None:
     payload = bind_sb3_policy_identity(
         _identity_model("hierarchical_gate_target_v1"),
         _identity_assembly("hierarchical_gate_target_v1"),
     )
-    legacy = {**payload, "schema_version": "sb3_policy_identity_v3"}
 
-    with pytest.raises(ValueError, match="migrate sb3_policy_identity_v3"):
-        validated_sb3_policy_identity(legacy)
+    assert validated_sb3_policy_identity(payload) == payload

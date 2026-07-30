@@ -364,11 +364,26 @@ class SharedPerAssetActionHead(nn.Module):
         contexts = actor_latent.reshape(-1, self.n_symbols, self.context_dim)
         return contexts[:, :, -1] > 0.5
 
+    def current_weights(self, actor_latent: torch.Tensor) -> torch.Tensor:
+        contexts = actor_latent.reshape(-1, self.n_symbols, self.context_dim)
+        active = contexts[:, :, -1] > 0.5
+        return contexts[:, :, -2] * active.to(dtype=contexts.dtype)
+
     def forward(self, actor_latent: torch.Tensor) -> torch.Tensor:
         contexts = actor_latent.reshape(-1, self.n_symbols, self.context_dim)
         active = self.active_mask(actor_latent)
         means = self.shared_head(contexts).squeeze(-1)
         return means * active.to(dtype=means.dtype)
+
+
+@dataclass(frozen=True, slots=True)
+class ActionStageOutputs:
+    """Head-independent deterministic action stage for comparable telemetry."""
+
+    current_weights: torch.Tensor
+    deterministic_actions: torch.Tensor
+    active_mask: torch.Tensor
+    change_intensity: torch.Tensor | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,16 +645,41 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         mean_actions = self.action_net(latent_pi)
         return self.action_dist.proba_distribution(mean_actions, self.log_std)
 
-    def deterministic_actions(
+    def action_stage_outputs(
         self, observations: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
-        """Return distribution-free deterministic target weights for export."""
+    ) -> ActionStageOutputs:
+        """Return deterministic action stages without sampling exploration noise."""
 
         features = self.extract_features(observations)
         if isinstance(features, tuple):
             features = features[0]
         latent_pi = self.mlp_extractor.forward_actor(features)
-        return torch.tanh(self.action_net(latent_pi))
+        if isinstance(self.action_net, SharedPerAssetGateTargetHead):
+            outputs = self.action_net.outputs(latent_pi)
+            return ActionStageOutputs(
+                current_weights=outputs.current_weights,
+                deterministic_actions=outputs.composed_actions,
+                active_mask=outputs.active_mask,
+                change_intensity=outputs.change_intensity,
+            )
+        if not isinstance(self.action_net, SharedPerAssetActionHead):
+            raise RuntimeError("policy action head does not expose action stages")
+        active_mask = self.action_net.active_mask(latent_pi)
+        deterministic = torch.tanh(self.action_net(latent_pi))
+        deterministic = deterministic * active_mask.to(dtype=deterministic.dtype)
+        return ActionStageOutputs(
+            current_weights=self.action_net.current_weights(latent_pi),
+            deterministic_actions=deterministic,
+            active_mask=active_mask,
+            change_intensity=None,
+        )
+
+    def deterministic_actions(
+        self, observations: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """Return distribution-free deterministic target weights for export."""
+
+        return self.action_stage_outputs(observations).deterministic_actions
 
     def hierarchical_actor_outputs(
         self, observations: dict[str, torch.Tensor]
@@ -668,6 +708,7 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
 
 
 __all__ = [
+    "ActionStageOutputs",
     "AssetSetFeatureExtractor",
     "HierarchicalActorOutputs",
     "MaskedSharedSquashedDiagGaussianDistribution",

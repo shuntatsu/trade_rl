@@ -73,7 +73,7 @@ def test_identity_binds_actual_architecture_and_exploration_contract() -> None:
     model = _model(_architecture())
     payload = bind_sb3_policy_identity(model, _assembly())
 
-    assert payload["schema_version"] == "sb3_policy_identity_v3"
+    assert payload["schema_version"] == "sb3_policy_identity_v4"
     assert payload["observation_encoder"] == "hierarchical_sequence_v2"
     assert payload["sequence_architecture_digest"]
     assert payload["policy_architecture_digest"]
@@ -82,10 +82,10 @@ def test_identity_binds_actual_architecture_and_exploration_contract() -> None:
     assert payload["current_weight_observation"]["key"] == "current_weights"
     assert payload["exploration_contract"] == {
         "action_distribution": "masked_shared_squashed_diag_gaussian_v1",
-        "change_intensity_coupling": "post_composition_gate_independent_v1",
         "log_std_parameterization": "shared_scalar_v1",
+        "mean_coupling": "post_composition_gate_independent_v1",
         "state_dependent_noise": False,
-        "schema_version": "hierarchical_exploration_v1",
+        "schema_version": "target_weight_exploration_v2",
         "squashing": "tanh",
     }
     assert model_sb3_policy_identity(model) == payload

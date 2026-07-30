@@ -257,7 +257,7 @@ git commit -m "feat: expose common action-stage outputs"
 **Interfaces:**
 - Produces: `SB3_POLICY_IDENTITY_SCHEMA = "sb3_policy_identity_v4"`.
 - Accepts sequence heads: `hierarchical_gate_target_v1`, `shared_target_v1`.
-- Rejects serialized v2 and v3 identities.
+- Rejects serialized v2 identities and reads existing hierarchical v3 identities only for migration compatibility.
 
 - [ ] **Step 1: Add failing identity tests for direct and hierarchical heads**
 

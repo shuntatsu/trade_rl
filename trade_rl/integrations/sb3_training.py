@@ -37,6 +37,9 @@ from trade_rl.learning import (
     write_learning_evaluation,
     write_teacher_artifact,
 )
+from trade_rl.learning.direct_bc_evaluation import (
+    evaluate_direct_behavior_cloning_gates,
+)
 from trade_rl.learning.episode_behavior_cloning import (
     BehaviorCloningSplit,
     align_behavior_cloning_validation,
@@ -313,21 +316,18 @@ def _required_hierarchical_config(config: object, name: str) -> int | float:
     return value
 
 
-def _hierarchical_teacher_labels(
+def _teacher_change_labels(
     *,
-    policy: object,
     teacher_dataset: SupervisedPolicyDataset,
     config: object,
 ) -> HierarchicalTeacherLabels | None:
-    if not callable(getattr(policy, "hierarchical_actor_outputs", None)):
-        return None
     observations = teacher_dataset.observations
     if not isinstance(observations, Mapping):
-        raise ValueError("hierarchical BC requires structured teacher observations")
+        return None
     missing = {"active", "current_weights"} - set(observations)
     if missing:
         raise ValueError(
-            "hierarchical BC teacher observations are missing "
+            "structured BC teacher observations are missing "
             + ", ".join(sorted(missing))
         )
     change_threshold = _required_hierarchical_config(
@@ -340,6 +340,20 @@ def _hierarchical_teacher_labels(
         change_threshold=float(change_threshold),
         source_teacher_digest=teacher_dataset.action_digest,
     )
+
+
+def _hierarchical_teacher_labels(
+    *,
+    policy: object,
+    teacher_dataset: SupervisedPolicyDataset,
+    config: object,
+) -> HierarchicalTeacherLabels | None:
+    if not callable(getattr(policy, "hierarchical_actor_outputs", None)):
+        return None
+    labels = _teacher_change_labels(teacher_dataset=teacher_dataset, config=config)
+    if labels is None:
+        raise ValueError("hierarchical BC requires structured teacher observations")
+    return labels
 
 
 def _hierarchical_behavior_cloning_config(
@@ -1201,10 +1215,16 @@ class StableBaselines3Backend:
                                 unwrapped_teacher, "sequence_policy_plane", None
                             ),
                         )
-                    hierarchical_labels = _hierarchical_teacher_labels(
-                        policy=model.policy,
+                    teacher_change_labels = _teacher_change_labels(
                         teacher_dataset=teacher_dataset,
                         config=config,
+                    )
+                    hierarchical_labels = (
+                        teacher_change_labels
+                        if callable(
+                            getattr(model.policy, "hierarchical_actor_outputs", None)
+                        )
+                        else None
                     )
                     cloning_config = (
                         _hierarchical_behavior_cloning_config(config)
@@ -1280,6 +1300,17 @@ class StableBaselines3Backend:
                             holdout=holdout_evaluation,
                             thresholds=_behavior_cloning_gate_thresholds(config),
                         )
+                    elif teacher_kind == "oracle" and teacher_change_labels is not None:
+                        gate_evaluation = evaluate_direct_behavior_cloning_gates(
+                            initial_mse=cloning.initial_mse,
+                            final_mse=cloning.final_mse,
+                            teacher_change_support=(
+                                teacher_change_labels.diagnostics.gate_positive_count
+                            ),
+                            holdout=holdout_evaluation,
+                            thresholds=_behavior_cloning_gate_thresholds(config),
+                        )
+                    if gate_evaluation is not None:
                         gate_evaluation_digest = write_learning_evaluation(
                             output_path.parent / "behavior-cloning-gates.json",
                             gate_evaluation,

@@ -60,7 +60,7 @@ The default remains `hierarchical_gate_target_v1`. `hierarchical_gate_temperatur
 
 ## Identity Contract
 
-Upgrade the canonical policy identity to `sb3_policy_identity_v4`. Versions v2 and v3 are rejected with an explicit migration error because v3 encoded only the hierarchical head.
+Upgrade newly bound policies to `sb3_policy_identity_v4`. Version v2 is rejected. Existing v3 hierarchical identities remain readable for checkpoint and serving migration, but no new v3 identity is produced and the direct head is valid only under v4.
 
 The v4 sequence identity records:
 

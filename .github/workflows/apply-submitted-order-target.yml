@@ -32,42 +32,46 @@ jobs:
 
           info_path = Path("trade_rl/rl/environment_info.py")
           info = info_path.read_text(encoding="utf-8")
-          old = '''            "action_path": diagnostics,
-          '''
-          new = '''            "action_path": diagnostics,
-                      "submitted_order_target": np.asarray(
-                          diagnostics.submitted_order_target,
-                          dtype=np.float64,
-                      ).copy(),
-          '''
+          old = '            "action_path": diagnostics,\n'
+          new = (
+              '            "action_path": diagnostics,\n'
+              '            "submitted_order_target": np.asarray(\n'
+              '                diagnostics.submitted_order_target,\n'
+              '                dtype=np.float64,\n'
+              '            ).copy(),\n'
+          )
           if info.count(old) != 1:
               raise SystemExit("environment action-path insertion point is not unique")
           info_path.write_text(info.replace(old, new, 1), encoding="utf-8")
 
           test_path = Path("tests/rl/test_environment_info_service.py")
           tests = test_path.read_text(encoding="utf-8")
-          key_old = '''        "action_path",
-                      "action_path_policy_to_execution_intent_l1",
-          '''
-          key_new = '''        "action_path",
-                      "submitted_order_target",
-                      "action_path_policy_to_execution_intent_l1",
-          '''
+          key_old = (
+              '        "action_path",\n'
+              '        "action_path_policy_to_execution_intent_l1",\n'
+          )
+          key_new = (
+              '        "action_path",\n'
+              '        "submitted_order_target",\n'
+              '        "action_path_policy_to_execution_intent_l1",\n'
+          )
           if tests.count(key_old) != 1:
               raise SystemExit("stable key-set insertion point is not unique")
           tests = tests.replace(key_old, key_new, 1)
 
-          assertion_old = '''    assert info["action_path"] is action_path
-              assert info["constraint_costs"] is costs
-          '''
-          assertion_new = '''    assert info["action_path"] is action_path
-              np.testing.assert_array_equal(
-                  info["submitted_order_target"],
-                  action_path.submitted_order_target,
-              )
-              assert info["submitted_order_target"] is not action_path.submitted_order_target
-              assert info["constraint_costs"] is costs
-          '''
+          assertion_old = (
+              '    assert info["action_path"] is action_path\n'
+              '    assert info["constraint_costs"] is costs\n'
+          )
+          assertion_new = (
+              '    assert info["action_path"] is action_path\n'
+              '    np.testing.assert_array_equal(\n'
+              '        info["submitted_order_target"],\n'
+              '        action_path.submitted_order_target,\n'
+              '    )\n'
+              '    assert info["submitted_order_target"] is not action_path.submitted_order_target\n'
+              '    assert info["constraint_costs"] is costs\n'
+          )
           if tests.count(assertion_old) != 1:
               raise SystemExit("action-path assertion insertion point is not unique")
           test_path.write_text(

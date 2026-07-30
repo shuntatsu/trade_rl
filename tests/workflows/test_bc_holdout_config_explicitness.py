@@ -45,7 +45,6 @@ def test_v3_requires_explicit_bc_holdout_statistical_settings(field: str) -> Non
         TrainingRunConfig.from_mapping(modified)
 
 
-
 @pytest.mark.parametrize(
     ("field", "value"),
     (

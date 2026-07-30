@@ -130,6 +130,16 @@ def test_sequence_diagnostic_payload_is_finite_and_quality_aware() -> None:
     assert 0.0 < total_share <= 1.25
 
 
+def test_sequence_diagnostics_all_inactive_fallback_is_finite() -> None:
+    observations = _observations()
+    observations["active"].zero_()
+
+    payload = sequence_diagnostics_payload(_extractor(), observations)
+
+    assert payload
+    assert all(math.isfinite(value) for value in payload.values())
+
+
 def test_sequence_diagnostics_callback_is_absent_when_disabled() -> None:
     assert (
         build_sequence_diagnostics_callback(enabled=False, rollout_interval=1) is None

@@ -44,3 +44,5 @@ TDD coverage proves:
 - the training plan derives 84 stages per cycle and repeats exactly;
 - legacy plan tests remain valid;
 - the operator command rejects the legacy manifest and accepts the new manifest without touching external systems when the plan is complete.
+
+The rebased focused suite, canonical formatter, Ruff, MyPy, and dead-code checks passed on the current audited mainline before final repository CI.

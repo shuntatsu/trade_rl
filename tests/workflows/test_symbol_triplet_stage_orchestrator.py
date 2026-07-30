@@ -14,6 +14,7 @@ from trade_rl.workflows.symbol_triplet_stage_orchestrator import (
     training_config_for_symbol_triplet_stage,
 )
 from trade_rl.workflows.symbol_triplet_training_cursor import (
+    SymbolTripletTrainingCursor,
     build_symbol_triplet_training_plan,
     current_symbol_triplet_training_stage,
     initial_symbol_triplet_training_cursor,
@@ -262,44 +263,23 @@ def test_next_stage_rejects_cross_plan_or_stale_completion(tmp_path: Path) -> No
         )
 
 
-def test_completed_plan_has_no_stage_request(tmp_path: Path) -> None:
+def test_completed_plan_has_no_stage_request() -> None:
     plan = _plan()
-    cursor = initial_symbol_triplet_training_cursor(plan)
-    previous_completion = None
-    for stage in plan.stages:
-        request = build_symbol_triplet_stage_request(
-            plan,
-            cursor,
-            training_seeds=(0,),
-            previous_completion=previous_completion,
-        )
-        assert request is not None
-        previous_completion, cursor = commit_symbol_triplet_stage_completion(
-            plan,
-            cursor,
-            request=request,
-            checkpoint_roots=_checkpoint_roots(
-                tmp_path / f"stage-{stage.stage_index:03d}",
-                environment_digest=f"{stage.stage_index % 10}" * 64,
-            )
-            if request.training_seeds == _SEEDS
-            else {
-                0: _checkpoint_roots(
-                    tmp_path / f"stage-{stage.stage_index:03d}",
-                    environment_digest=f"{stage.stage_index % 10}" * 64,
-                )[0]
-            },
-            completion_path=tmp_path / f"completion-{stage.stage_index:03d}.json",
-            cursor_path=tmp_path / "cursor.json",
-        )
+    cursor = SymbolTripletTrainingCursor(
+        plan_digest=plan.digest,
+        stage_count=plan.stage_count,
+        next_stage_index=plan.stage_count,
+        last_completed_stage_id=plan.stages[-1].stage_id,
+    )
+    cursor.validate_plan(plan)
 
     assert current_symbol_triplet_training_stage(plan, cursor) is None
     assert (
         build_symbol_triplet_stage_request(
             plan,
             cursor,
-            training_seeds=(0,),
-            previous_completion=previous_completion,
+            training_seeds=_SEEDS,
+            previous_completion=None,
         )
         is None
     )

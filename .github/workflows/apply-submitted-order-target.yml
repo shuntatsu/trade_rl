@@ -1,0 +1,85 @@
+name: Apply Submitted Order Target Contract
+
+on:
+  push:
+    branches:
+      - agent/fix-gate-exploration-telemetry
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-submitted-order-target-contract
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/fix-gate-exploration-telemetry
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Expose submitted order vector
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          info_path = Path("trade_rl/rl/environment_info.py")
+          info = info_path.read_text(encoding="utf-8")
+          old = '''            "action_path": diagnostics,
+          '''
+          new = '''            "action_path": diagnostics,
+                      "submitted_order_target": np.asarray(
+                          diagnostics.submitted_order_target,
+                          dtype=np.float64,
+                      ).copy(),
+          '''
+          if info.count(old) != 1:
+              raise SystemExit("environment action-path insertion point is not unique")
+          info_path.write_text(info.replace(old, new, 1), encoding="utf-8")
+
+          test_path = Path("tests/rl/test_environment_info_service.py")
+          tests = test_path.read_text(encoding="utf-8")
+          key_old = '''        "action_path",
+                      "action_path_policy_to_execution_intent_l1",
+          '''
+          key_new = '''        "action_path",
+                      "submitted_order_target",
+                      "action_path_policy_to_execution_intent_l1",
+          '''
+          if tests.count(key_old) != 1:
+              raise SystemExit("stable key-set insertion point is not unique")
+          tests = tests.replace(key_old, key_new, 1)
+
+          assertion_old = '''    assert info["action_path"] is action_path
+              assert info["constraint_costs"] is costs
+          '''
+          assertion_new = '''    assert info["action_path"] is action_path
+              np.testing.assert_array_equal(
+                  info["submitted_order_target"],
+                  action_path.submitted_order_target,
+              )
+              assert info["submitted_order_target"] is not action_path.submitted_order_target
+              assert info["constraint_costs"] is costs
+          '''
+          if tests.count(assertion_old) != 1:
+              raise SystemExit("action-path assertion insertion point is not unique")
+          test_path.write_text(
+              tests.replace(assertion_old, assertion_new, 1),
+              encoding="utf-8",
+          )
+          PY
+          rm .github/workflows/apply-submitted-order-target.yml
+          uv run ruff format trade_rl/rl/environment_info.py tests/rl/test_environment_info_service.py
+          git diff --check
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: expose submitted order target telemetry"
+          git push origin HEAD:agent/fix-gate-exploration-telemetry

@@ -65,7 +65,9 @@ def _previous_completion_path(
     if stage_index == 0:
         return None
     previous_stage = plan.stages[stage_index - 1]
-    return binance_symbol_triplet_stage_root(work_root, previous_stage) / "completion.json"
+    return (
+        binance_symbol_triplet_stage_root(work_root, previous_stage) / "completion.json"
+    )
 
 
 def current_binance_symbol_triplet_stage_request(
@@ -156,7 +158,9 @@ def _prepare_bound_dataset(
         symbol_triplet_provenance=_stage_provenance(request),
     )
     if dataset.symbols != request.slot_symbols:
-        raise ValueError("PostgreSQL stage dataset slot symbols differ from the request")
+        raise ValueError(
+            "PostgreSQL stage dataset slot symbols differ from the request"
+        )
     publish_market_dataset_artifact(dataset_path, dataset)
     binding = build_symbol_triplet_stage_dataset_binding(
         request,

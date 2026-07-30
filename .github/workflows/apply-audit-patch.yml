@@ -1,9 +1,9 @@
 name: Apply Audit Patch
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/harden-audit-contracts-v2
+      - main
     paths:
       - .automation/task1.patch.b64.04
 
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch

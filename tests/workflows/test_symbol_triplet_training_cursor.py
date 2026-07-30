@@ -100,9 +100,10 @@ def test_plan_and_cursor_are_deterministic_and_resume_exactly(tmp_path: Path) ->
 
     assert loaded_plan == left
     assert loaded_cursor == cursor
-    assert current_symbol_triplet_training_stage(
-        loaded_plan, loaded_cursor
-    ) == left.stages[7]
+    assert (
+        current_symbol_triplet_training_stage(loaded_plan, loaded_cursor)
+        == left.stages[7]
+    )
 
 
 def test_cursor_rejects_wrong_or_replayed_stage_completion() -> None:

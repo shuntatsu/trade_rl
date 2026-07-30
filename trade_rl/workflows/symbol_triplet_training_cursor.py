@@ -7,16 +7,15 @@ import os
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, cast
+from typing import Final, Protocol, cast
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
 from trade_rl.workflows.symbol_triplet_manifest import (
     SYMBOL_TRIPLET_SIZE,
-    SYMBOL_TRIPLET_SPLIT_COUNTS,
-    SymbolTripletManifest,
     SymbolTripletSlot,
+    TripletSplit,
 )
 
 SYMBOL_TRIPLET_TRAINING_STAGE_SCHEMA: Final = "symbol_triplet_training_stage_v1"
@@ -24,6 +23,16 @@ SYMBOL_TRIPLET_TRAINING_PLAN_SCHEMA: Final = "symbol_triplet_training_plan_v1"
 SYMBOL_TRIPLET_TRAINING_CURSOR_SCHEMA: Final = "symbol_triplet_training_cursor_v2"
 _PLAN_IDENTITY_SCHEMA: Final = "symbol_triplet_training_plan_identity_v1"
 _TRAIN_CYCLE_SCHEMA: Final = "symbol_triplet_train_cycle_v1"
+
+
+class TrainingTripletManifest(Protocol):
+    @property
+    def digest(self) -> str: ...
+
+    @property
+    def schedule_identity(self) -> str: ...
+
+    def slots_for(self, split: TripletSplit) -> tuple[SymbolTripletSlot, ...]: ...
 
 
 def _non_negative_integer(value: object, *, field: str) -> int:
@@ -201,10 +210,9 @@ class SymbolTripletTrainingPlan:
         )
         if self.plan_identity != expected_plan_identity:
             raise ValueError("symbol-triplet training plan identity mismatch")
-        train_count = SYMBOL_TRIPLET_SPLIT_COUNTS["train"]
-        expected_stage_count = cycles * train_count
-        if len(self.stages) != expected_stage_count:
+        if not self.stages or len(self.stages) % cycles != 0:
             raise ValueError("symbol-triplet training plan stage count mismatch")
+        train_count = len(self.stages) // cycles
         for stage_index, stage in enumerate(self.stages):
             if stage.stage_index != stage_index:
                 raise ValueError(
@@ -283,7 +291,7 @@ class SymbolTripletTrainingPlan:
     def to_json_dict(self) -> dict[str, object]:
         return {"digest": self.digest, **self.digest_payload()}
 
-    def validate_manifest(self, manifest: SymbolTripletManifest) -> None:
+    def validate_manifest(self, manifest: TrainingTripletManifest) -> None:
         if manifest.digest != self.manifest_digest:
             raise ValueError("symbol-triplet training manifest digest mismatch")
         if manifest.schedule_identity != self.schedule_identity:
@@ -389,7 +397,7 @@ class SymbolTripletTrainingCursor:
 
 
 def build_symbol_triplet_training_plan(
-    manifest: SymbolTripletManifest,
+    manifest: TrainingTripletManifest,
     *,
     cycles: int,
     slot_symbols: tuple[str, ...],
@@ -554,7 +562,7 @@ def _json_object(path: str | Path, *, field: str) -> dict[str, object]:
 def load_symbol_triplet_training_plan(
     path: str | Path,
     *,
-    manifest: SymbolTripletManifest,
+    manifest: TrainingTripletManifest,
 ) -> SymbolTripletTrainingPlan:
     payload = _json_object(path, field="symbol-triplet training plan")
     required = {

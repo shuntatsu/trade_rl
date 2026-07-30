@@ -50,11 +50,15 @@ from trade_rl.workflows.binance_metadata_modes import (
     resolve_conservative_static,
     resolve_frozen_snapshot,
 )
-from trade_rl.workflows.symbol_triplet_manifest import (
-    SymbolTripletSlot,
-    build_symbol_triplet_manifest,
-    write_symbol_triplet_manifest,
+from trade_rl.workflows.symbol_disjoint_manifest import (
+    build_symbol_disjoint_manifest,
+    write_symbol_disjoint_manifest,
 )
+from trade_rl.workflows.symbol_disjoint_triplet_manifest import (
+    build_symbol_disjoint_triplet_manifest,
+    write_symbol_disjoint_triplet_manifest,
+)
+from trade_rl.workflows.symbol_triplet_manifest import SymbolTripletSlot
 
 _SYMBOL_POOL = (
     "BTCUSDT",
@@ -93,7 +97,13 @@ def _activate_symbol_triplet(
     """Bind one complete Generation to a stable generic three-slot mapping."""
 
     global _ACTIVE_SYMBOL_TRIPLET, _SYMBOLS
-    manifest = build_symbol_triplet_manifest(_SYMBOL_POOL, seed=seed)
+    source_manifest = build_symbol_disjoint_manifest(
+        _SYMBOL_POOL,
+        seed=seed,
+        validation_count=3,
+        test_count=3,
+    )
+    manifest = build_symbol_disjoint_triplet_manifest(source_manifest)
     train_slots = manifest.slots_for("train")
     if (
         isinstance(train_slot, bool)
@@ -106,14 +116,17 @@ def _activate_symbol_triplet(
     _ACTIVE_SYMBOL_TRIPLET = {
         "manifest_digest": manifest.digest,
         "schedule_identity": manifest.schedule_identity,
+        "source_manifest_digest": source_manifest.digest,
         "selected": selected.digest_payload(),
     }
-    write_symbol_triplet_manifest(work_root / "symbol-triplets.json", manifest)
+    write_symbol_disjoint_manifest(work_root / "symbol-disjoint.json", source_manifest)
+    write_symbol_disjoint_triplet_manifest(work_root / "symbol-triplets.json", manifest)
     _write_json(
         work_root / "selected-symbol-triplet.json",
         {
             "manifest_digest": manifest.digest,
             "schedule_identity": manifest.schedule_identity,
+            "source_manifest_digest": source_manifest.digest,
             "schema_version": "selected_symbol_triplet_v1",
             "selected": selected.digest_payload(),
             "slot_symbols": _SLOT_SYMBOLS,

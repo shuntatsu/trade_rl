@@ -120,10 +120,15 @@ def build_tensorboard_metrics_callback(
                             info = (
                                 info_items[index] if index < len(info_items) else None
                             )
-                            submitted_order = (
-                                info.get("submitted_order_target")
+                            action_path = (
+                                info.get("action_path")
                                 if isinstance(info, dict)
                                 else None
+                            )
+                            submitted_order = getattr(
+                                action_path,
+                                "submitted_order_target",
+                                None,
                             )
                             effective = (
                                 info.get("effective_filled_weights")

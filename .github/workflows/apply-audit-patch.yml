@@ -1,0 +1,35 @@
+name: Apply Audit Patch
+
+on:
+  push:
+    branches:
+      - agent/harden-audit-contracts-v2
+    paths:
+      - .automation/task1.patch
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: agent/harden-audit-contracts-v2
+          fetch-depth: 0
+      - name: Apply verified patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .automation/task1.patch
+          git apply .automation/task1.patch
+          rm .automation/task1.patch
+          rmdir .automation 2>/dev/null || true
+          rm .github/workflows/apply-audit-patch.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Reapply audit execution and artifact hardening"
+          git push origin HEAD:agent/harden-audit-contracts-v2

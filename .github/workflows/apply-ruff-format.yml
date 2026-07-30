@@ -24,8 +24,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check .automation/ruff-format.patch
-          git apply .automation/ruff-format.patch
+          git apply -p0 --check .automation/ruff-format.patch
+          git apply -p0 .automation/ruff-format.patch
           rm .automation/ruff-format.patch
           rmdir .automation 2>/dev/null || true
           rm .github/workflows/apply-ruff-format.yml

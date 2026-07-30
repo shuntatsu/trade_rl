@@ -27,7 +27,7 @@ def test_action_stage_metrics_separate_intended_change_from_exploration() -> Non
         current_weights=np.array([0.1, -0.1]),
         deterministic_composed=np.array([0.1, -0.1]),
         sampled_policy_action=np.array([0.4, -0.2]),
-        submitted_target=np.array([0.3, -0.1]),
+        submitted_order_target=np.array([0.3, -0.1]),
         effective_filled_weights=np.array([0.25, -0.05]),
     )
 

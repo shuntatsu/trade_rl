@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from trade_rl.rl.action_telemetry import hierarchical_action_stage_metrics
+
 if TYPE_CHECKING:
     from stable_baselines3.common.callbacks import BaseCallback
 
@@ -18,9 +20,19 @@ _TAGS = (
     "trade_rl/action_abs_mean",
     "trade_rl/action_abs_max",
     "trade_rl/change_intensity_mean",
+    "trade_rl/deterministic_change_l1_mean",
     "trade_rl/exploration_l1_mean",
+    "trade_rl/sampled_change_l1_mean",
+    "trade_rl/submission_l1_mean",
     "trade_rl/effective_action_l1_mean",
 )
+_ACTION_STAGE_TAGS = {
+    "deterministic_change_l1": "trade_rl/deterministic_change_l1_mean",
+    "exploration_l1": "trade_rl/exploration_l1_mean",
+    "sampled_change_l1": "trade_rl/sampled_change_l1_mean",
+    "submission_l1": "trade_rl/submission_l1_mean",
+    "effective_action_l1": "trade_rl/effective_action_l1_mean",
+}
 
 
 def _finite_values(value: object) -> tuple[float, ...]:
@@ -67,6 +79,10 @@ def build_tensorboard_metrics_callback(
                 absolute = tuple(abs(item) for item in actions)
                 self._values["trade_rl/action_abs_mean"].extend(absolute)
                 self._values["trade_rl/action_abs_max"].append(max(absolute))
+
+            infos = self.locals.get("infos", ())
+            info_items = tuple(infos) if isinstance(infos, (list, tuple)) else ()
+            hierarchical_effective_indices: set[int] = set()
             if self.n_calls % log_interval == 0:
                 observations = self.locals.get("obs_tensor")
                 output_factory = getattr(
@@ -80,33 +96,68 @@ def build_tensorboard_metrics_callback(
                     with torch.no_grad():
                         outputs = output_factory(observations)
                     intensity = outputs.change_intensity.detach().cpu().numpy()
+                    current = outputs.current_weights.detach().cpu().numpy()
                     deterministic = outputs.composed_actions.detach().cpu().numpy()
-                    sampled_matrix = np.asarray(
-                        self.locals.get("actions", ()), dtype=np.float64
-                    )
-                    if sampled_matrix.shape == deterministic.shape:
-                        self._extend("trade_rl/change_intensity_mean", intensity)
-                        self._extend(
-                            "trade_rl/exploration_l1_mean",
-                            np.sum(np.abs(sampled_matrix - deterministic), axis=1),
+                    try:
+                        sampled_matrix = np.asarray(
+                            self.locals.get("actions", ()),
+                            dtype=np.float64,
                         )
-            infos = self.locals.get("infos", ())
-            if isinstance(infos, (list, tuple)):
-                for info in infos:
-                    if not isinstance(info, dict):
-                        continue
-                    self._extend(
-                        "trade_rl/portfolio_value_mean",
-                        info.get("portfolio_value_after", ()),
-                    )
-                    self._extend(
-                        "trade_rl/drawdown_mean",
-                        info.get("drawdown_after", ()),
-                    )
-                    self._extend(
-                        "trade_rl/interval_cost_mean",
-                        info.get("interval_cost", ()),
-                    )
+                    except (TypeError, ValueError):
+                        sampled_matrix = np.empty((0,), dtype=np.float64)
+                    if (
+                        sampled_matrix.shape == deterministic.shape
+                        and current.shape == deterministic.shape
+                    ):
+                        self._extend("trade_rl/change_intensity_mean", intensity)
+                        for index, (current_row, deterministic_row, sampled_row) in enumerate(
+                            zip(current, deterministic, sampled_matrix, strict=True)
+                        ):
+                            info = info_items[index] if index < len(info_items) else None
+                            submitted = (
+                                info.get("submitted_target")
+                                if isinstance(info, dict)
+                                else None
+                            )
+                            effective = (
+                                info.get("effective_filled_weights")
+                                if isinstance(info, dict)
+                                else None
+                            )
+                            try:
+                                metrics = hierarchical_action_stage_metrics(
+                                    current_weights=current_row,
+                                    deterministic_composed=deterministic_row,
+                                    sampled_policy_action=sampled_row,
+                                    submitted_target=submitted,
+                                    effective_filled_weights=effective,
+                                )
+                            except ValueError:
+                                continue
+                            for metric_name, metric_value in metrics.items():
+                                self._extend(
+                                    _ACTION_STAGE_TAGS[metric_name],
+                                    metric_value,
+                                )
+                            if "effective_action_l1" in metrics:
+                                hierarchical_effective_indices.add(index)
+
+            for index, info in enumerate(info_items):
+                if not isinstance(info, dict):
+                    continue
+                self._extend(
+                    "trade_rl/portfolio_value_mean",
+                    info.get("portfolio_value_after", ()),
+                )
+                self._extend(
+                    "trade_rl/drawdown_mean",
+                    info.get("drawdown_after", ()),
+                )
+                self._extend(
+                    "trade_rl/interval_cost_mean",
+                    info.get("interval_cost", ()),
+                )
+                if index not in hierarchical_effective_indices:
                     self._extend(
                         "trade_rl/effective_action_l1_mean",
                         info.get("sampled_policy_to_filled_l1", ()),

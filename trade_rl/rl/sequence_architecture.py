@@ -11,7 +11,8 @@ if TYPE_CHECKING:
     from trade_rl.rl.sequence_policy import SequencePolicyArchitecture
 
 _TIMEFRAMES = ("15m", "1h", "4h", "1d")
-_SCHEMA = "hierarchical_sequence_policy_v2"
+_SCHEMA = "hierarchical_sequence_policy_v3"
+_ASSET_IDENTITY_MODE = "identity_free_v1"
 
 
 def _required_dilations(window_length: int) -> tuple[int, ...]:
@@ -49,12 +50,15 @@ class SequenceArchitectureIdentity:
     dropout: float
     symbols: tuple[str, ...]
     action_names: tuple[str, ...]
+    asset_identity_mode: str = _ASSET_IDENTITY_MODE
     timeframes: tuple[str, ...] = _TIMEFRAMES
     schema_version: str = _SCHEMA
 
     def __post_init__(self) -> None:
         if self.schema_version != _SCHEMA:
             raise ValueError("unsupported sequence architecture identity schema")
+        if self.asset_identity_mode != _ASSET_IDENTITY_MODE:
+            raise ValueError("sequence architecture asset identity mode is invalid")
         if self.timeframes != _TIMEFRAMES:
             raise ValueError("sequence identity requires ordered 15m/1h/4h/1d clocks")
         width = len(self.timeframes)
@@ -89,6 +93,7 @@ class SequenceArchitectureIdentity:
             "asset_attention_layers": self.asset_attention_layers,
             "asset_ffn_multiplier": self.asset_ffn_multiplier,
             "asset_gate_bias": self.asset_gate_bias,
+            "asset_identity_mode": self.asset_identity_mode,
             "asset_state_width": self.asset_state_width,
             "d_model": self.d_model,
             "dilations": self.dilations,

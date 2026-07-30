@@ -76,6 +76,7 @@ def test_identity_binds_actual_architecture_and_exploration_contract() -> None:
     assert payload["schema_version"] == "sb3_policy_identity_v3"
     assert payload["observation_encoder"] == "hierarchical_sequence_v2"
     assert payload["sequence_architecture_digest"]
+    assert payload["sequence_architecture"]["asset_identity_mode"] == "identity_free_v1"
     assert payload["policy_architecture_digest"]
     assert payload["actor_head"] == "hierarchical_gate_target_v1"
     assert payload["gate_temperature"] == 1.0

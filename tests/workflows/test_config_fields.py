@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 
-from trade_rl.workflows.config_fields import require_exact_fields
+from trade_rl.workflows.config_fields import (
+    require_dataclass_fields,
+    require_exact_fields,
+)
 
 
 def test_require_exact_fields_rejects_unknown_names() -> None:
@@ -38,10 +43,6 @@ def test_require_exact_fields_returns_a_copy() -> None:
 
 
 def test_require_dataclass_fields_rejects_shadowed_and_unknown_fields() -> None:
-    from dataclasses import dataclass
-
-    from trade_rl.workflows.config_fields import require_dataclass_fields
-
     @dataclass
     class Example:
         active: int
@@ -54,3 +55,23 @@ def test_require_dataclass_fields_rejects_shadowed_and_unknown_fields() -> None:
             field="example",
             excluded={"shadowed"},
         )
+
+
+def test_require_dataclass_fields_restores_json_lists_for_tuple_fields() -> None:
+    @dataclass
+    class Example:
+        trigger_volume_fractions: tuple[float, float, float, float]
+        label: str = "nominal"
+
+    original = {
+        "trigger_volume_fractions": [1.0, 0.5, 0.25, 0.0],
+        "label": "stress",
+    }
+
+    resolved = require_dataclass_fields(original, Example, field="example")
+
+    assert resolved == {
+        "trigger_volume_fractions": (1.0, 0.5, 0.25, 0.0),
+        "label": "stress",
+    }
+    assert original["trigger_volume_fractions"] == [1.0, 0.5, 0.25, 0.0]

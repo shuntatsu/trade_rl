@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from threading import Barrier, Thread
 from pathlib import Path
+from threading import Barrier, Thread
 
 import pytest
 

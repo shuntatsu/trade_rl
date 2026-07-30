@@ -38,13 +38,13 @@ from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
-from trade_rl.simulation.execution_replay import (
-    ExecutionEventArtifact,
-    write_execution_event_artifact,
-)
 from trade_rl.simulation.execution_promotion import (
     execution_evidence_from_cost,
     write_execution_evidence,
+)
+from trade_rl.simulation.execution_replay import (
+    ExecutionEventArtifact,
+    write_execution_event_artifact,
 )
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
 from trade_rl.workflows.selection_authorization import (

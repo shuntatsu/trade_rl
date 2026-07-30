@@ -61,7 +61,6 @@ from trade_rl.rl.sequence_observations import (
 )
 from trade_rl.rl.training import ResidualTrainingConfig, train_residual_ensemble
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.execution_replay import EXECUTION_EVENT_ARTIFACT_FILE_NAME
 from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_FILE_NAME,
     ExecutionPromotionError,
@@ -70,6 +69,7 @@ from trade_rl.simulation.execution_promotion import (
     validate_execution_promotion,
     write_execution_evidence,
 )
+from trade_rl.simulation.execution_replay import EXECUTION_EVENT_ARTIFACT_FILE_NAME
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 from trade_rl.workflows.config_fields import (
     require_dataclass_fields,

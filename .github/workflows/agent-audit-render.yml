@@ -43,10 +43,23 @@ jobs:
           fi
 
       - name: Apply audited fixes
-        run: uv run python scripts/agent_apply_audit_hardening.py 2>&1 | tee /tmp/audit-apply.log
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python scripts/agent_apply_audit_hardening.py \
+            2>&1 | tee /tmp/audit-apply.log
+
+      - name: Align checkpoint loader tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python scripts/agent_fix_audit_hardening_tests.py \
+            2>&1 | tee /tmp/audit-test-fixes.log
 
       - name: Verify targeted GREEN suite
+        shell: bash
         run: |
+          set -o pipefail
           uv run pytest \
             tests/simulation/test_execution_audit_hardening.py \
             tests/evaluation/test_execution_promotion_audit_hardening.py \
@@ -62,7 +75,9 @@ jobs:
             -q 2>&1 | tee /tmp/audit-green.log
 
       - name: Verify static contracts
+        shell: bash
         run: |
+          set -o pipefail
           uv run ruff check \
             trade_rl/simulation/execution.py \
             trade_rl/simulation/execution_promotion.py \
@@ -76,6 +91,8 @@ jobs:
             tests/evaluation/test_execution_promotion_audit_hardening.py \
             tests/artifacts/test_store_audit_hardening.py \
             tests/rl/test_checkpoint_trust_boundary.py \
+            tests/integrations/test_sb3_checkpoint_assembly.py \
+            tests/integrations/test_sb3_checkpoint_transfer.py \
             2>&1 | tee /tmp/audit-ruff.log
           uv run mypy \
             trade_rl/simulation/execution.py \
@@ -86,7 +103,7 @@ jobs:
             trade_rl/integrations/sb3_checkpoint_assembly.py \
             2>&1 | tee /tmp/audit-mypy.log
 
-      - name: Package verified files and diagnostics
+      - name: Package verified diagnostics
         if: always()
         shell: bash
         run: |
@@ -95,20 +112,10 @@ jobs:
             /tmp/audit-hardening.patch \
             /tmp/audit-red.log \
             /tmp/audit-apply.log \
+            /tmp/audit-test-fixes.log \
             /tmp/audit-green.log \
             /tmp/audit-ruff.log \
-            /tmp/audit-mypy.log \
-            trade_rl/simulation/execution.py \
-            trade_rl/simulation/execution_promotion.py \
-            trade_rl/artifacts/store.py \
-            trade_rl/rl/checkpointing.py \
-            trade_rl/rl/replay.py \
-            trade_rl/integrations/sb3_checkpoint_assembly.py \
-            trade_rl/integrations/sb3_training.py \
-            trade_rl/workflows/training_run.py \
-            tests/evaluation/test_execution_promotion.py \
-            tests/simulation/test_critical_branch_coverage.py \
-            docs/superpowers/specs/2026-07-30-audit-hardening-design.md
+            /tmp/audit-mypy.log
 
       - name: Upload audited output
         if: always()

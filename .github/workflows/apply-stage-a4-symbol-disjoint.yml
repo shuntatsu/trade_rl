@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - .automation/stage-a4-symbol-disjoint.patch.gz.b64
+      - .automation/stage-a4-symbol-disjoint.retry
 
 permissions:
   contents: write
@@ -32,8 +32,61 @@ jobs:
           test "$(sha256sum .automation/stage-a4-symbol-disjoint.patch.gz.b64 | cut -d' ' -f1)" = "cb1caf1d1fbaa5a6e733eb6fa9fc0ebc9346619fde278a6efc0ce051bd01ad40"
           gzip --decompress --stdout /tmp/stage-a4.patch.gz > /tmp/stage-a4.patch
           test "$(sha256sum /tmp/stage-a4.patch | cut -d' ' -f1)" = "e4189fe6aa856765039bda4c5ed743abee6574f5c671165221c388d7b7a2503d"
-          git apply --check /tmp/stage-a4.patch
-          git apply /tmp/stage-a4.patch
+          git apply --check --exclude=trade_rl/workflows/symbol_triplet_training_cursor.py /tmp/stage-a4.patch
+          git apply --exclude=trade_rl/workflows/symbol_triplet_training_cursor.py /tmp/stage-a4.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/symbol_triplet_training_cursor.py")
+          text = path.read_text(encoding="utf-8")
+          replacements = (
+              (
+                  "from typing import Final, cast\n",
+                  "from typing import Final, Protocol, cast\n",
+              ),
+              (
+                  "    SYMBOL_TRIPLET_SIZE,\n"
+                  "    SYMBOL_TRIPLET_SPLIT_COUNTS,\n"
+                  "    SymbolTripletManifest,\n"
+                  "    SymbolTripletSlot,\n",
+                  "    SYMBOL_TRIPLET_SIZE,\n"
+                  "    SymbolTripletSlot,\n"
+                  "    TripletSplit,\n",
+              ),
+              (
+                  "_TRAIN_CYCLE_SCHEMA: Final = \"symbol_triplet_train_cycle_v1\"\n\n\n",
+                  "_TRAIN_CYCLE_SCHEMA: Final = \"symbol_triplet_train_cycle_v1\"\n\n\n"
+                  "class TrainingTripletManifest(Protocol):\n"
+                  "    @property\n"
+                  "    def digest(self) -> str: ...\n\n"
+                  "    @property\n"
+                  "    def schedule_identity(self) -> str: ...\n\n"
+                  "    def slots_for(\n"
+                  "        self, split: TripletSplit\n"
+                  "    ) -> tuple[SymbolTripletSlot, ...]: ...\n\n\n",
+              ),
+              (
+                  "        train_count = SYMBOL_TRIPLET_SPLIT_COUNTS[\"train\"]\n"
+                  "        expected_stage_count = cycles * train_count\n"
+                  "        if len(self.stages) != expected_stage_count:\n"
+                  "            raise ValueError(\"symbol-triplet training plan stage count mismatch\")\n",
+                  "        if not self.stages or len(self.stages) % cycles != 0:\n"
+                  "            raise ValueError(\"symbol-triplet training plan stage count mismatch\")\n"
+                  "        train_count = len(self.stages) // cycles\n",
+              ),
+          )
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"cursor patch anchor changed: {old[:40]!r}")
+              text = text.replace(old, new, 1)
+          if text.count("manifest: SymbolTripletManifest") != 3:
+              raise SystemExit("cursor manifest annotation count changed")
+          text = text.replace(
+              "manifest: SymbolTripletManifest",
+              "manifest: TrainingTripletManifest",
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
           uv sync --extra dev --extra train-sb3
           uv run pytest -q \
             tests/workflows/test_symbol_disjoint_triplet_manifest.py \

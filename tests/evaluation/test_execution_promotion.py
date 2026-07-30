@@ -97,7 +97,10 @@ def test_execution_evidence_uses_the_complete_cost_policy_digest() -> None:
     evidence = execution_evidence_from_cost(dataset_id="d" * 64, cost=cost)
 
     assert evidence.execution_policy_digest == cost.execution_policy_digest
-    assert evidence.execution_policy_digest != replace(
-        cost,
-        fee_rate=cost.fee_rate + 0.001,
-    ).execution_policy_digest
+    assert (
+        evidence.execution_policy_digest
+        != replace(
+            cost,
+            fee_rate=cost.fee_rate + 0.001,
+        ).execution_policy_digest
+    )

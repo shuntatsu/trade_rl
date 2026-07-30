@@ -208,9 +208,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         dataset_id=dataset.dataset_id,
         execution_policy_digest=execution_cost.execution_policy_digest,
         path_mode=execution_cost.path_mode,
-        processing_bar_volume_capacity=(
-            execution_cost.processing_bar_volume_capacity
-        ),
+        processing_bar_volume_capacity=(execution_cost.processing_bar_volume_capacity),
         partial_fill_carry=execution_cost.partial_fill_carry,
         trigger_volume_fractions=execution_cost.trigger_volume_fractions,
         order_event_count=1,

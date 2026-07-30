@@ -518,7 +518,9 @@ def verified_checkpoint_policy_copy(
     with tempfile.TemporaryDirectory(prefix="trade-rl-checkpoint-") as temporary:
         target = Path(temporary) / CHECKPOINT_POLICY_NAME
         with (
-            _open_regular_binary(manifest.policy_path, field="checkpoint policy") as source,
+            _open_regular_binary(
+                manifest.policy_path, field="checkpoint policy"
+            ) as source,
             target.open("xb") as destination,
         ):
             shutil.copyfileobj(source, destination)

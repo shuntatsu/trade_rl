@@ -949,9 +949,7 @@ def execute_training_run(
     """Train, serialize, validate, and atomically publish one ensemble run."""
 
     resolved_created_at = created_at or datetime.now(UTC)
-    resolved_run_id = run_id or resolved_created_at.strftime(
-        "run-%Y%m%dT%H%M%S.%fZ"
-    )
+    resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%S.%fZ")
     config = normalize_training_run_config(TrainingRunConfig.from_json(config_path))
     dataset = load_market_dataset_artifact(dataset_path)
     proposal, authorization = _selection_authorization(

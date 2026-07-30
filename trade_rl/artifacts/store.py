@@ -32,9 +32,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
-    temporary = path.with_name(
-        f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
-    )
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
     try:
         with temporary.open("xb") as handle:
             handle.write(payload)

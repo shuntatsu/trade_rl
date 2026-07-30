@@ -157,10 +157,7 @@ class ExecutionCostConfig:
             raise ValueError("max_participation_rate must be within (0, 1]")
         if not 0.0 <= self.tail_slippage_probability <= 1.0:
             raise ValueError("tail_slippage_probability must be within [0, 1]")
-        if (
-            self.tail_slippage_probability > 0.0
-            and self.tail_slippage_multiplier < 1.0
-        ):
+        if self.tail_slippage_probability > 0.0 and self.tail_slippage_multiplier < 1.0:
             raise ValueError(
                 "tail_slippage_multiplier must be at least 1.0 when tail events are enabled"
             )

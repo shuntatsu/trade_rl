@@ -33,8 +33,8 @@ jobs:
 
           path = Path("trade_rl/workflows/symbol_triplet_stage_orchestrator.py")
           text = path.read_text(encoding="utf-8")
-          old = "        self, file_descriptor: int, mode: int, byte_count: int, /\n"
-          new = "        self, _file_descriptor: int, _mode: int, _byte_count: int, /\n"
+          old = "    def locking(self, file_descriptor: int, mode: int, byte_count: int, /) -> None: ...\n"
+          new = "    def locking(self, _file_descriptor: int, _mode: int, _byte_count: int, /) -> None: ...\n"
           if text.count(old) != 1:
               raise SystemExit("lock protocol signature changed")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")

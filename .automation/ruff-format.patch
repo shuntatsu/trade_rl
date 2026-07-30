@@ -1,0 +1,144 @@
+--- tests/e2e/test_research_to_serving_v2.py
++++ tests/e2e/test_research_to_serving_v2.py
+@@ -221,9 +221,7 @@
+             },
+         ),
+         terminal_book={"schema_version": "execution_terminal_book_v1", "cash": 1.0},
+-        terminal_order_book={
+-            "schema_version": "execution_terminal_order_book_v1"
+-        },
++        terminal_order_book={"schema_version": "execution_terminal_order_book_v1"},
+     )
+     execution_event_artifact_path = tmp_path / "execution-order-events.json"
+     write_execution_event_artifact(
+
+--- tests/workflows/test_symbol_triplet_stage_orchestrator.py
++++ tests/workflows/test_symbol_triplet_stage_orchestrator.py
+@@ -428,5 +428,7 @@
+     failures = [item for item in outcomes if isinstance(item, BaseException)]
+     assert len(successes) == 1
+     assert len(failures) == 1
+-    assert "stale" in str(failures[0]) or "persisted training cursor" in str(failures[0])
++    assert "stale" in str(failures[0]) or "persisted training cursor" in str(
++        failures[0]
++    )
+     assert sum(path.exists() for path in tmp_path.glob("completion-*.json")) == 1
+
+--- trade_rl/artifacts/atomic_pointer.py
++++ trade_rl/artifacts/atomic_pointer.py
+@@ -39,9 +39,7 @@
+ 
+     target = Path(path)
+     target.parent.mkdir(parents=True, exist_ok=True)
+-    temporary = target.with_name(
+-        f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
+-    )
++    temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
+     try:
+         with temporary.open("xb") as handle:
+             handle.write(payload)
+
+--- trade_rl/artifacts/verified_file.py
++++ trade_rl/artifacts/verified_file.py
+@@ -56,13 +56,10 @@
+     """Copy verified bytes privately and yield only the immutable copy path."""
+ 
+     require_sha256(expected_digest, field=f"{field}.expected_digest")
+-    if (
+-        expected_size_bytes is not None
+-        and (
+-            isinstance(expected_size_bytes, bool)
+-            or not isinstance(expected_size_bytes, int)
+-            or expected_size_bytes < 0
+-        )
++    if expected_size_bytes is not None and (
++        isinstance(expected_size_bytes, bool)
++        or not isinstance(expected_size_bytes, int)
++        or expected_size_bytes < 0
+     ):
+         raise ValueError(f"{field} expected size must be non-negative")
+     safe_name = Path(filename).name
+
+--- trade_rl/serving/structured_policy.py
++++ trade_rl/serving/structured_policy.py
+@@ -51,7 +51,10 @@
+             raise FileNotFoundError("structured policy model is missing")
+         if model_path.stat().st_size != manifest.model_size_bytes:
+             raise ValueError("structured policy model size mismatch")
+-        if file_digest(model_path, field="structured policy model") != manifest.model_digest:
++        if (
++            file_digest(model_path, field="structured policy model")
++            != manifest.model_digest
++        ):
+             raise ValueError("structured policy model digest mismatch")
+         with verified_private_copy(
+             model_path,
+@@ -131,9 +134,10 @@
+             )
+         if manifest_path.stat().st_size != manifest_file.size_bytes:
+             raise ValueError("structured export manifest size mismatch")
+-        if file_digest(
+-            manifest_path, field="structured export manifest"
+-        ) != manifest_file.digest:
++        if (
++            file_digest(manifest_path, field="structured export manifest")
++            != manifest_file.digest
++        ):
+             raise ValueError("structured export manifest digest mismatch")
+         manifest = load_structured_export_manifest(manifest_path)
+         if manifest.architecture_digest != self.expected_architecture_digest:
+@@ -148,9 +152,10 @@
+             raise FileNotFoundError("structured policy model is missing from bundle")
+         if model_path.stat().st_size != model_file.size_bytes:
+             raise ValueError("structured bundle model size mismatch")
+-        if file_digest(
+-            model_path, field="structured bundle model"
+-        ) != model_file.digest:
++        if (
++            file_digest(model_path, field="structured bundle model")
++            != model_file.digest
++        ):
+             raise ValueError("structured bundle model digest mismatch")
+         return StructuredTorchScriptPolicy(root=bundle.root, manifest=manifest)
+ 
+
+--- trade_rl/workflows/full_research_state.py
++++ trade_rl/workflows/full_research_state.py
+@@ -60,9 +60,9 @@
+ def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+     atomic_replace_bytes(
+         path,
+-        (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(
+-            "utf-8"
+-        ),
++        (
++            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
++        ).encode("utf-8"),
+     )
+ 
+ 
+
+--- trade_rl/workflows/symbol_triplet_stage_orchestrator.py
++++ trade_rl/workflows/symbol_triplet_stage_orchestrator.py
+@@ -267,7 +267,9 @@
+     if completion.training_seeds != training_seeds:
+         raise ValueError("previous stage completion training seeds mismatch")
+     if cursor.last_completion_digest != completion.digest:
+-        raise ValueError("previous stage completion digest does not match training cursor")
++        raise ValueError(
++            "previous stage completion digest does not match training cursor"
++        )
+     completion.validate_plan(plan)
+ 
+ 
+
+--- trade_rl/workflows/symbol_triplet_training_cursor.py
++++ trade_rl/workflows/symbol_triplet_training_cursor.py
+@@ -502,7 +502,6 @@
+     return advanced
+ 
+ 
+-
+ def _fsync_directory(path: Path) -> None:
+     if os.name == "nt":
+         return

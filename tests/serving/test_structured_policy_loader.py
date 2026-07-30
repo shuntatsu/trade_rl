@@ -47,13 +47,21 @@ class _ConstantActor(nn.Module):
 def _test_policy_identity(
     architecture: str, *, action_size: int = 2
 ) -> dict[str, object]:
+    symbols = tuple(str(index) for index in range(action_size))
+    action_names = tuple(f"target_weight:{symbol}" for symbol in symbols)
     sequence_architecture = {
-        "action_names": tuple(f"target_weight:{index}" for index in range(action_size)),
-        "schema_version": "test_sequence_architecture_v1",
-        "symbols": tuple(str(index) for index in range(action_size)),
+        "asset_identity_mode": "identity_free_v1",
+        "n_symbols": action_size,
+        "schema_version": "hierarchical_sequence_policy_v4",
         "test_architecture_marker": architecture,
     }
     sequence_digest = content_digest(sequence_architecture)
+    asset_binding = {
+        "action_names": action_names,
+        "n_symbols": action_size,
+        "schema_version": "sequence_asset_binding_v1",
+        "symbols": symbols,
+    }
     current_weight = {
         "bounds": (-1.0, 1.0),
         "dtype": "float32",
@@ -76,17 +84,19 @@ def _test_policy_identity(
         "exploration_contract": exploration_contract,
         "gate_temperature": 1.0,
         "observation_encoder": "hierarchical_sequence_v2",
-        "schema_version": "hierarchical_gate_target_policy_v2",
+        "schema_version": "hierarchical_gate_target_policy_v3",
         "sequence_architecture_digest": sequence_digest,
     }
     return {
         "actor_head": "hierarchical_gate_target_v1",
+        "asset_binding": asset_binding,
+        "asset_binding_digest": content_digest(asset_binding),
         "current_weight_observation": current_weight,
         "exploration_contract": exploration_contract,
         "gate_temperature": 1.0,
         "observation_encoder": "hierarchical_sequence_v2",
         "policy_architecture_digest": content_digest(policy_architecture),
-        "schema_version": "sb3_policy_identity_v3",
+        "schema_version": "sb3_policy_identity_v4",
         "sequence_architecture": sequence_architecture,
         "sequence_architecture_digest": sequence_digest,
     }

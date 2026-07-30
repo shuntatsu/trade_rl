@@ -40,6 +40,7 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
           uv sync --extra dev --extra train-sb3
+          uv run ruff format trade_rl/workflows/symbol_triplet_stage_orchestrator.py
           uv run ruff format --check .
           uv run ruff check .
           uv run mypy trade_rl

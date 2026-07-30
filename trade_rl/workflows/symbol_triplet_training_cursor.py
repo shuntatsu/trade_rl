@@ -603,9 +603,7 @@ def load_symbol_triplet_training_cursor(
         plan_digest=cast(str, payload["plan_digest"]),
         stage_count=cast(int, payload["stage_count"]),
         next_stage_index=cast(int, payload["next_stage_index"]),
-        last_completed_stage_id=cast(
-            str | None, payload["last_completed_stage_id"]
-        ),
+        last_completed_stage_id=cast(str | None, payload["last_completed_stage_id"]),
         schema_version=cast(str, payload["schema_version"]),
         digest=cast(str, payload["digest"]),
     )

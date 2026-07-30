@@ -1,0 +1,57 @@
+name: Agent fix final CI
+
+on:
+  push:
+    branches:
+      - agent/harden-audit-contracts
+    paths:
+      - .agent/fix-final-ci-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/harden-audit-contracts
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Install locked environment
+        run: uv sync --frozen --extra dev --extra train-sb3
+
+      - name: Apply final CI corrections
+        run: uv run python scripts/agent_fix_final_ci.py
+
+      - name: Apply canonical formatting
+        run: |
+          uv run ruff format \
+            tests/e2e/test_research_to_serving_v2.py \
+            tests/evaluation/test_execution_promotion.py \
+            trade_rl/artifacts/store.py \
+            trade_rl/rl/checkpointing.py \
+            trade_rl/simulation/execution.py \
+            trade_rl/workflows/training_run.py \
+            tests/simulation/test_execution_slippage_coverage.py \
+            tests/simulation/test_stateful_execution_characterization.py
+
+      - name: Verify static and compatibility contracts
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving
+
+      - name: Commit verified CI corrections
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: align audit hardening with full CI"
+          git push origin HEAD:agent/harden-audit-contracts

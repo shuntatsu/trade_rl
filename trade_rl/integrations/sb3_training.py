@@ -17,7 +17,10 @@ import numpy as np
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.integrations.behavior_cloning import pretrain_policy
-from trade_rl.integrations.sb3_checkpoint_assembly import load_sb3_checkpoint_model
+from trade_rl.integrations.sb3_checkpoint_assembly import (
+    load_sb3_checkpoint_model,
+    load_sb3_checkpoint_transfer_model,
+)
 from trade_rl.integrations.sb3_model_assembly import (
     build_sb3_model,
     resolve_sb3_policy_assembly,
@@ -566,6 +569,7 @@ class StableBaselines3Backend:
         verbose: int = 0,
         resume_replay_artifact: Path | None = None,
         resume_checkpoint_artifacts: Mapping[int, Path] | None = None,
+        transfer_checkpoint_artifacts: Mapping[int, Path] | None = None,
         structured_export_enabled: bool = False,
         structured_export_tolerance: float = 1e-5,
     ) -> None:
@@ -573,6 +577,22 @@ class StableBaselines3Backend:
         self.verbose = verbose
         self.resume_replay_artifact = resume_replay_artifact
         self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
+        self.transfer_checkpoint_artifacts = dict(transfer_checkpoint_artifacts or {})
+        overlapping_seeds = (
+            self.resume_checkpoint_artifacts.keys()
+            & self.transfer_checkpoint_artifacts.keys()
+        )
+        if overlapping_seeds:
+            raise ValueError(
+                "checkpoint resume and transfer cannot target the same seed"
+            )
+        if (
+            self.resume_replay_artifact is not None
+            and self.transfer_checkpoint_artifacts
+        ):
+            raise ValueError(
+                "replay resume cannot be combined with checkpoint transfer"
+            )
         if not isinstance(structured_export_enabled, bool):
             raise ValueError("structured_export_enabled must be a boolean")
         if (
@@ -936,7 +956,9 @@ class StableBaselines3Backend:
                 canonical_action_probe_evidence=canonical_action_probe_evidence,
             )
             resume_manifest = None
+            transfer_manifest = None
             resume_root = self.resume_checkpoint_artifacts.get(seed)
+            transfer_root = self.transfer_checkpoint_artifacts.get(seed)
             if resume_root is not None:
                 loaded_checkpoint = load_sb3_checkpoint_model(
                     checkpoint_root=Path(resume_root),
@@ -950,6 +972,19 @@ class StableBaselines3Backend:
                 )
                 model = loaded_checkpoint.model
                 resume_manifest = loaded_checkpoint.manifest
+            elif transfer_root is not None:
+                loaded_checkpoint = load_sb3_checkpoint_transfer_model(
+                    checkpoint_root=Path(transfer_root),
+                    environment=environment,
+                    seed=seed,
+                    config=config,
+                    identity=identity,
+                    algorithm_config=algorithm_config,
+                    policy=policy,
+                    fresh_model=model,
+                )
+                model = loaded_checkpoint.model
+                transfer_manifest = loaded_checkpoint.manifest
 
             rollout_buffer_bytes = policy.rollout_buffer_bytes
             sequence_metadata = policy.sequence_metadata
@@ -1098,7 +1133,11 @@ class StableBaselines3Backend:
                     }
                 )
             )
-            if config.behavior_cloning_epochs > 0 and resume_manifest is None:
+            if (
+                config.behavior_cloning_epochs > 0
+                and resume_manifest is None
+                and transfer_manifest is None
+            ):
                 teacher_environment = self.environment_factory()
                 try:
                     teacher_identity = _environment_identity(teacher_environment)
@@ -1394,16 +1433,20 @@ class StableBaselines3Backend:
 
             remaining_timesteps = config.timesteps
             starting_timestep = 0
+            target_total_timesteps = config.timesteps
             if resume_manifest is not None:
                 starting_timestep = resume_manifest.observed_timestep
                 remaining_timesteps = max(0, config.timesteps - starting_timestep)
+            elif transfer_manifest is not None:
+                starting_timestep = transfer_manifest.observed_timestep
+                target_total_timesteps = starting_timestep + config.timesteps
             checkpoint_callback = build_checkpoint_callback(
                 checkpoint_root=output_path.parent / "checkpoints",
                 algorithm=config.algorithm,
                 seed=seed,
                 interval_steps=config.resolved_checkpoint_interval,
                 max_checkpoints=config.max_checkpoints,
-                total_timesteps=config.timesteps,
+                total_timesteps=target_total_timesteps,
                 starting_timestep=starting_timestep,
                 environment_digest=str(identity["environment_digest"]),
                 training_config_digest=content_digest(config.digest_payload()),
@@ -1428,7 +1471,7 @@ class StableBaselines3Backend:
                 }
                 if config.tensorboard_enabled:
                     learn_kwargs["tb_log_name"] = f"seed-{seed}-{config.algorithm}"
-                if resume_manifest is not None:
+                if resume_manifest is not None or transfer_manifest is not None:
                     learn_kwargs["reset_num_timesteps"] = False
                 performance = TrainingPerformanceRecorder()
                 performance.start(torch_module=torch, device=model.device)
@@ -1461,6 +1504,26 @@ class StableBaselines3Backend:
                             ),
                             "remaining_timesteps": remaining_timesteps,
                             "schema_version": "training_resume_v1",
+                        }
+                    )
+                )
+            elif transfer_manifest is not None:
+                (output_path.parent / "transfer.json").write_bytes(
+                    canonical_json_bytes(
+                        {
+                            "checkpoint_digest": transfer_manifest.digest,
+                            "checkpoint_observed_timestep": (
+                                transfer_manifest.observed_timestep
+                            ),
+                            "requested_additional_timesteps": config.timesteps,
+                            "schema_version": "training_transfer_v1",
+                            "source_environment_digest": (
+                                transfer_manifest.environment_digest
+                            ),
+                            "target_environment_digest": str(
+                                identity["environment_digest"]
+                            ),
+                            "target_total_timesteps": target_total_timesteps,
                         }
                     )
                 )

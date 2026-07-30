@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Final, Iterator
+from typing import Any, Final, Iterator, Protocol, cast
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -30,6 +30,13 @@ from trade_rl.workflows.training_run import TrainingRunConfig
 SYMBOL_TRIPLET_STAGE_CHECKPOINT_SCHEMA: Final = "symbol_triplet_stage_checkpoint_v1"
 SYMBOL_TRIPLET_STAGE_REQUEST_SCHEMA: Final = "symbol_triplet_stage_request_v1"
 SYMBOL_TRIPLET_STAGE_COMPLETION_SCHEMA: Final = "symbol_triplet_stage_completion_v1"
+
+
+class _WindowsFileLockApi(Protocol):
+    LK_LOCK: int
+    LK_UNLCK: int
+
+    def locking(self, file_descriptor: int, mode: int, byte_count: int, /) -> None: ...
 
 
 def _non_negative_integer(value: object, *, field: str) -> int:
@@ -466,16 +473,17 @@ def _exclusive_cursor_lock(cursor_path: Path) -> Iterator[None]:
         if os.name == "nt":
             import msvcrt
 
+            lock_api = cast(_WindowsFileLockApi, msvcrt)
             if handle.seek(0, os.SEEK_END) == 0:
                 handle.write(b"\0")
                 handle.flush()
             handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            lock_api.locking(handle.fileno(), lock_api.LK_LOCK, 1)
             try:
                 yield
             finally:
                 handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                lock_api.locking(handle.fileno(), lock_api.LK_UNLCK, 1)
         else:
             import fcntl
 

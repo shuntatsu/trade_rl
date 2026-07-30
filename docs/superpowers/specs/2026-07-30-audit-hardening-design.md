@@ -10,6 +10,10 @@ This change hardens the contracts identified by the July 30, 2026 repository aud
 
 Promotion evidence is fail closed. A promotable artifact must describe at least one order event, use complete order evidence, remain dataset-bound, and match the full execution configuration digest. The evidence schema advances to `execution_promotion_evidence_v2`, so legacy artifacts are rejected rather than silently reinterpreted.
 
+For selected-final training, the exact canonical `ExecutionEvidence.digest` is included in the signed `SelectionProposal`. The training workflow requires the supplied evidence file to match that signed digest before promotion. Therefore, changing the event count, completeness flag, path assumptions, cost identity, or any other evidence field after approval invalidates the authorization.
+
+The signature establishes integrity and approver authorization; it does not make fabricated pre-approval evidence truthful by itself. The offline approver remains responsible for validating the evidence-producing evaluation workflow before signing.
+
 ### Margin semantics
 
 Multi-asset `margin_mode="isolated"` is rejected until a per-symbol collateral ledger exists. Single-asset isolated execution remains accepted because no cross-symbol collateral transfer is possible in that case.
@@ -36,8 +40,8 @@ These checks provide integrity and filesystem-race protection. They do not turn 
 
 ## Compatibility
 
-These are intentional fail-closed contract changes. Legacy execution-promotion evidence and multi-asset isolated-margin configurations are rejected. Cross margin, single-asset isolated execution, zero-cost tests, normal checkpoint resume, and cross-triplet transfer remain supported.
+These are intentional fail-closed contract changes. Legacy execution-promotion evidence, selected-final proposals without an exact signed execution-evidence digest, and multi-asset isolated-margin configurations are rejected. Cross margin, single-asset isolated execution, exploratory training, zero-cost tests, normal checkpoint resume, and cross-triplet transfer remain supported.
 
 ## Verification
 
-Regression tests first reproduced the audited failures. Targeted simulation, promotion, artifact-store, checkpoint, resume, and transfer suites then passed after the implementation. The pull request must also pass the repository's full Linux/Windows CI, Ruff, Mypy, Import Linter, dead-code, coverage, serving, workflow-security, PostgreSQL, and training-image checks before merge.
+Regression tests first reproduced the audited failures. Targeted simulation, promotion, artifact-store, checkpoint, resume, transfer, signed-selection, and selected-final end-to-end suites then passed after the implementation. The pull request must also pass the repository's full Linux/Windows CI, Ruff, Mypy, Import Linter, dead-code, coverage, serving, workflow-security, PostgreSQL, and training-image checks before merge.

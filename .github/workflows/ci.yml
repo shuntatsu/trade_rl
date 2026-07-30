@@ -15,11 +15,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout exact head with parent
+      - name: Checkout exact head with ancestry
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
 
       - name: Create corrected commit and restore CI
@@ -46,33 +46,33 @@ jobs:
           cursor_path = Path(
               "trade_rl/workflows/symbol_triplet_training_cursor.py"
           )
-          content = cursor_path.read_text(encoding="utf-8")
+          lines = cursor_path.read_text(encoding="utf-8").splitlines()
 
-          replacements = (
-              (
-                  '''                raise ValueError(
-              "symbol-triplet training stage indices must be contiguous"
-          )''',
-                  "                raise ValueError(\n"
-                  "                    \"symbol-triplet training stage indices must be contiguous\"\n"
-                  "                )",
-              ),
-              (
-                  '''                raise ValueError(
-              "initial training cursor cannot have a completed stage"
-          )''',
-                  "                raise ValueError(\n"
-                  "                    \"initial training cursor cannot have a completed stage\"\n"
-                  "                )",
-              ),
+          messages = (
+              "symbol-triplet training stage indices must be contiguous",
+              "initial training cursor cannot have a completed stage",
           )
-          for old, new in replacements:
-              if content.count(old) != 1:
-                  raise RuntimeError(f"corrected formatter target drifted: {old!r}")
-              content = content.replace(old, new)
+          for message in messages:
+              matches = [index for index, line in enumerate(lines) if message in line]
+              if len(matches) != 1:
+                  raise RuntimeError(
+                      f"formatter message target drifted for {message!r}: {matches}"
+                  )
+              index = matches[0]
+              if index == 0 or index + 1 >= len(lines):
+                  raise RuntimeError(f"formatter block is incomplete for {message!r}")
+              if "raise ValueError(" not in lines[index - 1] or lines[index + 1].strip() != ")":
+                  raise RuntimeError(f"formatter block shape drifted for {message!r}")
+              base_indent = lines[index - 1][: -len(lines[index - 1].lstrip())]
+              lines[index - 1 : index + 2] = [
+                  f"{base_indent}raise ValueError(",
+                  f'{base_indent}    "{message}"',
+                  f"{base_indent})",
+              ]
+          content = "\n".join(lines) + "\n"
 
           original_ci = subprocess.check_output(
-              ["git", "show", "HEAD^:.github/workflows/ci.yml"],
+              ["git", "show", "HEAD^^:.github/workflows/ci.yml"],
               text=True,
           )
 

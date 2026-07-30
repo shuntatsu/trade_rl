@@ -16,6 +16,7 @@
 - all Python sources and tests compile;
 - focused contract, artifact, promotion, serving, and stage-cursor tests: 112 passed;
 - four additional collection paths require the optional Gymnasium / Stable-Baselines3 environment provided by CI;
+- canonical Ruff formatting was applied to every touched Python file;
 - `git diff --check` passed.
 
 ## CI

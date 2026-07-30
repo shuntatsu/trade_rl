@@ -30,7 +30,7 @@ KLINE_TABLE: Final = "market_raw.binance_usds_m_klines_202101_202606"
 FUNDING_TABLE: Final = "market_raw.binance_usds_m_funding_202101_202606"
 BASE_TIMEFRAME: Final = "15m"
 NATIVE_TIMEFRAMES: Final = ("15m", "1h", "4h", "1d")
-SYMBOL_IDENTITY_SCHEMA: Final = "stable_symbol_identity_v1"
+POLICY_ASSET_IDENTITY_MODE: Final = "identity_free_v1"
 _STEP_MS: Final = 15 * 60 * 1000
 _MS_PER_HOUR: Final = 60 * 60 * 1000
 _ZERO_DIGEST: Final = "0" * 64
@@ -245,19 +245,20 @@ def _align_indicators(
     tuple[str, ...],
     str,
 ]:
+    vocabulary = _ordered_unique(symbol_vocabulary, field="symbol_vocabulary")
+    if not set(bundle.symbols) <= set(vocabulary):
+        raise ValueError("indicator symbols must belong to symbol_vocabulary")
     specs = _feature_specs()
     spec_by_name = {spec.name: spec for spec in specs}
-    native_names = tuple(
+    feature_names = tuple(
         name
         for timeframe in NATIVE_TIMEFRAMES
         for name in bundle.get(bundle.symbols[0], timeframe).feature_names
     )
-    if native_names != tuple(spec.name for spec in specs):
+    if feature_names != tuple(spec.name for spec in specs):
         raise ValueError(
             "PostgreSQL indicator feature order differs from code contract"
         )
-    identity_names = tuple(f"15m__symbol_id_{symbol}" for symbol in symbol_vocabulary)
-    feature_names = (*native_names, *identity_names)
     shape = (len(timestamps_ms), len(bundle.symbols), len(feature_names))
     values = np.zeros(shape, dtype=np.float32)
     available = np.zeros(shape, dtype=np.bool_)
@@ -303,19 +304,12 @@ def _align_indicators(
                 )
         offset += len(names)
 
-    vocabulary_index = {symbol: index for index, symbol in enumerate(symbol_vocabulary)}
-    identity_offset = len(native_names)
-    for slot, symbol in enumerate(bundle.symbols):
-        identity_index = vocabulary_index[symbol]
-        values[:, slot, identity_offset + identity_index] = 1.0
-    available[:, :, identity_offset:] = True
-    staleness[:, :, identity_offset:] = 0.0
     feature_digest = content_digest(
         {
-            "indicator_feature_config_digest": bundle.feature_config_digest,
-            "schema_version": SYMBOL_IDENTITY_SCHEMA,
-            "symbol_vocabulary": symbol_vocabulary,
+            "asset_identity_mode": POLICY_ASSET_IDENTITY_MODE,
             "feature_names": feature_names,
+            "indicator_feature_config_digest": bundle.feature_config_digest,
+            "schema_version": "postgres_indicator_alignment_v2",
         }
     )
     return values, available, age_hours, staleness, feature_names, feature_digest
@@ -336,7 +330,7 @@ def build_postgres_market_dataset(
     slot_symbols: Sequence[str] | None = None,
     symbol_triplet_provenance: Mapping[str, object] | None = None,
 ) -> MarketDataset:
-    """Build one three-slot dataset without requiring BTC to be a traded symbol."""
+    """Build one identity-free three-slot dataset from selected market symbols."""
 
     selected = _ordered_unique(symbols, field="symbols")
     if len(selected) != 3:
@@ -462,8 +456,9 @@ def build_postgres_market_dataset(
 
     normalization_digest = content_and_arrays_digest(
         {
+            "asset_identity_mode": POLICY_ASSET_IDENTITY_MODE,
             "feature_config_digest": feature_config_digest,
-            "schema_version": "postgres_indicator_alignment_v1",
+            "schema_version": "postgres_indicator_alignment_v2",
         },
         (
             ("features", features),
@@ -533,8 +528,9 @@ def build_postgres_market_dataset(
             "kline_table": KLINE_TABLE,
             "funding_table": FUNDING_TABLE,
             "metadata_evidence_digest": metadata_evidence_digest,
+            "policy_asset_identity_mode": POLICY_ASSET_IDENTITY_MODE,
             "range": (start.isoformat(), end.isoformat()),
-            "schema_version": "postgres_dynamic_triplet_dataset_v1",
+            "schema_version": "postgres_dynamic_triplet_dataset_v2",
             "selected_symbols": selected,
             "slot_symbols": resolved_slots,
             "symbol_triplet": dict(symbol_triplet_provenance or {}),
@@ -548,6 +544,6 @@ __all__ = [
     "FUNDING_TABLE",
     "KLINE_TABLE",
     "NATIVE_TIMEFRAMES",
-    "SYMBOL_IDENTITY_SCHEMA",
+    "POLICY_ASSET_IDENTITY_MODE",
     "build_postgres_market_dataset",
 ]

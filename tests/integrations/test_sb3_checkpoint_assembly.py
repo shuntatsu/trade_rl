@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -51,6 +53,11 @@ def _manifest(config: ResidualTrainingConfig, **changes: object) -> SimpleNamesp
     }
     payload.update(changes)
     return SimpleNamespace(**payload)
+
+
+@contextmanager
+def _passthrough_policy_copy(manifest: SimpleNamespace) -> Iterator[Path]:
+    yield manifest.policy_path
 
 
 @pytest.mark.parametrize(
@@ -125,6 +132,11 @@ def test_checkpoint_loader_uses_matching_algorithm_and_validates_timestep(
     monkeypatch.setattr(assembly_module, "load_checkpoint_manifest", lambda _: manifest)
     monkeypatch.setattr(
         assembly_module,
+        "verified_checkpoint_policy_copy",
+        _passthrough_policy_copy,
+    )
+    monkeypatch.setattr(
+        assembly_module,
         "validate_checkpoint_algorithm_identity",
         lambda manifest, identity: None,
     )
@@ -181,6 +193,11 @@ def test_checkpoint_loader_rebinds_sequence_reconstructor(
     monkeypatch.setattr(assembly_module, "load_checkpoint_manifest", lambda _: manifest)
     monkeypatch.setattr(
         assembly_module,
+        "verified_checkpoint_policy_copy",
+        _passthrough_policy_copy,
+    )
+    monkeypatch.setattr(
+        assembly_module,
         "validate_checkpoint_algorithm_identity",
         lambda manifest, identity: None,
     )
@@ -222,6 +239,11 @@ def test_checkpoint_loader_rejects_loaded_timestep_mismatch(
         SimpleNamespace(load=lambda *_, **__: SimpleNamespace(num_timesteps=11)),
     )
     monkeypatch.setattr(assembly_module, "load_checkpoint_manifest", lambda _: manifest)
+    monkeypatch.setattr(
+        assembly_module,
+        "verified_checkpoint_policy_copy",
+        _passthrough_policy_copy,
+    )
     monkeypatch.setattr(
         assembly_module,
         "validate_checkpoint_algorithm_identity",

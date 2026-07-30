@@ -39,8 +39,12 @@ from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
 from trade_rl.simulation.execution_promotion import (
-    ExecutionEvidence,
+    execution_evidence_from_cost,
     write_execution_evidence,
+)
+from trade_rl.simulation.execution_replay import (
+    ExecutionEventArtifact,
+    write_execution_event_artifact,
 )
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
 from trade_rl.workflows.selection_authorization import (
@@ -203,6 +207,33 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     config_path = tmp_path / "training.json"
     _config(config_path)
     config = normalize_training_run_config(TrainingRunConfig.from_json(config_path))
+    execution_cost = config.environment.execution_cost
+    execution_event_artifact = ExecutionEventArtifact(
+        dataset_id=dataset.dataset_id,
+        execution_policy_digest=execution_cost.execution_policy_digest,
+        order_event_schema="order_event_v1",
+        events=(
+            {
+                "schema_version": "order_event_v1",
+                "dataset_id": dataset.dataset_id,
+                "execution_policy_digest": execution_cost.execution_policy_digest,
+                "sequence": 0,
+            },
+        ),
+        terminal_book={"schema_version": "execution_terminal_book_v1", "cash": 1.0},
+        terminal_order_book={"schema_version": "execution_terminal_order_book_v1"},
+    )
+    execution_event_artifact_path = tmp_path / "execution-order-events.json"
+    write_execution_event_artifact(
+        execution_event_artifact_path,
+        execution_event_artifact,
+    )
+    execution_evidence = execution_evidence_from_cost(
+        dataset_id=dataset.dataset_id,
+        cost=execution_cost,
+        order_event_artifact_path=execution_event_artifact_path,
+        sensitivity_path_modes=("optimistic", "neutral", "conservative"),
+    )
 
     selection_private = Ed25519PrivateKey.from_private_bytes(b"\x51" * 32)
     selection_public = PublicVerificationKey(
@@ -217,6 +248,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         walk_forward_run_digest="1" * 64,
         gate_evidence_digest="2" * 64,
         execution_sensitivity_digest="3" * 64,
+        execution_evidence_digest=execution_evidence.digest,
         dataset_id=dataset.dataset_id,
         selected_configuration="e2e-selected",
         candidate_config_digest=content_digest(config.candidate_digest_payload()),
@@ -240,23 +272,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     selection_keys_path = tmp_path / "selection-keys.json"
     _key_store(selection_keys_path, selection_public)
     execution_evidence_path = tmp_path / "execution-evidence.json"
-    execution_cost = config.environment.execution_cost
-    write_execution_evidence(
-        execution_evidence_path,
-        ExecutionEvidence(
-            dataset_id=dataset.dataset_id,
-            execution_policy_digest=execution_cost.execution_policy_digest,
-            path_mode=execution_cost.path_mode,
-            processing_bar_volume_capacity=(
-                execution_cost.processing_bar_volume_capacity
-            ),
-            partial_fill_carry=execution_cost.partial_fill_carry,
-            trigger_volume_fractions=execution_cost.trigger_volume_fractions,
-            order_event_count=1,
-            complete_order_evidence=True,
-            sensitivity_path_modes=("optimistic", "neutral", "conservative"),
-        ),
-    )
+    write_execution_evidence(execution_evidence_path, execution_evidence)
 
     result = execute_training_run(
         config_path=config_path,
@@ -269,6 +285,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         selection_public_keys_path=selection_keys_path,
         require_selection_authorization=True,
         execution_evidence_path=execution_evidence_path,
+        execution_event_artifact_path=execution_event_artifact_path,
     )
     run_root = result.path
     ensemble = json.loads((run_root / "ensemble.json").read_text(encoding="utf-8"))

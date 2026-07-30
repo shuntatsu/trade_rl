@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
@@ -19,7 +21,7 @@ from trade_rl.workflows.symbol_triplet_manifest import (
 
 SYMBOL_TRIPLET_TRAINING_STAGE_SCHEMA: Final = "symbol_triplet_training_stage_v1"
 SYMBOL_TRIPLET_TRAINING_PLAN_SCHEMA: Final = "symbol_triplet_training_plan_v1"
-SYMBOL_TRIPLET_TRAINING_CURSOR_SCHEMA: Final = "symbol_triplet_training_cursor_v1"
+SYMBOL_TRIPLET_TRAINING_CURSOR_SCHEMA: Final = "symbol_triplet_training_cursor_v2"
 _PLAN_IDENTITY_SCHEMA: Final = "symbol_triplet_training_plan_identity_v1"
 _TRAIN_CYCLE_SCHEMA: Final = "symbol_triplet_train_cycle_v1"
 
@@ -311,6 +313,7 @@ class SymbolTripletTrainingCursor:
     stage_count: int
     next_stage_index: int
     last_completed_stage_id: str | None
+    last_completion_digest: str | None
     schema_version: str = SYMBOL_TRIPLET_TRAINING_CURSOR_SCHEMA
     digest: str = ""
 
@@ -329,16 +332,28 @@ class SymbolTripletTrainingCursor:
         if next_stage_index > stage_count:
             raise ValueError("training cursor next stage is outside the plan")
         if next_stage_index == 0:
-            if self.last_completed_stage_id is not None:
+            if (
+                self.last_completed_stage_id is not None
+                or self.last_completion_digest is not None
+            ):
                 raise ValueError(
-                    "initial training cursor cannot have a completed stage"
+                    "initial training cursor cannot have completed evidence"
                 )
         else:
-            if self.last_completed_stage_id is None:
-                raise ValueError("advanced training cursor requires a completed stage")
+            if (
+                self.last_completed_stage_id is None
+                or self.last_completion_digest is None
+            ):
+                raise ValueError(
+                    "advanced training cursor requires completed stage evidence"
+                )
             require_sha256(
                 self.last_completed_stage_id,
                 field="training_cursor.last_completed_stage_id",
+            )
+            require_sha256(
+                self.last_completion_digest,
+                field="training_cursor.last_completion_digest",
             )
         object.__setattr__(self, "stage_count", stage_count)
         object.__setattr__(self, "next_stage_index", next_stage_index)
@@ -347,6 +362,7 @@ class SymbolTripletTrainingCursor:
     def digest_payload(self) -> dict[str, object]:
         return {
             "last_completed_stage_id": self.last_completed_stage_id,
+            "last_completion_digest": self.last_completion_digest,
             "next_stage_index": self.next_stage_index,
             "plan_digest": self.plan_digest,
             "schema_version": self.schema_version,
@@ -446,6 +462,7 @@ def initial_symbol_triplet_training_cursor(
         stage_count=plan.stage_count,
         next_stage_index=0,
         last_completed_stage_id=None,
+        last_completion_digest=None,
     )
     cursor.validate_plan(plan)
     return cursor
@@ -466,20 +483,47 @@ def advance_symbol_triplet_training_cursor(
     cursor: SymbolTripletTrainingCursor,
     *,
     completed_stage_id: str,
+    completion_digest: str,
 ) -> SymbolTripletTrainingCursor:
     stage = current_symbol_triplet_training_stage(plan, cursor)
     if stage is None:
         raise ValueError("symbol-triplet training plan is already complete")
     if completed_stage_id != stage.stage_id:
         raise ValueError("completed stage does not match current training stage")
+    require_sha256(completion_digest, field="completion_digest")
     advanced = SymbolTripletTrainingCursor(
         plan_digest=plan.digest,
         stage_count=plan.stage_count,
         next_stage_index=cursor.next_stage_index + 1,
         last_completed_stage_id=stage.stage_id,
+        last_completion_digest=completion_digest,
     )
     advanced.validate_plan(plan)
     return advanced
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _atomic_write(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def write_symbol_triplet_training_plan(
@@ -487,8 +531,7 @@ def write_symbol_triplet_training_plan(
     plan: SymbolTripletTrainingPlan,
 ) -> Path:
     output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(canonical_json_bytes(plan.to_json_dict()))
+    _atomic_write(output, canonical_json_bytes(plan.to_json_dict()))
     return output
 
 
@@ -497,8 +540,7 @@ def write_symbol_triplet_training_cursor(
     cursor: SymbolTripletTrainingCursor,
 ) -> Path:
     output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(canonical_json_bytes(cursor.to_json_dict()))
+    _atomic_write(output, canonical_json_bytes(cursor.to_json_dict()))
     return output
 
 
@@ -592,6 +634,7 @@ def load_symbol_triplet_training_cursor(
     required = {
         "digest",
         "last_completed_stage_id",
+        "last_completion_digest",
         "next_stage_index",
         "plan_digest",
         "schema_version",
@@ -604,6 +647,7 @@ def load_symbol_triplet_training_cursor(
         stage_count=cast(int, payload["stage_count"]),
         next_stage_index=cast(int, payload["next_stage_index"]),
         last_completed_stage_id=cast(str | None, payload["last_completed_stage_id"]),
+        last_completion_digest=cast(str | None, payload["last_completion_digest"]),
         schema_version=cast(str, payload["schema_version"]),
         digest=cast(str, payload["digest"]),
     )

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.symbol_triplet_manifest import build_symbol_triplet_manifest
 from trade_rl.workflows.symbol_triplet_training_cursor import (
     advance_symbol_triplet_training_cursor,
@@ -85,6 +86,7 @@ def test_plan_and_cursor_are_deterministic_and_resume_exactly(tmp_path: Path) ->
             left,
             cursor,
             completed_stage_id=stage.stage_id,
+            completion_digest=content_digest({"stage_id": stage.stage_id}),
         )
 
     plan_path = write_symbol_triplet_training_plan(tmp_path / "plan.json", left)
@@ -119,18 +121,21 @@ def test_cursor_rejects_wrong_or_replayed_stage_completion() -> None:
             plan,
             cursor,
             completed_stage_id=plan.stages[1].stage_id,
+            completion_digest="1" * 64,
         )
 
     completed = advance_symbol_triplet_training_cursor(
         plan,
         cursor,
         completed_stage_id=plan.stages[0].stage_id,
+        completion_digest="2" * 64,
     )
     with pytest.raises(ValueError, match="current training stage"):
         advance_symbol_triplet_training_cursor(
             plan,
             completed,
             completed_stage_id=plan.stages[0].stage_id,
+            completion_digest="2" * 64,
         )
 
 
@@ -164,6 +169,7 @@ def test_completed_cursor_has_no_next_stage() -> None:
             plan,
             cursor,
             completed_stage_id=stage.stage_id,
+            completion_digest=content_digest({"stage_id": stage.stage_id}),
         )
 
     assert cursor.next_stage_index == plan.stage_count

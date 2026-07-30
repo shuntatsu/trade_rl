@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
@@ -68,6 +69,7 @@ from trade_rl.simulation.execution_promotion import (
     validate_execution_promotion,
     write_execution_evidence,
 )
+from trade_rl.simulation.execution_replay import EXECUTION_EVENT_ARTIFACT_FILE_NAME
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 from trade_rl.workflows.config_fields import (
     require_dataclass_fields,
@@ -945,11 +947,12 @@ def execute_training_run(
     selection_public_keys_path: Path | None = None,
     require_selection_authorization: bool = False,
     execution_evidence_path: Path | None = None,
+    execution_event_artifact_path: Path | None = None,
 ) -> TrainingRunResult:
     """Train, serialize, validate, and atomically publish one ensemble run."""
 
     resolved_created_at = created_at or datetime.now(UTC)
-    resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%SZ")
+    resolved_run_id = run_id or resolved_created_at.strftime("run-%Y%m%dT%H%M%S.%fZ")
     config = normalize_training_run_config(TrainingRunConfig.from_json(config_path))
     dataset = load_market_dataset_artifact(dataset_path)
     proposal, authorization = _selection_authorization(
@@ -990,9 +993,16 @@ def execute_training_run(
             raise ExecutionPromotionError(
                 "selected-final training requires explicit execution evidence"
             )
+        if execution_event_artifact_path is None:
+            raise ExecutionPromotionError(
+                "selected-final training requires an explicit order event artifact"
+            )
+        assert proposal is not None
+        proposal.require_execution_evidence_digest(execution_evidence.digest)
         validate_execution_promotion(
             execution_evidence,
             expected_policy_digest=expected_execution_policy_digest,
+            event_artifact_path=execution_event_artifact_path,
         )
     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
@@ -1017,6 +1027,15 @@ def execute_training_run(
             stage / EXECUTION_EVIDENCE_FILE_NAME,
             execution_evidence,
         )
+        if execution_event_artifact_path is not None:
+            staged_event_artifact = stage / EXECUTION_EVENT_ARTIFACT_FILE_NAME
+            shutil.copyfile(execution_event_artifact_path, staged_event_artifact)
+            if run_kind == "research_selected_final":
+                validate_execution_promotion(
+                    execution_evidence,
+                    expected_policy_digest=expected_execution_policy_digest,
+                    event_artifact_path=staged_event_artifact,
+                )
         dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
         _write_json(stage / "training-config.json", config.digest_payload())
         _write_json(

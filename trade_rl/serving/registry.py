@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
+from trade_rl.artifacts.atomic_pointer import atomic_replace_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
 from trade_rl.release.asymmetric import PublicVerificationKey
@@ -27,13 +28,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
-    temporary = path.with_name(f".{path.name}.tmp")
-    with temporary.open("wb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
-    _fsync_directory(path.parent)
+    atomic_replace_bytes(path, payload)
 
 
 class ServingRegistry:

@@ -227,6 +227,7 @@ def test_runner_returns_none_for_completed_plan_without_touching_database(
         stage_count=plan.stage_count,
         next_stage_index=plan.stage_count,
         last_completed_stage_id=plan.stages[-1].stage_id,
+        last_completion_digest="c" * 64,
     )
     write_symbol_triplet_training_cursor(kwargs["cursor_path"], complete)
     monkeypatch.setattr(

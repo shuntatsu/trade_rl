@@ -9,6 +9,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
+from trade_rl.artifacts.atomic_pointer import (
+    AtomicReplaceDurabilityError,
+    atomic_replace_bytes,
+)
 from trade_rl.artifacts.codec import canonical_json_bytes
 
 _RUN_ID_RE: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -31,13 +35,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
-    temporary = path.with_name(f".{path.name}.tmp")
-    with temporary.open("wb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
-    _fsync_directory(path.parent)
+    atomic_replace_bytes(path, payload)
 
 
 def _replace_directory(source: Path, destination: Path) -> None:
@@ -93,7 +91,16 @@ class ArtifactStore:
             "path": published.relative_to(self.root).as_posix(),
             "run_id": resolved_id,
         }
-        _atomic_write(self.root / "latest.json", canonical_json_bytes(pointer))
+        try:
+            _atomic_write(self.root / "latest.json", canonical_json_bytes(pointer))
+        except AtomicReplaceDurabilityError:
+            raise
+        except BaseException:
+            if published.is_dir() and not stage.exists():
+                _replace_directory(published, stage)
+                _fsync_directory(self.staging_root)
+                _fsync_directory(self.runs_root)
+            raise
         return published
 
     def mark_failed(self, run_id: str) -> Path:

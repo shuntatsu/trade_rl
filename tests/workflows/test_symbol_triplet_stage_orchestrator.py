@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from threading import Barrier, Thread
 
 import pytest
 
-from trade_rl.rl.checkpointing import publish_checkpoint
+from trade_rl.rl.checkpointing import (
+    CHECKPOINT_MANIFEST_NAME,
+    load_checkpoint_manifest,
+    publish_checkpoint,
+)
 from trade_rl.workflows.symbol_triplet_manifest import build_symbol_triplet_manifest
 from trade_rl.workflows.symbol_triplet_stage_orchestrator import (
+    SymbolTripletStageCheckpoint,
+    SymbolTripletStageCompletion,
     build_symbol_triplet_stage_request,
     commit_symbol_triplet_stage_completion,
     load_symbol_triplet_stage_completion,
@@ -45,8 +52,11 @@ _SEEDS = (0, 1)
 
 
 class _FakePolicy:
+    def __init__(self, payload: bytes = b"policy") -> None:
+        self.payload = payload
+
     def save(self, path: str) -> None:
-        Path(path).with_suffix(".zip").write_bytes(b"policy")
+        Path(path).with_suffix(".zip").write_bytes(self.payload)
 
 
 def _plan(*, seed: int = 31):
@@ -102,11 +112,16 @@ def _training_config() -> TrainingRunConfig:
     )
 
 
-def _checkpoint_roots(tmp_path: Path, *, environment_digest: str) -> dict[int, Path]:
+def _checkpoint_roots(
+    tmp_path: Path,
+    *,
+    environment_digest: str,
+    payload: bytes = b"policy",
+) -> dict[int, Path]:
     roots: dict[int, Path] = {}
     for seed in _SEEDS:
         manifest = publish_checkpoint(
-            model=_FakePolicy(),
+            model=_FakePolicy(payload),
             checkpoint_root=tmp_path / f"seed-{seed}",
             algorithm="ppo",
             seed=seed,
@@ -280,6 +295,7 @@ def test_completed_plan_has_no_stage_request() -> None:
         stage_count=plan.stage_count,
         next_stage_index=plan.stage_count,
         last_completed_stage_id=plan.stages[-1].stage_id,
+        last_completion_digest="c" * 64,
     )
     cursor.validate_plan(plan)
 
@@ -293,3 +309,126 @@ def test_completed_plan_has_no_stage_request() -> None:
         )
         is None
     )
+
+
+def test_next_stage_rejects_substituted_compatible_completion(tmp_path: Path) -> None:
+    plan = _plan()
+    cursor_path = write_symbol_triplet_training_cursor(
+        tmp_path / "cursor.json",
+        initial_symbol_triplet_training_cursor(plan),
+    )
+    cursor = load_symbol_triplet_training_cursor(cursor_path, plan=plan)
+    request = build_symbol_triplet_stage_request(
+        plan,
+        cursor,
+        training_seeds=_SEEDS,
+        previous_completion=None,
+    )
+    assert request is not None
+    completion, advanced = commit_symbol_triplet_stage_completion(
+        plan,
+        cursor,
+        request=request,
+        checkpoint_roots=_checkpoint_roots(
+            tmp_path / "original",
+            environment_digest="1" * 64,
+            payload=b"original",
+        ),
+        completion_path=tmp_path / "completion.json",
+        cursor_path=cursor_path,
+    )
+    assert completion.digest
+
+    substitute_roots = _checkpoint_roots(
+        tmp_path / "substitute",
+        environment_digest="1" * 64,
+        payload=b"substitute",
+    )
+    substituted = SymbolTripletStageCompletion(
+        plan_digest=plan.digest,
+        stage_id=plan.stages[0].stage_id,
+        stage_index=0,
+        training_seeds=_SEEDS,
+        checkpoints=tuple(
+            SymbolTripletStageCheckpoint(
+                seed=seed,
+                checkpoint_root=root,
+                checkpoint_digest=load_checkpoint_manifest(
+                    root / CHECKPOINT_MANIFEST_NAME
+                ).digest,
+            )
+            for seed, root in sorted(substitute_roots.items())
+        ),
+    )
+    assert substituted.digest != completion.digest
+
+    with pytest.raises(ValueError, match="completion digest"):
+        build_symbol_triplet_stage_request(
+            plan,
+            advanced,
+            training_seeds=_SEEDS,
+            previous_completion=substituted,
+        )
+
+
+def test_concurrent_stage_commits_use_cursor_compare_and_swap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import trade_rl.workflows.symbol_triplet_stage_orchestrator as orchestrator
+
+    plan = _plan()
+    cursor_path = write_symbol_triplet_training_cursor(
+        tmp_path / "cursor.json",
+        initial_symbol_triplet_training_cursor(plan),
+    )
+    cursor = load_symbol_triplet_training_cursor(cursor_path, plan=plan)
+    request = build_symbol_triplet_stage_request(
+        plan,
+        cursor,
+        training_seeds=_SEEDS,
+        previous_completion=None,
+    )
+    assert request is not None
+    roots = _checkpoint_roots(tmp_path / "stage", environment_digest="1" * 64)
+    barrier = Barrier(2)
+    original_references = orchestrator._checkpoint_references
+
+    def synchronized_references(*args, **kwargs):
+        result = original_references(*args, **kwargs)
+        barrier.wait(timeout=5.0)
+        return result
+
+    monkeypatch.setattr(orchestrator, "_checkpoint_references", synchronized_references)
+    outcomes: list[object] = []
+
+    def commit(index: int) -> None:
+        try:
+            outcomes.append(
+                commit_symbol_triplet_stage_completion(
+                    plan,
+                    cursor,
+                    request=request,
+                    checkpoint_roots=roots,
+                    completion_path=tmp_path / f"completion-{index}.json",
+                    cursor_path=cursor_path,
+                )
+            )
+        except BaseException as error:
+            outcomes.append(error)
+
+    threads = (Thread(target=commit, args=(0,)), Thread(target=commit, args=(1,)))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10.0)
+        assert not thread.is_alive()
+
+    successes = [item for item in outcomes if isinstance(item, tuple)]
+    failures = [item for item in outcomes if isinstance(item, BaseException)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert "stale" in str(failures[0]) or "persisted training cursor" in str(
+        failures[0]
+    )
+    assert sum(path.exists() for path in tmp_path.glob("completion-*.json")) == 1

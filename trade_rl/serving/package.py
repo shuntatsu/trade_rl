@@ -33,6 +33,7 @@ from trade_rl.simulation.execution_promotion import (
     load_execution_evidence,
     validate_execution_promotion,
 )
+from trade_rl.simulation.execution_replay import EXECUTION_EVENT_ARTIFACT_FILE_NAME
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -112,6 +113,7 @@ def package_selected_training_run(
     validate_execution_promotion(
         execution_evidence,
         expected_policy_digest=execution_cost.execution_policy_digest,
+        event_artifact_path=training_root / EXECUTION_EVENT_ARTIFACT_FILE_NAME,
     )
 
     ensemble_raw = _mapping(

@@ -76,6 +76,7 @@ from trade_rl.rl.algorithm_configs import (
 )
 from trade_rl.rl.replay import (
     load_replay_buffer_artifact,
+    verified_replay_buffer_copy,
     write_replay_buffer_artifact,
 )
 from trade_rl.rl.tensorboard_logging import (
@@ -1429,7 +1430,11 @@ class StableBaselines3Backend:
                     raise ValueError("replay buffer algorithm mismatch")
                 if replay_manifest.environment_digest != identity["environment_digest"]:
                     raise ValueError("replay buffer environment identity mismatch")
-                model.load_replay_buffer(str(resume_path))
+                with verified_replay_buffer_copy(
+                    replay_manifest,
+                    resume_path,
+                ) as verified_resume_path:
+                    model.load_replay_buffer(str(verified_resume_path))
 
             remaining_timesteps = config.timesteps
             starting_timestep = 0

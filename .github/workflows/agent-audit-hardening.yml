@@ -1,0 +1,96 @@
+name: Agent audit hardening
+
+on:
+  push:
+    branches:
+      - agent/harden-audit-contracts
+    paths:
+      - .agent/audit-hardening-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/harden-audit-contracts
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install locked environment
+        run: uv sync --frozen
+
+      - name: Verify regression tests are RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest \
+            tests/simulation/test_execution_audit_hardening.py \
+            tests/evaluation/test_execution_promotion_audit_hardening.py \
+            tests/artifacts/test_store_audit_hardening.py \
+            tests/rl/test_checkpoint_trust_boundary.py \
+            -q > /tmp/audit-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/audit-red.log
+          if [ "$status" -eq 0 ]; then
+            echo "Regression tests unexpectedly passed before the fix"
+            exit 1
+          fi
+
+      - name: Apply audited fixes
+        run: uv run python scripts/agent_apply_audit_hardening.py
+
+      - name: Verify targeted GREEN suite
+        run: |
+          uv run pytest \
+            tests/simulation/test_execution_audit_hardening.py \
+            tests/evaluation/test_execution_promotion_audit_hardening.py \
+            tests/artifacts/test_store_audit_hardening.py \
+            tests/rl/test_checkpoint_trust_boundary.py \
+            tests/evaluation/test_execution_promotion.py \
+            tests/simulation/test_critical_branch_coverage.py \
+            tests/artifacts/test_codec_store_critical_coverage.py \
+            tests/rl/test_checkpointing.py \
+            tests/rl/test_training_resume.py \
+            tests/integrations/test_sb3_checkpoint_assembly.py \
+            tests/integrations/test_sb3_checkpoint_transfer.py \
+            -q
+
+      - name: Verify changed Python files
+        run: |
+          uv run ruff check \
+            trade_rl/simulation/execution.py \
+            trade_rl/simulation/execution_promotion.py \
+            trade_rl/artifacts/store.py \
+            trade_rl/rl/checkpointing.py \
+            trade_rl/rl/replay.py \
+            trade_rl/integrations/sb3_checkpoint_assembly.py \
+            trade_rl/integrations/sb3_training.py \
+            trade_rl/workflows/training_run.py \
+            tests/simulation/test_execution_audit_hardening.py \
+            tests/evaluation/test_execution_promotion_audit_hardening.py \
+            tests/artifacts/test_store_audit_hardening.py \
+            tests/rl/test_checkpoint_trust_boundary.py
+          uv run mypy \
+            trade_rl/simulation/execution.py \
+            trade_rl/simulation/execution_promotion.py \
+            trade_rl/artifacts/store.py \
+            trade_rl/rl/checkpointing.py \
+            trade_rl/rl/replay.py \
+            trade_rl/integrations/sb3_checkpoint_assembly.py
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: harden audited execution and artifact contracts"
+          git push origin HEAD:agent/harden-audit-contracts

@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TrainingTelemetryRecord } from '../data/types'
@@ -160,10 +160,28 @@ describe('ResearchChartWorkspace', () => {
 
     await waitFor(() => expect(runtime.series[0]?.setData).toHaveBeenCalled())
     await flushRangeNotifications()
+
+    expect(runtime.timeScale.subscribeVisibleLogicalRangeChange).not.toHaveBeenCalled()
+    expect(onManualNavigation).not.toHaveBeenCalled()
+  })
+
+  it('classifies drag and wheel gestures as manual navigation', async () => {
+    const onManualNavigation = vi.fn()
+    const view = renderWorkspace({ onManualNavigation })
+    const chartSurface = view.container.querySelector('.research-chart-canvas')
+    expect(chartSurface).toBeInstanceOf(HTMLElement)
+
+    fireEvent.pointerDown(chartSurface!, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(window, { clientX: 103, clientY: 103 })
     expect(onManualNavigation).not.toHaveBeenCalled()
 
-    act(() => runtime.handlers.range?.())
+    fireEvent.pointerMove(window, { clientX: 112, clientY: 100 })
+    fireEvent.pointerMove(window, { clientX: 140, clientY: 100 })
     expect(onManualNavigation).toHaveBeenCalledTimes(1)
+
+    fireEvent.pointerUp(window)
+    fireEvent.wheel(chartSurface!, { deltaY: 100 })
+    expect(onManualNavigation).toHaveBeenCalledTimes(2)
   })
 
   it('does not reset a manual viewport when new records arrive', async () => {

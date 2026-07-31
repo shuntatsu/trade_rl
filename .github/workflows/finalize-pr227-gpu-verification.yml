@@ -95,6 +95,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          docker run --rm -i \
+            --volume "$PWD/var/main-gpu-verification/output:/workspace/var/main-gpu-output:ro" \
+            --env TESTED_COMMIT \
+            --env REQUESTED_TIMESTEPS \
+            --entrypoint python \
+            trade-rl-training:main-gpu - <<'PY'
+          import os
+          from pathlib import Path
+
+          from trade_rl.operations.gpu_training_smoke import (
+              validate_gpu_training_smoke_file,
+          )
+
+          validate_gpu_training_smoke_file(
+              Path("/workspace/var/main-gpu-output/gpu-training-smoke.json"),
+              expected_commit=os.environ["TESTED_COMMIT"],
+              expected_runtime_profile="accelerated",
+              minimum_timesteps=int(os.environ["REQUESTED_TIMESTEPS"]),
+          )
+          PY
           python - <<'PY'
           import json
           import os
@@ -106,42 +126,10 @@ jobs:
                   encoding="utf-8"
               )
           )
-          assert evidence["schema"] == "gpu_sequence_target_oracle_bc_training_smoke_v8"
-          assert evidence["git_commit"] == os.environ["TESTED_COMMIT"]
-          assert evidence["runtime_profile"] == "accelerated"
-          assert evidence["resolved_device"] == "cuda"
-          cuda_runtime = evidence["cuda_runtime"]
-          assert cuda_runtime["mode"] == "performance"
-          assert cuda_runtime["deterministic_algorithms"] is False
-          assert cuda_runtime["cudnn_benchmark"] is True
-          assert cuda_runtime["cudnn_deterministic"] is False
-          assert cuda_runtime["cudnn_tf32"] is True
-          assert cuda_runtime["matmul_tf32"] is True
-          assert cuda_runtime["float32_matmul_precision"] == "high"
-          assert evidence["actual_timesteps"] >= int(os.environ["REQUESTED_TIMESTEPS"])
-          assert evidence["behavior_cloning_epochs"] == 1
-          assert evidence["serving_support"]["status"] == "supported"
-          assert evidence["performance"]["peak_gpu_memory_mib"] > 0
-          assert evidence["performance"]["throughput_steps_per_second"] > 0
-          training = evidence["performance"]["training_artifact"]
-          assert training["schema_version"] == "training_performance_evidence_v1"
-          assert training["device_type"] == "cuda"
-          assert training["observed_environment_steps"] > 0
-          assert training["peak_cuda_allocated_bytes"] > 0
-          assert training["peak_cuda_reserved_bytes"] > 0
           resume = evidence["resume"]
-          assert resume["actual_timesteps"] == evidence["actual_timesteps"]
-          assert resume["evidence"]["schema_version"] == "training_resume_v1"
-          resumed_cuda_runtime = resume["cuda_runtime"]
-          assert resumed_cuda_runtime == cuda_runtime
-          resumed = resume["performance"]["training_artifact"]
-          assert resumed["device_type"] == "cuda"
-          assert resumed["observed_environment_steps"] > 0
-          assert resumed["peak_cuda_allocated_bytes"] > 0
-          assert resumed["peak_cuda_reserved_bytes"] > 0
           summary = {
               "actual_timesteps": evidence["actual_timesteps"],
-              "cuda_runtime": cuda_runtime,
+              "cuda_runtime": evidence["cuda_runtime"],
               "git_commit": evidence["git_commit"],
               "gpu": (root / "gpu-device.csv").read_text(encoding="utf-8").strip(),
               "peak_gpu_memory_mib": evidence["performance"]["peak_gpu_memory_mib"],

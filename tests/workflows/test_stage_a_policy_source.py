@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -18,7 +21,10 @@ from trade_rl.rl.checkpointing import (
     CheckpointManifest,
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.workflows.stage_a_policy_source import StageAPolicySourceStore
+from trade_rl.workflows.stage_a_policy_source import (
+    StageAPolicySourceBinding,
+    StageAPolicySourceStore,
+)
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
@@ -174,6 +180,38 @@ def _write_checkpoint(
     return manifest_path, manifest
 
 
+def _publish(
+    tmp_path: Path,
+) -> tuple[
+    StageAZeroShotEvaluationPlan,
+    StageAEvaluationCellRequest,
+    Path,
+    Path,
+    StageAPolicySourceStore,
+    StageAPolicySourceBinding,
+]:
+    plan = _plan()
+    request = _request(plan)
+    root = tmp_path / "artifacts"
+    manifest_path, _ = _write_checkpoint(root, plan=plan)
+    store = StageAPolicySourceStore(root)
+    binding = store.publish(
+        plan=plan,
+        request=request,
+        checkpoint_manifest_path=manifest_path,
+    )
+    return plan, request, root, manifest_path, store, binding
+
+
+def _binding_path(root: Path, request_digest: str) -> Path:
+    index_path = root / "by-request" / f"{request_digest}.json"
+    raw = json.loads(index_path.read_bytes())
+    assert isinstance(raw, dict)
+    relative = raw["binding_path"]
+    assert isinstance(relative, str)
+    return root / relative
+
+
 def test_publish_and_load_checkpoint_binding(tmp_path: Path) -> None:
     plan = _plan()
     request = _request(plan)
@@ -227,17 +265,194 @@ def test_publish_rejects_checkpoint_for_different_seed(tmp_path: Path) -> None:
 
 
 def test_load_rejects_checkpoint_policy_tampering(tmp_path: Path) -> None:
-    plan = _plan()
-    request = _request(plan)
-    root = tmp_path / "artifacts"
-    manifest_path, _ = _write_checkpoint(root, plan=plan)
-    store = StageAPolicySourceStore(root)
-    binding = store.publish(
-        plan=plan,
-        request=request,
-        checkpoint_manifest_path=manifest_path,
-    )
+    _, _, _, manifest_path, store, binding = _publish(tmp_path)
     (manifest_path.parent / CHECKPOINT_POLICY_NAME).write_bytes(b"substituted")
 
     with pytest.raises(ValueError, match="policy digest mismatch"):
         store.load(binding.request_digest)
+
+
+def test_publish_accepts_only_identical_retry(tmp_path: Path) -> None:
+    plan, request, _, manifest_path, store, first = _publish(tmp_path)
+
+    second = store.publish(
+        plan=plan,
+        request=request,
+        checkpoint_manifest_path=manifest_path,
+    )
+
+    assert second == first
+
+
+def test_publish_rejects_request_rebinding(tmp_path: Path) -> None:
+    plan, request, root, manifest_path, store, _ = _publish(tmp_path)
+    index_path = root / "by-request" / f"{request.digest}.json"
+    index_path.write_bytes(b"{}\n")
+
+    with pytest.raises(ValueError, match="already bound"):
+        store.publish(
+            plan=plan,
+            request=request,
+            checkpoint_manifest_path=manifest_path,
+        )
+
+
+def test_validate_rejects_every_binding_identity_substitution(tmp_path: Path) -> None:
+    plan, request, root, _, _, binding = _publish(tmp_path)
+    substitutions = (
+        (
+            replace(binding, plan_digest=_digest("other-plan"), digest=""),
+            "plan mismatch",
+        ),
+        (
+            replace(binding, request_digest=_digest("other-request"), digest=""),
+            "request mismatch",
+        ),
+        (
+            replace(binding, candidate_id="candidate-b", digest=""),
+            "candidate mismatch",
+        ),
+        (replace(binding, seed=1, digest=""), "seed mismatch"),
+        (
+            replace(binding, checkpoint_digest=_digest("other-checkpoint"), digest=""),
+            "checkpoint mismatch",
+        ),
+        (
+            replace(
+                binding,
+                candidate_config_digest=_digest("other-config"),
+                digest="",
+            ),
+            "config mismatch",
+        ),
+        (
+            replace(
+                binding,
+                checkpoint_policy_digest=_digest("other-policy"),
+                digest="",
+            ),
+            "policy digest mismatch",
+        ),
+    )
+
+    for substituted, message in substitutions:
+        with pytest.raises(ValueError, match=message):
+            substituted.validate(root=root, plan=plan, request=request)
+
+
+def test_load_rejects_request_index_digest_tampering(tmp_path: Path) -> None:
+    _, request, root, _, store, _ = _publish(tmp_path)
+    index_path = root / "by-request" / f"{request.digest}.json"
+    raw = json.loads(index_path.read_bytes())
+    assert isinstance(raw, dict)
+    raw["digest"] = _digest("tampered-index")
+    index_path.write_bytes(canonical_json_bytes(raw) + b"\n")
+
+    with pytest.raises(ValueError, match="index digest mismatch"):
+        store.load(request.digest)
+
+
+def test_load_rejects_request_index_field_injection(tmp_path: Path) -> None:
+    _, request, root, _, store, _ = _publish(tmp_path)
+    index_path = root / "by-request" / f"{request.digest}.json"
+    raw = json.loads(index_path.read_bytes())
+    assert isinstance(raw, dict)
+    raw["undeclared"] = True
+    index_path.write_bytes(canonical_json_bytes(raw) + b"\n")
+
+    with pytest.raises(ValueError, match="field closure mismatch"):
+        store.load(request.digest)
+
+
+def test_load_rejects_binding_identity_tampering(tmp_path: Path) -> None:
+    _, request, root, _, store, _ = _publish(tmp_path)
+    binding_path = _binding_path(root, request.digest)
+    raw = json.loads(binding_path.read_bytes())
+    assert isinstance(raw, dict)
+    raw["candidate_id"] = "candidate-b"
+    binding_path.write_bytes(canonical_json_bytes(raw) + b"\n")
+
+    with pytest.raises(ValueError, match="binding digest mismatch"):
+        store.load(request.digest)
+
+
+def test_load_rejects_noncanonical_binding_encoding(tmp_path: Path) -> None:
+    _, request, root, _, store, _ = _publish(tmp_path)
+    binding_path = _binding_path(root, request.digest)
+    binding_path.write_bytes(b" " + binding_path.read_bytes())
+
+    with pytest.raises(ValueError, match="canonical encoding"):
+        store.load(request.digest)
+
+
+def test_load_rejects_checkpoint_manifest_tampering(tmp_path: Path) -> None:
+    _, request, _, manifest_path, store, _ = _publish(tmp_path)
+    raw = json.loads(manifest_path.read_bytes())
+    assert isinstance(raw, dict)
+    raw["observed_timestep"] = 129
+    manifest_path.write_bytes(canonical_json_bytes(raw))
+
+    with pytest.raises(ValueError, match="manifest digest mismatch"):
+        store.load(request.digest)
+
+
+def test_binding_rejects_noncanonical_checkpoint_paths(tmp_path: Path) -> None:
+    _, _, _, _, _, binding = _publish(tmp_path)
+
+    for path in (
+        "/tmp/checkpoint.json",
+        "../checkpoint.json",
+        "checkpoints/./checkpoint.json",
+    ):
+        with pytest.raises(ValueError, match="canonical relative path"):
+            replace(binding, checkpoint_manifest_path=path, digest="")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
+def test_publish_rejects_symlinked_checkpoint_source(tmp_path: Path) -> None:
+    plan = _plan()
+    real_root = tmp_path / "real-artifacts"
+    real_manifest, _ = _write_checkpoint(real_root, plan=plan)
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    (root / "checkpoints").symlink_to(
+        real_root / "checkpoints",
+        target_is_directory=True,
+    )
+    manifest_path = root / real_manifest.relative_to(real_root)
+
+    with pytest.raises(ValueError, match="symlink"):
+        StageAPolicySourceStore(root).publish(
+            plan=plan,
+            request=_request(plan),
+            checkpoint_manifest_path=manifest_path,
+        )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
+def test_publish_rejects_symlinked_request_index_directory(tmp_path: Path) -> None:
+    plan = _plan()
+    root = tmp_path / "artifacts"
+    manifest_path, _ = _write_checkpoint(root, plan=plan)
+    external_index = tmp_path / "external-index"
+    external_index.mkdir()
+    (root / "by-request").symlink_to(external_index, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        StageAPolicySourceStore(root).publish(
+            plan=plan,
+            request=_request(plan),
+            checkpoint_manifest_path=manifest_path,
+        )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics require POSIX")
+def test_load_rejects_symlinked_request_index_directory(tmp_path: Path) -> None:
+    _, request, root, _, store, _ = _publish(tmp_path)
+    index_directory = root / "by-request"
+    external_index = tmp_path / "external-index"
+    index_directory.rename(external_index)
+    index_directory.symlink_to(external_index, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        store.load(request.digest)

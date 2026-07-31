@@ -10,7 +10,10 @@ from trade_rl.simulation.orders import OrderDomainError, OrderEvent, OrderStatus
 
 def _event(
     *,
+    schema_version: str = "order_event_v1",
     sequence: int = 0,
+    order_id: str = "a" * 64,
+    replaced_order_id: str | None = None,
     event_type: str = "submitted",
     previous_status: OrderStatus = OrderStatus.SUBMITTED,
     new_status: OrderStatus = OrderStatus.SUBMITTED,
@@ -23,10 +26,10 @@ def _event(
     reason: str | None = None,
 ) -> OrderEvent:
     return OrderEvent(
-        schema_version="order_event_v1",
+        schema_version=schema_version,
         sequence=sequence,
-        order_id="a" * 64,
-        replaced_order_id=None,
+        order_id=order_id,
+        replaced_order_id=replaced_order_id,
         dataset_id="d" * 64,
         execution_policy_digest="e" * 64,
         symbol_index=0,
@@ -77,6 +80,11 @@ def test_order_event_from_mapping_rejects_boolean_integer() -> None:
 
     with pytest.raises(OrderDomainError, match="sequence"):
         OrderEvent.from_mapping(payload)
+
+
+def test_order_event_rejects_unsupported_schema_version() -> None:
+    with pytest.raises(OrderDomainError, match="schema"):
+        _event(schema_version="order_event_v2")
 
 
 def test_order_event_stream_requires_contiguous_global_sequence() -> None:

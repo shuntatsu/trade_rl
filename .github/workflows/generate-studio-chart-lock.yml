@@ -1,0 +1,36 @@
+name: Generate Studio chart lock
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/generate-studio-chart-lock.yml
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Generate package metadata
+        run: npm install --prefix studio --package-lock-only --save-exact --no-audit --no-fund lightweight-charts@5.2.0
+      - name: Upload generated metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-chart-package-metadata
+          path: |
+            studio/package.json
+            studio/package-lock.json
+          if-no-files-found: error
+          retention-days: 1

@@ -149,13 +149,19 @@ def _orchestrator(*, plan=None, evaluator=None, events=None):
     )
 
 
-def test_validation_evaluates_complete_cartesian_product_with_shared_baselines() -> None:
+def test_validation_evaluates_complete_cartesian_product_with_shared_baselines() -> (
+    None
+):
     orchestrator, evaluator, ledger, events = _orchestrator()
     run = orchestrator.evaluate_validation()
     plan = orchestrator.plan
     cells = len(plan.validation_triplet_ids) * len(plan.folds) * len(plan.seeds)
-    baseline_requests = [request for request in evaluator.requests if request.is_baseline]
-    policy_requests = [request for request in evaluator.requests if not request.is_baseline]
+    baseline_requests = [
+        request for request in evaluator.requests if request.is_baseline
+    ]
+    policy_requests = [
+        request for request in evaluator.requests if not request.is_baseline
+    ]
 
     assert len(baseline_requests) == cells
     assert len(policy_requests) == cells * len(plan.candidate_ids)
@@ -261,10 +267,16 @@ def test_sealed_test_authorizes_every_fold_before_selected_only_evaluation() -> 
     sealed_run = orchestrator.evaluate_sealed_test(validation_run)
     plan = orchestrator.plan
     cells = len(plan.test_triplet_ids) * len(plan.folds) * len(plan.seeds)
-    baseline_requests = [request for request in evaluator.requests if request.is_baseline]
-    policy_requests = [request for request in evaluator.requests if not request.is_baseline]
+    baseline_requests = [
+        request for request in evaluator.requests if request.is_baseline
+    ]
+    policy_requests = [
+        request for request in evaluator.requests if not request.is_baseline
+    ]
 
-    assert events[: len(plan.folds)] == [("authorize", fold) for fold in plan.folds]
+    assert events[: len(plan.folds)] == [
+        ("authorize", fold) for fold in plan.folds
+    ]
     assert len(baseline_requests) == cells
     assert len(policy_requests) == cells
     assert {request.candidate_id for request in policy_requests} == {"candidate-a"}

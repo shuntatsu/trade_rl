@@ -16,6 +16,7 @@ const runtime = vi.hoisted(() => {
     fitContent: vi.fn(emitRangeAsync),
     setVisibleRange: vi.fn(emitRangeAsync),
     scrollToRealTime: vi.fn(emitRangeAsync),
+    coordinateToTime: vi.fn(() => null as number | null),
     subscribeVisibleLogicalRangeChange: vi.fn((handler: () => void) => { handlers.range = handler }),
     unsubscribeVisibleLogicalRangeChange: vi.fn(),
   }
@@ -140,6 +141,7 @@ beforeEach(() => {
   runtime.handlers.crosshair = undefined
   runtime.handlers.click = undefined
   runtime.handlers.range = undefined
+  runtime.timeScale.coordinateToTime.mockReturnValue(null)
 })
 
 describe('ResearchChartWorkspace', () => {
@@ -161,6 +163,19 @@ describe('ResearchChartWorkspace', () => {
     act(() => runtime.handlers.click?.({ time: bucketTime }))
 
     expect(onPreviewRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
+    expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
+  })
+
+  it('commits the nearest record when a click falls between chart bars', async () => {
+    const onCommitRecord = vi.fn()
+    renderWorkspace({ onCommitRecord })
+    await waitFor(() => expect(runtime.handlers.click).toBeDefined())
+    const bucketTime = Math.floor(Date.parse('2026-07-31T08:00:00Z') / 1_000 / 900) * 900
+    runtime.timeScale.coordinateToTime.mockReturnValue(bucketTime + 300)
+
+    act(() => runtime.handlers.click?.({ point: { x: 240, y: 80 } }))
+
+    expect(runtime.timeScale.coordinateToTime).toHaveBeenCalledWith(240)
     expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
   })
 

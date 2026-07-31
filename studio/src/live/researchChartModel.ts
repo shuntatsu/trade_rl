@@ -128,6 +128,10 @@ function linePoint(time: number, value: number | null): ResearchLinePoint[] {
   return value === null ? [] : [{ time, value }]
 }
 
+function stablePercentage(value: number): number {
+  return Math.round(value * 1_000_000_000_000) / 1_000_000_000_000
+}
+
 function markerFor(record: TrainingTelemetryRecord, time: number): ResearchMarker | null {
   if (record.eventType === 'position') {
     const delta = (record.weightsAfter[0] ?? 0) - (record.weightsBefore[0] ?? 0)
@@ -242,7 +246,10 @@ export function buildResearchChartData(
     equity.push(...linePoint(time, lastFinite(bucketRecords, (record) => record.portfolioValue)))
     baseline.push(...linePoint(time, lastFinite(bucketRecords, (record) => record.baselinePortfolioValue)))
     const latestDrawdown = lastFinite(bucketRecords, (record) => record.drawdown)
-    drawdown.push(...linePoint(time, latestDrawdown === null ? null : -latestDrawdown * 100))
+    drawdown.push(...linePoint(
+      time,
+      latestDrawdown === null ? null : stablePercentage(-latestDrawdown * 100),
+    ))
     recordByTime.set(time, bucketRecords.at(-1)!)
   }
 

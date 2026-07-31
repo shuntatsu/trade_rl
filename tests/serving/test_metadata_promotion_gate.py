@@ -11,7 +11,7 @@ from trade_rl.artifacts.run_manifest import (
     TrainingRunManifest,
     write_training_run_manifest,
 )
-from trade_rl.serving.package import package_selected_training_run
+from trade_rl.workflows.release_packaging import package_selected_training_run
 
 
 def _selected_training_run(root: Path, *, metadata_mode: str) -> TrainingRunManifest:

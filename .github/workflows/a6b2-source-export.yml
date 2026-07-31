@@ -1,0 +1,34 @@
+name: A6b2 Source Export
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    if: github.event.pull_request.head.ref == 'agent/stage-a6b2-policy-producer'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Build source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git -czf /tmp/trade-rl-a6b2-source.tar.gz .
+          sha256sum /tmp/trade-rl-a6b2-source.tar.gz > /tmp/trade-rl-a6b2-source.sha256
+      - name: Upload source archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: a6b2-source-${{ github.event.pull_request.head.sha }}
+          path: |
+            /tmp/trade-rl-a6b2-source.tar.gz
+            /tmp/trade-rl-a6b2-source.sha256
+          if-no-files-found: error
+          retention-days: 1

@@ -28,15 +28,42 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _candidate_config_digest() -> str:
+    return _digest("candidate-a:config")
+
+
+def _execution_identity() -> str:
+    return ExecutionCostConfig(path_mode="conservative").execution_policy_digest
+
+
+def _checkpoint_payload(seed: int) -> dict[str, object]:
+    policy_digest = hashlib.sha256(f"policy-{seed}".encode("utf-8")).hexdigest()
+    return {
+        "algorithm": "ppo",
+        "environment_digest": _execution_identity(),
+        "observed_timestep": 128,
+        "policy_digest": policy_digest,
+        "policy_file": CHECKPOINT_POLICY_NAME,
+        "requested_timestep": 128,
+        "schema_version": "policy_checkpoint_v1",
+        "seed": seed,
+        "training_config_digest": _candidate_config_digest(),
+    }
+
+
+def _checkpoint_digest(seed: int) -> str:
+    return content_digest(_checkpoint_payload(seed))
+
+
 def _plan() -> StageAZeroShotEvaluationPlan:
     candidate = StageACandidate.create(
         candidate_id="candidate-a",
-        candidate_config_digest=_digest("candidate-a:config"),
+        candidate_config_digest=_candidate_config_digest(),
         final_training_completion_digest=_digest("candidate-a:complete"),
         policy_identity=_digest("candidate-a:policy"),
         checkpoint_digests=(
-            (0, _digest("candidate-a:checkpoint:0")),
-            (1, _digest("candidate-a:checkpoint:1")),
+            (0, _checkpoint_digest(0)),
+            (1, _checkpoint_digest(1)),
         ),
     )
     return build_stage_a_zero_shot_evaluation_plan(
@@ -44,9 +71,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
         dataset_identity=_digest("dataset"),
         feature_identity=_digest("features"),
-        execution_identity=ExecutionCostConfig(
-            path_mode="conservative"
-        ).execution_policy_digest,
+        execution_identity=_execution_identity(),
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
         seeds=(0, 1),
@@ -109,25 +134,13 @@ def _write_checkpoint(
     *,
     plan: StageAZeroShotEvaluationPlan,
     seed: int = 0,
-    declared_checkpoint_digest: str | None = None,
 ) -> tuple[Path, CheckpointManifest]:
     candidate = plan.candidate("candidate-a")
     destination = root / "checkpoints" / candidate.candidate_id / f"seed-{seed}"
     destination.mkdir(parents=True)
     policy_path = destination / CHECKPOINT_POLICY_NAME
     policy_path.write_bytes(f"policy-{seed}".encode("utf-8"))
-    policy_digest = hashlib.sha256(policy_path.read_bytes()).hexdigest()
-    payload: dict[str, object] = {
-        "algorithm": "ppo",
-        "environment_digest": plan.execution_identity,
-        "observed_timestep": 128,
-        "policy_digest": policy_digest,
-        "policy_file": CHECKPOINT_POLICY_NAME,
-        "requested_timestep": 128,
-        "schema_version": "policy_checkpoint_v1",
-        "seed": seed,
-        "training_config_digest": candidate.candidate_config_digest,
-    }
+    payload = _checkpoint_payload(seed)
     manifest = CheckpointManifest(
         digest=content_digest(payload),
         algorithm="ppo",
@@ -136,7 +149,7 @@ def _write_checkpoint(
         observed_timestep=128,
         environment_digest=plan.execution_identity,
         training_config_digest=candidate.candidate_config_digest,
-        policy_digest=policy_digest,
+        policy_digest=str(payload["policy_digest"]),
         policy_path=policy_path,
     )
     manifest_path = destination / CHECKPOINT_MANIFEST_NAME
@@ -144,7 +157,7 @@ def _write_checkpoint(
         canonical_json_bytes(
             {
                 "algorithm": manifest.algorithm,
-                "digest": declared_checkpoint_digest or manifest.digest,
+                "digest": manifest.digest,
                 "environment_digest": manifest.environment_digest,
                 "observed_timestep": manifest.observed_timestep,
                 "policy_digest": manifest.policy_digest,

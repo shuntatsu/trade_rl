@@ -25,8 +25,8 @@ jobs:
         with:
           python-version: '3.12'
           enable-cache: true
-      - name: Install dependencies
-        run: uv sync --extra dev
+      - name: Install full CI dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
       - name: Apply type-boundary fix and verify
         shell: bash
         run: |

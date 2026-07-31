@@ -107,7 +107,10 @@ def test_plan_round_trips_and_binds_candidate_seed_checkpoints(tmp_path: Path) -
         "candidate-a",
         "candidate-b",
     )
-    assert tuple(seed for seed, _ in plan.candidate("candidate-a").checkpoint_digests) == _SEEDS
+    assert (
+        tuple(seed for seed, _ in plan.candidate("candidate-a").checkpoint_digests)
+        == _SEEDS
+    )
 
     wrong_seed_candidate = StageACandidate.create(
         candidate_id="candidate-c",

@@ -22,6 +22,7 @@ from trade_rl.evaluation.paper_reconciliation import (
     load_paper_reconciliation_evidence,
 )
 from trade_rl.release.asymmetric import PublicVerificationKey
+from trade_rl.rl.actions import ActionMode
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
@@ -66,8 +67,26 @@ def _number(value: object, *, field: str) -> float:
     return float(value)
 
 
+def _environment_payload(training_root: Path) -> Mapping[str, object]:
+    return _mapping(
+        json.loads((training_root / "environment.json").read_text(encoding="utf-8")),
+        field="environment",
+    )
+
+
 def _execution_cost(training_root: Path) -> ExecutionCostConfig:
     return load_training_execution_cost(training_root / "environment.json")
+
+
+def _action_mode(training_root: Path) -> ActionMode:
+    action = _mapping(
+        _environment_payload(training_root).get("action"),
+        field="environment.action",
+    )
+    try:
+        return ActionMode(_string(action.get("mode"), field="environment.action.mode"))
+    except ValueError as error:
+        raise ValueError("training environment action mode is unsupported") from error
 
 
 def package_selected_training_run(
@@ -104,6 +123,7 @@ def package_selected_training_run(
     if metadata_promotion.dataset_id != manifest.dataset_id:
         raise ValueError("metadata promotion dataset identity mismatch")
     metadata_promotion.require_promotable()
+    action_mode = _action_mode(training_root)
     execution_cost = _execution_cost(training_root)
     execution_evidence = load_execution_evidence(
         training_root / EXECUTION_EVIDENCE_FILE_NAME
@@ -249,6 +269,7 @@ def package_selected_training_run(
             action_schema=_string(
                 ensemble_raw.get("action_schema"), field="ensemble.action_schema"
             ),
+            action_mode=action_mode,
             observation_schema=observation_schema,
             observation_size=_integer(
                 ensemble_raw.get("observation_size"), field="ensemble.observation_size"

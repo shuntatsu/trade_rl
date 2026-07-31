@@ -274,9 +274,7 @@ def test_sealed_test_authorizes_every_fold_before_selected_only_evaluation() -> 
         request for request in evaluator.requests if not request.is_baseline
     ]
 
-    assert events[: len(plan.folds)] == [
-        ("authorize", fold) for fold in plan.folds
-    ]
+    assert events[: len(plan.folds)] == [("authorize", fold) for fold in plan.folds]
     assert len(baseline_requests) == cells
     assert len(policy_requests) == cells
     assert {request.candidate_id for request in policy_requests} == {"candidate-a"}

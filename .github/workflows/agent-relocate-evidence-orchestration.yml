@@ -1,0 +1,160 @@
+name: Agent Relocate Evidence Orchestration
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/agent-relocate-evidence-orchestration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  relocate:
+    if: github.event.pull_request.head.ref == 'fix/evidence-stage-transaction-v2'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/evidence-stage-transaction-v2
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Relocate orchestration to workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          git mv \
+            trade_rl/evaluation/execution_promotion_artifacts.py \
+            trade_rl/workflows/execution_promotion_artifacts.py
+          git mv \
+            trade_rl/evaluation/stage_a_execution_observation.py \
+            trade_rl/workflows/stage_a_execution_observation.py
+          git mv \
+            tests/evaluation/test_execution_promotion_artifact_workflow.py \
+            tests/workflows/test_execution_promotion_artifact_workflow.py
+          git mv \
+            tests/evaluation/test_stage_a_execution_observation.py \
+            tests/workflows/test_stage_a_execution_observation.py
+          git show origin/main:trade_rl/evaluation/stage_a_zero_shot_contracts.py \
+            > trade_rl/evaluation/stage_a_zero_shot_contracts.py
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("trade_rl/workflows/training_run.py"): [
+                  (
+                      "from trade_rl.evaluation.execution_promotion_artifacts import (",
+                      "from trade_rl.workflows.execution_promotion_artifacts import (",
+                  ),
+              ],
+              Path("trade_rl/workflows/stage_a_execution_observation.py"): [
+                  (
+                      "from trade_rl.evaluation.execution_promotion_artifacts import (",
+                      "from trade_rl.workflows.execution_promotion_artifacts import (",
+                  ),
+              ],
+              Path("tests/e2e/test_research_to_serving_v2.py"): [
+                  (
+                      "from trade_rl.evaluation.execution_promotion_artifacts import (",
+                      "from trade_rl.workflows.execution_promotion_artifacts import (",
+                  ),
+              ],
+              Path("tests/workflows/test_execution_promotion_artifact_workflow.py"): [
+                  (
+                      "from trade_rl.evaluation.execution_promotion_artifacts import (",
+                      "from trade_rl.workflows.execution_promotion_artifacts import (",
+                  ),
+              ],
+              Path("tests/workflows/test_stage_a_execution_observation.py"): [
+                  (
+                      "from trade_rl.evaluation.execution_promotion_artifacts import (",
+                      "from trade_rl.workflows.execution_promotion_artifacts import (",
+                  ),
+                  (
+                      "from trade_rl.evaluation.stage_a_zero_shot_contracts import (\n"
+                      "    StageACandidate,\n"
+                      "    build_stage_a_observation_from_execution_artifacts,\n"
+                      "    build_stage_a_zero_shot_evaluation_plan,\n"
+                      ")\n",
+                      "from trade_rl.evaluation.stage_a_zero_shot_contracts import (\n"
+                      "    StageACandidate,\n"
+                      "    build_stage_a_zero_shot_evaluation_plan,\n"
+                      ")\n"
+                      "from trade_rl.workflows.stage_a_execution_observation import (\n"
+                      "    build_stage_a_observation_from_execution_artifacts,\n"
+                      ")\n",
+                  ),
+              ],
+          }
+          for path, changes in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              for old, new in changes:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f"{path}: expected one replacement, found {count}")
+                  text = text.replace(old, new)
+              path.write_text(text, encoding="utf-8")
+
+          plan = Path(
+              "docs/superpowers/plans/2026-07-31-evidence-stage-transaction-hardening.md"
+          )
+          text = plan.read_text(encoding="utf-8")
+          text = text.replace(
+              "Create: `trade_rl/evaluation/execution_promotion_artifacts.py`",
+              "Create: `trade_rl/workflows/execution_promotion_artifacts.py`",
+          )
+          text = text.replace(
+              "Modify: `trade_rl/evaluation/stage_a_zero_shot_contracts.py`",
+              "Create: `trade_rl/workflows/stage_a_execution_observation.py`",
+          )
+          text = text.replace(
+              "Test: `tests/evaluation/test_execution_promotion_artifact_workflow.py`",
+              "Test: `tests/workflows/test_execution_promotion_artifact_workflow.py`",
+          )
+          plan.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Verify architecture and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format \
+            trade_rl/workflows/execution_promotion_artifacts.py \
+            trade_rl/workflows/stage_a_execution_observation.py \
+            trade_rl/workflows/training_run.py \
+            trade_rl/evaluation/stage_a_zero_shot_contracts.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            tests/workflows/test_execution_promotion_artifact_workflow.py \
+            tests/workflows/test_stage_a_execution_observation.py
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run pytest -q \
+            tests/evaluation/test_execution_promotion.py \
+            tests/evaluation/test_execution_promotion_replay_binding.py \
+            tests/workflows/test_execution_promotion_artifact_workflow.py \
+            tests/workflows/test_stage_a_execution_observation.py \
+            tests/cli/test_train_run.py
+
+      - name: Commit verified relocation and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/agent-relocate-evidence-orchestration.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'refactor: move evidence orchestration to workflows'
+          git push origin HEAD:fix/evidence-stage-transaction-v2

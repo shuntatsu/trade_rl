@@ -37,11 +37,11 @@ jobs:
           )''',
               ),
               (
-                  '''        model_digest = file_digest(model_path, field="structured model artifact")
+                  '''        model_digest = file_digest(model_path, field="structured export model")
                   model_size_bytes = model_path.stat().st_size''',
                   '''        model_digest, model_size_bytes = file_digest_and_size(
                       model_path,
-                      field="structured model artifact",
+                      field="structured export model",
                   )''',
               ),
           )

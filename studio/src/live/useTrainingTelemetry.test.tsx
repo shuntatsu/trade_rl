@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { StudioApi } from '../api/studioApi'
@@ -12,6 +12,12 @@ import { useTrainingTelemetry } from './useTrainingTelemetry'
 
 const GENERATION_A = '11111111-1111-4111-8111-111111111111'
 const GENERATION_B = '22222222-2222-4222-8222-222222222222'
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
+}
 
 function telemetry(sequence: number): TrainingTelemetryRecord {
   return {
@@ -102,6 +108,7 @@ function api(
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -155,6 +162,43 @@ describe('useTrainingTelemetry generation handling', () => {
     await waitFor(() =>
       expect(result.current.records.map((item) => item.sequence)).toEqual([1]))
     expect(result.current.records.some((item) => item.sequence === 99)).toBe(false)
+    unmount()
+  })
+
+  it('waits for a slow refresh before scheduling the next poll', async () => {
+    vi.useFakeTimers()
+    const statusRequest = deferred<TelemetryStatusResponse>()
+    const eventsRequest = deferred<TelemetryEventsResponse>()
+    const loadStatus = vi.fn().mockReturnValue(statusRequest.promise)
+    const loadEvents = vi.fn().mockReturnValue(eventsRequest.promise)
+    const runtimeApi = api(loadStatus, loadEvents)
+
+    const { unmount } = renderHook(() =>
+      useTrainingTelemetry('job-live', runtimeApi, 7))
+
+    await act(async () => { await Promise.resolve() })
+    expect(loadStatus).toHaveBeenCalledTimes(1)
+    expect(loadEvents).toHaveBeenCalledTimes(1)
+
+    await act(async () => { vi.advanceTimersByTime(1_000) })
+    expect(loadStatus).toHaveBeenCalledTimes(1)
+    expect(loadEvents).toHaveBeenCalledTimes(1)
+
+    statusRequest.resolve(status(GENERATION_A))
+    eventsRequest.resolve(page(GENERATION_A, []))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => { vi.advanceTimersByTime(999) })
+    expect(loadStatus).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      vi.advanceTimersByTime(1)
+      await Promise.resolve()
+    })
+    expect(loadStatus).toHaveBeenCalledTimes(2)
+    expect(loadEvents).toHaveBeenCalledTimes(2)
     unmount()
   })
 })

@@ -101,18 +101,33 @@ function nearestRecord(data: ResearchChartData, time: number): TrainingTelemetry
   return nearest
 }
 
+function recordAtLogicalIndex(
+  data: ResearchChartData,
+  logical: number,
+): TrainingTelemetryRecord | null {
+  if (data.candles.length === 0 || !Number.isFinite(logical)) return null
+  const index = Math.min(
+    data.candles.length - 1,
+    Math.max(0, Math.round(logical)),
+  )
+  return data.recordByTime.get(data.candles[index]!.time) ?? null
+}
+
 function interactionRecord(
   chart: IChartApi,
   params: MouseEventParams<Time>,
   data: ResearchChartData,
 ): TrainingTelemetryRecord | null {
   const directTime = timeNumber(params.time)
-  const resolvedTime = directTime ?? (
-    params.point === undefined
-      ? null
-      : timeNumber(chart.timeScale().coordinateToTime(params.point.x))
-  )
-  return resolvedTime === null ? null : nearestRecord(data, resolvedTime)
+  if (directTime !== null) return nearestRecord(data, directTime)
+  if (params.point === undefined) return null
+
+  const timeScale = chart.timeScale()
+  const coordinateTime = timeNumber(timeScale.coordinateToTime(params.point.x))
+  if (coordinateTime !== null) return nearestRecord(data, coordinateTime)
+
+  const logical = timeScale.coordinateToLogical(params.point.x)
+  return logical === null ? null : recordAtLogicalIndex(data, logical)
 }
 
 export function ResearchChartWorkspace({

@@ -14,6 +14,7 @@ from trade_rl.serving.bundle import (
     load_serving_bundle,
     write_serving_bundle_manifest,
 )
+from trade_rl.serving.runtime import ServingRuntime
 
 
 def _build_manifest(root: Path, *, action_mode: ActionMode) -> ServingBundleManifest:
@@ -56,9 +57,13 @@ def test_learned_policy_keeps_explicit_action_mode(
     manifest = _build_manifest(root, action_mode=action_mode)
     write_serving_bundle_manifest(root, manifest)
 
-    loaded = load_serving_bundle(root).manifest
+    bundle = load_serving_bundle(root)
+    loaded = bundle.manifest
+    snapshot = ServingRuntime._snapshot_for(bundle)
 
     assert SERVING_BUNDLE_SCHEMA == "serving_bundle_v6"
     assert loaded.policy_mode is PolicyMode.RESIDUAL_POLICY
     assert loaded.action_mode is action_mode
     assert loaded.digest_payload()["action_mode"] is action_mode
+    assert snapshot.policy_mode is PolicyMode.RESIDUAL_POLICY
+    assert snapshot.action_mode is action_mode

@@ -130,7 +130,9 @@ def validate_gpu_training_smoke_evidence(
         evidence.get("requested_timesteps"),
         field="requested_timesteps",
     )
-    actual = _positive_integer(evidence.get("actual_timesteps"), field="actual_timesteps")
+    actual = _positive_integer(
+        evidence.get("actual_timesteps"), field="actual_timesteps"
+    )
     if requested < minimum or actual < minimum or actual < requested:
         raise ValueError("GPU smoke did not satisfy the requested timesteps")
     if evidence.get("behavior_cloning_epochs") != 1:
@@ -146,9 +148,12 @@ def validate_gpu_training_smoke_evidence(
     _validate_training_performance(evidence.get("performance"), field="performance")
 
     resume = _mapping(evidence.get("resume"), field="resume")
-    if _positive_integer(
-        resume.get("actual_timesteps"), field="resume.actual_timesteps"
-    ) != actual:
+    if (
+        _positive_integer(
+            resume.get("actual_timesteps"), field="resume.actual_timesteps"
+        )
+        != actual
+    ):
         raise ValueError("resume actual timesteps do not match the initial run")
     resume_evidence = _mapping(resume.get("evidence"), field="resume.evidence")
     if resume_evidence.get("schema_version") != "training_resume_v1":

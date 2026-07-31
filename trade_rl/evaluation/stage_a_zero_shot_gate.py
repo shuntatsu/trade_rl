@@ -391,9 +391,7 @@ def _bootstrap_lower_bound(
     rng = np.random.default_rng(seed)
     indices = rng.integers(0, len(values), size=(resamples, len(values)))
     means = values[indices].mean(axis=1, dtype=np.float64)
-    return float(
-        np.quantile(means, 1.0 - confidence_level, method="lower")
-    )
+    return float(np.quantile(means, 1.0 - confidence_level, method="lower"))
 
 
 def _derived_bootstrap_seed(
@@ -601,8 +599,12 @@ def _load_summary(value: object, *, field: str) -> StageACandidateSummary:
             )
         fold_values.append(
             (
-                _integer(pair[0], field=f"{field}.fold_excess_log_growth[{index}].fold"),
-                _number(pair[1], field=f"{field}.fold_excess_log_growth[{index}].value"),
+                _integer(
+                    pair[0], field=f"{field}.fold_excess_log_growth[{index}].fold"
+                ),
+                _number(
+                    pair[1], field=f"{field}.fold_excess_log_growth[{index}].value"
+                ),
             )
         )
     return StageACandidateSummary(
@@ -676,7 +678,9 @@ def load_stage_a_validation_selection(
             field="stage_a_selection.validation_evidence_digest",
         ),
         candidate_summaries=tuple(
-            _load_summary(value, field=f"stage_a_selection.candidate_summaries[{index}]")
+            _load_summary(
+                value, field=f"stage_a_selection.candidate_summaries[{index}]"
+            )
             for index, value in enumerate(
                 _list(
                     payload["candidate_summaries"],

@@ -178,7 +178,9 @@ class StageACandidate:
         try:
             return dict(self.checkpoint_digests)[resolved]
         except KeyError as error:
-            raise ValueError("Stage A candidate checkpoint seed is not declared") from error
+            raise ValueError(
+                "Stage A candidate checkpoint seed is not declared"
+            ) from error
 
     def digest_payload(self) -> dict[str, object]:
         return {
@@ -482,9 +484,7 @@ class StageAEvaluationEvidence:
         keys = tuple(item.key for item in observations)
         if len(set(keys)) != len(keys):
             raise ValueError("Stage A evidence contains a duplicate observation")
-        expected_keys = set(
-            itertools.product(candidate_ids, triplet_ids, folds, seeds)
-        )
+        expected_keys = set(itertools.product(candidate_ids, triplet_ids, folds, seeds))
         if set(keys) != expected_keys:
             raise ValueError("Stage A evidence observation closure mismatch")
         if any(item.split != self.split for item in observations):
@@ -517,7 +517,9 @@ class StageAEvaluationEvidence:
             ):
                 raise ValueError("Stage A observation checkpoint digest mismatch")
 
-    def observations_for(self, candidate_id: str) -> tuple[StageAEvaluationObservation, ...]:
+    def observations_for(
+        self, candidate_id: str
+    ) -> tuple[StageAEvaluationObservation, ...]:
         resolved = require_non_empty(candidate_id, field="stage_a_candidate_id")
         if resolved not in self.candidate_ids:
             raise ValueError("Stage A evidence candidate is not present")
@@ -637,12 +639,16 @@ def _load_candidate(value: object, *, field: str) -> StageACandidate:
         },
         label=field,
     )
-    raw_checkpoints = _list(payload["checkpoint_digests"], field=f"{field}.checkpoint_digests")
+    raw_checkpoints = _list(
+        payload["checkpoint_digests"], field=f"{field}.checkpoint_digests"
+    )
     checkpoints: list[tuple[int, str]] = []
     for index, raw in enumerate(raw_checkpoints):
         pair = _list(raw, field=f"{field}.checkpoint_digests[{index}]")
         if len(pair) != 2:
-            raise ValueError(f"{field}.checkpoint_digests[{index}] must contain two values")
+            raise ValueError(
+                f"{field}.checkpoint_digests[{index}] must contain two values"
+            )
         checkpoints.append(
             (
                 _integer(pair[0], field=f"{field}.checkpoint_digests[{index}].seed"),

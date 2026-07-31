@@ -19,7 +19,6 @@ on:
       - tests/evaluation/**
       - tests/workflows/**
       - tests/ops/test_postgres_compose_contract.py
-      - .automation/stage-a5-format-ready
       - .github/workflows/postgres-catalog.yml
   workflow_dispatch:
 
@@ -72,45 +71,3 @@ jobs:
       - name: Stop PostgreSQL
         if: always()
         run: docker compose down -v
-
-  stage-a5-format-apply:
-    name: Apply Stage A5 Ruff formatting
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/stage-a5-zero-shot-evaluation-contract'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout source branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: agent/stage-a5-zero-shot-evaluation-contract
-          fetch-depth: 0
-      - name: Verify and apply formatted files
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! -f .automation/stage-a5-format-ready ]]; then
-            echo "Stage A5 format chunks are not complete yet; no-op."
-            exit 0
-          fi
-          cat .automation/stage-a5-format.b64.* > /tmp/stage-a5-format.tgz.b64
-          printf '%s  %s\n' \
-            'c6a33c0b5af4642a383f951ad507aac85ca488f8b3b9804b3d5e6ed046d958dc' \
-            /tmp/stage-a5-format.tgz.b64 | sha256sum --check --strict
-          base64 --decode /tmp/stage-a5-format.tgz.b64 > /tmp/stage-a5-format.tgz
-          printf '%s  %s\n' \
-            'b78b87aa70d3d829d6177e1f36a43b02cd1b9e2b04c48618ad749d99acad947d' \
-            /tmp/stage-a5-format.tgz | sha256sum --check --strict
-          tar -xzf /tmp/stage-a5-format.tgz
-          rm -rf .automation
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/postgres-catalog.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            tests/evaluation/test_stage_a_zero_shot_contracts.py \
-            trade_rl/evaluation/stage_a_zero_shot_contracts.py \
-            trade_rl/evaluation/stage_a_zero_shot_gate.py
-          git add -u .automation .github/workflows/postgres-catalog.yml
-          git commit -m "Format Stage A zero-shot evaluation contracts"
-          git push origin HEAD:agent/stage-a5-zero-shot-evaluation-contract

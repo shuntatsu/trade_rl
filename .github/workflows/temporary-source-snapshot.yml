@@ -1,0 +1,33 @@
+name: Temporary Source Snapshot
+
+on:
+  push:
+    branches:
+      - agent/stage-a6b2-postgres-fold-slicing
+    paths:
+      - .github/workflows/temporary-source-snapshot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/stage-a6b2-postgres-fold-slicing
+          persist-credentials: false
+
+      - name: Build source snapshot
+        shell: bash
+        run: |
+          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf trade_rl-source.tar.gz .
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trade-rl-source-snapshot
+          path: trade_rl-source.tar.gz
+          if-no-files-found: error

@@ -8,19 +8,23 @@ const runtime = vi.hoisted(() => {
   const handlers: {
     crosshair?: (value: unknown) => void
     click?: (value: unknown) => void
+    range?: () => void
   } = {}
   const pane = { setStretchFactor: vi.fn() }
   const timeScale = {
     fitContent: vi.fn(),
     setVisibleRange: vi.fn(),
     scrollToRealTime: vi.fn(),
-    subscribeVisibleLogicalRangeChange: vi.fn(),
+    subscribeVisibleLogicalRangeChange: vi.fn((handler: () => void) => { handlers.range = handler }),
     unsubscribeVisibleLogicalRangeChange: vi.fn(),
   }
   const series: Array<{ setData: ReturnType<typeof vi.fn>; applyOptions: ReturnType<typeof vi.fn> }> = []
   const chart = {
     addSeries: vi.fn((_definition: unknown, _options: unknown, _paneIndex: number) => {
-      const next = { setData: vi.fn(), applyOptions: vi.fn() }
+      const next = {
+        setData: vi.fn(() => handlers.range?.()),
+        applyOptions: vi.fn(),
+      }
       series.push(next)
       return next
     }),
@@ -117,6 +121,7 @@ beforeEach(() => {
   runtime.series.length = 0
   runtime.handlers.crosshair = undefined
   runtime.handlers.click = undefined
+  runtime.handlers.range = undefined
 })
 
 describe('ResearchChartWorkspace', () => {
@@ -139,6 +144,17 @@ describe('ResearchChartWorkspace', () => {
 
     expect(onPreviewRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
     expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
+  })
+
+  it('does not classify programmatic data updates as manual navigation', async () => {
+    const onManualNavigation = vi.fn()
+    renderWorkspace({ onManualNavigation })
+
+    await waitFor(() => expect(runtime.series[0]?.setData).toHaveBeenCalled())
+    expect(onManualNavigation).not.toHaveBeenCalled()
+
+    act(() => runtime.handlers.range?.())
+    expect(onManualNavigation).toHaveBeenCalledTimes(1)
   })
 
   it('removes the chart on unmount', async () => {

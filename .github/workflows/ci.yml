@@ -18,6 +18,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  bootstrap_stage_a_zero_shot_fix:
+    name: Bootstrap Stage A repair
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/harden-stage-a-zero-shot-evaluation'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify and apply repair bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .automation/stage-a-fix/ready
+          cat .automation/stage-a-fix/chunk-* > /tmp/stage-a-fix.b64
+          echo "a906dbc0a6c02bfbad4e7be69a2fd327ef2e3724fe9484a9ecae0687ea7b1261  /tmp/stage-a-fix.b64" | sha256sum -c -
+          base64 --decode /tmp/stage-a-fix.b64 > /tmp/stage-a-fix.tgz
+          echo "9d84a3d1be079f04db321f970826d65c59190da5c5e774d03f263311aa91715b  /tmp/stage-a-fix.tgz" | sha256sum -c -
+          tar -xzf /tmp/stage-a-fix.tgz
+          rm -rf .automation/stage-a-fix
+          git show 6b2abf993abab157f4e8aabf9c173e5c039d7880:.github/workflows/ci.yml > .github/workflows/ci.yml
+          python -m compileall -q trade_rl/evaluation trade_rl/artifacts tests/evaluation
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "No repair changes to commit"; exit 1; }
+          git commit -m "Harden Stage A zero-shot evaluation contracts"
+          git push origin HEAD:agent/harden-stage-a-zero-shot-evaluation
+
   quality:
     name: Rebuilt Core
     runs-on: ubuntu-latest

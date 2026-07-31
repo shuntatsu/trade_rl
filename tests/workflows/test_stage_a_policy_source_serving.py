@@ -168,8 +168,8 @@ def _write_bundle(
     policy_digest: str,
     environment_digest: str,
 ) -> tuple[Path, ServingBundleManifest]:
-    bundle_root = root / "bundles" / _digest(
-        f"{policy_digest}:{environment_digest}:bundle"
+    bundle_root = (
+        root / "bundles" / _digest(f"{policy_digest}:{environment_digest}:bundle")
     )
     bundle_root.mkdir(parents=True)
     (bundle_root / "policy.bin").write_bytes(b"flat-policy-artifact")
@@ -349,7 +349,9 @@ def test_load_rejects_serving_artifact_tampering(tmp_path: Path) -> None:
     _, request, _, _, bundle_root, _, store = _publish_with_bundle(tmp_path)
     (bundle_root / "policy.bin").write_bytes(b"tampered")
 
-    with pytest.raises(ValueError, match="artifact size mismatch|artifact digest mismatch"):
+    with pytest.raises(
+        ValueError, match="artifact size mismatch|artifact digest mismatch"
+    ):
         store.load(request.digest)
 
 

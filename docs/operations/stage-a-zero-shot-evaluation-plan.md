@@ -12,6 +12,7 @@ Implemented in `trade_rl/evaluation/stage_a_zero_shot_contracts.py`.
 - Enforces one shared baseline per triplet/fold/seed cell across all candidates.
 - Caps bootstrap resamples at 1,000,000.
 - Uses strict JSON field closure and content digests.
+- Keeps public facades limited to documented public values; internal loaders import private parsing helpers directly from their defining module so static cleanup cannot silently remove required runtime dependencies.
 
 ### 2. Robust fold-bootstrap and candidate summaries
 

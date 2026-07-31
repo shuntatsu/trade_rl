@@ -11,7 +11,7 @@ on:
       - agent/causal-sequence-feature-encoder
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -240,64 +240,3 @@ jobs:
             test -w /workspace/var
             python -c "import torch, trade_rl; print(torch.__version__)"
           '
-
-  apply-a6b-bundle:
-    name: Apply A6b bundle
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/stage-a6b-production-evaluator' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout A6b branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: agent/stage-a6b-production-evaluator
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Verify, apply, and clean bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat .a6b-bundle/part-* > /tmp/a6b-bundle.b64
-          base64 --decode /tmp/a6b-bundle.b64 > /tmp/a6b-bundle.tgz
-          echo "a8c61d4744bce3bc06456bde107a2b3d1ac78337a3857424ef5631a620b51f4e  /tmp/a6b-bundle.tgz" | sha256sum --check --strict
-          python - <<'PYBUNDLE'
-          from pathlib import Path
-          import tarfile
-
-          allowed = {
-              'docs/operations/stage-a-production-evaluator-design.md',
-              'docs/operations/stage-a-production-evaluator-plan.md',
-              'docs/operations/stage-a-zero-shot-evaluation-plan.md',
-              'trade_rl/workflows/stage_a_execution_replay.py',
-              'trade_rl/workflows/stage_a_execution_store.py',
-              'trade_rl/workflows/stage_a_production_evaluator.py',
-              'tests/workflows/test_stage_a_execution_replay.py',
-              'tests/workflows/test_stage_a_execution_store.py',
-              'tests/workflows/test_stage_a_production_evaluator.py',
-              'tests/workflows/test_stage_a_production_orchestration.py',
-          }
-          with tarfile.open('/tmp/a6b-bundle.tgz', 'r:gz') as handle:
-              members = handle.getmembers()
-              names = [member.name for member in members]
-              if len(names) != len(allowed) or set(names) != allowed:
-                  raise SystemExit(f'unexpected bundle paths: {names!r}')
-              for member in members:
-                  if not member.isfile() or member.issym() or member.islnk():
-                      raise SystemExit(f'unsafe bundle member: {member.name}')
-                  target = Path(member.name)
-                  if target.is_absolute() or '..' in target.parts:
-                      raise SystemExit(f'unsafe bundle path: {member.name}')
-                  source = handle.extractfile(member)
-                  if source is None:
-                      raise SystemExit(f'bundle member has no bytes: {member.name}')
-                  target.parent.mkdir(parents=True, exist_ok=True)
-                  target.write_bytes(source.read())
-          PYBUNDLE
-          rm -rf .a6b-bundle
-          rm -f .github/workflows/a6b-source-export.yml
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --check
-          git commit -m 'feat: connect Stage A to verified execution artifacts'
-          git push origin HEAD:agent/stage-a6b-production-evaluator

@@ -82,16 +82,36 @@ The A6a layer now:
 
 The orchestrator depends only on the typed `StageAEvaluationCellEvaluator` protocol. It does not import model frameworks, serving loaders, market adapters, or PostgreSQL.
 
-## Next integration stage: A6b production adapter
+## Completed A6b-1 verified execution adapter
 
-The remaining A6b work is to:
+Implemented through:
+
+- `trade_rl/workflows/stage_a_execution_replay.py`;
+- `trade_rl/workflows/stage_a_execution_store.py`;
+- `trade_rl/workflows/stage_a_production_evaluator.py`.
+
+The A6b-1 layer now:
+
+1. binds each completed replay to the exact A6a request, plan, split, triplet, fold, seed, candidate, checkpoint, candidate configuration, dataset, feature, execution, and evaluation identities;
+2. validates canonical execution-promotion evidence and its exact order-event artifact before publication;
+3. requires positive finite equity and exact agreement between reported terminal equity and the event artifact's terminal portfolio value;
+4. derives log growth only from the verified replay equity curve;
+5. publishes event, evidence, replay, and request-index files under content-addressed canonical paths;
+6. permits identical retries but permanently rejects rebinding one request digest to different execution bytes;
+7. rejects non-canonical JSON, unsafe relative paths, symlinks, missing files, and event, evidence, replay, or index tampering;
+8. validates every request against the immutable Stage A plan before accessing the store;
+9. resolves policy candidate configuration from the plan and baseline configuration from a separate immutable identity;
+10. returns the complete cell-bound replay digest to A6a, rather than the lower-level promotion digest that lacks triplet/fold/seed identity.
+
+## Next integration stage: A6b-2 execution producer and operations
+
+The remaining A6b-2 work is to:
 
 1. resolve retained checkpoint and serving-bundle paths from maintained artifacts;
 2. recompute file and manifest digests before model loading;
 3. load policies only through the canonical serving/training loader;
-4. construct the declared market, feature, execution, and evaluation cell from maintained sources;
-5. validate the real source execution artifact against the A6a request before returning a result;
-6. reject dataset, feature, execution, evaluation, checkpoint, triplet, fold, seed, or split identity drift;
-7. construct the test schedule from the maintained evaluation source;
-8. provide the PostgreSQL-backed one-shot sealed-test ledger;
-9. add the operational CLI and complete-run artifact wiring.
+4. materialize the declared triplet, fold, seed, feature, and market inputs;
+5. run the maintained conservative execution model and publish the A6b-1 replay package;
+6. construct the test schedule from the maintained evaluation source;
+7. provide the PostgreSQL-backed one-shot sealed-test ledger;
+8. add validation and sealed-test CLI commands plus complete-run artifact wiring.

@@ -19,6 +19,10 @@
 
 ---
 
+## Implementation status
+
+A6b-1 implementation is complete locally through explicit RED/GREEN cycles. The focused A6a/A6b workflow suite passes, including request rebinding, byte tampering, symlink, terminal-equity, candidate/checkpoint substitution, and shared-baseline integration tests. Repository-wide static and CI verification remains the final gate before merge.
+
 ### Task 1: Exact execution-cell identity and replay artifact
 
 **Files:**

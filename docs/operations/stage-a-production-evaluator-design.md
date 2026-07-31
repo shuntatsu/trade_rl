@@ -110,24 +110,20 @@ For each request it:
 2. compares every cell identity field to the request;
 3. requires a policy cell's candidate configuration digest to equal `plan.candidate(candidate_id).candidate_config_digest` through a supplied candidate-config resolver;
 4. requires a baseline cell's candidate configuration digest to equal the configured baseline digest;
-5. returns `StageAEvaluationCellResult` using the request digest, verified execution-evidence digest, and recomputed log growth.
+5. returns `StageAEvaluationCellResult` using the request digest, the complete cell-bound Stage A replay digest, and recomputed log growth. The lower-level execution-promotion digest remains embedded in the replay but is not used as the A6a observation identity because it does not contain triplet, fold, seed, candidate, or checkpoint identity.
 
-The evaluator does not cache mutable filesystem state. Repeated loads revalidate the immutable bytes.
+The evaluator does not cache mutable filesystem state. Repeated loads revalidate the immutable bytes. The replay builder also requires the equity-curve terminal value to equal the portfolio value reconstructed from the event artifact's terminal book, preventing a valid order-event stream from being paired with an arbitrary reported return.
 
 ## Interfaces
 
 ```python
-class StageACandidateConfigResolver(Protocol):
-    def candidate_config_digest(self, candidate_id: str) -> str: ...
-
-
 class ArtifactBackedStageAEvaluationCellEvaluator:
     def evaluate(
         self, request: StageAEvaluationCellRequest
     ) -> StageAEvaluationCellResult: ...
 ```
 
-The Stage A plan itself can satisfy the resolver through a small adapter. The evaluator module must depend on the public A6a contracts, not private gate helpers.
+The evaluator receives the immutable Stage A plan directly and depends on the public A6a contracts, not private gate helpers. Policy configuration identity is resolved from the plan; baseline configuration identity is supplied separately and cannot depend on the selected policy candidate.
 
 ## Error handling
 
@@ -142,7 +138,8 @@ The implementation fails closed on:
 - dataset, feature, execution, evaluation, plan, split, triplet, fold, seed, candidate, checkpoint, or request mismatch;
 - candidate-dependent baseline configuration;
 - non-positive or non-finite equity;
-- an equity curve with fewer than two values.
+- an equity curve with fewer than two values;
+- a terminal equity value that differs from the terminal portfolio value recorded by the execution event artifact.
 
 No fallback to caller-supplied growth, unverified paths, or a different request index is allowed.
 

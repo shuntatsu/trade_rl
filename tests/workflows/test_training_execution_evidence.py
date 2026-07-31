@@ -80,6 +80,25 @@ def test_matching_loose_evidence_and_artifact_are_accepted(tmp_path: Path) -> No
     assert artifact == expected_artifact
 
 
+def test_bound_loose_evidence_requires_its_artifact(tmp_path: Path) -> None:
+    _, artifact_path = write_execution_artifact(tmp_path / "order-events.json")
+    evidence = execution_evidence_from_cost(
+        dataset_id=DATASET_ID,
+        cost=COST,
+        order_event_artifact_path=artifact_path,
+    )
+    evidence_path = tmp_path / "execution-evidence.json"
+    write_execution_evidence(evidence_path, evidence)
+
+    with pytest.raises(ValueError, match="requires its bound event artifact"):
+        resolve_training_execution_inputs(
+            dataset_id=DATASET_ID,
+            cost=COST,
+            evidence_path=evidence_path,
+            event_artifact_path=None,
+        )
+
+
 def test_loose_evidence_rejects_substituted_artifact(tmp_path: Path) -> None:
     _, bound_path = write_execution_artifact(tmp_path / "bound-events.json")
     evidence = execution_evidence_from_cost(

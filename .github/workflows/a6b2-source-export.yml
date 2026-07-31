@@ -33,29 +33,64 @@ jobs:
           import tarfile
           from pathlib import Path
 
-          prefix_path = '.a6b2.bundle.prefix'
           expected_prefix_digest = (
               'baacec40f1eeecde22bbf9b6d0182353853ff7bd4f706b83d80db6cb81df440f'
           )
-          commits = subprocess.check_output(
-              ['git', 'rev-list', 'HEAD', '--', prefix_path], text=True
-          ).splitlines()
-          recovered_prefix = None
-          recovered_commit = None
-          for commit in commits:
+
+          def revisions_for(path: str) -> list[str]:
+              return subprocess.check_output(
+                  ['git', 'rev-list', '--all', '--', path], text=True
+              ).splitlines()
+
+          def file_at(commit: str, path: str) -> bytes | None:
               try:
-                  candidate = subprocess.check_output(
-                      ['git', 'show', f'{commit}:{prefix_path}'], stderr=subprocess.DEVNULL
+                  return subprocess.check_output(
+                      ['git', 'show', f'{commit}:{path}'], stderr=subprocess.DEVNULL
                   )
               except subprocess.CalledProcessError:
+                  return None
+
+          recovered_prefix = None
+          recovered_source = None
+          prefix_path = '.a6b2.bundle.prefix'
+          for commit in revisions_for(prefix_path):
+              candidate = file_at(commit, prefix_path)
+              if candidate is None:
                   continue
               if hashlib.sha256(candidate).hexdigest() == expected_prefix_digest:
                   recovered_prefix = candidate
-                  recovered_commit = commit
+                  recovered_source = f'{commit}:{prefix_path}'
                   break
-          if recovered_prefix is None or recovered_commit is None:
-              raise SystemExit('Verified historical prefix was not found in branch history')
-          print(f'recovered verified prefix from commit {recovered_commit}')
+
+          full_path = '.a6b2-implementation.bundle.b64'
+          if recovered_prefix is None:
+              for commit in revisions_for(full_path):
+                  candidate = file_at(commit, full_path)
+                  if candidate is None or len(candidate) < 10000:
+                      continue
+                  prefix = candidate[:10000]
+                  if hashlib.sha256(prefix).hexdigest() == expected_prefix_digest:
+                      recovered_prefix = prefix
+                      recovered_source = f'{commit}:{full_path}[0:10000]'
+                      break
+
+          if recovered_prefix is None or recovered_source is None:
+              diagnostics: list[str] = []
+              for path in (prefix_path, full_path):
+                  for commit in revisions_for(path)[:20]:
+                      candidate = file_at(commit, path)
+                      if candidate is None:
+                          continue
+                      sample = candidate if path == prefix_path else candidate[:10000]
+                      diagnostics.append(
+                          f'{commit}:{path} len={len(candidate)} '
+                          f'prefix_sha256={hashlib.sha256(sample).hexdigest()}'
+                      )
+              raise SystemExit(
+                  'Verified historical prefix was not found in any fetched ref; '
+                  + '; '.join(diagnostics)
+              )
+          print(f'recovered verified prefix from {recovered_source}')
 
           paths = (
               Path('.a6b2.bundle.mid0'),

@@ -13,9 +13,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 
 TRAINING_ENVIRONMENT_SCHEMA = "training_environment_v2"
 _ACTION_SPEC_FIELDS = frozenset(field.name for field in fields(ActionSpec))
-_EXECUTION_COST_FIELDS = frozenset(
-    field.name for field in fields(ExecutionCostConfig)
-)
+_EXECUTION_COST_FIELDS = frozenset(field.name for field in fields(ExecutionCostConfig))
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:

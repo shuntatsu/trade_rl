@@ -75,7 +75,10 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         candidate_config_digest=_candidate_config_digest(),
         final_training_completion_digest=_digest("candidate-a:complete"),
         policy_identity=_digest("candidate-a:policy"),
-        checkpoint_digests=((0, _checkpoint_digest(0)),),
+        checkpoint_digests=(
+            (0, _checkpoint_digest(0)),
+            (1, _checkpoint_digest(1)),
+        ),
     )
     return build_stage_a_zero_shot_evaluation_plan(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
@@ -85,7 +88,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         execution_identity=_execution_identity(),
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
-        seeds=(0,),
+        seeds=(0, 1),
         folds=(0,),
         validation_triplet_ids=(_digest("validation-triplet"),),
         test_triplet_ids=(_digest("test-triplet"),),

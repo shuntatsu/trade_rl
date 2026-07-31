@@ -67,11 +67,11 @@
 ### Task 3: Maintained evaluation production path
 
 **Files:**
-- Create: `trade_rl/evaluation/execution_promotion_artifacts.py`
-- Modify: `trade_rl/evaluation/stage_a_zero_shot_contracts.py`
+- Create: `trade_rl/workflows/execution_promotion_artifacts.py`
+- Create: `trade_rl/workflows/stage_a_execution_observation.py`
 - Modify: `trade_rl/workflows/training_run.py`
 - Modify: `trade_rl/cli/extended.py`
-- Test: `tests/evaluation/test_execution_promotion_artifact_workflow.py`
+- Test: `tests/workflows/test_execution_promotion_artifact_workflow.py`
 - Test: `tests/evaluation/test_stage_a_zero_shot_contracts.py`
 - Test: `tests/e2e/test_research_to_serving_v2.py`
 

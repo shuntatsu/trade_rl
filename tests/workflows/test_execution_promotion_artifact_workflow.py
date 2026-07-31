@@ -14,11 +14,11 @@ from tests.evaluation.replay_support import (
     SEED,
     execution_episode,
 )
-from trade_rl.evaluation.execution_promotion_artifacts import (
+from trade_rl.simulation.execution_promotion import validate_execution_promotion
+from trade_rl.workflows.execution_promotion_artifacts import (
     load_execution_promotion_artifacts,
     write_execution_promotion_artifacts,
 )
-from trade_rl.simulation.execution_promotion import validate_execution_promotion
 
 
 def _write(root: Path):

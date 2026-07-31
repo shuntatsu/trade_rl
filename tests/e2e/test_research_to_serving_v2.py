@@ -24,9 +24,6 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
-from trade_rl.evaluation.execution_promotion_artifacts import (
-    write_execution_promotion_artifacts,
-)
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.evaluation.paper_reconciliation import (
     PaperReconciliationEvidence,
@@ -42,6 +39,9 @@ from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
+from trade_rl.workflows.execution_promotion_artifacts import (
+    write_execution_promotion_artifacts,
+)
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
 from trade_rl.workflows.selection_authorization import (
     SelectionProposal,

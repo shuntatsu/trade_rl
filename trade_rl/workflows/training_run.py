@@ -32,10 +32,6 @@ from trade_rl.data.metadata_promotion import (
 )
 from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.policies import PolicyEnsembleManifest
-from trade_rl.evaluation.execution_promotion_artifacts import (
-    ExecutionPromotionArtifacts,
-    load_execution_promotion_artifacts,
-)
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
@@ -82,6 +78,10 @@ from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 from trade_rl.workflows.config_fields import (
     require_dataclass_fields,
     require_exact_fields,
+)
+from trade_rl.workflows.execution_promotion_artifacts import (
+    ExecutionPromotionArtifacts,
+    load_execution_promotion_artifacts,
 )
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,

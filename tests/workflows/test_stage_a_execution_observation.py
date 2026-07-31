@@ -14,14 +14,16 @@ from tests.evaluation.replay_support import (
     execution_episode,
 )
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.evaluation.execution_promotion_artifacts import (
+from trade_rl.evaluation.stage_a_zero_shot_contracts import (
+    StageACandidate,
+    build_stage_a_zero_shot_evaluation_plan,
+)
+from trade_rl.workflows.execution_promotion_artifacts import (
     ExecutionPromotionArtifacts,
     write_execution_promotion_artifacts,
 )
-from trade_rl.evaluation.stage_a_zero_shot_contracts import (
-    StageACandidate,
+from trade_rl.workflows.stage_a_execution_observation import (
     build_stage_a_observation_from_execution_artifacts,
-    build_stage_a_zero_shot_evaluation_plan,
 )
 
 _BASELINE_CONFIG_DIGEST = "b" * 64

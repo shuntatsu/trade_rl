@@ -10,10 +10,10 @@ from trade_rl.evaluation._stage_a_zero_shot_evidence import (
     StageAEvaluationObservation,
 )
 from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
-from trade_rl.evaluation.execution_promotion_artifacts import (
+from trade_rl.simulation.execution_promotion import validate_execution_promotion
+from trade_rl.workflows.execution_promotion_artifacts import (
     ExecutionPromotionArtifacts,
 )
-from trade_rl.simulation.execution_promotion import validate_execution_promotion
 
 
 def _validate_artifacts(

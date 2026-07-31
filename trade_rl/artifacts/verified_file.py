@@ -14,12 +14,24 @@ from typing import BinaryIO
 from trade_rl.domain.common import require_sha256
 
 
-def file_digest(path: Path, *, field: str = "artifact file") -> str:
+def file_digest_and_size(
+    path: Path,
+    *,
+    field: str = "artifact file",
+) -> tuple[str, int]:
+    """Return SHA-256 and byte size from one opened regular-file snapshot."""
+
     digest = hashlib.sha256()
+    size = 0
     with open_regular_binary(path, field=field) as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return digest.hexdigest()
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def file_digest(path: Path, *, field: str = "artifact file") -> str:
+    return file_digest_and_size(path, field=field)[0]
 
 
 @contextmanager
@@ -126,6 +138,7 @@ def verified_private_copy(
 
 __all__ = [
     "file_digest",
+    "file_digest_and_size",
     "open_regular_binary",
     "read_verified_bytes",
     "verified_private_copy",

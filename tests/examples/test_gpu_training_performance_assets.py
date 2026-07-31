@@ -20,7 +20,10 @@ def test_gpu_workflows_use_the_maintained_evidence_validator() -> None:
 
     for path in callers:
         workflow = path.read_text(encoding="utf-8")
-        assert "uses: ./.github/workflows/reusable-gpu-training-verification.yml" in workflow
+        assert (
+            "uses: ./.github/workflows/reusable-gpu-training-verification.yml"
+            in workflow
+        )
         assert "trade_rl.operations.gpu_training_smoke" not in workflow
         assert "gpu_sequence_target_oracle_bc_training_smoke_v7" not in workflow
         assert "gpu_sequence_target_oracle_bc_training_smoke_v8" not in workflow

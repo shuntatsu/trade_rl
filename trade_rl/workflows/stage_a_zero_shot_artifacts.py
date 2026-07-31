@@ -84,9 +84,7 @@ class StageAZeroShotArtifactPublisher:
     def publish_sealed_test(self, run: StageASealedTestRun) -> Path:
         def write(staging: Path) -> None:
             write_stage_a_evaluation_evidence(staging / "evidence.json", run.evidence)
-            write_stage_a_sealed_test_decision(
-                staging / "decision.json", run.decision
-            )
+            write_stage_a_sealed_test_decision(staging / "decision.json", run.decision)
             records = tuple(
                 {
                     "access_digest": record.access_digest,

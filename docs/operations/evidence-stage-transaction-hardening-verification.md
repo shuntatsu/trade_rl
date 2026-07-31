@@ -18,9 +18,11 @@ This note records the verification boundary for PR #309.
 ## Focused local verification
 
 - focused regression suite: 71 passed;
+- serving package and critical-branch fixtures: 36 passed after rebuilding them from a strict stateful replay episode;
 - all Python sources and tests compile;
 - `git diff --check` passed;
-- no temporary transfer workflow or payload remains in the production tree.
+- canonical Ruff import ordering and formatting were applied to every CI-reported file;
+- no temporary transfer or formatting workflow and no payload remains in the production tree.
 
 ## Merge gate
 

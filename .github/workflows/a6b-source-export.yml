@@ -14,10 +14,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build source archive
         run: |
-          tar --exclude=.git --exclude=current-source.tgz -czf current-source.tgz .
+          tar --exclude=.git -czf /tmp/current-source.tgz .
       - uses: actions/upload-artifact@v4
         with:
           name: a6b-current-source
-          path: current-source.tgz
+          path: /tmp/current-source.tgz
           if-no-files-found: error
           retention-days: 1

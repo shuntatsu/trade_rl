@@ -1,4 +1,4 @@
-name: Temporary Apply Stage A Implementation
+name: Temporary Diagnose Stage A Patch
 
 on:
   pull_request:
@@ -8,10 +8,10 @@ on:
       - .github/workflows/temporary-apply-stage-a-implementation.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply:
+  diagnose:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -19,21 +19,17 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Apply implementation patch
+      - name: Diagnose staged patch bytes
         shell: bash
         run: |
-          cat .github/stage-a-implementation.patch.gz.b64.part* \
-            | base64 --decode \
-            | gzip --decompress > /tmp/stage-a-implementation.patch
-          git apply --check /tmp/stage-a-implementation.patch
-          git apply /tmp/stage-a-implementation.patch
-          rm -f .github/stage-a-implementation.patch.gz.b64.part*
-          rm -f .github/workflows/temporary-apply-stage-a-implementation.yml
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -m "feat: implement manifest-bound Stage A evaluation"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          set -x
+          wc -c .github/stage-a-implementation.patch.gz.b64.part*
+          sha256sum .github/stage-a-implementation.patch.gz.b64.part*
+          cat .github/stage-a-implementation.patch.gz.b64.part* > /tmp/stage-a-implementation.patch.gz.b64
+          wc -c /tmp/stage-a-implementation.patch.gz.b64
+          sha256sum /tmp/stage-a-implementation.patch.gz.b64
+          LC_ALL=C grep -n '[^A-Za-z0-9+/=]' /tmp/stage-a-implementation.patch.gz.b64 || true
+          base64 --decode /tmp/stage-a-implementation.patch.gz.b64 > /tmp/stage-a-implementation.patch.gz
+          gzip --test /tmp/stage-a-implementation.patch.gz

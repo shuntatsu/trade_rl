@@ -5,9 +5,9 @@ import json
 import os
 from pathlib import Path
 
-import numpy as np
 import pytest
 
+from tests.evaluation.replay_support import execution_episode
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
@@ -15,14 +15,12 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAZeroShotEvaluationPlan,
     build_stage_a_zero_shot_evaluation_plan,
 )
-from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import execution_evidence_from_cost
 from trade_rl.simulation.execution_replay import (
     build_execution_event_artifact,
     write_execution_event_artifact,
 )
-from trade_rl.simulation.orders import OrderBookState, OrderEvent, OrderStatus
 from trade_rl.workflows.stage_a_execution_store import StageAExecutionPromotionStore
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
@@ -87,54 +85,35 @@ def _request(plan: StageAZeroShotEvaluationPlan) -> StageAEvaluationCellRequest:
     )
 
 
-def _event(dataset_id: str, execution_identity: str) -> OrderEvent:
-    return OrderEvent(
-        schema_version="order_event_v1",
-        sequence=0,
-        order_id="a" * 64,
-        replaced_order_id=None,
-        dataset_id=dataset_id,
-        execution_policy_digest=execution_identity,
-        symbol_index=0,
-        event_type="filled",
-        processing_index=1,
-        timestamp_ns=1,
-        previous_status=OrderStatus.ELIGIBLE,
-        new_status=OrderStatus.FILLED,
-        requested_quantity=1.0,
-        remaining_quantity=0.0,
-        filled_quantity=1.0,
-        execution_price=100.0,
-        filled_notional=100.0,
-        capacity_before=10.0,
-        capacity_after=9.0,
-        participation_rate=0.1,
-        trigger_segment=None,
-        available_volume_fraction=1.0,
-        reason=None,
-        path_mode="conservative",
-        path_points=(100.0, 101.0, 99.0, 100.5),
-    )
-
-
 def _promotion_paths(
     root: Path,
     request: StageAEvaluationCellRequest,
     *,
+    candidate_config_digest: str,
     terminal_equity: float,
 ) -> tuple[Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
-    event_artifact = build_execution_event_artifact(
+    actions = ((0.4,),)
+    observations = (_digest("observation-0"), _digest("observation-1"))
+    equity = (1_000.0, terminal_equity)
+    events, terminal_book, terminal_order_book = execution_episode(
         dataset_id=request.dataset_identity,
         execution_policy_digest=request.execution_identity,
-        order_events=(_event(request.dataset_identity, request.execution_identity),),
-        terminal_book=BookState(
-            quantities=np.array((1.0,), dtype=np.float64),
-            cash=terminal_equity - 100.0,
-            mark_prices=np.array((100.0,), dtype=np.float64),
-            peak_value=max(1_000.0, terminal_equity),
-        ),
-        terminal_order_book=OrderBookState.empty(),
+        cash=terminal_equity - 100.0,
+    )
+    event_artifact = build_execution_event_artifact(
+        candidate_config_digest=candidate_config_digest,
+        evaluation_run_digest=request.digest,
+        fold=request.fold,
+        seed=request.seed,
+        dataset_id=request.dataset_identity,
+        execution_policy_digest=request.execution_identity,
+        actions=actions,
+        observation_digests=observations,
+        equity_curve=equity,
+        order_events=events,
+        terminal_book=terminal_book,
+        terminal_order_book=terminal_order_book,
     )
     event_path = write_execution_event_artifact(
         root / "order-events.json", event_artifact
@@ -158,12 +137,16 @@ def _publish(
     source_root: Path,
     final_equity: float = 1_100.0,
 ):
+    candidate_config_digest = plan.candidate("candidate-a").candidate_config_digest
     event_path, evidence_path = _promotion_paths(
-        source_root, request, terminal_equity=final_equity
+        source_root,
+        request,
+        candidate_config_digest=candidate_config_digest,
+        terminal_equity=final_equity,
     )
     return store.publish(
         request=request,
-        candidate_config_digest=plan.candidate("candidate-a").candidate_config_digest,
+        candidate_config_digest=candidate_config_digest,
         actions=((0.4,),),
         observation_digests=(_digest("observation-0"), _digest("observation-1")),
         equity_curve=(1_000.0, final_equity),

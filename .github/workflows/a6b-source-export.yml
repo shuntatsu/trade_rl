@@ -1,0 +1,23 @@
+name: A6b Source Export
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build source archive
+        run: |
+          tar --exclude=.git --exclude=current-source.tgz -czf current-source.tgz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: a6b-current-source
+          path: current-source.tgz
+          if-no-files-found: error
+          retention-days: 1

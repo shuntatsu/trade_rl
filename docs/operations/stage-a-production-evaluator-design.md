@@ -159,6 +159,8 @@ Tests must prove:
 - unsafe paths and symlinks are rejected;
 - A6a validation can consume the evaluator while retaining one shared baseline result per cell.
 
+The repository formatter output has been applied to every new Python file. Merge requires one unchanged human-owned head to pass the full CI, compatibility, training-image, and PostgreSQL workflows; results from intermediate transport or formatter heads are not accepted.
+
 ## A6b-2 boundary
 
 A6b-2 will:

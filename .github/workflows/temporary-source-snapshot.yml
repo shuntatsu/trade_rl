@@ -23,11 +23,11 @@ jobs:
       - name: Build source snapshot
         shell: bash
         run: |
-          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf trade_rl-source.tar.gz .
+          tar --exclude=.git --exclude=.venv --exclude=node_modules -czf /tmp/trade_rl-source.tar.gz .
 
       - name: Upload source snapshot
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: trade-rl-source-snapshot
-          path: trade_rl-source.tar.gz
+          path: /tmp/trade_rl-source.tar.gz
           if-no-files-found: error

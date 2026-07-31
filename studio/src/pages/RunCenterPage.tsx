@@ -21,11 +21,17 @@ export function RunCenterPage({ api = studioApi }: RunCenterPageProps) {
     try {
       const response = await api.loadJobs()
       setJobs(response.items)
-      setSelectedId((current) => {
-        const next = current && response.items.some((item) => item.id === current) ? current : response.items[0]?.id ?? null
-        replaceParams({ job: next })
-        return next
-      })
+      const next = selectedId && response.items.some((item) => item.id === selectedId)
+        ? selectedId
+        : response.items[0]?.id ?? null
+      setSelectedId(next)
+      replaceParams({ job: next })
+      if (next) {
+        await loadLog(next)
+      } else {
+        logRequest.current += 1
+        setLines([])
+      }
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'ジョブを取得できませんでした。') }
     finally { setLoading(false) }
   }

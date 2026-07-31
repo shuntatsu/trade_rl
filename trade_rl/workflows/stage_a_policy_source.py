@@ -426,6 +426,26 @@ class StageAPolicySourceStore:
         )
         binding.validate(root=self.root, plan=plan, request=request)
         binding_path, index_path = self._paths(binding)
+        binding_relative = _path_relative_to_root(
+            self.root,
+            binding_path,
+            field="Stage A policy source binding path",
+        )
+        index_relative = _path_relative_to_root(
+            self.root,
+            index_path,
+            field="Stage A policy source request index path",
+        )
+        _reject_symlink_components(
+            self.root,
+            binding_relative,
+            field="Stage A policy source binding",
+        )
+        _reject_symlink_components(
+            self.root,
+            index_relative,
+            field="Stage A policy source request index",
+        )
         index_bytes = self._index_bytes(binding=binding)
 
         if index_path.exists() or index_path.is_symlink():
@@ -459,7 +479,16 @@ class StageAPolicySourceStore:
 
     def load(self, request_digest: str) -> StageAPolicySourceBinding:
         require_sha256(request_digest, field="stage_a_policy_source_request_digest")
-        index_path = self.root / "by-request" / f"{request_digest}.json"
+        index_relative = PurePosixPath(
+            "by-request",
+            f"{request_digest}.json",
+        )
+        _reject_symlink_components(
+            self.root,
+            index_relative,
+            field="Stage A policy source request index",
+        )
+        index_path = self.root.joinpath(*index_relative.parts)
         index_bytes = _read_regular_bytes(
             index_path,
             field="Stage A policy source request index",

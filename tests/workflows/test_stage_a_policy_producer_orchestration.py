@@ -25,7 +25,15 @@ from trade_rl.rl.checkpointing import (
 from trade_rl.serving.bundle import ServingBundleManifest, write_serving_bundle_manifest
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.orders import OrderBookState, OrderEvent, OrderStatus
+from trade_rl.simulation.orders import (
+    OrderBookState,
+    OrderEvent,
+    OrderIntent,
+    OrderStatus,
+    OrderType,
+    PendingOrder,
+    TimeInForce,
+)
 from trade_rl.workflows.stage_a_execution_producer import (
     StageAEvaluationEpisodeResult,
     StageAExecutionArtifactProducer,
@@ -206,25 +214,73 @@ def _write_policy_source(
     return store, binding
 
 
-def _events(
+def _execution_trace(
     request: StageAEvaluationCellRequest, *, price: float = 100.0
-) -> tuple[OrderEvent, ...]:
-    common = {
-        "schema_version": "order_event_v1",
-        "order_id": "a" * 64,
-        "replaced_order_id": None,
-        "dataset_id": request.dataset_identity,
-        "execution_policy_digest": request.execution_identity,
-        "symbol_index": 0,
-        "requested_quantity": 1.0,
-        "trigger_segment": None,
-        "available_volume_fraction": 1.0,
-        "reason": None,
-        "path_mode": "conservative",
-    }
-    return (
-        OrderEvent(
-            **common,
+) -> tuple[tuple[OrderEvent, ...], OrderBookState]:
+    intent = OrderIntent.create(
+        dataset_id=request.dataset_identity,
+        target_identity=request.digest,
+        execution_policy_digest=request.execution_identity,
+        symbol_index=0,
+        requested_quantity=1.0,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.IOC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=price,
+        decision_equity=1_000.0,
+    )
+
+    def event(
+        *,
+        sequence: int,
+        event_type: str,
+        processing_index: int,
+        timestamp_ns: int,
+        previous_status: OrderStatus,
+        new_status: OrderStatus,
+        remaining_quantity: float,
+        filled_quantity: float,
+        execution_price: float | None,
+        filled_notional: float,
+        capacity_after: float,
+        participation_rate: float,
+        reason: str | None,
+        path_points: tuple[float, ...],
+    ) -> OrderEvent:
+        return OrderEvent(
+            schema_version="order_event_v1",
+            sequence=sequence,
+            order_id=intent.order_id,
+            replaced_order_id=None,
+            dataset_id=request.dataset_identity,
+            execution_policy_digest=request.execution_identity,
+            symbol_index=0,
+            event_type=event_type,
+            processing_index=processing_index,
+            timestamp_ns=timestamp_ns,
+            previous_status=previous_status,
+            new_status=new_status,
+            requested_quantity=1.0,
+            remaining_quantity=remaining_quantity,
+            filled_quantity=filled_quantity,
+            execution_price=execution_price,
+            filled_notional=filled_notional,
+            capacity_before=10.0,
+            capacity_after=capacity_after,
+            participation_rate=participation_rate,
+            trigger_segment=None,
+            available_volume_fraction=1.0,
+            reason=reason,
+            path_mode="conservative",
+            path_points=path_points,
+        )
+
+    events = (
+        event(
             sequence=0,
             event_type="submitted",
             processing_index=0,
@@ -235,13 +291,12 @@ def _events(
             filled_quantity=0.0,
             execution_price=None,
             filled_notional=0.0,
-            capacity_before=10.0,
             capacity_after=10.0,
             participation_rate=0.0,
+            reason=None,
             path_points=(),
         ),
-        OrderEvent(
-            **common,
+        event(
             sequence=1,
             event_type="eligible",
             processing_index=1,
@@ -252,13 +307,12 @@ def _events(
             filled_quantity=0.0,
             execution_price=None,
             filled_notional=0.0,
-            capacity_before=10.0,
             capacity_after=10.0,
             participation_rate=0.0,
+            reason=None,
             path_points=(),
         ),
-        OrderEvent(
-            **common,
+        event(
             sequence=2,
             event_type="filled",
             processing_index=1,
@@ -269,11 +323,25 @@ def _events(
             filled_quantity=1.0,
             execution_price=price,
             filled_notional=price,
-            capacity_before=10.0,
             capacity_after=9.0,
             participation_rate=0.1,
+            reason="filled",
             path_points=(price, price + 1.0, price - 1.0, price + 0.5),
         ),
+    )
+    terminal_order = PendingOrder(
+        intent=intent,
+        remaining_quantity=0.0,
+        cumulative_filled_quantity=1.0,
+        cumulative_filled_notional=price,
+        status=OrderStatus.FILLED,
+        last_processed_index=1,
+        terminal_reason="filled",
+        evidence_version=2,
+    )
+    return events, OrderBookState(
+        active_orders=(),
+        terminal_orders=(terminal_order,),
     )
 
 
@@ -284,6 +352,7 @@ def _episode_result(
     candidate_config_digest: str,
     action: float = 0.4,
 ) -> StageAEvaluationEpisodeResult:
+    events, terminal_order_book = _execution_trace(request)
     return StageAEvaluationEpisodeResult(
         request_digest=request.digest,
         policy_source_digest=policy_source_digest,
@@ -291,14 +360,15 @@ def _episode_result(
         actions=((action,),),
         observation_digests=(_digest("observation-0"), _digest("observation-1")),
         equity_curve=(1_000.0, 1_100.0),
-        order_events=_events(request),
+        order_events=events,
         terminal_book=BookState(
             quantities=np.array((1.0,), dtype=np.float64),
             cash=1_000.0,
             mark_prices=np.array((100.0,), dtype=np.float64),
             peak_value=1_100.0,
+            fill_count=1,
         ),
-        terminal_order_book=OrderBookState.empty(),
+        terminal_order_book=terminal_order_book,
     )
 
 

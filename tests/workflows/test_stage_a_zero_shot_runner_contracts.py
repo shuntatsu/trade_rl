@@ -30,8 +30,7 @@ def _plan():
             final_training_completion_digest=_digest(f"{candidate_id}:complete"),
             policy_identity=_digest(f"{candidate_id}:policy"),
             checkpoint_digests=tuple(
-                (seed, _digest(f"{candidate_id}:checkpoint:{seed}"))
-                for seed in seeds
+                (seed, _digest(f"{candidate_id}:checkpoint:{seed}")) for seed in seeds
             ),
         )
         for candidate_id in ("candidate-a", "candidate-b")
@@ -65,7 +64,9 @@ def _plan():
 def _request(*, candidate: bool = False) -> StageAEvaluationCellRequest:
     plan = _plan()
     candidate_id = "candidate-a" if candidate else None
-    checkpoint = plan.candidate(candidate_id).checkpoint_digest(0) if candidate_id else None
+    checkpoint = (
+        plan.candidate(candidate_id).checkpoint_digest(0) if candidate_id else None
+    )
     return StageAEvaluationCellRequest(
         plan_digest=plan.digest,
         split="validation",

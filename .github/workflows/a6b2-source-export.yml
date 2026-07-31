@@ -21,29 +21,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          original=.a6b2-implementation.bundle.b64
-          chunks=(.a6b2.bundle.mid0 .a6b2.bundle.mid1 .a6b2.bundle.mid2)
-          if [[ ! -f "$original" ]]; then
+          if [[ ! -f .a6b2-implementation.bundle.b64 ]]; then
             echo "No implementation bundle on this head"
             exit 0
           fi
-          test "$(wc -c < "$original")" -eq 20023
-          head -c 10000 "$original" > /tmp/a6b2-full.b64
-          tail -c 10000 "$original" > /tmp/a6b2-suffix.b64
-          echo 'baacec40f1eeecde22bbf9b6d0182353853ff7bd4f706b83d80db6cb81df440f  /tmp/a6b2-full.b64' | sha256sum --check --strict
-          echo '1346646617219f7f77ce61c5b4152bd2ed2799b991423d9c08f4ff1e82540aa1  /tmp/a6b2-suffix.b64' | sha256sum --check --strict
-          echo 'af54beb3d4f2f39646f0f91e66d8d32b070bc88c7892866d93775065438b1f8a  .a6b2.bundle.mid0' | sha256sum --check --strict
-          echo 'baa4e46cd52c3c36c2f17d2ac3baf045c65588a35c18119986ca4e85d2d88ab7  .a6b2.bundle.mid1' | sha256sum --check --strict
-          echo 'd97a674d08feb18478479b968ef1c2fee23d65a0dcf164c95e1c9e8efba0996c  .a6b2.bundle.mid2' | sha256sum --check --strict
-          cat "${chunks[@]}" >> /tmp/a6b2-full.b64
-          cat /tmp/a6b2-suffix.b64 >> /tmp/a6b2-full.b64
-          test "$(wc -c < /tmp/a6b2-full.b64)" -eq 47756
-          echo '3a7786186937ec4df96fbbd5b405ee49edcbb227387afcb68e78b311feea4cdf  /tmp/a6b2-full.b64' | sha256sum --check --strict
-          base64 --decode /tmp/a6b2-full.b64 > /tmp/a6b2-files.tar.gz
-          echo '9bc62d7c7c2dd039f4b32678eb95a7f3a230eccd5c207bc404cf417bd3d6f829  /tmp/a6b2-files.tar.gz' | sha256sum --check --strict
           python - <<'PY'
+          import base64
+          import hashlib
           import tarfile
-          expected = {
+          from pathlib import Path
+
+          original = Path('.a6b2-implementation.bundle.b64').read_bytes()
+          if len(original) != 20023:
+              raise SystemExit(f'unexpected staged bundle length: {len(original)}')
+          segments = [
+              original[:10000],
+              Path('.a6b2.bundle.mid0').read_bytes(),
+              Path('.a6b2.bundle.mid1').read_bytes(),
+              Path('.a6b2.bundle.mid2').read_bytes(),
+              original[-10000:],
+          ]
+          segment_digests = (
+              'baacec40f1eeecde22bbf9b6d0182353853ff7bd4f706b83d80db6cb81df440f',
+              'af54beb3d4f2f39646f0f91e66d8d32b070bc88c7892866d93775065438b1f8a',
+              'baa4e46cd52c3c36c2f17d2ac3baf045c65588a35c18119986ca4e85d2d88ab7',
+              'd97a674d08feb18478479b968ef1c2fee23d65a0dcf164c95e1c9e8efba0996c',
+              '1346646617219f7f77ce61c5b4152bd2ed2799b991423d9c08f4ff1e82540aa1',
+          )
+          for index, (segment, expected) in enumerate(zip(segments, segment_digests, strict=True)):
+              actual = hashlib.sha256(segment).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f'segment {index} digest mismatch: {actual}')
+          encoded = b''.join(segments)
+          cumulative = {
+              10000: 'baacec40f1eeecde22bbf9b6d0182353853ff7bd4f706b83d80db6cb81df440f',
+              19252: '35d4501b917b443f06e58122ad4ee653e8ea2e4a7ce5a75c437b9d8e809cd5d2',
+              28504: '657548a3f6c23e8463742af925bb120cd6edd2c6e2f952e9e9369261406290f7',
+              37756: 'abaac0c9b1d2836a3992a24d23c9fb63c77bfdb93376a60819c1590d481d5eaa',
+              47756: '3a7786186937ec4df96fbbd5b405ee49edcbb227387afcb68e78b311feea4cdf',
+          }
+          for length, expected in cumulative.items():
+              actual = hashlib.sha256(encoded[:length]).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f'cumulative digest mismatch at {length}: {actual}')
+          archive_bytes = base64.b64decode(encoded, validate=True)
+          archive_digest = hashlib.sha256(archive_bytes).hexdigest()
+          if archive_digest != '9bc62d7c7c2dd039f4b32678eb95a7f3a230eccd5c207bc404cf417bd3d6f829':
+              raise SystemExit(f'archive digest mismatch: {archive_digest}')
+          archive_path = Path('/tmp/a6b2-files.tar.gz')
+          archive_path.write_bytes(archive_bytes)
+          expected_paths = {
               'docs/operations/stage-a-production-evaluator-design.md',
               'docs/operations/stage-a-zero-shot-evaluation-plan.md',
               'docs/superpowers/specs/2026-07-31-stage-a-policy-producer-design.md',
@@ -61,16 +88,16 @@ jobs:
               'trade_rl/workflows/stage_a_policy_source.py',
               'trade_rl/workflows/stage_a_execution_producer.py',
           }
-          with tarfile.open('/tmp/a6b2-files.tar.gz', 'r:gz') as archive:
+          with tarfile.open(archive_path, 'r:gz') as archive:
               members = archive.getmembers()
               names = {member.name for member in members}
-              if names != expected:
-                  raise SystemExit(f'Bundle path closure mismatch: {sorted(names ^ expected)}')
+              if names != expected_paths:
+                  raise SystemExit(f'Bundle path closure mismatch: {sorted(names ^ expected_paths)}')
               if any(not member.isfile() for member in members):
                   raise SystemExit('Bundle contains a non-file member')
               archive.extractall('.', filter='data')
           PY
-          rm -f "$original" "${chunks[@]}" .a6b2-source-export-trigger .github/workflows/a6b2-source-export.yml
+          rm -f .a6b2-implementation.bundle.b64 .a6b2.bundle.mid0 .a6b2.bundle.mid1 .a6b2.bundle.mid2 .a6b2-source-export-trigger .github/workflows/a6b2-source-export.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A

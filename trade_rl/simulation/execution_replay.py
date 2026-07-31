@@ -205,7 +205,9 @@ def validate_order_event_stream(
         for event in history:
             if previous is not None:
                 if previous.new_status.terminal:
-                    raise ValueError(f"order {order_id} has an event after terminal state")
+                    raise ValueError(
+                        f"order {order_id} has an event after terminal state"
+                    )
                 if event.previous_status is not previous.new_status:
                     raise ValueError(f"order {order_id} status chain is discontinuous")
                 if event.processing_index < previous.processing_index:
@@ -285,7 +287,9 @@ def validate_order_event_stream(
                 event.new_status is OrderStatus.FILLED
                 and abs(expected_remaining) > tolerance
             ):
-                raise ValueError(f"order {order_id} filled status has remaining quantity")
+                raise ValueError(
+                    f"order {order_id} filled status has remaining quantity"
+                )
             if (
                 event.new_status is OrderStatus.PARTIALLY_FILLED
                 and abs(expected_remaining) <= tolerance
@@ -544,7 +548,10 @@ def _book_from_payload(value: Mapping[str, object]) -> BookState:
         ),
         returns_history=list(
             _finite_vector(
-                cast(Sequence[float], _sequence(value["returns_history"], field="returns_history")),
+                cast(
+                    Sequence[float],
+                    _sequence(value["returns_history"], field="returns_history"),
+                ),
                 field="returns_history",
             )
         ),
@@ -623,7 +630,10 @@ def _validate_terminal_states(
         histories.setdefault(event.order_id, []).append(event)
     states = {
         order.order_id: order
-        for order in (*terminal_order_book.active_orders, *terminal_order_book.terminal_orders)
+        for order in (
+            *terminal_order_book.active_orders,
+            *terminal_order_book.terminal_orders,
+        )
     }
     if set(states) != set(histories):
         raise ValueError("terminal order book does not match event stream orders")
@@ -914,9 +924,7 @@ class ExecutionEventArtifact:
             observation_digests=observations,
             equity_curve=equity,
             events=events,
-            terminal_book=dict(
-                _mapping(value["terminal_book"], field="terminal_book")
-            ),
+            terminal_book=dict(_mapping(value["terminal_book"], field="terminal_book")),
             terminal_order_book=dict(
                 _mapping(value["terminal_order_book"], field="terminal_order_book")
             ),

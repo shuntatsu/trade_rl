@@ -438,7 +438,10 @@ def validate_execution_event_artifact(
         raise ExecutionPromotionError("execution terminal book digest mismatch")
     if artifact.terminal_order_book_digest != evidence.terminal_order_book_digest:
         raise ExecutionPromotionError("execution terminal order book digest mismatch")
-    if artifact.replay_identity.candidate_config_digest != evidence.candidate_config_digest:
+    if (
+        artifact.replay_identity.candidate_config_digest
+        != evidence.candidate_config_digest
+    ):
         raise ExecutionPromotionError("execution candidate identity mismatch")
     if artifact.replay_identity.evaluation_run_digest != evidence.evaluation_run_digest:
         raise ExecutionPromotionError("execution evaluation run identity mismatch")

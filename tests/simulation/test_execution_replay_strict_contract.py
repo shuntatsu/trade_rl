@@ -41,9 +41,7 @@ def _event(
         execution_price=execution_price,
         filled_notional=filled_notional,
         capacity_before=1000.0 if filled_quantity else 0.0,
-        capacity_after=(
-            1000.0 - filled_notional if filled_quantity else 0.0
-        ),
+        capacity_after=(1000.0 - filled_notional if filled_quantity else 0.0),
         participation_rate=0.1 if filled_quantity else 0.0,
         trigger_segment="open" if filled_quantity else None,
         available_volume_fraction=1.0 if filled_quantity else 0.0,

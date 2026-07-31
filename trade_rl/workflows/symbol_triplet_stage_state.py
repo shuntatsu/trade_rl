@@ -185,9 +185,7 @@ class SymbolTripletStageStatePointer:
             generation_digest=cast(str, value["generation_digest"]),
             cursor_digest=cast(str, value["cursor_digest"]),
             completion_digest=cast(str | None, value["completion_digest"]),
-            previous_pointer_digest=cast(
-                str | None, value["previous_pointer_digest"]
-            ),
+            previous_pointer_digest=cast(str | None, value["previous_pointer_digest"]),
             schema_version=cast(str, value["schema_version"]),
             digest=cast(str, value["digest"]),
         )
@@ -271,9 +269,7 @@ class SymbolTripletStageStateStore:
                 if self.current_path.exists():
                     current_pointer = self._load_pointer()
                     if current_pointer.generation_digest == generation_digest:
-                        raise ValueError(
-                            "committed stage generation is incomplete"
-                        )
+                        raise ValueError("committed stage generation is incomplete")
                 if generation_root.is_symlink():
                     generation_root.unlink()
                 else:
@@ -342,9 +338,7 @@ class SymbolTripletStageStateStore:
             if completion.digest != completion_digest:
                 raise ValueError("stage state generation completion digest mismatch")
             if cursor.last_completion_digest != completion.digest:
-                raise ValueError(
-                    "stage state generation cursor/completion mismatch"
-                )
+                raise ValueError("stage state generation cursor/completion mismatch")
         return completion, cursor
 
     def _load_pointer(self) -> SymbolTripletStageStatePointer:

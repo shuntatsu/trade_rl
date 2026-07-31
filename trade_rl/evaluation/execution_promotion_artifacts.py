@@ -98,11 +98,11 @@ class ExecutionPromotionArtifacts:
             raise ValueError("execution replay digest mismatch")
         if self.evidence.digest != self.evidence_digest:
             raise ValueError("execution evidence digest mismatch")
-        expected_replay = root / _REPLAY_DIR / (
-            f"{self.replay_digest}.execution-replay.json"
+        expected_replay = (
+            root / _REPLAY_DIR / (f"{self.replay_digest}.execution-replay.json")
         )
-        expected_evidence = root / _EVIDENCE_DIR / (
-            f"{self.evidence_digest}.execution-evidence.json"
+        expected_evidence = (
+            root / _EVIDENCE_DIR / (f"{self.evidence_digest}.execution-evidence.json")
         )
         expected_manifest = root / _MANIFEST_DIR / f"{self.replay_digest}.json"
         if replay_path != expected_replay:
@@ -136,9 +136,7 @@ def _manifest_payload(artifacts: ExecutionPromotionArtifacts) -> dict[str, objec
 
 def _manifest_bytes(artifacts: ExecutionPromotionArtifacts) -> bytes:
     payload = _manifest_payload(artifacts)
-    return canonical_json_bytes(
-        {"digest": content_digest(payload), **payload}
-    ) + b"\n"
+    return canonical_json_bytes({"digest": content_digest(payload), **payload}) + b"\n"
 
 
 def write_execution_promotion_artifacts(
@@ -189,9 +187,7 @@ def write_execution_promotion_artifacts(
         order_event_artifact_path=replay_path,
     )
     evidence_path = (
-        resolved_root
-        / _EVIDENCE_DIR
-        / f"{evidence.digest}.execution-evidence.json"
+        resolved_root / _EVIDENCE_DIR / f"{evidence.digest}.execution-evidence.json"
     )
     _write_idempotent(
         evidence_path,

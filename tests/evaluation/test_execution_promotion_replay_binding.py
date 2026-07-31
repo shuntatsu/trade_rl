@@ -176,9 +176,7 @@ def test_replay_artifact_binds_candidate_run_fold_seed_and_traces() -> None:
     assert _artifact(seed=8).digest != artifact.digest
     assert _artifact(actions=((0.5,),)).digest != artifact.digest
     assert _artifact(equity_curve=(1_000.0, 999.0)).digest != artifact.digest
-    assert _artifact(
-        observation_digests=("1" * 64, "3" * 64)
-    ).digest != artifact.digest
+    assert _artifact(observation_digests=("1" * 64, "3" * 64)).digest != artifact.digest
 
 
 def test_terminal_order_book_must_match_event_stream() -> None:

@@ -930,9 +930,7 @@ class OrderEvent:
         if not 0.0 <= self.participation_rate <= 1.0:
             raise OrderDomainError("participation_rate must be within [0, 1]")
         if not 0.0 <= self.available_volume_fraction <= 1.0:
-            raise OrderDomainError(
-                "available_volume_fraction must be within [0, 1]"
-            )
+            raise OrderDomainError("available_volume_fraction must be within [0, 1]")
         if self.execution_price is not None and not _is_finite(self.execution_price):
             raise OrderDomainError("execution_price must be finite when present")
         if self.execution_price is not None and self.execution_price <= 0.0:
@@ -940,7 +938,8 @@ class OrderEvent:
         if not all(_is_finite(point) for point in self.path_points):
             raise OrderDomainError("path_points must be finite")
         if self.path_points and (
-            len(self.path_points) != 4 or any(point <= 0.0 for point in self.path_points)
+            len(self.path_points) != 4
+            or any(point <= 0.0 for point in self.path_points)
         ):
             raise OrderDomainError("path_points must be four positive prices")
         if self.path_mode not in {"optimistic", "neutral", "conservative"}:
@@ -1040,9 +1039,7 @@ class OrderEvent:
             remaining_quantity=number("remaining_quantity"),
             filled_quantity=number("filled_quantity"),
             execution_price=(
-                None
-                if raw_execution_price is None
-                else float(raw_execution_price)
+                None if raw_execution_price is None else float(raw_execution_price)
             ),
             filled_notional=number("filled_notional"),
             capacity_before=number("capacity_before"),

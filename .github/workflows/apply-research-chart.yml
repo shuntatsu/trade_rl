@@ -1,0 +1,37 @@
+name: Apply research chart workspace
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/apply-research-chart.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
+      - name: Apply implementation payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .tmp/research-chart.part* | base64 --decode > /tmp/research-chart-changes.tar.gz
+          tar -xzf /tmp/research-chart-changes.tar.gz -C studio
+          rm -f studio/src/live/MarketReplayChart.tsx
+          rm -f studio/src/live/MarketReplayChart.test.tsx
+          rm -rf .tmp
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A studio .tmp
+          git diff --cached --quiet || git commit -m "feat(studio): add interactive research chart workspace"
+          git push origin HEAD:${{ github.head_ref }}

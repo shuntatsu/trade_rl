@@ -69,6 +69,38 @@ try {
   await page.getByText('最新の実験結果サマリー').waitFor()
   await page.getByRole('button', { name: 'Live Training' }).click()
   await page.getByRole('heading', { name: 'Live Training' }).waitFor()
+  await page.getByLabel('Live Training Run').waitFor()
+  await page.getByRole('button', { name: /対象を変更/ }).waitFor()
+  if (await page.getByText('LIVE', { exact: true }).count() !== 0) {
+    throw new Error('Decorative LIVE chrome returned to the research workspace')
+  }
+
+  const replayGeometry = await page.evaluate(() => {
+    const toolbar = document.querySelector('.research-replay-toolbar')
+    const workspace = document.querySelector('.research-workspace-grid')
+    if (!(toolbar instanceof HTMLElement) || !(workspace instanceof HTMLElement)) {
+      throw new Error('Research replay workspace nodes are missing')
+    }
+    const toolbarBox = toolbar.getBoundingClientRect()
+    const workspaceBox = workspace.getBoundingClientRect()
+    return {
+      viewportHeight: window.innerHeight,
+      toolbarHeight: toolbarBox.height,
+      workspaceHeight: workspaceBox.height,
+      workspaceBottom: workspaceBox.bottom,
+    }
+  })
+  if (replayGeometry.toolbarHeight > 120) {
+    throw new Error(`Research replay toolbar consumed the workspace: ${JSON.stringify(replayGeometry)}`)
+  }
+  if (replayGeometry.workspaceHeight < 320) {
+    throw new Error(`Research replay chart was compressed below the usable workspace: ${JSON.stringify(replayGeometry)}`)
+  }
+  if (replayGeometry.workspaceBottom > replayGeometry.viewportHeight + 1) {
+    throw new Error(`Research replay workspace overflowed the viewport: ${JSON.stringify(replayGeometry)}`)
+  }
+  await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-live-training-replay.png'), fullPage: false })
+
   await page.getByRole('button', { name: '学習診断' }).click()
   await page.getByText('Runを選択してください。').waitFor()
 

@@ -1,14 +1,35 @@
-"""Strict episode result contracts for Stage A production evaluation."""
+"""Strict episode execution and artifact production for Stage A evaluation."""
 
 from __future__ import annotations
 
 import math
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, Self
 
 from trade_rl.domain.common import require_sha256
+from trade_rl.evaluation.stage_a_zero_shot_contracts import (
+    StageACandidate,
+    StageAZeroShotEvaluationPlan,
+)
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution_promotion import (
+    execution_evidence_from_cost,
+    write_execution_evidence,
+)
+from trade_rl.simulation.execution_replay import (
+    build_execution_event_artifact,
+    write_execution_event_artifact,
+)
 from trade_rl.simulation.orders import OrderBookState, OrderEvent
+from trade_rl.workflows.stage_a_execution_store import StoredStageAExecutionReplay
+from trade_rl.workflows.stage_a_policy_source import (
+    StageAPolicyRuntimeHandle,
+    StageAPolicyRuntimeLoader,
+    StageAPolicySourceBinding,
+)
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
@@ -31,6 +52,38 @@ def _optional_sha256(value: str | None, *, field: str) -> str | None:
         return None
     require_sha256(value, field=field)
     return value
+
+
+def _candidate_for_request(
+    *,
+    plan: StageAZeroShotEvaluationPlan,
+    request: StageAEvaluationCellRequest,
+) -> StageACandidate | None:
+    if request.plan_digest != plan.digest:
+        raise ValueError("Stage A execution request plan digest mismatch")
+    for field, actual, expected in (
+        ("dataset", request.dataset_identity, plan.dataset_identity),
+        ("feature", request.feature_identity, plan.feature_identity),
+        ("execution", request.execution_identity, plan.execution_identity),
+        ("evaluation", request.evaluation_identity, plan.evaluation_identity),
+    ):
+        if actual != expected:
+            raise ValueError(f"Stage A execution request {field} identity mismatch")
+    if request.seed not in plan.seeds:
+        raise ValueError("Stage A execution request seed is not declared")
+    if request.fold not in plan.folds:
+        raise ValueError("Stage A execution request fold is not declared")
+    if request.triplet_id not in plan.triplet_ids_for(request.split):
+        raise ValueError("Stage A execution request triplet is not declared")
+    if request.is_baseline:
+        return None
+    candidate_id = request.candidate_id
+    if candidate_id is None:
+        raise ValueError("Stage A policy execution requires a candidate")
+    candidate = plan.candidate(candidate_id)
+    if request.checkpoint_digest != candidate.checkpoint_digest(request.seed):
+        raise ValueError("Stage A execution request checkpoint mismatch")
+    return candidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,7 +242,195 @@ class StageAEvaluationEpisodeExecutor(Protocol):
     ) -> StageAEvaluationEpisodeResult: ...
 
 
+class StageAPolicySourceReader(Protocol):
+    """Read immutable policy-source bindings by request identity."""
+
+    root: Path
+
+    def load(self, request_digest: str) -> StageAPolicySourceBinding: ...
+
+
+class StageAExecutionCostResolver(Protocol):
+    """Resolve the exact execution-cost contract for one request."""
+
+    def resolve(self, request: StageAEvaluationCellRequest) -> ExecutionCostConfig: ...
+
+
+class StageAExecutionArtifactStore(Protocol):
+    """Publish and reload immutable Stage A execution artifacts."""
+
+    def publish(
+        self,
+        *,
+        request: StageAEvaluationCellRequest,
+        candidate_config_digest: str,
+        actions: tuple[tuple[float, ...], ...],
+        observation_digests: tuple[str, ...],
+        equity_curve: tuple[float, ...],
+        event_artifact_path: str | Path,
+        execution_evidence_path: str | Path,
+    ) -> StoredStageAExecutionReplay: ...
+
+    def load(self, request_digest: str) -> StoredStageAExecutionReplay: ...
+
+
+def _validate_runtime_handle(
+    *,
+    binding: StageAPolicySourceBinding,
+    request: StageAEvaluationCellRequest,
+    handle: StageAPolicyRuntimeHandle,
+) -> None:
+    if handle.binding_digest != binding.digest:
+        raise ValueError("Stage A runtime binding digest mismatch")
+    if handle.plan_digest != binding.plan_digest:
+        raise ValueError("Stage A runtime plan digest mismatch")
+    if handle.request_digest != request.digest:
+        raise ValueError("Stage A runtime request digest mismatch")
+    if handle.candidate_id != binding.candidate_id:
+        raise ValueError("Stage A runtime candidate identity mismatch")
+    if handle.seed != binding.seed:
+        raise ValueError("Stage A runtime seed identity mismatch")
+    if handle.checkpoint_digest != binding.checkpoint_digest:
+        raise ValueError("Stage A runtime checkpoint mismatch")
+    if handle.candidate_config_digest != binding.candidate_config_digest:
+        raise ValueError("Stage A runtime config digest mismatch")
+    if handle.checkpoint_policy_digest != binding.checkpoint_policy_digest:
+        raise ValueError("Stage A runtime policy digest mismatch")
+    if binding.serving_bundle_digest is None:
+        raise ValueError("Stage A policy execution requires a serving bundle")
+    if handle.serving_bundle_digest != binding.serving_bundle_digest:
+        raise ValueError("Stage A runtime serving bundle mismatch")
+    if handle.policy is None:
+        raise ValueError("Stage A runtime policy is missing")
+
+
+class StageAExecutionArtifactProducer:
+    """Produce one exact policy-bound or baseline Stage A execution artifact."""
+
+    def __init__(
+        self,
+        *,
+        plan: StageAZeroShotEvaluationPlan,
+        policy_source_store: StageAPolicySourceReader,
+        policy_runtime_loader: StageAPolicyRuntimeLoader,
+        episode_executor: StageAEvaluationEpisodeExecutor,
+        execution_store: StageAExecutionArtifactStore,
+        execution_cost_resolver: StageAExecutionCostResolver,
+        baseline_config_digest: str,
+    ) -> None:
+        require_sha256(
+            baseline_config_digest,
+            field="stage_a_baseline_config_digest",
+        )
+        self.plan = plan
+        self.policy_source_store = policy_source_store
+        self.policy_runtime_loader = policy_runtime_loader
+        self.episode_executor = episode_executor
+        self.execution_store = execution_store
+        self.execution_cost_resolver = execution_cost_resolver
+        self.baseline_config_digest = baseline_config_digest
+
+    def _policy_inputs(
+        self,
+        *,
+        request: StageAEvaluationCellRequest,
+        candidate: StageACandidate | None,
+    ) -> tuple[object | None, str | None, str]:
+        if candidate is None:
+            return None, None, self.baseline_config_digest
+        binding = self.policy_source_store.load(request.digest)
+        binding.validate(
+            root=self.policy_source_store.root,
+            plan=self.plan,
+            request=request,
+        )
+        if binding.candidate_config_digest != candidate.candidate_config_digest:
+            raise ValueError("Stage A policy source config digest mismatch")
+        handle = self.policy_runtime_loader.load(
+            plan=self.plan,
+            request=request,
+            binding=binding,
+        )
+        _validate_runtime_handle(binding=binding, request=request, handle=handle)
+        return handle.policy, binding.digest, binding.candidate_config_digest
+
+    def produce(
+        self,
+        request: StageAEvaluationCellRequest,
+    ) -> StoredStageAExecutionReplay:
+        """Execute, derive canonical evidence, publish, reload, and return one cell."""
+
+        candidate = _candidate_for_request(plan=self.plan, request=request)
+        cost = self.execution_cost_resolver.resolve(request)
+        if cost.execution_policy_digest != request.execution_identity:
+            raise ValueError("Stage A execution cost identity mismatch")
+        if cost.path_mode != "conservative":
+            raise ValueError("Stage A production execution requires conservative cost")
+
+        policy, policy_source_digest, candidate_config_digest = self._policy_inputs(
+            request=request,
+            candidate=candidate,
+        )
+        result = self.episode_executor.execute(
+            request,
+            policy=policy,
+            policy_source_digest=policy_source_digest,
+            candidate_config_digest=candidate_config_digest,
+        )
+        result.validate_against(
+            request,
+            expected_policy_source_digest=policy_source_digest,
+            expected_candidate_config_digest=candidate_config_digest,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="stage-a-execution-") as directory:
+            source_root = Path(directory)
+            event_artifact = build_execution_event_artifact(
+                candidate_config_digest=candidate_config_digest,
+                evaluation_run_digest=request.digest,
+                fold=request.fold,
+                seed=request.seed,
+                dataset_id=request.dataset_identity,
+                execution_policy_digest=request.execution_identity,
+                actions=result.actions,
+                observation_digests=result.observation_digests,
+                equity_curve=result.equity_curve,
+                order_events=result.order_events,
+                terminal_book=result.terminal_book,
+                terminal_order_book=result.terminal_order_book,
+            )
+            event_path = write_execution_event_artifact(
+                source_root / "order-events.json",
+                event_artifact,
+            )
+            evidence = execution_evidence_from_cost(
+                dataset_id=request.dataset_identity,
+                cost=cost,
+                sensitivity_path_modes=("conservative",),
+                order_event_artifact_path=event_path,
+            )
+            evidence_path = source_root / "execution-evidence.json"
+            write_execution_evidence(evidence_path, evidence)
+            published = self.execution_store.publish(
+                request=request,
+                candidate_config_digest=candidate_config_digest,
+                actions=result.actions,
+                observation_digests=result.observation_digests,
+                equity_curve=result.equity_curve,
+                event_artifact_path=event_path,
+                execution_evidence_path=evidence_path,
+            )
+        loaded = self.execution_store.load(request.digest)
+        if loaded != published:
+            raise ValueError("Stage A execution store reload mismatch")
+        return loaded
+
+
 __all__ = [
     "StageAEvaluationEpisodeExecutor",
     "StageAEvaluationEpisodeResult",
+    "StageAExecutionArtifactProducer",
+    "StageAExecutionArtifactStore",
+    "StageAExecutionCostResolver",
+    "StageAPolicySourceReader",
 ]

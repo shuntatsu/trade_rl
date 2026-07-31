@@ -61,6 +61,7 @@ The next PR should add a Stage A runner that:
 1. loads retained checkpoints through the canonical serving/training loader;
 2. evaluates each declared fold, seed, triplet, and scenario using the maintained execution model;
 3. verifies the source execution artifact before constructing each v2 observation;
-4. writes validation evidence and selection;
-5. consumes the existing one-shot sealed-test ledger only for the selected candidate;
-6. writes the sealed-test evidence and final decision.
+4. rejects the source artifact before publication when its dataset, feature, execution, evaluation, checkpoint, or evaluation-cell identity differs from the predeclared plan;
+5. writes validation evidence and selection;
+6. consumes the existing one-shot sealed-test ledger only for the selected candidate;
+7. writes the sealed-test evidence and final decision.

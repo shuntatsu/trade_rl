@@ -1,0 +1,44 @@
+name: Temporary Apply Stage A Ruff Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-apply-stage-a-ruff-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify and apply Ruff fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/stage-a-ruff-fix.patch.gz.b64.part* > /tmp/stage-a-ruff-fix.patch.gz.b64
+          test "$(wc -c < /tmp/stage-a-ruff-fix.patch.gz.b64)" = "1924"
+          echo "6a79da164f8a89e136c239d4ec40f3a5a7710c7abf11fb4737f82609bb33189b  /tmp/stage-a-ruff-fix.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/stage-a-ruff-fix.patch.gz.b64 > /tmp/stage-a-ruff-fix.patch.gz
+          gzip --test /tmp/stage-a-ruff-fix.patch.gz
+          gzip --decompress --stdout /tmp/stage-a-ruff-fix.patch.gz > /tmp/stage-a-ruff-fix.patch
+          echo "49da4f01be6a7b9f65d4b135e3a54904b8c1c9850d7d92e113057502deb22779  /tmp/stage-a-ruff-fix.patch" | sha256sum --check
+          git apply --check /tmp/stage-a-ruff-fix.patch
+          git apply /tmp/stage-a-ruff-fix.patch
+          rm -f .github/stage-a-ruff-fix.patch.gz.b64.part*
+          rm -f .github/workflows/temporary-apply-stage-a-ruff-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "style: sort Stage A imports"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

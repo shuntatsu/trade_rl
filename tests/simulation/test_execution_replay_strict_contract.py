@@ -156,3 +156,20 @@ def test_order_event_stream_rejects_inconsistent_fill_arithmetic() -> None:
 
     with pytest.raises(ValueError, match="remaining quantity"):
         validate_order_event_stream(events)
+
+
+def test_order_event_stream_rejects_duplicate_submitted_event() -> None:
+    events = (
+        _event(sequence=0),
+        _event(sequence=1, processing_index=1),
+        _event(
+            sequence=2,
+            event_type="eligible",
+            previous_status=OrderStatus.SUBMITTED,
+            new_status=OrderStatus.ELIGIBLE,
+            processing_index=2,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="submitted event"):
+        validate_order_event_stream(events)

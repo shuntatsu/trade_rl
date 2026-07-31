@@ -5,14 +5,13 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pytest
 
+from tests.evaluation.replay_support import execution_episode
 from trade_rl.artifacts.run_manifest import (
     TrainingRunManifest,
     write_training_run_manifest,
 )
-from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     execution_evidence_from_cost,
@@ -23,42 +22,11 @@ from trade_rl.simulation.execution_replay import (
     build_execution_event_artifact,
     write_execution_event_artifact,
 )
-from trade_rl.simulation.orders import OrderBookState, OrderEvent, OrderStatus
 
 _TARGET_MODULES = {
     "tests.serving.test_package",
     "tests.serving.test_package_critical_branches",
 }
-
-
-def _event(*, dataset_id: str, execution_policy_digest: str) -> OrderEvent:
-    return OrderEvent(
-        schema_version="order_event_v1",
-        sequence=0,
-        order_id="a" * 64,
-        replaced_order_id=None,
-        dataset_id=dataset_id,
-        execution_policy_digest=execution_policy_digest,
-        symbol_index=0,
-        event_type="filled",
-        processing_index=1,
-        timestamp_ns=1,
-        previous_status=OrderStatus.ELIGIBLE,
-        new_status=OrderStatus.FILLED,
-        requested_quantity=1.0,
-        remaining_quantity=0.0,
-        filled_quantity=1.0,
-        execution_price=100.0,
-        filled_notional=100.0,
-        capacity_before=10.0,
-        capacity_after=9.0,
-        participation_rate=0.1,
-        trigger_segment=None,
-        available_volume_fraction=1.0,
-        reason=None,
-        path_mode="conservative",
-        path_points=(100.0, 101.0, 99.0, 100.5),
-    )
 
 
 def _rebuild_v3_training_run(
@@ -72,22 +40,23 @@ def _rebuild_v3_training_run(
         raise TypeError("serving training fixture root must be a Path")
     root = raw_root
     execution_cost = ExecutionCostConfig(path_mode="conservative")
-    event_artifact = build_execution_event_artifact(
+    events, terminal_book, terminal_order_book = execution_episode(
         dataset_id=manifest.dataset_id,
         execution_policy_digest=execution_cost.execution_policy_digest,
-        order_events=(
-            _event(
-                dataset_id=manifest.dataset_id,
-                execution_policy_digest=execution_cost.execution_policy_digest,
-            ),
-        ),
-        terminal_book=BookState(
-            quantities=np.array((1.0,), dtype=np.float64),
-            cash=900.0,
-            mark_prices=np.array((100.0,), dtype=np.float64),
-            peak_value=1_000.0,
-        ),
-        terminal_order_book=OrderBookState.empty(),
+    )
+    event_artifact = build_execution_event_artifact(
+        candidate_config_digest=manifest.training_config_digest,
+        evaluation_run_digest=manifest.walk_forward_run_digest or "3" * 64,
+        fold=0,
+        seed=0,
+        dataset_id=manifest.dataset_id,
+        execution_policy_digest=execution_cost.execution_policy_digest,
+        actions=((0.4,),),
+        observation_digests=("1" * 64, "2" * 64),
+        equity_curve=(1_000.0, 1_000.0),
+        order_events=events,
+        terminal_book=terminal_book,
+        terminal_order_book=terminal_order_book,
     )
     event_path = write_execution_event_artifact(
         root / EXECUTION_EVENT_ARTIFACT_FILE_NAME,

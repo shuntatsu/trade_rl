@@ -344,6 +344,7 @@ def test_two_training_stages_transfer_only_previous_seed_checkpoints(
         store_root=tmp_path / "artifacts-0",
         run_id="triplet-stage-000",
         completion_path=tmp_path / "completion-0.json",
+        stage_state_root=tmp_path / "stage-state",
     )
 
     assert stage0 is not None
@@ -369,7 +370,7 @@ def test_two_training_stages_transfer_only_previous_seed_checkpoints(
     stage1 = execute_symbol_triplet_stage_training(
         plan=plan,
         cursor_path=cursor_path,
-        previous_completion_path=tmp_path / "completion-0.json",
+        previous_completion_path=None,
         dataset_path=dataset1_path,
         dataset_binding_path=binding1_path,
         base_config_path=config_path,
@@ -377,6 +378,7 @@ def test_two_training_stages_transfer_only_previous_seed_checkpoints(
         store_root=tmp_path / "artifacts-1",
         run_id="triplet-stage-001",
         completion_path=tmp_path / "completion-1.json",
+        stage_state_root=tmp_path / "stage-state",
     )
 
     assert stage1 is not None
@@ -438,6 +440,7 @@ def test_missing_final_seed_checkpoint_does_not_advance_cursor(
             store_root=tmp_path / "artifacts",
             run_id="triplet-stage-000",
             completion_path=tmp_path / "completion.json",
+            stage_state_root=tmp_path / "stage-state",
         )
 
     assert cursor_path.read_bytes() == initial_bytes

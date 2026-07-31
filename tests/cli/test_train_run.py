@@ -25,6 +25,8 @@ def test_train_run_command_emits_published_run_json(
             "require_selection_authorization": False,
             "execution_evidence_path": None,
             "execution_event_artifact_path": None,
+            "execution_promotion_root": None,
+            "execution_replay_digest": None,
         }
         return TrainingRunResult(
             run_id="run-001",
@@ -108,3 +110,48 @@ def test_train_run_command_returns_structured_failure(monkeypatch) -> None:
         "schema": "training_run_error_v1",
         "status": "failed",
     }
+
+
+def test_train_run_command_passes_content_addressed_promotion_root(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured = {}
+
+    def fake_execute(**kwargs):
+        captured.update(kwargs)
+        return TrainingRunResult(
+            run_id="run-002",
+            status="published",
+            path=tmp_path / "runs" / "run-002",
+            run_digest="a" * 64,
+            policy_digest="b" * 64,
+            dataset_id="c" * 64,
+        )
+
+    monkeypatch.setattr(extended, "execute_training_run", fake_execute)
+    stdout = StringIO()
+    stderr = StringIO()
+    replay_digest = "d" * 64
+    exit_code = extended.main(
+        [
+            "train",
+            "run",
+            "--config",
+            "config.json",
+            "--dataset",
+            "dataset",
+            "--output",
+            "artifacts",
+            "--execution-promotion-root",
+            "promotion",
+            "--execution-replay-digest",
+            replay_digest,
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    assert captured["execution_promotion_root"] == Path("promotion")
+    assert captured["execution_replay_digest"] == replay_digest

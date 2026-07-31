@@ -14,12 +14,24 @@ from typing import BinaryIO
 from trade_rl.domain.common import require_sha256
 
 
-def file_digest(path: Path, *, field: str = "artifact file") -> str:
+def file_digest_and_size(
+    path: Path,
+    *,
+    field: str = "artifact file",
+) -> tuple[str, int]:
+    """Return SHA-256 and byte size from one opened regular-file snapshot."""
+
     digest = hashlib.sha256()
+    size = 0
     with open_regular_binary(path, field=field) as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return digest.hexdigest()
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def file_digest(path: Path, *, field: str = "artifact file") -> str:
+    return file_digest_and_size(path, field=field)[0]
 
 
 @contextmanager
@@ -42,6 +54,40 @@ def open_regular_binary(path: Path, *, field: str) -> Iterator[BinaryIO]:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def read_verified_bytes(
+    path: Path,
+    *,
+    expected_digest: str,
+    expected_size_bytes: int,
+    field: str,
+) -> bytes:
+    """Read one exact regular-file byte sequence and verify size and SHA-256."""
+
+    require_sha256(expected_digest, field=f"{field}.expected_digest")
+    if (
+        isinstance(expected_size_bytes, bool)
+        or not isinstance(expected_size_bytes, int)
+        or expected_size_bytes < 0
+    ):
+        raise ValueError(f"{field} expected size must be non-negative")
+    digest = hashlib.sha256()
+    chunks: list[bytes] = []
+    size = 0
+    with open_regular_binary(path, field=field) as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            digest.update(chunk)
+            size += len(chunk)
+    if size != expected_size_bytes:
+        raise ValueError(f"{field} size mismatch")
+    if digest.hexdigest() != expected_digest:
+        raise ValueError(f"{field} digest mismatch")
+    return b"".join(chunks)
 
 
 @contextmanager
@@ -90,4 +136,10 @@ def verified_private_copy(
         yield target
 
 
-__all__ = ["file_digest", "open_regular_binary", "verified_private_copy"]
+__all__ = [
+    "file_digest",
+    "file_digest_and_size",
+    "open_regular_binary",
+    "read_verified_bytes",
+    "verified_private_copy",
+]

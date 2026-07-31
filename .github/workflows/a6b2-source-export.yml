@@ -58,7 +58,7 @@ jobs:
                   raise SystemExit(f'segment {index} digest mismatch: {actual}')
           encoded = b''.join(segments)
           encoded_digest = hashlib.sha256(encoded).hexdigest()
-          if encoded_digest != '3a7786186937ec4df96fbbd5b405ee49edcbb227387afcb68e78b311feea4cdf':
+          if encoded_digest != '89186ff262c32ce5dac45e79fd3b6d6d7241ec52554fd90e9189a92910f0b74a':
               raise SystemExit(f'encoded bundle digest mismatch: {encoded_digest}')
           archive_bytes = base64.b64decode(encoded, validate=True)
           archive_digest = hashlib.sha256(archive_bytes).hexdigest()

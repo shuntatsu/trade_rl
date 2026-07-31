@@ -1,4 +1,4 @@
-name: Temporary Diagnose Stage A Patch
+name: Temporary Apply Stage A Implementation
 
 on:
   pull_request:
@@ -8,10 +8,10 @@ on:
       - .github/workflows/temporary-apply-stage-a-implementation.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  apply:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -19,17 +19,26 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
-      - name: Diagnose staged patch bytes
+      - name: Verify and apply implementation patch
         shell: bash
         run: |
-          set -x
-          wc -c .github/stage-a-implementation.patch.gz.b64.part*
-          sha256sum .github/stage-a-implementation.patch.gz.b64.part*
+          set -euo pipefail
           cat .github/stage-a-implementation.patch.gz.b64.part* > /tmp/stage-a-implementation.patch.gz.b64
-          wc -c /tmp/stage-a-implementation.patch.gz.b64
-          sha256sum /tmp/stage-a-implementation.patch.gz.b64
-          LC_ALL=C grep -n '[^A-Za-z0-9+/=]' /tmp/stage-a-implementation.patch.gz.b64 || true
+          test "$(wc -c < /tmp/stage-a-implementation.patch.gz.b64)" = "51776"
+          echo "81956042e6d12ea2896925615c3ff63622e253f9506ae5b2d68c5272e3b3e264  /tmp/stage-a-implementation.patch.gz.b64" | sha256sum --check
           base64 --decode /tmp/stage-a-implementation.patch.gz.b64 > /tmp/stage-a-implementation.patch.gz
           gzip --test /tmp/stage-a-implementation.patch.gz
+          gzip --decompress --stdout /tmp/stage-a-implementation.patch.gz > /tmp/stage-a-implementation.patch
+          echo "4d47cc6e791915a5745ea548ec9c3479a7c78a83d2e3d3464180e239992f30e6  /tmp/stage-a-implementation.patch" | sha256sum --check
+          git apply --check /tmp/stage-a-implementation.patch
+          git apply /tmp/stage-a-implementation.patch
+          rm -f .github/stage-a-implementation.patch.gz.b64.part*
+          rm -f .github/workflows/temporary-apply-stage-a-implementation.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: implement manifest-bound Stage A evaluation"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

@@ -1,0 +1,93 @@
+name: Temporary Stage A Fixture Fix
+
+on:
+  push:
+    branches:
+      - agent/stage-a6b2-policy-producer-v2
+    paths:
+      - .github/workflows/temporary-stage-a-fixture-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/stage-a6b2-policy-producer-v2
+          fetch-depth: 1
+
+      - name: Repair single-seed fixtures
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("tests/workflows/test_stage_a_execution_producer.py"): (
+                  (
+                      '        checkpoint_digests=((0, _digest("candidate-a:checkpoint:0")),),',
+                      '        checkpoint_digests=(\n'
+                      '            (0, _digest("candidate-a:checkpoint:0")),\n'
+                      '            (1, _digest("candidate-a:checkpoint:1")),\n'
+                      '        ),',
+                  ),
+                  ('        seeds=(0,),', '        seeds=(0, 1),'),
+              ),
+              Path("tests/workflows/test_stage_a_policy_producer_orchestration.py"): (
+                  (
+                      '        checkpoint_digests=((0, content_digest(_checkpoint_payload())),),',
+                      '        checkpoint_digests=(\n'
+                      '            (0, content_digest(_checkpoint_payload())),\n'
+                      '            (1, _digest("candidate-a:checkpoint:1")),\n'
+                      '        ),',
+                  ),
+                  ('        seeds=(0,),', '        seeds=(0, 1),'),
+              ),
+              Path("tests/workflows/test_stage_a_policy_source_serving.py"): (
+                  (
+                      '        checkpoint_digests=((0, _checkpoint_digest(0)),),',
+                      '        checkpoint_digests=(\n'
+                      '            (0, _checkpoint_digest(0)),\n'
+                      '            (1, _checkpoint_digest(1)),\n'
+                      '        ),',
+                  ),
+                  ('        seeds=(0,),', '        seeds=(0, 1),'),
+              ),
+          }
+
+          for path, pairs in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              for old, new in pairs:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f"{path}: expected one occurrence of {old!r}, found {count}")
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding="utf-8")
+          PY
+
+          python -m py_compile \
+            tests/workflows/test_stage_a_execution_producer.py \
+            tests/workflows/test_stage_a_policy_producer_orchestration.py \
+            tests/workflows/test_stage_a_policy_source_serving.py
+
+          git diff --check
+          git diff -- \
+            tests/workflows/test_stage_a_execution_producer.py \
+            tests/workflows/test_stage_a_policy_producer_orchestration.py \
+            tests/workflows/test_stage_a_policy_source_serving.py
+
+      - name: Commit exact fixture repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tests/workflows/test_stage_a_execution_producer.py \
+            tests/workflows/test_stage_a_policy_producer_orchestration.py \
+            tests/workflows/test_stage_a_policy_source_serving.py
+          git commit -m "test: align Stage A fixtures with multi-seed contract"
+          git push origin HEAD:agent/stage-a6b2-policy-producer-v2

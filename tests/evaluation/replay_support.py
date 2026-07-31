@@ -130,9 +130,7 @@ def execution_episode(
         quantities=np.array((1.0,), dtype=np.float64),
         cash=cash,
         mark_prices=np.array((100.0,), dtype=np.float64),
-        peak_value=(
-            max(1_000.0, terminal_value) if peak_value is None else peak_value
-        ),
+        peak_value=(max(1_000.0, terminal_value) if peak_value is None else peak_value),
         fill_count=1,
         rebalance_events=1,
     )

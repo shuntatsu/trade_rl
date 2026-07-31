@@ -5,7 +5,10 @@ import type { TrainingTelemetryRecord } from '../data/types'
 import { DEFAULT_RESEARCH_CHART_LAYERS } from './researchChartModel'
 
 const runtime = vi.hoisted(() => {
-  const handlers: { crosshair?: (value: unknown) => void; click?: (value: unknown) => void } = {}
+  const handlers: {
+    crosshair?: (value: unknown) => void
+    click?: (value: unknown) => void
+  } = {}
   const pane = { setStretchFactor: vi.fn() }
   const timeScale = {
     fitContent: vi.fn(),
@@ -14,12 +17,13 @@ const runtime = vi.hoisted(() => {
     subscribeVisibleLogicalRangeChange: vi.fn(),
     unsubscribeVisibleLogicalRangeChange: vi.fn(),
   }
-  const series = Array.from({ length: 8 }, () => ({
-    setData: vi.fn(),
-    applyOptions: vi.fn(),
-  }))
+  const series: Array<{ setData: ReturnType<typeof vi.fn>; applyOptions: ReturnType<typeof vi.fn> }> = []
   const chart = {
-    addSeries: vi.fn((_definition: unknown, _options: unknown, _paneIndex: number) => series.shift()),
+    addSeries: vi.fn((_definition: unknown, _options: unknown, _paneIndex: number) => {
+      const next = { setData: vi.fn(), applyOptions: vi.fn() }
+      series.push(next)
+      return next
+    }),
     panes: vi.fn(() => [pane, pane, pane, pane]),
     subscribeCrosshairMove: vi.fn((handler: (value: unknown) => void) => { handlers.crosshair = handler }),
     unsubscribeCrosshairMove: vi.fn(),
@@ -30,7 +34,7 @@ const runtime = vi.hoisted(() => {
     remove: vi.fn(),
   }
   const markerApi = { setMarkers: vi.fn() }
-  return { handlers, pane, timeScale, chart, markerApi }
+  return { handlers, pane, timeScale, series, chart, markerApi }
 })
 
 vi.mock('lightweight-charts', () => ({
@@ -43,28 +47,66 @@ vi.mock('lightweight-charts', () => ({
   createSeriesMarkers: vi.fn(() => runtime.markerApi),
 }))
 
-import { ResearchChartWorkspace } from './ResearchChartWorkspace'
+import {
+  ResearchChartWorkspace,
+  type ResearchChartWorkspaceProps,
+} from './ResearchChartWorkspace'
 
-function telemetry(sequence: number, eventType: TrainingTelemetryRecord['eventType'] = 'rollout'): TrainingTelemetryRecord {
+function telemetry(
+  sequence: number,
+  eventType: TrainingTelemetryRecord['eventType'] = 'rollout',
+): TrainingTelemetryRecord {
   return {
-    schemaVersion: 'training_telemetry_v1', sequence, recordedAt: `2026-07-31T08:${String(sequence).padStart(2, '0')}:00+00:00`,
-    globalStep: sequence * 32, environmentStep: sequence, seed: 7, environmentId: 0, episodeId: 1,
-    eventType, marketIndex: 100 + sequence, marketTime: `2026-07-31T08:${String(sequence).padStart(2, '0')}:00.000000000`,
-    symbol: 'BTCUSDT', open: 100, high: 110, low: 90, close: 105 + sequence,
-    action: [0.2], executedTarget: [0.18], weightsBefore: [0.1], weightsAfter: [0.2],
-    portfolioValue: 1_000 + sequence, baselinePortfolioValue: 995 + sequence, reward: 0.1,
-    drawdown: 0.01, intervalCost: 1.5, intervalReturn: 0.001, riskReasons: [],
-    emergencyDeleverage: false, terminated: false, truncated: false,
+    schemaVersion: 'training_telemetry_v1',
+    sequence,
+    recordedAt: `2026-07-31T08:${String(sequence).padStart(2, '0')}:00+00:00`,
+    globalStep: sequence * 32,
+    environmentStep: sequence,
+    seed: 7,
+    environmentId: 0,
+    episodeId: 1,
+    eventType,
+    marketIndex: 100 + sequence,
+    marketTime: `2026-07-31T08:${String(sequence).padStart(2, '0')}:00.000000000`,
+    symbol: 'BTCUSDT',
+    open: 100,
+    high: 110,
+    low: 90,
+    close: 105 + sequence,
+    action: [0.2],
+    executedTarget: [0.18],
+    weightsBefore: [0.1],
+    weightsAfter: [0.2],
+    portfolioValue: 1_000 + sequence,
+    baselinePortfolioValue: 995 + sequence,
+    reward: 0.1,
+    drawdown: 0.01,
+    intervalCost: 1.5,
+    intervalReturn: 0.001,
+    riskReasons: [],
+    emergencyDeleverage: false,
+    terminated: false,
+    truncated: false,
   }
 }
 
-function renderWorkspace(overrides: Record<string, unknown> = {}) {
+function renderWorkspace(overrides: Partial<ResearchChartWorkspaceProps> = {}) {
   const records = [telemetry(1), telemetry(2, 'position')]
-  const props = {
-    records, symbol: 'BTCUSDT', timeframe: '15m' as const, rangePreset: '24h' as const,
-    layers: DEFAULT_RESEARCH_CHART_LAYERS, followLatest: true, committedSequence: 2,
-    resetToken: 0, onSymbolChange: vi.fn(), onTimeframeChange: vi.fn(), onRangePresetChange: vi.fn(),
-    onPreviewRecord: vi.fn(), onCommitRecord: vi.fn(), onManualNavigation: vi.fn(),
+  const props: ResearchChartWorkspaceProps = {
+    records,
+    symbol: 'BTCUSDT',
+    timeframe: '15m',
+    rangePreset: '24h',
+    layers: DEFAULT_RESEARCH_CHART_LAYERS,
+    followLatest: true,
+    committedSequence: 2,
+    resetToken: 0,
+    onSymbolChange: vi.fn(),
+    onTimeframeChange: vi.fn(),
+    onRangePresetChange: vi.fn(),
+    onPreviewRecord: vi.fn(),
+    onCommitRecord: vi.fn(),
+    onManualNavigation: vi.fn(),
     ...overrides,
   }
   return { ...render(<ResearchChartWorkspace {...props} />), props }
@@ -72,6 +114,9 @@ function renderWorkspace(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  runtime.series.length = 0
+  runtime.handlers.crosshair = undefined
+  runtime.handlers.click = undefined
 })
 
 describe('ResearchChartWorkspace', () => {
@@ -87,12 +132,13 @@ describe('ResearchChartWorkspace', () => {
     const onCommitRecord = vi.fn()
     renderWorkspace({ onPreviewRecord, onCommitRecord })
     await waitFor(() => expect(runtime.handlers.crosshair).toBeDefined())
+    const bucketTime = Math.floor(Date.parse('2026-07-31T08:00:00Z') / 1_000 / 900) * 900
 
-    act(() => runtime.handlers.crosshair?.({ time: 1_775_117_700 }))
-    act(() => runtime.handlers.click?.({ time: 1_775_117_700 }))
+    act(() => runtime.handlers.crosshair?.({ time: bucketTime }))
+    act(() => runtime.handlers.click?.({ time: bucketTime }))
 
-    expect(onPreviewRecord).toHaveBeenCalled()
-    expect(onCommitRecord).toHaveBeenCalled()
+    expect(onPreviewRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
+    expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
   })
 
   it('removes the chart on unmount', async () => {

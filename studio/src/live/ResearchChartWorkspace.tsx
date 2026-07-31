@@ -104,6 +104,7 @@ export function ResearchChartWorkspace({
   const markerRef = useRef<{ setMarkers: (markers: SeriesMarker<Time>[]) => void } | null>(null)
   const dataRef = useRef<ReturnType<typeof buildResearchChartData> | null>(null)
   const programmaticRange = useRef(false)
+  const appliedRangeKey = useRef<string | null>(null)
   const callbacksRef = useRef({ onPreviewRecord, onCommitRecord, onManualNavigation })
   callbacksRef.current = { onPreviewRecord, onCommitRecord, onManualNavigation }
 
@@ -223,6 +224,11 @@ export function ResearchChartWorkspace({
   useEffect(() => {
     const chart = chartRef.current
     if (!chart || data.candles.length === 0) return
+
+    const rangeKey = `${symbol}|${timeframe}|${rangePreset}|${resetToken}`
+    if (appliedRangeKey.current === rangeKey) return
+    appliedRangeKey.current = rangeKey
+
     const latest = data.candles.at(-1)!.time
     const seconds = rangeSeconds(rangePreset)
     programmaticRange.current = true
@@ -235,7 +241,7 @@ export function ResearchChartWorkspace({
       })
     }
     queueMicrotask(() => { programmaticRange.current = false })
-  }, [data.candles, rangePreset, resetToken])
+  }, [data.candles.length, rangePreset, resetToken, symbol, timeframe])
 
   useEffect(() => {
     const chart = chartRef.current

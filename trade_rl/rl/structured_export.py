@@ -15,7 +15,10 @@ from torch import nn
 from trade_rl.artifacts.atomic_pointer import atomic_replace_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import file_digest, open_regular_binary
+from trade_rl.artifacts.verified_file import (
+    file_digest_and_size,
+    open_regular_binary,
+)
 from trade_rl.domain.common import require_sha256
 from trade_rl.rl.policy_identity import (
     model_sb3_policy_identity,
@@ -160,8 +163,10 @@ class StructuredExportManifest:
         architecture_digest = policy_payload.get("policy_architecture_digest")
         if not isinstance(architecture_digest, str):
             raise ValueError("structured export policy lacks architecture digest")
-        model_digest = file_digest(model_path, field="structured export model")
-        model_size_bytes = model_path.stat().st_size
+        model_digest, model_size_bytes = file_digest_and_size(
+            model_path,
+            field="structured export model",
+        )
         policy_identity_digest = content_digest(policy_payload)
         payload = {
             "action_size": action_size,

@@ -121,11 +121,20 @@ export function useTrainingMetrics(
     setSeries([])
     setError(null)
     setLoading(Boolean(jobId))
-    void refresh()
-    if (!jobId) return undefined
-    const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS)
+
+    let active = true
+    let timer: number | undefined
+    const poll = async () => {
+      await refresh()
+      if (active && jobId) {
+        timer = window.setTimeout(() => void poll(), POLL_INTERVAL_MS)
+      }
+    }
+    void poll()
+
     return () => {
-      window.clearInterval(timer)
+      active = false
+      if (timer !== undefined) window.clearTimeout(timer)
       request.current += 1
     }
   }, [jobId, refresh, seed, tagKey])

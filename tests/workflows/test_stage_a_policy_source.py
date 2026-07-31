@@ -113,7 +113,9 @@ def _request(
     )
 
 
-def _baseline_request(plan: StageAZeroShotEvaluationPlan) -> StageAEvaluationCellRequest:
+def _baseline_request(
+    plan: StageAZeroShotEvaluationPlan,
+) -> StageAEvaluationCellRequest:
     return StageAEvaluationCellRequest(
         plan_digest=plan.digest,
         split="validation",

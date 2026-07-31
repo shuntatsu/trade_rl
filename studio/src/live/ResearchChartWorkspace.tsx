@@ -101,7 +101,7 @@ export function ResearchChartWorkspace({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<SeriesRefs | null>(null)
-  const markerRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null)
+  const markerRef = useRef<{ setMarkers: (markers: SeriesMarker<Time>[]) => void } | null>(null)
   const dataRef = useRef<ReturnType<typeof buildResearchChartData> | null>(null)
   const programmaticRange = useRef(false)
   const callbacksRef = useRef({ onPreviewRecord, onCommitRecord, onManualNavigation })

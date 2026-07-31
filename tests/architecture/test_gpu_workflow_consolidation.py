@@ -32,7 +32,9 @@ def test_gpu_verification_has_one_reusable_implementation() -> None:
     assert "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5" in reusable
     assert "persist-credentials: false" in reusable
     assert "trade_rl.operations.gpu_training_smoke" in reusable
-    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in reusable
+    assert (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in reusable
+    )
 
 
 def test_gpu_workflow_callers_are_thin_and_schema_free() -> None:

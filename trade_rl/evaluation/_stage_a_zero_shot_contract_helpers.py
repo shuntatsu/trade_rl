@@ -6,6 +6,7 @@ import math
 from typing import Final, Literal, Protocol
 
 from trade_rl.domain.common import require_non_empty, require_sha256
+from trade_rl.evaluation.walk_forward.folds import IndexRange
 
 STAGE_A_CANDIDATE_SCHEMA: Final = "stage_a_zero_shot_candidate_v1"
 STAGE_A_EVALUATION_PLAN_SCHEMA: Final = "stage_a_zero_shot_evaluation_plan_v3"
@@ -18,17 +19,26 @@ _SPLITS: Final = frozenset({"validation", "test"})
 
 
 class StageAEvaluationDatasetManifestProtocol(Protocol):
-    digest: str
-    feature_identity: str
-    symbol_disjoint_manifest_digest: str
-    symbol_disjoint_triplet_manifest_digest: str
-    folds_declared: tuple[int, ...]
+    @property
+    def digest(self) -> str: ...
+
+    @property
+    def feature_identity(self) -> str: ...
+
+    @property
+    def symbol_disjoint_manifest_digest(self) -> str: ...
+
+    @property
+    def symbol_disjoint_triplet_manifest_digest(self) -> str: ...
+
+    @property
+    def folds_declared(self) -> tuple[int, ...]: ...
 
     def triplet_ids_for(self, split: StageAEvaluationSplit) -> tuple[str, ...]: ...
 
     def dataset_id_for(self, split: StageAEvaluationSplit, triplet_id: str) -> str: ...
 
-    def range_for(self, split: StageAEvaluationSplit, fold: int): ...
+    def range_for(self, split: StageAEvaluationSplit, fold: int) -> IndexRange: ...
 
 
 def _non_negative_int(value: int, *, field: str) -> int:

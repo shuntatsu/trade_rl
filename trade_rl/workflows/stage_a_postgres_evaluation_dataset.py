@@ -31,6 +31,7 @@ from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
 from trade_rl.workflows.symbol_disjoint_triplet_manifest import (
     SymbolDisjointTripletManifest,
 )
+from trade_rl.workflows.symbol_triplet_manifest import SymbolTripletSlot
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +67,9 @@ class StageAPostgresEvaluationDatasets:
         raise ValueError("Stage A PostgreSQL evaluation triplet is not available")
 
 
-def _evaluation_slots(manifest: SymbolDisjointTripletManifest):
+def _evaluation_slots(
+    manifest: SymbolDisjointTripletManifest,
+) -> tuple[SymbolTripletSlot, ...]:
     return tuple(
         slot for split in ("validation", "test") for slot in manifest.slots_for(split)
     )

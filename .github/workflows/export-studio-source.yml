@@ -1,0 +1,32 @@
+name: Export Studio source
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/export-studio-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Upload Studio source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-source-snapshot
+          path: |
+            studio/src
+            studio/scripts
+            studio/package.json
+            studio/package-lock.json
+            studio/tsconfig*.json
+            studio/vite.config.ts
+          if-no-files-found: error
+          retention-days: 1

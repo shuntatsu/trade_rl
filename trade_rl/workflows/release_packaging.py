@@ -218,12 +218,16 @@ def package_selected_training_run(
             raise ValueError("ensemble.action_names must be a list of strings")
         action_names = tuple(action_names_raw)
         if action_names != action_spec.names:
-            raise ValueError("ensemble action names differ from training action contract")
+            raise ValueError(
+                "ensemble action names differ from training action contract"
+            )
         if (
             _integer(ensemble_raw.get("action_size"), field="ensemble.action_size")
             != action_spec.size
         ):
-            raise ValueError("ensemble action size differs from training action contract")
+            raise ValueError(
+                "ensemble action size differs from training action contract"
+            )
         created_at_raw = _string(
             ensemble_raw.get("created_at"), field="ensemble.created_at"
         )

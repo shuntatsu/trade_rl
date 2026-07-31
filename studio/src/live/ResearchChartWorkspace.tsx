@@ -151,7 +151,7 @@ export function ResearchChartWorkspace({
     const targetWeight = chart.addSeries(LineSeries, { color: '#4098ff', lineWidth: 2, title: 'Target weight' }, 1)
     const executedWeight = chart.addSeries(LineSeries, { color: '#94a8b7', lineWidth: 1, lineStyle: LineStyle.Dashed, title: 'Executed' }, 1)
     const reward = chart.addSeries(LineSeries, { color: '#36e37d', lineWidth: 2, title: 'Reward' }, 2)
-    const cost = chart.addSeries(LineSeries, { color: '#f3b33d', lineWidth: 2, title: 'Cost' }, 2)
+    const cost = chart.addSeries(LineSeries, { color: '#f3b33d', lineWidth: 2, title: 'Cost', priceScaleId: 'left' }, 2)
     const equity = chart.addSeries(LineSeries, { color: '#4098ff', lineWidth: 2, title: 'RL equity' }, 3)
     const baseline = chart.addSeries(LineSeries, { color: '#94a8b7', lineWidth: 2, lineStyle: LineStyle.Dashed, title: 'Baseline' }, 3)
     const drawdown = chart.addSeries(LineSeries, { color: '#ff5b63', lineWidth: 1, title: 'Drawdown', priceScaleId: 'left' }, 3)
@@ -199,12 +199,14 @@ export function ResearchChartWorkspace({
     const chart = chartRef.current
     const series = seriesRef.current
     if (!chart || !series) return
+
+    programmaticRange.current = true
     setSeriesData(series, data)
 
     const visibleMarkers = data.markers.filter((marker) =>
       marker.text === 'BUY' || marker.text === 'SELL'
         ? layers.positionEvents
-        : layers.riskEvents)
+        : marker.text === 'RISK' ? layers.riskEvents : true)
     markerRef.current?.setMarkers(visibleMarkers.map(({ sequence: _sequence, ...marker }) => ({
       ...marker,
       time: marker.time as UTCTimestamp,
@@ -215,6 +217,7 @@ export function ResearchChartWorkspace({
     series.cost.applyOptions({ visible: layers.rewardCost })
     series.baseline.applyOptions({ visible: layers.baseline })
     series.drawdown.applyOptions({ visible: layers.drawdown })
+    queueMicrotask(() => { programmaticRange.current = false })
   }, [data, layers])
 
   useEffect(() => {
@@ -243,7 +246,9 @@ export function ResearchChartWorkspace({
     if (time === undefined || !record || record.close === null) return
     chart.setCrosshairPosition(record.close, time as UTCTimestamp, series.candles)
     if (followLatest && time === data.candles.at(-1)?.time) {
+      programmaticRange.current = true
       chart.timeScale().scrollToRealTime()
+      queueMicrotask(() => { programmaticRange.current = false })
     }
   }, [committedSequence, data, followLatest])
 

@@ -285,6 +285,8 @@ class StageASealedTestRun:
         folds = tuple(record.fold_index for record in self.access_records)
         if len(set(folds)) != len(folds):
             raise ValueError("Stage A sealed-test access folds must be unique")
+        if tuple(sorted(folds)) != self.evidence.folds:
+            raise ValueError("Stage A sealed-test access fold closure mismatch")
         for record in self.access_records:
             if (
                 record.experiment_plan_digest != self.evidence.plan_digest

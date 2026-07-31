@@ -129,6 +129,14 @@ jobs:
         run: |
           set -euo pipefail
           uv sync --extra dev --extra train-sb3
+          uv run ruff check --fix \
+            trade_rl/workflows/execution_promotion_artifacts.py \
+            trade_rl/workflows/stage_a_execution_observation.py \
+            trade_rl/workflows/training_run.py \
+            trade_rl/evaluation/stage_a_zero_shot_contracts.py \
+            tests/e2e/test_research_to_serving_v2.py \
+            tests/workflows/test_execution_promotion_artifact_workflow.py \
+            tests/workflows/test_stage_a_execution_observation.py
           uv run ruff format \
             trade_rl/workflows/execution_promotion_artifacts.py \
             trade_rl/workflows/stage_a_execution_observation.py \

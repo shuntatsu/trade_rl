@@ -59,6 +59,7 @@ const RANGE_OPTIONS: Array<{ value: ResearchRangePreset; label: string }> = [
   { value: '7d', label: '7D' },
   { value: 'all', label: '全期間' },
 ]
+const MANUAL_DRAG_THRESHOLD_PX = 5
 
 function timeNumber(time: Time | undefined): number | null {
   return typeof time === 'number' && Number.isFinite(time) ? time : null
@@ -103,21 +104,9 @@ export function ResearchChartWorkspace({
   const seriesRef = useRef<SeriesRefs | null>(null)
   const markerRef = useRef<{ setMarkers: (markers: SeriesMarker<Time>[]) => void } | null>(null)
   const dataRef = useRef<ReturnType<typeof buildResearchChartData> | null>(null)
-  const programmaticRangeDepth = useRef(0)
   const appliedRangeKey = useRef<string | null>(null)
   const callbacksRef = useRef({ onPreviewRecord, onCommitRecord, onManualNavigation })
   callbacksRef.current = { onPreviewRecord, onCommitRecord, onManualNavigation }
-
-  const runProgrammaticRangeUpdate = (update: () => void) => {
-    programmaticRangeDepth.current += 1
-    try {
-      update()
-    } finally {
-      queueMicrotask(() => {
-        programmaticRangeDepth.current = Math.max(0, programmaticRangeDepth.current - 1)
-      })
-    }
-  }
 
   const data = useMemo(
     () => buildResearchChartData(records, symbol, timeframe),
@@ -184,14 +173,37 @@ export function ResearchChartWorkspace({
       const record = dataRef.current?.recordByTime.get(time)
       if (record) callbacksRef.current.onCommitRecord(record)
     }
-    const rangeHandler = () => {
-      if (programmaticRangeDepth.current > 0) return
+
+    let pointerOrigin: { x: number; y: number } | null = null
+    let manualNavigationSignaled = false
+    const pointerDownHandler = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      pointerOrigin = { x: event.clientX, y: event.clientY }
+      manualNavigationSignaled = false
+    }
+    const pointerMoveHandler = (event: PointerEvent) => {
+      if (pointerOrigin === null || manualNavigationSignaled) return
+      const distance = Math.hypot(
+        event.clientX - pointerOrigin.x,
+        event.clientY - pointerOrigin.y,
+      )
+      if (distance < MANUAL_DRAG_THRESHOLD_PX) return
+      manualNavigationSignaled = true
       callbacksRef.current.onManualNavigation()
     }
+    const pointerEndHandler = () => {
+      pointerOrigin = null
+      manualNavigationSignaled = false
+    }
+    const wheelHandler = () => callbacksRef.current.onManualNavigation()
 
     chart.subscribeCrosshairMove(crosshairHandler)
     chart.subscribeClick(clickHandler)
-    chart.timeScale().subscribeVisibleLogicalRangeChange(rangeHandler)
+    container.addEventListener('pointerdown', pointerDownHandler, { passive: true })
+    window.addEventListener('pointermove', pointerMoveHandler, { capture: true, passive: true })
+    window.addEventListener('pointerup', pointerEndHandler, { capture: true, passive: true })
+    window.addEventListener('pointercancel', pointerEndHandler, { capture: true, passive: true })
+    container.addEventListener('wheel', wheelHandler, { passive: true })
     chartRef.current = chart
     seriesRef.current = series
     markerRef.current = createSeriesMarkers(candles, [])
@@ -199,7 +211,11 @@ export function ResearchChartWorkspace({
     return () => {
       chart.unsubscribeCrosshairMove(crosshairHandler)
       chart.unsubscribeClick(clickHandler)
-      chart.timeScale().unsubscribeVisibleLogicalRangeChange(rangeHandler)
+      container.removeEventListener('pointerdown', pointerDownHandler)
+      window.removeEventListener('pointermove', pointerMoveHandler, true)
+      window.removeEventListener('pointerup', pointerEndHandler, true)
+      window.removeEventListener('pointercancel', pointerEndHandler, true)
+      container.removeEventListener('wheel', wheelHandler)
       chart.remove()
       chartRef.current = null
       seriesRef.current = null
@@ -212,24 +228,22 @@ export function ResearchChartWorkspace({
     const series = seriesRef.current
     if (!chart || !series) return
 
-    runProgrammaticRangeUpdate(() => {
-      setSeriesData(series, data)
+    setSeriesData(series, data)
 
-      const visibleMarkers = data.markers.filter((marker) =>
-        marker.text === 'BUY' || marker.text === 'SELL'
-          ? layers.positionEvents
-          : marker.text === 'RISK' ? layers.riskEvents : true)
-      markerRef.current?.setMarkers(visibleMarkers.map(({ sequence: _sequence, ...marker }) => ({
-        ...marker,
-        time: marker.time as UTCTimestamp,
-      })) as SeriesMarker<Time>[])
+    const visibleMarkers = data.markers.filter((marker) =>
+      marker.text === 'BUY' || marker.text === 'SELL'
+        ? layers.positionEvents
+        : marker.text === 'RISK' ? layers.riskEvents : true)
+    markerRef.current?.setMarkers(visibleMarkers.map(({ sequence: _sequence, ...marker }) => ({
+      ...marker,
+      time: marker.time as UTCTimestamp,
+    })) as SeriesMarker<Time>[])
 
-      series.executedWeight.applyOptions({ visible: layers.executedWeight })
-      series.reward.applyOptions({ visible: layers.rewardCost })
-      series.cost.applyOptions({ visible: layers.rewardCost })
-      series.baseline.applyOptions({ visible: layers.baseline })
-      series.drawdown.applyOptions({ visible: layers.drawdown })
-    })
+    series.executedWeight.applyOptions({ visible: layers.executedWeight })
+    series.reward.applyOptions({ visible: layers.rewardCost })
+    series.cost.applyOptions({ visible: layers.rewardCost })
+    series.baseline.applyOptions({ visible: layers.baseline })
+    series.drawdown.applyOptions({ visible: layers.drawdown })
   }, [data, layers])
 
   useEffect(() => {
@@ -242,16 +256,14 @@ export function ResearchChartWorkspace({
 
     const latest = data.candles.at(-1)!.time
     const seconds = rangeSeconds(rangePreset)
-    runProgrammaticRangeUpdate(() => {
-      if (seconds === null) {
-        chart.timeScale().fitContent()
-      } else {
-        chart.timeScale().setVisibleRange({
-          from: Math.max(data.candles[0]!.time, latest - seconds) as UTCTimestamp,
-          to: latest as UTCTimestamp,
-        })
-      }
-    })
+    if (seconds === null) {
+      chart.timeScale().fitContent()
+    } else {
+      chart.timeScale().setVisibleRange({
+        from: Math.max(data.candles[0]!.time, latest - seconds) as UTCTimestamp,
+        to: latest as UTCTimestamp,
+      })
+    }
   }, [data.candles.length, rangePreset, resetToken, symbol, timeframe])
 
   useEffect(() => {
@@ -263,7 +275,7 @@ export function ResearchChartWorkspace({
     if (time === undefined || !record || record.close === null) return
     chart.setCrosshairPosition(record.close, time as UTCTimestamp, series.candles)
     if (followLatest && time === data.candles.at(-1)?.time) {
-      runProgrammaticRangeUpdate(() => chart.timeScale().scrollToRealTime())
+      chart.timeScale().scrollToRealTime()
     }
   }, [committedSequence, data, followLatest])
 

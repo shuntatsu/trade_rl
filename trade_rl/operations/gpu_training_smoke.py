@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 from trade_rl.operations._gpu_training_smoke_impl import (
     _load_torch_runtime,

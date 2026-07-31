@@ -113,12 +113,12 @@ describe('ExperimentsPage', () => {
 })
 
 describe('RunCenterPage', () => {
-  it('shows persistent logs and cancels an active job', async () => {
+  it('loads the initially selected job log and cancels an active job', async () => {
     const user = userEvent.setup()
     const runtimeApi = api()
     render(<RunCenterPage api={runtimeApi} />)
 
-    await user.click(await screen.findByRole('button', { name: /job-1/i }))
+    await waitFor(() => expect(runtimeApi.loadJobLog).toHaveBeenCalledWith('job-1'))
     expect(await screen.findByLabelText('job log')).toHaveTextContent('step 2')
     await user.click(screen.getByRole('button', { name: '安全停止' }))
 

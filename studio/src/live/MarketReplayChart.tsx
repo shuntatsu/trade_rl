@@ -11,12 +11,7 @@ const HEIGHT = 380
 const PADDING = { top: 28, right: 62, bottom: 42, left: 18 }
 
 function weightDelta(record: TrainingTelemetryRecord): number {
-  const length = Math.max(record.weightsBefore.length, record.weightsAfter.length)
-  let delta = 0
-  for (let index = 0; index < length; index += 1) {
-    delta += (record.weightsAfter[index] ?? 0) - (record.weightsBefore[index] ?? 0)
-  }
-  return delta
+  return (record.weightsAfter[0] ?? 0) - (record.weightsBefore[0] ?? 0)
 }
 
 function formatPrice(value: number): string {

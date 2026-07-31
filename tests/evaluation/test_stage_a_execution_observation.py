@@ -38,11 +38,16 @@ def _plan():
         candidate_config_digest=CANDIDATE_CONFIG_DIGEST,
         final_training_completion_digest=content_digest({"completion": "candidate-a"}),
         policy_identity=content_digest({"policy": "candidate-a"}),
-        checkpoint_digests=((SEED, _checkpoint(SEED)), (SEED + 1, _checkpoint(SEED + 1))),
+        checkpoint_digests=(
+            (SEED, _checkpoint(SEED)),
+            (SEED + 1, _checkpoint(SEED + 1)),
+        ),
     )
     plan = build_stage_a_zero_shot_evaluation_plan(
         symbol_disjoint_manifest_digest=content_digest({"manifest": "symbols"}),
-        symbol_disjoint_triplet_manifest_digest=content_digest({"manifest": "triplets"}),
+        symbol_disjoint_triplet_manifest_digest=content_digest(
+            {"manifest": "triplets"}
+        ),
         dataset_identity=DATASET_ID,
         feature_identity=content_digest({"feature": "stage-a"}),
         execution_identity=COST.execution_policy_digest,
@@ -67,7 +72,9 @@ def _plan():
     return plan, candidate
 
 
-def _artifacts(root: Path, candidate_config_digest: str, *, fold: int = FOLD) -> ExecutionPromotionArtifacts:
+def _artifacts(
+    root: Path, candidate_config_digest: str, *, fold: int = FOLD
+) -> ExecutionPromotionArtifacts:
     events, book, order_book = execution_episode()
     return write_execution_promotion_artifacts(
         root=root,

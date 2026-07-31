@@ -70,7 +70,9 @@ def build_stage_a_observation_from_execution_artifacts(
     candidate = plan.candidate(candidate_id)
     if triplet_id not in plan.triplet_ids_for(split):
         raise ValueError("Stage A execution artifact triplet is not declared for split")
-    expected_checkpoint = candidate.checkpoint_digest(policy_artifacts.artifact.replay_identity.seed)
+    expected_checkpoint = candidate.checkpoint_digest(
+        policy_artifacts.artifact.replay_identity.seed
+    )
     if checkpoint_digest != expected_checkpoint:
         raise ValueError("Stage A execution artifact checkpoint digest mismatch")
 

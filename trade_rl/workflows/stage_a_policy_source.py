@@ -293,12 +293,16 @@ class StageAPolicySourceBinding:
         try:
             raw = json.loads(payload)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ValueError("Stage A policy source binding must be valid JSON") from error
+            raise ValueError(
+                "Stage A policy source binding must be valid JSON"
+            ) from error
         if not isinstance(raw, dict):
             raise ValueError("Stage A policy source binding must be an object")
         binding = cls.from_mapping(cast(Mapping[str, object], raw))
         if payload != binding.raw_bytes:
-            raise ValueError("Stage A policy source binding must use canonical encoding")
+            raise ValueError(
+                "Stage A policy source binding must use canonical encoding"
+            )
         return binding
 
     def _load_checkpoint(self, *, root: Path) -> CheckpointManifest:
@@ -380,7 +384,9 @@ class StageAPolicySourceStore:
             "request_digest": binding.request_digest,
             "schema_version": STAGE_A_POLICY_SOURCE_REQUEST_INDEX_SCHEMA,
         }
-        return canonical_json_bytes({"digest": content_digest(payload), **payload}) + b"\n"
+        return (
+            canonical_json_bytes({"digest": content_digest(payload), **payload}) + b"\n"
+        )
 
     def publish(
         self,
@@ -446,7 +452,9 @@ class StageAPolicySourceStore:
                 field="Stage A policy source request index",
             )
         except ValueError as error:
-            raise ValueError("Stage A policy source request is already bound") from error
+            raise ValueError(
+                "Stage A policy source request is already bound"
+            ) from error
         return self.load(request.digest)
 
     def load(self, request_digest: str) -> StageAPolicySourceBinding:
@@ -472,7 +480,9 @@ class StageAPolicySourceStore:
             "schema_version",
         }
         if set(raw) != required:
-            raise ValueError("Stage A policy source request index field closure mismatch")
+            raise ValueError(
+                "Stage A policy source request index field closure mismatch"
+            )
         if raw["schema_version"] != STAGE_A_POLICY_SOURCE_REQUEST_INDEX_SCHEMA:
             raise ValueError("unsupported Stage A policy source request index schema")
         indexed_request = _string(raw["request_digest"], field="request_digest")

@@ -37,10 +37,7 @@ def resolve_training_execution_inputs(
     expected_policy_digest = cost.execution_policy_digest
     if evidence.execution_policy_digest != expected_policy_digest:
         raise ValueError("execution evidence policy digest mismatch")
-    if (
-        event_artifact_path is None
-        and evidence.order_event_artifact_digest is not None
-    ):
+    if event_artifact_path is None and evidence.order_event_artifact_digest is not None:
         raise ValueError("execution evidence requires its bound event artifact")
 
     artifact = (

@@ -14,7 +14,7 @@ from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
 )
 
 
-def _finite_float(value: object, *, field: str) -> float:
+def _finite_float(value: float | int, *, field: str) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{field} must be a finite number")
     try:

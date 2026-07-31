@@ -1,1 +1,1 @@
-"""Trade RL test suite."""
+"""Repository-local test support package."""

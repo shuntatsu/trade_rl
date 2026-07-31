@@ -240,3 +240,42 @@ jobs:
             test -w /workspace/var
             python -c "import torch, trade_rl; print(torch.__version__)"
           '
+
+  stage-a5-source-apply:
+    name: Apply Stage A5 source bundle
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/stage-a5-zero-shot-evaluation-contract'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/stage-a5-zero-shot-evaluation-contract
+          fetch-depth: 0
+
+      - name: Extract source and restore workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf .automation/stage-a5-files.tgz
+          rm -f .automation/stage-a5-files.tgz
+          rmdir .automation 2>/dev/null || true
+          rm -f .github/workflows/apply-stage-a5-source.yml
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/ci.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            docs/operations/stage-a-zero-shot-evaluation-design.md \
+            docs/operations/stage-a-zero-shot-evaluation-plan.md \
+            trade_rl/evaluation/stage_a_zero_shot_contracts.py \
+            trade_rl/evaluation/stage_a_zero_shot_gate.py \
+            tests/evaluation/test_stage_a_zero_shot_contracts.py \
+            tests/evaluation/test_stage_a_zero_shot_gate.py
+          git add -u \
+            .automation/stage-a5-files.tgz \
+            .github/workflows/apply-stage-a5-source.yml \
+            .github/workflows/ci.yml
+          git commit -m "Add Stage A zero-shot evaluation contracts"
+          git push origin HEAD:agent/stage-a5-zero-shot-evaluation-contract

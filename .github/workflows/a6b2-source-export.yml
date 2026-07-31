@@ -1,66 +1,26 @@
-name: A6b2 Verified Bundle Apply
+name: A6b2 Bundle Diagnostics
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-bundle:
+  inspect-bundle:
     if: github.event.pull_request.head.ref == 'agent/stage-a6b2-policy-producer'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout implementation branch
+      - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: agent/stage-a6b2-policy-producer
-          persist-credentials: true
-      - name: Apply verified implementation bundle
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Inspect staged bundle
         shell: bash
         run: |
           set -euo pipefail
-          bundle=.a6b2-implementation.bundle.b64
-          if [[ ! -f "$bundle" ]]; then
-            echo "No implementation bundle on this head"
-            exit 0
-          fi
-          base64 --decode "$bundle" > /tmp/a6b2-files.tar.gz
-          echo '9bc62d7c7c2dd039f4b32678eb95a7f3a230eccd5c207bc404cf417bd3d6f829  /tmp/a6b2-files.tar.gz' | sha256sum --check --strict
-          python - <<'PY'
-          import tarfile
-          expected = {
-              'docs/operations/stage-a-production-evaluator-design.md',
-              'docs/operations/stage-a-zero-shot-evaluation-plan.md',
-              'docs/superpowers/specs/2026-07-31-stage-a-policy-producer-design.md',
-              'docs/superpowers/plans/2026-07-31-stage-a-policy-producer.md',
-              'tests/workflows/test_stage_a_execution_replay.py',
-              'tests/workflows/test_stage_a_execution_store.py',
-              'tests/workflows/test_stage_a_production_evaluator.py',
-              'tests/workflows/test_stage_a_production_orchestration.py',
-              'tests/workflows/test_stage_a_policy_source.py',
-              'tests/workflows/test_stage_a_execution_producer.py',
-              'tests/workflows/test_stage_a_policy_producer_orchestration.py',
-              'trade_rl/workflows/stage_a_execution_replay.py',
-              'trade_rl/workflows/stage_a_execution_store.py',
-              'trade_rl/workflows/stage_a_production_evaluator.py',
-              'trade_rl/workflows/stage_a_policy_source.py',
-              'trade_rl/workflows/stage_a_execution_producer.py',
-          }
-          with tarfile.open('/tmp/a6b2-files.tar.gz', 'r:gz') as archive:
-              members = archive.getmembers()
-              names = {member.name for member in members}
-              if names != expected:
-                  raise SystemExit(f'Bundle path closure mismatch: {sorted(names ^ expected)}')
-              if any(not member.isfile() for member in members):
-                  raise SystemExit('Bundle contains a non-file member')
-              archive.extractall('.', filter='data')
-          PY
-          rm -f "$bundle" .a6b2-source-export-trigger .github/workflows/a6b2-source-export.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --check
-          git commit -m 'feat: bind Stage A executions to retained checkpoints'
-          git push origin HEAD:agent/stage-a6b2-policy-producer
+          wc -c .a6b2-implementation.bundle.b64
+          sha256sum .a6b2-implementation.bundle.b64
+          tail -c 64 .a6b2-implementation.bundle.b64 | od -An -tx1

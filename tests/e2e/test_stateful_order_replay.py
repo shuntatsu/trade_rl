@@ -13,6 +13,7 @@ from trade_rl.simulation.execution_replay import (
     StatefulReplayEvidence,
     build_stateful_replay_evidence,
 )
+from trade_rl.simulation.order_event_batches import merge_order_event_batches
 from trade_rl.simulation.orders import OrderEvent
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -72,7 +73,9 @@ def _environment(dataset: MarketDataset) -> ResidualMarketEnv:
     )
 
 
-def _run_episode(*, seed: int) -> StatefulReplayEvidence:
+def _run_episode(
+    *, seed: int
+) -> tuple[StatefulReplayEvidence, tuple[OrderEvent, ...]]:
     dataset = _dataset()
     env = _environment(dataset)
     actions = (
@@ -86,15 +89,16 @@ def _run_episode(*, seed: int) -> StatefulReplayEvidence:
     env.reset(seed=seed, options={"start_idx": 10, "initial_state_mode": "cash"})
     equity_curve = [env.hybrid.portfolio_value]
     observation_digests = [env.observation_snapshot().snapshot_digest]
-    events: list[OrderEvent] = []
+    event_batches: list[tuple[OrderEvent, ...]] = []
     for action in actions:
         _, _, terminated, truncated, info = env.step(action)
-        events.extend(info["hybrid_execution"].order_events)
+        event_batches.append(info["hybrid_execution"].order_events)
         equity_curve.append(env.hybrid.portfolio_value)
         observation_digests.append(env.observation_snapshot().snapshot_digest)
         assert not terminated
         assert not truncated
-    return build_stateful_replay_evidence(
+    events = merge_order_event_batches(event_batches)
+    evidence = build_stateful_replay_evidence(
         dataset_id=dataset.dataset_id,
         seed=seed,
         execution_policy_digest=env.execution_policy_digest,
@@ -103,29 +107,34 @@ def _run_episode(*, seed: int) -> StatefulReplayEvidence:
         equity_curve=equity_curve,
         observation_digests=observation_digests,
     )
+    return evidence, events
 
 
 def test_same_dataset_seed_and_actions_replay_identically() -> None:
-    first = _run_episode(seed=7)
-    second = _run_episode(seed=7)
+    first, first_events = _run_episode(seed=7)
+    second, second_events = _run_episode(seed=7)
 
     assert first == second
     assert first.digest == second.digest
+    assert first_events == second_events
     assert first.order_event_count > 0
     assert first.step_count == 6
     assert first.execution_policy_digest != "0" * 64
 
 
 def test_replay_evidence_changes_when_action_trace_changes() -> None:
-    baseline = _run_episode(seed=7)
+    baseline, events = _run_episode(seed=7)
+    changed_actions = tuple((0.0,) for _ in range(baseline.step_count))
     changed = build_stateful_replay_evidence(
         dataset_id=baseline.dataset_id,
         seed=baseline.seed,
         execution_policy_digest=baseline.execution_policy_digest,
-        actions=((0.0,),),
-        order_events=(),
-        equity_curve=(1_000.0, 1_000.0),
-        observation_digests=("1" * 64, "2" * 64),
+        actions=changed_actions,
+        order_events=events,
+        equity_curve=tuple(1_000.0 for _ in range(baseline.step_count + 1)),
+        observation_digests=tuple(
+            f"{index + 1:064x}" for index in range(baseline.step_count + 1)
+        ),
     )
 
     assert changed.action_digest != baseline.action_digest

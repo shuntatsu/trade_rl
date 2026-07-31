@@ -161,7 +161,9 @@ class StageAZeroShotEvaluationOrchestrator:
         selection = validation_run.selection
         selected_id = selection.selected_candidate_id
         if not selection.passed or selected_id is None:
-            raise ValueError("Stage A sealed test requires a passed validation selection")
+            raise ValueError(
+                "Stage A sealed test requires a passed validation selection"
+            )
         self.test_schedule.validate_plan(self.plan)
         selected_candidate = self.plan.candidate(selected_id)
         access_records = tuple(

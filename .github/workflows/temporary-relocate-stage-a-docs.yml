@@ -22,6 +22,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
       - name: Relocate maintained Stage A documents
         shell: bash
         run: |
@@ -37,7 +43,8 @@ jobs:
           git mv "$design_source" "$design_target"
           git mv "$plan_source" "$plan_target"
           rmdir docs/superpowers/specs docs/superpowers/plans docs/superpowers
-          python -m pytest -q tests/test_current_documentation_contract.py
+          uv sync --extra dev
+          uv run pytest -q tests/test_current_documentation_contract.py
           rm -f .github/workflows/temporary-relocate-stage-a-docs.yml
           git diff --check
           git config user.name github-actions[bot]

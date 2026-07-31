@@ -1,4 +1,4 @@
-"""Immutable checkpoint source bindings for Stage A policy evaluations."""
+"""Immutable policy source bindings for Stage A evaluations."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Final, cast
+from typing import Final, Protocol, cast
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -18,6 +18,8 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAZeroShotEvaluationPlan,
 )
 from trade_rl.rl.checkpointing import CheckpointManifest, load_checkpoint_manifest
+from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
+from trade_rl.serving.policy_loader import canonical_policy_loader
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
@@ -164,7 +166,7 @@ def _validate_request_against_plan(
 
 @dataclass(frozen=True, slots=True)
 class StageAPolicySourceBinding:
-    """One exact request-to-checkpoint identity binding."""
+    """One exact request-to-policy-source identity binding."""
 
     plan_digest: str
     request_digest: str
@@ -326,6 +328,32 @@ class StageAPolicySourceBinding:
             raise ValueError("Stage A checkpoint policy digest mismatch")
         return manifest
 
+    def _load_serving_bundle(
+        self,
+        *,
+        root: Path,
+        checkpoint: CheckpointManifest,
+    ) -> ServingBundle | None:
+        if self.serving_bundle_path is None:
+            return None
+        relative = _relative_path(
+            self.serving_bundle_path,
+            field="stage_a_policy_source.serving_bundle_path",
+        )
+        _reject_symlink_components(
+            root,
+            relative,
+            field="Stage A serving bundle source",
+        )
+        bundle = load_serving_bundle(root.joinpath(*relative.parts))
+        if bundle.manifest.bundle_digest != self.serving_bundle_digest:
+            raise ValueError("Stage A serving bundle digest mismatch")
+        if bundle.manifest.policy_digest != checkpoint.policy_digest:
+            raise ValueError("Stage A serving policy digest mismatch")
+        if bundle.manifest.environment_digest != checkpoint.environment_digest:
+            raise ValueError("Stage A serving environment digest mismatch")
+        return bundle
+
     def validate(
         self,
         *,
@@ -347,9 +375,9 @@ class StageAPolicySourceBinding:
             raise ValueError("Stage A policy source binding checkpoint mismatch")
         if self.candidate_config_digest != candidate.candidate_config_digest:
             raise ValueError("Stage A policy source binding config mismatch")
-        if self.serving_bundle_path is not None:
-            raise ValueError("Stage A serving bundle sources are not supported yet")
-        return self._load_checkpoint(root=resolved_root)
+        checkpoint = self._load_checkpoint(root=resolved_root)
+        self._load_serving_bundle(root=resolved_root, checkpoint=checkpoint)
+        return checkpoint
 
 
 class StageAPolicySourceStore:
@@ -369,10 +397,7 @@ class StageAPolicySourceStore:
         return binding_path, index_path
 
     @staticmethod
-    def _index_bytes(
-        *,
-        binding: StageAPolicySourceBinding,
-    ) -> bytes:
+    def _index_bytes(*, binding: StageAPolicySourceBinding) -> bytes:
         relative = PurePosixPath(
             "bindings",
             binding.request_digest,
@@ -394,35 +419,64 @@ class StageAPolicySourceStore:
         plan: StageAZeroShotEvaluationPlan,
         request: StageAEvaluationCellRequest,
         checkpoint_manifest_path: str | Path,
+        serving_bundle_path: str | Path | None = None,
     ) -> StageAPolicySourceBinding:
         candidate = _validate_request_against_plan(plan=plan, request=request)
-        relative = _path_relative_to_root(
+        checkpoint_relative = _path_relative_to_root(
             self.root,
             Path(checkpoint_manifest_path),
             field="Stage A checkpoint manifest path",
         )
         _reject_symlink_components(
             self.root,
-            relative,
+            checkpoint_relative,
             field="Stage A checkpoint source",
         )
-        manifest = load_checkpoint_manifest(self.root.joinpath(*relative.parts))
-        if manifest.seed != request.seed:
+        checkpoint = load_checkpoint_manifest(
+            self.root.joinpath(*checkpoint_relative.parts)
+        )
+        if checkpoint.seed != request.seed:
             raise ValueError("Stage A checkpoint seed mismatch")
-        if manifest.digest != request.checkpoint_digest:
+        if checkpoint.digest != request.checkpoint_digest:
             raise ValueError("Stage A checkpoint manifest digest mismatch")
-        if manifest.training_config_digest != candidate.candidate_config_digest:
+        if checkpoint.training_config_digest != candidate.candidate_config_digest:
             raise ValueError("Stage A checkpoint training config digest mismatch")
+
+        serving_relative: PurePosixPath | None = None
+        serving_digest: str | None = None
+        if serving_bundle_path is not None:
+            serving_relative = _path_relative_to_root(
+                self.root,
+                Path(serving_bundle_path),
+                field="Stage A serving bundle path",
+            )
+            _reject_symlink_components(
+                self.root,
+                serving_relative,
+                field="Stage A serving bundle source",
+            )
+            bundle = load_serving_bundle(
+                self.root.joinpath(*serving_relative.parts)
+            )
+            if bundle.manifest.policy_digest != checkpoint.policy_digest:
+                raise ValueError("Stage A serving policy digest mismatch")
+            if bundle.manifest.environment_digest != checkpoint.environment_digest:
+                raise ValueError("Stage A serving environment digest mismatch")
+            serving_digest = bundle.manifest.bundle_digest
 
         binding = StageAPolicySourceBinding(
             plan_digest=plan.digest,
             request_digest=request.digest,
             candidate_id=candidate.candidate_id,
             seed=request.seed,
-            checkpoint_digest=manifest.digest,
-            candidate_config_digest=manifest.training_config_digest,
-            checkpoint_policy_digest=manifest.policy_digest,
-            checkpoint_manifest_path=relative.as_posix(),
+            checkpoint_digest=checkpoint.digest,
+            candidate_config_digest=checkpoint.training_config_digest,
+            checkpoint_policy_digest=checkpoint.policy_digest,
+            checkpoint_manifest_path=checkpoint_relative.as_posix(),
+            serving_bundle_digest=serving_digest,
+            serving_bundle_path=(
+                None if serving_relative is None else serving_relative.as_posix()
+            ),
         )
         binding.validate(root=self.root, plan=plan, request=request)
         binding_path, index_path = self._paths(binding)
@@ -479,10 +533,7 @@ class StageAPolicySourceStore:
 
     def load(self, request_digest: str) -> StageAPolicySourceBinding:
         require_sha256(request_digest, field="stage_a_policy_source_request_digest")
-        index_relative = PurePosixPath(
-            "by-request",
-            f"{request_digest}.json",
-        )
+        index_relative = PurePosixPath("by-request", f"{request_digest}.json")
         _reject_symlink_components(
             self.root,
             index_relative,
@@ -551,13 +602,115 @@ class StageAPolicySourceStore:
             raise ValueError("Stage A policy source binding digest mismatch")
         if binding.request_digest != request_digest:
             raise ValueError("Stage A policy source binding request identity mismatch")
-        binding._load_checkpoint(root=self.root)
+        checkpoint = binding._load_checkpoint(root=self.root)
+        binding._load_serving_bundle(root=self.root, checkpoint=checkpoint)
         return binding
+
+
+@dataclass(frozen=True, slots=True)
+class StageAPolicyRuntimeHandle:
+    """Loaded policy plus the complete immutable identity envelope."""
+
+    policy: object
+    binding_digest: str
+    plan_digest: str
+    request_digest: str
+    candidate_id: str
+    seed: int
+    checkpoint_digest: str
+    candidate_config_digest: str
+    checkpoint_policy_digest: str
+    serving_bundle_digest: str
+    architecture_digest: str | None
+
+    def __post_init__(self) -> None:
+        for field, value in (
+            ("binding_digest", self.binding_digest),
+            ("plan_digest", self.plan_digest),
+            ("request_digest", self.request_digest),
+            ("checkpoint_digest", self.checkpoint_digest),
+            ("candidate_config_digest", self.candidate_config_digest),
+            ("checkpoint_policy_digest", self.checkpoint_policy_digest),
+            ("serving_bundle_digest", self.serving_bundle_digest),
+        ):
+            require_sha256(value, field=f"stage_a_policy_runtime.{field}")
+        require_non_empty(
+            self.candidate_id,
+            field="stage_a_policy_runtime.candidate_id",
+        )
+        _non_negative_int(self.seed, field="stage_a_policy_runtime.seed")
+        if self.architecture_digest is not None:
+            require_sha256(
+                self.architecture_digest,
+                field="stage_a_policy_runtime.architecture_digest",
+            )
+
+
+class StageAPolicyRuntimeLoader(Protocol):
+    """Load one policy only after validating its Stage A source identity."""
+
+    def load(
+        self,
+        *,
+        plan: StageAZeroShotEvaluationPlan,
+        request: StageAEvaluationCellRequest,
+        binding: StageAPolicySourceBinding,
+    ) -> StageAPolicyRuntimeHandle: ...
+
+
+class _ServingPolicyLoader(Protocol):
+    def load(self, bundle: ServingBundle) -> object: ...
+
+
+class CanonicalServingBundleStageAPolicyLoader:
+    """Load a policy through the repository's canonical serving loader."""
+
+    def __init__(self, root: str | Path, *, fallback: object | None = None) -> None:
+        self.root = Path(root)
+        self.fallback = fallback
+
+    def load(
+        self,
+        *,
+        plan: StageAZeroShotEvaluationPlan,
+        request: StageAEvaluationCellRequest,
+        binding: StageAPolicySourceBinding,
+    ) -> StageAPolicyRuntimeHandle:
+        checkpoint = binding.validate(root=self.root, plan=plan, request=request)
+        bundle = binding._load_serving_bundle(
+            root=self.root,
+            checkpoint=checkpoint,
+        )
+        if bundle is None or binding.serving_bundle_digest is None:
+            raise ValueError("Stage A runtime policy requires a serving bundle")
+        raw_loader = canonical_policy_loader(
+            manifest=bundle.manifest,
+            architecture_digest=bundle.manifest.architecture_digest,
+            fallback=self.fallback,
+        )
+        policy_loader = cast(_ServingPolicyLoader, raw_loader)
+        policy = policy_loader.load(bundle)
+        return StageAPolicyRuntimeHandle(
+            policy=policy,
+            binding_digest=binding.digest,
+            plan_digest=binding.plan_digest,
+            request_digest=binding.request_digest,
+            candidate_id=binding.candidate_id,
+            seed=binding.seed,
+            checkpoint_digest=binding.checkpoint_digest,
+            candidate_config_digest=binding.candidate_config_digest,
+            checkpoint_policy_digest=binding.checkpoint_policy_digest,
+            serving_bundle_digest=binding.serving_bundle_digest,
+            architecture_digest=bundle.manifest.architecture_digest,
+        )
 
 
 __all__ = [
     "STAGE_A_POLICY_SOURCE_BINDING_SCHEMA",
     "STAGE_A_POLICY_SOURCE_REQUEST_INDEX_SCHEMA",
+    "CanonicalServingBundleStageAPolicyLoader",
+    "StageAPolicyRuntimeHandle",
+    "StageAPolicyRuntimeLoader",
     "StageAPolicySourceBinding",
     "StageAPolicySourceStore",
 ]

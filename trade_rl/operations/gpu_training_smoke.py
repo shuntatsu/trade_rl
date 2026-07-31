@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
-from trade_rl.operations._gpu_training_smoke_impl import (
-    _load_torch_runtime,
-    _load_training_performance,
-    build_parser,
-    build_smoke_config,
-    main,
-    run_gpu_training_smoke,
-)
+from trade_rl.operations import _gpu_training_smoke_impl as _impl
 
 GPU_TRAINING_SMOKE_SCHEMA = "gpu_sequence_target_oracle_bc_training_smoke_v8"
+
+build_parser = _impl.build_parser
+build_smoke_config = _impl.build_smoke_config
+_load_torch_runtime = _impl._load_torch_runtime
+_load_training_performance = _impl._load_training_performance
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -177,14 +176,53 @@ def validate_gpu_training_smoke_file(
 ) -> dict[str, object]:
     """Load and validate one GPU smoke evidence JSON file."""
 
-    import json
-
     return validate_gpu_training_smoke_evidence(
         json.loads(path.read_text(encoding="utf-8")),
         expected_commit=expected_commit,
         expected_runtime_profile=expected_runtime_profile,
         minimum_timesteps=minimum_timesteps,
     )
+
+
+def run_gpu_training_smoke(
+    *,
+    work_root: Path,
+    timesteps: int,
+    runtime_profile: str = "compatibility",
+) -> dict[str, object]:
+    """Run the maintained smoke and publish evidence under the current schema."""
+
+    evidence = _impl.run_gpu_training_smoke(
+        work_root=work_root,
+        timesteps=timesteps,
+        runtime_profile=runtime_profile,
+    )
+    evidence["schema"] = GPU_TRAINING_SMOKE_SCHEMA
+    validated = validate_gpu_training_smoke_evidence(
+        evidence,
+        expected_commit=str(evidence.get("git_commit", "")),
+        expected_runtime_profile=runtime_profile,
+        minimum_timesteps=timesteps,
+    )
+    (work_root / "gpu-training-smoke.json").write_text(
+        json.dumps(validated, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validated
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    work_root = (
+        args.work_root if args.work_root.is_absolute() else _impl.ROOT / args.work_root
+    )
+    evidence = run_gpu_training_smoke(
+        work_root=work_root,
+        timesteps=args.timesteps,
+        runtime_profile=args.runtime_profile,
+    )
+    print(json.dumps(evidence, sort_keys=True))
+    return 0
 
 
 __all__ = [

@@ -1,8 +1,9 @@
 name: Apply A6b Evaluator Bundle
 
 on:
-  push:
-    branches: [agent/stage-a6b-production-evaluator]
+  pull_request:
+    branches: [main]
+    types: [synchronize]
 
 permissions:
   contents: write

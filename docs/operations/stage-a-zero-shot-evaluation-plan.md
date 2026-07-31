@@ -13,6 +13,7 @@ Implemented in `trade_rl/evaluation/stage_a_zero_shot_contracts.py`.
 - Caps bootstrap resamples at 1,000,000.
 - Uses strict JSON field closure and content digests.
 - Keeps public facades limited to documented public values; internal loaders import private parsing helpers directly from their defining module so static cleanup cannot silently remove required runtime dependencies.
+- Keeps string identities and normalized numeric thresholds in distinct typed locals so strict MyPy analysis cannot widen or cross-assign their contracts.
 
 ### 2. Robust fold-bootstrap and candidate summaries
 

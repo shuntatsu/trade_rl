@@ -21,7 +21,8 @@ This note records the verification boundary for PR #309.
 - serving package and critical-branch fixtures: 36 passed after rebuilding them from a strict stateful replay episode;
 - all Python sources and tests compile;
 - `git diff --check` passed;
-- canonical Ruff import ordering and formatting were applied to every CI-reported file;
+- Ruff lint passed on the first corrected CI run;
+- the exact Ruff format diff reported by CI was applied to all seven remaining files;
 - no temporary transfer or formatting workflow and no payload remains in the production tree.
 
 ## Merge gate

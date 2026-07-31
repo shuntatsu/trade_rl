@@ -13,6 +13,7 @@ import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 
+ORDER_EVENT_SCHEMA = "order_event_v1"
 _QUANTITY_TOLERANCE = 1e-12
 _QUANTITY_ULPS = 32
 
@@ -871,8 +872,8 @@ class OrderEvent:
     path_points: tuple[float, ...]
 
     def __post_init__(self) -> None:
-        if not self.schema_version:
-            raise OrderDomainError("schema_version must be non-empty")
+        if self.schema_version != ORDER_EVENT_SCHEMA:
+            raise OrderDomainError("order event schema is unsupported")
         if (
             isinstance(self.sequence, bool)
             or not isinstance(self.sequence, int)

@@ -9,6 +9,7 @@ from typing import Callable
 import numpy as np
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
@@ -34,7 +35,6 @@ from trade_rl.simulation.orders import (
     PendingOrder,
     TimeInForce,
 )
-from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
     StageAEvaluationDatasetManifest,
 )

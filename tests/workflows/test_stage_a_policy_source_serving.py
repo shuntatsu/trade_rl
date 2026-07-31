@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
@@ -28,7 +29,6 @@ from trade_rl.serving.bundle import (
     write_serving_bundle_manifest,
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
-from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.workflows.stage_a_policy_source import (
     CanonicalServingBundleStageAPolicyLoader,
     StageAPolicyRuntimeHandle,

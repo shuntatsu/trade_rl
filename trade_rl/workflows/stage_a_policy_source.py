@@ -20,7 +20,9 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
 from trade_rl.rl.checkpointing import CheckpointManifest, load_checkpoint_manifest
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 from trade_rl.serving.policy_loader import canonical_policy_loader
-from trade_rl.workflows.stage_a_evaluation_dataset_manifest import StageAEvaluationDatasetManifest
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )

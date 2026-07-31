@@ -4,12 +4,12 @@ import hashlib
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
     build_stage_a_zero_shot_evaluation_plan,
 )
 from trade_rl.evaluation.walk_forward.folds import IndexRange
-from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
     StageAEvaluationCellResult,

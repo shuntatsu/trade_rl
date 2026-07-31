@@ -6,10 +6,12 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAZeroShotEvaluationPlan,
 )
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 from trade_rl.workflows.stage_a_execution_replay import (
     StageAExecutionCellIdentity,
 )
-from trade_rl.workflows.stage_a_evaluation_dataset_manifest import StageAEvaluationDatasetManifest
 from trade_rl.workflows.stage_a_execution_store import (
     StageAExecutionPromotionStore,
 )

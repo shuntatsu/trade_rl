@@ -12,10 +12,10 @@ from trade_rl.evaluation.walk_forward.sealed_test import (
     build_sealed_test_access_record,
 )
 from trade_rl.workflows import stage_a_zero_shot_artifacts as artifacts_module
-from trade_rl.workflows.stage_a_zero_shot_runner_contracts import StageASealedTestAccessRecord
 from trade_rl.workflows.stage_a_zero_shot_artifacts import (
     StageAZeroShotArtifactPublisher,
 )
+from trade_rl.workflows.stage_a_zero_shot_runner_contracts import StageASealedTestAccessRecord
 
 
 def _digest(value: str) -> str:

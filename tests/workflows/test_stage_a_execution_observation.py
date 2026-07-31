@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.stage_a_helpers import stage_a_test_manifest
 from tests.evaluation.replay_support import (
     CANDIDATE_CONFIG_DIGEST,
     COST,
@@ -14,6 +13,7 @@ from tests.evaluation.replay_support import (
     SEED,
     execution_episode,
 )
+from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,

@@ -24,8 +24,10 @@ from trade_rl.simulation.execution_replay import (
     write_execution_event_artifact,
 )
 from trade_rl.simulation.orders import OrderBookState, OrderEvent
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 from trade_rl.workflows.stage_a_execution_store import StoredStageAExecutionReplay
-from trade_rl.workflows.stage_a_evaluation_dataset_manifest import StageAEvaluationDatasetManifest
 from trade_rl.workflows.stage_a_policy_source import (
     StageAPolicyRuntimeHandle,
     StageAPolicyRuntimeLoader,

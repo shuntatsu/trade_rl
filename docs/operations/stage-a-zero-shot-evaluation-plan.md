@@ -1,79 +1,66 @@
-# Stage A Zero-Shot Evaluation Contract Implementation Plan
+# Stage A Zero-Shot Evaluation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+## Completed contract hardening
 
-**Goal:** Add immutable, content-addressed Stage A zero-shot evaluation evidence, fold-level paired-bootstrap aggregation, validation-only candidate selection, and selected-candidate-only sealed-test gating.
+### 1. Immutable v2 plan and evidence contracts
 
-**Architecture:** Keep artifact validation and strict JSON transport in `stage_a_zero_shot_contracts.py`. Keep statistical aggregation and gate decisions in `stage_a_zero_shot_gate.py`, so the later checkpoint runner can depend on a small pure interface without coupling statistics to filesystem or training code.
+Implemented in `trade_rl/evaluation/stage_a_zero_shot_contracts.py`.
 
-**Tech Stack:** Python 3.12, frozen dataclasses, canonical JSON/SHA-256 identities, NumPy deterministic bootstrap, pytest, Ruff, MyPy.
+- Rejects the flawed v1 plan, observation, and evidence schemas.
+- Requires exact candidate × triplet × fold × seed closure.
+- Binds dataset, feature, execution, evaluation, checkpoint, policy-execution, and baseline-execution identities.
+- Enforces one shared baseline per triplet/fold/seed cell across all candidates.
+- Caps bootstrap resamples at 1,000,000.
+- Uses strict JSON field closure and content digests.
 
-## Global Constraints
+### 2. Robust fold-bootstrap and candidate summaries
 
-- Validation and test symbols never appear in training identities.
-- Every declared candidate × fold × seed × split-triplet observation is required exactly once.
-- Checkpoint, dataset, execution, and plan identities are revalidated before aggregation.
-- Seeds are averaged inside folds; bootstrap resampling units are folds.
-- Candidate selection consumes validation evidence only.
-- Sealed test accepts exactly one previously selected candidate.
-- Bootstrap confidence, resample count, seed, and both thresholds are explicit and content-addressed.
-- No PPO, reward, execution simulator, serving, or market-data behavior changes.
+Implemented in `trade_rl/evaluation/stage_a_zero_shot_gate.py`.
 
----
+- Uses fold means as the only bootstrap unit.
+- Uses a common derived draw seed for all candidates in the same evidence artifact.
+- Generates bootstrap draws in bounded chunks.
+- Retains per-triplet and per-seed excess growth.
+- Computes worst-triplet excess, worst-seed excess, and non-negative-triplet pass fraction.
 
-### Task 1: Immutable evaluation plan and evidence
+### 3. Validation and sealed-test recomputation
 
-**Files:**
-- Create: `trade_rl/evaluation/stage_a_zero_shot_contracts.py`
-- Create: `tests/evaluation/test_stage_a_zero_shot_contracts.py`
+- Validation uses every declared candidate and all predeclared thresholds.
+- Candidate ranking is deterministic.
+- Sealed-test evaluation requires validation evidence and recomputes the supplied selection before accepting it.
+- Test evidence contains exactly the selected candidate.
+- Selection and decision loaders recompute the complete output and reject mismatches.
 
-**Interfaces:**
-- Produces: `StageACandidate`, `StageAZeroShotEvaluationPlan`, `StageAEvaluationObservation`, `StageAEvaluationEvidence`, builders, strict JSON writers/loaders.
+### 4. Atomic artifact writes
 
-- [ ] Write failing tests for plan round-trip, candidate checkpoint/seed closure, complete Cartesian evidence, duplicate/missing observation rejection, checkpoint mismatch, and tamper rejection.
-- [ ] Run `python -m pytest tests/evaluation/test_stage_a_zero_shot_contracts.py -q` and verify collection fails because the module is absent.
-- [ ] Implement frozen records, digest payloads, exact field closure, canonical ordering, builders, and strict load/write functions.
-- [ ] Re-run the focused tests and ensure all pass.
-- [ ] Run Ruff format/check and MyPy for the new module.
+Implemented through `trade_rl/artifacts/atomic_write.py`.
 
-### Task 2: Fold-level aggregation and validation selection
+- Flushes and fsyncs a unique temporary file.
+- Atomically replaces the destination.
+- Fsyncs the parent directory on supported platforms.
+- Removes temporary files on both success and failure.
 
-**Files:**
-- Create: `trade_rl/evaluation/stage_a_zero_shot_gate.py`
-- Create: `tests/evaluation/test_stage_a_zero_shot_gate.py`
+### 5. Regression coverage
 
-**Interfaces:**
-- Consumes: exact plan/evidence types from Task 1.
-- Produces: `StageACandidateSummary`, `StageAValidationSelection`, `summarize_stage_a_candidate`, `select_stage_a_validation_candidate`.
+The focused suites cover:
 
-- [ ] Write failing tests proving seeds/triplets are averaged within folds, bootstrap output is deterministic, the positive candidate is selected, and no candidate is selected below threshold.
-- [ ] Run the gate test and verify import failure.
-- [ ] Implement deterministic fold-resampling, content-addressed summaries, and deterministic validation selection.
-- [ ] Re-run contract and gate tests.
-- [ ] Run Ruff format/check and MyPy.
+- missing and duplicate Cartesian cells;
+- wrong checkpoints and plan identities;
+- candidate-dependent baseline substitution;
+- forged in-memory validation selections;
+- test candidate expansion;
+- hidden triplet and seed failures;
+- common bootstrap draw seeds and resample caps;
+- strict JSON tamper rejection;
+- atomic replacement failure preserving the prior file.
 
-### Task 3: Selected-candidate-only sealed-test decision
+## Next integration stage
 
-**Files:**
-- Modify: `trade_rl/evaluation/stage_a_zero_shot_gate.py`
-- Modify: `tests/evaluation/test_stage_a_zero_shot_gate.py`
+The next PR should add a Stage A runner that:
 
-**Interfaces:**
-- Produces: `StageASealedTestDecision`, `evaluate_stage_a_sealed_test`.
-
-- [ ] Write failing tests that reject validation evidence at the test gate, reject test evidence containing unselected candidates, and pass/fail the selected candidate against the predeclared test threshold.
-- [ ] Run the focused tests and verify the new interface is absent.
-- [ ] Implement the fail-closed sealed-test decision and content-addressed result.
-- [ ] Re-run all Stage A evaluation tests.
-
-### Task 4: Documentation and full verification
-
-**Files:**
-- Create: `docs/operations/stage-a-zero-shot-evaluation-design.md`
-- Create: `docs/operations/stage-a-zero-shot-evaluation-plan.md`
-
-- [ ] Run focused evaluation tests.
-- [ ] Run `python -m ruff format --check` and `python -m ruff check` on all changed Python files.
-- [ ] Run `python -m mypy trade_rl/evaluation/stage_a_zero_shot_contracts.py trade_rl/evaluation/stage_a_zero_shot_gate.py`.
-- [ ] Publish the branch and open a draft PR.
-- [ ] Require complete repository CI, both OS compatibility jobs, Training image, and PostgreSQL Catalog on one exact head before merge.
+1. loads retained checkpoints through the canonical serving/training loader;
+2. evaluates each declared fold, seed, triplet, and scenario using the maintained execution model;
+3. verifies the source execution artifact before constructing each v2 observation;
+4. writes validation evidence and selection;
+5. consumes the existing one-shot sealed-test ledger only for the selected candidate;
+6. writes the sealed-test evidence and final decision.

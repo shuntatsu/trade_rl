@@ -2,38 +2,65 @@
 
 ## Problem
 
-Stage A training is now symbol-disjoint, but the repository still needs an immutable evaluation boundary that proves the selected shared policy generalizes to symbols that never appeared in training. A result is not valid if a fold, seed, triplet, checkpoint, dataset identity, or execution-evidence identity is missing, or if sealed-test results influence candidate selection.
+Stage A training is symbol-disjoint, but a valid zero-shot claim also needs a fail-closed evaluation boundary. A result is invalid when a declared candidate, fold, seed, unseen-symbol triplet, checkpoint, shared baseline, dataset/feature/execution/evaluation identity, or execution-evidence digest is missing or inconsistent. Sealed-test results must never influence candidate selection.
 
-## Goal
+The original v1 contract proved Cartesian closure and JSON integrity, but it left three unsafe assumptions outside the public API: callers could construct a self-consistent forged validation selection, candidates could use different baselines for the same market cell, and an opaque execution-evidence digest was not tied to the plan identities. Version 2 removes those assumptions instead of preserving compatibility with the flawed schema.
 
-Produce content-addressed evaluation evidence for every declared candidate, fold, seed, and unseen-symbol triplet; aggregate paired excess log growth at the fold level; select candidates using validation evidence only; and allow sealed-test evaluation for the one selected candidate only.
+## Evaluation plan
 
-## Contracts
+`StageAZeroShotEvaluationPlan` binds:
 
-### Evaluation plan
+- symbol-disjoint source and triplet manifest digests;
+- candidate configuration, final training completion, policy, checkpoint, and seed identities;
+- dataset, feature, execution, and evaluation identities;
+- exact fold, seed, validation-triplet, and test-triplet sets;
+- one-sided fold-bootstrap confidence, resample count, and seed;
+- validation and test thresholds for the lower confidence bound, worst unseen triplet, worst seed, and non-negative-triplet pass fraction.
 
-The plan binds the symbol-disjoint source and triplet manifests, training completion evidence, policy/config/checkpoint identities, dataset/feature/execution/evaluation identities, the complete seed and fold sets, validation and test triplet identities, bootstrap parameters, and explicit validation/test lower-bound thresholds.
+Bootstrap resamples are limited to `1,000,000`. The implementation generates index draws in bounded chunks, so the plan cannot request an unbounded two-dimensional allocation.
 
-### Observation and evidence closure
+## Observation and evidence closure
 
-Each observation binds one candidate, split, unseen-symbol triplet, fold, seed, retained checkpoint, dataset identity, execution evidence, policy log growth, and baseline log growth. An evidence artifact is valid only when its Cartesian product is complete and duplicate-free. Loading or consuming evidence requires revalidation against the exact plan.
+Each `StageAEvaluationObservation` binds one candidate, split, unseen-symbol triplet, fold, seed, retained checkpoint, dataset/feature/execution/evaluation identities, policy execution-evidence digest, baseline execution-evidence digest, and paired policy/baseline log growth.
 
-### Statistical unit
+An evidence artifact is valid only when its candidate × triplet × fold × seed Cartesian product is complete and duplicate-free. For each `(triplet, fold, seed)` cell, every candidate must reference exactly the same baseline evidence digest and baseline log growth. This prevents candidate-dependent baseline substitution.
 
-For each candidate and fold, excess log growth is averaged across every seed and unseen-symbol triplet. The deterministic paired bootstrap resamples those fold means, so seeds do not masquerade as independent market histories. The one-sided lower bound and all bootstrap parameters are part of the resulting identity.
+Consumption revalidates every observation against the exact plan. A later runner must obtain these values from the canonical execution artifact; the v2 contract ensures that the resulting observation cryptographically binds the source digest to all relevant identities.
 
-### Validation selection
+## Statistical unit and robustness
 
-Validation evidence must contain every declared candidate. Candidates pass only when their lower confidence bound meets the predeclared validation threshold. Selection is deterministic: highest lower bound, then highest mean excess, then lexical candidate ID.
+For each candidate:
 
-### Sealed test
+- seed and triplet observations are averaged within each fold;
+- a deterministic one-sided bootstrap resamples fold means;
+- every candidate in the same evidence artifact receives the same derived bootstrap draw seed;
+- unseen-triplet means and seed means are retained separately;
+- the worst unseen-triplet mean, worst seed mean, and fraction of unseen triplets with non-negative excess growth are explicit gate inputs.
 
-A sealed-test decision requires a passed validation selection and test evidence containing exactly the selected candidate. Any additional candidate, changed checkpoint, missing fold/seed/triplet, or test evidence presented to the validation selector fails closed. The final test gate uses the independently predeclared test threshold and cannot change the selected candidate.
+Folds remain the market-history resampling unit, so seeds do not masquerade as independent histories. The additional robustness gates prevent a profitable subset of triplets or seeds from hiding a failed unseen-symbol subset.
 
-### Artifact self-consistency
+## Validation selection
 
-Selection and sealed-test loaders do not trust serialized winners, pass flags, or reasons. They recompute the complete result from the bound plan and evidence and reject any artifact whose payload differs from that deterministic recomputation.
+Validation evidence must contain every declared candidate. Eligibility requires all predeclared validation thresholds. Selection is deterministic, ordered by:
+
+1. highest lower confidence bound;
+2. highest worst-triplet excess growth;
+3. highest worst-seed excess growth;
+4. highest mean excess growth;
+5. lexical candidate ID.
+
+Serialized selections are not authority. Loaders recompute them from the bound plan and validation evidence.
+
+## Sealed test
+
+The sealed-test function requires both validation evidence and the supplied validation selection. It recomputes the expected selection and rejects any mismatch before reading test statistics. Test evidence must contain exactly the already selected candidate. The test gate applies its independently predeclared lower-bound and robustness thresholds and cannot change the candidate.
+
+A directly instantiated dataclass is only a value object, not an authorization token. The supported consumers are the recomputing loader and gate functions.
+
+## Artifact publication
+
+All Stage A plan, evidence, selection, and decision writers use a fully flushed temporary file followed by `os.replace`. A failed replacement preserves the previous destination and removes the temporary file.
 
 ## Non-goals
 
-This change does not run checkpoints, build market datasets, alter PPO, or open the existing sealed-test ledger. A later runner will produce these pure artifacts and use the existing one-shot ledger when it actually accesses sealed data.
+This module does not execute checkpoints, build market datasets, or consume the one-shot sealed-test ledger. The Stage A runner must use the canonical policy loader and execution artifact, then construct these v2 contracts and consume the existing ledger only when sealed data is accessed.

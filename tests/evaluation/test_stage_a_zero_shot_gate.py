@@ -66,6 +66,12 @@ def _plan(*, validation_threshold: float = 0.005, test_threshold: float = 0.01):
         bootstrap_seed=31,
         minimum_validation_lower_bound=validation_threshold,
         minimum_test_lower_bound=test_threshold,
+        minimum_validation_worst_triplet_excess=0.0,
+        minimum_test_worst_triplet_excess=0.0,
+        minimum_validation_worst_seed_excess=0.0,
+        minimum_test_worst_seed_excess=0.0,
+        minimum_validation_triplet_pass_fraction=1.0,
+        minimum_test_triplet_pass_fraction=1.0,
     )
 
 
@@ -96,8 +102,14 @@ def _evidence(
                             seed=seed,
                             checkpoint_digest=checkpoints[seed],
                             dataset_identity=plan.dataset_identity,
-                            execution_evidence_digest=_digest(
-                                f"execution-{split}-{candidate_id}-{triplet_index}-{fold}-{seed}"
+                            feature_identity=plan.feature_identity,
+                            execution_identity=plan.execution_identity,
+                            evaluation_identity=plan.evaluation_identity,
+                            policy_execution_evidence_digest=_digest(
+                                f"policy-execution-{split}-{candidate_id}-{triplet_index}-{fold}-{seed}"
+                            ),
+                            baseline_execution_evidence_digest=_digest(
+                                f"baseline-execution-{split}-{triplet_index}-{fold}-{seed}"
                             ),
                             policy_log_growth=(
                                 baseline + excess_by_candidate_fold[candidate_id][fold]
@@ -168,7 +180,7 @@ def test_validation_selection_fails_when_no_candidate_reaches_threshold() -> Non
 
     assert selection.passed is False
     assert selection.selected_candidate_id is None
-    assert selection.reason == "no_candidate_met_validation_lower_bound"
+    assert selection.reason == "no_candidate_met_validation_gate"
 
 
 def test_validation_selector_rejects_test_evidence() -> None:
@@ -204,12 +216,14 @@ def test_sealed_test_requires_exactly_the_selected_candidate() -> None:
     with pytest.raises(ValueError, match="exactly the selected candidate"):
         evaluate_stage_a_sealed_test(
             plan=plan,
+            validation_evidence=validation,
             selection=selection,
             evidence=all_candidates_test,
         )
     with pytest.raises(ValueError, match="test evidence"):
         evaluate_stage_a_sealed_test(
             plan=plan,
+            validation_evidence=validation,
             selection=selection,
             evidence=validation,
         )
@@ -233,18 +247,20 @@ def test_sealed_test_passes_or_fails_without_changing_the_selection(
     )
     passed = evaluate_stage_a_sealed_test(
         plan=plan,
+        validation_evidence=validation,
         selection=selection,
         evidence=passing_test,
     )
 
     assert passed.selected_candidate_id == "candidate-a"
     assert passed.passed is True
-    assert passed.reason == "selected_candidate_met_test_lower_bound"
+    assert passed.reason == "selected_candidate_met_test_gate"
     path = write_stage_a_sealed_test_decision(tmp_path / "decision.json", passed)
     assert (
         load_stage_a_sealed_test_decision(
             path,
             plan=plan,
+            validation_evidence=validation,
             selection=selection,
             evidence=passing_test,
         )
@@ -258,13 +274,14 @@ def test_sealed_test_passes_or_fails_without_changing_the_selection(
     )
     failed = evaluate_stage_a_sealed_test(
         plan=plan,
+        validation_evidence=validation,
         selection=selection,
         evidence=failing_test,
     )
 
     assert failed.selected_candidate_id == selection.selected_candidate_id
     assert failed.passed is False
-    assert failed.reason == "selected_candidate_missed_test_lower_bound"
+    assert failed.reason == "selected_candidate_missed_test_gate"
 
 
 def test_validation_selection_rejects_a_forged_winner() -> None:
@@ -283,9 +300,12 @@ def test_validation_selection_rejects_a_forged_winner() -> None:
             validation_evidence_digest=valid.validation_evidence_digest,
             candidate_summaries=valid.candidate_summaries,
             minimum_lower_bound=valid.minimum_lower_bound,
+            minimum_worst_triplet_excess=valid.minimum_worst_triplet_excess,
+            minimum_worst_seed_excess=valid.minimum_worst_seed_excess,
+            minimum_triplet_pass_fraction=valid.minimum_triplet_pass_fraction,
             selected_candidate_id="candidate-b",
             passed=True,
-            reason="candidate_selected_by_validation_lower_bound",
+            reason="candidate_selected_by_validation_gate",
         )
 
 
@@ -305,9 +325,12 @@ def test_validation_selection_rejects_a_forged_failure() -> None:
             validation_evidence_digest=valid.validation_evidence_digest,
             candidate_summaries=valid.candidate_summaries,
             minimum_lower_bound=valid.minimum_lower_bound,
+            minimum_worst_triplet_excess=valid.minimum_worst_triplet_excess,
+            minimum_worst_seed_excess=valid.minimum_worst_seed_excess,
+            minimum_triplet_pass_fraction=valid.minimum_triplet_pass_fraction,
             selected_candidate_id=None,
             passed=False,
-            reason="no_candidate_met_validation_lower_bound",
+            reason="no_candidate_met_validation_gate",
         )
 
 
@@ -327,6 +350,7 @@ def test_sealed_test_decision_rejects_a_forged_outcome() -> None:
     )
     valid = evaluate_stage_a_sealed_test(
         plan=plan,
+        validation_evidence=validation,
         selection=selection,
         evidence=test_evidence,
     )
@@ -339,6 +363,9 @@ def test_sealed_test_decision_rejects_a_forged_outcome() -> None:
             selected_candidate_id=valid.selected_candidate_id,
             candidate_summary=valid.candidate_summary,
             minimum_lower_bound=valid.minimum_lower_bound,
+            minimum_worst_triplet_excess=valid.minimum_worst_triplet_excess,
+            minimum_worst_seed_excess=valid.minimum_worst_seed_excess,
+            minimum_triplet_pass_fraction=valid.minimum_triplet_pass_fraction,
             passed=False,
-            reason="selected_candidate_missed_test_lower_bound",
+            reason="selected_candidate_missed_test_gate",
         )

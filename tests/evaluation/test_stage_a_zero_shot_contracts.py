@@ -60,6 +60,12 @@ def _plan():
         bootstrap_seed=31,
         minimum_validation_lower_bound=0.0,
         minimum_test_lower_bound=0.0,
+        minimum_validation_worst_triplet_excess=0.0,
+        minimum_test_worst_triplet_excess=0.0,
+        minimum_validation_worst_seed_excess=0.0,
+        minimum_test_worst_seed_excess=0.0,
+        minimum_validation_triplet_pass_fraction=1.0,
+        minimum_test_triplet_pass_fraction=1.0,
     )
 
 
@@ -88,8 +94,14 @@ def _observations(
                             seed=seed,
                             checkpoint_digest=checkpoints[seed],
                             dataset_identity=plan.dataset_identity,
-                            execution_evidence_digest=_digest(
-                                f"execution-{split}-{candidate_id}-{triplet_index}-{fold}-{seed}"
+                            feature_identity=plan.feature_identity,
+                            execution_identity=plan.execution_identity,
+                            evaluation_identity=plan.evaluation_identity,
+                            policy_execution_evidence_digest=_digest(
+                                f"policy-execution-{split}-{candidate_id}-{triplet_index}-{fold}-{seed}"
+                            ),
+                            baseline_execution_evidence_digest=_digest(
+                                f"baseline-execution-{split}-{triplet_index}-{fold}-{seed}"
                             ),
                             policy_log_growth=0.02 + 0.001 * fold,
                             baseline_log_growth=0.01,
@@ -137,6 +149,12 @@ def test_plan_round_trips_and_binds_candidate_seed_checkpoints(tmp_path: Path) -
             bootstrap_seed=31,
             minimum_validation_lower_bound=0.0,
             minimum_test_lower_bound=0.0,
+            minimum_validation_worst_triplet_excess=0.0,
+            minimum_test_worst_triplet_excess=0.0,
+            minimum_validation_worst_seed_excess=0.0,
+            minimum_test_worst_seed_excess=0.0,
+            minimum_validation_triplet_pass_fraction=1.0,
+            minimum_test_triplet_pass_fraction=1.0,
         )
 
 
@@ -189,7 +207,11 @@ def test_evidence_rejects_checkpoint_mismatch_and_payload_tampering(
         seed=first.seed,
         checkpoint_digest=_digest("wrong-checkpoint"),
         dataset_identity=first.dataset_identity,
-        execution_evidence_digest=first.execution_evidence_digest,
+        feature_identity=first.feature_identity,
+        execution_identity=first.execution_identity,
+        evaluation_identity=first.evaluation_identity,
+        policy_execution_evidence_digest=first.policy_execution_evidence_digest,
+        baseline_execution_evidence_digest=first.baseline_execution_evidence_digest,
         policy_log_growth=first.policy_log_growth,
         baseline_log_growth=first.baseline_log_growth,
     )

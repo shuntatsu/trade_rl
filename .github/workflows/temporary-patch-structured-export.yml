@@ -1,0 +1,64 @@
+name: Temporary structured export snapshot patch
+
+on:
+  push:
+    branches:
+      - fix/evidence-stage-transaction-v2
+    paths:
+      - .github/workflows/temporary-patch-structured-export.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/evidence-stage-transaction-v2
+          persist-credentials: true
+
+      - name: Apply exact snapshot patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/structured_export.py")
+          text = path.read_text(encoding="utf-8")
+          replacements = (
+              (
+                  '''from trade_rl.artifacts.verified_file import file_digest, open_regular_binary''',
+                  '''from trade_rl.artifacts.verified_file import (
+              file_digest_and_size,
+              open_regular_binary,
+          )''',
+              ),
+              (
+                  '''        model_digest = file_digest(model_path, field="structured model artifact")
+                  model_size_bytes = model_path.stat().st_size''',
+                  '''        model_digest, model_size_bytes = file_digest_and_size(
+                      model_path,
+                      field="structured model artifact",
+                  )''',
+              ),
+          )
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one exact replacement, found {count}")
+              text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git diff --check
+          git config user.name "trade-rl-automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add trade_rl/rl/structured_export.py
+          git commit -m "fix: bind structured model digest and size"
+          git push origin HEAD:fix/evidence-stage-transaction-v2

@@ -37,7 +37,10 @@ def _request() -> tuple[StageAEvaluationCellRequest, str]:
         candidate_config_digest=candidate_config_digest,
         final_training_completion_digest=_digest("candidate:complete"),
         policy_identity=_digest("candidate:policy"),
-        checkpoint_digests=((7, _digest("candidate:checkpoint:7")),),
+        checkpoint_digests=(
+            (7, _digest("candidate:checkpoint:7")),
+            (8, _digest("candidate:checkpoint:8")),
+        ),
     )
     plan = build_stage_a_zero_shot_evaluation_plan(
         symbol_disjoint_manifest_digest=_digest("symbols"),
@@ -47,8 +50,8 @@ def _request() -> tuple[StageAEvaluationCellRequest, str]:
         execution_identity=cost.execution_policy_digest,
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
-        seeds=(7,),
-        folds=(2,),
+        seeds=(7, 8),
+        folds=(2, 3),
         validation_triplet_ids=(_digest("validation-triplet"),),
         test_triplet_ids=(_digest("test-triplet"),),
         bootstrap_confidence_level=0.95,

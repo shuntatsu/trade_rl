@@ -6,6 +6,8 @@ This specification covers A6b-1: the fail-closed trust boundary between complete
 
 It does not load a checkpoint or execute a market episode. Checkpoint loading, dataset materialization, episode execution, CLI wiring, and PostgreSQL construction remain in A6b-2. A6b-1 makes those later producers prove that every published result belongs to the exact Stage A evaluation cell requested by A6a.
 
+A6b-1 attests the immutable relationship between a completed replay and its A6a request. It does not independently attest that a declared checkpoint exists or that the checkpoint produced the replay; A6b-2 must establish those facts before publishing the replay.
+
 ## Existing context
 
 A6a already owns:

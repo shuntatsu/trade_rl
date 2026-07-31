@@ -37,11 +37,20 @@ jobs:
           wrapped = encoded_path.read_bytes()
           encoded = b''.join(wrapped.split())
           removed = len(wrapped) - len(encoded)
+          alphabet = frozenset(b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
+          invalid = [index for index, value in enumerate(encoded) if value not in alphabet]
           print(
               'encoded bundle '
               f'wrapped_bytes={len(wrapped)} canonical_bytes={len(encoded)} '
               f'whitespace_removed={removed} sha256={hashlib.sha256(encoded).hexdigest()}'
           )
+          if invalid:
+              print(f'invalid_base64_positions={invalid[:64]} count={len(invalid)}')
+              for index in invalid[:16]:
+                  start = max(0, index - 80)
+                  end = min(len(encoded), index + 81)
+                  print(f'invalid_context[{index}]={encoded[start:end]!r}')
+              raise SystemExit('Implementation bundle contains non-base64 bytes')
           archive_bytes = base64.b64decode(encoded, validate=True)
           print(
               'decoded archive '

@@ -29,13 +29,13 @@ from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import load_serving_bundle
-from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.policy_loader import STRUCTURED_POLICY_LOADER_NAME
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     ExecutionEvidence,
     write_execution_evidence,
 )
+from trade_rl.workflows.release_packaging import package_selected_training_run
 
 COMPLETED = datetime(2026, 7, 1, tzinfo=UTC)
 PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(b"\x44" * 32)

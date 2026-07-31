@@ -30,6 +30,10 @@ Validation evidence must contain every declared candidate. Candidates pass only 
 
 A sealed-test decision requires a passed validation selection and test evidence containing exactly the selected candidate. Any additional candidate, changed checkpoint, missing fold/seed/triplet, or test evidence presented to the validation selector fails closed. The final test gate uses the independently predeclared test threshold and cannot change the selected candidate.
 
+### Artifact self-consistency
+
+Selection and sealed-test loaders do not trust serialized winners, pass flags, or reasons. They recompute the complete result from the bound plan and evidence and reject any artifact whose payload differs from that deterministic recomputation.
+
 ## Non-goals
 
 This change does not run checkpoints, build market datasets, alter PPO, or open the existing sealed-test ledger. A later runner will produce these pure artifacts and use the existing one-shot ledger when it actually accesses sealed data.

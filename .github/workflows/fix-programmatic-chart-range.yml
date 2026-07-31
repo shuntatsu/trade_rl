@@ -25,17 +25,24 @@ jobs:
           path = Path('studio/src/live/ResearchChartWorkspace.tsx')
           text = path.read_text()
 
-          insert_guard = "    if (!series) return\n    series.candles.setData"
-          guarded = "    if (!series) return\n    programmaticRange.current = true\n    series.candles.setData"
-          if insert_guard not in text:
-              raise SystemExit('chart data guard insertion point not found')
-          text = text.replace(insert_guard, guarded, 1)
+          old_start = """    const chart = chartRef.current
+              const series = seriesRef.current
+              if (!chart || !series) return
+              setSeriesData(series, data)"""
+          new_start = """    const chart = chartRef.current
+              const series = seriesRef.current
+              if (!chart || !series) return
+              programmaticRange.current = true
+              setSeriesData(series, data)"""
+          if old_start not in text:
+              raise SystemExit('chart data effect start not found')
+          text = text.replace(old_start, new_start, 1)
 
-          old_filter = """    const visibleMarkers = chartData.markers.filter((marker) =>
+          old_filter = """    const visibleMarkers = data.markers.filter((marker) =>
               marker.text === 'BUY' || marker.text === 'SELL'
                 ? layers.positionEvents
                 : layers.riskEvents)"""
-          new_filter = """    const visibleMarkers = chartData.markers.filter((marker) =>
+          new_filter = """    const visibleMarkers = data.markers.filter((marker) =>
               marker.text === 'BUY' || marker.text === 'SELL'
                 ? layers.positionEvents
                 : marker.text === 'RISK' ? layers.riskEvents : true)"""
@@ -43,15 +50,21 @@ jobs:
               raise SystemExit('marker filter not found')
           text = text.replace(old_filter, new_filter, 1)
 
-          marker_end = "    markerRef.current?.setMarkers(visibleMarkers as SeriesMarker<Time>[])\n  }, [chartData, layers])"
-          marker_guarded = "    markerRef.current?.setMarkers(visibleMarkers as SeriesMarker<Time>[])\n    queueMicrotask(() => { programmaticRange.current = false })\n  }, [chartData, layers])"
-          if marker_end not in text:
-              raise SystemExit('chart data guard completion point not found')
-          text = text.replace(marker_end, marker_guarded, 1)
+          old_end = """    series.baseline.applyOptions({ visible: layers.baseline })
+              series.drawdown.applyOptions({ visible: layers.drawdown })
+            }, [data, layers])"""
+          new_end = """    series.baseline.applyOptions({ visible: layers.baseline })
+              series.drawdown.applyOptions({ visible: layers.drawdown })
+              queueMicrotask(() => { programmaticRange.current = false })
+            }, [data, layers])"""
+          if old_end not in text:
+              raise SystemExit('chart data effect end not found')
+          text = text.replace(old_end, new_end, 1)
 
-          old_cursor = "    chart.setCrosshairPosition(candle.close, time as Time, series.candles)\n    if (followLatest) chart.timeScale().scrollToRealTime()"
-          new_cursor = """    chart.setCrosshairPosition(candle.close, time as Time, series.candles)
-            if (followLatest) {
+          old_cursor = """    if (followLatest && time === data.candles.at(-1)?.time) {
+              chart.timeScale().scrollToRealTime()
+            }"""
+          new_cursor = """    if (followLatest && time === data.candles.at(-1)?.time) {
               programmaticRange.current = true
               chart.timeScale().scrollToRealTime()
               queueMicrotask(() => { programmaticRange.current = false })

@@ -101,7 +101,9 @@ class StageAEvaluationEpisodeResult:
         if not events:
             raise ValueError("Stage A episode order events must not be empty")
         if any(not isinstance(event, OrderEvent) for event in events):
-            raise ValueError("Stage A episode order events must contain OrderEvent values")
+            raise ValueError(
+                "Stage A episode order events must contain OrderEvent values"
+            )
         if not isinstance(self.terminal_book, BookState):
             raise ValueError("Stage A episode terminal book must be BookState")
         if not isinstance(self.terminal_order_book, OrderBookState):

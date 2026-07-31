@@ -455,9 +455,7 @@ class StageAPolicySourceStore:
                 serving_relative,
                 field="Stage A serving bundle source",
             )
-            bundle = load_serving_bundle(
-                self.root.joinpath(*serving_relative.parts)
-            )
+            bundle = load_serving_bundle(self.root.joinpath(*serving_relative.parts))
             if bundle.manifest.policy_digest != checkpoint.policy_digest:
                 raise ValueError("Stage A serving policy digest mismatch")
             if bundle.manifest.environment_digest != checkpoint.environment_digest:

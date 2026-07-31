@@ -34,8 +34,14 @@ jobs:
           encoded_path = Path('.a6b2-implementation.bundle.b64')
           if encoded_path.is_symlink() or not encoded_path.is_file():
               raise SystemExit('Implementation bundle must be a regular file')
-          encoded = encoded_path.read_bytes()
-          print(f'encoded bundle bytes={len(encoded)} sha256={hashlib.sha256(encoded).hexdigest()}')
+          wrapped = encoded_path.read_bytes()
+          encoded = b''.join(wrapped.split())
+          removed = len(wrapped) - len(encoded)
+          print(
+              'encoded bundle '
+              f'wrapped_bytes={len(wrapped)} canonical_bytes={len(encoded)} '
+              f'whitespace_removed={removed} sha256={hashlib.sha256(encoded).hexdigest()}'
+          )
           archive_bytes = base64.b64decode(encoded, validate=True)
           print(
               'decoded archive '

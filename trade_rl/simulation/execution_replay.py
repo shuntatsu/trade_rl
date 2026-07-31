@@ -300,6 +300,42 @@ def validate_order_event_stream(
             ):
                 raise ValueError(f"order {order_id} partial fill is actually complete")
             previous = event
+
+    for order_id, history in histories.items():
+        first = history[0]
+        replaced_order_id = first.replaced_order_id
+        if replaced_order_id is None:
+            continue
+        if replaced_order_id == order_id:
+            raise ValueError(f"order {order_id} replacement reference is self-referential")
+        replaced_history = histories.get(replaced_order_id)
+        if replaced_history is None:
+            raise ValueError(f"order {order_id} replacement reference is unknown")
+        replaced_first = replaced_history[0]
+        replaced_last = replaced_history[-1]
+        for field, actual, expected in (
+            ("dataset", first.dataset_id, replaced_first.dataset_id),
+            (
+                "execution policy",
+                first.execution_policy_digest,
+                replaced_first.execution_policy_digest,
+            ),
+            ("symbol", first.symbol_index, replaced_first.symbol_index),
+        ):
+            if actual != expected:
+                raise ValueError(
+                    f"order {order_id} replacement {field} identity mismatch"
+                )
+        if (
+            replaced_last.event_type != "cancelled"
+            or replaced_last.new_status is not OrderStatus.CANCELLED
+            or replaced_last.reason != "superseded"
+            or replaced_last.sequence >= first.sequence
+            or replaced_last.processing_index > first.processing_index
+        ):
+            raise ValueError(
+                f"order {order_id} replacement does not follow a superseded cancellation"
+            )
     return normalized
 
 

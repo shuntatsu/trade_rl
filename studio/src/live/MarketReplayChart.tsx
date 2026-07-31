@@ -71,17 +71,18 @@ export function MarketReplayChart({ records, cursorSequence, compressed }: Marke
           const bodyTop = y(Math.max(open, close))
           const bodyHeight = Math.max(1.5, Math.abs(y(open) - y(close)))
           const delta = weightDelta(record)
+          const direction = delta > 0 ? 'buy' : delta < 0 ? 'sell' : null
           const markerY = delta >= 0 ? y(recordLow) + 18 : y(recordHigh) - 18
           return (
             <g key={`${record.sequence}-${record.environmentId}`}>
               <line x1={candleX} x2={candleX} y1={y(recordHigh)} y2={y(recordLow)} className={rising ? 'live-candle live-candle--up' : 'live-candle live-candle--down'} />
               <rect x={candleX - candleWidth / 2} y={bodyTop} width={candleWidth} height={bodyHeight} rx="1" className={rising ? 'live-candle live-candle--up' : 'live-candle live-candle--down'} />
-              {record.eventType === 'position' ? (
+              {record.eventType === 'position' && direction !== null ? (
                 <path
-                  d={delta >= 0
+                  d={direction === 'buy'
                     ? `M ${candleX} ${markerY - 8} L ${candleX - 7} ${markerY + 5} L ${candleX + 7} ${markerY + 5} Z`
                     : `M ${candleX} ${markerY + 8} L ${candleX - 7} ${markerY - 5} L ${candleX + 7} ${markerY - 5} Z`}
-                  className={delta >= 0 ? 'live-marker live-marker--buy' : 'live-marker live-marker--sell'}
+                  className={`live-marker live-marker--${direction}`}
                 />
               ) : null}
               {record.eventType === 'risk' ? <circle cx={candleX} cy={markerY} r="5" className="live-marker live-marker--risk" /> : null}

@@ -14,18 +14,25 @@ export function RunCenterPage({ api = studioApi }: RunCenterPageProps) {
   const [lines, setLines] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const selectedIdRef = useRef(selectedId)
   const logRequest = useRef(0)
+
+  function selectJob(jobId: string | null) {
+    selectedIdRef.current = jobId
+    setSelectedId(jobId)
+    replaceParams({ job: jobId })
+  }
 
   async function refreshJobs() {
     setLoading(true); setError(null)
     try {
       const response = await api.loadJobs()
       setJobs(response.items)
-      const next = selectedId && response.items.some((item) => item.id === selectedId)
-        ? selectedId
+      const current = selectedIdRef.current
+      const next = current && response.items.some((item) => item.id === current)
+        ? current
         : response.items[0]?.id ?? null
-      setSelectedId(next)
-      replaceParams({ job: next })
+      selectJob(next)
       if (next) {
         await loadLog(next)
       } else {
@@ -38,7 +45,7 @@ export function RunCenterPage({ api = studioApi }: RunCenterPageProps) {
 
   async function loadLog(jobId: string) {
     const sequence = ++logRequest.current
-    setSelectedId(jobId); replaceParams({ job: jobId }); setError(null)
+    selectJob(jobId); setError(null)
     try {
       const response = await api.loadJobLog(jobId)
       if (sequence === logRequest.current) setLines(response.lines)

@@ -12,6 +12,10 @@ from trade_rl.rl.actions import ActionSpec
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 TRAINING_ENVIRONMENT_SCHEMA = "training_environment_v2"
+_ACTION_SPEC_FIELDS = frozenset(field.name for field in fields(ActionSpec))
+_EXECUTION_COST_FIELDS = frozenset(
+    field.name for field in fields(ExecutionCostConfig)
+)
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -30,17 +34,16 @@ def _load_payload(path: Path) -> Mapping[str, object]:
     return payload
 
 
-def _strict_dataclass_mapping(
+def _strict_mapping(
     value: object,
     *,
-    dataclass_type: type[object],
+    expected_fields: frozenset[str],
     field: str,
 ) -> dict[str, object]:
     raw = dict(_mapping(value, field=field))
-    expected = {item.name for item in fields(dataclass_type)}
     observed = set(raw)
-    missing = sorted(expected - observed)
-    unknown = sorted(observed - expected)
+    missing = sorted(expected_fields - observed)
+    unknown = sorted(observed - expected_fields)
     if missing:
         raise ValueError(f"missing {field} fields: {', '.join(missing)}")
     if unknown:
@@ -52,9 +55,9 @@ def load_training_action_spec(path: Path) -> ActionSpec:
     """Load the complete action identity without applying local defaults."""
 
     payload = _load_payload(path)
-    raw = _strict_dataclass_mapping(
+    raw = _strict_mapping(
         payload.get("action"),
-        dataclass_type=ActionSpec,
+        expected_fields=_ACTION_SPEC_FIELDS,
         field="action",
     )
     return ActionSpec(**cast(dict[str, Any], raw))
@@ -65,9 +68,9 @@ def load_training_execution_cost(path: Path) -> ExecutionCostConfig:
 
     payload = _load_payload(path)
     environment = _mapping(payload.get("environment"), field="environment")
-    raw = _strict_dataclass_mapping(
+    raw = _strict_mapping(
         environment.get("execution_cost"),
-        dataclass_type=ExecutionCostConfig,
+        expected_fields=_EXECUTION_COST_FIELDS,
         field="execution_cost",
     )
     fractions = raw["trigger_volume_fractions"]

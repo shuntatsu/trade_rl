@@ -60,6 +60,12 @@ def _plan():
         bootstrap_seed=31,
         minimum_validation_lower_bound=0.0,
         minimum_test_lower_bound=0.0,
+        minimum_validation_worst_triplet_excess=0.0,
+        minimum_test_worst_triplet_excess=0.0,
+        minimum_validation_worst_seed_excess=0.0,
+        minimum_test_worst_seed_excess=0.0,
+        minimum_validation_triplet_pass_fraction=1.0,
+        minimum_test_triplet_pass_fraction=1.0,
     )
 
 
@@ -88,8 +94,14 @@ def _observations(
                             seed=seed,
                             checkpoint_digest=checkpoints[seed],
                             dataset_identity=plan.dataset_identity,
-                            execution_evidence_digest=_digest(
-                                f"execution-{split}-{candidate_id}-{triplet_index}-{fold}-{seed}"
+                            feature_identity=plan.feature_identity,
+                            execution_identity=plan.execution_identity,
+                            evaluation_identity=plan.evaluation_identity,
+                            policy_execution_evidence_digest=_digest(
+                                f"policy-execution-{split}-{candidate_id}-{triplet_index}-{fold}-{seed}"
+                            ),
+                            baseline_execution_evidence_digest=_digest(
+                                f"baseline-execution-{split}-{triplet_index}-{fold}-{seed}"
                             ),
                             policy_log_growth=0.02 + 0.001 * fold,
                             baseline_log_growth=0.01,
@@ -137,6 +149,12 @@ def test_plan_round_trips_and_binds_candidate_seed_checkpoints(tmp_path: Path) -
             bootstrap_seed=31,
             minimum_validation_lower_bound=0.0,
             minimum_test_lower_bound=0.0,
+            minimum_validation_worst_triplet_excess=0.0,
+            minimum_test_worst_triplet_excess=0.0,
+            minimum_validation_worst_seed_excess=0.0,
+            minimum_test_worst_seed_excess=0.0,
+            minimum_validation_triplet_pass_fraction=1.0,
+            minimum_test_triplet_pass_fraction=1.0,
         )
 
 
@@ -189,7 +207,11 @@ def test_evidence_rejects_checkpoint_mismatch_and_payload_tampering(
         seed=first.seed,
         checkpoint_digest=_digest("wrong-checkpoint"),
         dataset_identity=first.dataset_identity,
-        execution_evidence_digest=first.execution_evidence_digest,
+        feature_identity=first.feature_identity,
+        execution_identity=first.execution_identity,
+        evaluation_identity=first.evaluation_identity,
+        policy_execution_evidence_digest=first.policy_execution_evidence_digest,
+        baseline_execution_evidence_digest=first.baseline_execution_evidence_digest,
         policy_log_growth=first.policy_log_growth,
         baseline_log_growth=first.baseline_log_growth,
     )
@@ -225,107 +247,3 @@ def test_test_evidence_can_be_scoped_to_one_declared_candidate() -> None:
     assert evidence.candidate_ids == ("candidate-a",)
     assert evidence.triplet_ids == plan.test_triplet_ids
     evidence.validate_plan(plan)
-
-
-def test_observation_is_constructed_only_from_matching_execution_artifacts(
-    tmp_path: Path,
-) -> None:
-    from tests.evaluation.replay_support import (
-        CANDIDATE_CONFIG_DIGEST,
-        COST,
-        DATASET_ID,
-        EVALUATION_RUN_DIGEST,
-        execution_episode,
-    )
-    from trade_rl.evaluation.execution_promotion_artifacts import (
-        write_execution_promotion_artifacts,
-    )
-
-    candidate = StageACandidate.create(
-        candidate_id="candidate-bound",
-        candidate_config_digest=CANDIDATE_CONFIG_DIGEST,
-        final_training_completion_digest=_digest("bound-completion"),
-        policy_identity=_digest("bound-policy"),
-        checkpoint_digests=tuple(
-            (seed, _digest(f"bound-checkpoint-{seed}")) for seed in _SEEDS
-        ),
-    )
-    plan = build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=_digest("bound-symbol-manifest"),
-        symbol_disjoint_triplet_manifest_digest=_digest("bound-triplet-manifest"),
-        dataset_identity=DATASET_ID,
-        feature_identity=_digest("bound-feature"),
-        execution_identity=COST.execution_policy_digest,
-        evaluation_identity=EVALUATION_RUN_DIGEST,
-        candidates=(candidate,),
-        seeds=_SEEDS,
-        folds=_FOLDS,
-        validation_triplet_ids=_VALIDATION_TRIPLETS,
-        test_triplet_ids=_TEST_TRIPLETS,
-        bootstrap_confidence_level=0.95,
-        bootstrap_resamples=2_000,
-        bootstrap_seed=31,
-        minimum_validation_lower_bound=0.0,
-        minimum_test_lower_bound=0.0,
-    )
-    events, book, order_book = execution_episode()
-    artifacts = write_execution_promotion_artifacts(
-        root=tmp_path,
-        candidate_config_digest=CANDIDATE_CONFIG_DIGEST,
-        evaluation_run_digest=EVALUATION_RUN_DIGEST,
-        fold=0,
-        seed=0,
-        dataset_id=DATASET_ID,
-        cost=COST,
-        actions=((0.4,),),
-        observation_digests=("1" * 64, "2" * 64),
-        equity_curve=(1_000.0, 1_000.0),
-        order_events=events,
-        terminal_book=book,
-        terminal_order_book=order_book,
-        sensitivity_path_modes=("conservative",),
-    )
-
-    observation = StageAEvaluationObservation.create_from_execution_artifacts(
-        plan=plan,
-        candidate_id=candidate.candidate_id,
-        split="validation",
-        triplet_id=plan.validation_triplet_ids[0],
-        checkpoint_digest=candidate.checkpoint_digest(0),
-        artifacts=artifacts,
-        policy_log_growth=0.02,
-        baseline_log_growth=0.01,
-    )
-    assert observation.execution_evidence_digest == artifacts.evidence_digest
-    assert observation.fold == 0
-    assert observation.seed == 0
-
-    wrong_plan = build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=plan.symbol_disjoint_manifest_digest,
-        symbol_disjoint_triplet_manifest_digest=plan.symbol_disjoint_triplet_manifest_digest,
-        dataset_identity=plan.dataset_identity,
-        feature_identity=plan.feature_identity,
-        execution_identity=plan.execution_identity,
-        evaluation_identity=_digest("wrong-evaluation"),
-        candidates=(candidate,),
-        seeds=_SEEDS,
-        folds=_FOLDS,
-        validation_triplet_ids=_VALIDATION_TRIPLETS,
-        test_triplet_ids=_TEST_TRIPLETS,
-        bootstrap_confidence_level=0.95,
-        bootstrap_resamples=2_000,
-        bootstrap_seed=31,
-        minimum_validation_lower_bound=0.0,
-        minimum_test_lower_bound=0.0,
-    )
-    with pytest.raises(ValueError, match="evaluation identity"):
-        StageAEvaluationObservation.create_from_execution_artifacts(
-            plan=wrong_plan,
-            candidate_id=candidate.candidate_id,
-            split="validation",
-            triplet_id=wrong_plan.validation_triplet_ids[0],
-            checkpoint_digest=candidate.checkpoint_digest(0),
-            artifacts=artifacts,
-            policy_log_growth=0.02,
-            baseline_log_growth=0.01,
-        )

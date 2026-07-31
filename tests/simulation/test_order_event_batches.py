@@ -38,12 +38,19 @@ def _submitted_event(*, order_id: str, sequence: int) -> OrderEvent:
 
 def test_merge_order_event_batches_resequences_invocation_local_events() -> None:
     first = (_submitted_event(order_id="a" * 64, sequence=0),)
-    second = (_submitted_event(order_id="b" * 64, sequence=0),)
+    second = (
+        _submitted_event(order_id="b" * 64, sequence=0),
+        _submitted_event(order_id="c" * 64, sequence=1),
+    )
 
     merged = merge_order_event_batches((first, second))
 
-    assert tuple(event.sequence for event in merged) == (0, 1)
-    assert tuple(event.order_id for event in merged) == ("a" * 64, "b" * 64)
+    assert tuple(event.sequence for event in merged) == (0, 1, 2)
+    assert tuple(event.order_id for event in merged) == (
+        "a" * 64,
+        "b" * 64,
+        "c" * 64,
+    )
 
 
 def test_merge_order_event_batches_rejects_noncanonical_local_sequence() -> None:

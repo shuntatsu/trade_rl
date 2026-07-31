@@ -40,14 +40,19 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         candidate_config_digest=_digest("candidate-a:config"),
         final_training_completion_digest=_digest("candidate-a:complete"),
         policy_identity=_digest("candidate-a:policy"),
-        checkpoint_digests=((0, _digest("candidate-a:checkpoint:0")), (1, _digest("candidate-a:checkpoint:1"))),
+        checkpoint_digests=(
+            (0, _digest("candidate-a:checkpoint:0")),
+            (1, _digest("candidate-a:checkpoint:1")),
+        ),
     )
     return build_stage_a_zero_shot_evaluation_plan(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
         dataset_identity=_digest("dataset"),
         feature_identity=_digest("features"),
-        execution_identity=ExecutionCostConfig(path_mode="conservative").execution_policy_digest,
+        execution_identity=ExecutionCostConfig(
+            path_mode="conservative"
+        ).execution_policy_digest,
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
         seeds=(0, 1),
@@ -140,7 +145,9 @@ def _promotion_bytes(
         ),
         terminal_order_book=OrderBookState.empty(),
     )
-    event_path = write_execution_event_artifact(tmp_path / "order-events.json", event_artifact)
+    event_path = write_execution_event_artifact(
+        tmp_path / "order-events.json", event_artifact
+    )
     evidence = execution_evidence_from_cost(
         dataset_id=request.dataset_identity,
         cost=ExecutionCostConfig(path_mode="conservative"),
@@ -160,7 +167,9 @@ def test_builds_policy_replay_and_recomputes_log_growth(tmp_path: Path) -> None:
 
     artifact = build_stage_a_execution_replay_artifact(
         request=request,
-        candidate_config_digest=plan.candidate("candidate-a").candidate_config_digest,
+        candidate_config_digest=plan.candidate(
+                "candidate-a"
+            ).candidate_config_digest,
         actions=((0.4,),),
         observation_digests=(_digest("observation-0"), _digest("observation-1")),
         equity_curve=(1_000.0, 1_100.0),
@@ -171,10 +180,15 @@ def test_builds_policy_replay_and_recomputes_log_growth(tmp_path: Path) -> None:
     assert artifact.cell_identity.request_digest == request.digest
     assert artifact.log_growth == pytest.approx(math.log(1.1))
     assert artifact.execution_evidence_digest == evidence_digest
-    assert StageAExecutionCellIdentity.from_request(
-        request,
-        candidate_config_digest=plan.candidate("candidate-a").candidate_config_digest,
-    ) == artifact.cell_identity
+    assert (
+        StageAExecutionCellIdentity.from_request(
+            request,
+            candidate_config_digest=plan.candidate(
+                "candidate-a"
+            ).candidate_config_digest,
+        )
+        == artifact.cell_identity
+    )
 
 
 def test_rejects_equity_curve_that_disagrees_with_terminal_book(
@@ -209,7 +223,9 @@ def test_rejects_non_positive_equity(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="equity curve must be positive"):
         build_stage_a_execution_replay_artifact(
             request=request,
-            candidate_config_digest=plan.candidate("candidate-a").candidate_config_digest,
+            candidate_config_digest=plan.candidate(
+                "candidate-a"
+            ).candidate_config_digest,
             actions=((0.4,),),
             observation_digests=(_digest("observation-0"), _digest("observation-1")),
             equity_curve=(1_000.0, 0.0),
@@ -225,7 +241,9 @@ def test_rejects_noncanonical_execution_evidence(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="canonical encoding"):
         build_stage_a_execution_replay_artifact(
             request=request,
-            candidate_config_digest=plan.candidate("candidate-a").candidate_config_digest,
+            candidate_config_digest=plan.candidate(
+                "candidate-a"
+            ).candidate_config_digest,
             actions=((0.4,),),
             observation_digests=(_digest("observation-0"), _digest("observation-1")),
             equity_curve=(1_000.0, 1_100.0),

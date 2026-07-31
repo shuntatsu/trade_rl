@@ -50,8 +50,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
             final_training_completion_digest=_digest(f"{candidate_id}:complete"),
             policy_identity=_digest(f"{candidate_id}:policy"),
             checkpoint_digests=tuple(
-                (seed, _digest(f"{candidate_id}:checkpoint:{seed}"))
-                for seed in seeds
+                (seed, _digest(f"{candidate_id}:checkpoint:{seed}")) for seed in seeds
             ),
         )
         for candidate_id in ("candidate-a", "candidate-b")

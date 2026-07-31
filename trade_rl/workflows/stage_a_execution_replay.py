@@ -46,9 +46,7 @@ def _positive_int(value: object, *, field: str) -> int:
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping) or not all(
-        isinstance(key, str) for key in value
-    ):
+    if not isinstance(value, Mapping) or not all(isinstance(key, str) for key in value):
         raise ValueError(f"{field} must be an object with string keys")
     return cast(Mapping[str, object], value)
 
@@ -89,7 +87,9 @@ def _terminal_portfolio_value(artifact: ExecutionEventArtifact) -> float:
     )
     mark_prices = tuple(
         _number(item, field="terminal_book.mark_prices[]")
-        for item in _sequence(book.get("mark_prices"), field="terminal_book.mark_prices")
+        for item in _sequence(
+            book.get("mark_prices"), field="terminal_book.mark_prices"
+        )
     )
     multipliers = tuple(
         _number(item, field="terminal_book.contract_multipliers[]")
@@ -330,9 +330,7 @@ class StageAExecutionReplayArtifact:
             raise ValueError("Stage A execution replay actions must not be empty")
         observations = tuple(self.observation_digests)
         if len(observations) != len(actions) + 1:
-            raise ValueError(
-                "Stage A execution replay observation closure mismatch"
-            )
+            raise ValueError("Stage A execution replay observation closure mismatch")
         for index, digest in enumerate(observations):
             require_sha256(digest, field=f"observation_digests[{index}]")
         equity = tuple(

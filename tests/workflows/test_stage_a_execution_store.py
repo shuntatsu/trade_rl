@@ -136,7 +136,9 @@ def _promotion_paths(
         ),
         terminal_order_book=OrderBookState.empty(),
     )
-    event_path = write_execution_event_artifact(root / "order-events.json", event_artifact)
+    event_path = write_execution_event_artifact(
+        root / "order-events.json", event_artifact
+    )
     evidence = execution_evidence_from_cost(
         dataset_id=request.dataset_identity,
         cost=ExecutionCostConfig(path_mode="conservative"),
@@ -246,7 +248,6 @@ def test_load_rejects_symlink_request_index(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="must not be a symlink"):
         store.load(request.digest)
-
 
 
 def test_identical_retry_is_idempotent(tmp_path: Path) -> None:

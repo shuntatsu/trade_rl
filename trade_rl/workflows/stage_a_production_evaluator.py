@@ -36,9 +36,7 @@ class ArtifactBackedStageAEvaluationCellEvaluator:
         self.store = store
         self.baseline_candidate_config_digest = baseline_candidate_config_digest
 
-    def _expected_candidate_config(
-        self, request: StageAEvaluationCellRequest
-    ) -> str:
+    def _expected_candidate_config(self, request: StageAEvaluationCellRequest) -> str:
         if request.plan_digest != self.plan.digest:
             raise ValueError("Stage A evaluator plan identity mismatch")
         if request.dataset_identity != self.plan.dataset_identity:

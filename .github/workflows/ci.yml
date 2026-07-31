@@ -11,7 +11,7 @@ on:
       - agent/causal-sequence-feature-encoder
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -240,59 +240,3 @@ jobs:
             test -w /workspace/var
             python -c "import torch, trade_rl; print(torch.__version__)"
           '
-
-  apply-a6b-format:
-    name: Apply A6b formatter bundle
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/stage-a6b-production-evaluator' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout A6b branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: agent/stage-a6b-production-evaluator
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Verify, apply, and clean formatter bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat .a6b-format/part-* > /tmp/a6b-format.b64
-          base64 --decode /tmp/a6b-format.b64 > /tmp/a6b-format.tgz
-          echo "7b902724e5a0fe508db432dabdd3bc5789f748cd566d92425bd744ba1a8c71dc  /tmp/a6b-format.tgz" | sha256sum --check --strict
-          python - <<'PYBUNDLE'
-          from pathlib import Path
-          import tarfile
-
-          allowed = {
-              'trade_rl/workflows/stage_a_execution_replay.py',
-              'trade_rl/workflows/stage_a_execution_store.py',
-              'trade_rl/workflows/stage_a_production_evaluator.py',
-              'tests/workflows/test_stage_a_execution_replay.py',
-              'tests/workflows/test_stage_a_execution_store.py',
-              'tests/workflows/test_stage_a_production_evaluator.py',
-              'tests/workflows/test_stage_a_production_orchestration.py',
-          }
-          with tarfile.open('/tmp/a6b-format.tgz', 'r:gz') as handle:
-              members = handle.getmembers()
-              names = [member.name for member in members]
-              if len(names) != len(allowed) or set(names) != allowed:
-                  raise SystemExit(f'unexpected format paths: {names!r}')
-              for member in members:
-                  if not member.isfile() or member.issym() or member.islnk():
-                      raise SystemExit(f'unsafe format member: {member.name}')
-                  target = Path(member.name)
-                  if target.is_absolute() or '..' in target.parts:
-                      raise SystemExit(f'unsafe format path: {member.name}')
-                  source = handle.extractfile(member)
-                  if source is None:
-                      raise SystemExit(f'format member has no bytes: {member.name}')
-                  target.write_bytes(source.read())
-          PYBUNDLE
-          rm -rf .a6b-format
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --check
-          git commit -m 'style: format Stage A production evaluator'
-          git push origin HEAD:agent/stage-a6b-production-evaluator

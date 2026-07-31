@@ -79,9 +79,7 @@ def _request(
     plan: StageAZeroShotEvaluationPlan, *, policy: bool
 ) -> StageAEvaluationCellRequest:
     candidate_id = "candidate-a" if policy else None
-    checkpoint = (
-        plan.candidate("candidate-a").checkpoint_digest(0) if policy else None
-    )
+    checkpoint = plan.candidate("candidate-a").checkpoint_digest(0) if policy else None
     return StageAEvaluationCellRequest(
         plan_digest=plan.digest,
         split="validation",
@@ -214,7 +212,10 @@ def test_returns_verified_policy_and_baseline_growth(tmp_path: Path) -> None:
     assert policy_result.execution_evidence_digest != (
         baseline_result.execution_evidence_digest
     )
-    assert policy_result.execution_evidence_digest == store.load(policy.digest).artifact.digest
+    assert (
+        policy_result.execution_evidence_digest
+        == store.load(policy.digest).artifact.digest
+    )
     assert baseline_result.execution_evidence_digest == (
         store.load(baseline.digest).artifact.digest
     )
@@ -254,7 +255,11 @@ def test_rejects_baseline_configuration_substitution(tmp_path: Path) -> None:
     ("field", "value", "message"),
     (
         ("feature_identity", _digest("other-features"), "feature identity mismatch"),
-        ("evaluation_identity", _digest("other-evaluation"), "evaluation identity mismatch"),
+        (
+            "evaluation_identity",
+            _digest("other-evaluation"),
+            "evaluation identity mismatch",
+        ),
         ("triplet_id", _digest("other-triplet"), "triplet is not declared"),
         ("fold", 9, "fold is not declared"),
         ("seed", 9, "seed is not declared"),

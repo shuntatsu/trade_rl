@@ -22,9 +22,7 @@ from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
 
-STAGE_A_EXECUTION_REQUEST_INDEX_SCHEMA: Final = (
-    "stage_a_execution_request_index_v1"
-)
+STAGE_A_EXECUTION_REQUEST_INDEX_SCHEMA: Final = "stage_a_execution_request_index_v1"
 _EVENT_SUFFIX: Final = ".order-events.json"
 _EVIDENCE_SUFFIX: Final = ".execution-evidence.json"
 _CELL_SUFFIX: Final = ".stage-a-cell.json"
@@ -105,9 +103,7 @@ class StoredStageAExecutionReplay:
             / f"{self.artifact.digest}{_CELL_SUFFIX}"
         )
         expected_event = (
-            root
-            / "events"
-            / f"{self.artifact.event_artifact_digest}{_EVENT_SUFFIX}"
+            root / "events" / f"{self.artifact.event_artifact_digest}{_EVENT_SUFFIX}"
         )
         expected_evidence = (
             root
@@ -115,9 +111,7 @@ class StoredStageAExecutionReplay:
             / f"{self.artifact.execution_evidence_digest}{_EVIDENCE_SUFFIX}"
         )
         expected_index = (
-            root
-            / "by-request"
-            / f"{self.artifact.cell_identity.request_digest}.json"
+            root / "by-request" / f"{self.artifact.cell_identity.request_digest}.json"
         )
         if Path(self.artifact_path) != expected_artifact:
             raise ValueError("Stage A execution artifact path is not canonical")
@@ -145,15 +139,10 @@ class StageAExecutionPromotionStore:
     ) -> tuple[Path, Path, Path, Path]:
         request_digest = artifact.cell_identity.request_digest
         artifact_path = (
-            self.root
-            / "cells"
-            / request_digest
-            / f"{artifact.digest}{_CELL_SUFFIX}"
+            self.root / "cells" / request_digest / f"{artifact.digest}{_CELL_SUFFIX}"
         )
         event_path = (
-            self.root
-            / "events"
-            / f"{artifact.event_artifact_digest}{_EVENT_SUFFIX}"
+            self.root / "events" / f"{artifact.event_artifact_digest}{_EVENT_SUFFIX}"
         )
         evidence_path = (
             self.root
@@ -168,10 +157,7 @@ class StageAExecutionPromotionStore:
         *, request_digest: str, artifact: StageAExecutionReplayArtifact, root: Path
     ) -> bytes:
         artifact_path = (
-            root
-            / "cells"
-            / request_digest
-            / f"{artifact.digest}{_CELL_SUFFIX}"
+            root / "cells" / request_digest / f"{artifact.digest}{_CELL_SUFFIX}"
         )
         payload: dict[str, object] = {
             "artifact_digest": artifact.digest,
@@ -179,7 +165,9 @@ class StageAExecutionPromotionStore:
             "request_digest": request_digest,
             "schema_version": STAGE_A_EXECUTION_REQUEST_INDEX_SCHEMA,
         }
-        return canonical_json_bytes({"digest": content_digest(payload), **payload}) + b"\n"
+        return (
+            canonical_json_bytes({"digest": content_digest(payload), **payload}) + b"\n"
+        )
 
     def publish(
         self,
@@ -260,7 +248,9 @@ class StageAExecutionPromotionStore:
         try:
             raw = json.loads(index_bytes)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ValueError("Stage A execution request index must be valid JSON") from error
+            raise ValueError(
+                "Stage A execution request index must be valid JSON"
+            ) from error
         if not isinstance(raw, dict):
             raise ValueError("Stage A execution request index must be an object")
         required = {
@@ -292,7 +282,9 @@ class StageAExecutionPromotionStore:
             raise ValueError("Stage A execution request index digest mismatch")
         expected_index_bytes = canonical_json_bytes(raw) + b"\n"
         if index_bytes != expected_index_bytes:
-            raise ValueError("Stage A execution request index must use canonical encoding")
+            raise ValueError(
+                "Stage A execution request index must use canonical encoding"
+            )
 
         artifact_path = self.root.joinpath(*relative.parts)
         artifact_bytes = _read_regular_bytes(
@@ -312,8 +304,7 @@ class StageAExecutionPromotionStore:
         )
         if (
             len(event_bytes) != artifact.event_artifact_size_bytes
-            or hashlib.sha256(event_bytes).hexdigest()
-            != artifact.event_artifact_digest
+            or hashlib.sha256(event_bytes).hexdigest() != artifact.event_artifact_digest
         ):
             raise ValueError("Stage A execution event artifact digest mismatch")
         evidence_bytes = _read_regular_bytes(

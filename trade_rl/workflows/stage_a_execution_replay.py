@@ -479,9 +479,7 @@ def _validate_promotion_bytes(
         raise ValueError("Stage A execution event policy identity mismatch")
     replay_identity = event_artifact.replay_identity
     if replay_identity.candidate_config_digest != candidate_config_digest:
-        raise ValueError(
-            "Stage A execution candidate configuration identity mismatch"
-        )
+        raise ValueError("Stage A execution candidate configuration identity mismatch")
     if replay_identity.evaluation_run_digest != request.digest:
         raise ValueError("Stage A execution evaluation run identity mismatch")
     if replay_identity.fold != request.fold:

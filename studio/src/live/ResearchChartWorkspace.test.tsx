@@ -157,6 +157,25 @@ describe('ResearchChartWorkspace', () => {
     expect(onManualNavigation).toHaveBeenCalledTimes(1)
   })
 
+  it('does not reset a manual viewport when new records arrive', async () => {
+    const view = renderWorkspace({ followLatest: false })
+    await waitFor(() => expect(runtime.timeScale.setVisibleRange).toHaveBeenCalled())
+    vi.clearAllMocks()
+
+    view.rerender(
+      <ResearchChartWorkspace
+        {...view.props}
+        followLatest={false}
+        records={[...view.props.records, telemetry(3)]}
+      />,
+    )
+
+    await waitFor(() => expect(runtime.series[0]?.setData).toHaveBeenCalled())
+    expect(runtime.timeScale.setVisibleRange).not.toHaveBeenCalled()
+    expect(runtime.timeScale.fitContent).not.toHaveBeenCalled()
+    expect(runtime.timeScale.scrollToRealTime).not.toHaveBeenCalled()
+  })
+
   it('removes the chart on unmount', async () => {
     const view = renderWorkspace()
     await waitFor(() => expect(runtime.chart.subscribeClick).toHaveBeenCalled())

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -11,7 +11,13 @@ vi.mock('../live/ResearchChartWorkspace', () => ({
     onCommitRecord: (record: TrainingTelemetryRecord) => void
   }) => (
     <div role="img" aria-label="BTCUSDT 15m 市場・方策・学習・成績の同期チャート">
-      <button type="button" onClick={() => records[1] && onCommitRecord(records[1])}>チャートでStep 64を選択</button>
+      <button
+        type="button"
+        disabled={!records[1]}
+        onClick={() => records[1] && onCommitRecord(records[1])}
+      >
+        チャートでStep 64を選択
+      </button>
     </div>
   ),
 }))
@@ -101,11 +107,13 @@ describe('LiveTrainingPage research workspace', () => {
     await user.selectOptions(evidence, screen.getByRole('option', { name: 'fold-001 · residual · finalist' }))
     expect(screen.getByText(/\+5.00% · fold-001/)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /対象を変更/ }))
+    const sourceButton = screen.getByRole('button', { name: /対象を変更/ })
+    await waitFor(() => expect(sourceButton).toHaveAccessibleName(/Seed 7 · Env 0/))
+    await user.click(sourceButton)
     await user.selectOptions(screen.getByLabelText('Live Training Seed'), '11')
-    expect(screen.getByText(/Seed 7 · Env 0/)).toBeInTheDocument()
+    expect(sourceButton).toHaveAccessibleName(/Seed 7 · Env 0/)
     await user.click(screen.getByRole('button', { name: '対象を適用' }))
-    await waitFor(() => expect(screen.getByText(/Seed 11 · Env 0/)).toBeInTheDocument())
+    await waitFor(() => expect(sourceButton).toHaveAccessibleName(/Seed 11 · Env 0/))
   })
 
   it('pauses and commits replay when the chart selects a record', async () => {
@@ -113,8 +121,12 @@ describe('LiveTrainingPage research workspace', () => {
     const runtimeApi = api()
     render(<LiveTrainingPage api={runtimeApi} />)
     await screen.findByRole('img', { name: /同期チャート/ })
-    await user.click(screen.getByRole('button', { name: 'チャートでStep 64を選択' }))
-    expect(screen.getByText('Step 64')).toBeInTheDocument()
+    const chartSelection = screen.getByRole('button', { name: 'チャートでStep 64を選択' })
+    await waitFor(() => expect(chartSelection).toBeEnabled())
+    await user.click(chartSelection)
+
+    const inspector = screen.getByRole('complementary', { name: '選択時点の研究データ' })
+    await waitFor(() => expect(within(inspector).getByText('Step 64')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: '再生' })).toBeInTheDocument()
     await waitFor(() => expect(runtimeApi.loadTelemetryEvents).toHaveBeenCalled())
   })

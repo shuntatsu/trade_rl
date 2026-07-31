@@ -190,7 +190,7 @@ try {
   await page.getByLabel('Live Training Run').waitFor()
   await page.getByRole('button', { name: /対象を変更/ }).waitFor()
   await page.getByText('101,920', { exact: true }).waitFor()
-  await page.getByText('Step 256').waitFor()
+  await page.locator('.research-replay-scrubber').getByText('Step 256', { exact: true }).waitFor()
 
   if (await page.locator('.live-connection').count() !== 0) {
     throw new Error('Decorative connection chrome returned to the research workspace')
@@ -237,7 +237,9 @@ try {
   await page.mouse.move(chartBox.x + chartBox.width * 0.42, chartBox.y + chartBox.height * 0.35, { steps: 8 })
   await page.mouse.up()
   await page.waitForFunction(() => {
-    const input = document.querySelector('input[type="checkbox"]')
+    const label = [...document.querySelectorAll('label')].find((candidate) =>
+      candidate.textContent?.includes('最新へ追従'))
+    const input = label?.querySelector('input[type="checkbox"]')
     return input instanceof HTMLInputElement && !input.checked
   })
 

@@ -66,9 +66,7 @@ def stage_a_test_manifest(
         symbol_disjoint_manifest_digest=symbol_disjoint_manifest_digest,
         symbol_disjoint_triplet_manifest_digest=symbol_disjoint_triplet_manifest_digest,
         source_closure_digest=content_digest({"fixture": "stage_a_source"}),
-        source_metadata_evidence_digest=content_digest(
-            {"fixture": "stage_a_metadata"}
-        ),
+        source_metadata_evidence_digest=content_digest({"fixture": "stage_a_metadata"}),
         indicator_cache_id="stage-a-test-cache",
         feature_identity=feature_identity,
         timeline_start_time=start,

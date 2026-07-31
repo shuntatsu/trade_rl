@@ -101,7 +101,9 @@ def _request(
         candidate_id=candidate_id,
         checkpoint_digest=checkpoint,
         evaluation_dataset_manifest_digest=manifest.digest,
-        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        dataset_id=manifest.dataset_id_for(
+            "validation", plan.validation_triplet_ids[0]
+        ),
         evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,

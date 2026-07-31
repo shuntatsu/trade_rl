@@ -50,7 +50,9 @@ class StageAPostgresEvaluationDatasets:
         for item in self.manifest.triplets:
             dataset = by_id[item.triplet_id]
             if dataset.dataset_id != item.dataset_id:
-                raise ValueError("Stage A PostgreSQL evaluation dataset identity mismatch")
+                raise ValueError(
+                    "Stage A PostgreSQL evaluation dataset identity mismatch"
+                )
             if dataset.n_bars != self.manifest.n_bars:
                 raise ValueError("Stage A PostgreSQL evaluation timeline mismatch")
 
@@ -66,9 +68,7 @@ class StageAPostgresEvaluationDatasets:
 
 def _evaluation_slots(manifest: SymbolDisjointTripletManifest):
     return tuple(
-        slot
-        for split in ("validation", "test")
-        for slot in manifest.slots_for(split)
+        slot for split in ("validation", "test") for slot in manifest.slots_for(split)
     )
 
 

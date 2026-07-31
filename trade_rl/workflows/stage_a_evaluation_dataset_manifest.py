@@ -132,14 +132,14 @@ class StageAEvaluationDatasetFold:
         object.__setattr__(
             self,
             "fold",
-            _non_negative_int(
-                self.fold, field="stage_a_evaluation_dataset_fold.fold"
-            ),
+            _non_negative_int(self.fold, field="stage_a_evaluation_dataset_fold.fold"),
         )
         if not isinstance(self.configuration_selection, IndexRange) or not isinstance(
             self.test, IndexRange
         ):
-            raise ValueError("Stage A evaluation dataset fold ranges must be IndexRange")
+            raise ValueError(
+                "Stage A evaluation dataset fold ranges must be IndexRange"
+            )
         if self.configuration_selection.stop > self.test.start:
             raise ValueError(
                 "Stage A evaluation dataset fold selection must precede test range"
@@ -222,7 +222,10 @@ class StageAEvaluationDatasetManifest:
             raise ValueError("Stage A evaluation dataset manifest requires triplets")
         split_order = {"validation": 0, "test": 1}
         triplets = tuple(
-            sorted(self.triplets, key=lambda item: (split_order[item.split], item.triplet_id))
+            sorted(
+                self.triplets,
+                key=lambda item: (split_order[item.split], item.triplet_id),
+            )
         )
         triplet_ids = tuple(item.triplet_id for item in triplets)
         if len(set(triplet_ids)) != len(triplet_ids):
@@ -232,7 +235,9 @@ class StageAEvaluationDatasetManifest:
             raise ValueError("Stage A evaluation dataset IDs must be unique")
         split_groups = {
             split: tuple(item for item in triplets if item.split == split)
-            for split in cast(tuple[StageAEvaluationDatasetSplit, ...], ("validation", "test"))
+            for split in cast(
+                tuple[StageAEvaluationDatasetSplit, ...], ("validation", "test")
+            )
         }
         if any(not group for group in split_groups.values()):
             raise ValueError(
@@ -241,12 +246,18 @@ class StageAEvaluationDatasetManifest:
         validation_symbols = {
             symbol for item in split_groups["validation"] for symbol in item.symbols
         }
-        test_symbols = {symbol for item in split_groups["test"] for symbol in item.symbols}
+        test_symbols = {
+            symbol for item in split_groups["test"] for symbol in item.symbols
+        }
         if not validation_symbols.isdisjoint(test_symbols):
-            raise ValueError("Stage A evaluation dataset split symbols must be disjoint")
+            raise ValueError(
+                "Stage A evaluation dataset split symbols must be disjoint"
+            )
 
         if len(self.folds) < 2:
-            raise ValueError("Stage A evaluation dataset manifest requires at least two folds")
+            raise ValueError(
+                "Stage A evaluation dataset manifest requires at least two folds"
+            )
         folds = tuple(sorted(self.folds, key=lambda item: item.fold))
         fold_ids = tuple(item.fold for item in folds)
         if len(set(fold_ids)) != len(fold_ids):
@@ -283,9 +294,7 @@ class StageAEvaluationDatasetManifest:
     def folds_declared(self) -> tuple[int, ...]:
         return tuple(item.fold for item in self.folds)
 
-    def triplet_ids_for(
-        self, split: StageAEvaluationDatasetSplit
-    ) -> tuple[str, ...]:
+    def triplet_ids_for(self, split: StageAEvaluationDatasetSplit) -> tuple[str, ...]:
         if split not in _SPLITS:
             raise ValueError("Stage A evaluation dataset split is invalid")
         return tuple(item.triplet_id for item in self.triplets if item.split == split)
@@ -313,9 +322,7 @@ class StageAEvaluationDatasetManifest:
                 return item
         raise ValueError("Stage A evaluation dataset fold is not declared")
 
-    def range_for(
-        self, split: StageAEvaluationDatasetSplit, fold: int
-    ) -> IndexRange:
+    def range_for(self, split: StageAEvaluationDatasetSplit, fold: int) -> IndexRange:
         return self.fold_for(fold).range_for(split)
 
     def constructor_payload(self) -> dict[str, object]:
@@ -462,9 +469,7 @@ def load_stage_a_evaluation_dataset_manifest(
         indicator_cache_id=_string(
             payload["indicator_cache_id"], field="indicator_cache_id"
         ),
-        feature_identity=_string(
-            payload["feature_identity"], field="feature_identity"
-        ),
+        feature_identity=_string(payload["feature_identity"], field="feature_identity"),
         timeline_start_time=_parse_datetime(
             payload["timeline_start_time"], field="timeline_start_time"
         ),

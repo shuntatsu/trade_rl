@@ -328,7 +328,9 @@ def test_indicator_bundle_subset_preserves_requested_symbol_order() -> None:
 
     assert subset.symbols == ("SOLUSDT", "ETHUSDT", "XRPUSDT")
     assert subset.cache_id == bundle.cache_id
-    assert tuple(artifact.symbol for artifact in subset.artifacts[::4]) == subset.symbols
+    assert (
+        tuple(artifact.symbol for artifact in subset.artifacts[::4]) == subset.symbols
+    )
     assert subset.get("SOLUSDT", "15m") is bundle.get("SOLUSDT", "15m")
 
 

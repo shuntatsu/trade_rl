@@ -190,7 +190,9 @@ class StageAZeroShotEvaluationPlan:
             ("feature", manifest.feature_identity, self.feature_identity),
         ):
             if actual != expected:
-                raise ValueError(f"Stage A evaluation dataset {label} identity mismatch")
+                raise ValueError(
+                    f"Stage A evaluation dataset {label} identity mismatch"
+                )
         if manifest.folds_declared != self.folds:
             raise ValueError("Stage A evaluation dataset fold closure mismatch")
         for split in ("validation", "test"):

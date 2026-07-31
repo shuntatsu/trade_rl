@@ -127,7 +127,9 @@ def _request(
         candidate_id=candidate.candidate_id,
         checkpoint_digest=candidate.checkpoint_digest(seed),
         evaluation_dataset_manifest_digest=manifest.digest,
-        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        dataset_id=manifest.dataset_id_for(
+            "validation", plan.validation_triplet_ids[0]
+        ),
         evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
@@ -148,7 +150,9 @@ def _baseline_request(
         candidate_id=None,
         checkpoint_digest=None,
         evaluation_dataset_manifest_digest=manifest.digest,
-        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        dataset_id=manifest.dataset_id_for(
+            "validation", plan.validation_triplet_ids[0]
+        ),
         evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
@@ -368,11 +372,11 @@ def test_validate_rejects_every_binding_identity_substitution(tmp_path: Path) ->
     for substituted, message in substitutions:
         with pytest.raises(ValueError, match=message):
             substituted.validate(
-                    root=root,
-                    plan=plan,
-                    manifest=stage_a_test_manifest_for_plan(plan),
-                    request=request,
-                )
+                root=root,
+                plan=plan,
+                manifest=stage_a_test_manifest_for_plan(plan),
+                request=request,
+            )
 
 
 def test_load_rejects_request_index_digest_tampering(tmp_path: Path) -> None:

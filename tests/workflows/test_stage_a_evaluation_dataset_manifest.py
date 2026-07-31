@@ -78,7 +78,9 @@ def test_manifest_resolves_exact_triplet_dataset_and_split_range() -> None:
 
 def test_manifest_json_round_trip_is_strict(tmp_path) -> None:
     manifest = _manifest()
-    path = write_stage_a_evaluation_dataset_manifest(tmp_path / "manifest.json", manifest)
+    path = write_stage_a_evaluation_dataset_manifest(
+        tmp_path / "manifest.json", manifest
+    )
 
     assert load_stage_a_evaluation_dataset_manifest(path) == manifest
 
@@ -96,7 +98,9 @@ def test_manifest_rejects_legacy_schema(tmp_path) -> None:
     path = tmp_path / "legacy.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="unsupported Stage A evaluation dataset manifest"):
+    with pytest.raises(
+        ValueError, match="unsupported Stage A evaluation dataset manifest"
+    ):
         load_stage_a_evaluation_dataset_manifest(path)
 
 
@@ -129,7 +133,10 @@ def test_manifest_rejects_duplicate_triplet_and_dataset_bindings() -> None:
 
     with pytest.raises(ValueError, match="triplet IDs must be unique"):
         StageAEvaluationDatasetManifest(
-            **{**manifest.constructor_payload(), "triplets": (manifest.triplets[0], duplicate)}
+            **{
+                **manifest.constructor_payload(),
+                "triplets": (manifest.triplets[0], duplicate),
+            }
         )
 
 
@@ -143,7 +150,10 @@ def test_manifest_rejects_fold_range_outside_timeline() -> None:
 
     with pytest.raises(ValueError, match="range exceeds the common timeline"):
         StageAEvaluationDatasetManifest(
-            **{**manifest.constructor_payload(), "folds": (manifest.folds[0], invalid_fold)}
+            **{
+                **manifest.constructor_payload(),
+                "folds": (manifest.folds[0], invalid_fold),
+            }
         )
 
 

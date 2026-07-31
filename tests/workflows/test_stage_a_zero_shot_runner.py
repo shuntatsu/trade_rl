@@ -81,7 +81,6 @@ def _plan(*, manifest=None, passing_threshold: float = 0.05):
     )
 
 
-
 class RecordingEvaluator:
     def __init__(
         self,
@@ -290,9 +289,13 @@ def test_sealed_test_authorizes_every_fold_before_selected_only_evaluation() -> 
     assert len(policy_requests) == cells
     assert {request.candidate_id for request in policy_requests} == {"candidate-a"}
     assert sealed_run.evidence.candidate_ids == ("candidate-a",)
-    assert len(sealed_run.access_records) == len(plan.test_triplet_ids) * len(plan.folds)
+    assert len(sealed_run.access_records) == len(plan.test_triplet_ids) * len(
+        plan.folds
+    )
     assert sealed_run.decision.passed
-    assert ledger.records == tuple(record.ledger_record for record in sealed_run.access_records)
+    assert ledger.records == tuple(
+        record.ledger_record for record in sealed_run.access_records
+    )
 
 
 def test_sealed_test_cannot_be_opened_twice() -> None:

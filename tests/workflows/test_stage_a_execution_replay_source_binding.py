@@ -84,7 +84,9 @@ def _request() -> tuple[StageAEvaluationCellRequest, str]:
         candidate_id="candidate-a",
         checkpoint_digest=candidate.checkpoint_digest(7),
         evaluation_dataset_manifest_digest=manifest.digest,
-        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        dataset_id=manifest.dataset_id_for(
+            "validation", plan.validation_triplet_ids[0]
+        ),
         evaluation_range=manifest.range_for("validation", 2),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,

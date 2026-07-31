@@ -64,8 +64,7 @@ class _Database:
                 for row in range(rows)
             ]
             self.funding[symbol] = [
-                (start_ms + row * 900_000, 0.0001)
-                for row in range(8, rows, 32)
+                (start_ms + row * 900_000, 0.0001) for row in range(8, rows, 32)
             ]
 
     def cursor(self) -> _Cursor:
@@ -78,9 +77,9 @@ def _bundle(
     specs = binance_multitimeframe_feature_specs(
         base_timeframe="15m", feature_timeframes=("1h", "4h", "1d")
     )
-    event_time = int(start.timestamp() * 1000) + np.arange(
-        1, rows + 1, dtype=np.int64
-    ) * 900_000
+    event_time = (
+        int(start.timestamp() * 1000) + np.arange(1, rows + 1, dtype=np.int64) * 900_000
+    )
     artifacts: list[NativeIndicatorArtifact] = []
     for symbol_index, symbol in enumerate(symbols):
         for timeframe in NATIVE_TIMEFRAMES:
@@ -136,7 +135,9 @@ def _folds() -> tuple[WalkForwardFold, ...]:
     )
 
 
-def _metadata(symbols: tuple[str, ...], start: datetime) -> dict[str, dict[str, object]]:
+def _metadata(
+    symbols: tuple[str, ...], start: datetime
+) -> dict[str, dict[str, object]]:
     return {
         symbol: {
             "listed_at": start.isoformat(),
@@ -201,7 +202,10 @@ def test_builds_exact_postgres_datasets_and_manifest_from_declared_triplets() ->
         indicator_bundle=_bundle(evaluation_symbols, start, rows),
     )
 
-    assert result.manifest.symbol_disjoint_manifest_digest == triplets.source_manifest_digest
+    assert (
+        result.manifest.symbol_disjoint_manifest_digest
+        == triplets.source_manifest_digest
+    )
     assert result.manifest.symbol_disjoint_triplet_manifest_digest == triplets.digest
     assert result.manifest.folds_declared == (0, 1)
     assert result.manifest.range_for("validation", 0) == IndexRange(21, 30)

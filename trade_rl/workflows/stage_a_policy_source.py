@@ -471,9 +471,7 @@ class StageAPolicySourceStore:
                 None if serving_relative is None else serving_relative.as_posix()
             ),
         )
-        binding.validate(
-            root=self.root, plan=plan, manifest=manifest, request=request
-        )
+        binding.validate(root=self.root, plan=plan, manifest=manifest, request=request)
         binding_path, index_path = self._paths(binding)
         binding_relative = _path_relative_to_root(
             self.root,

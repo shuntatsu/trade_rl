@@ -190,9 +190,12 @@ def test_evidence_requires_the_complete_candidate_fold_seed_triplet_product(
     )
     path = write_stage_a_evaluation_evidence(tmp_path / "evidence.json", evidence)
 
-    assert load_stage_a_evaluation_evidence(
-        path, plan=plan, manifest=stage_a_test_manifest_for_plan(plan)
-    ) == evidence
+    assert (
+        load_stage_a_evaluation_evidence(
+            path, plan=plan, manifest=stage_a_test_manifest_for_plan(plan)
+        )
+        == evidence
+    )
     assert len(evidence.observations) == (
         len(plan.candidates)
         * len(plan.folds)
@@ -230,9 +233,7 @@ def test_evidence_rejects_checkpoint_mismatch_and_payload_tampering(
         fold=first.fold,
         seed=first.seed,
         checkpoint_digest=_digest("wrong-checkpoint"),
-        evaluation_dataset_manifest_digest=(
-            first.evaluation_dataset_manifest_digest
-        ),
+        evaluation_dataset_manifest_digest=(first.evaluation_dataset_manifest_digest),
         dataset_id=first.dataset_id,
         evaluation_range=first.evaluation_range,
         feature_identity=first.feature_identity,
@@ -263,8 +264,8 @@ def test_evidence_rejects_checkpoint_mismatch_and_payload_tampering(
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="observation digest mismatch"):
         load_stage_a_evaluation_evidence(
-        path, plan=plan, manifest=stage_a_test_manifest_for_plan(plan)
-    )
+            path, plan=plan, manifest=stage_a_test_manifest_for_plan(plan)
+        )
 
 
 def test_test_evidence_can_be_scoped_to_one_declared_candidate() -> None:

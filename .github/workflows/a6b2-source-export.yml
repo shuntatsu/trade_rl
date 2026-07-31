@@ -21,6 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # All five chunks are independently content-addressed before reconstruction.
           if [[ ! -f .a6b2.bundle.prefix ]]; then
             echo "No implementation bundle chunks on this head"
             exit 0

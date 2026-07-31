@@ -1,0 +1,41 @@
+name: Apply Stage A5 source bundle
+
+on:
+  push:
+    branches:
+      - agent/stage-a5-zero-shot-evaluation-contract
+    paths:
+      - .automation/stage-a5-files.tgz
+      - .github/workflows/apply-stage-a5-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract maintained files
+        run: |
+          set -euo pipefail
+          tar -xzf .automation/stage-a5-files.tgz
+          rm -f .automation/stage-a5-files.tgz
+          rmdir .automation 2>/dev/null || true
+          rm -f .github/workflows/apply-stage-a5-source.yml
+      - name: Commit extracted source
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            docs/operations/stage-a-zero-shot-evaluation-plan.md \
+            trade_rl/evaluation/stage_a_zero_shot_contracts.py \
+            trade_rl/evaluation/stage_a_zero_shot_gate.py \
+            tests/evaluation/test_stage_a_zero_shot_contracts.py \
+            tests/evaluation/test_stage_a_zero_shot_gate.py
+          git add -u .automation .github/workflows/apply-stage-a5-source.yml
+          git commit -m "Add Stage A zero-shot evaluation contracts"
+          git push origin HEAD

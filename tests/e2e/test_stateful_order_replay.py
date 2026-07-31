@@ -73,9 +73,7 @@ def _environment(dataset: MarketDataset) -> ResidualMarketEnv:
     )
 
 
-def _run_episode(
-    *, seed: int
-) -> tuple[StatefulReplayEvidence, tuple[OrderEvent, ...]]:
+def _run_episode(*, seed: int) -> tuple[StatefulReplayEvidence, tuple[OrderEvent, ...]]:
     dataset = _dataset()
     env = _environment(dataset)
     actions = (

@@ -48,4 +48,18 @@ describe('MarketReplayChart', () => {
     expect(container.querySelector('.live-marker--sell')).not.toBeNull()
     expect(container.querySelector('.live-marker--buy')).toBeNull()
   })
+
+  it('does not invent a primary asset direction when only another asset changes', () => {
+    const record = {
+      ...positionRecord(),
+      weightsBefore: [0.1, 0.1],
+      weightsAfter: [0.1, 0.2],
+    }
+    const { container } = render(
+      <MarketReplayChart records={[record]} cursorSequence={1} compressed={false} />,
+    )
+
+    expect(container.querySelector('.live-marker--buy')).toBeNull()
+    expect(container.querySelector('.live-marker--sell')).toBeNull()
+  })
 })

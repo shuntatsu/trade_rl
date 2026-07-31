@@ -180,7 +180,7 @@ Flat actorのONNX/TorchScript Exportと、Sequence actorの構造化Exportを分
 
 `structured_policy_export_v2`はCanonical Dict input order、Shape、Dtype、Parity corpus、Model digest、Policy identity、Architecture digestを保存します。構造化Modelは`policy.structured.torchscript.pt`です。
 
-Serving bundleの正本は`serving_bundle_v5`です。`CanonicalStructuredPolicyLoader`は、Sequence observation schema、Bundle file closure、Export manifest、Model digest、Architecture digestをPolicy実行前に検証します。
+Serving bundleの正本は`serving_bundle_v6`です。`policy_mode`はBaselineか学習済みPolicyかを表し、`action_mode`はResidualかTarget-weightかを表します。この2つは別IdentityとしてBundle digestとRuntime identityへ固定されます。`CanonicalStructuredPolicyLoader`は、Sequence observation schema、Bundle file closure、Export manifest、Model digest、Architecture digestをPolicy実行前に検証します。
 
 Release approvalはBundle外のEd25519 Attestationとして保持します。RuntimeへPrivate keyを渡しません。
 
@@ -208,4 +208,4 @@ Constrained PPOのPR C正本は修正版PR #193です。PR #191は置換前のDr
 
 Workflow securityはrunnerの任意の表示名をallowlistするのではなく、GitHub-hosted形式かprivileged runnerかを分類し、privileged runnerについてtrigger、owner、main、Environment、権限、immutable checkoutを検証します。この方針をrunner classificationと呼びます。
 
-構造化配信の正本は`structured_policy_export_v2`と`serving_bundle_v5`です。秘密鍵ファイルのloaderは`offline_keys`、鍵生成と署名は`offline_signing`、承認署名は`offline_approval`等の明示的offline moduleへ限定します。Import Linterはruntime/trainingからこれらへの静的依存を禁止しますが、OS sandboxそのものを主張するものではありません。
+構造化配信の正本は`structured_policy_export_v2`と`serving_bundle_v6`です。秘密鍵ファイルのloaderは`offline_keys`、鍵生成と署名は`offline_signing`、承認署名は`offline_approval`等の明示的offline moduleへ限定します。Import Linterはruntime/trainingからこれらへの静的依存を禁止しますが、OS sandboxそのものを主張するものではありません。

@@ -63,8 +63,6 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_FILE_NAME,
     ExecutionPromotionError,
-    execution_evidence_from_cost,
-    load_execution_evidence,
     validate_execution_promotion,
     write_execution_evidence,
 )
@@ -82,14 +80,14 @@ from trade_rl.workflows.execution_promotion_artifacts import (
     ExecutionPromotionArtifacts,
     load_execution_promotion_artifacts,
 )
-from trade_rl.workflows.training_execution_evidence import (
-    resolve_training_execution_inputs,
-)
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,
     SelectionProposal,
     load_selection_authorization,
     load_selection_proposal,
+)
+from trade_rl.workflows.training_execution_evidence import (
+    resolve_training_execution_inputs,
 )
 
 

@@ -1,0 +1,44 @@
+name: Temporary Apply Stage A Format
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-apply-stage-a-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Apply canonical Ruff formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          uvx --from ruff==0.15.21 ruff format .
+          uvx --from ruff==0.15.21 ruff format --check .
+          uvx --from ruff==0.15.21 ruff check .
+          rm -f .github/workflows/temporary-apply-stage-a-format.yml
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "style: format Stage A manifest implementation"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

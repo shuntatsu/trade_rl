@@ -71,8 +71,8 @@ try {
   await page.getByRole('heading', { name: 'Live Training' }).waitFor()
   await page.getByLabel('Live Training Run').waitFor()
   await page.getByRole('button', { name: /対象を変更/ }).waitFor()
-  if (await page.getByText('LIVE', { exact: true }).count() !== 0) {
-    throw new Error('Decorative LIVE chrome returned to the research workspace')
+  if (await page.locator('.live-connection').count() !== 0) {
+    throw new Error('Decorative connection chrome returned to the research workspace')
   }
 
   const replayGeometry = await page.evaluate(() => {

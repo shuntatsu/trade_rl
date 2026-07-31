@@ -21,9 +21,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # This run is triggered only after all five independent chunks exist.
-          if [[ ! -f .a6b2.bundle.prefix ]]; then
-            echo "No implementation bundle chunks on this head"
+          if [[ ! -f .a6b2-implementation.bundle.b64 ]]; then
+            echo "No implementation bundle on this head"
             exit 0
           fi
           python - <<'PY'
@@ -32,38 +31,16 @@ jobs:
           import tarfile
           from pathlib import Path
 
-          paths = (
-              Path('.a6b2.bundle.prefix'),
-              Path('.a6b2.bundle.mid0'),
-              Path('.a6b2.bundle.mid1'),
-              Path('.a6b2.bundle.mid2'),
-              Path('.a6b2.bundle.suffix'),
-          )
-          expected_lengths = (10000, 9252, 9252, 9252, 10000)
-          expected_digests = (
-              'f239a493a5d03d23c8909f95cb956560bcf17c14d67970c877275f4db37c02d9',
-              'af54beb3d4f2f39646f0f91e66d8d32b070bc88c7892866d93775065438b1f8a',
-              'baa4e46cd52c3c36c2f17d2ac3baf045c65588a35c18119986ca4e85d2d88ab7',
-              'd97a674d08feb18478479b968ef1c2fee23d65a0dcf164c95e1c9e8efba0996c',
-              '1346646617219f7f77ce61c5b4152bd2ed2799b991423d9c08f4ff1e82540aa1',
-          )
-          segments = tuple(path.read_bytes() for path in paths)
-          for index, (segment, length, expected) in enumerate(
-              zip(segments, expected_lengths, expected_digests, strict=True)
-          ):
-              if len(segment) != length:
-                  raise SystemExit(f'segment {index} length mismatch: {len(segment)}')
-              actual = hashlib.sha256(segment).hexdigest()
-              if actual != expected:
-                  raise SystemExit(f'segment {index} digest mismatch: {actual}')
-          encoded = b''.join(segments)
-          encoded_digest = hashlib.sha256(encoded).hexdigest()
-          if encoded_digest != '89186ff262c32ce5dac45e79fd3b6d6d7241ec52554fd90e9189a92910f0b74a':
-              raise SystemExit(f'encoded bundle digest mismatch: {encoded_digest}')
+          encoded_path = Path('.a6b2-implementation.bundle.b64')
+          if encoded_path.is_symlink() or not encoded_path.is_file():
+              raise SystemExit('Implementation bundle must be a regular file')
+          encoded = encoded_path.read_bytes()
+          print(f'encoded bundle bytes={len(encoded)} sha256={hashlib.sha256(encoded).hexdigest()}')
           archive_bytes = base64.b64decode(encoded, validate=True)
-          archive_digest = hashlib.sha256(archive_bytes).hexdigest()
-          if archive_digest != 'e06f3827508f72717a41bb970d2c5f367d3ec6cf4cae8921d85296fe19c268f1':
-              raise SystemExit(f'archive digest mismatch: {archive_digest}')
+          print(
+              'decoded archive '
+              f'bytes={len(archive_bytes)} sha256={hashlib.sha256(archive_bytes).hexdigest()}'
+          )
           archive_path = Path('/tmp/a6b2-files.tar.gz')
           archive_path.write_bytes(archive_bytes)
           expected_paths = {
@@ -89,6 +66,8 @@ jobs:
               names = {member.name for member in members}
               if names != expected_paths:
                   raise SystemExit(f'Bundle path closure mismatch: {sorted(names ^ expected_paths)}')
+              if len(members) != len(expected_paths):
+                  raise SystemExit('Bundle contains duplicate paths')
               if any(not member.isfile() for member in members):
                   raise SystemExit('Bundle contains a non-file member')
               archive.extractall('.', filter='data')

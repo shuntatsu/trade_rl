@@ -307,7 +307,9 @@ def validate_order_event_stream(
         if replaced_order_id is None:
             continue
         if replaced_order_id == order_id:
-            raise ValueError(f"order {order_id} replacement reference is self-referential")
+            raise ValueError(
+                f"order {order_id} replacement reference is self-referential"
+            )
         replaced_history = histories.get(replaced_order_id)
         if replaced_history is None:
             raise ValueError(f"order {order_id} replacement reference is unknown")

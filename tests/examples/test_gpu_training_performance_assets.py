@@ -5,23 +5,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_gpu_nightly_requires_internal_training_performance_evidence() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "gpu-nightly.yml").read_text(
-        encoding="utf-8"
+def test_gpu_workflows_use_the_maintained_evidence_validator() -> None:
+    workflow_root = ROOT / ".github" / "workflows"
+    workflows = (
+        workflow_root / "gpu-nightly.yml",
+        workflow_root / "finalize-pr227-gpu-verification.yml",
     )
+
+    for path in workflows:
+        workflow = path.read_text(encoding="utf-8")
+        assert "trade_rl.operations.gpu_training_smoke" in workflow
+        assert "gpu_sequence_target_oracle_bc_training_smoke_v7" not in workflow
+        assert "gpu_sequence_target_oracle_bc_training_smoke_v8" not in workflow
+
+
+def test_gpu_training_example_is_a_thin_operations_wrapper() -> None:
     smoke = (
         ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.py"
     ).read_text(encoding="utf-8")
 
-    assert "gpu_sequence_target_oracle_bc_training_smoke_v7" in workflow
-    assert "--runtime-profile accelerated" in workflow
-    assert 'evidence["runtime_profile"] == "accelerated"' in workflow
-    assert 'evidence["performance"]["training_artifact"]' in workflow
-    assert 'evidence["resume"]["performance"]["training_artifact"]' in workflow
-    assert 'performance["device_type"] == "cuda"' in workflow
-    assert 'performance["peak_cuda_allocated_bytes"] > 0' in workflow
-    assert 'performance["peak_cuda_reserved_bytes"] > 0' in workflow
-    assert 'resumed["peak_cuda_allocated_bytes"] > 0' in workflow
-    assert 'resumed["peak_cuda_reserved_bytes"] > 0' in workflow
-    assert '"training_artifact": training_performance' in smoke
-    assert '"training_artifact": resumed_training_performance' in smoke
+    assert "from trade_rl.operations.gpu_training_smoke import" in smoke
+    assert "def run_gpu_training_smoke(" not in smoke
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v7" not in smoke
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v8" not in smoke

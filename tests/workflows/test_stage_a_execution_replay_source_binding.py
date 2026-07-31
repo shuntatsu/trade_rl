@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tests.evaluation.replay_support import execution_episode
+from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
@@ -42,11 +43,19 @@ def _request() -> tuple[StageAEvaluationCellRequest, str]:
             (8, _digest("candidate:checkpoint:8")),
         ),
     )
-    plan = build_stage_a_zero_shot_evaluation_plan(
+    manifest = stage_a_test_manifest(
         symbol_disjoint_manifest_digest=_digest("symbols"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplets"),
-        dataset_identity=_digest("dataset"),
         feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(2, 3),
+    )
+    plan = build_stage_a_zero_shot_evaluation_plan(
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=manifest.symbol_disjoint_triplet_manifest_digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
         execution_identity=cost.execution_policy_digest,
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
@@ -74,7 +83,9 @@ def _request() -> tuple[StageAEvaluationCellRequest, str]:
         seed=7,
         candidate_id="candidate-a",
         checkpoint_digest=candidate.checkpoint_digest(7),
-        dataset_identity=plan.dataset_identity,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        evaluation_range=manifest.range_for("validation", 2),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
@@ -95,7 +106,7 @@ def _source_bytes(
 ) -> tuple[bytes, bytes]:
     request, _ = _request()
     events, terminal_book, terminal_order_book = execution_episode(
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         execution_policy_digest=request.execution_identity,
         cash=1_000.0,
     )
@@ -104,7 +115,7 @@ def _source_bytes(
         evaluation_run_digest=evaluation_run_digest,
         fold=fold,
         seed=seed,
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         execution_policy_digest=request.execution_identity,
         actions=actions,
         observation_digests=observations,
@@ -115,7 +126,7 @@ def _source_bytes(
     )
     path = write_execution_event_artifact(tmp_path / "events.json", artifact)
     evidence = execution_evidence_from_cost(
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         cost=ExecutionCostConfig(path_mode="conservative"),
         sensitivity_path_modes=("conservative",),
         order_event_artifact_path=path,

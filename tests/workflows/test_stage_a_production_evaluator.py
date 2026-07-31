@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.evaluation.replay_support import execution_episode
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
@@ -35,7 +36,19 @@ def _digest(value: str) -> str:
 _BASELINE_CONFIG = _digest("baseline:config")
 
 
+def _manifest():
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(0, 1),
+    )
+
+
 def _plan() -> StageAZeroShotEvaluationPlan:
+    manifest = _manifest()
     cost = ExecutionCostConfig(path_mode="conservative")
     candidate = StageACandidate.create(
         candidate_id="candidate-a",
@@ -48,10 +61,10 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         ),
     )
     return build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
-        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
-        feature_identity=_digest("features"),
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=manifest.symbol_disjoint_triplet_manifest_digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
         execution_identity=cost.execution_policy_digest,
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
@@ -76,6 +89,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
 def _request(
     plan: StageAZeroShotEvaluationPlan, *, policy: bool
 ) -> StageAEvaluationCellRequest:
+    manifest = stage_a_test_manifest_for_plan(plan)
     candidate_id = "candidate-a" if policy else None
     checkpoint = plan.candidate("candidate-a").checkpoint_digest(0) if policy else None
     return StageAEvaluationCellRequest(
@@ -86,7 +100,9 @@ def _request(
         seed=0,
         candidate_id=candidate_id,
         checkpoint_digest=checkpoint,
-        dataset_identity=plan.dataset_identity,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
@@ -106,7 +122,7 @@ def _publish(
     observations = (_digest("observation-0"), _digest("observation-1"))
     equity = (1_000.0, final_equity)
     events, terminal_book, terminal_order_book = execution_episode(
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         execution_policy_digest=request.execution_identity,
         cash=final_equity - 100.0,
     )
@@ -115,7 +131,7 @@ def _publish(
         evaluation_run_digest=request.digest,
         fold=request.fold,
         seed=request.seed,
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         execution_policy_digest=request.execution_identity,
         actions=actions,
         observation_digests=observations,
@@ -126,7 +142,7 @@ def _publish(
     )
     event_path = write_execution_event_artifact(root / "events.json", event_artifact)
     evidence = execution_evidence_from_cost(
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         cost=ExecutionCostConfig(path_mode="conservative"),
         sensitivity_path_modes=("conservative",),
         order_event_artifact_path=event_path,
@@ -155,6 +171,7 @@ def _evaluator(
     store = StageAExecutionPromotionStore(tmp_path / "store")
     evaluator = ArtifactBackedStageAEvaluationCellEvaluator(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         store=store,
         baseline_candidate_config_digest=_BASELINE_CONFIG,
     )

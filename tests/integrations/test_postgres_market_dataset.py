@@ -317,3 +317,25 @@ def test_postgres_and_builder_paths_have_identical_economic_arrays() -> None:
             getattr(builder, field),
             err_msg=field,
         )
+
+
+def test_indicator_bundle_subset_preserves_requested_symbol_order() -> None:
+    symbols = ("ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    bundle = _bundle(symbols, int(start.timestamp() * 1000))
+
+    subset = bundle.subset(("SOLUSDT", "ETHUSDT", "XRPUSDT"))
+
+    assert subset.symbols == ("SOLUSDT", "ETHUSDT", "XRPUSDT")
+    assert subset.cache_id == bundle.cache_id
+    assert tuple(artifact.symbol for artifact in subset.artifacts[::4]) == subset.symbols
+    assert subset.get("SOLUSDT", "15m") is bundle.get("SOLUSDT", "15m")
+
+
+def test_indicator_bundle_subset_rejects_unknown_symbols() -> None:
+    symbols = ("ETHUSDT", "BNBUSDT", "SOLUSDT")
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    bundle = _bundle(symbols, int(start.timestamp() * 1000))
+
+    with pytest.raises(ValueError, match="subset symbols"):
+        bundle.subset(("ETHUSDT", "UNKNOWN", "SOLUSDT"))

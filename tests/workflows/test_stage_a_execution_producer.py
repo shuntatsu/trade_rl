@@ -7,6 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
     StageAZeroShotEvaluationPlan,
@@ -28,7 +29,19 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _manifest():
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(0, 1),
+    )
+
+
 def _plan() -> StageAZeroShotEvaluationPlan:
+    manifest = _manifest()
     candidate = StageACandidate.create(
         candidate_id="candidate-a",
         candidate_config_digest=_digest("candidate-a:config"),
@@ -40,10 +53,10 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         ),
     )
     return build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
-        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
-        feature_identity=_digest("features"),
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=manifest.symbol_disjoint_triplet_manifest_digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
         execution_identity=ExecutionCostConfig(
             path_mode="conservative"
         ).execution_policy_digest,
@@ -69,6 +82,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
 
 def _request(*, policy: bool) -> StageAEvaluationCellRequest:
     plan = _plan()
+    manifest = stage_a_test_manifest_for_plan(plan)
     candidate_id = "candidate-a" if policy else None
     checkpoint_digest = (
         plan.candidate("candidate-a").checkpoint_digest(0) if policy else None
@@ -81,7 +95,9 @@ def _request(*, policy: bool) -> StageAEvaluationCellRequest:
         seed=0,
         candidate_id=candidate_id,
         checkpoint_digest=checkpoint_digest,
-        dataset_identity=plan.dataset_identity,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
@@ -94,7 +110,7 @@ def _event(request: StageAEvaluationCellRequest) -> OrderEvent:
         sequence=0,
         order_id="a" * 64,
         replaced_order_id=None,
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         execution_policy_digest=request.execution_identity,
         symbol_index=0,
         event_type="filled",

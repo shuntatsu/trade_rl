@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
@@ -42,12 +43,24 @@ def _candidate(candidate_id: str) -> StageACandidate:
     )
 
 
-def _plan():
-    return build_stage_a_zero_shot_evaluation_plan(
+def _manifest():
+    return stage_a_test_manifest(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
         feature_identity=_digest("feature"),
+        validation_triplet_ids=_VALIDATION_TRIPLETS,
+        test_triplet_ids=_TEST_TRIPLETS,
+        folds=_FOLDS,
+    )
+
+
+def _plan():
+    manifest = _manifest()
+    return build_stage_a_zero_shot_evaluation_plan(
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=manifest.symbol_disjoint_triplet_manifest_digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
         execution_identity=_digest("execution"),
         evaluation_identity=_digest("evaluation"),
         candidates=(_candidate("candidate-a"), _candidate("candidate-b")),
@@ -75,6 +88,7 @@ def _observations(
     candidate_ids: tuple[str, ...] = ("candidate-a", "candidate-b"),
 ) -> tuple[StageAEvaluationObservation, ...]:
     plan = _plan()
+    manifest = stage_a_test_manifest_for_plan(plan)
     triplets = (
         plan.validation_triplet_ids if split == "validation" else plan.test_triplet_ids
     )
@@ -93,7 +107,9 @@ def _observations(
                             fold=fold,
                             seed=seed,
                             checkpoint_digest=checkpoints[seed],
-                            dataset_identity=plan.dataset_identity,
+                            evaluation_dataset_manifest_digest=manifest.digest,
+                            dataset_id=manifest.dataset_id_for(split, triplet_id),
+                            evaluation_range=manifest.range_for(split, fold),
                             feature_identity=plan.feature_identity,
                             execution_identity=plan.execution_identity,
                             evaluation_identity=plan.evaluation_identity,
@@ -131,12 +147,15 @@ def test_plan_round_trips_and_binds_candidate_seed_checkpoints(tmp_path: Path) -
         policy_identity=_digest("candidate-c-policy"),
         checkpoint_digests=((0, _digest("candidate-c-checkpoint-0")),),
     )
+    manifest = _manifest()
     with pytest.raises(ValueError, match="checkpoint seed closure"):
         build_stage_a_zero_shot_evaluation_plan(
-            symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
-            symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-            dataset_identity=_digest("dataset"),
-            feature_identity=_digest("feature"),
+            symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+            symbol_disjoint_triplet_manifest_digest=(
+                manifest.symbol_disjoint_triplet_manifest_digest
+            ),
+            evaluation_dataset_manifest_digest=manifest.digest,
+            feature_identity=manifest.feature_identity,
             execution_identity=_digest("execution"),
             evaluation_identity=_digest("evaluation"),
             candidates=(wrong_seed_candidate,),
@@ -165,12 +184,15 @@ def test_evidence_requires_the_complete_candidate_fold_seed_triplet_product(
     observations = _observations(split="validation")
     evidence = build_stage_a_evaluation_evidence(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         split="validation",
         observations=observations,
     )
     path = write_stage_a_evaluation_evidence(tmp_path / "evidence.json", evidence)
 
-    assert load_stage_a_evaluation_evidence(path, plan=plan) == evidence
+    assert load_stage_a_evaluation_evidence(
+        path, plan=plan, manifest=stage_a_test_manifest_for_plan(plan)
+    ) == evidence
     assert len(evidence.observations) == (
         len(plan.candidates)
         * len(plan.folds)
@@ -181,6 +203,7 @@ def test_evidence_requires_the_complete_candidate_fold_seed_triplet_product(
     with pytest.raises(ValueError, match="observation closure"):
         build_stage_a_evaluation_evidence(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             split="validation",
             observations=observations[:-1],
         )
@@ -188,6 +211,7 @@ def test_evidence_requires_the_complete_candidate_fold_seed_triplet_product(
     with pytest.raises(ValueError, match="duplicate observation"):
         build_stage_a_evaluation_evidence(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             split="validation",
             observations=(*observations, observations[0]),
         )
@@ -206,7 +230,11 @@ def test_evidence_rejects_checkpoint_mismatch_and_payload_tampering(
         fold=first.fold,
         seed=first.seed,
         checkpoint_digest=_digest("wrong-checkpoint"),
-        dataset_identity=first.dataset_identity,
+        evaluation_dataset_manifest_digest=(
+            first.evaluation_dataset_manifest_digest
+        ),
+        dataset_id=first.dataset_id,
+        evaluation_range=first.evaluation_range,
         feature_identity=first.feature_identity,
         execution_identity=first.execution_identity,
         evaluation_identity=first.evaluation_identity,
@@ -218,12 +246,14 @@ def test_evidence_rejects_checkpoint_mismatch_and_payload_tampering(
     with pytest.raises(ValueError, match="checkpoint digest mismatch"):
         build_stage_a_evaluation_evidence(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             split="validation",
             observations=tuple(observations),
         )
 
     valid = build_stage_a_evaluation_evidence(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         split="validation",
         observations=_observations(split="validation"),
     )
@@ -232,13 +262,16 @@ def test_evidence_rejects_checkpoint_mismatch_and_payload_tampering(
     payload["observations"][0]["policy_log_growth"] += 0.5
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="observation digest mismatch"):
-        load_stage_a_evaluation_evidence(path, plan=plan)
+        load_stage_a_evaluation_evidence(
+        path, plan=plan, manifest=stage_a_test_manifest_for_plan(plan)
+    )
 
 
 def test_test_evidence_can_be_scoped_to_one_declared_candidate() -> None:
     plan = _plan()
     evidence = build_stage_a_evaluation_evidence(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         split="test",
         candidate_ids=("candidate-a",),
         observations=_observations(split="test", candidate_ids=("candidate-a",)),

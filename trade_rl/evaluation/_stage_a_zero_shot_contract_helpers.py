@@ -3,18 +3,32 @@
 from __future__ import annotations
 
 import math
-from typing import Final, Literal
+from typing import Final, Literal, Protocol
 
 from trade_rl.domain.common import require_non_empty, require_sha256
 
 STAGE_A_CANDIDATE_SCHEMA: Final = "stage_a_zero_shot_candidate_v1"
-STAGE_A_EVALUATION_PLAN_SCHEMA: Final = "stage_a_zero_shot_evaluation_plan_v2"
-STAGE_A_OBSERVATION_SCHEMA: Final = "stage_a_zero_shot_observation_v2"
-STAGE_A_EVIDENCE_SCHEMA: Final = "stage_a_zero_shot_evidence_v2"
+STAGE_A_EVALUATION_PLAN_SCHEMA: Final = "stage_a_zero_shot_evaluation_plan_v3"
+STAGE_A_OBSERVATION_SCHEMA: Final = "stage_a_zero_shot_observation_v3"
+STAGE_A_EVIDENCE_SCHEMA: Final = "stage_a_zero_shot_evidence_v3"
 MAX_STAGE_A_BOOTSTRAP_RESAMPLES: Final = 1_000_000
 
 StageAEvaluationSplit = Literal["validation", "test"]
 _SPLITS: Final = frozenset({"validation", "test"})
+
+
+class StageAEvaluationDatasetManifestProtocol(Protocol):
+    digest: str
+    feature_identity: str
+    symbol_disjoint_manifest_digest: str
+    symbol_disjoint_triplet_manifest_digest: str
+    folds_declared: tuple[int, ...]
+
+    def triplet_ids_for(self, split: StageAEvaluationSplit) -> tuple[str, ...]: ...
+
+    def dataset_id_for(self, split: StageAEvaluationSplit, triplet_id: str) -> str: ...
+
+    def range_for(self, split: StageAEvaluationSplit, fold: int): ...
 
 
 def _non_negative_int(value: int, *, field: str) -> int:

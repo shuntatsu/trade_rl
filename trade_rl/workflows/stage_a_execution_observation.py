@@ -14,17 +14,21 @@ from trade_rl.simulation.execution_promotion import validate_execution_promotion
 from trade_rl.workflows.execution_promotion_artifacts import (
     ExecutionPromotionArtifacts,
 )
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 
 
 def _validate_artifacts(
     *,
     artifacts: ExecutionPromotionArtifacts,
     plan: StageAZeroShotEvaluationPlan,
+    expected_dataset_id: str,
     expected_candidate_config_digest: str,
     label: str,
 ) -> tuple[int, int]:
     identity = artifacts.artifact.replay_identity
-    if artifacts.artifact.dataset_id != plan.dataset_identity:
+    if artifacts.artifact.dataset_id != expected_dataset_id:
         raise ValueError(f"Stage A {label} artifact dataset identity mismatch")
     if artifacts.artifact.execution_policy_digest != plan.execution_identity:
         raise ValueError(f"Stage A {label} artifact execution identity mismatch")
@@ -51,6 +55,7 @@ def _validate_artifacts(
 def build_stage_a_observation_from_execution_artifacts(
     *,
     plan: StageAZeroShotEvaluationPlan,
+    manifest: StageAEvaluationDatasetManifest,
     candidate_id: str,
     split: StageAEvaluationSplit,
     triplet_id: str,
@@ -63,6 +68,7 @@ def build_stage_a_observation_from_execution_artifacts(
 ) -> StageAEvaluationObservation:
     """Build one observation only from two fully verified promotion roots."""
 
+    plan.validate_manifest(manifest)
     baseline_config = require_sha256(
         baseline_candidate_config_digest,
         field="stage_a_baseline_candidate_config_digest",
@@ -70,6 +76,7 @@ def build_stage_a_observation_from_execution_artifacts(
     candidate = plan.candidate(candidate_id)
     if triplet_id not in plan.triplet_ids_for(split):
         raise ValueError("Stage A execution artifact triplet is not declared for split")
+    expected_dataset_id = manifest.dataset_id_for(split, triplet_id)
     expected_checkpoint = candidate.checkpoint_digest(
         policy_artifacts.artifact.replay_identity.seed
     )
@@ -79,12 +86,14 @@ def build_stage_a_observation_from_execution_artifacts(
     policy_cell = _validate_artifacts(
         artifacts=policy_artifacts,
         plan=plan,
+        expected_dataset_id=expected_dataset_id,
         expected_candidate_config_digest=candidate.candidate_config_digest,
         label="policy",
     )
     baseline_cell = _validate_artifacts(
         artifacts=baseline_artifacts,
         plan=plan,
+        expected_dataset_id=expected_dataset_id,
         expected_candidate_config_digest=baseline_config,
         label="baseline",
     )
@@ -101,7 +110,9 @@ def build_stage_a_observation_from_execution_artifacts(
         fold=fold,
         seed=seed,
         checkpoint_digest=checkpoint_digest,
-        dataset_identity=plan.dataset_identity,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        dataset_id=expected_dataset_id,
+        evaluation_range=manifest.range_for(split, fold),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,

@@ -10,6 +10,7 @@ from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
 from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
     MAX_STAGE_A_BOOTSTRAP_RESAMPLES,
     STAGE_A_EVALUATION_PLAN_SCHEMA,
+    StageAEvaluationDatasetManifestProtocol,
     StageAEvaluationSplit,
     _finite,
     _fraction,
@@ -26,7 +27,7 @@ class StageAZeroShotEvaluationPlan:
 
     symbol_disjoint_manifest_digest: str
     symbol_disjoint_triplet_manifest_digest: str
-    dataset_identity: str
+    evaluation_dataset_manifest_digest: str
     feature_identity: str
     execution_identity: str
     evaluation_identity: str
@@ -58,7 +59,10 @@ class StageAZeroShotEvaluationPlan:
                 "symbol_disjoint_triplet_manifest_digest",
                 self.symbol_disjoint_triplet_manifest_digest,
             ),
-            ("dataset_identity", self.dataset_identity),
+            (
+                "evaluation_dataset_manifest_digest",
+                self.evaluation_dataset_manifest_digest,
+            ),
             ("feature_identity", self.feature_identity),
             ("execution_identity", self.execution_identity),
             ("evaluation_identity", self.evaluation_identity),
@@ -167,6 +171,32 @@ class StageAZeroShotEvaluationPlan:
             return self.test_triplet_ids
         raise ValueError("Stage A evaluation split is invalid")
 
+    def validate_manifest(
+        self, manifest: StageAEvaluationDatasetManifestProtocol
+    ) -> None:
+        if manifest.digest != self.evaluation_dataset_manifest_digest:
+            raise ValueError("Stage A evaluation dataset manifest digest mismatch")
+        for label, actual, expected in (
+            (
+                "symbol-disjoint",
+                manifest.symbol_disjoint_manifest_digest,
+                self.symbol_disjoint_manifest_digest,
+            ),
+            (
+                "triplet",
+                manifest.symbol_disjoint_triplet_manifest_digest,
+                self.symbol_disjoint_triplet_manifest_digest,
+            ),
+            ("feature", manifest.feature_identity, self.feature_identity),
+        ):
+            if actual != expected:
+                raise ValueError(f"Stage A evaluation dataset {label} identity mismatch")
+        if manifest.folds_declared != self.folds:
+            raise ValueError("Stage A evaluation dataset fold closure mismatch")
+        for split in ("validation", "test"):
+            if manifest.triplet_ids_for(split) != self.triplet_ids_for(split):
+                raise ValueError("Stage A evaluation dataset triplet closure mismatch")
+
     def gate_thresholds(
         self, split: StageAEvaluationSplit | str
     ) -> tuple[float, float, float, float]:
@@ -192,7 +222,9 @@ class StageAZeroShotEvaluationPlan:
             "bootstrap_resamples": self.bootstrap_resamples,
             "bootstrap_seed": self.bootstrap_seed,
             "candidates": tuple(item.to_json_dict() for item in self.candidates),
-            "dataset_identity": self.dataset_identity,
+            "evaluation_dataset_manifest_digest": (
+                self.evaluation_dataset_manifest_digest
+            ),
             "evaluation_identity": self.evaluation_identity,
             "execution_identity": self.execution_identity,
             "feature_identity": self.feature_identity,

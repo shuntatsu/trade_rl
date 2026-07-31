@@ -1,9 +1,9 @@
 name: Temporary Source Snapshot
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/stage-a6b2-postgres-fold-slicing
+      - main
     paths:
       - .github/workflows/temporary-source-snapshot.yml
 
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: agent/stage-a6b2-postgres-fold-slicing
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
       - name: Build source snapshot

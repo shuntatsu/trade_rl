@@ -13,6 +13,8 @@ from trade_rl.simulation.orders import (
     OrderBookState,
     OrderEvent,
     OrderIntent,
+    OrderStatus,
+    PendingOrder,
 )
 from trade_rl.simulation.stateful_bar_lifecycle import StatefulBarLifecycle
 from trade_rl.simulation.stateful_order_transitions import (
@@ -68,6 +70,9 @@ def execute_stateful_orders(
     *,
     start_index: int,
     bars: int,
+    reconciliation_cancellations: Sequence[
+        tuple[PendingOrder, PendingOrder]
+    ] = (),
 ) -> StatefulExecutionResult:
     """Execute persistent orders over one or more processing bars."""
 
@@ -80,6 +85,35 @@ def execute_stateful_orders(
         raise ValueError("book quantities do not match market symbols")
 
     runtime = StatefulExecutionRuntime.create(executor, book, order_book)
+    cancellation_ids: set[str] = set()
+    for previous, updated in reconciliation_cancellations:
+        if previous.order_id in cancellation_ids:
+            raise ValueError("duplicate reconciliation cancellation transition")
+        cancellation_ids.add(previous.order_id)
+        if previous.terminal:
+            raise ValueError("reconciliation cancellation source is terminal")
+        if previous.order_id != updated.order_id:
+            raise ValueError("reconciliation cancellation changed order identity")
+        if updated.status is not OrderStatus.CANCELLED:
+            raise ValueError("reconciliation transition is not a cancellation")
+        processing_index = updated.last_processed_index
+        reason = updated.terminal_reason
+        if processing_index is None or reason is None:
+            raise ValueError("reconciliation cancellation evidence is incomplete")
+        if updated != previous.cancel(
+            processing_index=processing_index,
+            reason=reason,
+        ):
+            raise ValueError("reconciliation cancellation state is inconsistent")
+        if updated not in runtime.order_book.terminal_orders:
+            raise ValueError("reconciliation cancellation is absent from order book")
+        runtime.append_event(
+            previous=previous,
+            updated=updated,
+            event_type="cancelled",
+            processing_index=processing_index,
+            reason=reason,
+        )
     runtime.submit_intents(intents)
     runtime.initialize_metrics()
     lifecycle = StatefulBarLifecycle(executor)

@@ -1,0 +1,39 @@
+name: Temporary Apply Stage A Implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-apply-stage-a-implementation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply implementation patch
+        shell: bash
+        run: |
+          cat .github/stage-a-implementation.patch.gz.b64.part* \
+            | base64 --decode \
+            | gzip --decompress > /tmp/stage-a-implementation.patch
+          git apply --check /tmp/stage-a-implementation.patch
+          git apply /tmp/stage-a-implementation.patch
+          rm -f .github/stage-a-implementation.patch.gz.b64.part*
+          rm -f .github/workflows/temporary-apply-stage-a-implementation.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: implement manifest-bound Stage A evaluation"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

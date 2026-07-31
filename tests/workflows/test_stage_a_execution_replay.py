@@ -167,9 +167,7 @@ def test_builds_policy_replay_and_recomputes_log_growth(tmp_path: Path) -> None:
 
     artifact = build_stage_a_execution_replay_artifact(
         request=request,
-        candidate_config_digest=plan.candidate(
-                "candidate-a"
-            ).candidate_config_digest,
+        candidate_config_digest=plan.candidate("candidate-a").candidate_config_digest,
         actions=((0.4,),),
         observation_digests=(_digest("observation-0"), _digest("observation-1")),
         equity_curve=(1_000.0, 1_100.0),
@@ -218,7 +216,7 @@ def test_rejects_equity_curve_that_disagrees_with_terminal_book(
 
 def test_rejects_non_positive_equity(tmp_path: Path) -> None:
     plan, request = _request(policy=True)
-    event_bytes, evidence_bytes, evidence_digest = _promotion_bytes(tmp_path, request)
+    event_bytes, evidence_bytes, _ = _promotion_bytes(tmp_path, request)
 
     with pytest.raises(ValueError, match="equity curve must be positive"):
         build_stage_a_execution_replay_artifact(
@@ -236,7 +234,7 @@ def test_rejects_non_positive_equity(tmp_path: Path) -> None:
 
 def test_rejects_noncanonical_execution_evidence(tmp_path: Path) -> None:
     plan, request = _request(policy=True)
-    event_bytes, evidence_bytes, evidence_digest = _promotion_bytes(tmp_path, request)
+    event_bytes, evidence_bytes, _ = _promotion_bytes(tmp_path, request)
 
     with pytest.raises(ValueError, match="canonical encoding"):
         build_stage_a_execution_replay_artifact(

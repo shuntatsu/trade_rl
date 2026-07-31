@@ -9,7 +9,10 @@ import numpy as np
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.order_reconciliation import reconcile_target
 from trade_rl.simulation.orders import OrderBookState, OrderType, TimeInForce
-from trade_rl.simulation.stateful_execution import StatefulExecutionResult
+from trade_rl.simulation.stateful_execution import (
+    StatefulExecutionResult,
+    execute_stateful_orders,
+)
 
 if TYPE_CHECKING:
     from trade_rl.simulation.execution import MarketExecutor
@@ -65,12 +68,21 @@ def execute_target_statefully(
         limit_offset_rate=executor.cost.limit_offset_rate,
         maximum_gross=executor.cost.max_leverage,
     )
-    return executor.execute_orders(
+    active_by_id = {order.order_id: order for order in order_book.active_orders}
+    cancellation_transitions = []
+    for cancelled in reconciliation.cancelled_orders:
+        previous = active_by_id.get(cancelled.order_id)
+        if previous is None:
+            raise RuntimeError("reconciliation cancelled an unknown active order")
+        cancellation_transitions.append((previous, cancelled))
+    return execute_stateful_orders(
+        executor,
         book,
         reconciliation.order_book,
         reconciliation.new_intents,
         start_index=start_index,
         bars=bars,
+        reconciliation_cancellations=tuple(cancellation_transitions),
     )
 
 

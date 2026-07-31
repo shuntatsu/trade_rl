@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import shutil
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
@@ -64,22 +63,31 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_FILE_NAME,
     ExecutionPromotionError,
-    execution_evidence_from_cost,
-    load_execution_evidence,
     validate_execution_promotion,
     write_execution_evidence,
 )
-from trade_rl.simulation.execution_replay import EXECUTION_EVENT_ARTIFACT_FILE_NAME
+from trade_rl.simulation.execution_replay import (
+    EXECUTION_EVENT_ARTIFACT_FILE_NAME,
+    ExecutionEventArtifact,
+    write_execution_event_artifact,
+)
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 from trade_rl.workflows.config_fields import (
     require_dataclass_fields,
     require_exact_fields,
+)
+from trade_rl.workflows.execution_promotion_artifacts import (
+    ExecutionPromotionArtifacts,
+    load_execution_promotion_artifacts,
 )
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,
     SelectionProposal,
     load_selection_authorization,
     load_selection_proposal,
+)
+from trade_rl.workflows.training_execution_evidence import (
+    resolve_training_execution_inputs,
 )
 
 
@@ -948,6 +956,8 @@ def execute_training_run(
     require_selection_authorization: bool = False,
     execution_evidence_path: Path | None = None,
     execution_event_artifact_path: Path | None = None,
+    execution_promotion_root: Path | None = None,
+    execution_replay_digest: str | None = None,
 ) -> TrainingRunResult:
     """Train, serialize, validate, and atomically publish one ensemble run."""
 
@@ -973,36 +983,70 @@ def execute_training_run(
     expected_execution_policy_digest = (
         config.environment.execution_cost.execution_policy_digest
     )
-    if execution_evidence_path is None:
-        execution_evidence = execution_evidence_from_cost(
-            dataset_id=dataset.dataset_id,
-            cost=config.environment.execution_cost,
+    if (execution_promotion_root is None) != (execution_replay_digest is None):
+        raise ValueError(
+            "execution promotion root and replay digest must be provided together"
         )
+    if execution_promotion_root is not None and (
+        execution_evidence_path is not None or execution_event_artifact_path is not None
+    ):
+        raise ValueError(
+            "execution promotion root cannot be combined with legacy evidence paths"
+        )
+
+    promotion_artifacts: ExecutionPromotionArtifacts | None = None
+    execution_event_artifact: ExecutionEventArtifact | None = None
+    if execution_promotion_root is not None:
+        assert execution_replay_digest is not None
+        promotion_artifacts = load_execution_promotion_artifacts(
+            root=execution_promotion_root,
+            replay_digest=execution_replay_digest,
+        )
+        execution_evidence = promotion_artifacts.evidence
+        execution_event_artifact = promotion_artifacts.artifact
     else:
-        execution_evidence = load_execution_evidence(execution_evidence_path)
-        if execution_evidence.dataset_id != dataset.dataset_id:
-            raise ValueError("execution evidence dataset identity mismatch")
+        execution_evidence, execution_event_artifact = (
+            resolve_training_execution_inputs(
+                dataset_id=dataset.dataset_id,
+                cost=config.environment.execution_cost,
+                evidence_path=execution_evidence_path,
+                event_artifact_path=execution_event_artifact_path,
+            )
+        )
+
+    if execution_evidence.dataset_id != dataset.dataset_id:
+        raise ValueError("execution evidence dataset identity mismatch")
+    if execution_evidence.execution_policy_digest != expected_execution_policy_digest:
+        raise ValueError("execution evidence policy digest mismatch")
+    if execution_event_artifact is not None:
+        if execution_event_artifact.dataset_id != dataset.dataset_id:
+            raise ValueError("execution replay dataset identity mismatch")
         if (
-            execution_evidence.execution_policy_digest
+            execution_event_artifact.execution_policy_digest
             != expected_execution_policy_digest
         ):
-            raise ValueError("execution evidence policy digest mismatch")
+            raise ValueError("execution replay policy digest mismatch")
+
     if run_kind == "research_selected_final":
         metadata_promotion.require_promotable()
-        if execution_evidence_path is None:
+        if promotion_artifacts is None:
             raise ExecutionPromotionError(
-                "selected-final training requires explicit execution evidence"
-            )
-        if execution_event_artifact_path is None:
-            raise ExecutionPromotionError(
-                "selected-final training requires an explicit order event artifact"
+                "selected-final training requires a content-addressed promotion root"
             )
         assert proposal is not None
         proposal.require_execution_evidence_digest(execution_evidence.digest)
+        replay_identity = promotion_artifacts.artifact.replay_identity
+        if replay_identity.seed not in proposal.seeds:
+            raise ExecutionPromotionError(
+                "execution replay seed is not declared by the selection proposal"
+            )
         validate_execution_promotion(
             execution_evidence,
             expected_policy_digest=expected_execution_policy_digest,
-            event_artifact_path=execution_event_artifact_path,
+            event_artifact_path=promotion_artifacts.replay_path,
+            expected_candidate_config_digest=proposal.candidate_config_digest,
+            expected_evaluation_run_digest=proposal.walk_forward_run_digest,
+            expected_seed=replay_identity.seed,
         )
     normalizer, sequence_normalizer = _fit_full_normalizers(dataset, config)
     store = ArtifactStore(store_root)
@@ -1027,14 +1071,20 @@ def execute_training_run(
             stage / EXECUTION_EVIDENCE_FILE_NAME,
             execution_evidence,
         )
-        if execution_event_artifact_path is not None:
-            staged_event_artifact = stage / EXECUTION_EVENT_ARTIFACT_FILE_NAME
-            shutil.copyfile(execution_event_artifact_path, staged_event_artifact)
+        if execution_event_artifact is not None:
+            staged_event_artifact = write_execution_event_artifact(
+                stage / EXECUTION_EVENT_ARTIFACT_FILE_NAME,
+                execution_event_artifact,
+            )
             if run_kind == "research_selected_final":
+                assert proposal is not None
                 validate_execution_promotion(
                     execution_evidence,
                     expected_policy_digest=expected_execution_policy_digest,
                     event_artifact_path=staged_event_artifact,
+                    expected_candidate_config_digest=proposal.candidate_config_digest,
+                    expected_evaluation_run_digest=proposal.walk_forward_run_digest,
+                    expected_seed=execution_event_artifact.replay_identity.seed,
                 )
         dataset_artifact_digest = _dataset_artifact_digest(dataset_path)
         _write_json(stage / "training-config.json", config.digest_payload())

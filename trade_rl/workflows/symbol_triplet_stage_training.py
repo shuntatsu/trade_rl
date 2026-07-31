@@ -22,6 +22,9 @@ from trade_rl.workflows.symbol_triplet_stage_orchestrator import (
     load_symbol_triplet_stage_completion,
     training_config_for_symbol_triplet_stage,
 )
+from trade_rl.workflows.symbol_triplet_stage_state import (
+    load_or_migrate_symbol_triplet_stage_state,
+)
 from trade_rl.workflows.symbol_triplet_training_cursor import (
     SymbolTripletTrainingCursor,
     SymbolTripletTrainingPlan,
@@ -416,22 +419,31 @@ def execute_symbol_triplet_stage_training(
     store_root: str | Path,
     run_id: str,
     completion_path: str | Path,
+    stage_state_root: str | Path | None = None,
 ) -> SymbolTripletStageTrainingResult | None:
     """Run one stage and advance only after all published checkpoints validate."""
 
     resolved_cursor_path = Path(cursor_path)
-    cursor = load_symbol_triplet_training_cursor(resolved_cursor_path, plan=plan)
+    if stage_state_root is None:
+        cursor = load_symbol_triplet_training_cursor(resolved_cursor_path, plan=plan)
+        previous_completion = (
+            None
+            if previous_completion_path is None
+            else load_symbol_triplet_stage_completion(
+                previous_completion_path,
+                plan=plan,
+            )
+        )
+    else:
+        previous_completion, cursor, _ = load_or_migrate_symbol_triplet_stage_state(
+            plan=plan,
+            state_root=stage_state_root,
+            legacy_cursor_path=resolved_cursor_path,
+            legacy_completion_path=previous_completion_path,
+        )
     resolved_base_config_path = Path(base_config_path)
     base_config = normalize_training_run_config(
         TrainingRunConfig.from_json(resolved_base_config_path)
-    )
-    previous_completion = (
-        None
-        if previous_completion_path is None
-        else load_symbol_triplet_stage_completion(
-            previous_completion_path,
-            plan=plan,
-        )
     )
     request = build_symbol_triplet_stage_request(
         plan,
@@ -476,6 +488,7 @@ def execute_symbol_triplet_stage_training(
         checkpoint_roots=checkpoint_roots,
         completion_path=completion_path,
         cursor_path=resolved_cursor_path,
+        stage_state_root=stage_state_root,
     )
     return SymbolTripletStageTrainingResult(
         request=request,

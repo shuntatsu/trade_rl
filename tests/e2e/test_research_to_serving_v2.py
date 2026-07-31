@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 pytest.importorskip("stable_baselines3")
 
+from tests.evaluation.replay_support import execution_episode
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
 from trade_rl.data.builder import MarketDatasetBuilder
@@ -38,13 +39,8 @@ from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import public_key_bytes
 from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
-from trade_rl.simulation.execution_promotion import (
-    execution_evidence_from_cost,
-    write_execution_evidence,
-)
-from trade_rl.simulation.execution_replay import (
-    ExecutionEventArtifact,
-    write_execution_event_artifact,
+from trade_rl.workflows.execution_promotion_artifacts import (
+    write_execution_promotion_artifacts,
 )
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
 from trade_rl.workflows.selection_authorization import (
@@ -208,32 +204,29 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     _config(config_path)
     config = normalize_training_run_config(TrainingRunConfig.from_json(config_path))
     execution_cost = config.environment.execution_cost
-    execution_event_artifact = ExecutionEventArtifact(
+    candidate_config_digest = content_digest(config.candidate_digest_payload())
+    walk_forward_run_digest = "1" * 64
+    events, terminal_book, terminal_order_book = execution_episode(
         dataset_id=dataset.dataset_id,
         execution_policy_digest=execution_cost.execution_policy_digest,
-        order_event_schema="order_event_v1",
-        events=(
-            {
-                "schema_version": "order_event_v1",
-                "dataset_id": dataset.dataset_id,
-                "execution_policy_digest": execution_cost.execution_policy_digest,
-                "sequence": 0,
-            },
-        ),
-        terminal_book={"schema_version": "execution_terminal_book_v1", "cash": 1.0},
-        terminal_order_book={"schema_version": "execution_terminal_order_book_v1"},
     )
-    execution_event_artifact_path = tmp_path / "execution-order-events.json"
-    write_execution_event_artifact(
-        execution_event_artifact_path,
-        execution_event_artifact,
-    )
-    execution_evidence = execution_evidence_from_cost(
+    promotion_artifacts = write_execution_promotion_artifacts(
+        root=tmp_path / "execution-promotion",
+        candidate_config_digest=candidate_config_digest,
+        evaluation_run_digest=walk_forward_run_digest,
+        fold=0,
+        seed=config.training.seeds[0],
         dataset_id=dataset.dataset_id,
         cost=execution_cost,
-        order_event_artifact_path=execution_event_artifact_path,
+        actions=((0.4,),),
+        observation_digests=("1" * 64, "2" * 64),
+        equity_curve=(1_000.0, 1_000.0),
+        order_events=events,
+        terminal_book=terminal_book,
+        terminal_order_book=terminal_order_book,
         sensitivity_path_modes=("optimistic", "neutral", "conservative"),
     )
+    execution_evidence = promotion_artifacts.evidence
 
     selection_private = Ed25519PrivateKey.from_private_bytes(b"\x51" * 32)
     selection_public = PublicVerificationKey(
@@ -245,13 +238,13 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     )
     root = Path(__file__).resolve().parents[2]
     proposal = SelectionProposal.create(
-        walk_forward_run_digest="1" * 64,
+        walk_forward_run_digest=walk_forward_run_digest,
         gate_evidence_digest="2" * 64,
         execution_sensitivity_digest="3" * 64,
         execution_evidence_digest=execution_evidence.digest,
         dataset_id=dataset.dataset_id,
         selected_configuration="e2e-selected",
-        candidate_config_digest=content_digest(config.candidate_digest_payload()),
+        candidate_config_digest=candidate_config_digest,
         seeds=config.training.seeds,
         git_commit="a" * 40,
         dependency_digest=hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
@@ -271,9 +264,6 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
     )
     selection_keys_path = tmp_path / "selection-keys.json"
     _key_store(selection_keys_path, selection_public)
-    execution_evidence_path = tmp_path / "execution-evidence.json"
-    write_execution_evidence(execution_evidence_path, execution_evidence)
-
     result = execute_training_run(
         config_path=config_path,
         dataset_path=dataset_root,
@@ -284,8 +274,8 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
         selection_authorization_path=authorization_path,
         selection_public_keys_path=selection_keys_path,
         require_selection_authorization=True,
-        execution_evidence_path=execution_evidence_path,
-        execution_event_artifact_path=execution_event_artifact_path,
+        execution_promotion_root=promotion_artifacts.root,
+        execution_replay_digest=promotion_artifacts.replay_digest,
     )
     run_root = result.path
     ensemble = json.loads((run_root / "ensemble.json").read_text(encoding="utf-8"))

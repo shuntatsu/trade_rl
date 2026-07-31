@@ -19,7 +19,9 @@ from trade_rl.integrations.postgres_market_dataset import (
 from trade_rl.workflows.symbol_triplet_stage_orchestrator import (
     SymbolTripletStageRequest,
     build_symbol_triplet_stage_request,
-    load_symbol_triplet_stage_completion,
+)
+from trade_rl.workflows.symbol_triplet_stage_state import (
+    load_or_migrate_symbol_triplet_stage_state,
 )
 from trade_rl.workflows.symbol_triplet_stage_training import (
     SymbolTripletStageTrainingResult,
@@ -57,6 +59,12 @@ def binance_symbol_triplet_stage_root(
     return root / "stages" / f"stage-{stage.stage_index:04d}-{stage.stage_id[:16]}"
 
 
+def binance_symbol_triplet_stage_state_root(work_root: str | Path) -> Path:
+    """Return the authoritative generation-state root for one training plan."""
+
+    return Path(work_root).resolve() / "stage-state"
+
+
 def _previous_completion_path(
     plan: SymbolTripletTrainingPlan,
     work_root: str | Path,
@@ -79,20 +87,21 @@ def current_binance_symbol_triplet_stage_request(
 ) -> SymbolTripletStageRequest | None:
     """Resolve the current request and only the immediately prior completion."""
 
-    cursor = load_symbol_triplet_training_cursor(cursor_path, plan=plan)
+    legacy_cursor = load_symbol_triplet_training_cursor(cursor_path, plan=plan)
+    legacy_previous_path = _previous_completion_path(
+        plan,
+        work_root,
+        stage_index=legacy_cursor.next_stage_index,
+    )
+    previous_completion, cursor, _ = load_or_migrate_symbol_triplet_stage_state(
+        plan=plan,
+        state_root=binance_symbol_triplet_stage_state_root(work_root),
+        legacy_cursor_path=cursor_path,
+        legacy_completion_path=legacy_previous_path,
+    )
     stage = current_symbol_triplet_training_stage(plan, cursor)
     if stage is None:
         return None
-    previous_path = _previous_completion_path(
-        plan,
-        work_root,
-        stage_index=stage.stage_index,
-    )
-    previous_completion = (
-        None
-        if previous_path is None
-        else load_symbol_triplet_stage_completion(previous_path, plan=plan)
-    )
     return build_symbol_triplet_stage_request(
         plan,
         cursor,
@@ -230,11 +239,13 @@ def execute_binance_symbol_triplet_postgres_stage(
         store_root=stage_root / "artifacts",
         run_id=run_id,
         completion_path=stage_root / "completion.json",
+        stage_state_root=binance_symbol_triplet_stage_state_root(work_root),
     )
 
 
 __all__ = [
     "binance_symbol_triplet_stage_root",
+    "binance_symbol_triplet_stage_state_root",
     "current_binance_symbol_triplet_stage_request",
     "execute_binance_symbol_triplet_postgres_stage",
 ]

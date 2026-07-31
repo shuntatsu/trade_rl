@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Final, Iterator, Protocol, cast
+from typing import TYPE_CHECKING, Any, Final, Iterator, Protocol, cast
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
@@ -25,7 +25,10 @@ from trade_rl.workflows.symbol_triplet_training_cursor import (
     advance_symbol_triplet_training_cursor,
     current_symbol_triplet_training_stage,
 )
-from trade_rl.workflows.training_run import TrainingRunConfig
+
+if TYPE_CHECKING:
+    from trade_rl.workflows.training_run import TrainingRunConfig
+
 
 SYMBOL_TRIPLET_STAGE_CHECKPOINT_SCHEMA: Final = "symbol_triplet_stage_checkpoint_v1"
 SYMBOL_TRIPLET_STAGE_REQUEST_SCHEMA: Final = "symbol_triplet_stage_request_v1"
@@ -523,6 +526,7 @@ def commit_symbol_triplet_stage_completion(
     checkpoint_roots: dict[int, Path],
     completion_path: str | Path,
     cursor_path: str | Path,
+    stage_state_root: str | Path | None = None,
 ) -> tuple[SymbolTripletStageCompletion, SymbolTripletTrainingCursor]:
     """Validate all seed checkpoints, publish completion, then advance the cursor."""
 
@@ -544,6 +548,19 @@ def commit_symbol_triplet_stage_completion(
         completed_stage_id=stage.stage_id,
         completion_digest=completion.digest,
     )
+    if stage_state_root is not None:
+        from trade_rl.workflows.symbol_triplet_stage_state import (
+            SymbolTripletStageStateStore,
+        )
+
+        state_store = SymbolTripletStageStateStore(stage_state_root, plan=plan)
+        state_store.commit(
+            expected_cursor_digest=cursor.digest,
+            completion=completion,
+            cursor=advanced,
+        )
+        return completion, advanced
+
     resolved_cursor_path = Path(cursor_path)
     from trade_rl.workflows.symbol_triplet_training_cursor import (
         load_symbol_triplet_training_cursor,

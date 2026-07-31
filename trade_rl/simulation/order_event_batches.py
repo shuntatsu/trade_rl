@@ -22,8 +22,9 @@ def merge_order_event_batches(
             raise ValueError(
                 f"order event batch {batch_index} sequence must be contiguous from zero"
             )
+        base_sequence = len(merged)
         merged.extend(
-            replace(event, sequence=len(merged) + offset)
+            replace(event, sequence=base_sequence + offset)
             for offset, event in enumerate(normalized_batch)
         )
     if not merged:

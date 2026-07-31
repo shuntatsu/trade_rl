@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { StudioApi } from '../api/studioApi'
-import type { ConfigSummary, DatasetSummary, JobSummary } from '../data/types'
+import type { ConfigSummary, DatasetSummary, JobListResponse, JobSummary } from '../data/types'
 import { DataLabPage } from './DataLabPage'
 import { ExperimentsPage } from './ExperimentsPage'
 import { RunCenterPage } from './RunCenterPage'
@@ -57,6 +57,20 @@ const job: JobSummary = {
   exitCode: null,
   cancellable: true,
   error: null,
+}
+
+const job2: JobSummary = {
+  ...job,
+  id: 'job-2',
+  runId: 'run-2',
+  pid: 456,
+  pidStartToken: '100',
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
 }
 
 function api(overrides: Partial<StudioApi> = {}): StudioApi {
@@ -124,5 +138,35 @@ describe('RunCenterPage', () => {
 
     await waitFor(() => expect(runtimeApi.cancelJob).toHaveBeenCalledWith('job-1'))
     expect(await screen.findAllByText('cancelled')).toHaveLength(3)
+  })
+
+  it('preserves a newer job selection when a jobs refresh completes', async () => {
+    window.history.replaceState({}, '', '/?job=job-1')
+    const user = userEvent.setup()
+    const refreshRequest = deferred<JobListResponse>()
+    const loadJobs = vi.fn()
+      .mockResolvedValueOnce({ items: [job, job2], total: 2 })
+      .mockReturnValueOnce(refreshRequest.promise)
+    const loadJobLog = vi.fn(async (jobId: string) => ({
+      jobId,
+      lines: [`${jobId} log`],
+      truncated: false,
+    }))
+    const runtimeApi = api({ loadJobs, loadJobLog })
+    render(<RunCenterPage api={runtimeApi} />)
+
+    await waitFor(() => expect(loadJobLog).toHaveBeenCalledWith('job-1'))
+    await user.click(screen.getByRole('button', { name: '再読込' }))
+    await waitFor(() => expect(loadJobs).toHaveBeenCalledTimes(2))
+    await user.click(screen.getByRole('button', { name: /job-2 running/i }))
+    expect(await screen.findByLabelText('job log')).toHaveTextContent('job-2 log')
+
+    await act(async () => {
+      refreshRequest.resolve({ items: [job, job2], total: 2 })
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: '再読込' })).toBeEnabled())
+
+    expect(screen.getByRole('button', { name: /job-2 running/i })).toHaveClass('runtime-row--selected')
+    expect(screen.getByLabelText('job log')).toHaveTextContent('job-2 log')
   })
 })

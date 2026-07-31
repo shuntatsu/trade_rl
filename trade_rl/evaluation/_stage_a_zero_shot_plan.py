@@ -136,8 +136,8 @@ class StageAZeroShotEvaluationPlan:
         object.__setattr__(self, "bootstrap_confidence_level", confidence)
         object.__setattr__(self, "bootstrap_resamples", resamples)
         object.__setattr__(self, "bootstrap_seed", bootstrap_seed)
-        for field, value in normalized_finite.items():
-            object.__setattr__(self, field, value)
+        for field, numeric_value in normalized_finite.items():
+            object.__setattr__(self, field, numeric_value)
         object.__setattr__(
             self, "minimum_validation_triplet_pass_fraction", validation_pass_fraction
         )

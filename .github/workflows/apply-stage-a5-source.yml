@@ -1,5 +1,6 @@
 name: Apply Stage A5 source bundle
 
+# Re-triggered after draft PR creation so the branch is a normal PR target.
 on:
   push:
     branches:

@@ -36,6 +36,7 @@ def execution_episode(
     execution_policy_digest: str = POLICY_DIGEST,
     reason: str = "filled",
     cash: float = 900.0,
+    peak_value: float | None = None,
 ) -> tuple[tuple[OrderEvent, ...], BookState, OrderBookState]:
     intent = OrderIntent.create(
         dataset_id=dataset_id,
@@ -124,11 +125,14 @@ def execution_episode(
             reason=reason,
         ),
     )
+    terminal_value = cash + 100.0
     book = BookState(
         quantities=np.array((1.0,), dtype=np.float64),
         cash=cash,
         mark_prices=np.array((100.0,), dtype=np.float64),
-        peak_value=1_000.0,
+        peak_value=(
+            max(1_000.0, terminal_value) if peak_value is None else peak_value
+        ),
         fill_count=1,
         rebalance_events=1,
     )

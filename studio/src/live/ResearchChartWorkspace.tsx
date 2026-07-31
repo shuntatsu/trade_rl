@@ -52,6 +52,8 @@ interface SeriesRefs {
   drawdown: ISeriesApi<'Line'>
 }
 
+type ResearchChartData = ReturnType<typeof buildResearchChartData>
+
 const TIMEFRAME_OPTIONS: ResearchTimeframe[] = ['15m', '1h', '4h', '1d']
 const RANGE_OPTIONS: Array<{ value: ResearchRangePreset; label: string }> = [
   { value: '1h', label: '1H' },
@@ -61,7 +63,7 @@ const RANGE_OPTIONS: Array<{ value: ResearchRangePreset; label: string }> = [
 ]
 const MANUAL_DRAG_THRESHOLD_PX = 5
 
-function timeNumber(time: Time | undefined): number | null {
+function timeNumber(time: Time | null | undefined): number | null {
   return typeof time === 'number' && Number.isFinite(time) ? time : null
 }
 
@@ -72,7 +74,7 @@ function rangeSeconds(preset: ResearchRangePreset): number | null {
   return null
 }
 
-function setSeriesData(series: SeriesRefs, data: ReturnType<typeof buildResearchChartData>) {
+function setSeriesData(series: SeriesRefs, data: ResearchChartData) {
   series.candles.setData(data.candles.map((point) => ({ ...point, time: point.time as UTCTimestamp })))
   series.targetWeight.setData(data.targetWeight.map((point) => ({ ...point, time: point.time as UTCTimestamp })))
   series.executedWeight.setData(data.executedWeight.map((point) => ({ ...point, time: point.time as UTCTimestamp })))
@@ -81,6 +83,36 @@ function setSeriesData(series: SeriesRefs, data: ReturnType<typeof buildResearch
   series.equity.setData(data.equity.map((point) => ({ ...point, time: point.time as UTCTimestamp })))
   series.baseline.setData(data.baseline.map((point) => ({ ...point, time: point.time as UTCTimestamp })))
   series.drawdown.setData(data.drawdown.map((point) => ({ ...point, time: point.time as UTCTimestamp })))
+}
+
+function nearestRecord(data: ResearchChartData, time: number): TrainingTelemetryRecord | null {
+  const exact = data.recordByTime.get(time)
+  if (exact) return exact
+
+  let nearest: TrainingTelemetryRecord | null = null
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (const [candidateTime, record] of data.recordByTime) {
+    const distance = Math.abs(candidateTime - time)
+    if (distance < nearestDistance) {
+      nearest = record
+      nearestDistance = distance
+    }
+  }
+  return nearest
+}
+
+function interactionRecord(
+  chart: IChartApi,
+  params: MouseEventParams<Time>,
+  data: ResearchChartData,
+): TrainingTelemetryRecord | null {
+  const directTime = timeNumber(params.time)
+  const resolvedTime = directTime ?? (
+    params.point === undefined
+      ? null
+      : timeNumber(chart.timeScale().coordinateToTime(params.point.x))
+  )
+  return resolvedTime === null ? null : nearestRecord(data, resolvedTime)
 }
 
 export function ResearchChartWorkspace({
@@ -103,7 +135,7 @@ export function ResearchChartWorkspace({
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<SeriesRefs | null>(null)
   const markerRef = useRef<{ setMarkers: (markers: SeriesMarker<Time>[]) => void } | null>(null)
-  const dataRef = useRef<ReturnType<typeof buildResearchChartData> | null>(null)
+  const dataRef = useRef<ResearchChartData | null>(null)
   const appliedRangeKey = useRef<string | null>(null)
   const callbacksRef = useRef({ onPreviewRecord, onCommitRecord, onManualNavigation })
   callbacksRef.current = { onPreviewRecord, onCommitRecord, onManualNavigation }
@@ -164,13 +196,15 @@ export function ResearchChartWorkspace({
     chart.panes()[3]?.setStretchFactor(1.4)
 
     const crosshairHandler = (params: MouseEventParams<Time>) => {
-      const time = timeNumber(params.time)
-      callbacksRef.current.onPreviewRecord(time === null ? null : dataRef.current?.recordByTime.get(time) ?? null)
+      const currentData = dataRef.current
+      callbacksRef.current.onPreviewRecord(
+        currentData === null ? null : interactionRecord(chart, params, currentData),
+      )
     }
     const clickHandler = (params: MouseEventParams<Time>) => {
-      const time = timeNumber(params.time)
-      if (time === null) return
-      const record = dataRef.current?.recordByTime.get(time)
+      const currentData = dataRef.current
+      if (currentData === null) return
+      const record = interactionRecord(chart, params, currentData)
       if (record) callbacksRef.current.onCommitRecord(record)
     }
 

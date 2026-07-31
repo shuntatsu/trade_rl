@@ -103,10 +103,21 @@ export function ResearchChartWorkspace({
   const seriesRef = useRef<SeriesRefs | null>(null)
   const markerRef = useRef<{ setMarkers: (markers: SeriesMarker<Time>[]) => void } | null>(null)
   const dataRef = useRef<ReturnType<typeof buildResearchChartData> | null>(null)
-  const programmaticRange = useRef(false)
+  const programmaticRangeDepth = useRef(0)
   const appliedRangeKey = useRef<string | null>(null)
   const callbacksRef = useRef({ onPreviewRecord, onCommitRecord, onManualNavigation })
   callbacksRef.current = { onPreviewRecord, onCommitRecord, onManualNavigation }
+
+  const runProgrammaticRangeUpdate = (update: () => void) => {
+    programmaticRangeDepth.current += 1
+    try {
+      update()
+    } finally {
+      queueMicrotask(() => {
+        programmaticRangeDepth.current = Math.max(0, programmaticRangeDepth.current - 1)
+      })
+    }
+  }
 
   const data = useMemo(
     () => buildResearchChartData(records, symbol, timeframe),
@@ -174,7 +185,7 @@ export function ResearchChartWorkspace({
       if (record) callbacksRef.current.onCommitRecord(record)
     }
     const rangeHandler = () => {
-      if (programmaticRange.current) return
+      if (programmaticRangeDepth.current > 0) return
       callbacksRef.current.onManualNavigation()
     }
 
@@ -201,24 +212,24 @@ export function ResearchChartWorkspace({
     const series = seriesRef.current
     if (!chart || !series) return
 
-    programmaticRange.current = true
-    setSeriesData(series, data)
+    runProgrammaticRangeUpdate(() => {
+      setSeriesData(series, data)
 
-    const visibleMarkers = data.markers.filter((marker) =>
-      marker.text === 'BUY' || marker.text === 'SELL'
-        ? layers.positionEvents
-        : marker.text === 'RISK' ? layers.riskEvents : true)
-    markerRef.current?.setMarkers(visibleMarkers.map(({ sequence: _sequence, ...marker }) => ({
-      ...marker,
-      time: marker.time as UTCTimestamp,
-    })) as SeriesMarker<Time>[])
+      const visibleMarkers = data.markers.filter((marker) =>
+        marker.text === 'BUY' || marker.text === 'SELL'
+          ? layers.positionEvents
+          : marker.text === 'RISK' ? layers.riskEvents : true)
+      markerRef.current?.setMarkers(visibleMarkers.map(({ sequence: _sequence, ...marker }) => ({
+        ...marker,
+        time: marker.time as UTCTimestamp,
+      })) as SeriesMarker<Time>[])
 
-    series.executedWeight.applyOptions({ visible: layers.executedWeight })
-    series.reward.applyOptions({ visible: layers.rewardCost })
-    series.cost.applyOptions({ visible: layers.rewardCost })
-    series.baseline.applyOptions({ visible: layers.baseline })
-    series.drawdown.applyOptions({ visible: layers.drawdown })
-    queueMicrotask(() => { programmaticRange.current = false })
+      series.executedWeight.applyOptions({ visible: layers.executedWeight })
+      series.reward.applyOptions({ visible: layers.rewardCost })
+      series.cost.applyOptions({ visible: layers.rewardCost })
+      series.baseline.applyOptions({ visible: layers.baseline })
+      series.drawdown.applyOptions({ visible: layers.drawdown })
+    })
   }, [data, layers])
 
   useEffect(() => {
@@ -231,16 +242,16 @@ export function ResearchChartWorkspace({
 
     const latest = data.candles.at(-1)!.time
     const seconds = rangeSeconds(rangePreset)
-    programmaticRange.current = true
-    if (seconds === null) {
-      chart.timeScale().fitContent()
-    } else {
-      chart.timeScale().setVisibleRange({
-        from: Math.max(data.candles[0]!.time, latest - seconds) as UTCTimestamp,
-        to: latest as UTCTimestamp,
-      })
-    }
-    queueMicrotask(() => { programmaticRange.current = false })
+    runProgrammaticRangeUpdate(() => {
+      if (seconds === null) {
+        chart.timeScale().fitContent()
+      } else {
+        chart.timeScale().setVisibleRange({
+          from: Math.max(data.candles[0]!.time, latest - seconds) as UTCTimestamp,
+          to: latest as UTCTimestamp,
+        })
+      }
+    })
   }, [data.candles.length, rangePreset, resetToken, symbol, timeframe])
 
   useEffect(() => {
@@ -252,9 +263,7 @@ export function ResearchChartWorkspace({
     if (time === undefined || !record || record.close === null) return
     chart.setCrosshairPosition(record.close, time as UTCTimestamp, series.candles)
     if (followLatest && time === data.candles.at(-1)?.time) {
-      programmaticRange.current = true
-      chart.timeScale().scrollToRealTime()
-      queueMicrotask(() => { programmaticRange.current = false })
+      runProgrammaticRangeUpdate(() => chart.timeScale().scrollToRealTime())
     }
   }, [committedSequence, data, followLatest])
 

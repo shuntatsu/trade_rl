@@ -407,10 +407,10 @@ class StageAPolicySourceStore:
             field="Stage A checkpoint source",
         )
         manifest = load_checkpoint_manifest(self.root.joinpath(*relative.parts))
-        if manifest.digest != request.checkpoint_digest:
-            raise ValueError("Stage A checkpoint manifest digest mismatch")
         if manifest.seed != request.seed:
             raise ValueError("Stage A checkpoint seed mismatch")
+        if manifest.digest != request.checkpoint_digest:
+            raise ValueError("Stage A checkpoint manifest digest mismatch")
         if manifest.training_config_digest != candidate.candidate_config_digest:
             raise ValueError("Stage A checkpoint training config digest mismatch")
 

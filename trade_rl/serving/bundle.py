@@ -181,7 +181,9 @@ class ServingBundleManifest:
                 raise ValueError("learned policy bundle requires a policy digest")
             require_sha256(self.policy_digest, field="policy_digest")
             if self.run_kind != _SELECTED_FINAL:
-                raise ValueError("learned policy bundle requires selected-final run_kind")
+                raise ValueError(
+                    "learned policy bundle requires selected-final run_kind"
+                )
             if any(
                 value is None
                 for value in (

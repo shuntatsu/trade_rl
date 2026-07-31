@@ -124,6 +124,16 @@ async function flushRangeNotifications() {
   })
 }
 
+function dispatchPointer(
+  target: EventTarget,
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  init: MouseEventInit = {},
+) {
+  act(() => {
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, ...init }))
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   runtime.series.length = 0
@@ -171,15 +181,15 @@ describe('ResearchChartWorkspace', () => {
     const chartSurface = view.container.querySelector('.research-chart-canvas')
     expect(chartSurface).toBeInstanceOf(HTMLElement)
 
-    fireEvent.pointerDown(chartSurface!, { button: 0, clientX: 100, clientY: 100 })
-    fireEvent.pointerMove(window, { clientX: 103, clientY: 103 })
+    dispatchPointer(chartSurface!, 'pointerdown', { button: 0, clientX: 100, clientY: 100 })
+    dispatchPointer(window, 'pointermove', { clientX: 103, clientY: 103 })
     expect(onManualNavigation).not.toHaveBeenCalled()
 
-    fireEvent.pointerMove(window, { clientX: 112, clientY: 100 })
-    fireEvent.pointerMove(window, { clientX: 140, clientY: 100 })
+    dispatchPointer(window, 'pointermove', { clientX: 112, clientY: 100 })
+    dispatchPointer(window, 'pointermove', { clientX: 140, clientY: 100 })
     expect(onManualNavigation).toHaveBeenCalledTimes(1)
 
-    fireEvent.pointerUp(window)
+    dispatchPointer(window, 'pointerup')
     fireEvent.wheel(chartSurface!, { deltaY: 100 })
     expect(onManualNavigation).toHaveBeenCalledTimes(2)
   })

@@ -17,68 +17,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  cuda-structured-resume:
-    if: >-
-      github.actor == github.repository_owner &&
-      github.ref == 'refs/heads/main'
-    environment: gpu-full-training
-    runs-on: [self-hosted, linux, x64, gpu, nvidia]
-    timeout-minutes: 180
-    env:
-      TRADE_RL_GIT_COMMIT: ${{ github.sha }}
-      TRADE_RL_GIT_DIRTY: "false"
-      OMP_NUM_THREADS: "2"
-      MKL_NUM_THREADS: "2"
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Verify immutable source identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          echo "TRADE_RL_SOURCE_TREE_DIGEST=$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')" >> "$GITHUB_ENV"
-          echo "TRADE_RL_LOCKFILE_DIGEST=$(sha256sum uv.lock | cut -d' ' -f1)" >> "$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-        with:
-          python-version: "3.12"
-          enable-cache: true
-      - run: uv sync --extra dev --extra train-sb3
-      - name: CUDA device evidence
-        run: nvidia-smi
-      - name: Structured BC PPO checkpoint resume smoke
-        env:
-          REQUESTED_TIMESTEPS: ${{ inputs.timesteps }}
-        run: >-
-          uv run python examples/binance-multitimeframe/run_gpu_training_smoke.py
-          --work-root var/gpu-nightly
-          --timesteps "$REQUESTED_TIMESTEPS"
-          --runtime-profile accelerated
-      - name: Verify measured evidence
-        env:
-          REQUESTED_TIMESTEPS: ${{ inputs.timesteps }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run python - <<'PY'
-          import os
-          from pathlib import Path
-
-          from trade_rl.operations.gpu_training_smoke import (
-              validate_gpu_training_smoke_file,
-          )
-
-          validate_gpu_training_smoke_file(
-              Path("var/gpu-nightly/gpu-training-smoke.json"),
-              expected_commit=os.environ["GITHUB_SHA"],
-              expected_runtime_profile="accelerated",
-              minimum_timesteps=int(os.environ["REQUESTED_TIMESTEPS"]),
-          )
-          PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: gpu-structured-training-evidence
-          path: var/gpu-nightly
+  verify:
+    uses: ./.github/workflows/reusable-gpu-training-verification.yml
+    with:
+      timesteps: ${{ inputs.timesteps }}
+      runtime_profile: accelerated
+      use_docker: false
+      artifact_name: gpu-structured-training-evidence

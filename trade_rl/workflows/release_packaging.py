@@ -22,6 +22,7 @@ from trade_rl.evaluation.paper_reconciliation import (
     load_paper_reconciliation_evidence,
 )
 from trade_rl.release.asymmetric import PublicVerificationKey
+from trade_rl.rl.actions import ActionMode
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
@@ -265,7 +266,7 @@ def package_selected_training_run(
             action_schema=_string(
                 ensemble_raw.get("action_schema"), field="ensemble.action_schema"
             ),
-            action_mode=action_spec.mode,
+            action_mode=ActionMode(action_spec.mode),
             observation_schema=observation_schema,
             observation_size=_integer(
                 ensemble_raw.get("observation_size"), field="ensemble.observation_size"

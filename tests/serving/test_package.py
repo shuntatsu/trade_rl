@@ -26,6 +26,7 @@ from trade_rl.evaluation.paper_reconciliation import (
 )
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.offline_signing import public_key_bytes
+from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import load_serving_bundle
 from trade_rl.serving.package import package_selected_training_run
@@ -56,12 +57,14 @@ def _training_run(
     observation_schema: str = "portfolio_observation_v3",
     architecture_digest: str | None = None,
     include_structured_loader: bool = False,
+    action_spec: ActionSpec | None = None,
 ) -> TrainingRunManifest:
     root.mkdir()
+    resolved_action = action_spec or ActionSpec(risk_tilt_enabled=False)
     ensemble = {
-        "action_names": ["fast", "slow"],
+        "action_names": list(resolved_action.names),
         "action_schema": "portfolio_action_v3",
-        "action_size": 2,
+        "action_size": resolved_action.size,
         "action_spec_digest": "a" * 64,
         "alpha_artifact_digest": None,
         "created_at": COMPLETED.isoformat(),
@@ -93,6 +96,7 @@ def _training_run(
     (root / "environment.json").write_text(
         json.dumps(
             {
+                "action": asdict(resolved_action),
                 "environment": {"execution_cost": asdict(execution_cost)},
                 "schema_version": "training_environment_v2",
             }

@@ -62,7 +62,7 @@ jobs:
               raise SystemExit(f'encoded bundle digest mismatch: {encoded_digest}')
           archive_bytes = base64.b64decode(encoded, validate=True)
           archive_digest = hashlib.sha256(archive_bytes).hexdigest()
-          if archive_digest != '9bc62d7c7c2dd039f4b32678eb95a7f3a230eccd5c207bc404cf417bd3d6f829':
+          if archive_digest != 'e06f3827508f72717a41bb970d2c5f367d3ec6cf4cae8921d85296fe19c268f1':
               raise SystemExit(f'archive digest mismatch: {archive_digest}')
           archive_path = Path('/tmp/a6b2-files.tar.gz')
           archive_path.write_bytes(archive_bytes)

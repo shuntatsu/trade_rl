@@ -74,7 +74,10 @@ def _json_object(path: Path, *, field: str) -> dict[str, object]:
         raise ValueError(f"{field} must be valid JSON") from error
     if not isinstance(raw, dict):
         raise ValueError(f"{field} must be a JSON object")
-    return dict(raw)
+    normalized = dict(raw)
+    if raw_bytes != canonical_json_bytes(normalized):
+        raise ValueError(f"{field} is not canonical")
+    return normalized
 
 
 @contextmanager
@@ -348,13 +351,6 @@ class SymbolTripletStageStateStore:
         pointer = SymbolTripletStageStatePointer.from_mapping(raw)
         if pointer.plan_digest != self.plan.digest:
             raise ValueError("stage state current pointer plan mismatch")
-        expected_bytes = canonical_json_bytes(pointer.to_json_dict())
-        with open_regular_binary(
-            self.current_path,
-            field="stage state current pointer",
-        ) as handle:
-            if handle.read() != expected_bytes:
-                raise ValueError("stage state current pointer is not canonical")
         return pointer
 
     def load_current(

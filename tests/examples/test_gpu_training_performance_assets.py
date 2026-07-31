@@ -7,14 +7,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_gpu_workflows_use_the_maintained_evidence_validator() -> None:
     workflow_root = ROOT / ".github" / "workflows"
-    workflows = (
+    reusable = workflow_root / "reusable-gpu-training-verification.yml"
+    callers = (
         workflow_root / "gpu-nightly.yml",
-        workflow_root / "finalize-pr227-gpu-verification.yml",
+        workflow_root / "main-gpu-verification.yml",
     )
 
-    for path in workflows:
+    implementation = reusable.read_text(encoding="utf-8")
+    assert "trade_rl.operations.gpu_training_smoke" in implementation
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v7" not in implementation
+    assert "gpu_sequence_target_oracle_bc_training_smoke_v8" not in implementation
+
+    for path in callers:
         workflow = path.read_text(encoding="utf-8")
-        assert "trade_rl.operations.gpu_training_smoke" in workflow
+        assert "uses: ./.github/workflows/reusable-gpu-training-verification.yml" in workflow
+        assert "trade_rl.operations.gpu_training_smoke" not in workflow
         assert "gpu_sequence_target_oracle_bc_training_smoke_v7" not in workflow
         assert "gpu_sequence_target_oracle_bc_training_smoke_v8" not in workflow
 

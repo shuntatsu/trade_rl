@@ -1,0 +1,40 @@
+name: Fix chart marker type
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fix-chart-marker-type.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
+      - name: Apply type fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('studio/src/live/ResearchChartWorkspace.tsx')
+          text = path.read_text()
+          old = "  const markerRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null)"
+          new = "  const markerRef = useRef<{ setMarkers: (markers: SeriesMarker<Time>[]) => void } | null>(null)"
+          if old not in text:
+              raise SystemExit('marker ref declaration not found')
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add studio/src/live/ResearchChartWorkspace.tsx
+          git commit -m "fix(studio): type chart marker plugin by time"
+          git push origin HEAD:${{ github.head_ref }}

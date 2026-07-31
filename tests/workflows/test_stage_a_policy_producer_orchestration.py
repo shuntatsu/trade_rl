@@ -101,7 +101,9 @@ def _plan() -> StageAZeroShotEvaluationPlan:
     )
 
 
-def _request(plan: StageAZeroShotEvaluationPlan, *, policy: bool) -> StageAEvaluationCellRequest:
+def _request(
+    plan: StageAZeroShotEvaluationPlan, *, policy: bool
+) -> StageAEvaluationCellRequest:
     candidate_id = "candidate-a" if policy else None
     checkpoint_digest = (
         plan.candidate("candidate-a").checkpoint_digest(0) if policy else None
@@ -468,9 +470,7 @@ def test_produce_rejects_runtime_handle_identity_substitution(
 )
 def test_produce_rejects_executor_identity_substitution(
     tmp_path: Path,
-    transform: Callable[
-        [StageAEvaluationEpisodeResult], StageAEvaluationEpisodeResult
-    ],
+    transform: Callable[[StageAEvaluationEpisodeResult], StageAEvaluationEpisodeResult],
     message: str,
 ) -> None:
     producer, request, _, _ = _policy_producer(
@@ -518,8 +518,7 @@ def test_baseline_production_bypasses_policy_source_and_runtime(tmp_path: Path) 
     assert stored.artifact.cell_identity.candidate_id is None
     assert stored.artifact.cell_identity.checkpoint_digest is None
     assert (
-        stored.artifact.cell_identity.candidate_config_digest
-        == _BASELINE_CONFIG_DIGEST
+        stored.artifact.cell_identity.candidate_config_digest == _BASELINE_CONFIG_DIGEST
     )
     assert executor.calls == [(None, None, _BASELINE_CONFIG_DIGEST)]
 

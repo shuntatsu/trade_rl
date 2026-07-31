@@ -1,0 +1,73 @@
+name: Agent Apply MyPy Fix
+
+on:
+  push:
+    branches:
+      - agent/harden-evidence-stage-transaction
+    paths:
+      - .github/agent-ready/mypy-fix.ready
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/harden-evidence-stage-transaction
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Decode and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/agent-payload/mypy-fix.patch.gz.b64 > /tmp/mypy-fix.patch.gz
+          echo '1d9064350edd8141cc4847f110fe96507487af57ead5fe486e2b14363803fb29  /tmp/mypy-fix.patch.gz' | sha256sum --check
+          gzip -dc /tmp/mypy-fix.patch.gz > /tmp/mypy-fix.patch
+          echo '20b2cfc3eba9c0133c0a5ffd00b0d52aefc1ac0906634b311d929753ac15ff2f  /tmp/mypy-fix.patch' | sha256sum --check
+          git apply --check /tmp/mypy-fix.patch
+          git apply /tmp/mypy-fix.patch
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Verify MyPy and focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run mypy trade_rl
+          uv run pytest -q \
+            tests/simulation/test_execution_replay_strict_contract.py \
+            tests/evaluation/test_execution_promotion.py \
+            tests/evaluation/test_execution_promotion_replay_binding.py \
+            tests/workflows/test_symbol_triplet_stage_state.py
+          uv run ruff check \
+            trade_rl/simulation/orders.py \
+            trade_rl/simulation/execution_promotion.py \
+            trade_rl/workflows/symbol_triplet_stage_state.py
+          uv run ruff format --check \
+            trade_rl/simulation/orders.py \
+            trade_rl/simulation/execution_promotion.py \
+            trade_rl/workflows/symbol_triplet_stage_state.py
+
+      - name: Commit verified fix and remove temporary transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/agent-payload/mypy-fix.patch.gz.b64 \
+            .github/agent-ready/mypy-fix.ready \
+            .github/workflows/agent-apply-mypy-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix: separate heterogeneous mypy validation loops'
+          git push origin HEAD:agent/harden-evidence-stage-transaction

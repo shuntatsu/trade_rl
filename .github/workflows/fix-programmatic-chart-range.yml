@@ -1,0 +1,100 @@
+name: Fix programmatic chart range
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fix-programmatic-chart-range.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
+      - name: Guard renderer-owned updates
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('studio/src/live/ResearchChartWorkspace.tsx')
+          text = path.read_text()
+          old_data = '''  useEffect(() => {
+            const series = seriesRef.current
+            if (!series) return
+            series.candles.setData(chartData.candles as CandlestickData<Time>[])
+            series.targetWeight.setData(chartData.targetWeight as LineData<Time>[])
+            series.executedWeight.setData(chartData.executedWeight as LineData<Time>[])
+            series.reward.setData(chartData.reward as LineData<Time>[])
+            series.cost.setData(chartData.cost as LineData<Time>[])
+            series.equity.setData(chartData.equity as LineData<Time>[])
+            series.baseline.setData(chartData.baseline as LineData<Time>[])
+            series.drawdown.setData(chartData.drawdown as LineData<Time>[])
+
+            series.executedWeight.applyOptions({ visible: layers.executedWeight })
+            series.reward.applyOptions({ visible: layers.rewardCost })
+            series.cost.applyOptions({ visible: layers.rewardCost })
+            series.baseline.applyOptions({ visible: layers.baseline })
+            series.drawdown.applyOptions({ visible: layers.drawdown })
+
+            const visibleMarkers = chartData.markers.filter((marker) =>
+              marker.text === 'BUY' || marker.text === 'SELL'
+                ? layers.positionEvents
+                : layers.riskEvents)
+            markerRef.current?.setMarkers(visibleMarkers as SeriesMarker<Time>[])
+          }, [chartData, layers])'''
+          new_data = '''  useEffect(() => {
+            const series = seriesRef.current
+            if (!series) return
+            programmaticRange.current = true
+            series.candles.setData(chartData.candles as CandlestickData<Time>[])
+            series.targetWeight.setData(chartData.targetWeight as LineData<Time>[])
+            series.executedWeight.setData(chartData.executedWeight as LineData<Time>[])
+            series.reward.setData(chartData.reward as LineData<Time>[])
+            series.cost.setData(chartData.cost as LineData<Time>[])
+            series.equity.setData(chartData.equity as LineData<Time>[])
+            series.baseline.setData(chartData.baseline as LineData<Time>[])
+            series.drawdown.setData(chartData.drawdown as LineData<Time>[])
+
+            series.executedWeight.applyOptions({ visible: layers.executedWeight })
+            series.reward.applyOptions({ visible: layers.rewardCost })
+            series.cost.applyOptions({ visible: layers.rewardCost })
+            series.baseline.applyOptions({ visible: layers.baseline })
+            series.drawdown.applyOptions({ visible: layers.drawdown })
+
+            const visibleMarkers = chartData.markers.filter((marker) =>
+              marker.text === 'BUY' || marker.text === 'SELL'
+                ? layers.positionEvents
+                : marker.text === 'RISK' ? layers.riskEvents : true)
+            markerRef.current?.setMarkers(visibleMarkers as SeriesMarker<Time>[])
+            queueMicrotask(() => { programmaticRange.current = false })
+          }, [chartData, layers])'''
+          old_cursor = '''    chart.setCrosshairPosition(candle.close, time as Time, series.candles)
+            if (followLatest) chart.timeScale().scrollToRealTime()
+          }, [chartData, committedSequence, followLatest])'''
+          new_cursor = '''    chart.setCrosshairPosition(candle.close, time as Time, series.candles)
+            if (followLatest) {
+              programmaticRange.current = true
+              chart.timeScale().scrollToRealTime()
+              queueMicrotask(() => { programmaticRange.current = false })
+            }
+          }, [chartData, committedSequence, followLatest])'''
+          if old_data not in text:
+              raise SystemExit('chart data effect not found')
+          if old_cursor not in text:
+              raise SystemExit('chart cursor effect not found')
+          path.write_text(text.replace(old_data, new_data).replace(old_cursor, new_cursor))
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add studio/src/live/ResearchChartWorkspace.tsx
+          git commit -m "fix(studio): preserve latest follow during chart updates"
+          git push origin HEAD:${{ github.head_ref }}

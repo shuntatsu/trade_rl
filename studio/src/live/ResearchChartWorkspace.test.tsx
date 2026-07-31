@@ -10,7 +10,7 @@ const runtime = vi.hoisted(() => {
     click?: (value: unknown) => void
     range?: () => void
   } = {}
-  const emitRangeAsync = () => queueMicrotask(() => handlers.range?.())
+  const emitRangeAsync = () => setTimeout(() => handlers.range?.(), 0)
   const pane = { setStretchFactor: vi.fn() }
   const timeScale = {
     fitContent: vi.fn(emitRangeAsync),
@@ -119,9 +119,8 @@ function renderWorkspace(overrides: Partial<ResearchChartWorkspaceProps> = {}) {
 
 async function flushRangeNotifications() {
   await act(async () => {
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 
@@ -155,7 +154,7 @@ describe('ResearchChartWorkspace', () => {
     expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
   })
 
-  it('does not classify deferred programmatic updates as manual navigation', async () => {
+  it('does not classify delayed programmatic updates as manual navigation', async () => {
     const onManualNavigation = vi.fn()
     renderWorkspace({ onManualNavigation })
 

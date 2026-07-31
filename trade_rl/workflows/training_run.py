@@ -71,7 +71,6 @@ from trade_rl.simulation.execution_promotion import (
 from trade_rl.simulation.execution_replay import (
     EXECUTION_EVENT_ARTIFACT_FILE_NAME,
     ExecutionEventArtifact,
-    load_execution_event_artifact,
     write_execution_event_artifact,
 )
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
@@ -82,6 +81,9 @@ from trade_rl.workflows.config_fields import (
 from trade_rl.workflows.execution_promotion_artifacts import (
     ExecutionPromotionArtifacts,
     load_execution_promotion_artifacts,
+)
+from trade_rl.workflows.training_execution_evidence import (
+    resolve_training_execution_inputs,
 )
 from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,
@@ -1004,22 +1006,14 @@ def execute_training_run(
         )
         execution_evidence = promotion_artifacts.evidence
         execution_event_artifact = promotion_artifacts.artifact
-    elif execution_evidence_path is None:
-        execution_evidence = execution_evidence_from_cost(
-            dataset_id=dataset.dataset_id,
-            cost=config.environment.execution_cost,
-        )
-        execution_event_artifact = (
-            None
-            if execution_event_artifact_path is None
-            else load_execution_event_artifact(execution_event_artifact_path)
-        )
     else:
-        execution_evidence = load_execution_evidence(execution_evidence_path)
-        execution_event_artifact = (
-            None
-            if execution_event_artifact_path is None
-            else load_execution_event_artifact(execution_event_artifact_path)
+        execution_evidence, execution_event_artifact = (
+            resolve_training_execution_inputs(
+                dataset_id=dataset.dataset_id,
+                cost=config.environment.execution_cost,
+                evidence_path=execution_evidence_path,
+                event_artifact_path=execution_event_artifact_path,
+            )
         )
 
     if execution_evidence.dataset_id != dataset.dataset_id:

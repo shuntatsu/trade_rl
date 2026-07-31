@@ -14,6 +14,7 @@ def _event(
     sequence: int = 0,
     order_id: str = "a" * 64,
     replaced_order_id: str | None = None,
+    symbol_index: int = 0,
     event_type: str = "submitted",
     previous_status: OrderStatus = OrderStatus.SUBMITTED,
     new_status: OrderStatus = OrderStatus.SUBMITTED,
@@ -32,7 +33,7 @@ def _event(
         replaced_order_id=replaced_order_id,
         dataset_id="d" * 64,
         execution_policy_digest="e" * 64,
-        symbol_index=0,
+        symbol_index=symbol_index,
         event_type=event_type,
         processing_index=processing_index,
         timestamp_ns=processing_index + 1,
@@ -51,6 +52,30 @@ def _event(
         reason=reason,
         path_mode="conservative",
         path_points=(100.0, 101.0, 99.0, 100.5) if filled_quantity else (),
+    )
+
+
+def _replacement_events(*, replacement_symbol_index: int = 0) -> tuple[OrderEvent, ...]:
+    original_order_id = "a" * 64
+    replacement_order_id = "b" * 64
+    return (
+        _event(sequence=0, order_id=original_order_id),
+        _event(
+            sequence=1,
+            order_id=original_order_id,
+            event_type="cancelled",
+            previous_status=OrderStatus.SUBMITTED,
+            new_status=OrderStatus.CANCELLED,
+            processing_index=1,
+            reason="superseded",
+        ),
+        _event(
+            sequence=2,
+            order_id=replacement_order_id,
+            replaced_order_id=original_order_id,
+            symbol_index=replacement_symbol_index,
+            processing_index=1,
+        ),
     )
 
 
@@ -180,4 +205,45 @@ def test_order_event_stream_rejects_duplicate_submitted_event() -> None:
     )
 
     with pytest.raises(ValueError, match="submitted event"):
+        validate_order_event_stream(events)
+
+
+def test_order_event_stream_accepts_cancelled_replacement_chain() -> None:
+    events = _replacement_events()
+
+    assert validate_order_event_stream(events) == events
+
+
+def test_order_event_stream_rejects_unknown_replacement_reference() -> None:
+    events = (
+        _event(
+            order_id="b" * 64,
+            replaced_order_id="a" * 64,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="replacement"):
+        validate_order_event_stream(events)
+
+
+def test_order_event_stream_rejects_replacement_before_cancellation() -> None:
+    original_order_id = "a" * 64
+    events = (
+        _event(sequence=0, order_id=original_order_id),
+        _event(
+            sequence=1,
+            order_id="b" * 64,
+            replaced_order_id=original_order_id,
+            processing_index=1,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="replacement"):
+        validate_order_event_stream(events)
+
+
+def test_order_event_stream_rejects_replacement_symbol_mismatch() -> None:
+    events = _replacement_events(replacement_symbol_index=1)
+
+    with pytest.raises(ValueError, match="replacement"):
         validate_order_event_stream(events)

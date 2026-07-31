@@ -70,9 +70,7 @@ def execute_stateful_orders(
     *,
     start_index: int,
     bars: int,
-    reconciliation_cancellations: Sequence[
-        tuple[PendingOrder, PendingOrder]
-    ] = (),
+    reconciliation_cancellations: Sequence[tuple[PendingOrder, PendingOrder]] = (),
 ) -> StatefulExecutionResult:
     """Execute persistent orders over one or more processing bars."""
 

@@ -230,15 +230,15 @@ def test_test_evidence_can_be_scoped_to_one_declared_candidate() -> None:
 def test_observation_is_constructed_only_from_matching_execution_artifacts(
     tmp_path: Path,
 ) -> None:
-    from trade_rl.evaluation.execution_promotion_artifacts import (
-        write_execution_promotion_artifacts,
-    )
     from tests.evaluation.replay_support import (
         CANDIDATE_CONFIG_DIGEST,
         COST,
         DATASET_ID,
         EVALUATION_RUN_DIGEST,
         execution_episode,
+    )
+    from trade_rl.evaluation.execution_promotion_artifacts import (
+        write_execution_promotion_artifacts,
     )
 
     candidate = StageACandidate.create(

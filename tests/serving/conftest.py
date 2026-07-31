@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from tests.evaluation.replay_support import execution_episode
 from trade_rl.artifacts.run_manifest import (
     TrainingRunManifest,
     write_training_run_manifest,
@@ -21,7 +22,6 @@ from trade_rl.simulation.execution_replay import (
     build_execution_event_artifact,
     write_execution_event_artifact,
 )
-from tests.evaluation.replay_support import execution_episode
 
 _TARGET_MODULES = {
     "tests.serving.test_package",

@@ -31,11 +31,11 @@ from trade_rl.data.metadata_promotion import (
     write_metadata_promotion_evidence,
 )
 from trade_rl.domain.datasets import DatasetManifest
+from trade_rl.domain.policies import PolicyEnsembleManifest
 from trade_rl.evaluation.execution_promotion_artifacts import (
     ExecutionPromotionArtifacts,
     load_execution_promotion_artifacts,
 )
-from trade_rl.domain.policies import PolicyEnsembleManifest
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.integrations.signal_artifacts import (
     load_alpha_artifact,
@@ -988,8 +988,7 @@ def execute_training_run(
             "execution promotion root and replay digest must be provided together"
         )
     if execution_promotion_root is not None and (
-        execution_evidence_path is not None
-        or execution_event_artifact_path is not None
+        execution_evidence_path is not None or execution_event_artifact_path is not None
     ):
         raise ValueError(
             "execution promotion root cannot be combined with legacy evidence paths"

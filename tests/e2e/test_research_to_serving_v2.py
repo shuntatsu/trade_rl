@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 pytest.importorskip("stable_baselines3")
 
+from tests.evaluation.replay_support import execution_episode
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
 from trade_rl.data.builder import MarketDatasetBuilder
@@ -47,7 +48,6 @@ from trade_rl.workflows.selection_authorization import (
     write_selection_authorization,
     write_selection_proposal,
 )
-from tests.evaluation.replay_support import execution_episode
 from trade_rl.workflows.training_run import (
     TrainingRunConfig,
     execute_training_run,

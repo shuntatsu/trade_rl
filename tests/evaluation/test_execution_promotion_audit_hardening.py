@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.evaluation.replay_support import (
+    execution_artifact,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     ExecutionEvidence,
@@ -14,9 +17,6 @@ from trade_rl.simulation.execution_promotion import (
     validate_execution_promotion,
 )
 from trade_rl.simulation.execution_replay import write_execution_event_artifact
-from tests.evaluation.replay_support import (
-    execution_artifact,
-)
 
 _DATASET_ID = "d" * 64
 _COST = ExecutionCostConfig(path_mode="conservative")

@@ -4,11 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.evaluation.execution_promotion_artifacts import (
-    load_execution_promotion_artifacts,
-    write_execution_promotion_artifacts,
-)
-from trade_rl.simulation.execution_promotion import validate_execution_promotion
 from tests.evaluation.replay_support import (
     CANDIDATE_CONFIG_DIGEST,
     COST,
@@ -19,6 +14,11 @@ from tests.evaluation.replay_support import (
     SEED,
     execution_episode,
 )
+from trade_rl.evaluation.execution_promotion_artifacts import (
+    load_execution_promotion_artifacts,
+    write_execution_promotion_artifacts,
+)
+from trade_rl.simulation.execution_promotion import validate_execution_promotion
 
 
 def _write(root: Path):
@@ -68,7 +68,9 @@ def test_workflow_emits_and_reloads_one_verified_promotion_root(tmp_path: Path) 
     )
 
 
-def test_workflow_is_idempotent_only_for_the_same_verified_bytes(tmp_path: Path) -> None:
+def test_workflow_is_idempotent_only_for_the_same_verified_bytes(
+    tmp_path: Path,
+) -> None:
     first = _write(tmp_path)
     second = _write(tmp_path)
     assert second == first

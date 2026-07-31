@@ -5,6 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.evaluation.replay_support import (
+    CANDIDATE_CONFIG_DIGEST,
+    EVALUATION_RUN_DIGEST,
+    FOLD,
+    SEED,
+    execution_artifact,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_SCHEMA,
@@ -14,13 +21,6 @@ from trade_rl.simulation.execution_promotion import (
     load_execution_evidence,
     validate_execution_promotion,
     write_execution_evidence,
-)
-from tests.evaluation.replay_support import (
-    CANDIDATE_CONFIG_DIGEST,
-    EVALUATION_RUN_DIGEST,
-    FOLD,
-    SEED,
-    execution_artifact,
 )
 from trade_rl.simulation.execution_replay import write_execution_event_artifact
 

@@ -55,7 +55,7 @@ def _request() -> tuple[StageAEvaluationCellRequest, str]:
         validation_triplet_ids=(_digest("validation-triplet"),),
         test_triplet_ids=(_digest("test-triplet"),),
         bootstrap_confidence_level=0.95,
-        bootstrap_resamples=100,
+        bootstrap_resamples=1_000,
         bootstrap_seed=11,
         minimum_validation_lower_bound=0.0,
         minimum_test_lower_bound=0.0,
